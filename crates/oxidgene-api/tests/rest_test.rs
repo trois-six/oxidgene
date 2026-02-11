@@ -597,3 +597,707 @@ async fn test_invalid_json_body_returns_error() {
         "Expected 400 or 422, got {status}"
     );
 }
+
+// ───────────────────────── Event tests ─────────────────────────
+
+#[tokio::test]
+async fn test_event_crud() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+
+    // Create an event
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({
+            "event_type": "birth",
+            "date_value": "1 JAN 1990",
+            "date_sort": "1990-01-01",
+            "person_id": person_id,
+            "description": "Born in Paris"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["event_type"], "birth");
+    assert_eq!(body["description"], "Born in Paris");
+    let event_id = body["id"].as_str().unwrap().to_string();
+
+    // Get the event
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["event_type"], "birth");
+
+    // Update the event
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
+        Some(serde_json::json!({
+            "description": "Born in Lyon"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["description"], "Born in Lyon");
+
+    // List events (no filter)
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+
+    // List events (filter by person_id)
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events?person_id={person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+
+    // List events (filter by event_type)
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events?event_type=birth"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+
+    // Delete the event
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Verify it's gone
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+// ───────────────────────── Place tests ─────────────────────────
+
+#[tokio::test]
+async fn test_place_crud() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Create a place
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/places"),
+        Some(serde_json::json!({
+            "name": "Paris, France",
+            "latitude": 48.8566,
+            "longitude": 2.3522
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["name"], "Paris, France");
+    let place_id = body["id"].as_str().unwrap().to_string();
+
+    // Get the place
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/places/{place_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["name"], "Paris, France");
+
+    // Update the place
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/places/{place_id}"),
+        Some(serde_json::json!({
+            "name": "Lyon, France"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["name"], "Lyon, France");
+
+    // List places
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/places"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+
+    // List places with search
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/places?search=Lyon"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+
+    // Search for non-existent place
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/places?search=Berlin"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 0);
+
+    // Delete the place
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/places/{place_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn test_place_create_validation() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Empty name should fail
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/places"),
+        Some(serde_json::json!({
+            "name": "   "
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error");
+}
+
+// ───────────────────────── Source tests ─────────────────────────
+
+#[tokio::test]
+async fn test_source_crud() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Create a source
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        Some(serde_json::json!({
+            "title": "Parish Records of Lyon",
+            "author": "Catholic Church",
+            "publisher": "Diocese of Lyon"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["title"], "Parish Records of Lyon");
+    assert_eq!(body["author"], "Catholic Church");
+    let source_id = body["id"].as_str().unwrap().to_string();
+
+    // Get the source
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["title"], "Parish Records of Lyon");
+
+    // Update the source
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
+        Some(serde_json::json!({
+            "title": "Parish Records of Paris",
+            "author": "Archdiocese of Paris"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["title"], "Parish Records of Paris");
+    assert_eq!(body["author"], "Archdiocese of Paris");
+
+    // List sources
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+
+    // Delete the source
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Verify it's gone
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_source_create_validation() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Empty title should fail
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        Some(serde_json::json!({
+            "title": ""
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error");
+}
+
+// ───────────────────────── Citation tests ─────────────────────────
+
+/// Helper: create a source via the API and return its ID.
+async fn create_source_via_api(app: &axum::Router, tree_id: &str) -> String {
+    let (_, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        Some(serde_json::json!({
+            "title": "Test Source"
+        })),
+    )
+    .await;
+    body["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn test_citation_crud() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let source_id = create_source_via_api(&app, &tree_id).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+
+    // Create a citation
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/citations"),
+        Some(serde_json::json!({
+            "source_id": source_id,
+            "person_id": person_id,
+            "page": "p. 42",
+            "confidence": "high",
+            "text": "Birth record found"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["page"], "p. 42");
+    assert_eq!(body["confidence"], "high");
+    let citation_id = body["id"].as_str().unwrap().to_string();
+
+    // Update the citation
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
+        Some(serde_json::json!({
+            "page": "p. 43",
+            "text": "Updated record"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["page"], "p. 43");
+    assert_eq!(body["text"], "Updated record");
+
+    // Delete the citation
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+// ───────────────────────── Media tests ─────────────────────────
+
+#[tokio::test]
+async fn test_media_crud() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Create media
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media"),
+        Some(serde_json::json!({
+            "file_name": "photo.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": "/uploads/photo.jpg",
+            "file_size": 1024000,
+            "title": "Family portrait",
+            "description": "Summer 1990"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["file_name"], "photo.jpg");
+    assert_eq!(body["title"], "Family portrait");
+    let media_id = body["id"].as_str().unwrap().to_string();
+
+    // Get media
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["file_name"], "photo.jpg");
+
+    // Update media
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
+        Some(serde_json::json!({
+            "title": "Updated portrait",
+            "description": "Winter 1990"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["title"], "Updated portrait");
+    assert_eq!(body["description"], "Winter 1990");
+
+    // List media
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/media"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+
+    // Delete media
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Verify it's gone
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_media_create_validation() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Empty file_name should fail
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media"),
+        Some(serde_json::json!({
+            "file_name": "  ",
+            "mime_type": "image/jpeg",
+            "file_path": "/uploads/photo.jpg",
+            "file_size": 1024
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error");
+}
+
+// ───────────────────────── MediaLink tests ─────────────────────────
+
+#[tokio::test]
+async fn test_media_link_create_delete() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+
+    // Create media first
+    let (_, media_body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media"),
+        Some(serde_json::json!({
+            "file_name": "doc.pdf",
+            "mime_type": "application/pdf",
+            "file_path": "/uploads/doc.pdf",
+            "file_size": 2048
+        })),
+    )
+    .await;
+    let media_id = media_body["id"].as_str().unwrap().to_string();
+
+    // Create a media link
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media-links"),
+        Some(serde_json::json!({
+            "media_id": media_id,
+            "person_id": person_id,
+            "sort_order": 1
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["media_id"], media_id);
+    assert_eq!(body["person_id"], person_id);
+    let link_id = body["id"].as_str().unwrap().to_string();
+
+    // Delete the media link
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/media-links/{link_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+// ───────────────────────── Note tests ─────────────────────────
+
+#[tokio::test]
+async fn test_note_crud() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+
+    // Create a note
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(serde_json::json!({
+            "text": "Important note about this person",
+            "person_id": person_id
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["text"], "Important note about this person");
+    let note_id = body["id"].as_str().unwrap().to_string();
+
+    // Get the note
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["text"], "Important note about this person");
+
+    // Update the note
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
+        Some(serde_json::json!({
+            "text": "Updated note text"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["text"], "Updated note text");
+
+    // List notes by person
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/notes?person_id={person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_array().unwrap().len(), 1);
+
+    // Delete the note
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Verify it's gone
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_note_create_validation() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Empty text should fail
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(serde_json::json!({
+            "text": "   "
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error");
+}
+
+#[tokio::test]
+async fn test_note_list_by_multiple_entities() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+
+    // Create a note linked to a person
+    send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(serde_json::json!({
+            "text": "Person note",
+            "person_id": person_id
+        })),
+    )
+    .await;
+
+    // Create a family and a note linked to it
+    let (_, fam_body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/families"),
+        None,
+    )
+    .await;
+    let family_id = fam_body["id"].as_str().unwrap().to_string();
+
+    send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(serde_json::json!({
+            "text": "Family note",
+            "family_id": family_id
+        })),
+    )
+    .await;
+
+    // List by person — should get 1
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/notes?person_id={person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body[0]["text"], "Person note");
+
+    // List by family — should get 1
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/notes?family_id={family_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body[0]["text"], "Family note");
+}
