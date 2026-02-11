@@ -78,7 +78,10 @@ ged_io = { version = "0.12", features = ["json"] }
 config = "0.15"
 
 # Dioxus (frontend)
-dioxus = { version = "0.7", features = ["web"] }
+dioxus = "0.7"
+
+# Platform directories
+dirs = "6"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
