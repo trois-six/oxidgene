@@ -1,8 +1,9 @@
-//! Axum router combining all REST routes under `/api/v1`.
+//! Axum router combining REST routes under `/api/v1` and GraphQL at `/graphql`.
 
 use axum::Router;
 use axum::routing::{delete, get, post, put};
 
+use crate::graphql::{build_schema, graphql_handler, graphql_playground};
 use crate::rest::citation;
 use crate::rest::event;
 use crate::rest::family;
@@ -165,7 +166,14 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(note::delete_note),
         );
 
-    // Nest everything under /api/v1/trees
+    // Build GraphQL schema
+    let schema = build_schema(state.db.clone());
+
+    let graphql_routes = Router::new()
+        .route("/graphql", post(graphql_handler).get(graphql_playground))
+        .with_state(schema);
+
+    // Nest REST under /api/v1/trees, GraphQL at /graphql
     Router::new()
         .nest(
             "/api/v1/trees",
@@ -183,4 +191,5 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(note_routes),
         )
         .with_state(state)
+        .merge(graphql_routes)
 }
