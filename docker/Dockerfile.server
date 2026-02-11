@@ -1,0 +1,63 @@
+# ── Builder stage ──────────────────────────────────────────────────────
+FROM rust:1.86-bookworm AS builder
+
+WORKDIR /app
+
+# Copy workspace manifests first for dependency caching
+COPY Cargo.toml Cargo.lock ./
+COPY crates/oxidgene-core/Cargo.toml crates/oxidgene-core/Cargo.toml
+COPY crates/oxidgene-db/Cargo.toml crates/oxidgene-db/Cargo.toml
+COPY crates/oxidgene-api/Cargo.toml crates/oxidgene-api/Cargo.toml
+COPY crates/oxidgene-gedcom/Cargo.toml crates/oxidgene-gedcom/Cargo.toml
+COPY crates/oxidgene-ui/Cargo.toml crates/oxidgene-ui/Cargo.toml
+COPY apps/oxidgene-server/Cargo.toml apps/oxidgene-server/Cargo.toml
+COPY apps/oxidgene-desktop/Cargo.toml apps/oxidgene-desktop/Cargo.toml
+COPY apps/oxidgene-cli/Cargo.toml apps/oxidgene-cli/Cargo.toml
+
+# Create stub lib.rs / main.rs for each crate to cache dependency compilation
+RUN mkdir -p crates/oxidgene-core/src && echo "" > crates/oxidgene-core/src/lib.rs && \
+    mkdir -p crates/oxidgene-db/src && echo "" > crates/oxidgene-db/src/lib.rs && \
+    mkdir -p crates/oxidgene-api/src && echo "" > crates/oxidgene-api/src/lib.rs && \
+    mkdir -p crates/oxidgene-gedcom/src && echo "" > crates/oxidgene-gedcom/src/lib.rs && \
+    mkdir -p crates/oxidgene-ui/src && echo "" > crates/oxidgene-ui/src/lib.rs && \
+    mkdir -p apps/oxidgene-server/src && echo "fn main() {}" > apps/oxidgene-server/src/main.rs && \
+    mkdir -p apps/oxidgene-desktop/src && echo "fn main() {}" > apps/oxidgene-desktop/src/main.rs && \
+    mkdir -p apps/oxidgene-cli/src && echo "fn main() {}" > apps/oxidgene-cli/src/main.rs
+
+# Build dependencies only (cached unless Cargo.toml changes)
+RUN cargo build --release --bin oxidgene-server 2>/dev/null || true
+
+# Copy actual source code
+COPY crates/ crates/
+COPY apps/ apps/
+
+# Touch main.rs to ensure it gets recompiled with real source
+RUN touch apps/oxidgene-server/src/main.rs
+
+# Build the server binary
+RUN cargo build --release --bin oxidgene-server
+
+# ── Runtime stage ─────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --gid 1000 oxidgene && \
+    useradd --uid 1000 --gid oxidgene --create-home oxidgene
+
+COPY --from=builder /app/target/release/oxidgene-server /usr/local/bin/oxidgene-server
+
+USER oxidgene
+WORKDIR /home/oxidgene
+
+EXPOSE 8080
+
+# Default environment variables
+ENV OXIDGENE_HOST=0.0.0.0
+ENV OXIDGENE_PORT=8080
+ENV OXIDGENE_LOG_LEVEL=info
+
+ENTRYPOINT ["oxidgene-server"]

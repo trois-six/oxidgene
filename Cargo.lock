@@ -3005,7 +3005,10 @@ dependencies = [
  "oxidgene-api",
  "oxidgene-db",
  "sea-orm",
+ "serde",
+ "serde_json",
  "tokio",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
 ]
