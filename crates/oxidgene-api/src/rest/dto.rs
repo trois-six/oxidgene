@@ -1,6 +1,6 @@
 //! Request/response DTOs for REST endpoints.
 
-use oxidgene_core::{ChildType, NameType, Sex, SpouseRole};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
 
 // ── Pagination query params ──────────────────────────────────────────
@@ -113,4 +113,169 @@ pub struct AncestryQuery {
 #[derive(Debug, Serialize)]
 pub struct DeleteResponse {
     pub deleted: bool,
+}
+
+// ── Event DTOs ───────────────────────────────────────────────────────
+
+/// Query parameters for listing events (includes filters + pagination).
+#[derive(Debug, Deserialize)]
+pub struct EventListQuery {
+    pub first: Option<u64>,
+    pub after: Option<String>,
+    pub event_type: Option<EventType>,
+    pub person_id: Option<uuid::Uuid>,
+    pub family_id: Option<uuid::Uuid>,
+}
+
+/// Request body for creating an event.
+#[derive(Debug, Deserialize)]
+pub struct CreateEventRequest {
+    pub event_type: EventType,
+    pub date_value: Option<String>,
+    pub date_sort: Option<chrono::NaiveDate>,
+    pub place_id: Option<uuid::Uuid>,
+    pub person_id: Option<uuid::Uuid>,
+    pub family_id: Option<uuid::Uuid>,
+    pub description: Option<String>,
+}
+
+/// Request body for updating an event.
+#[derive(Debug, Deserialize)]
+pub struct UpdateEventRequest {
+    pub event_type: Option<EventType>,
+    pub date_value: Option<Option<String>>,
+    pub date_sort: Option<Option<chrono::NaiveDate>>,
+    pub place_id: Option<Option<uuid::Uuid>>,
+    pub description: Option<Option<String>>,
+}
+
+// ── Place DTOs ───────────────────────────────────────────────────────
+
+/// Query parameters for listing places (search + pagination).
+#[derive(Debug, Deserialize)]
+pub struct PlaceListQuery {
+    pub first: Option<u64>,
+    pub after: Option<String>,
+    pub search: Option<String>,
+}
+
+/// Request body for creating a place.
+#[derive(Debug, Deserialize)]
+pub struct CreatePlaceRequest {
+    pub name: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+/// Request body for updating a place.
+#[derive(Debug, Deserialize)]
+pub struct UpdatePlaceRequest {
+    pub name: Option<String>,
+    pub latitude: Option<Option<f64>>,
+    pub longitude: Option<Option<f64>>,
+}
+
+// ── Source DTOs ──────────────────────────────────────────────────────
+
+/// Request body for creating a source.
+#[derive(Debug, Deserialize)]
+pub struct CreateSourceRequest {
+    pub title: String,
+    pub author: Option<String>,
+    pub publisher: Option<String>,
+    pub abbreviation: Option<String>,
+    pub repository_name: Option<String>,
+}
+
+/// Request body for updating a source.
+#[derive(Debug, Deserialize)]
+pub struct UpdateSourceRequest {
+    pub title: Option<String>,
+    pub author: Option<Option<String>>,
+    pub publisher: Option<Option<String>>,
+    pub abbreviation: Option<Option<String>>,
+    pub repository_name: Option<Option<String>>,
+}
+
+// ── Citation DTOs ───────────────────────────────────────────────────
+
+/// Request body for creating a citation.
+#[derive(Debug, Deserialize)]
+pub struct CreateCitationRequest {
+    pub source_id: uuid::Uuid,
+    pub person_id: Option<uuid::Uuid>,
+    pub event_id: Option<uuid::Uuid>,
+    pub family_id: Option<uuid::Uuid>,
+    pub page: Option<String>,
+    pub confidence: Confidence,
+    pub text: Option<String>,
+}
+
+/// Request body for updating a citation.
+#[derive(Debug, Deserialize)]
+pub struct UpdateCitationRequest {
+    pub page: Option<Option<String>>,
+    pub confidence: Option<Confidence>,
+    pub text: Option<Option<String>>,
+}
+
+// ── Media DTOs ──────────────────────────────────────────────────────
+
+/// Request body for creating a media record (metadata only).
+#[derive(Debug, Deserialize)]
+pub struct CreateMediaRequest {
+    pub file_name: String,
+    pub mime_type: String,
+    pub file_path: String,
+    pub file_size: i64,
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+/// Request body for updating media metadata.
+#[derive(Debug, Deserialize)]
+pub struct UpdateMediaRequest {
+    pub title: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+}
+
+// ── MediaLink DTOs ──────────────────────────────────────────────────
+
+/// Request body for creating a media link.
+#[derive(Debug, Deserialize)]
+pub struct CreateMediaLinkRequest {
+    pub media_id: uuid::Uuid,
+    pub person_id: Option<uuid::Uuid>,
+    pub event_id: Option<uuid::Uuid>,
+    pub source_id: Option<uuid::Uuid>,
+    pub family_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    pub sort_order: i32,
+}
+
+// ── Note DTOs ───────────────────────────────────────────────────────
+
+/// Query parameters for listing notes by entity.
+#[derive(Debug, Deserialize)]
+pub struct NoteListQuery {
+    pub person_id: Option<uuid::Uuid>,
+    pub event_id: Option<uuid::Uuid>,
+    pub family_id: Option<uuid::Uuid>,
+    pub source_id: Option<uuid::Uuid>,
+}
+
+/// Request body for creating a note.
+#[derive(Debug, Deserialize)]
+pub struct CreateNoteRequest {
+    pub text: String,
+    pub person_id: Option<uuid::Uuid>,
+    pub event_id: Option<uuid::Uuid>,
+    pub family_id: Option<uuid::Uuid>,
+    pub source_id: Option<uuid::Uuid>,
+}
+
+/// Request body for updating a note.
+#[derive(Debug, Deserialize)]
+pub struct UpdateNoteRequest {
+    pub text: Option<String>,
 }
