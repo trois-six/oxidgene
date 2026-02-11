@@ -1,0 +1,52 @@
+# OxidGene local development stack
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml up -d
+#   docker compose -f docker/docker-compose.yml logs -f server
+#   docker compose -f docker/docker-compose.yml down -v
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oxidgene
+      POSTGRES_PASSWORD: oxidgene
+      POSTGRES_DB: oxidgene
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oxidgene -d oxidgene"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── OxidGene server ──────────────────────────────────────────────────
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    restart: unless-stopped
+    environment:
+      OXIDGENE_HOST: "0.0.0.0"
+      OXIDGENE_PORT: "8080"
+      OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
+      OXIDGENE_LOG_LEVEL: "info"
+      OXIDGENE_CORS_ORIGIN: "*"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  pgdata:
