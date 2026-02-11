@@ -1,35 +1,40 @@
-//! Database connection and migration utilities.
+//! Repository layer: CRUD operations, pagination, and database utilities.
+//!
+//! This module provides:
+//! - Database connection and migration helpers (`connect`, `run_migrations`)
+//! - A generic cursor-based pagination helper
+//! - Repository implementations for all entities
 
-use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbErr};
-use sea_orm_migration::MigratorTrait;
-use tracing::info;
+mod citation;
+mod connection;
+mod event;
+mod family;
+mod family_child;
+mod family_spouse;
+mod media;
+mod media_link;
+mod note;
+mod pagination;
+mod person;
+mod person_ancestry;
+mod person_name;
+mod place;
+mod source;
+mod tree;
 
-use crate::Migrator;
-
-/// Connect to a database using the provided URL.
-///
-/// # Supported URLs
-/// - `sqlite::memory:` — in-memory SQLite (for tests)
-/// - `sqlite://path/to/db.sqlite` — file-based SQLite
-/// - `postgres://user:pass@host/db` — PostgreSQL
-pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
-    let mut opts = ConnectOptions::new(database_url);
-    opts.sqlx_logging(false);
-    let db = Database::connect(opts).await?;
-    info!("Connected to database");
-    Ok(db)
-}
-
-/// Run all pending migrations on the given database connection.
-pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
-    Migrator::up(db, None).await?;
-    info!("Migrations applied successfully");
-    Ok(())
-}
-
-/// Roll back all migrations on the given database connection.
-pub async fn rollback_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
-    Migrator::down(db, None).await?;
-    info!("Migrations rolled back successfully");
-    Ok(())
-}
+pub use citation::CitationRepo;
+pub use connection::{connect, rollback_migrations, run_migrations};
+pub use event::{EventFilter, EventRepo};
+pub use family::FamilyRepo;
+pub use family_child::FamilyChildRepo;
+pub use family_spouse::FamilySpouseRepo;
+pub use media::MediaRepo;
+pub use media_link::MediaLinkRepo;
+pub use note::NoteRepo;
+pub use pagination::PaginationParams;
+pub use person::PersonRepo;
+pub use person_ancestry::PersonAncestryRepo;
+pub use person_name::PersonNameRepo;
+pub use place::PlaceRepo;
+pub use source::SourceRepo;
+pub use tree::TreeRepo;
