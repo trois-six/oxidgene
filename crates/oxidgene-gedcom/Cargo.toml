@@ -1,0 +1,16 @@
+[package]
+name = "oxidgene-gedcom"
+description = "OxidGene GEDCOM import/export (wraps ged_io)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+oxidgene-core = { workspace = true }
+ged_io = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

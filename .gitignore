@@ -1,0 +1,32 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database files (local dev)
+*.db
+*.db-shm
+*.db-wal
+
+# Media uploads (local dev)
+/uploads/
+
+# Coverage
+/coverage/
+*.profraw
+lcov.info

@@ -1,0 +1,18 @@
+[package]
+name = "oxidgene-server"
+description = "OxidGene web backend server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+oxidgene-api = { workspace = true }
+oxidgene-db = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+sea-orm = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+config = { workspace = true }

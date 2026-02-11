@@ -1,0 +1,84 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/oxidgene-core",
+    "crates/oxidgene-db",
+    "crates/oxidgene-api",
+    "crates/oxidgene-gedcom",
+    "crates/oxidgene-ui",
+    "apps/oxidgene-server",
+    "apps/oxidgene-desktop",
+    "apps/oxidgene-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Pierre Erraud"]
+repository = "https://github.com/trois-six/oxidgene"
+
+[workspace.dependencies]
+# Internal crates
+oxidgene-core = { path = "crates/oxidgene-core" }
+oxidgene-db = { path = "crates/oxidgene-db" }
+oxidgene-api = { path = "crates/oxidgene-api" }
+oxidgene-gedcom = { path = "crates/oxidgene-gedcom" }
+oxidgene-ui = { path = "crates/oxidgene-ui" }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web framework
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# GraphQL
+async-graphql = "7.2"
+async-graphql-axum = "7.2"
+
+# ORM & database
+sea-orm = { version = "1.1", features = [
+    "sqlx-postgres",
+    "sqlx-sqlite",
+    "runtime-tokio-rustls",
+    "macros",
+    "with-uuid",
+    "with-chrono",
+] }
+sea-orm-migration = { version = "1.1", features = [
+    "sqlx-postgres",
+    "sqlx-sqlite",
+    "runtime-tokio-rustls",
+] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# UUID
+uuid = { version = "1", features = ["v7", "serde"] }
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging & tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# GEDCOM
+ged_io = { version = "0.12", features = ["json"] }
+
+# Configuration
+config = "0.15"
+
+# Dioxus (frontend)
+dioxus = { version = "0.7", features = ["web"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
