@@ -2962,6 +2962,8 @@ dependencies = [
  "sea-orm",
  "sea-orm-migration",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
