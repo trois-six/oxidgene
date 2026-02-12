@@ -1,6 +1,7 @@
 //! Axum router combining REST routes under `/api/v1` and GraphQL at `/graphql`.
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post, put};
 
 use crate::graphql::{build_schema, graphql_handler, graphql_playground};
@@ -169,7 +170,8 @@ pub fn build_router(state: AppState) -> Router {
 
     let gedcom_routes = Router::new()
         .route("/{tree_id}/import", post(gedcom::import_gedcom_handler))
-        .route("/{tree_id}/export", get(gedcom::export_gedcom_handler));
+        .route("/{tree_id}/export", get(gedcom::export_gedcom_handler))
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)); // 10 MiB
 
     // Build GraphQL schema
     let schema = build_schema(state.db.clone());

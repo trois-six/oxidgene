@@ -191,6 +191,15 @@ const LAYOUT_STYLES: &str = r#"
         margin-bottom: 16px;
     }
 
+    .success-msg {
+        background: #f0fff4;
+        border: 1px solid #9ae6b4;
+        color: #276749;
+        padding: 12px 16px;
+        border-radius: var(--radius);
+        margin-bottom: 16px;
+    }
+
     input, select, textarea {
         font-family: var(--font-sans);
         font-size: 0.9rem;

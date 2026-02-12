@@ -71,14 +71,11 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
     // ── GEDCOM import/export state ──
     let mut show_gedcom = use_signal(|| false);
-    let mut show_import_form = use_signal(|| false);
-    let mut import_path = use_signal(String::new);
     let mut import_error = use_signal(|| None::<String>);
     let mut import_result = use_signal(|| None::<crate::api::ImportGedcomResult>);
     let mut importing = use_signal(|| false);
-    let mut export_text = use_signal(|| None::<String>);
     let mut export_error = use_signal(|| None::<String>);
-    let mut export_warnings = use_signal(Vec::<String>::new);
+    let mut export_success = use_signal(|| None::<String>);
     let mut exporting = use_signal(|| false);
 
     // ── Fetch tree details ──
@@ -696,15 +693,21 @@ pub fn TreeDetail(tree_id: String) -> Element {
     let on_import_gedcom = move |_| {
         let api = api_import.clone();
         let Some(tid) = tree_id_parsed else { return };
-        let path = import_path().trim().to_string();
         spawn(async move {
-            if path.is_empty() {
-                import_error.set(Some("File path is required".to_string()));
-                return;
-            }
+            // Open native file picker dialog.
+            let file = rfd::AsyncFileDialog::new()
+                .add_filter("GEDCOM", &["ged"])
+                .add_filter("All files", &["*"])
+                .set_title("Select a GEDCOM file")
+                .pick_file()
+                .await;
+            let Some(file) = file else { return };
+
             importing.set(true);
             import_error.set(None);
             import_result.set(None);
+
+            let path = file.path().to_path_buf();
             let gedcom = match tokio::fs::read_to_string(&path).await {
                 Ok(content) => content,
                 Err(e) => {
@@ -716,7 +719,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
             match api.import_gedcom(tid, &gedcom).await {
                 Ok(result) => {
                     import_result.set(Some(result));
-                    import_path.set(String::new());
                     importing.set(false);
                     refresh += 1;
                 }
@@ -735,12 +737,34 @@ pub fn TreeDetail(tree_id: String) -> Element {
         spawn(async move {
             exporting.set(true);
             export_error.set(None);
-            export_text.set(None);
-            export_warnings.set(Vec::new());
+            export_success.set(None);
             match api.export_gedcom(tid).await {
                 Ok(result) => {
-                    export_text.set(Some(result.gedcom));
-                    export_warnings.set(result.warnings);
+                    // Open native save dialog.
+                    let file = rfd::AsyncFileDialog::new()
+                        .add_filter("GEDCOM", &["ged"])
+                        .set_title("Save GEDCOM file")
+                        .set_file_name("export.ged")
+                        .save_file()
+                        .await;
+                    if let Some(file) = file {
+                        let path = file.path().to_path_buf();
+                        match tokio::fs::write(&path, result.gedcom).await {
+                            Ok(_) => {
+                                let mut msg = format!("Exported to {}", path.display());
+                                if !result.warnings.is_empty() {
+                                    msg.push_str(&format!(
+                                        " ({} warning(s))",
+                                        result.warnings.len()
+                                    ));
+                                }
+                                export_success.set(Some(msg));
+                            }
+                            Err(e) => {
+                                export_error.set(Some(format!("Failed to write file: {e}")));
+                            }
+                        }
+                    }
                     exporting.set(false);
                 }
                 Err(e) => {
@@ -1089,39 +1113,15 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     div { class: "section-header",
                         h3 { style: "font-size: 0.95rem;", "Import" }
                         button {
-                            class: "btn btn-outline btn-sm",
-                            onclick: move |_| {
-                                show_import_form.toggle();
-                                import_error.set(None);
-                            },
-                            if show_import_form() { "Cancel" } else { "Import GEDCOM" }
+                            class: "btn btn-primary btn-sm",
+                            disabled: importing(),
+                            onclick: on_import_gedcom,
+                            if importing() { "Importing..." } else { "Import GEDCOM..." }
                         }
                     }
 
-                    if show_import_form() {
-                        div { style: "padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
-                            p { style: "font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 12px;",
-                                "Enter the path to a GEDCOM file on your computer."
-                            }
-                            div { class: "form-group",
-                                label { "File path" }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "/home/user/family.ged",
-                                    value: "{import_path}",
-                                    oninput: move |e: Event<FormData>| import_path.set(e.value()),
-                                }
-                            }
-                            if let Some(err) = import_error() {
-                                div { class: "error-msg", "{err}" }
-                            }
-                            button {
-                                class: "btn btn-primary",
-                                disabled: importing(),
-                                onclick: on_import_gedcom,
-                                if importing() { "Importing..." } else { "Import" }
-                            }
-                        }
+                    if let Some(err) = import_error() {
+                        div { class: "error-msg", "{err}" }
                     }
 
                     // Import result
@@ -1179,10 +1179,10 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     div { class: "section-header",
                         h3 { style: "font-size: 0.95rem;", "Export" }
                         button {
-                            class: "btn btn-outline btn-sm",
+                            class: "btn btn-primary btn-sm",
                             disabled: exporting(),
                             onclick: on_export_gedcom,
-                            if exporting() { "Exporting..." } else { "Export GEDCOM" }
+                            if exporting() { "Exporting..." } else { "Export GEDCOM..." }
                         }
                     }
 
@@ -1190,29 +1190,8 @@ pub fn TreeDetail(tree_id: String) -> Element {
                         div { class: "error-msg", "{err}" }
                     }
 
-                    if let Some(gedcom) = export_text() {
-                        div { style: "margin-top: 12px;",
-                            div { class: "form-group",
-                                label { "Exported GEDCOM" }
-                                textarea {
-                                    class: "gedcom-textarea",
-                                    readonly: true,
-                                    value: "{gedcom}",
-                                }
-                            }
-                            if !export_warnings().is_empty() {
-                                div { class: "gedcom-warnings",
-                                    details {
-                                        summary { "{export_warnings().len()} warning(s)" }
-                                        ul {
-                                            for warning in export_warnings().iter() {
-                                                li { "{warning}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    if let Some(msg) = export_success() {
+                        div { class: "success-msg", "{msg}" }
                     }
                 }
             }
