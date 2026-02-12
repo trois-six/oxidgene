@@ -6,7 +6,8 @@
 //! `Serialize` / `Deserialize`.
 
 use oxidgene_core::types::{
-    Connection, Event, Family, FamilyChild, FamilySpouse, Person, PersonName, Place, Source, Tree,
+    Citation, Connection, Event, Family, FamilyChild, FamilySpouse, Note, Person, PersonName,
+    Place, Source, Tree,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
@@ -233,13 +234,6 @@ pub struct ExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
-// ── Delete response ─────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct DeleteResponse {
-    pub deleted: bool,
-}
-
 // ── API Client ──────────────────────────────────────────────────────
 
 /// Typed HTTP client for the OxidGene REST API.
@@ -311,10 +305,18 @@ impl ApiClient {
         Self::handle_response(resp).await
     }
 
-    /// Helper: send a DELETE request.
-    async fn delete<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+    /// Helper: send a DELETE request expecting 204 No Content.
+    async fn delete_no_content(&self, path: &str) -> Result<(), ApiError> {
         let resp = self.client.delete(self.url(path)).send().await?;
-        Self::handle_response(resp).await
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        Ok(())
     }
 
     /// Handle HTTP response: check status, parse JSON.
@@ -361,8 +363,8 @@ impl ApiClient {
         self.put(&format!("/api/v1/trees/{id}"), body).await
     }
 
-    pub async fn delete_tree(&self, id: Uuid) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!("/api/v1/trees/{id}")).await
+    pub async fn delete_tree(&self, id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{id}")).await
     }
 
     // ── Persons ─────────────────────────────────────────────────────
@@ -408,8 +410,8 @@ impl ApiClient {
             .await
     }
 
-    pub async fn delete_person(&self, tree_id: Uuid, id: Uuid) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!("/api/v1/trees/{tree_id}/persons/{id}"))
+    pub async fn delete_person(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/persons/{id}"))
             .await
     }
 
@@ -492,8 +494,8 @@ impl ApiClient {
         tree_id: Uuid,
         person_id: Uuid,
         name_id: Uuid,
-    ) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!(
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"
         ))
         .await
@@ -531,8 +533,8 @@ impl ApiClient {
         .await
     }
 
-    pub async fn delete_family(&self, tree_id: Uuid, id: Uuid) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!("/api/v1/trees/{tree_id}/families/{id}"))
+    pub async fn delete_family(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/families/{id}"))
             .await
     }
 
@@ -567,8 +569,8 @@ impl ApiClient {
         tree_id: Uuid,
         family_id: Uuid,
         spouse_id: Uuid,
-    ) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!(
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}"
         ))
         .await
@@ -605,8 +607,8 @@ impl ApiClient {
         tree_id: Uuid,
         family_id: Uuid,
         child_id: Uuid,
-    ) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!(
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/families/{family_id}/children/{child_id}"
         ))
         .await
@@ -673,8 +675,8 @@ impl ApiClient {
             .await
     }
 
-    pub async fn delete_event(&self, tree_id: Uuid, id: Uuid) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!("/api/v1/trees/{tree_id}/events/{id}"))
+    pub async fn delete_event(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/events/{id}"))
             .await
     }
 
@@ -725,8 +727,8 @@ impl ApiClient {
             .await
     }
 
-    pub async fn delete_place(&self, tree_id: Uuid, id: Uuid) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!("/api/v1/trees/{tree_id}/places/{id}"))
+    pub async fn delete_place(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/places/{id}"))
             .await
     }
 
@@ -773,8 +775,88 @@ impl ApiClient {
             .await
     }
 
-    pub async fn delete_source(&self, tree_id: Uuid, id: Uuid) -> Result<DeleteResponse, ApiError> {
-        self.delete(&format!("/api/v1/trees/{tree_id}/sources/{id}"))
+    pub async fn delete_source(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/sources/{id}"))
+            .await
+    }
+
+    // ── Citations ────────────────────────────────────────────────────
+
+    pub async fn create_citation(
+        &self,
+        tree_id: Uuid,
+        body: &CreateCitationBody,
+    ) -> Result<Citation, ApiError> {
+        self.post(&format!("/api/v1/trees/{tree_id}/citations"), body)
+            .await
+    }
+
+    pub async fn update_citation(
+        &self,
+        tree_id: Uuid,
+        citation_id: Uuid,
+        body: &UpdateCitationBody,
+    ) -> Result<Citation, ApiError> {
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
+            body,
+        )
+        .await
+    }
+
+    pub async fn delete_citation(&self, tree_id: Uuid, citation_id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/citations/{citation_id}"))
+            .await
+    }
+
+    // ── Notes ─────────────────────────────────────────────────────────
+
+    pub async fn list_notes(
+        &self,
+        tree_id: Uuid,
+        person_id: Option<Uuid>,
+        event_id: Option<Uuid>,
+        family_id: Option<Uuid>,
+        source_id: Option<Uuid>,
+    ) -> Result<Vec<Note>, ApiError> {
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(pid) = person_id {
+            params.push(("person_id", pid.to_string()));
+        }
+        if let Some(eid) = event_id {
+            params.push(("event_id", eid.to_string()));
+        }
+        if let Some(fid) = family_id {
+            params.push(("family_id", fid.to_string()));
+        }
+        if let Some(sid) = source_id {
+            params.push(("source_id", sid.to_string()));
+        }
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/notes"), &params)
+            .await
+    }
+
+    pub async fn create_note(
+        &self,
+        tree_id: Uuid,
+        body: &CreateNoteBody,
+    ) -> Result<Note, ApiError> {
+        self.post(&format!("/api/v1/trees/{tree_id}/notes"), body)
+            .await
+    }
+
+    pub async fn update_note(
+        &self,
+        tree_id: Uuid,
+        note_id: Uuid,
+        body: &UpdateNoteBody,
+    ) -> Result<Note, ApiError> {
+        self.put(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"), body)
+            .await
+    }
+
+    pub async fn delete_note(&self, tree_id: Uuid, note_id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"))
             .await
     }
 

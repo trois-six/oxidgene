@@ -3,7 +3,10 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{AddChildBody, AddSpouseBody, ApiClient, CreatePersonBody, UpdateTreeBody};
+use crate::api::{
+    AddChildBody, AddSpouseBody, ApiClient, CreatePersonBody, CreatePlaceBody, CreateSourceBody,
+    UpdatePlaceBody, UpdateSourceBody, UpdateTreeBody,
+};
 use crate::router::Route;
 use oxidgene_core::{ChildType, Sex, SpouseRole};
 
@@ -49,6 +52,38 @@ pub fn TreeDetail(tree_id: String) -> Element {
     let mut child_person_id = use_signal(String::new);
     let mut child_type = use_signal(|| "Biological".to_string());
     let mut child_form_error = use_signal(|| None::<String>);
+
+    // ── Place form state ──
+    let mut show_place_form = use_signal(|| false);
+    let mut place_form_name = use_signal(String::new);
+    let mut place_form_lat = use_signal(String::new);
+    let mut place_form_lon = use_signal(String::new);
+    let mut place_form_error = use_signal(|| None::<String>);
+    let mut editing_place_id = use_signal(|| None::<uuid::Uuid>);
+    let mut edit_place_name = use_signal(String::new);
+    let mut edit_place_lat = use_signal(String::new);
+    let mut edit_place_lon = use_signal(String::new);
+    let mut edit_place_error = use_signal(|| None::<String>);
+    let mut confirm_delete_place_id = use_signal(|| None::<uuid::Uuid>);
+    let mut delete_place_error = use_signal(|| None::<String>);
+
+    // ── Source form state ──
+    let mut show_source_form = use_signal(|| false);
+    let mut source_form_title = use_signal(String::new);
+    let mut source_form_author = use_signal(String::new);
+    let mut source_form_publisher = use_signal(String::new);
+    let mut source_form_abbreviation = use_signal(String::new);
+    let mut source_form_repo = use_signal(String::new);
+    let mut source_form_error = use_signal(|| None::<String>);
+    let mut editing_source_id = use_signal(|| None::<uuid::Uuid>);
+    let mut edit_source_title = use_signal(String::new);
+    let mut edit_source_author = use_signal(String::new);
+    let mut edit_source_publisher = use_signal(String::new);
+    let mut edit_source_abbreviation = use_signal(String::new);
+    let mut edit_source_repo = use_signal(String::new);
+    let mut edit_source_error = use_signal(|| None::<String>);
+    let mut confirm_delete_source_id = use_signal(|| None::<uuid::Uuid>);
+    let mut delete_source_error = use_signal(|| None::<String>);
 
     // Fetch tree details.
     let api_tree = api.clone();
@@ -152,6 +187,40 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 }
             }
             Ok((all_spouses, all_children))
+        }
+    });
+
+    // Fetch places in the tree.
+    let api_places = api.clone();
+    let places_resource = use_resource(move || {
+        let api = api_places.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        async move {
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid tree ID".to_string(),
+                });
+            };
+            api.list_places(tid, Some(100), None, None).await
+        }
+    });
+
+    // Fetch sources in the tree.
+    let api_sources = api.clone();
+    let sources_resource = use_resource(move || {
+        let api = api_sources.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        async move {
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid tree ID".to_string(),
+                });
+            };
+            api.list_sources(tid, Some(100), None).await
         }
     });
 
@@ -346,6 +415,244 @@ pub fn TreeDetail(tree_id: String) -> Element {
     // Remove child handler.
     let api_rm_child = api.clone();
 
+    // ── Place handlers ──
+
+    // Create place handler.
+    let api_create_place = api.clone();
+    let on_create_place = move |_| {
+        let api = api_create_place.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let name = place_form_name().trim().to_string();
+        let lat_str = place_form_lat().trim().to_string();
+        let lon_str = place_form_lon().trim().to_string();
+        spawn(async move {
+            if name.is_empty() {
+                place_form_error.set(Some("Name is required".to_string()));
+                return;
+            }
+            let latitude = if lat_str.is_empty() {
+                None
+            } else {
+                match lat_str.parse::<f64>() {
+                    Ok(v) => Some(v),
+                    Err(_) => {
+                        place_form_error.set(Some("Invalid latitude".to_string()));
+                        return;
+                    }
+                }
+            };
+            let longitude = if lon_str.is_empty() {
+                None
+            } else {
+                match lon_str.parse::<f64>() {
+                    Ok(v) => Some(v),
+                    Err(_) => {
+                        place_form_error.set(Some("Invalid longitude".to_string()));
+                        return;
+                    }
+                }
+            };
+            let body = CreatePlaceBody {
+                name,
+                latitude,
+                longitude,
+            };
+            match api.create_place(tid, &body).await {
+                Ok(_) => {
+                    show_place_form.set(false);
+                    place_form_name.set(String::new());
+                    place_form_lat.set(String::new());
+                    place_form_lon.set(String::new());
+                    place_form_error.set(None);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    place_form_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
+    // Save place edit handler.
+    let api_save_place = api.clone();
+    let on_save_place_edit = move |_| {
+        let api = api_save_place.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(pid) = editing_place_id() else {
+            return;
+        };
+        let name = edit_place_name().trim().to_string();
+        let lat_str = edit_place_lat().trim().to_string();
+        let lon_str = edit_place_lon().trim().to_string();
+        spawn(async move {
+            if name.is_empty() {
+                edit_place_error.set(Some("Name is required".to_string()));
+                return;
+            }
+            let latitude: Option<Option<f64>> = if lat_str.is_empty() {
+                Some(None)
+            } else {
+                match lat_str.parse::<f64>() {
+                    Ok(v) => Some(Some(v)),
+                    Err(_) => {
+                        edit_place_error.set(Some("Invalid latitude".to_string()));
+                        return;
+                    }
+                }
+            };
+            let longitude: Option<Option<f64>> = if lon_str.is_empty() {
+                Some(None)
+            } else {
+                match lon_str.parse::<f64>() {
+                    Ok(v) => Some(Some(v)),
+                    Err(_) => {
+                        edit_place_error.set(Some("Invalid longitude".to_string()));
+                        return;
+                    }
+                }
+            };
+            let body = UpdatePlaceBody {
+                name: Some(name),
+                latitude,
+                longitude,
+            };
+            match api.update_place(tid, pid, &body).await {
+                Ok(_) => {
+                    editing_place_id.set(None);
+                    edit_place_error.set(None);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    edit_place_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
+    // Delete place handler.
+    let api_del_place = api.clone();
+    let on_confirm_delete_place = move |_| {
+        let api = api_del_place.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(pid) = confirm_delete_place_id() else {
+            return;
+        };
+        spawn(async move {
+            match api.delete_place(tid, pid).await {
+                Ok(_) => {
+                    confirm_delete_place_id.set(None);
+                    delete_place_error.set(None);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    delete_place_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
+    // ── Source handlers ──
+
+    // Create source handler.
+    let api_create_source = api.clone();
+    let on_create_source = move |_| {
+        let api = api_create_source.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let title = source_form_title().trim().to_string();
+        let author = source_form_author().trim().to_string();
+        let publisher = source_form_publisher().trim().to_string();
+        let abbreviation = source_form_abbreviation().trim().to_string();
+        let repo_name = source_form_repo().trim().to_string();
+        spawn(async move {
+            if title.is_empty() {
+                source_form_error.set(Some("Title is required".to_string()));
+                return;
+            }
+            let body = CreateSourceBody {
+                title,
+                author: opt_str(&author),
+                publisher: opt_str(&publisher),
+                abbreviation: opt_str(&abbreviation),
+                repository_name: opt_str(&repo_name),
+            };
+            match api.create_source(tid, &body).await {
+                Ok(_) => {
+                    show_source_form.set(false);
+                    source_form_title.set(String::new());
+                    source_form_author.set(String::new());
+                    source_form_publisher.set(String::new());
+                    source_form_abbreviation.set(String::new());
+                    source_form_repo.set(String::new());
+                    source_form_error.set(None);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    source_form_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
+    // Save source edit handler.
+    let api_save_source = api.clone();
+    let on_save_source_edit = move |_| {
+        let api = api_save_source.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(sid) = editing_source_id() else {
+            return;
+        };
+        let title = edit_source_title().trim().to_string();
+        let author = edit_source_author().trim().to_string();
+        let publisher = edit_source_publisher().trim().to_string();
+        let abbreviation = edit_source_abbreviation().trim().to_string();
+        let repo_name = edit_source_repo().trim().to_string();
+        spawn(async move {
+            if title.is_empty() {
+                edit_source_error.set(Some("Title is required".to_string()));
+                return;
+            }
+            let body = UpdateSourceBody {
+                title: Some(title),
+                author: Some(opt_str(&author)),
+                publisher: Some(opt_str(&publisher)),
+                abbreviation: Some(opt_str(&abbreviation)),
+                repository_name: Some(opt_str(&repo_name)),
+            };
+            match api.update_source(tid, sid, &body).await {
+                Ok(_) => {
+                    editing_source_id.set(None);
+                    edit_source_error.set(None);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    edit_source_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
+    // Delete source handler.
+    let api_del_source = api.clone();
+    let on_confirm_delete_source = move |_| {
+        let api = api_del_source.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(sid) = confirm_delete_source_id() else {
+            return;
+        };
+        spawn(async move {
+            match api.delete_source(tid, sid).await {
+                Ok(_) => {
+                    confirm_delete_source_id.set(None);
+                    delete_source_error.set(None);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    delete_source_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
     // Helper: resolve person_id to display name from loaded names.
     let person_display_name = |pid: Uuid| -> String {
         let names_data = all_names_resource.read();
@@ -435,6 +742,66 @@ pub fn TreeDetail(tree_id: String) -> Element {
                         button {
                             class: "btn btn-danger",
                             onclick: on_confirm_delete_family,
+                            "Delete"
+                        }
+                    }
+                }
+            }
+        }
+
+        // Delete place confirmation dialog
+        if confirm_delete_place_id().is_some() {
+            div { class: "modal-backdrop",
+                div { class: "modal-card",
+                    h3 { "Delete Place" }
+                    p { style: "margin: 12px 0;",
+                        "Are you sure you want to delete this place?"
+                    }
+                    if let Some(err) = delete_place_error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+                    div { class: "modal-actions",
+                        button {
+                            class: "btn btn-outline",
+                            onclick: move |_| {
+                                confirm_delete_place_id.set(None);
+                                delete_place_error.set(None);
+                            },
+                            "Cancel"
+                        }
+                        button {
+                            class: "btn btn-danger",
+                            onclick: on_confirm_delete_place,
+                            "Delete"
+                        }
+                    }
+                }
+            }
+        }
+
+        // Delete source confirmation dialog
+        if confirm_delete_source_id().is_some() {
+            div { class: "modal-backdrop",
+                div { class: "modal-card",
+                    h3 { "Delete Source" }
+                    p { style: "margin: 12px 0;",
+                        "Are you sure you want to delete this source?"
+                    }
+                    if let Some(err) = delete_source_error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+                    div { class: "modal-actions",
+                        button {
+                            class: "btn btn-outline",
+                            onclick: move |_| {
+                                confirm_delete_source_id.set(None);
+                                delete_source_error.set(None);
+                            },
+                            "Cancel"
+                        }
+                        button {
+                            class: "btn btn-danger",
+                            onclick: on_confirm_delete_source,
                             "Delete"
                         }
                     }
@@ -626,7 +993,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
 
         // Families section
-        div { class: "card",
+        div { class: "card", style: "margin-bottom: 24px;",
             div { class: "section-header",
                 h2 { style: "font-size: 1.1rem;", "Families" }
                 button {
@@ -930,6 +1297,396 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 },
             }
         }
+
+        // ── Places section ──
+        div { class: "card", style: "margin-bottom: 24px;",
+            div { class: "section-header",
+                h2 { style: "font-size: 1.1rem;", "Places" }
+                button {
+                    class: "btn btn-primary btn-sm",
+                    onclick: move |_| show_place_form.toggle(),
+                    if show_place_form() { "Cancel" } else { "Add Place" }
+                }
+            }
+
+            // Create place form
+            if show_place_form() {
+                div { style: "margin-bottom: 16px; padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
+                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", "New Place" }
+                    if let Some(err) = place_form_error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+                    div { class: "form-row",
+                        div { class: "form-group",
+                            label { "Name *" }
+                            input {
+                                r#type: "text",
+                                value: "{place_form_name}",
+                                oninput: move |e: Event<FormData>| place_form_name.set(e.value()),
+                            }
+                        }
+                        div { class: "form-group",
+                            label { "Latitude" }
+                            input {
+                                r#type: "text",
+                                placeholder: "e.g. 48.8566",
+                                value: "{place_form_lat}",
+                                oninput: move |e: Event<FormData>| place_form_lat.set(e.value()),
+                            }
+                        }
+                        div { class: "form-group",
+                            label { "Longitude" }
+                            input {
+                                r#type: "text",
+                                placeholder: "e.g. 2.3522",
+                                value: "{place_form_lon}",
+                                oninput: move |e: Event<FormData>| place_form_lon.set(e.value()),
+                            }
+                        }
+                    }
+                    button { class: "btn btn-primary btn-sm", onclick: on_create_place, "Create" }
+                }
+            }
+
+            match &*places_resource.read() {
+                Some(Ok(conn)) => rsx! {
+                    if conn.edges.is_empty() {
+                        div { class: "empty-state",
+                            p { "No places in this tree yet." }
+                        }
+                    } else {
+                        div { class: "table-wrapper",
+                            table {
+                                thead {
+                                    tr {
+                                        th { "Name" }
+                                        th { "Latitude" }
+                                        th { "Longitude" }
+                                        th { "Actions" }
+                                    }
+                                }
+                                tbody {
+                                    for edge in conn.edges.iter() {
+                                        {
+                                            let place = &edge.node;
+                                            let pid = place.id;
+                                            let p_name = place.name.clone();
+                                            let p_lat = place.latitude;
+                                            let p_lon = place.longitude;
+                                            let is_editing = editing_place_id() == Some(pid);
+
+                                            if is_editing {
+                                                rsx! {
+                                                    tr {
+                                                        td {
+                                                            input {
+                                                                r#type: "text",
+                                                                value: "{edit_place_name}",
+                                                                oninput: move |e: Event<FormData>| edit_place_name.set(e.value()),
+                                                            }
+                                                        }
+                                                        td {
+                                                            input {
+                                                                r#type: "text",
+                                                                value: "{edit_place_lat}",
+                                                                oninput: move |e: Event<FormData>| edit_place_lat.set(e.value()),
+                                                            }
+                                                        }
+                                                        td {
+                                                            input {
+                                                                r#type: "text",
+                                                                value: "{edit_place_lon}",
+                                                                oninput: move |e: Event<FormData>| edit_place_lon.set(e.value()),
+                                                            }
+                                                        }
+                                                        td {
+                                                            if let Some(err) = edit_place_error() {
+                                                                div { class: "error-msg", "{err}" }
+                                                            }
+                                                            div { style: "display: flex; gap: 4px;",
+                                                                button {
+                                                                    class: "btn btn-primary btn-sm",
+                                                                    onclick: on_save_place_edit.clone(),
+                                                                    "Save"
+                                                                }
+                                                                button {
+                                                                    class: "btn btn-outline btn-sm",
+                                                                    onclick: move |_| {
+                                                                        editing_place_id.set(None);
+                                                                        edit_place_error.set(None);
+                                                                    },
+                                                                    "Cancel"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                rsx! {
+                                                    tr {
+                                                        td { "{p_name}" }
+                                                        td { class: "text-muted",
+                                                            {p_lat.map(|v| format!("{v:.4}")).unwrap_or_default()}
+                                                        }
+                                                        td { class: "text-muted",
+                                                            {p_lon.map(|v| format!("{v:.4}")).unwrap_or_default()}
+                                                        }
+                                                        td {
+                                                            div { style: "display: flex; gap: 4px;",
+                                                                button {
+                                                                    class: "btn btn-outline btn-sm",
+                                                                    onclick: move |_| {
+                                                                        editing_place_id.set(Some(pid));
+                                                                        edit_place_name.set(p_name.clone());
+                                                                        edit_place_lat.set(p_lat.map(|v| v.to_string()).unwrap_or_default());
+                                                                        edit_place_lon.set(p_lon.map(|v| v.to_string()).unwrap_or_default());
+                                                                        edit_place_error.set(None);
+                                                                    },
+                                                                    "Edit"
+                                                                }
+                                                                button {
+                                                                    class: "btn btn-danger btn-sm",
+                                                                    onclick: move |_| {
+                                                                        confirm_delete_place_id.set(Some(pid));
+                                                                        delete_place_error.set(None);
+                                                                    },
+                                                                    "Delete"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        p { class: "text-muted", style: "margin-top: 8px; font-size: 0.85rem;",
+                            "Total: {conn.total_count}"
+                        }
+                    }
+                },
+                Some(Err(e)) => rsx! {
+                    div { class: "error-msg", "Failed to load places: {e}" }
+                },
+                None => rsx! {
+                    div { class: "loading", "Loading places..." }
+                },
+            }
+        }
+
+        // ── Sources section ──
+        div { class: "card",
+            div { class: "section-header",
+                h2 { style: "font-size: 1.1rem;", "Sources" }
+                button {
+                    class: "btn btn-primary btn-sm",
+                    onclick: move |_| show_source_form.toggle(),
+                    if show_source_form() { "Cancel" } else { "Add Source" }
+                }
+            }
+
+            // Create source form
+            if show_source_form() {
+                div { style: "margin-bottom: 16px; padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
+                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", "New Source" }
+                    if let Some(err) = source_form_error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+                    div { class: "form-row",
+                        div { class: "form-group",
+                            label { "Title *" }
+                            input {
+                                r#type: "text",
+                                value: "{source_form_title}",
+                                oninput: move |e: Event<FormData>| source_form_title.set(e.value()),
+                            }
+                        }
+                        div { class: "form-group",
+                            label { "Author" }
+                            input {
+                                r#type: "text",
+                                value: "{source_form_author}",
+                                oninput: move |e: Event<FormData>| source_form_author.set(e.value()),
+                            }
+                        }
+                    }
+                    div { class: "form-row",
+                        div { class: "form-group",
+                            label { "Publisher" }
+                            input {
+                                r#type: "text",
+                                value: "{source_form_publisher}",
+                                oninput: move |e: Event<FormData>| source_form_publisher.set(e.value()),
+                            }
+                        }
+                        div { class: "form-group",
+                            label { "Abbreviation" }
+                            input {
+                                r#type: "text",
+                                value: "{source_form_abbreviation}",
+                                oninput: move |e: Event<FormData>| source_form_abbreviation.set(e.value()),
+                            }
+                        }
+                        div { class: "form-group",
+                            label { "Repository" }
+                            input {
+                                r#type: "text",
+                                value: "{source_form_repo}",
+                                oninput: move |e: Event<FormData>| source_form_repo.set(e.value()),
+                            }
+                        }
+                    }
+                    button { class: "btn btn-primary btn-sm", onclick: on_create_source, "Create" }
+                }
+            }
+
+            match &*sources_resource.read() {
+                Some(Ok(conn)) => rsx! {
+                    if conn.edges.is_empty() {
+                        div { class: "empty-state",
+                            p { "No sources in this tree yet." }
+                        }
+                    } else {
+                        div { class: "table-wrapper",
+                            table {
+                                thead {
+                                    tr {
+                                        th { "Title" }
+                                        th { "Author" }
+                                        th { "Publisher" }
+                                        th { "Actions" }
+                                    }
+                                }
+                                tbody {
+                                    for edge in conn.edges.iter() {
+                                        {
+                                            let source = &edge.node;
+                                            let sid = source.id;
+                                            let s_title = source.title.clone();
+                                            let s_author = source.author.clone().unwrap_or_default();
+                                            let s_publisher = source.publisher.clone().unwrap_or_default();
+                                            let s_abbreviation = source.abbreviation.clone().unwrap_or_default();
+                                            let s_repo = source.repository_name.clone().unwrap_or_default();
+                                            let is_editing = editing_source_id() == Some(sid);
+
+                                            if is_editing {
+                                                rsx! {
+                                                    tr {
+                                                        td {
+                                                            input {
+                                                                r#type: "text",
+                                                                value: "{edit_source_title}",
+                                                                oninput: move |e: Event<FormData>| edit_source_title.set(e.value()),
+                                                            }
+                                                        }
+                                                        td {
+                                                            input {
+                                                                r#type: "text",
+                                                                value: "{edit_source_author}",
+                                                                oninput: move |e: Event<FormData>| edit_source_author.set(e.value()),
+                                                            }
+                                                        }
+                                                        td {
+                                                            input {
+                                                                r#type: "text",
+                                                                value: "{edit_source_publisher}",
+                                                                oninput: move |e: Event<FormData>| edit_source_publisher.set(e.value()),
+                                                            }
+                                                        }
+                                                        td {
+                                                            div { style: "margin-bottom: 8px;",
+                                                                div { class: "form-group", style: "margin-bottom: 4px;",
+                                                                    label { style: "font-size: 0.8rem;", "Abbreviation" }
+                                                                    input {
+                                                                        r#type: "text",
+                                                                        value: "{edit_source_abbreviation}",
+                                                                        oninput: move |e: Event<FormData>| edit_source_abbreviation.set(e.value()),
+                                                                    }
+                                                                }
+                                                                div { class: "form-group", style: "margin-bottom: 4px;",
+                                                                    label { style: "font-size: 0.8rem;", "Repository" }
+                                                                    input {
+                                                                        r#type: "text",
+                                                                        value: "{edit_source_repo}",
+                                                                        oninput: move |e: Event<FormData>| edit_source_repo.set(e.value()),
+                                                                    }
+                                                                }
+                                                            }
+                                                            if let Some(err) = edit_source_error() {
+                                                                div { class: "error-msg", "{err}" }
+                                                            }
+                                                            div { style: "display: flex; gap: 4px;",
+                                                                button {
+                                                                    class: "btn btn-primary btn-sm",
+                                                                    onclick: on_save_source_edit.clone(),
+                                                                    "Save"
+                                                                }
+                                                                button {
+                                                                    class: "btn btn-outline btn-sm",
+                                                                    onclick: move |_| {
+                                                                        editing_source_id.set(None);
+                                                                        edit_source_error.set(None);
+                                                                    },
+                                                                    "Cancel"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                rsx! {
+                                                    tr {
+                                                        td { "{s_title}" }
+                                                        td { class: "text-muted", "{s_author}" }
+                                                        td { class: "text-muted", "{s_publisher}" }
+                                                        td {
+                                                            div { style: "display: flex; gap: 4px;",
+                                                                button {
+                                                                    class: "btn btn-outline btn-sm",
+                                                                    onclick: move |_| {
+                                                                        editing_source_id.set(Some(sid));
+                                                                        edit_source_title.set(s_title.clone());
+                                                                        edit_source_author.set(s_author.clone());
+                                                                        edit_source_publisher.set(s_publisher.clone());
+                                                                        edit_source_abbreviation.set(s_abbreviation.clone());
+                                                                        edit_source_repo.set(s_repo.clone());
+                                                                        edit_source_error.set(None);
+                                                                    },
+                                                                    "Edit"
+                                                                }
+                                                                button {
+                                                                    class: "btn btn-danger btn-sm",
+                                                                    onclick: move |_| {
+                                                                        confirm_delete_source_id.set(Some(sid));
+                                                                        delete_source_error.set(None);
+                                                                    },
+                                                                    "Delete"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        p { class: "text-muted", style: "margin-top: 8px; font-size: 0.85rem;",
+                            "Total: {conn.total_count}"
+                        }
+                    }
+                },
+                Some(Err(e)) => rsx! {
+                    div { class: "error-msg", "Failed to load sources: {e}" }
+                },
+                None => rsx! {
+                    div { class: "loading", "Loading sources..." }
+                },
+            }
+        }
     }
 }
 
@@ -951,5 +1708,13 @@ fn parse_child_type(s: &str) -> ChildType {
         "Foster" => ChildType::Foster,
         "Step" => ChildType::Step,
         _ => ChildType::Unknown,
+    }
+}
+
+fn opt_str(s: &str) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
     }
 }
