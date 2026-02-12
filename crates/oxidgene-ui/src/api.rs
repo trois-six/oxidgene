@@ -216,7 +216,7 @@ pub struct ImportGedcomBody {
     pub gedcom: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ImportGedcomResult {
     pub persons_count: usize,
     pub families_count: usize,
@@ -228,7 +228,7 @@ pub struct ImportGedcomResult {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ExportGedcomResult {
     pub gedcom: String,
     pub warnings: Vec<String>,

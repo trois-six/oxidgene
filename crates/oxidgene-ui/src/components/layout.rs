@@ -462,4 +462,82 @@ const LAYOUT_STYLES: &str = r#"
         flex-wrap: wrap;
         gap: 8px;
     }
+
+    /* ── GEDCOM import / export section ─────────────────────────────── */
+
+    .gedcom-textarea {
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.8rem;
+        line-height: 1.4;
+        min-height: 200px;
+        max-height: 400px;
+        resize: vertical;
+        white-space: pre;
+        overflow-wrap: normal;
+        overflow-x: auto;
+    }
+
+    .gedcom-result {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-top: 12px;
+    }
+
+    .gedcom-result h4 {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: var(--color-primary);
+    }
+
+    .result-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
+
+    .result-stat {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.85rem;
+    }
+
+    .result-stat .stat-value {
+        font-weight: 600;
+        color: var(--color-text);
+    }
+
+    .result-stat .stat-label {
+        color: var(--color-text-muted);
+    }
+
+    .gedcom-warnings {
+        margin-top: 8px;
+        padding: 12px;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: var(--radius);
+        font-size: 0.8rem;
+        color: #92400e;
+    }
+
+    .gedcom-warnings summary {
+        cursor: pointer;
+        font-weight: 500;
+        margin-bottom: 4px;
+    }
+
+    .gedcom-warnings ul {
+        list-style: disc;
+        padding-left: 20px;
+        margin-top: 4px;
+    }
+
+    .gedcom-warnings li {
+        margin-bottom: 2px;
+    }
 "#;
