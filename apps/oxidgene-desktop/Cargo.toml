@@ -10,7 +10,8 @@ repository.workspace = true
 [dependencies]
 oxidgene-api = { workspace = true }
 oxidgene-db = { workspace = true }
-dioxus = { workspace = true, features = ["desktop"] }
+oxidgene-ui = { workspace = true }
+dioxus = { workspace = true, features = ["desktop", "router"] }
 axum = { workspace = true }
 tokio = { workspace = true }
 sea-orm = { workspace = true }

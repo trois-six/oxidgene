@@ -80,6 +80,9 @@ config = "0.15"
 # Dioxus (frontend)
 dioxus = "0.7"
 
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
 # Platform directories
 dirs = "6"
 
