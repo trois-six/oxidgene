@@ -13,6 +13,7 @@ use crate::api::{ApiClient, ImportGedcomBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
+use crate::components::person_form::PersonForm;
 use crate::router::Route;
 use crate::utils::resolve_name;
 
@@ -40,6 +41,9 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
     // ── Context menu state ──
     let mut context_menu_person = use_signal(|| None::<(Uuid, f64, f64)>);
+
+    // ── Person edit modal ──
+    let mut editing_person_id = use_signal(|| None::<Uuid>);
 
     // ── Delete person confirmation ──
     let mut confirm_delete_person_id = use_signal(|| None::<Uuid>);
@@ -269,7 +273,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
     // Context menu action handler.
     let api_ctx = api.clone();
-    let tree_id_ctx = tree_id.clone();
     let pedigree_data_ctx = pedigree_data.clone();
     let on_context_action = move |action: PersonAction| {
         let Some((pid, _, _)) = context_menu_person() else {
@@ -279,11 +282,8 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
         match action {
             PersonAction::Edit => {
-                // Navigate to person detail page for editing.
-                nav.push(Route::PersonDetail {
-                    tree_id: tree_id_ctx.clone(),
-                    person_id: pid.to_string(),
-                });
+                // Open modal person edit form.
+                editing_person_id.set(Some(pid));
             }
             PersonAction::AddParents => {
                 // Create a new family with this person as child.
@@ -577,6 +577,18 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 y: y,
                 on_action: on_context_action,
                 on_close: move |_| context_menu_person.set(None),
+            }
+        }
+
+        // Person edit modal
+        if let Some(edit_pid) = editing_person_id() {
+            if let Some(tid) = tree_id_parsed {
+                PersonForm {
+                    tree_id: tid,
+                    person_id: edit_pid,
+                    on_close: move |_| editing_person_id.set(None),
+                    on_saved: move |_| refresh += 1,
+                }
             }
         }
 
