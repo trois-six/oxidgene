@@ -9,8 +9,14 @@ use crate::api::{
     ApiClient, CreateCitationBody, CreateEventBody, CreateNoteBody, CreatePersonNameBody,
     UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
+use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::person_node::PersonNode;
 use crate::router::Route;
-use oxidgene_core::{Confidence, EventType, NameType, Sex};
+use crate::utils::{
+    generation_label, opt_str, parse_confidence, parse_event_type, parse_name_type, parse_sex,
+    resolve_name,
+};
+use oxidgene_core::Sex;
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
 #[component]
@@ -782,153 +788,81 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
         // Delete person confirmation dialog
         if confirm_delete() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Person" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete "
-                        strong { "{display_name}" }
-                        "? This action cannot be undone."
-                    }
-                    if let Some(err) = delete_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete.set(false);
-                                delete_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Person",
+                message: format!("Are you sure you want to delete {display_name}? This action cannot be undone."),
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_error(),
+                on_confirm: move |_| on_confirm_delete(()),
+                on_cancel: move |_| {
+                    confirm_delete.set(false);
+                    delete_error.set(None);
+                },
             }
         }
 
         // Delete name confirmation dialog
         if confirm_delete_name_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Name" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this name?"
-                    }
-                    if let Some(err) = delete_name_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_name_id.set(None);
-                                delete_name_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete_name,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Name",
+                message: "Are you sure you want to delete this name?",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_name_error(),
+                on_confirm: move |_| on_confirm_delete_name(()),
+                on_cancel: move |_| {
+                    confirm_delete_name_id.set(None);
+                    delete_name_error.set(None);
+                },
             }
         }
 
         // Delete event confirmation dialog
         if confirm_delete_event_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Event" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this event?"
-                    }
-                    if let Some(err) = delete_event_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_event_id.set(None);
-                                delete_event_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete_event,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Event",
+                message: "Are you sure you want to delete this event?",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_event_error(),
+                on_confirm: move |_| on_confirm_delete_event(()),
+                on_cancel: move |_| {
+                    confirm_delete_event_id.set(None);
+                    delete_event_error.set(None);
+                },
             }
         }
 
         // Delete note confirmation dialog
         if confirm_delete_note_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Note" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this note?"
-                    }
-                    if let Some(err) = delete_note_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_note_id.set(None);
-                                delete_note_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete_note,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Note",
+                message: "Are you sure you want to delete this note?",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_note_error(),
+                on_confirm: move |_| on_confirm_delete_note(()),
+                on_cancel: move |_| {
+                    confirm_delete_note_id.set(None);
+                    delete_note_error.set(None);
+                },
             }
         }
 
         // Delete citation confirmation dialog
         if confirm_delete_citation_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Citation" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this citation?"
-                    }
-                    if let Some(err) = delete_citation_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_citation_id.set(None);
-                                delete_citation_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete_citation,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Citation",
+                message: "Are you sure you want to delete this citation?",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_citation_error(),
+                on_confirm: move |_| on_confirm_delete_citation(()),
+                on_cancel: move |_| {
+                    confirm_delete_citation_id.set(None);
+                    delete_citation_error.set(None);
+                },
             }
         }
 
@@ -1721,73 +1655,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     }
 }
 
-// ── Helper functions ─────────────────────────────────────────────────
-
-fn parse_sex(s: &str) -> oxidgene_core::Sex {
-    match s {
-        "Male" => oxidgene_core::Sex::Male,
-        "Female" => oxidgene_core::Sex::Female,
-        _ => oxidgene_core::Sex::Unknown,
-    }
-}
-
-fn parse_name_type(s: &str) -> NameType {
-    match s {
-        "Birth" => NameType::Birth,
-        "Married" => NameType::Married,
-        "AlsoKnownAs" => NameType::AlsoKnownAs,
-        "Maiden" => NameType::Maiden,
-        "Religious" => NameType::Religious,
-        _ => NameType::Other,
-    }
-}
-
-fn parse_event_type(s: &str) -> EventType {
-    match s {
-        "Birth" => EventType::Birth,
-        "Death" => EventType::Death,
-        "Baptism" => EventType::Baptism,
-        "Burial" => EventType::Burial,
-        "Cremation" => EventType::Cremation,
-        "Graduation" => EventType::Graduation,
-        "Immigration" => EventType::Immigration,
-        "Emigration" => EventType::Emigration,
-        "Naturalization" => EventType::Naturalization,
-        "Census" => EventType::Census,
-        "Occupation" => EventType::Occupation,
-        "Residence" => EventType::Residence,
-        "Retirement" => EventType::Retirement,
-        "Will" => EventType::Will,
-        "Probate" => EventType::Probate,
-        "Marriage" => EventType::Marriage,
-        "Divorce" => EventType::Divorce,
-        "Annulment" => EventType::Annulment,
-        "Engagement" => EventType::Engagement,
-        "MarriageBann" => EventType::MarriageBann,
-        "MarriageContract" => EventType::MarriageContract,
-        "MarriageLicense" => EventType::MarriageLicense,
-        "MarriageSettlement" => EventType::MarriageSettlement,
-        _ => EventType::Other,
-    }
-}
-
-fn parse_confidence(s: &str) -> Confidence {
-    match s {
-        "VeryLow" => Confidence::VeryLow,
-        "Low" => Confidence::Low,
-        "High" => Confidence::High,
-        "VeryHigh" => Confidence::VeryHigh,
-        _ => Confidence::Medium,
-    }
-}
-
-fn opt_str(s: &str) -> Option<String> {
-    if s.is_empty() {
-        None
-    } else {
-        Some(s.to_string())
-    }
-}
+// ── Widget helpers (remain local — they take Resource references) ─────
 
 /// Renders an event type `<select>` widget.
 fn event_type_select(value: &str, oninput: impl FnMut(Event<FormData>) + 'static) -> Element {
@@ -1890,56 +1758,9 @@ fn source_select_widget(
     }
 }
 
-/// Returns a short CSS class for the sex icon.
-fn sex_icon_class(sex: &Sex) -> &'static str {
-    match sex {
-        Sex::Male => "male",
-        Sex::Female => "female",
-        Sex::Unknown => "",
-    }
-}
+// ── Helper: ancestry chart rendering using PersonNode ─────────────────
 
-/// Returns a short symbol for sex.
-fn sex_symbol(sex: &Sex) -> &'static str {
-    match sex {
-        Sex::Male => "M",
-        Sex::Female => "F",
-        Sex::Unknown => "?",
-    }
-}
-
-/// Resolve a display name for a person from the name map.
-fn resolve_name(
-    person_id: Uuid,
-    name_map: &HashMap<Uuid, Vec<oxidgene_core::types::PersonName>>,
-) -> String {
-    match name_map.get(&person_id) {
-        Some(names) => {
-            let primary = names.iter().find(|n| n.is_primary).or(names.first());
-            match primary {
-                Some(name) => {
-                    let dn = name.display_name();
-                    if dn.is_empty() {
-                        "Unnamed".to_string()
-                    } else {
-                        dn
-                    }
-                }
-                None => "Unnamed".to_string(),
-            }
-        }
-        None => "Unnamed".to_string(),
-    }
-}
-
-/// Renders the ancestry/descendant chart.
-///
-/// For ancestors (`is_ancestors=true`): edges have `ancestor_id` at depth N from
-/// the current person (the `descendant_id`). We group by depth and display
-/// generation labels (Parents, Grandparents, etc.).
-///
-/// For descendants (`is_ancestors=false`): edges have `descendant_id` at depth N
-/// from the current person (the `ancestor_id`). Same grouping logic.
+/// Renders the ancestry/descendant chart using [`PersonNode`] components.
 fn render_ancestry_chart(
     edges_resource: &Resource<
         Result<Vec<oxidgene_core::types::PersonAncestry>, crate::api::ApiError>,
@@ -1961,7 +1782,6 @@ fn render_ancestry_chart(
     let persons_data = all_persons_resource.read();
     let names_data = all_names_resource.read();
 
-    // Check if resources are still loading.
     if edges_data.is_none() || persons_data.is_none() || names_data.is_none() {
         return rsx! {
             div { class: "loading", "Loading ancestry data..." }
@@ -1995,19 +1815,16 @@ fn render_ancestry_chart(
         };
     }
 
-    // Build person sex lookup from all_persons_resource.
     let person_sex: HashMap<Uuid, Sex> = match &*persons_data {
         Some(Ok(conn)) => conn.edges.iter().map(|e| (e.node.id, e.node.sex)).collect(),
         _ => HashMap::new(),
     };
 
-    // Build name lookup.
     let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = match &*names_data {
         Some(Ok(m)) => m.clone(),
         _ => HashMap::new(),
     };
 
-    // Group edges by depth, collecting the "other" person ID.
     let mut by_depth: std::collections::BTreeMap<i32, Vec<Uuid>> =
         std::collections::BTreeMap::new();
     for edge in edges.iter() {
@@ -2019,29 +1836,10 @@ fn render_ancestry_chart(
         by_depth.entry(edge.depth).or_default().push(person_id);
     }
 
-    // Deduplicate within each depth level.
     for persons in by_depth.values_mut() {
         persons.sort();
         persons.dedup();
     }
-
-    let generation_label = |depth: i32, is_anc: bool| -> String {
-        if is_anc {
-            match depth {
-                1 => "Parents".to_string(),
-                2 => "Grandparents".to_string(),
-                3 => "Great-Grandparents".to_string(),
-                n => format!("{n}x Great-Grandparents"),
-            }
-        } else {
-            match depth {
-                1 => "Children".to_string(),
-                2 => "Grandchildren".to_string(),
-                3 => "Great-Grandchildren".to_string(),
-                n => format!("{n}x Great-Grandchildren"),
-            }
-        }
-    };
 
     let tree_id_owned = tree_id.to_string();
 
@@ -2060,19 +1858,14 @@ fn render_ancestry_chart(
                                 let name = resolve_name(pid, &name_map);
                                 let sex = person_sex.get(&pid).cloned().unwrap_or(Sex::Unknown);
                                 let is_current = current_person_id == Some(pid);
-                                let node_class = if is_current { "tree-node current" } else { "tree-node" };
-                                let icon_class = format!("sex-icon {}", sex_icon_class(&sex));
-                                let symbol = sex_symbol(&sex);
                                 let tree_id_link = tree_id_owned.clone();
                                 rsx! {
-                                    Link {
-                                        to: Route::PersonDetail {
-                                            tree_id: tree_id_link,
-                                            person_id: pid.to_string(),
-                                        },
-                                        class: node_class,
-                                        span { class: icon_class, "{symbol}" }
-                                        "{name}"
+                                    PersonNode {
+                                        name: name,
+                                        sex: sex,
+                                        is_current: is_current,
+                                        tree_id: tree_id_link,
+                                        person_id: pid.to_string(),
                                     }
                                 }
                             }

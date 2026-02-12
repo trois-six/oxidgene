@@ -11,6 +11,7 @@ pub mod api;
 pub mod components;
 pub mod pages;
 pub mod router;
+pub mod utils;
 
 use dioxus::prelude::*;
 
