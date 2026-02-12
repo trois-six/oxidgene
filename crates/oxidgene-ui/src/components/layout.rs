@@ -337,4 +337,129 @@ const LAYOUT_STYLES: &str = r#"
         gap: 8px;
         margin-top: 16px;
     }
+
+    /* ── Ancestry / descendant chart ──────────────────────────────── */
+
+    .chart-container {
+        overflow-x: auto;
+        padding: 16px 0;
+    }
+
+    /* Ancestor chart: horizontal pedigree flowing left-to-right */
+    .ancestor-chart {
+        display: flex;
+        align-items: center;
+    }
+
+    .ancestor-chart .gen-col {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 8px;
+        margin-right: 4px;
+    }
+
+    .ancestor-chart .gen-col .connector {
+        display: flex;
+        align-items: center;
+    }
+
+    .ancestor-chart .gen-col .connector::after {
+        content: "";
+        display: inline-block;
+        width: 20px;
+        height: 2px;
+        background: var(--color-border);
+        margin-left: 4px;
+    }
+
+    .ancestor-chart .gen-col:last-child .connector::after {
+        display: none;
+    }
+
+    /* Descendant chart: vertical tree flowing top-to-bottom */
+    .descendant-chart {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .descendant-chart .gen-row {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 8px;
+        position: relative;
+    }
+
+    .descendant-chart .gen-row::before {
+        content: "";
+        position: absolute;
+        top: -8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 8px;
+        background: var(--color-border);
+    }
+
+    .descendant-chart .gen-row:first-child::before {
+        display: none;
+    }
+
+    /* Shared person node card */
+    .tree-node {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        font-size: 0.85rem;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        text-decoration: none;
+        color: var(--color-text);
+    }
+
+    .tree-node:hover {
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 2px rgba(44, 110, 73, 0.12);
+    }
+
+    .tree-node.current {
+        border-color: var(--color-primary);
+        background: rgba(44, 110, 73, 0.06);
+        font-weight: 600;
+    }
+
+    .tree-node .sex-icon {
+        font-size: 0.75rem;
+        opacity: 0.7;
+    }
+
+    .tree-node .sex-icon.male   { color: #2563eb; }
+    .tree-node .sex-icon.female { color: #db2777; }
+
+    .gen-label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        text-align: center;
+        margin-bottom: 4px;
+    }
+
+    .depth-group {
+        margin-bottom: 16px;
+    }
+
+    .depth-group-nodes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
 "#;

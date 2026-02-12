@@ -6,8 +6,8 @@
 //! `Serialize` / `Deserialize`.
 
 use oxidgene_core::types::{
-    Citation, Connection, Event, Family, FamilyChild, FamilySpouse, Note, Person, PersonName,
-    Place, Source, Tree,
+    Citation, Connection, Event, Family, FamilyChild, FamilySpouse, Note, Person, PersonAncestry,
+    PersonName, Place, Source, Tree,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
@@ -420,7 +420,7 @@ impl ApiClient {
         tree_id: Uuid,
         person_id: Uuid,
         max_depth: Option<i32>,
-    ) -> Result<Vec<Person>, ApiError> {
+    ) -> Result<Vec<PersonAncestry>, ApiError> {
         let mut params = Vec::new();
         if let Some(d) = max_depth {
             params.push(("max_depth", d.to_string()));
@@ -437,7 +437,7 @@ impl ApiClient {
         tree_id: Uuid,
         person_id: Uuid,
         max_depth: Option<i32>,
-    ) -> Result<Vec<Person>, ApiError> {
+    ) -> Result<Vec<PersonAncestry>, ApiError> {
         let mut params = Vec::new();
         if let Some(d) = max_depth {
             params.push(("max_depth", d.to_string()));
