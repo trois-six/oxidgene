@@ -784,4 +784,124 @@ const LAYOUT_STYLES: &str = r#"
         width: auto;
         min-width: 200px;
     }
+
+    /* ── Person form modal ─────────────────────────────────────────── */
+
+    .person-form-backdrop {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .person-form-modal {
+        background: var(--color-surface);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        width: 700px;
+        max-width: 95vw;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .person-form-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .person-form-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+    }
+
+    .person-form-close {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: var(--color-text-muted);
+        padding: 4px 8px;
+        border-radius: 4px;
+    }
+
+    .person-form-close:hover {
+        background: var(--color-bg);
+        color: var(--color-text);
+    }
+
+    .person-form-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--color-border);
+        padding: 0 16px;
+        gap: 0;
+        overflow-x: auto;
+    }
+
+    .person-form-tab {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        padding: 10px 14px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--color-text-muted);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: color 0.15s, border-color 0.15s;
+    }
+
+    .person-form-tab:hover {
+        color: var(--color-text);
+    }
+
+    .person-form-tab.active {
+        color: var(--color-primary);
+        border-bottom-color: var(--color-primary);
+    }
+
+    .person-form-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 20px;
+    }
+
+    .person-form-section {
+        /* Wrapper for each tab content panel */
+    }
+
+    .person-form-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        margin-bottom: 8px;
+        gap: 12px;
+    }
+
+    .person-form-item.editing {
+        display: block;
+        padding: 12px;
+        background: var(--color-bg);
+    }
+
+    .person-form-item-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .person-form-item-actions {
+        display: flex;
+        gap: 4px;
+        flex-shrink: 0;
+    }
 "#;
