@@ -8,6 +8,7 @@ use crate::rest::citation;
 use crate::rest::event;
 use crate::rest::family;
 use crate::rest::family_member;
+use crate::rest::gedcom;
 use crate::rest::media;
 use crate::rest::media_link;
 use crate::rest::note;
@@ -166,6 +167,10 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(note::delete_note),
         );
 
+    let gedcom_routes = Router::new()
+        .route("/{tree_id}/import", post(gedcom::import_gedcom_handler))
+        .route("/{tree_id}/export", get(gedcom::export_gedcom_handler));
+
     // Build GraphQL schema
     let schema = build_schema(state.db.clone());
 
@@ -188,7 +193,8 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(citation_routes)
                 .merge(media_routes)
                 .merge(media_link_routes)
-                .merge(note_routes),
+                .merge(note_routes)
+                .merge(gedcom_routes),
         )
         .with_state(state)
         .merge(graphql_routes)

@@ -1301,3 +1301,174 @@ async fn test_note_list_by_multiple_entities() {
     assert_eq!(body.as_array().unwrap().len(), 1);
     assert_eq!(body[0]["text"], "Family note");
 }
+
+// ── GEDCOM Import/Export ─────────────────────────────────────────────
+
+fn minimal_gedcom() -> &'static str {
+    concat!(
+        "0 HEAD\n",
+        "1 SOUR OxidGene\n",
+        "1 GEDC\n",
+        "2 VERS 5.5.1\n",
+        "2 FORM LINEAGE-LINKED\n",
+        "1 CHAR UTF-8\n",
+        "0 @I1@ INDI\n",
+        "1 NAME John /Doe/\n",
+        "1 SEX M\n",
+        "1 BIRT\n",
+        "2 DATE 1 JAN 1980\n",
+        "2 PLAC Springfield\n",
+        "0 @I2@ INDI\n",
+        "1 NAME Jane /Smith/\n",
+        "1 SEX F\n",
+        "0 @F1@ FAM\n",
+        "1 HUSB @I1@\n",
+        "1 WIFE @I2@\n",
+        "1 MARR\n",
+        "2 DATE 15 JUN 2005\n",
+        "0 TRLR\n",
+    )
+}
+
+#[tokio::test]
+async fn test_gedcom_import() {
+    let app = setup_app().await;
+
+    // Create tree
+    let (_, tree_body) = send_request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/trees",
+        Some(serde_json::json!({ "name": "GEDCOM Tree" })),
+    )
+    .await;
+    let tree_id = tree_body["id"].as_str().unwrap();
+
+    // Import GEDCOM
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/import"),
+        Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["persons_count"], 2);
+    assert_eq!(body["families_count"], 1);
+    assert!(body["events_count"].as_i64().unwrap() >= 2); // BIRT + MARR
+    assert!(body["places_count"].as_i64().unwrap() >= 1); // Springfield
+
+    // Verify persons are actually in the DB
+    let (status, persons) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let edges = persons["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), 2);
+}
+
+#[tokio::test]
+async fn test_gedcom_import_invalid_tree() {
+    let app = setup_app().await;
+    let fake_id = "00000000-0000-0000-0000-000000000000";
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{fake_id}/import"),
+        Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_gedcom_export_empty_tree() {
+    let app = setup_app().await;
+
+    // Create tree
+    let (_, tree_body) = send_request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/trees",
+        Some(serde_json::json!({ "name": "Empty Tree" })),
+    )
+    .await;
+    let tree_id = tree_body["id"].as_str().unwrap();
+
+    // Export (empty tree)
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["gedcom"].as_str().unwrap().contains("HEAD"));
+    assert!(body["warnings"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_gedcom_roundtrip() {
+    let app = setup_app().await;
+
+    // Create tree
+    let (_, tree_body) = send_request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/trees",
+        Some(serde_json::json!({ "name": "Roundtrip Tree" })),
+    )
+    .await;
+    let tree_id = tree_body["id"].as_str().unwrap();
+
+    // Import
+    let (status, import_body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/import"),
+        Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // Export
+    let (status, export_body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let exported = export_body["gedcom"].as_str().unwrap();
+
+    // Verify the exported GEDCOM contains the imported data
+    assert!(exported.contains("HEAD"));
+    assert!(exported.contains("INDI"));
+    assert!(exported.contains("FAM"));
+
+    // Verify counts match what we imported
+    assert_eq!(import_body["persons_count"], 2);
+    assert_eq!(import_body["families_count"], 1);
+}
+
+#[tokio::test]
+async fn test_gedcom_export_invalid_tree() {
+    let app = setup_app().await;
+    let fake_id = "00000000-0000-0000-0000-000000000000";
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{fake_id}/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

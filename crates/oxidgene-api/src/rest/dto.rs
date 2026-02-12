@@ -279,3 +279,31 @@ pub struct CreateNoteRequest {
 pub struct UpdateNoteRequest {
     pub text: Option<String>,
 }
+
+// ── GEDCOM DTOs ──────────────────────────────────────────────────────
+
+/// Request body for importing a GEDCOM string.
+#[derive(Debug, Deserialize)]
+pub struct ImportGedcomRequest {
+    pub gedcom: String,
+}
+
+/// Response body for GEDCOM import.
+#[derive(Debug, Serialize)]
+pub struct ImportGedcomResponse {
+    pub persons_count: usize,
+    pub families_count: usize,
+    pub events_count: usize,
+    pub sources_count: usize,
+    pub media_count: usize,
+    pub places_count: usize,
+    pub notes_count: usize,
+    pub warnings: Vec<String>,
+}
+
+/// Response body for GEDCOM export.
+#[derive(Debug, Serialize)]
+pub struct ExportGedcomResponse {
+    pub gedcom: String,
+    pub warnings: Vec<String>,
+}

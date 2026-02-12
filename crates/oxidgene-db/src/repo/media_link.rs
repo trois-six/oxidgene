@@ -25,6 +25,19 @@ impl MediaLinkRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List links for multiple media items.
+    pub async fn list_by_medias(
+        db: &DatabaseConnection,
+        media_ids: &[Uuid],
+    ) -> Result<Vec<MediaLink>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::MediaId.is_in(media_ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Create a media link.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(

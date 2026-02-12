@@ -24,6 +24,20 @@ impl NoteRepo {
             .ok_or(OxidGeneError::NotFound { entity: "Note", id })
     }
 
+    /// List all notes in a tree without pagination (excludes soft-deleted).
+    pub async fn list_all(
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// List notes for a specific entity (person, event, family, or source) in a tree.
     pub async fn list_by_entity(
         db: &DatabaseConnection,

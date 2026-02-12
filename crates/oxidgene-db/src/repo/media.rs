@@ -26,6 +26,20 @@ impl MediaRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
+    /// List all media in a tree without pagination (excludes soft-deleted).
+    pub async fn list_all(
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+    ) -> Result<Vec<Media>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single media by ID (excludes soft-deleted).
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Media, OxidGeneError> {
         Entity::find_by_id(id)

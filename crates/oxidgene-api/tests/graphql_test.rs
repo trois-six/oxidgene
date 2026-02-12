@@ -924,3 +924,159 @@ async fn test_graphiql_playground() {
     // Should contain GraphiQL HTML
     assert!(body.contains("graphiql"));
 }
+
+// ── GEDCOM Import/Export ─────────────────────────────────────────────
+
+fn minimal_gedcom() -> &'static str {
+    concat!(
+        "0 HEAD\n",
+        "1 SOUR OxidGene\n",
+        "1 GEDC\n",
+        "2 VERS 5.5.1\n",
+        "2 FORM LINEAGE-LINKED\n",
+        "1 CHAR UTF-8\n",
+        "0 @I1@ INDI\n",
+        "1 NAME John /Doe/\n",
+        "1 SEX M\n",
+        "1 BIRT\n",
+        "2 DATE 1 JAN 1980\n",
+        "2 PLAC Springfield\n",
+        "0 @I2@ INDI\n",
+        "1 NAME Jane /Smith/\n",
+        "1 SEX F\n",
+        "0 @F1@ FAM\n",
+        "1 HUSB @I1@\n",
+        "1 WIFE @I2@\n",
+        "1 MARR\n",
+        "2 DATE 15 JUN 2005\n",
+        "0 TRLR\n",
+    )
+}
+
+#[tokio::test]
+async fn test_graphql_import_gedcom() {
+    let app = setup_app().await;
+
+    // Create tree
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "GQL GEDCOM Tree" }) { id name } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Import GEDCOM
+    let query = format!(
+        r#"mutation {{
+            importGedcom(treeId: "{tree_id}", input: {{ gedcom: "{}" }}) {{
+                personsCount
+                familiesCount
+                eventsCount
+                sourcesCount
+                mediaCount
+                placesCount
+                notesCount
+                warnings
+            }}
+        }}"#,
+        minimal_gedcom().replace('\n', "\\n").replace('"', "\\\"")
+    );
+    let resp = graphql(app.clone(), &query, None).await;
+    let result = &data(&resp)["importGedcom"];
+    assert_eq!(result["personsCount"], 2);
+    assert_eq!(result["familiesCount"], 1);
+    assert!(result["eventsCount"].as_i64().unwrap() >= 2);
+    assert!(result["placesCount"].as_i64().unwrap() >= 1);
+
+    // Verify persons are in the DB via GraphQL
+    let query = format!(
+        r#"{{ persons(treeId: "{tree_id}") {{ edges {{ node {{ id sex }} }} totalCount }} }}"#
+    );
+    let resp = graphql(app.clone(), &query, None).await;
+    let persons = &data(&resp)["persons"];
+    assert_eq!(persons["totalCount"], 2);
+}
+
+#[tokio::test]
+async fn test_graphql_export_gedcom() {
+    let app = setup_app().await;
+
+    // Create tree
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "GQL Export Tree" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Export empty tree
+    let query = format!(r#"{{ exportGedcom(treeId: "{tree_id}") {{ gedcom warnings }} }}"#);
+    let resp = graphql(app.clone(), &query, None).await;
+    let result = &data(&resp)["exportGedcom"];
+    assert!(result["gedcom"].as_str().unwrap().contains("HEAD"));
+    assert!(result["warnings"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_graphql_gedcom_roundtrip() {
+    let app = setup_app().await;
+
+    // Create tree
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "GQL Roundtrip" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Import
+    let import_query = format!(
+        r#"mutation {{
+            importGedcom(treeId: "{tree_id}", input: {{ gedcom: "{}" }}) {{
+                personsCount familiesCount eventsCount
+            }}
+        }}"#,
+        minimal_gedcom().replace('\n', "\\n").replace('"', "\\\"")
+    );
+    let resp = graphql(app.clone(), &import_query, None).await;
+    let import_result = &data(&resp)["importGedcom"];
+    assert_eq!(import_result["personsCount"], 2);
+    assert_eq!(import_result["familiesCount"], 1);
+
+    // Export
+    let export_query = format!(r#"{{ exportGedcom(treeId: "{tree_id}") {{ gedcom warnings }} }}"#);
+    let resp = graphql(app.clone(), &export_query, None).await;
+    let export_result = &data(&resp)["exportGedcom"];
+    let gedcom = export_result["gedcom"].as_str().unwrap();
+    assert!(gedcom.contains("INDI"));
+    assert!(gedcom.contains("FAM"));
+}
+
+#[tokio::test]
+async fn test_graphql_import_gedcom_invalid_tree() {
+    let app = setup_app().await;
+    let fake_id = "00000000-0000-0000-0000-000000000000";
+
+    let query = format!(
+        r#"mutation {{
+            importGedcom(treeId: "{fake_id}", input: {{ gedcom: "0 HEAD\n0 TRLR\n" }}) {{
+                personsCount
+            }}
+        }}"#
+    );
+    let resp = graphql(app.clone(), &query, None).await;
+    // Should have errors
+    assert!(resp.get("errors").is_some());
+}
