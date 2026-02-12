@@ -75,7 +75,7 @@ pub fn build_router(state: AppState) -> Router {
     let family_member_routes = Router::new()
         .route(
             "/{tree_id}/families/{family_id}/spouses",
-            post(family_member::add_spouse),
+            get(family_member::list_spouses).post(family_member::add_spouse),
         )
         .route(
             "/{tree_id}/families/{family_id}/spouses/{spouse_id}",
@@ -83,7 +83,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/{tree_id}/families/{family_id}/children",
-            post(family_member::add_child),
+            get(family_member::list_children).post(family_member::add_child),
         )
         .route(
             "/{tree_id}/families/{family_id}/children/{child_id}",

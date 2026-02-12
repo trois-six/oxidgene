@@ -12,6 +12,17 @@ use super::state::AppState;
 
 // ── Spouses ──────────────────────────────────────────────────────────
 
+/// GET /api/v1/trees/:tree_id/families/:family_id/spouses
+pub async fn list_spouses(
+    State(state): State<AppState>,
+    Path((_tree_id, family_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let spouses = FamilySpouseRepo::list_by_family(&state.db, family_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(spouses).unwrap()))
+}
+
 /// POST /api/v1/trees/:tree_id/families/:family_id/spouses
 pub async fn add_spouse(
     State(state): State<AppState>,
@@ -47,6 +58,17 @@ pub async fn remove_spouse(
 }
 
 // ── Children ─────────────────────────────────────────────────────────
+
+/// GET /api/v1/trees/:tree_id/families/:family_id/children
+pub async fn list_children(
+    State(state): State<AppState>,
+    Path((_tree_id, family_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let children = FamilyChildRepo::list_by_family(&state.db, family_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(children).unwrap()))
+}
 
 /// POST /api/v1/trees/:tree_id/families/:family_id/children
 pub async fn add_child(
