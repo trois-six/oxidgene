@@ -540,4 +540,248 @@ const LAYOUT_STYLES: &str = r#"
     .gedcom-warnings li {
         margin-bottom: 2px;
     }
+
+    /* ── Pedigree chart (horizontal ancestor view) ────────────────── */
+
+    .pedigree-chart {
+        display: flex;
+        align-items: stretch;
+        overflow-x: auto;
+        padding: 16px 0;
+        gap: 2px;
+    }
+
+    .pedigree-gen-col {
+        display: flex;
+        flex-direction: column;
+        min-width: 160px;
+    }
+
+    .pedigree-gen-label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        text-align: center;
+        padding: 4px 0;
+        margin-bottom: 4px;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .pedigree-gen-slots {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-around;
+        flex: 1;
+        gap: 2px;
+    }
+
+    .pedigree-slot {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        padding: 2px 4px;
+    }
+
+    .pedigree-node {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        font-size: 0.82rem;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        color: var(--color-text);
+        width: 100%;
+        max-width: 180px;
+    }
+
+    .pedigree-node:hover {
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 2px rgba(44, 110, 73, 0.12);
+    }
+
+    .pedigree-node.current {
+        border-color: var(--color-primary);
+        background: rgba(44, 110, 73, 0.06);
+        font-weight: 600;
+    }
+
+    .pedigree-node.empty-slot {
+        background: var(--color-bg);
+        border-style: dashed;
+        justify-content: center;
+        color: var(--color-text-muted);
+        font-size: 1.1rem;
+        font-weight: 300;
+        min-height: 32px;
+    }
+
+    .pedigree-node.empty-slot:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+    }
+
+    .pedigree-node.empty-slot.disabled {
+        opacity: 0.3;
+        cursor: default;
+        pointer-events: none;
+    }
+
+    .pedigree-node .sex-icon {
+        font-size: 0.75rem;
+        opacity: 0.7;
+    }
+
+    .pedigree-node .sex-icon.male   { color: #2563eb; }
+    .pedigree-node .sex-icon.female { color: #db2777; }
+
+    .pedigree-node-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* ── Context menu (floating action menu) ──────────────────────── */
+
+    .context-menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 300;
+    }
+
+    .context-menu {
+        position: fixed;
+        z-index: 310;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        min-width: 180px;
+        padding: 4px 0;
+    }
+
+    .context-menu-header {
+        padding: 8px 14px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--color-text-muted);
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .context-menu-item {
+        display: block;
+        width: 100%;
+        padding: 8px 14px;
+        text-align: left;
+        background: none;
+        border: none;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: background 0.1s;
+        font-family: var(--font-sans);
+        color: var(--color-text);
+    }
+
+    .context-menu-item:hover {
+        background: var(--color-bg);
+    }
+
+    .context-menu-danger {
+        color: var(--color-danger);
+    }
+
+    .context-menu-danger:hover {
+        background: #fff5f5;
+    }
+
+    .context-menu-divider {
+        border: none;
+        border-top: 1px solid var(--color-border);
+        margin: 4px 0;
+    }
+
+    /* ── Search person (typeahead) ─────────────────────────────────── */
+
+    .search-person {
+        margin-top: 8px;
+    }
+
+    .search-person-input-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .search-person-input-row input {
+        flex: 1;
+    }
+
+    .search-person-results {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+    }
+
+    .search-person-result {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 8px 12px;
+        background: none;
+        border: none;
+        border-bottom: 1px solid var(--color-border);
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: 0.85rem;
+        text-align: left;
+        transition: background 0.1s;
+    }
+
+    .search-person-result:last-child {
+        border-bottom: none;
+    }
+
+    .search-person-result:hover {
+        background: var(--color-bg);
+    }
+
+    .search-person-name {
+        font-weight: 500;
+    }
+
+    .search-person-sex {
+        font-size: 0.75rem;
+    }
+
+    /* ── Root person selector ─────────────────────────────────────── */
+
+    .root-selector {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+    }
+
+    .root-selector label {
+        display: inline;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-bottom: 0;
+        color: var(--color-text);
+    }
+
+    .root-selector select {
+        width: auto;
+        min-width: 200px;
+    }
 "#;
