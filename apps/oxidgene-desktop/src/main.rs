@@ -1,7 +1,8 @@
 //! OxidGene desktop application.
 //!
 //! Embeds an Axum server on `127.0.0.1` (random port) backed by SQLite,
-//! then opens a Dioxus desktop WebView with a welcome screen.
+//! then opens a Dioxus desktop WebView with the shared `oxidgene-ui`
+//! frontend.
 //!
 //! The SQLite database is stored in the platform data directory:
 //! - Linux:   `~/.local/share/oxidgene/oxidgene.db`
@@ -13,23 +14,13 @@ use std::net::SocketAddr;
 use axum::Router;
 use axum::routing::get;
 use dioxus::desktop::{Config, WindowBuilder};
-use dioxus::prelude::*;
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
+use oxidgene_ui::api::ApiClient;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
-
-/// The local API server address, injected into the Dioxus context.
-#[derive(Clone, Debug)]
-struct ApiServer {
-    /// Full base URL, e.g. `http://127.0.0.1:12345`.
-    pub url: String,
-    /// Port number (used by health-check and future API calls).
-    #[allow(dead_code)]
-    pub port: u16,
-}
 
 fn main() {
     // ── Initialize tracing ───────────────────────────────────────────
@@ -108,11 +99,12 @@ fn main() {
     let api_url = format!("http://127.0.0.1:{port}");
     info!(%api_url, "API server ready");
 
-    let api_server = ApiServer { url: api_url, port };
+    // Create the API client that will be shared with the UI
+    let api_client = ApiClient::new(&api_url);
 
     // ── Launch Dioxus desktop window ─────────────────────────────────
     dioxus::LaunchBuilder::new()
-        .with_context(api_server)
+        .with_context(api_client)
         .with_cfg(
             Config::new().with_window(
                 WindowBuilder::new()
@@ -120,131 +112,10 @@ fn main() {
                     .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
             ),
         )
-        .launch(App);
-}
-
-/// Root application component.
-#[component]
-fn App() -> Element {
-    let api = use_context::<ApiServer>();
-
-    rsx! {
-        style { {STYLES} }
-        div { class: "container",
-            div { class: "header",
-                h1 { "OxidGene" }
-                p { class: "subtitle", "Genealogy Application" }
-            }
-            div { class: "info",
-                p { "Welcome to OxidGene — your offline-first genealogy desktop application." }
-                p {
-                    "API server running at: "
-                    a {
-                        href: "{api.url}",
-                        target: "_blank",
-                        "{api.url}"
-                    }
-                }
-                p {
-                    "GraphiQL playground: "
-                    a {
-                        href: "{api.url}/graphql",
-                        target: "_blank",
-                        "{api.url}/graphql"
-                    }
-                }
-            }
-            div { class: "status",
-                HealthCheck { api_url: api.url.clone() }
-            }
-        }
-    }
-}
-
-/// Component that checks the health of the embedded API server.
-#[component]
-fn HealthCheck(api_url: String) -> Element {
-    let health_url = format!("{api_url}/healthz");
-
-    let health = use_resource(move || {
-        let url = health_url.clone();
-        async move {
-            // Simple fetch via reqwest would need an extra dep.
-            // For the skeleton we just report the URL; actual health
-            // polling will be added with the full UI in EPIC C.
-            format!("API available at {url}")
-        }
-    });
-
-    match &*health.read() {
-        Some(msg) => rsx! {
-            p { class: "health-ok", "{msg}" }
-        },
-        None => rsx! {
-            p { class: "health-loading", "Checking API health..." }
-        },
-    }
+        .launch(oxidgene_ui::App);
 }
 
 /// Health check handler returning `200 OK` with a JSON body.
 async fn healthz() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({ "status": "ok" }))
 }
-
-/// Minimal CSS for the welcome screen.
-const STYLES: &str = r#"
-    body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        margin: 0;
-        padding: 0;
-        background: #f5f5f5;
-        color: #333;
-    }
-    .container {
-        max-width: 640px;
-        margin: 60px auto;
-        padding: 40px;
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-    }
-    .header {
-        text-align: center;
-        margin-bottom: 32px;
-    }
-    .header h1 {
-        font-size: 2.5rem;
-        margin: 0 0 8px 0;
-        color: #2c3e50;
-    }
-    .subtitle {
-        font-size: 1.1rem;
-        color: #7f8c8d;
-        margin: 0;
-    }
-    .info {
-        line-height: 1.8;
-    }
-    .info a {
-        color: #3498db;
-        text-decoration: none;
-    }
-    .info a:hover {
-        text-decoration: underline;
-    }
-    .status {
-        margin-top: 24px;
-        padding: 16px;
-        background: #f0fdf4;
-        border-radius: 8px;
-        border: 1px solid #bbf7d0;
-    }
-    .health-ok {
-        color: #166534;
-        margin: 0;
-    }
-    .health-loading {
-        color: #92400e;
-        margin: 0;
-    }
-"#;
