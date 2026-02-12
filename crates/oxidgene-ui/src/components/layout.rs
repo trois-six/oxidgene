@@ -268,6 +268,15 @@ const LAYOUT_STYLES: &str = r#"
         border: 1px solid var(--color-border);
     }
 
+    /* ── Section header (title + action button) ─────────────────── */
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+    }
+
     /* ── Small button variant ─────────────────────────────────────── */
 
     .btn-sm {

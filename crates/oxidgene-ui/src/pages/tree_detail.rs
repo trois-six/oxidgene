@@ -3,8 +3,9 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, UpdateTreeBody};
+use crate::api::{ApiClient, CreatePersonBody, UpdateTreeBody};
 use crate::router::Route;
+use oxidgene_core::Sex;
 
 /// Page rendered at `/trees/:tree_id`.
 #[component]
@@ -24,6 +25,11 @@ pub fn TreeDetail(tree_id: String) -> Element {
     // Delete confirmation state.
     let mut confirm_delete = use_signal(|| false);
     let mut delete_error = use_signal(|| None::<String>);
+
+    // Create person form state.
+    let mut show_person_form = use_signal(|| false);
+    let mut new_person_sex = use_signal(|| "Unknown".to_string());
+    let mut person_form_error = use_signal(|| None::<String>);
 
     // Fetch tree details.
     let api_tree = api.clone();
@@ -106,8 +112,9 @@ pub fn TreeDetail(tree_id: String) -> Element {
     };
 
     // Confirm delete handler.
+    let api_del = api.clone();
     let on_confirm_delete = move |_| {
-        let api = api.clone();
+        let api = api_del.clone();
         let Some(tid) = tree_id_parsed else { return };
         spawn(async move {
             match api.delete_tree(tid).await {
@@ -116,6 +123,32 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 }
                 Err(e) => {
                     delete_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
+    // Create person handler.
+    let on_create_person = move |_| {
+        let api = api.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let sex_str = new_person_sex();
+        spawn(async move {
+            let sex = match sex_str.as_str() {
+                "Male" => Sex::Male,
+                "Female" => Sex::Female,
+                _ => Sex::Unknown,
+            };
+            let body = CreatePersonBody { sex };
+            match api.create_person(tid, &body).await {
+                Ok(_) => {
+                    show_person_form.set(false);
+                    new_person_sex.set("Unknown".to_string());
+                    person_form_error.set(None);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    person_form_error.set(Some(format!("{e}")));
                 }
             }
         });
@@ -251,7 +284,37 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
         // Persons section
         div { class: "card", style: "margin-bottom: 24px;",
-            h2 { style: "margin-bottom: 16px; font-size: 1.1rem;", "Persons" }
+            div { class: "section-header",
+                h2 { style: "font-size: 1.1rem;", "Persons" }
+                button {
+                    class: "btn btn-primary btn-sm",
+                    onclick: move |_| show_person_form.toggle(),
+                    if show_person_form() { "Cancel" } else { "Add Person" }
+                }
+            }
+
+            // Create person form
+            if show_person_form() {
+                div { style: "margin-bottom: 16px; padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
+                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", "New Person" }
+
+                    if let Some(err) = person_form_error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+
+                    div { class: "form-group",
+                        label { "Sex" }
+                        select {
+                            value: "{new_person_sex}",
+                            oninput: move |e: Event<FormData>| new_person_sex.set(e.value()),
+                            option { value: "Unknown", "Unknown" }
+                            option { value: "Male", "Male" }
+                            option { value: "Female", "Female" }
+                        }
+                    }
+                    button { class: "btn btn-primary btn-sm", onclick: on_create_person, "Create" }
+                }
+            }
 
             match &*persons_resource.read() {
                 Some(Ok(conn)) => rsx! {
