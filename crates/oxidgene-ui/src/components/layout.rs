@@ -267,4 +267,54 @@ const LAYOUT_STYLES: &str = r#"
         color: var(--color-text-muted);
         border: 1px solid var(--color-border);
     }
+
+    /* ── Small button variant ─────────────────────────────────────── */
+
+    .btn-sm {
+        padding: 4px 10px;
+        font-size: 0.8rem;
+    }
+
+    /* ── Back link ────────────────────────────────────────────────── */
+
+    .back-link {
+        color: var(--color-primary);
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: color 0.15s;
+    }
+
+    .back-link:hover {
+        color: var(--color-primary-hover);
+        text-decoration: underline;
+    }
+
+    /* ── Modal / confirmation dialog ─────────────────────────────── */
+
+    .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 200;
+    }
+
+    .modal-card {
+        background: var(--color-surface);
+        border-radius: var(--radius);
+        padding: 24px;
+        min-width: 360px;
+        max-width: 480px;
+        box-shadow: var(--shadow-md);
+    }
+
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+    }
 "#;
