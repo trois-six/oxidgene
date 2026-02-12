@@ -904,4 +904,76 @@ const LAYOUT_STYLES: &str = r#"
         gap: 4px;
         flex-shrink: 0;
     }
+
+    /* ── Linking panel ── */
+
+    .linking-card {
+        margin-bottom: 24px;
+        border: 2px solid var(--color-primary);
+    }
+
+    .linking-panel {
+        padding: 16px;
+        background: var(--color-bg);
+        border-radius: var(--radius);
+        margin-top: 12px;
+    }
+
+    .linking-panel-title {
+        font-size: 0.85rem;
+        color: var(--color-text-muted);
+        margin-bottom: 12px;
+    }
+
+    .linking-panel-or {
+        text-align: center;
+        color: var(--color-text-muted);
+        font-size: 0.85rem;
+        margin: 12px 0;
+    }
+
+    /* ── Union form modal ── */
+
+    .union-form-backdrop {
+        /* inherits from .modal-backdrop */
+    }
+
+    .union-form-modal {
+        background: var(--color-surface);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        width: 600px;
+        max-width: 95vw;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .union-form-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    .union-form-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+    }
+
+    .union-form-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 20px;
+    }
+
+    .union-form-section {
+        margin-bottom: 24px;
+    }
+
+    .union-form-section:last-child {
+        margin-bottom: 0;
+    }
 "#;

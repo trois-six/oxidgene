@@ -7,3 +7,4 @@ pub mod pedigree_chart;
 pub mod person_form;
 pub mod person_node;
 pub mod search_person;
+pub mod union_form;

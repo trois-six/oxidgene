@@ -1,8 +1,9 @@
 //! Tree detail page — Geneanet-style pedigree chart view.
 //!
 //! Shows the tree header with edit/delete, a root-person selector, the
-//! [`PedigreeChart`] as the main view, a context menu for person actions,
-//! and a collapsible GEDCOM import/export section.
+//! [`PedigreeChart`] as the main view, a context menu for person actions
+//! (including search-or-create flows for AddSpouse/AddParents/AddChild),
+//! union editing, and a collapsible GEDCOM import/export section.
 
 use std::collections::HashMap;
 
@@ -14,8 +15,21 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
 use crate::components::person_form::PersonForm;
+use crate::components::search_person::SearchPerson;
+use crate::components::union_form::UnionForm;
 use crate::router::Route;
 use crate::utils::resolve_name;
+
+/// Describes which linking flow is active.
+#[derive(Debug, Clone, PartialEq)]
+enum LinkingMode {
+    /// Adding a spouse for the given person.
+    Spouse(Uuid),
+    /// Adding parents for the given person (child_id).
+    Parents(Uuid),
+    /// Adding a child for the given person (parent_id).
+    Child(Uuid),
+}
 
 /// Page rendered at `/trees/:tree_id`.
 #[component]
@@ -44,6 +58,12 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
     // ── Person edit modal ──
     let mut editing_person_id = use_signal(|| None::<Uuid>);
+
+    // ── Union edit modal ──
+    let mut editing_union_id = use_signal(|| None::<Uuid>);
+
+    // ── Linking mode (search-or-create panel) ──
+    let mut linking_mode = use_signal(|| None::<LinkingMode>);
 
     // ── Delete person confirmation ──
     let mut confirm_delete_person_id = use_signal(|| None::<Uuid>);
@@ -227,6 +247,18 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
     };
 
+    // Check if context menu person has a union (is a spouse in some family).
+    let ctx_person_has_union: bool = {
+        let ctx = context_menu_person();
+        match ctx {
+            Some((pid, _, _)) => pedigree_data
+                .as_ref()
+                .and_then(|d| d.families_as_spouse.get(&pid))
+                .is_some_and(|fids| !fids.is_empty()),
+            None => false,
+        }
+    };
+
     // ── Handlers ──
 
     // Save tree edit.
@@ -272,7 +304,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
     };
 
     // Context menu action handler.
-    let api_ctx = api.clone();
     let pedigree_data_ctx = pedigree_data.clone();
     let on_context_action = move |action: PersonAction| {
         let Some((pid, _, _)) = context_menu_person() else {
@@ -282,103 +313,29 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
         match action {
             PersonAction::Edit => {
-                // Open modal person edit form.
                 editing_person_id.set(Some(pid));
             }
             PersonAction::AddParents => {
-                // Create a new family with this person as child.
-                let api = api_ctx.clone();
-                let Some(tid) = tree_id_parsed else { return };
-                spawn(async move {
-                    match api.create_family(tid).await {
-                        Ok(family) => {
-                            let body = crate::api::AddChildBody {
-                                person_id: pid,
-                                child_type: oxidgene_core::ChildType::Biological,
-                                sort_order: 0,
-                            };
-                            let _ = api.add_child(tid, family.id, &body).await;
-                            refresh += 1;
-                        }
-                        Err(_) => { /* silently fail for now */ }
-                    }
-                });
+                // Open linking panel for adding parents.
+                linking_mode.set(Some(LinkingMode::Parents(pid)));
             }
             PersonAction::AddSpouse => {
-                // Create a new family with this person as a spouse.
-                let api = api_ctx.clone();
-                let Some(tid) = tree_id_parsed else { return };
-                spawn(async move {
-                    if let Ok(family) = api.create_family(tid).await {
-                        let body = crate::api::AddSpouseBody {
-                            person_id: pid,
-                            role: oxidgene_core::SpouseRole::Partner,
-                            sort_order: 0,
-                        };
-                        let _ = api.add_spouse(tid, family.id, &body).await;
-                        refresh += 1;
-                    }
-                });
+                // Open linking panel for adding spouse.
+                linking_mode.set(Some(LinkingMode::Spouse(pid)));
             }
             PersonAction::AddChild => {
-                // Find or create a family where this person is a spouse, then
-                // create a new person as a child in that family.
-                let api = api_ctx.clone();
-                let Some(tid) = tree_id_parsed else { return };
-                // Look up the family before spawning so we don't move pedigree_data.
-                let existing_family_id = pedigree_data_ctx
+                // Open linking panel for adding child.
+                linking_mode.set(Some(LinkingMode::Child(pid)));
+            }
+            PersonAction::EditUnion => {
+                // Find the first family where this person is a spouse and open the union form.
+                let family_id = pedigree_data_ctx
                     .as_ref()
                     .and_then(|data| data.families_as_spouse.get(&pid))
                     .and_then(|fids| fids.first().copied());
-                spawn(async move {
-                    if let Some(fid) = existing_family_id {
-                        // Create a new person and add as child.
-                        if let Ok(new_person) = api
-                            .create_person(
-                                tid,
-                                &crate::api::CreatePersonBody {
-                                    sex: oxidgene_core::Sex::Unknown,
-                                },
-                            )
-                            .await
-                        {
-                            let body = crate::api::AddChildBody {
-                                person_id: new_person.id,
-                                child_type: oxidgene_core::ChildType::Biological,
-                                sort_order: 0,
-                            };
-                            let _ = api.add_child(tid, fid, &body).await;
-                            refresh += 1;
-                        }
-                    } else {
-                        // No existing family — create family, add person as spouse, create child.
-                        if let Ok(family) = api.create_family(tid).await {
-                            let spouse_body = crate::api::AddSpouseBody {
-                                person_id: pid,
-                                role: oxidgene_core::SpouseRole::Partner,
-                                sort_order: 0,
-                            };
-                            let _ = api.add_spouse(tid, family.id, &spouse_body).await;
-                            if let Ok(new_person) = api
-                                .create_person(
-                                    tid,
-                                    &crate::api::CreatePersonBody {
-                                        sex: oxidgene_core::Sex::Unknown,
-                                    },
-                                )
-                                .await
-                            {
-                                let child_body = crate::api::AddChildBody {
-                                    person_id: new_person.id,
-                                    child_type: oxidgene_core::ChildType::Biological,
-                                    sort_order: 0,
-                                };
-                                let _ = api.add_child(tid, family.id, &child_body).await;
-                            }
-                            refresh += 1;
-                        }
-                    }
-                });
+                if let Some(fid) = family_id {
+                    editing_union_id.set(Some(fid));
+                }
             }
             PersonAction::Delete => {
                 confirm_delete_person_id.set(Some(pid));
@@ -400,7 +357,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 Ok(_) => {
                     confirm_delete_person_id.set(None);
                     delete_person_error.set(None);
-                    // If we deleted the root person, clear the selection.
                     if selected_root() == Some(pid) {
                         selected_root.set(None);
                     }
@@ -418,15 +374,12 @@ pub fn TreeDetail(tree_id: String) -> Element {
         let api = api_empty.clone();
         let Some(tid) = tree_id_parsed else { return };
 
-        // Look up the family before spawning so we don't move pedigree_data
-        // into the async block (which would make this closure FnOnce).
         let family_id = pedigree_data_empty
             .as_ref()
             .and_then(|data| data.families_as_child.get(&child_id))
             .and_then(|fids| fids.first().copied());
 
         spawn(async move {
-            // Create a new person with appropriate sex.
             let sex = if is_father {
                 oxidgene_core::Sex::Male
             } else {
@@ -442,7 +395,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
             let fid = if let Some(fid) = family_id {
                 fid
             } else {
-                // Create a new family and add the child to it.
                 let Ok(family) = api.create_family(tid).await else {
                     return;
                 };
@@ -455,7 +407,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 family.id
             };
 
-            // Add the new person as a spouse in the family.
             let role = if is_father {
                 oxidgene_core::SpouseRole::Husband
             } else {
@@ -467,6 +418,274 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 sort_order: 0,
             };
             let _ = api.add_spouse(tid, fid, &spouse_body).await;
+            refresh += 1;
+        });
+    };
+
+    // ── Linking mode handlers ──
+
+    // AddSpouse: link existing person as spouse.
+    let api_link_spouse = api.clone();
+    let pedigree_data_spouse = pedigree_data.clone();
+    let on_link_spouse = move |person_id: Uuid| {
+        let api = api_link_spouse.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Spouse(for_pid)) = linking_mode() else {
+            return;
+        };
+        // Find or create a family for this person.
+        let existing_family_id = pedigree_data_spouse
+            .as_ref()
+            .and_then(|data| data.families_as_spouse.get(&for_pid))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = existing_family_id {
+                fid
+            } else {
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddSpouseBody {
+                    person_id: for_pid,
+                    role: oxidgene_core::SpouseRole::Partner,
+                    sort_order: 0,
+                };
+                let _ = api.add_spouse(tid, family.id, &body).await;
+                family.id
+            };
+            let body = crate::api::AddSpouseBody {
+                person_id,
+                role: oxidgene_core::SpouseRole::Partner,
+                sort_order: 1,
+            };
+            let _ = api.add_spouse(tid, fid, &body).await;
+            linking_mode.set(None);
+            refresh += 1;
+        });
+    };
+
+    // AddSpouse: create new person as spouse.
+    let api_new_spouse = api.clone();
+    let pedigree_data_new_spouse = pedigree_data.clone();
+    let on_create_new_spouse = move |_| {
+        let api = api_new_spouse.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Spouse(for_pid)) = linking_mode() else {
+            return;
+        };
+        let existing_family_id = pedigree_data_new_spouse
+            .as_ref()
+            .and_then(|data| data.families_as_spouse.get(&for_pid))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = existing_family_id {
+                fid
+            } else {
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddSpouseBody {
+                    person_id: for_pid,
+                    role: oxidgene_core::SpouseRole::Partner,
+                    sort_order: 0,
+                };
+                let _ = api.add_spouse(tid, family.id, &body).await;
+                family.id
+            };
+            if let Ok(new_person) = api
+                .create_person(
+                    tid,
+                    &crate::api::CreatePersonBody {
+                        sex: oxidgene_core::Sex::Unknown,
+                    },
+                )
+                .await
+            {
+                let body = crate::api::AddSpouseBody {
+                    person_id: new_person.id,
+                    role: oxidgene_core::SpouseRole::Partner,
+                    sort_order: 1,
+                };
+                let _ = api.add_spouse(tid, fid, &body).await;
+            }
+            linking_mode.set(None);
+            refresh += 1;
+        });
+    };
+
+    // AddParents: link existing person as parent.
+    let api_link_parent = api.clone();
+    let pedigree_data_parent = pedigree_data.clone();
+    let on_link_parent = move |person_id: Uuid| {
+        let api = api_link_parent.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Parents(child_id)) = linking_mode() else {
+            return;
+        };
+        // Find or create a family where child_id is a child.
+        let existing_family_id = pedigree_data_parent
+            .as_ref()
+            .and_then(|data| data.families_as_child.get(&child_id))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = existing_family_id {
+                fid
+            } else {
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddChildBody {
+                    person_id: child_id,
+                    child_type: oxidgene_core::ChildType::Biological,
+                    sort_order: 0,
+                };
+                let _ = api.add_child(tid, family.id, &body).await;
+                family.id
+            };
+            let body = crate::api::AddSpouseBody {
+                person_id,
+                role: oxidgene_core::SpouseRole::Partner,
+                sort_order: 0,
+            };
+            let _ = api.add_spouse(tid, fid, &body).await;
+            linking_mode.set(None);
+            refresh += 1;
+        });
+    };
+
+    // AddParents: create new person as parent.
+    let api_new_parent = api.clone();
+    let pedigree_data_new_parent = pedigree_data.clone();
+    let on_create_new_parent = move |_| {
+        let api = api_new_parent.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Parents(child_id)) = linking_mode() else {
+            return;
+        };
+        let existing_family_id = pedigree_data_new_parent
+            .as_ref()
+            .and_then(|data| data.families_as_child.get(&child_id))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = existing_family_id {
+                fid
+            } else {
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddChildBody {
+                    person_id: child_id,
+                    child_type: oxidgene_core::ChildType::Biological,
+                    sort_order: 0,
+                };
+                let _ = api.add_child(tid, family.id, &body).await;
+                family.id
+            };
+            if let Ok(new_person) = api
+                .create_person(
+                    tid,
+                    &crate::api::CreatePersonBody {
+                        sex: oxidgene_core::Sex::Unknown,
+                    },
+                )
+                .await
+            {
+                let body = crate::api::AddSpouseBody {
+                    person_id: new_person.id,
+                    role: oxidgene_core::SpouseRole::Partner,
+                    sort_order: 0,
+                };
+                let _ = api.add_spouse(tid, fid, &body).await;
+            }
+            linking_mode.set(None);
+            refresh += 1;
+        });
+    };
+
+    // AddChild: link existing person as child.
+    let api_link_child = api.clone();
+    let pedigree_data_child = pedigree_data.clone();
+    let on_link_child = move |person_id: Uuid| {
+        let api = api_link_child.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Child(parent_id)) = linking_mode() else {
+            return;
+        };
+        let existing_family_id = pedigree_data_child
+            .as_ref()
+            .and_then(|data| data.families_as_spouse.get(&parent_id))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = existing_family_id {
+                fid
+            } else {
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddSpouseBody {
+                    person_id: parent_id,
+                    role: oxidgene_core::SpouseRole::Partner,
+                    sort_order: 0,
+                };
+                let _ = api.add_spouse(tid, family.id, &body).await;
+                family.id
+            };
+            let body = crate::api::AddChildBody {
+                person_id,
+                child_type: oxidgene_core::ChildType::Biological,
+                sort_order: 0,
+            };
+            let _ = api.add_child(tid, fid, &body).await;
+            linking_mode.set(None);
+            refresh += 1;
+        });
+    };
+
+    // AddChild: create new person as child.
+    let api_new_child = api.clone();
+    let pedigree_data_new_child = pedigree_data.clone();
+    let on_create_new_child = move |_| {
+        let api = api_new_child.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Child(parent_id)) = linking_mode() else {
+            return;
+        };
+        let existing_family_id = pedigree_data_new_child
+            .as_ref()
+            .and_then(|data| data.families_as_spouse.get(&parent_id))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = existing_family_id {
+                fid
+            } else {
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddSpouseBody {
+                    person_id: parent_id,
+                    role: oxidgene_core::SpouseRole::Partner,
+                    sort_order: 0,
+                };
+                let _ = api.add_spouse(tid, family.id, &body).await;
+                family.id
+            };
+            if let Ok(new_person) = api
+                .create_person(
+                    tid,
+                    &crate::api::CreatePersonBody {
+                        sex: oxidgene_core::Sex::Unknown,
+                    },
+                )
+                .await
+            {
+                let body = crate::api::AddChildBody {
+                    person_id: new_person.id,
+                    child_type: oxidgene_core::ChildType::Biological,
+                    sort_order: 0,
+                };
+                let _ = api.add_child(tid, fid, &body).await;
+            }
+            linking_mode.set(None);
             refresh += 1;
         });
     };
@@ -525,6 +744,13 @@ pub fn TreeDetail(tree_id: String) -> Element {
         });
     };
 
+    // Linking mode label for the panel header.
+    let linking_label: Option<String> = linking_mode().map(|mode| match &mode {
+        LinkingMode::Spouse(_) => "Add Spouse".to_string(),
+        LinkingMode::Parents(_) => "Add Parent".to_string(),
+        LinkingMode::Child(_) => "Add Child".to_string(),
+    });
+
     // ── Render ──
 
     rsx! {
@@ -575,6 +801,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 person_name: ctx_person_name.clone(),
                 x: x,
                 y: y,
+                has_union: ctx_person_has_union,
                 on_action: on_context_action,
                 on_close: move |_| context_menu_person.set(None),
             }
@@ -587,6 +814,18 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     tree_id: tid,
                     person_id: edit_pid,
                     on_close: move |_| editing_person_id.set(None),
+                    on_saved: move |_| refresh += 1,
+                }
+            }
+        }
+
+        // Union edit modal
+        if let Some(union_fid) = editing_union_id() {
+            if let Some(tid) = tree_id_parsed {
+                UnionForm {
+                    tree_id: tid,
+                    family_id: union_fid,
+                    on_close: move |_| editing_union_id.set(None),
                     on_saved: move |_| refresh += 1,
                 }
             }
@@ -750,6 +989,76 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     } else {
                         rsx! {
                             div { class: "loading", "Loading pedigree data..." }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Linking panel (search-or-create for AddSpouse/AddParents/AddChild) ──
+        if let (Some(label), Some(tid)) = (linking_label, tree_id_parsed) {
+            div { class: "card linking-card",
+                div { class: "section-header",
+                    h2 { style: "font-size: 1.1rem;", "{label}" }
+                    button {
+                        class: "btn btn-outline btn-sm",
+                        onclick: move |_| linking_mode.set(None),
+                        "Cancel"
+                    }
+                }
+
+                div { class: "linking-panel",
+                    p { class: "linking-panel-title",
+                        "Search for an existing person to link, or create a new one:"
+                    }
+
+                    // Determine which handler to use based on mode.
+                    {
+                        let mode = linking_mode();
+                        match mode {
+                            Some(LinkingMode::Spouse(_)) => rsx! {
+                                SearchPerson {
+                                    tree_id: tid,
+                                    placeholder: "Search for spouse...",
+                                    on_select: on_link_spouse,
+                                    on_cancel: move |_| linking_mode.set(None),
+                                }
+                                div { class: "linking-panel-or", "— or —" }
+                                button {
+                                    class: "btn btn-outline",
+                                    onclick: on_create_new_spouse,
+                                    "Create New Person as Spouse"
+                                }
+                            },
+                            Some(LinkingMode::Parents(_)) => rsx! {
+                                SearchPerson {
+                                    tree_id: tid,
+                                    placeholder: "Search for parent...",
+                                    on_select: on_link_parent,
+                                    on_cancel: move |_| linking_mode.set(None),
+                                }
+                                div { class: "linking-panel-or", "— or —" }
+                                button {
+                                    class: "btn btn-outline",
+                                    onclick: on_create_new_parent,
+                                    "Create New Person as Parent"
+                                }
+                            },
+                            Some(LinkingMode::Child(_)) => rsx! {
+                                SearchPerson {
+                                    tree_id: tid,
+                                    placeholder: "Search for child...",
+                                    on_select: on_link_child,
+                                    on_cancel: move |_| linking_mode.set(None),
+                                }
+                                div { class: "linking-panel-or", "— or —" }
+                                button {
+                                    class: "btn btn-outline",
+                                    onclick: on_create_new_child,
+                                    "Create New Person as Child"
+                                }
+                            },
+                            None => rsx! {},
                         }
                     }
                 }
