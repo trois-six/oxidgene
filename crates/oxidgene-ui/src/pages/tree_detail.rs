@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ImportGedcomBody, UpdateTreeBody};
+use crate::api::{ApiClient, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
@@ -72,7 +72,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
     // ── GEDCOM import/export state ──
     let mut show_gedcom = use_signal(|| false);
     let mut show_import_form = use_signal(|| false);
-    let mut import_text = use_signal(String::new);
+    let mut import_path = use_signal(String::new);
     let mut import_error = use_signal(|| None::<String>);
     let mut import_result = use_signal(|| None::<crate::api::ImportGedcomResult>);
     let mut importing = use_signal(|| false);
@@ -696,20 +696,27 @@ pub fn TreeDetail(tree_id: String) -> Element {
     let on_import_gedcom = move |_| {
         let api = api_import.clone();
         let Some(tid) = tree_id_parsed else { return };
-        let gedcom = import_text().trim().to_string();
+        let path = import_path().trim().to_string();
         spawn(async move {
-            if gedcom.is_empty() {
-                import_error.set(Some("GEDCOM text is required".to_string()));
+            if path.is_empty() {
+                import_error.set(Some("File path is required".to_string()));
                 return;
             }
             importing.set(true);
             import_error.set(None);
             import_result.set(None);
-            let body = ImportGedcomBody { gedcom };
-            match api.import_gedcom(tid, &body.gedcom).await {
+            let gedcom = match tokio::fs::read_to_string(&path).await {
+                Ok(content) => content,
+                Err(e) => {
+                    import_error.set(Some(format!("Failed to read file: {e}")));
+                    importing.set(false);
+                    return;
+                }
+            };
+            match api.import_gedcom(tid, &gedcom).await {
                 Ok(result) => {
                     import_result.set(Some(result));
-                    import_text.set(String::new());
+                    import_path.set(String::new());
                     importing.set(false);
                     refresh += 1;
                 }
@@ -1094,14 +1101,15 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     if show_import_form() {
                         div { style: "padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
                             p { style: "font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 12px;",
-                                "Paste your GEDCOM file content below and click Import."
+                                "Enter the path to a GEDCOM file on your computer."
                             }
                             div { class: "form-group",
-                                textarea {
-                                    class: "gedcom-textarea",
-                                    placeholder: "0 HEAD\n1 SOUR ...\n0 @I1@ INDI\n...",
-                                    value: "{import_text}",
-                                    oninput: move |e: Event<FormData>| import_text.set(e.value()),
+                                label { "File path" }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "/home/user/family.ged",
+                                    value: "{import_path}",
+                                    oninput: move |e: Event<FormData>| import_path.set(e.value()),
                                 }
                             }
                             if let Some(err) = import_error() {
