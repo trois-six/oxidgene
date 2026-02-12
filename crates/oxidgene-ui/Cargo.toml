@@ -16,4 +16,5 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
