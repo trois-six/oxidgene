@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::api::{
     AddChildBody, AddSpouseBody, ApiClient, CreatePersonBody, CreatePlaceBody, CreateSourceBody,
-    UpdatePlaceBody, UpdateSourceBody, UpdateTreeBody,
+    ImportGedcomBody, UpdatePlaceBody, UpdateSourceBody, UpdateTreeBody,
 };
 use crate::router::Route;
 use oxidgene_core::{ChildType, Sex, SpouseRole};
@@ -84,6 +84,17 @@ pub fn TreeDetail(tree_id: String) -> Element {
     let mut edit_source_error = use_signal(|| None::<String>);
     let mut confirm_delete_source_id = use_signal(|| None::<uuid::Uuid>);
     let mut delete_source_error = use_signal(|| None::<String>);
+
+    // ── GEDCOM import/export state ──
+    let mut show_import_form = use_signal(|| false);
+    let mut import_text = use_signal(String::new);
+    let mut import_error = use_signal(|| None::<String>);
+    let mut import_result = use_signal(|| None::<crate::api::ImportGedcomResult>);
+    let mut importing = use_signal(|| false);
+    let mut export_text = use_signal(|| None::<String>);
+    let mut export_error = use_signal(|| None::<String>);
+    let mut export_warnings = use_signal(Vec::<String>::new);
+    let mut exporting = use_signal(|| false);
 
     // Fetch tree details.
     let api_tree = api.clone();
@@ -648,6 +659,62 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 }
                 Err(e) => {
                     delete_source_error.set(Some(format!("{e}")));
+                }
+            }
+        });
+    };
+
+    // ── GEDCOM handlers ──
+
+    // Import GEDCOM handler.
+    let api_import = api.clone();
+    let on_import_gedcom = move |_| {
+        let api = api_import.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let gedcom = import_text().trim().to_string();
+        spawn(async move {
+            if gedcom.is_empty() {
+                import_error.set(Some("GEDCOM text is required".to_string()));
+                return;
+            }
+            importing.set(true);
+            import_error.set(None);
+            import_result.set(None);
+            let body = ImportGedcomBody { gedcom };
+            match api.import_gedcom(tid, &body.gedcom).await {
+                Ok(result) => {
+                    import_result.set(Some(result));
+                    import_text.set(String::new());
+                    importing.set(false);
+                    refresh += 1;
+                }
+                Err(e) => {
+                    import_error.set(Some(format!("{e}")));
+                    importing.set(false);
+                }
+            }
+        });
+    };
+
+    // Export GEDCOM handler.
+    let api_export = api.clone();
+    let on_export_gedcom = move |_| {
+        let api = api_export.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        spawn(async move {
+            exporting.set(true);
+            export_error.set(None);
+            export_text.set(None);
+            export_warnings.set(Vec::new());
+            match api.export_gedcom(tid).await {
+                Ok(result) => {
+                    export_text.set(Some(result.gedcom));
+                    export_warnings.set(result.warnings);
+                    exporting.set(false);
+                }
+                Err(e) => {
+                    export_error.set(Some(format!("{e}")));
+                    exporting.set(false);
                 }
             }
         });
@@ -1477,7 +1544,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
 
         // ── Sources section ──
-        div { class: "card",
+        div { class: "card", style: "margin-bottom: 24px;",
             div { class: "section-header",
                 h2 { style: "font-size: 1.1rem;", "Sources" }
                 button {
@@ -1685,6 +1752,142 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 None => rsx! {
                     div { class: "loading", "Loading sources..." }
                 },
+            }
+        }
+
+        // ── GEDCOM Import / Export section ──
+        div { class: "card",
+            h2 { style: "font-size: 1.1rem; margin-bottom: 16px;", "GEDCOM" }
+
+            // ── Import sub-section ──
+            div { style: "margin-bottom: 24px;",
+                div { class: "section-header",
+                    h3 { style: "font-size: 0.95rem;", "Import" }
+                    button {
+                        class: "btn btn-outline btn-sm",
+                        onclick: move |_| {
+                            show_import_form.toggle();
+                            import_error.set(None);
+                        },
+                        if show_import_form() { "Cancel" } else { "Import GEDCOM" }
+                    }
+                }
+
+                if show_import_form() {
+                    div { style: "padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
+                        p { style: "font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 12px;",
+                            "Paste your GEDCOM file content below and click Import."
+                        }
+                        div { class: "form-group",
+                            textarea {
+                                class: "gedcom-textarea",
+                                placeholder: "0 HEAD\n1 SOUR ...\n0 @I1@ INDI\n...",
+                                value: "{import_text}",
+                                oninput: move |e: Event<FormData>| import_text.set(e.value()),
+                            }
+                        }
+                        if let Some(err) = import_error() {
+                            div { class: "error-msg", "{err}" }
+                        }
+                        button {
+                            class: "btn btn-primary",
+                            disabled: importing(),
+                            onclick: on_import_gedcom,
+                            if importing() { "Importing..." } else { "Import" }
+                        }
+                    }
+                }
+
+                // Import result display
+                if let Some(result) = import_result() {
+                    div { class: "gedcom-result",
+                        h4 { "Import Successful" }
+                        div { class: "result-stats",
+                            div { class: "result-stat",
+                                span { class: "stat-value", "{result.persons_count}" }
+                                span { class: "stat-label", "persons" }
+                            }
+                            div { class: "result-stat",
+                                span { class: "stat-value", "{result.families_count}" }
+                                span { class: "stat-label", "families" }
+                            }
+                            div { class: "result-stat",
+                                span { class: "stat-value", "{result.events_count}" }
+                                span { class: "stat-label", "events" }
+                            }
+                            div { class: "result-stat",
+                                span { class: "stat-value", "{result.sources_count}" }
+                                span { class: "stat-label", "sources" }
+                            }
+                            div { class: "result-stat",
+                                span { class: "stat-value", "{result.media_count}" }
+                                span { class: "stat-label", "media" }
+                            }
+                            div { class: "result-stat",
+                                span { class: "stat-value", "{result.places_count}" }
+                                span { class: "stat-label", "places" }
+                            }
+                            div { class: "result-stat",
+                                span { class: "stat-value", "{result.notes_count}" }
+                                span { class: "stat-label", "notes" }
+                            }
+                        }
+                        if !result.warnings.is_empty() {
+                            div { class: "gedcom-warnings",
+                                details {
+                                    summary { "{result.warnings.len()} warning(s)" }
+                                    ul {
+                                        for warning in result.warnings.iter() {
+                                            li { "{warning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Export sub-section ──
+            div {
+                div { class: "section-header",
+                    h3 { style: "font-size: 0.95rem;", "Export" }
+                    button {
+                        class: "btn btn-outline btn-sm",
+                        disabled: exporting(),
+                        onclick: on_export_gedcom,
+                        if exporting() { "Exporting..." } else { "Export GEDCOM" }
+                    }
+                }
+
+                if let Some(err) = export_error() {
+                    div { class: "error-msg", "{err}" }
+                }
+
+                if let Some(gedcom) = export_text() {
+                    div { style: "margin-top: 12px;",
+                        div { class: "form-group",
+                            label { "Exported GEDCOM" }
+                            textarea {
+                                class: "gedcom-textarea",
+                                readonly: true,
+                                value: "{gedcom}",
+                            }
+                        }
+                        if !export_warnings().is_empty() {
+                            div { class: "gedcom-warnings",
+                                details {
+                                    summary { "{export_warnings().len()} warning(s)" }
+                                    ul {
+                                        for warning in export_warnings().iter() {
+                                            li { "{warning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
