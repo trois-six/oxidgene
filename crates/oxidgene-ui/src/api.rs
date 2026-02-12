@@ -5,7 +5,9 @@
 //! from [`oxidgene_core`] directly, since those types already derive
 //! `Serialize` / `Deserialize`.
 
-use oxidgene_core::types::{Connection, Event, Family, Person, PersonName, Place, Source, Tree};
+use oxidgene_core::types::{
+    Connection, Event, Family, FamilyChild, FamilySpouse, Person, PersonName, Place, Source, Tree,
+};
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -536,6 +538,17 @@ impl ApiClient {
 
     // ── Family Spouses ──────────────────────────────────────────────
 
+    pub async fn list_family_spouses(
+        &self,
+        tree_id: Uuid,
+        family_id: Uuid,
+    ) -> Result<Vec<FamilySpouse>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/families/{family_id}/spouses"
+        ))
+        .await
+    }
+
     pub async fn add_spouse(
         &self,
         tree_id: Uuid,
@@ -562,6 +575,17 @@ impl ApiClient {
     }
 
     // ── Family Children ─────────────────────────────────────────────
+
+    pub async fn list_family_children(
+        &self,
+        tree_id: Uuid,
+        family_id: Uuid,
+    ) -> Result<Vec<FamilyChild>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/families/{family_id}/children"
+        ))
+        .await
+    }
 
     pub async fn add_child(
         &self,
