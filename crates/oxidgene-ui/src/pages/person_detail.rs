@@ -1,4 +1,6 @@
-//! Person detail page — shows names, events, notes, and citations with full CRUD.
+//! Person detail page — shows names, events, notes, citations, and ancestry charts with full CRUD.
+
+use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use uuid::Uuid;
@@ -8,7 +10,7 @@ use crate::api::{
     UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
 use crate::router::Route;
-use oxidgene_core::{Confidence, EventType, NameType};
+use oxidgene_core::{Confidence, EventType, NameType, Sex};
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
 #[component]
@@ -100,6 +102,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Delete citation confirmation.
     let mut confirm_delete_citation_id = use_signal(|| None::<Uuid>);
     let mut delete_citation_error = use_signal(|| None::<String>);
+
+    // Ancestry chart toggle signals.
+    let mut show_ancestors = use_signal(|| false);
+    let mut show_descendants = use_signal(|| false);
 
     // ── Resources ────────────────────────────────────────────────────
 
@@ -207,6 +213,111 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 });
             };
             api.list_sources(tid, Some(100), None).await
+        }
+    });
+
+    // Fetch ancestors (lazy: only when toggled on).
+    let api_ancestors = api.clone();
+    let ancestors_resource = use_resource(move || {
+        let api = api_ancestors.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        let pid = person_id_parsed;
+        let active = show_ancestors();
+        async move {
+            if !active {
+                return Ok(vec![]);
+            }
+            let (Some(tid), Some(pid)) = (tid, pid) else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid IDs".to_string(),
+                });
+            };
+            api.get_ancestors(tid, pid, None).await
+        }
+    });
+
+    // Fetch descendants (lazy: only when toggled on).
+    let api_descendants = api.clone();
+    let descendants_resource = use_resource(move || {
+        let api = api_descendants.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        let pid = person_id_parsed;
+        let active = show_descendants();
+        async move {
+            if !active {
+                return Ok(vec![]);
+            }
+            let (Some(tid), Some(pid)) = (tid, pid) else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid IDs".to_string(),
+                });
+            };
+            api.get_descendants(tid, pid, None).await
+        }
+    });
+
+    // Fetch all persons in tree (for resolving IDs in ancestry charts).
+    let api_all_persons = api.clone();
+    let all_persons_resource = use_resource(move || {
+        let api = api_all_persons.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        let need = show_ancestors() || show_descendants();
+        async move {
+            if !need {
+                return Ok(oxidgene_core::types::Connection::empty());
+            }
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid IDs".to_string(),
+                });
+            };
+            api.list_persons(tid, Some(500), None).await
+        }
+    });
+
+    // Fetch all person names in tree (for resolving names in ancestry charts).
+    // We use the list_persons result to gather person IDs, then load names.
+    // For simplicity, load names for each person found in the ancestry edges.
+    // Since there's no "list all names in tree" endpoint, we'll build a lookup
+    // from the persons + names loaded by ancestries.
+    let api_all_names = api.clone();
+    let all_names_resource = use_resource(move || {
+        let api = api_all_names.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        let need = show_ancestors() || show_descendants();
+        async move {
+            if !need {
+                return Ok(HashMap::<Uuid, Vec<oxidgene_core::types::PersonName>>::new());
+            }
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid IDs".to_string(),
+                });
+            };
+            // Load all persons first, then load names for each.
+            let persons = api.list_persons(tid, Some(500), None).await?;
+            let mut name_map = HashMap::new();
+            for edge in &persons.edges {
+                let pid = edge.node.id;
+                match api.list_person_names(tid, pid).await {
+                    Ok(names) => {
+                        name_map.insert(pid, names);
+                    }
+                    Err(_) => {
+                        // If we can't load names for a person, skip.
+                        name_map.insert(pid, vec![]);
+                    }
+                }
+            }
+            Ok(name_map)
         }
     });
 
@@ -1561,6 +1672,52 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 p { class: "text-muted", "Citations are linked to this person via the form above. View source details on the tree page to see all citations." }
             }
         }
+
+        // ── Ancestors section ─────────────────────────────────────────
+        div { class: "card", style: "margin-bottom: 24px;",
+            div { class: "section-header",
+                h2 { style: "font-size: 1.1rem;", "Ancestors" }
+                button {
+                    class: "btn btn-primary btn-sm",
+                    onclick: move |_| show_ancestors.toggle(),
+                    if show_ancestors() { "Hide" } else { "Show Ancestors" }
+                }
+            }
+
+            if show_ancestors() {
+                {render_ancestry_chart(
+                    &ancestors_resource,
+                    &all_persons_resource,
+                    &all_names_resource,
+                    person_id_parsed,
+                    &tree_id,
+                    true,
+                )}
+            }
+        }
+
+        // ── Descendants section ───────────────────────────────────────
+        div { class: "card",
+            div { class: "section-header",
+                h2 { style: "font-size: 1.1rem;", "Descendants" }
+                button {
+                    class: "btn btn-primary btn-sm",
+                    onclick: move |_| show_descendants.toggle(),
+                    if show_descendants() { "Hide" } else { "Show Descendants" }
+                }
+            }
+
+            if show_descendants() {
+                {render_ancestry_chart(
+                    &descendants_resource,
+                    &all_persons_resource,
+                    &all_names_resource,
+                    person_id_parsed,
+                    &tree_id,
+                    false,
+                )}
+            }
+        }
     }
 }
 
@@ -1727,6 +1884,200 @@ fn source_select_widget(
                 option {
                     value: "{sid}",
                     "{title}"
+                }
+            }
+        }
+    }
+}
+
+/// Returns a short CSS class for the sex icon.
+fn sex_icon_class(sex: &Sex) -> &'static str {
+    match sex {
+        Sex::Male => "male",
+        Sex::Female => "female",
+        Sex::Unknown => "",
+    }
+}
+
+/// Returns a short symbol for sex.
+fn sex_symbol(sex: &Sex) -> &'static str {
+    match sex {
+        Sex::Male => "M",
+        Sex::Female => "F",
+        Sex::Unknown => "?",
+    }
+}
+
+/// Resolve a display name for a person from the name map.
+fn resolve_name(
+    person_id: Uuid,
+    name_map: &HashMap<Uuid, Vec<oxidgene_core::types::PersonName>>,
+) -> String {
+    match name_map.get(&person_id) {
+        Some(names) => {
+            let primary = names.iter().find(|n| n.is_primary).or(names.first());
+            match primary {
+                Some(name) => {
+                    let dn = name.display_name();
+                    if dn.is_empty() {
+                        "Unnamed".to_string()
+                    } else {
+                        dn
+                    }
+                }
+                None => "Unnamed".to_string(),
+            }
+        }
+        None => "Unnamed".to_string(),
+    }
+}
+
+/// Renders the ancestry/descendant chart.
+///
+/// For ancestors (`is_ancestors=true`): edges have `ancestor_id` at depth N from
+/// the current person (the `descendant_id`). We group by depth and display
+/// generation labels (Parents, Grandparents, etc.).
+///
+/// For descendants (`is_ancestors=false`): edges have `descendant_id` at depth N
+/// from the current person (the `ancestor_id`). Same grouping logic.
+fn render_ancestry_chart(
+    edges_resource: &Resource<
+        Result<Vec<oxidgene_core::types::PersonAncestry>, crate::api::ApiError>,
+    >,
+    all_persons_resource: &Resource<
+        Result<
+            oxidgene_core::types::Connection<oxidgene_core::types::Person>,
+            crate::api::ApiError,
+        >,
+    >,
+    all_names_resource: &Resource<
+        Result<HashMap<Uuid, Vec<oxidgene_core::types::PersonName>>, crate::api::ApiError>,
+    >,
+    current_person_id: Option<Uuid>,
+    tree_id: &str,
+    is_ancestors: bool,
+) -> Element {
+    let edges_data = edges_resource.read();
+    let persons_data = all_persons_resource.read();
+    let names_data = all_names_resource.read();
+
+    // Check if resources are still loading.
+    if edges_data.is_none() || persons_data.is_none() || names_data.is_none() {
+        return rsx! {
+            div { class: "loading", "Loading ancestry data..." }
+        };
+    }
+
+    let edges = match &*edges_data {
+        Some(Ok(e)) => e,
+        Some(Err(e)) => {
+            return rsx! {
+                div { class: "error-msg", "Failed to load ancestry: {e}" }
+            };
+        }
+        None => unreachable!(),
+    };
+
+    if edges.is_empty() {
+        let label = if is_ancestors {
+            "ancestors"
+        } else {
+            "descendants"
+        };
+        return rsx! {
+            div { class: "empty-state",
+                p { "No {label} data available." }
+                p { class: "text-muted",
+                    "Ancestry data is populated during GEDCOM import. "
+                    "Manual person creation does not build the ancestry closure table."
+                }
+            }
+        };
+    }
+
+    // Build person sex lookup from all_persons_resource.
+    let person_sex: HashMap<Uuid, Sex> = match &*persons_data {
+        Some(Ok(conn)) => conn.edges.iter().map(|e| (e.node.id, e.node.sex)).collect(),
+        _ => HashMap::new(),
+    };
+
+    // Build name lookup.
+    let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = match &*names_data {
+        Some(Ok(m)) => m.clone(),
+        _ => HashMap::new(),
+    };
+
+    // Group edges by depth, collecting the "other" person ID.
+    let mut by_depth: std::collections::BTreeMap<i32, Vec<Uuid>> =
+        std::collections::BTreeMap::new();
+    for edge in edges.iter() {
+        let person_id = if is_ancestors {
+            edge.ancestor_id
+        } else {
+            edge.descendant_id
+        };
+        by_depth.entry(edge.depth).or_default().push(person_id);
+    }
+
+    // Deduplicate within each depth level.
+    for persons in by_depth.values_mut() {
+        persons.sort();
+        persons.dedup();
+    }
+
+    let generation_label = |depth: i32, is_anc: bool| -> String {
+        if is_anc {
+            match depth {
+                1 => "Parents".to_string(),
+                2 => "Grandparents".to_string(),
+                3 => "Great-Grandparents".to_string(),
+                n => format!("{n}x Great-Grandparents"),
+            }
+        } else {
+            match depth {
+                1 => "Children".to_string(),
+                2 => "Grandchildren".to_string(),
+                3 => "Great-Grandchildren".to_string(),
+                n => format!("{n}x Great-Grandchildren"),
+            }
+        }
+    };
+
+    let tree_id_owned = tree_id.to_string();
+
+    rsx! {
+        div { class: "chart-container",
+            for (depth, person_ids) in by_depth.iter() {
+                div { class: "depth-group",
+                    div { class: "gen-label",
+                        {generation_label(*depth, is_ancestors)}
+                        " ({person_ids.len()})"
+                    }
+                    div { class: "depth-group-nodes",
+                        for pid in person_ids.iter() {
+                            {
+                                let pid = *pid;
+                                let name = resolve_name(pid, &name_map);
+                                let sex = person_sex.get(&pid).cloned().unwrap_or(Sex::Unknown);
+                                let is_current = current_person_id == Some(pid);
+                                let node_class = if is_current { "tree-node current" } else { "tree-node" };
+                                let icon_class = format!("sex-icon {}", sex_icon_class(&sex));
+                                let symbol = sex_symbol(&sex);
+                                let tree_id_link = tree_id_owned.clone();
+                                rsx! {
+                                    Link {
+                                        to: Route::PersonDetail {
+                                            tree_id: tree_id_link,
+                                            person_id: pid.to_string(),
+                                        },
+                                        class: node_class,
+                                        span { class: icon_class, "{symbol}" }
+                                        "{name}"
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
