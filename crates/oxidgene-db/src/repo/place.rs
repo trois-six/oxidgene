@@ -30,6 +30,19 @@ impl PlaceRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
+    /// List all places in a tree without pagination.
+    pub async fn list_all(
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+    ) -> Result<Vec<Place>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single place by ID.
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Place, OxidGeneError> {
         Entity::find_by_id(id)

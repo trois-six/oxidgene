@@ -28,6 +28,19 @@ impl CitationRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List citations for multiple sources.
+    pub async fn list_by_sources(
+        db: &DatabaseConnection,
+        source_ids: &[Uuid],
+    ) -> Result<Vec<Citation>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::SourceId.is_in(source_ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single citation by ID.
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Citation, OxidGeneError> {
         Entity::find_by_id(id)

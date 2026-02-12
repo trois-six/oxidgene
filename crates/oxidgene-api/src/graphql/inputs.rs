@@ -224,3 +224,12 @@ pub struct CreateNoteInput {
 pub struct UpdateNoteInput {
     pub text: Option<String>,
 }
+
+// ── GEDCOM Inputs ────────────────────────────────────────────────────
+
+/// Input for importing a GEDCOM string.
+#[derive(Debug, InputObject)]
+pub struct ImportGedcomInput {
+    /// The raw GEDCOM string content.
+    pub gedcom: String,
+}

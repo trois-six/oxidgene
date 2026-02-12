@@ -8,6 +8,7 @@
 pub mod graphql;
 pub mod rest;
 pub mod router;
+pub mod service;
 
 pub use graphql::{OxidGeneSchema, build_schema};
 pub use rest::state::AppState;

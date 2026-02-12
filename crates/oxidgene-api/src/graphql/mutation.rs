@@ -12,13 +12,14 @@ use oxidgene_db::repo::{
 use super::inputs::{
     AddChildInput, AddSpouseInput, CreateCitationInput, CreateEventInput, CreateMediaLinkInput,
     CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput, CreateTreeInput,
-    PersonNameInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput, UpdateNoteInput,
-    UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput,
-    UploadMediaInput,
+    ImportGedcomInput, PersonNameInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput,
+    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput,
+    UpdateTreeInput, UploadMediaInput,
 };
 use super::types::{
-    GqlCitation, GqlEvent, GqlFamily, GqlFamilyChild, GqlFamilySpouse, GqlMedia, GqlMediaLink,
-    GqlNote, GqlPerson, GqlPersonName, GqlPlace, GqlSource, GqlTree, db_from_ctx,
+    GqlCitation, GqlEvent, GqlFamily, GqlFamilyChild, GqlFamilySpouse, GqlImportGedcomResult,
+    GqlMedia, GqlMediaLink, GqlNote, GqlPerson, GqlPersonName, GqlPlace, GqlSource, GqlTree,
+    db_from_ctx,
 };
 
 /// The root mutation type.
@@ -628,5 +629,29 @@ impl MutationRoot {
         let uuid = Uuid::parse_str(id.as_str())?;
         NoteRepo::delete(db, uuid).await?;
         Ok(true)
+    }
+
+    // ── GEDCOM Mutations ──────────────────────────────────────────────
+
+    /// Import a GEDCOM string into a tree, persisting all extracted entities.
+    async fn import_gedcom(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: ImportGedcomInput,
+    ) -> Result<GqlImportGedcomResult> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let summary = crate::service::gedcom::import_and_persist(db, tid, &input.gedcom).await?;
+        Ok(GqlImportGedcomResult {
+            persons_count: summary.persons_count as i32,
+            families_count: summary.families_count as i32,
+            events_count: summary.events_count as i32,
+            sources_count: summary.sources_count as i32,
+            media_count: summary.media_count as i32,
+            places_count: summary.places_count as i32,
+            notes_count: summary.notes_count as i32,
+            warnings: summary.warnings,
+        })
     }
 }

@@ -28,6 +28,19 @@ impl PersonNameRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List all names for multiple persons.
+    pub async fn list_by_persons(
+        db: &DatabaseConnection,
+        person_ids: &[Uuid],
+    ) -> Result<Vec<PersonName>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single person name by ID.
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<PersonName, OxidGeneError> {
         Entity::find_by_id(id)

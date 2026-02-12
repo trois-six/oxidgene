@@ -9,9 +9,10 @@ use oxidgene_db::repo::{
 };
 
 use super::types::{
-    GqlEvent, GqlEventConnection, GqlEventType, GqlFamily, GqlFamilyConnection, GqlMedia,
-    GqlMediaConnection, GqlPerson, GqlPersonConnection, GqlPersonWithDepth, GqlPlace,
-    GqlPlaceConnection, GqlSource, GqlSourceConnection, GqlTree, GqlTreeConnection, db_from_ctx,
+    GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult, GqlFamily,
+    GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlPerson, GqlPersonConnection,
+    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlSource, GqlSourceConnection, GqlTree,
+    GqlTreeConnection, db_from_ctx,
 };
 
 /// The root query type.
@@ -300,5 +301,18 @@ impl QueryRoot {
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    // ── GEDCOM ────────────────────────────────────────────────────────
+
+    /// Export all entities in a tree as a GEDCOM 5.5.1 string.
+    async fn export_gedcom(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlExportGedcomResult> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let data = crate::service::gedcom::load_and_export(db, tid).await?;
+        Ok(GqlExportGedcomResult {
+            gedcom: data.gedcom,
+            warnings: data.warnings,
+        })
     }
 }

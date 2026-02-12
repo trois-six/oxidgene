@@ -26,6 +26,20 @@ impl SourceRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
+    /// List all sources in a tree without pagination (excludes soft-deleted).
+    pub async fn list_all(
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+    ) -> Result<Vec<Source>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single source by ID (excludes soft-deleted).
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Source, OxidGeneError> {
         Entity::find_by_id(id)

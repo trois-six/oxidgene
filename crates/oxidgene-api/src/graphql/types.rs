@@ -1251,3 +1251,25 @@ impl From<oxidgene_core::types::Note> for GqlNote {
         }
     }
 }
+
+// ── GEDCOM Import/Export Results ──────────────────────────────────────
+
+/// Result of a GEDCOM import operation.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlImportGedcomResult {
+    pub persons_count: i32,
+    pub families_count: i32,
+    pub events_count: i32,
+    pub sources_count: i32,
+    pub media_count: i32,
+    pub places_count: i32,
+    pub notes_count: i32,
+    pub warnings: Vec<String>,
+}
+
+/// Result of a GEDCOM export operation.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlExportGedcomResult {
+    pub gedcom: String,
+    pub warnings: Vec<String>,
+}
