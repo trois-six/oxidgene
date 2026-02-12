@@ -219,6 +219,17 @@ const LAYOUT_STYLES: &str = r#"
         margin-bottom: 16px;
     }
 
+    .form-row {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .form-row .form-group {
+        flex: 1;
+        min-width: 140px;
+    }
+
     .table-wrapper {
         overflow-x: auto;
     }
