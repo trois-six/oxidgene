@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, UpdateTreeBody};
+use crate::components::confirm_dialog::ConfirmDialog;
 use crate::router::Route;
 
 /// Page rendered at `/trees`.
@@ -159,33 +160,17 @@ pub fn TreeList() -> Element {
 
         // Delete confirmation dialog
         if confirm_delete_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Tree" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete "
-                        strong { "{confirm_delete_name}" }
-                        "? This action cannot be undone."
-                    }
-                    if let Some(err) = delete_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_id.set(None);
-                                delete_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Tree",
+                message: format!("Are you sure you want to delete {}? This action cannot be undone.", confirm_delete_name()),
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_error(),
+                on_confirm: on_confirm_delete,
+                on_cancel: move |_| {
+                    confirm_delete_id.set(None);
+                    delete_error.set(None);
+                },
             }
         }
 

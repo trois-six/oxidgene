@@ -7,8 +7,9 @@ use crate::api::{
     AddChildBody, AddSpouseBody, ApiClient, CreatePersonBody, CreatePlaceBody, CreateSourceBody,
     ImportGedcomBody, UpdatePlaceBody, UpdateSourceBody, UpdateTreeBody,
 };
+use crate::components::confirm_dialog::ConfirmDialog;
 use crate::router::Route;
-use oxidgene_core::{ChildType, Sex, SpouseRole};
+use crate::utils::{opt_str, parse_child_type, parse_sex, parse_spouse_role};
 
 /// Page rendered at `/trees/:tree_id`.
 #[component]
@@ -288,11 +289,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
         let Some(tid) = tree_id_parsed else { return };
         let sex_str = new_person_sex();
         spawn(async move {
-            let sex = match sex_str.as_str() {
-                "Male" => Sex::Male,
-                "Female" => Sex::Female,
-                _ => Sex::Unknown,
-            };
+            let sex = parse_sex(&sex_str);
             let body = CreatePersonBody { sex };
             match api.create_person(tid, &body).await {
                 Ok(_) => {
@@ -758,121 +755,65 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
         // Delete tree confirmation dialog
         if confirm_delete() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Tree" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this tree and all its data? This action cannot be undone."
-                    }
-                    if let Some(err) = delete_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete.set(false);
-                                delete_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Tree",
+                message: "Are you sure you want to delete this tree and all its data? This action cannot be undone.",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_error(),
+                on_confirm: move |_| on_confirm_delete(()),
+                on_cancel: move |_| {
+                    confirm_delete.set(false);
+                    delete_error.set(None);
+                },
             }
         }
 
         // Delete family confirmation dialog
         if confirm_delete_family_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Family" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this family? All spouse and child links will be removed."
-                    }
-                    if let Some(err) = delete_family_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_family_id.set(None);
-                                delete_family_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete_family,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Family",
+                message: "Are you sure you want to delete this family? All spouse and child links will be removed.",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_family_error(),
+                on_confirm: move |_| on_confirm_delete_family(()),
+                on_cancel: move |_| {
+                    confirm_delete_family_id.set(None);
+                    delete_family_error.set(None);
+                },
             }
         }
 
         // Delete place confirmation dialog
         if confirm_delete_place_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Place" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this place?"
-                    }
-                    if let Some(err) = delete_place_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_place_id.set(None);
-                                delete_place_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete_place,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Place",
+                message: "Are you sure you want to delete this place?",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_place_error(),
+                on_confirm: move |_| on_confirm_delete_place(()),
+                on_cancel: move |_| {
+                    confirm_delete_place_id.set(None);
+                    delete_place_error.set(None);
+                },
             }
         }
 
         // Delete source confirmation dialog
         if confirm_delete_source_id().is_some() {
-            div { class: "modal-backdrop",
-                div { class: "modal-card",
-                    h3 { "Delete Source" }
-                    p { style: "margin: 12px 0;",
-                        "Are you sure you want to delete this source?"
-                    }
-                    if let Some(err) = delete_source_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| {
-                                confirm_delete_source_id.set(None);
-                                delete_source_error.set(None);
-                            },
-                            "Cancel"
-                        }
-                        button {
-                            class: "btn btn-danger",
-                            onclick: on_confirm_delete_source,
-                            "Delete"
-                        }
-                    }
-                }
+            ConfirmDialog {
+                title: "Delete Source",
+                message: "Are you sure you want to delete this source?",
+                confirm_label: "Delete",
+                confirm_class: "btn btn-danger",
+                error: delete_source_error(),
+                on_confirm: move |_| on_confirm_delete_source(()),
+                on_cancel: move |_| {
+                    confirm_delete_source_id.set(None);
+                    delete_source_error.set(None);
+                },
             }
         }
 
@@ -1890,34 +1831,5 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 }
             }
         }
-    }
-}
-
-// ── Helper functions ─────────────────────────────────────────────────
-
-fn parse_spouse_role(s: &str) -> SpouseRole {
-    match s {
-        "Husband" => SpouseRole::Husband,
-        "Wife" => SpouseRole::Wife,
-        "Partner" => SpouseRole::Partner,
-        _ => SpouseRole::Partner,
-    }
-}
-
-fn parse_child_type(s: &str) -> ChildType {
-    match s {
-        "Biological" => ChildType::Biological,
-        "Adopted" => ChildType::Adopted,
-        "Foster" => ChildType::Foster,
-        "Step" => ChildType::Step,
-        _ => ChildType::Unknown,
-    }
-}
-
-fn opt_str(s: &str) -> Option<String> {
-    if s.is_empty() {
-        None
-    } else {
-        Some(s.to_string())
     }
 }
