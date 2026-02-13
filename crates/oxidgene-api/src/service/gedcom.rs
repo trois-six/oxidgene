@@ -3,15 +3,25 @@
 //! Extracted so both REST and GraphQL handlers can reuse the same
 //! persist-all-entities and load-all-entities workflows.
 
+use chrono::Utc;
 use oxidgene_core::OxidGeneError;
+use oxidgene_db::entities::{
+    citation, event, family, family_child, family_spouse, media, media_link, note, person,
+    person_ancestry, person_name, place, sea_enums, source,
+};
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaRepo, NoteRepo, PersonAncestryRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
-    TreeRepo,
+    MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
 };
 use oxidgene_gedcom::import::import_gedcom;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 use uuid::Uuid;
+
+/// Maximum number of rows per `insert_many` batch.
+///
+/// SQLite has a variable limit of ~999; with 7 columns per row that's ~142 rows.
+/// We use 100 as a safe default that works for all entity shapes.
+const BATCH_SIZE: usize = 100;
 
 /// Summary returned after a GEDCOM import.
 pub struct ImportSummary {
@@ -31,12 +41,32 @@ pub struct ExportData {
     pub warnings: Vec<String>,
 }
 
+/// Insert a batch of active models using `insert_many`, chunked to stay within
+/// SQLite's variable limit.
+async fn batch_insert<E, A>(
+    txn: &impl sea_orm::ConnectionTrait,
+    models: Vec<A>,
+) -> Result<(), OxidGeneError>
+where
+    E: EntityTrait,
+    A: ActiveModelTrait<Entity = E> + Send + 'static,
+{
+    for chunk in models.chunks(BATCH_SIZE) {
+        E::insert_many(chunk.to_vec())
+            .exec(txn)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+    }
+    Ok(())
+}
+
 /// Parse a GEDCOM string and persist all extracted entities into the database.
 ///
-/// Verifies the tree exists, parses the GEDCOM, then persists entities in
-/// FK-safe order: places → sources → media → persons → person_names →
-/// families → family_spouses → family_children → events → citations →
-/// media_links → notes → person_ancestry.
+/// Uses a single database transaction for atomicity, and batch inserts for
+/// performance. Entities are inserted in FK-safe order: places → sources →
+/// media → persons → person_names → families → family_spouses →
+/// family_children → events → citations → media_links → notes →
+/// person_ancestry.
 pub async fn import_and_persist(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -48,172 +78,265 @@ pub async fn import_and_persist(
     // Parse GEDCOM
     let result = import_gedcom(gedcom_str, tree_id).map_err(OxidGeneError::Gedcom)?;
 
-    // Persist entities in FK-safe order:
+    let now = Utc::now();
+
+    // Start a transaction for atomicity
+    let txn = db
+        .begin()
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
     // 1. Places (no FKs to other imported entities)
-    for p in &result.places {
-        PlaceRepo::create(db, p.id, p.tree_id, p.name.clone(), p.latitude, p.longitude).await?;
+    if !result.places.is_empty() {
+        let models: Vec<place::ActiveModel> = result
+            .places
+            .iter()
+            .map(|p| place::ActiveModel {
+                id: Set(p.id),
+                tree_id: Set(p.tree_id),
+                name: Set(p.name.clone()),
+                latitude: Set(p.latitude),
+                longitude: Set(p.longitude),
+                created_at: Set(now),
+                updated_at: Set(now),
+            })
+            .collect();
+        batch_insert::<place::Entity, _>(&txn, models).await?;
     }
 
     // 2. Sources (no FKs to other imported entities)
-    for s in &result.sources {
-        SourceRepo::create(
-            db,
-            s.id,
-            s.tree_id,
-            s.title.clone(),
-            s.author.clone(),
-            s.publisher.clone(),
-            s.abbreviation.clone(),
-            s.repository_name.clone(),
-        )
-        .await?;
+    if !result.sources.is_empty() {
+        let models: Vec<source::ActiveModel> = result
+            .sources
+            .iter()
+            .map(|s| source::ActiveModel {
+                id: Set(s.id),
+                tree_id: Set(s.tree_id),
+                title: Set(s.title.clone()),
+                author: Set(s.author.clone()),
+                publisher: Set(s.publisher.clone()),
+                abbreviation: Set(s.abbreviation.clone()),
+                repository_name: Set(s.repository_name.clone()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+            })
+            .collect();
+        batch_insert::<source::Entity, _>(&txn, models).await?;
     }
 
     // 3. Media (no FKs to other imported entities)
-    for m in &result.media {
-        MediaRepo::create(
-            db,
-            m.id,
-            m.tree_id,
-            m.file_name.clone(),
-            m.mime_type.clone(),
-            m.file_path.clone(),
-            m.file_size,
-            m.title.clone(),
-            m.description.clone(),
-        )
-        .await?;
+    if !result.media.is_empty() {
+        let models: Vec<media::ActiveModel> = result
+            .media
+            .iter()
+            .map(|m| media::ActiveModel {
+                id: Set(m.id),
+                tree_id: Set(m.tree_id),
+                file_name: Set(m.file_name.clone()),
+                mime_type: Set(m.mime_type.clone()),
+                file_path: Set(m.file_path.clone()),
+                file_size: Set(m.file_size),
+                title: Set(m.title.clone()),
+                description: Set(m.description.clone()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+            })
+            .collect();
+        batch_insert::<media::Entity, _>(&txn, models).await?;
     }
 
     // 4. Persons (FK → tree)
-    for p in &result.persons {
-        PersonRepo::create(db, p.id, p.tree_id, p.sex).await?;
+    if !result.persons.is_empty() {
+        let models: Vec<person::ActiveModel> = result
+            .persons
+            .iter()
+            .map(|p| person::ActiveModel {
+                id: Set(p.id),
+                tree_id: Set(p.tree_id),
+                sex: Set(sea_enums::Sex::from(p.sex)),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+            })
+            .collect();
+        batch_insert::<person::Entity, _>(&txn, models).await?;
     }
 
     // 5. Person names (FK → person)
-    for pn in &result.person_names {
-        PersonNameRepo::create(
-            db,
-            pn.id,
-            pn.person_id,
-            pn.name_type,
-            pn.given_names.clone(),
-            pn.surname.clone(),
-            pn.prefix.clone(),
-            pn.suffix.clone(),
-            pn.nickname.clone(),
-            pn.is_primary,
-        )
-        .await?;
+    if !result.person_names.is_empty() {
+        let models: Vec<person_name::ActiveModel> = result
+            .person_names
+            .iter()
+            .map(|pn| person_name::ActiveModel {
+                id: Set(pn.id),
+                person_id: Set(pn.person_id),
+                name_type: Set(sea_enums::NameType::from(pn.name_type)),
+                given_names: Set(pn.given_names.clone()),
+                surname: Set(pn.surname.clone()),
+                prefix: Set(pn.prefix.clone()),
+                suffix: Set(pn.suffix.clone()),
+                nickname: Set(pn.nickname.clone()),
+                is_primary: Set(pn.is_primary),
+                created_at: Set(now),
+                updated_at: Set(now),
+            })
+            .collect();
+        batch_insert::<person_name::Entity, _>(&txn, models).await?;
     }
 
     // 6. Families (FK → tree)
-    for f in &result.families {
-        FamilyRepo::create(db, f.id, f.tree_id).await?;
+    if !result.families.is_empty() {
+        let models: Vec<family::ActiveModel> = result
+            .families
+            .iter()
+            .map(|f| family::ActiveModel {
+                id: Set(f.id),
+                tree_id: Set(f.tree_id),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+            })
+            .collect();
+        batch_insert::<family::Entity, _>(&txn, models).await?;
     }
 
     // 7. Family spouses (FK → family, person)
-    for fs in &result.family_spouses {
-        FamilySpouseRepo::create(
-            db,
-            fs.id,
-            fs.family_id,
-            fs.person_id,
-            fs.role,
-            fs.sort_order,
-        )
-        .await?;
+    if !result.family_spouses.is_empty() {
+        let models: Vec<family_spouse::ActiveModel> = result
+            .family_spouses
+            .iter()
+            .map(|fs| family_spouse::ActiveModel {
+                id: Set(fs.id),
+                family_id: Set(fs.family_id),
+                person_id: Set(fs.person_id),
+                role: Set(sea_enums::SpouseRole::from(fs.role)),
+                sort_order: Set(fs.sort_order),
+            })
+            .collect();
+        batch_insert::<family_spouse::Entity, _>(&txn, models).await?;
     }
 
     // 8. Family children (FK → family, person)
-    for fc in &result.family_children {
-        FamilyChildRepo::create(
-            db,
-            fc.id,
-            fc.family_id,
-            fc.person_id,
-            fc.child_type,
-            fc.sort_order,
-        )
-        .await?;
+    if !result.family_children.is_empty() {
+        let models: Vec<family_child::ActiveModel> = result
+            .family_children
+            .iter()
+            .map(|fc| family_child::ActiveModel {
+                id: Set(fc.id),
+                family_id: Set(fc.family_id),
+                person_id: Set(fc.person_id),
+                child_type: Set(sea_enums::ChildType::from(fc.child_type)),
+                sort_order: Set(fc.sort_order),
+            })
+            .collect();
+        batch_insert::<family_child::Entity, _>(&txn, models).await?;
     }
 
     // 9. Events (FK → tree, person?, family?, place?)
-    for e in &result.events {
-        EventRepo::create(
-            db,
-            e.id,
-            e.tree_id,
-            e.event_type,
-            e.date_value.clone(),
-            e.date_sort,
-            e.place_id,
-            e.person_id,
-            e.family_id,
-            e.description.clone(),
-        )
-        .await?;
+    if !result.events.is_empty() {
+        let models: Vec<event::ActiveModel> = result
+            .events
+            .iter()
+            .map(|e| event::ActiveModel {
+                id: Set(e.id),
+                tree_id: Set(e.tree_id),
+                event_type: Set(sea_enums::EventType::from(e.event_type)),
+                date_value: Set(e.date_value.clone()),
+                date_sort: Set(e.date_sort),
+                place_id: Set(e.place_id),
+                person_id: Set(e.person_id),
+                family_id: Set(e.family_id),
+                description: Set(e.description.clone()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+            })
+            .collect();
+        batch_insert::<event::Entity, _>(&txn, models).await?;
     }
 
     // 10. Citations (FK → source, person?, event?, family?)
-    for c in &result.citations {
-        CitationRepo::create(
-            db,
-            c.id,
-            c.source_id,
-            c.person_id,
-            c.event_id,
-            c.family_id,
-            c.page.clone(),
-            c.confidence,
-            c.text.clone(),
-        )
-        .await?;
+    if !result.citations.is_empty() {
+        let models: Vec<citation::ActiveModel> = result
+            .citations
+            .iter()
+            .map(|c| citation::ActiveModel {
+                id: Set(c.id),
+                source_id: Set(c.source_id),
+                person_id: Set(c.person_id),
+                event_id: Set(c.event_id),
+                family_id: Set(c.family_id),
+                page: Set(c.page.clone()),
+                confidence: Set(sea_enums::Confidence::from(c.confidence)),
+                text: Set(c.text.clone()),
+                created_at: Set(now),
+                updated_at: Set(now),
+            })
+            .collect();
+        batch_insert::<citation::Entity, _>(&txn, models).await?;
     }
 
     // 11. Media links (FK → media, person?, event?, source?, family?)
-    for ml in &result.media_links {
-        MediaLinkRepo::create(
-            db,
-            ml.id,
-            ml.media_id,
-            ml.person_id,
-            ml.event_id,
-            ml.source_id,
-            ml.family_id,
-            ml.sort_order,
-        )
-        .await?;
+    if !result.media_links.is_empty() {
+        let models: Vec<media_link::ActiveModel> = result
+            .media_links
+            .iter()
+            .map(|ml| media_link::ActiveModel {
+                id: Set(ml.id),
+                media_id: Set(ml.media_id),
+                person_id: Set(ml.person_id),
+                event_id: Set(ml.event_id),
+                source_id: Set(ml.source_id),
+                family_id: Set(ml.family_id),
+                sort_order: Set(ml.sort_order),
+            })
+            .collect();
+        batch_insert::<media_link::Entity, _>(&txn, models).await?;
     }
 
     // 12. Notes (FK → tree, person?, event?, family?, source?)
-    for n in &result.notes {
-        NoteRepo::create(
-            db,
-            n.id,
-            n.tree_id,
-            n.text.clone(),
-            n.person_id,
-            n.event_id,
-            n.family_id,
-            n.source_id,
-        )
-        .await?;
+    if !result.notes.is_empty() {
+        let models: Vec<note::ActiveModel> = result
+            .notes
+            .iter()
+            .map(|n| note::ActiveModel {
+                id: Set(n.id),
+                tree_id: Set(n.tree_id),
+                text: Set(n.text.clone()),
+                person_id: Set(n.person_id),
+                event_id: Set(n.event_id),
+                family_id: Set(n.family_id),
+                source_id: Set(n.source_id),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+            })
+            .collect();
+        batch_insert::<note::Entity, _>(&txn, models).await?;
     }
 
     // 13. Person ancestry closure table
-    for pa in &result.person_ancestry {
-        PersonAncestryRepo::create(
-            db,
-            pa.id,
-            pa.tree_id,
-            pa.ancestor_id,
-            pa.descendant_id,
-            pa.depth,
-        )
-        .await?;
+    if !result.person_ancestry.is_empty() {
+        let models: Vec<person_ancestry::ActiveModel> = result
+            .person_ancestry
+            .iter()
+            .map(|pa| person_ancestry::ActiveModel {
+                id: Set(pa.id),
+                tree_id: Set(pa.tree_id),
+                ancestor_id: Set(pa.ancestor_id),
+                descendant_id: Set(pa.descendant_id),
+                depth: Set(pa.depth),
+            })
+            .collect();
+        batch_insert::<person_ancestry::Entity, _>(&txn, models).await?;
     }
+
+    // Commit the transaction
+    txn.commit()
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
     Ok(ImportSummary {
         persons_count: result.persons.len(),
