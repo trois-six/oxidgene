@@ -260,7 +260,10 @@ impl ApiClient {
     /// `http://127.0.0.1:3000`.
     pub fn new(base_url: &str) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(300))
+                .build()
+                .expect("failed to build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
         }
     }
