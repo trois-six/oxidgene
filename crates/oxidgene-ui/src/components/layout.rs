@@ -550,50 +550,69 @@ const LAYOUT_STYLES: &str = r#"
         margin-bottom: 2px;
     }
 
-    /* ── Pedigree chart (horizontal ancestor view) ────────────────── */
+    /* ── Pedigree chart (vertical bidirectional tree with pan/zoom) ── */
 
-    .pedigree-chart {
-        display: flex;
-        align-items: stretch;
-        overflow-x: auto;
-        padding: 16px 0;
-        gap: 2px;
+    /* Viewport: clips overflow, receives pointer/wheel events */
+    .pedigree-viewport {
+        position: relative;
+        overflow: hidden;
+        height: 600px;
+        cursor: grab;
+        background: var(--color-bg);
+        border-radius: var(--radius);
+        user-select: none;
     }
 
-    .pedigree-gen-col {
-        display: flex;
-        flex-direction: column;
-        min-width: 160px;
+    .pedigree-viewport:active {
+        cursor: grabbing;
     }
 
-    .pedigree-gen-label {
-        font-size: 0.7rem;
-        font-weight: 600;
-        color: var(--color-text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        text-align: center;
-        padding: 4px 0;
-        margin-bottom: 4px;
-        border-bottom: 1px solid var(--color-border);
-    }
-
-    .pedigree-gen-slots {
-        display: flex;
-        flex-direction: column;
-        justify-content: space-around;
-        flex: 1;
-        gap: 2px;
-    }
-
-    .pedigree-slot {
+    /* Inner pannable/zoomable container */
+    .pedigree-inner {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        transform-origin: center center;
         display: flex;
         align-items: center;
         justify-content: center;
-        flex: 1;
-        padding: 2px 4px;
     }
 
+    /* Tree content column: ancestors above root, descendants below */
+    .pedigree-tree {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        min-width: 320px;
+        padding: 24px 32px;
+    }
+
+    /* A single generation row (flex, all slots have proportional flex widths) */
+    .pedigree-gen-row {
+        display: flex;
+        align-items: center;
+        justify-content: stretch;
+        min-height: 48px;
+    }
+
+    /* Descendant rows use centered layout (variable node count) */
+    .pedigree-desc-row {
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    /* Cell wrapping one person node or empty slot */
+    .pedigree-slot-cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 3px;
+    }
+
+    /* Person node card */
     .pedigree-node {
         display: inline-flex;
         align-items: center;
@@ -616,12 +635,14 @@ const LAYOUT_STYLES: &str = r#"
         box-shadow: 0 0 0 2px rgba(44, 110, 73, 0.12);
     }
 
+    /* Root / selected person */
     .pedigree-node.current {
         border-color: var(--color-primary);
         background: rgba(44, 110, 73, 0.06);
         font-weight: 600;
     }
 
+    /* Empty parent slot */
     .pedigree-node.empty-slot {
         background: var(--color-bg);
         border-style: dashed;
@@ -654,6 +675,136 @@ const LAYOUT_STYLES: &str = r#"
     .pedigree-node-name {
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    /* ── Ancestor connector rows ────────────────────────────────────── */
+
+    /* Row between two ancestor generations; uses same flex system as rows */
+    .pedigree-connector-row {
+        display: flex;
+        height: 28px;
+        align-items: stretch;
+    }
+
+    /* One bracket group: spans 2 parent slots, aligns with 1 child slot */
+    .connector-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Horizontal arms: left arm curves down-right, right arm curves down-left */
+    .connector-arms {
+        display: flex;
+        flex: 1;
+    }
+
+    .connector-arm-left {
+        flex: 1;
+        border-right: 2px solid var(--color-border);
+        border-bottom: 2px solid var(--color-border);
+        border-bottom-right-radius: 4px;
+    }
+
+    .connector-arm-right {
+        flex: 1;
+        border-left: 2px solid var(--color-border);
+        border-bottom: 2px solid var(--color-border);
+        border-bottom-left-radius: 4px;
+    }
+
+    /* Vertical stem going down to the child */
+    .connector-stem {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+    }
+
+    .connector-stem::after {
+        content: '';
+        width: 2px;
+        background: var(--color-border);
+        height: 100%;
+    }
+
+    /* ── Descendant connector (simple centered vertical line) ──────── */
+
+    .pedigree-desc-connector {
+        height: 24px;
+        display: flex;
+        justify-content: center;
+    }
+
+    .pedigree-desc-connector::after {
+        content: '';
+        width: 2px;
+        background: var(--color-border);
+        height: 100%;
+    }
+
+    /* ── Floating control panel ─────────────────────────────────────── */
+
+    .pedigree-controls {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        padding: 12px 14px;
+        z-index: 10;
+        min-width: 160px;
+        pointer-events: all;
+    }
+
+    .pedigree-controls-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+    }
+
+    .pedigree-controls-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .pedigree-controls-label {
+        display: inline;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--color-text);
+        margin: 0;
+        white-space: nowrap;
+    }
+
+    .pedigree-controls-select {
+        width: 52px;
+        min-width: 0;
+        padding: 3px 4px;
+        font-size: 0.8rem;
+    }
+
+    .pedigree-controls-divider {
+        border: none;
+        border-top: 1px solid var(--color-border);
+        margin: 8px 0;
+    }
+
+    .pedigree-controls-zoom {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .pedigree-zoom-label {
+        font-size: 0.78rem;
+        color: var(--color-text-muted);
+        flex: 1;
     }
 
     /* ── Context menu (floating action menu) ──────────────────────── */
