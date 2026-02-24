@@ -17,7 +17,11 @@ use oxidgene_core::{EventType, Sex};
 /// Extract a 4-digit year from a GEDCOM date string (e.g. "ABT 1842", "1 JAN 1900").
 fn fmt_year(date: &str) -> String {
     for word in date.split_whitespace() {
-        if word.len() == 4 && word.parse::<u32>().is_ok_and(|y| (1000..=2099).contains(&y)) {
+        if word.len() == 4
+            && word
+                .parse::<u32>()
+                .is_ok_and(|y| (1000..=2099).contains(&y))
+        {
             return word.to_string();
         }
     }
