@@ -11,18 +11,14 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use oxidgene_core::{EventType, Sex};
 use oxidgene_core::types::{Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName};
+use oxidgene_core::{EventType, Sex};
 
 /// Extract a 4-digit year from a GEDCOM date string (e.g. "ABT 1842", "1 JAN 1900").
 fn fmt_year(date: &str) -> String {
     for word in date.split_whitespace() {
-        if word.len() == 4 {
-            if let Ok(year) = word.parse::<u32>() {
-                if (1000..=2099).contains(&year) {
-                    return year.to_string();
-                }
-            }
+        if word.len() == 4 && word.parse::<u32>().is_ok_and(|y| (1000..=2099).contains(&y)) {
+            return word.to_string();
         }
     }
     if date.len() > 12 {
@@ -47,30 +43,30 @@ fn make_initials(given: &str, surname: &str) -> String {
 /// Returns `(icon, css_class, label)` for an event type.
 fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
     match et {
-        EventType::Birth     => ("✦", "ev-ic ev-ic-birth", "Birth"),
-        EventType::Baptism   => ("✦", "ev-ic ev-ic-birth", "Baptism"),
-        EventType::Death     => ("✝", "ev-ic ev-ic-death", "Death"),
-        EventType::Burial    => ("✝", "ev-ic ev-ic-death", "Burial"),
+        EventType::Birth => ("✦", "ev-ic ev-ic-birth", "Birth"),
+        EventType::Baptism => ("✦", "ev-ic ev-ic-birth", "Baptism"),
+        EventType::Death => ("✝", "ev-ic ev-ic-death", "Death"),
+        EventType::Burial => ("✝", "ev-ic ev-ic-death", "Burial"),
         EventType::Cremation => ("✝", "ev-ic ev-ic-death", "Cremation"),
-        EventType::Marriage         => ("♥", "ev-ic ev-ic-marry", "Marriage"),
-        EventType::Engagement       => ("♥", "ev-ic ev-ic-marry", "Engagement"),
-        EventType::MarriageBann     => ("♥", "ev-ic ev-ic-marry", "Banns"),
+        EventType::Marriage => ("♥", "ev-ic ev-ic-marry", "Marriage"),
+        EventType::Engagement => ("♥", "ev-ic ev-ic-marry", "Engagement"),
+        EventType::MarriageBann => ("♥", "ev-ic ev-ic-marry", "Banns"),
         EventType::MarriageContract => ("♥", "ev-ic ev-ic-marry", "Contract"),
-        EventType::MarriageLicense  => ("♥", "ev-ic ev-ic-marry", "License"),
+        EventType::MarriageLicense => ("♥", "ev-ic ev-ic-marry", "License"),
         EventType::MarriageSettlement => ("♥", "ev-ic ev-ic-marry", "Settlement"),
-        EventType::Divorce   => ("⊗", "ev-ic ev-ic-marry", "Divorce"),
+        EventType::Divorce => ("⊗", "ev-ic ev-ic-marry", "Divorce"),
         EventType::Annulment => ("⊗", "ev-ic ev-ic-marry", "Annulment"),
-        EventType::Graduation     => ("◆", "ev-ic ev-ic-other", "Graduation"),
-        EventType::Immigration    => ("◆", "ev-ic ev-ic-other", "Immigration"),
-        EventType::Emigration     => ("◆", "ev-ic ev-ic-other", "Emigration"),
+        EventType::Graduation => ("◆", "ev-ic ev-ic-other", "Graduation"),
+        EventType::Immigration => ("◆", "ev-ic ev-ic-other", "Immigration"),
+        EventType::Emigration => ("◆", "ev-ic ev-ic-other", "Emigration"),
         EventType::Naturalization => ("◆", "ev-ic ev-ic-other", "Naturalization"),
-        EventType::Census         => ("◆", "ev-ic ev-ic-other", "Census"),
-        EventType::Occupation     => ("◆", "ev-ic ev-ic-other", "Occupation"),
-        EventType::Residence      => ("◆", "ev-ic ev-ic-other", "Residence"),
-        EventType::Retirement     => ("◆", "ev-ic ev-ic-other", "Retirement"),
-        EventType::Will           => ("◆", "ev-ic ev-ic-other", "Will"),
-        EventType::Probate        => ("◆", "ev-ic ev-ic-other", "Probate"),
-        EventType::Other          => ("◆", "ev-ic ev-ic-other", "Event"),
+        EventType::Census => ("◆", "ev-ic ev-ic-other", "Census"),
+        EventType::Occupation => ("◆", "ev-ic ev-ic-other", "Occupation"),
+        EventType::Residence => ("◆", "ev-ic ev-ic-other", "Residence"),
+        EventType::Retirement => ("◆", "ev-ic ev-ic-other", "Retirement"),
+        EventType::Will => ("◆", "ev-ic ev-ic-other", "Will"),
+        EventType::Probate => ("◆", "ev-ic ev-ic-other", "Probate"),
+        EventType::Other => ("◆", "ev-ic ev-ic-other", "Event"),
     }
 }
 
@@ -242,7 +238,10 @@ impl PedigreeData {
         let Some(names) = self.names.get(&person_id) else {
             return (None, None, None);
         };
-        let name = names.iter().find(|n| n.is_primary).or_else(|| names.first());
+        let name = names
+            .iter()
+            .find(|n| n.is_primary)
+            .or_else(|| names.first());
         match name {
             Some(n) => (n.given_names.clone(), n.surname.clone(), n.nickname.clone()),
             None => (None, None, None),
@@ -412,11 +411,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     }
 
     // ── Build ancestor tree ──
-    let anc_gens = build_ancestor_slots(
-        props.root_person_id,
-        &props.data,
-        ancestor_levels(),
-    );
+    let anc_gens = build_ancestor_slots(props.root_person_id, &props.data, ancestor_levels());
 
     let max_anc_gen_idx = anc_gens
         .iter()
@@ -430,11 +425,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let deepest_anc = display_anc_gens.saturating_sub(1);
 
     // ── Build descendant rows ──
-    let desc_gens = build_descendant_levels(
-        props.root_person_id,
-        &props.data,
-        descendant_levels(),
-    );
+    let desc_gens = build_descendant_levels(props.root_person_id, &props.data, descendant_levels());
 
     // ── CSS transform for pan/zoom ──
     let transform = format!(
@@ -451,21 +442,23 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let sel_given_s = sel_given.unwrap_or_default();
     let sel_surname_s = sel_surname.unwrap_or_default();
     let sel_full_name = match (sel_given_s.is_empty(), sel_surname_s.is_empty()) {
-        (true, true)  => "Unknown".to_string(),
+        (true, true) => "Unknown".to_string(),
         (false, true) => sel_given_s.clone(),
         (true, false) => sel_surname_s.clone(),
-        _             => format!("{} {}", sel_given_s, sel_surname_s),
+        _ => format!("{} {}", sel_given_s, sel_surname_s),
     };
     let sel_initials = make_initials(&sel_given_s, &sel_surname_s);
     let sel_birth = props.data.birth_date(sel_pid).unwrap_or_default();
     let sel_death = props.data.death_date(sel_pid).unwrap_or_default();
     let sel_dates = match (sel_birth.is_empty(), sel_death.is_empty()) {
-        (true, true)  => String::new(),
+        (true, true) => String::new(),
         (false, true) => format!("b. {sel_birth}"),
         (true, false) => format!("d. {sel_death}"),
-        _             => format!("{sel_birth} – {sel_death}"),
+        _ => format!("{sel_birth} – {sel_death}"),
     };
-    let sel_events: Vec<DomainEvent> = props.data.events_by_person
+    let sel_events: Vec<DomainEvent> = props
+        .data
+        .events_by_person
         .get(&sel_pid)
         .cloned()
         .unwrap_or_default();
