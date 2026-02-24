@@ -61,7 +61,9 @@ pub fn Home() -> Element {
 
     let on_confirm_delete = move |_| {
         let api = api.clone();
-        let Some(id) = confirm_delete_id() else { return };
+        let Some(id) = confirm_delete_id() else {
+            return;
+        };
         spawn(async move {
             match api.delete_tree(id).await {
                 Ok(_) => {

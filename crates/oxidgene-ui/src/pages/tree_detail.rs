@@ -165,7 +165,8 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.list_events(tid, Some(5000), None, None, None, None).await
+            api.list_events(tid, Some(5000), None, None, None, None)
+                .await
         }
     });
 
