@@ -38,12 +38,12 @@ pub enum NameType {
 impl std::fmt::Display for NameType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Birth => write!(f, "birth"),
-            Self::Married => write!(f, "married"),
-            Self::AlsoKnownAs => write!(f, "also_known_as"),
-            Self::Maiden => write!(f, "maiden"),
-            Self::Religious => write!(f, "religious"),
-            Self::Other => write!(f, "other"),
+            Self::Birth => write!(f, "Birth name"),
+            Self::Married => write!(f, "Married name"),
+            Self::AlsoKnownAs => write!(f, "Also known as"),
+            Self::Maiden => write!(f, "Maiden name"),
+            Self::Religious => write!(f, "Religious name"),
+            Self::Other => write!(f, "Other"),
         }
     }
 }
