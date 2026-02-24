@@ -118,6 +118,7 @@ pub fn TreeList() -> Element {
     };
 
     rsx! {
+        div { class: "page-content",
         div { class: "page-header",
             h1 { "Genealogy Trees" }
             button {
@@ -303,5 +304,6 @@ pub fn TreeList() -> Element {
                 div { class: "loading", "Loading trees..." }
             },
         }
+        } // .page-content
     }
 }

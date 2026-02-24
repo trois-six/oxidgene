@@ -605,7 +605,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             {
                                                 let nid = name.id;
                                                 let is_editing = editing_name_id() == Some(nid);
+                                                // Raw variant name — used as the select <option> value.
                                                 let nt = format!("{:?}", name.name_type);
+                                                // Human-readable label — used in the badge.
+                                                let nt_label = format!("{}", name.name_type);
                                                 let gn = name.given_names.clone().unwrap_or_default();
                                                 let sn = name.surname.clone().unwrap_or_default();
                                                 let pfx = name.prefix.clone().unwrap_or_default();
@@ -620,15 +623,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                             }
                                                             div { class: "form-row",
                                                                 div { class: "form-group",
-                                                                    label { "Type" }
+                                                                    label { "Name kind" }
                                                                     select {
                                                                         value: "{edit_name_type}",
                                                                         oninput: move |e: Event<FormData>| edit_name_type.set(e.value()),
-                                                                        option { value: "Birth", "Birth" }
-                                                                        option { value: "Married", "Married" }
-                                                                        option { value: "AlsoKnownAs", "Also Known As" }
-                                                                        option { value: "Maiden", "Maiden" }
-                                                                        option { value: "Religious", "Religious" }
+                                                                        option { value: "Birth", "Birth name" }
+                                                                        option { value: "Married", "Married name" }
+                                                                        option { value: "AlsoKnownAs", "Also known as" }
+                                                                        option { value: "Maiden", "Maiden name" }
+                                                                        option { value: "Religious", "Religious name" }
                                                                         option { value: "Other", "Other" }
                                                                     }
                                                                 }
@@ -742,7 +745,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                     rsx! {
                                                         div { class: "person-form-item",
                                                             div { class: "person-form-item-info",
-                                                                span { class: "badge", "{nt}" }
+                                                                span { class: "badge", "{nt_label}" }
                                                                 strong {
                                                                     if !gn.is_empty() { "{gn} " }
                                                                     "{sn}"
@@ -1128,15 +1131,15 @@ fn render_name_form(
             }
             div { class: "form-row",
                 div { class: "form-group",
-                    label { "Name Type" }
+                    label { "Name kind" }
                     select {
                         value: "{name_type_sig}",
                         oninput: move |e: Event<FormData>| name_type_sig.set(e.value()),
-                        option { value: "Birth", "Birth" }
-                        option { value: "Married", "Married" }
-                        option { value: "AlsoKnownAs", "Also Known As" }
-                        option { value: "Maiden", "Maiden" }
-                        option { value: "Religious", "Religious" }
+                        option { value: "Birth", "Birth name" }
+                        option { value: "Married", "Married name" }
+                        option { value: "AlsoKnownAs", "Also known as" }
+                        option { value: "Maiden", "Maiden name" }
+                        option { value: "Religious", "Religious name" }
                         option { value: "Other", "Other" }
                     }
                 }

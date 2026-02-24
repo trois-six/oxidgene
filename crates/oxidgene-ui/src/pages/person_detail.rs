@@ -777,6 +777,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // ── Render ────────────────────────────────────────────────────────
 
     rsx! {
+        div { class: "page-content",
         // Back navigation
         div { style: "margin-bottom: 16px;",
             Link {
@@ -1652,6 +1653,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 )}
             }
         }
+        } // .page-content
     }
 }
 

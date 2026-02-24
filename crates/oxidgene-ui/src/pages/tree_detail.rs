@@ -70,7 +70,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
     let mut delete_person_error = use_signal(|| None::<String>);
 
     // ── GEDCOM import/export state ──
-    let mut show_gedcom = use_signal(|| false);
     let mut import_error = use_signal(|| None::<String>);
     let mut import_result = use_signal(|| None::<crate::api::ImportGedcomResult>);
     let mut importing = use_signal(|| false);
@@ -153,6 +152,23 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
     });
 
+    // ── Fetch all events (birth, death, marriage, …) ──
+    let api_events = api.clone();
+    let events_resource = use_resource(move || {
+        let api = api_events.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        async move {
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid tree ID".to_string(),
+                });
+            };
+            api.list_events(tid, Some(5000), None, None, None, None).await
+        }
+    });
+
     // ── Fetch all family spouses and children ──
     let api_members = api.clone();
     let members_resource = use_resource(move || {
@@ -187,15 +203,22 @@ pub fn TreeDetail(tree_id: String) -> Element {
         let persons_data = persons_resource.read();
         let names_data = names_resource.read();
         let members_data = members_resource.read();
+        let events_data = events_resource.read();
 
         match (&*persons_data, &*names_data, &*members_data) {
             (Some(Ok(conn)), Some(Ok(name_map)), Some(Ok((spouses, children)))) => {
                 let persons: Vec<_> = conn.edges.iter().map(|e| e.node.clone()).collect();
+                let events: Vec<_> = events_data
+                    .as_ref()
+                    .and_then(|r| r.as_ref().ok())
+                    .map(|ev_conn| ev_conn.edges.iter().map(|e| e.node.clone()).collect())
+                    .unwrap_or_default();
                 Some(PedigreeData::build(
                     &persons,
                     name_map.clone(),
                     spouses,
                     children,
+                    events,
                 ))
             }
             _ => None,
@@ -785,12 +808,80 @@ pub fn TreeDetail(tree_id: String) -> Element {
     // ── Render ──
 
     rsx! {
-        // Back navigation
-        div { style: "margin-bottom: 16px;",
-            Link {
-                to: Route::TreeList {},
-                class: "back-link",
-                "← Back to Trees"
+        div { class: "tree-detail-page",
+
+        // ── Topbar: breadcrumb + root selector + tree actions ──
+        {
+            let (tree_name_str, tree_desc_str, tree_loaded) = {
+                let guard = tree_resource.read();
+                match &*guard {
+                    Some(Ok(t)) => (t.name.clone(), t.description.clone().unwrap_or_default(), true),
+                    Some(Err(_)) => ("Error".to_string(), String::new(), false),
+                    None => ("Loading…".to_string(), String::new(), false),
+                }
+            };
+            let tn = tree_name_str.clone();
+            let td = tree_desc_str;
+            rsx! {
+                div { class: "td-topbar",
+                    nav { class: "td-bc",
+                        Link { to: Route::TreeList {}, "Trees" }
+                        span { class: "td-bc-sep", "/" }
+                        span { class: "td-bc-current", "{tree_name_str}" }
+                    }
+                    div { class: "td-actions",
+                        if !person_options.is_empty() {
+                            select {
+                                class: "td-select",
+                                value: "{root_person_id.map(|id| id.to_string()).unwrap_or_default()}",
+                                oninput: move |e: Event<FormData>| {
+                                    if let Ok(id) = e.value().parse::<Uuid>() {
+                                        selected_root.set(Some(id));
+                                    }
+                                },
+                                for (pid, name) in person_options.iter() {
+                                    option {
+                                        value: "{pid}",
+                                        selected: root_person_id == Some(*pid),
+                                        "{name}"
+                                    }
+                                }
+                            }
+                        }
+                        if tree_loaded {
+                            button {
+                                class: "td-btn",
+                                onclick: move |_| {
+                                    edit_name.set(tn.clone());
+                                    edit_desc.set(td.clone());
+                                    edit_error.set(None);
+                                    editing.set(true);
+                                },
+                                "Edit"
+                            }
+                            button {
+                                class: "td-btn td-btn-danger",
+                                onclick: move |_| {
+                                    confirm_delete.set(true);
+                                    delete_error.set(None);
+                                },
+                                "Delete"
+                            }
+                            button {
+                                class: "td-btn",
+                                disabled: importing(),
+                                onclick: on_import_gedcom,
+                                if importing() { "Importing…" } else { "Import" }
+                            }
+                            button {
+                                class: "td-btn",
+                                disabled: exporting(),
+                                onclick: on_export_gedcom,
+                                if exporting() { "Exporting…" } else { "Export" }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -862,130 +953,69 @@ pub fn TreeDetail(tree_id: String) -> Element {
             }
         }
 
-        // ── Tree header ──
-        match &*tree_resource.read() {
-            Some(Ok(tree)) => {
-                let tree_name = tree.name.clone();
-                let tree_desc = tree.description.clone().unwrap_or_default();
-                rsx! {
-                    if editing() {
-                        div { class: "card", style: "margin-bottom: 24px;",
-                            h2 { style: "margin-bottom: 16px; font-size: 1.1rem;", "Edit Tree" }
-                            if let Some(err) = edit_error() {
-                                div { class: "error-msg", "{err}" }
-                            }
-                            div { class: "form-group",
-                                label { "Name" }
-                                input {
-                                    r#type: "text",
-                                    value: "{edit_name}",
-                                    oninput: move |e: Event<FormData>| edit_name.set(e.value()),
-                                }
-                            }
-                            div { class: "form-group",
-                                label { "Description (optional)" }
-                                textarea {
-                                    rows: 3,
-                                    value: "{edit_desc}",
-                                    oninput: move |e: Event<FormData>| edit_desc.set(e.value()),
-                                }
-                            }
-                            div { style: "display: flex; gap: 8px;",
-                                button { class: "btn btn-primary", onclick: on_save_edit, "Save" }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: move |_| {
-                                        editing.set(false);
-                                        edit_error.set(None);
-                                    },
-                                    "Cancel"
-                                }
-                            }
-                        }
-                    } else {
-                        div { class: "page-header",
-                            div {
-                                h1 { "{tree.name}" }
-                                if let Some(desc) = &tree.description {
-                                    p { class: "text-muted", "{desc}" }
-                                }
-                            }
-                            div { style: "display: flex; gap: 8px;",
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: move |_| {
-                                        edit_name.set(tree_name.clone());
-                                        edit_desc.set(tree_desc.clone());
-                                        edit_error.set(None);
-                                        editing.set(true);
-                                    },
-                                    "Edit"
-                                }
-                                button {
-                                    class: "btn btn-danger",
-                                    onclick: move |_| {
-                                        confirm_delete.set(true);
-                                        delete_error.set(None);
-                                    },
-                                    "Delete"
-                                }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: move |_| refresh += 1,
-                                    "Refresh"
-                                }
-                            }
-                        }
+        // ── Inline edit form (shown below topbar when editing) ──
+        if editing() {
+            div { class: "td-edit-form",
+                if let Some(err) = edit_error() {
+                    div { class: "error-msg", style: "width: 100%; margin-bottom: 6px;", "{err}" }
+                }
+                div { class: "form-group", style: "margin: 0; flex: 1; min-width: 160px;",
+                    label { "Name" }
+                    input {
+                        r#type: "text",
+                        value: "{edit_name}",
+                        oninput: move |e: Event<FormData>| edit_name.set(e.value()),
                     }
                 }
-            },
-            Some(Err(e)) => rsx! {
-                div { class: "error-msg", "Failed to load tree: {e}" }
-            },
-            None => rsx! {
-                div { class: "loading", "Loading tree..." }
-            },
+                div { class: "form-group", style: "margin: 0; flex: 2; min-width: 200px;",
+                    label { "Description" }
+                    input {
+                        r#type: "text",
+                        value: "{edit_desc}",
+                        oninput: move |e: Event<FormData>| edit_desc.set(e.value()),
+                    }
+                }
+                div { style: "display: flex; gap: 6px; flex-shrink: 0; align-self: flex-end;",
+                    button { class: "td-btn td-btn-primary", onclick: on_save_edit, "Save" }
+                    button {
+                        class: "td-btn",
+                        onclick: move |_| { editing.set(false); edit_error.set(None); },
+                        "Cancel"
+                    }
+                }
+            }
         }
 
-        // ── Pedigree chart section ──
-        div { class: "card", style: "margin-bottom: 24px;",
-            div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "Pedigree" }
-                {
-                    let persons_data = persons_resource.read();
-                    let total = match &*persons_data {
-                        Some(Ok(conn)) => conn.total_count,
-                        _ => 0,
-                    };
-                    rsx! {
-                        span { class: "text-muted", style: "font-size: 0.85rem;",
-                            "{total} person(s)"
+        // ── Feedback banners ──
+        if let Some(err) = import_error() {
+            div { class: "error-msg", style: "flex-shrink: 0; margin: 4px 12px;", "{err}" }
+        }
+        if let Some(result) = import_result() {
+            div { class: "success-msg", style: "flex-shrink: 0; margin: 4px 12px;",
+                "Import complete: {result.persons_count} persons, \
+                 {result.families_count} families, \
+                 {result.events_count} events."
+                if !result.warnings.is_empty() {
+                    details { style: "display: inline; margin-left: 8px;",
+                        summary { style: "display: inline; cursor: pointer;",
+                            "{result.warnings.len()} warning(s)"
+                        }
+                        ul { style: "margin: 4px 0 0 16px;",
+                            for w in result.warnings.iter() { li { "{w}" } }
                         }
                     }
                 }
             }
+        }
+        if let Some(err) = export_error() {
+            div { class: "error-msg", style: "flex-shrink: 0; margin: 4px 12px;", "{err}" }
+        }
+        if let Some(msg) = export_success() {
+            div { class: "success-msg", style: "flex-shrink: 0; margin: 4px 12px;", "{msg}" }
+        }
 
-            // Root person selector
-            if !person_options.is_empty() {
-                div { class: "root-selector",
-                    label { "Root person:" }
-                    select {
-                        value: "{root_person_id.map(|id| id.to_string()).unwrap_or_default()}",
-                        oninput: move |e: Event<FormData>| {
-                            if let Ok(id) = e.value().parse::<Uuid>() {
-                                selected_root.set(Some(id));
-                            }
-                        },
-                        for (pid, name) in person_options.iter() {
-                            option {
-                                value: "{pid}",
-                                selected: root_person_id == Some(*pid),
-                                "{name}"
-                            }
-                        }
-                    }
-                }
-            }
+        // ── Pedigree chart (fills remaining space) ──
+        div { class: "pedigree-card",
 
             // Chart
             if let (Some(data), Some(root_id)) = (pedigree_data.clone(), root_person_id) {
@@ -995,6 +1025,9 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     tree_id: tree_id.clone(),
                     on_person_click: move |(pid, x, y)| {
                         context_menu_person.set(Some((pid, x, y)));
+                    },
+                    on_person_navigate: move |pid| {
+                        selected_root.set(Some(pid));
                     },
                     on_empty_slot: move |(child_id, is_father)| {
                         on_empty_slot((child_id, is_father));
@@ -1006,9 +1039,11 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     let persons_data = persons_resource.read();
                     let names_data = names_resource.read();
                     let members_data = members_resource.read();
+                    let events_data = events_resource.read();
                     let all_loaded = persons_data.is_some()
                         && names_data.is_some()
-                        && members_data.is_some();
+                        && members_data.is_some()
+                        && events_data.is_some();
 
                     if all_loaded {
                         rsx! {
@@ -1096,105 +1131,6 @@ pub fn TreeDetail(tree_id: String) -> Element {
             }
         }
 
-        // ── GEDCOM Import / Export section ──
-        div { class: "card",
-            div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "GEDCOM" }
-                button {
-                    class: "btn btn-outline btn-sm",
-                    onclick: move |_| show_gedcom.toggle(),
-                    if show_gedcom() { "Hide" } else { "Show" }
-                }
-            }
-
-            if show_gedcom() {
-                // Import sub-section
-                div { style: "margin-top: 16px; margin-bottom: 24px;",
-                    div { class: "section-header",
-                        h3 { style: "font-size: 0.95rem;", "Import" }
-                        button {
-                            class: "btn btn-primary btn-sm",
-                            disabled: importing(),
-                            onclick: on_import_gedcom,
-                            if importing() { "Importing..." } else { "Import GEDCOM..." }
-                        }
-                    }
-
-                    if let Some(err) = import_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-
-                    // Import result
-                    if let Some(result) = import_result() {
-                        div { class: "gedcom-result",
-                            h4 { "Import Successful" }
-                            div { class: "result-stats",
-                                div { class: "result-stat",
-                                    span { class: "stat-value", "{result.persons_count}" }
-                                    span { class: "stat-label", "persons" }
-                                }
-                                div { class: "result-stat",
-                                    span { class: "stat-value", "{result.families_count}" }
-                                    span { class: "stat-label", "families" }
-                                }
-                                div { class: "result-stat",
-                                    span { class: "stat-value", "{result.events_count}" }
-                                    span { class: "stat-label", "events" }
-                                }
-                                div { class: "result-stat",
-                                    span { class: "stat-value", "{result.sources_count}" }
-                                    span { class: "stat-label", "sources" }
-                                }
-                                div { class: "result-stat",
-                                    span { class: "stat-value", "{result.media_count}" }
-                                    span { class: "stat-label", "media" }
-                                }
-                                div { class: "result-stat",
-                                    span { class: "stat-value", "{result.places_count}" }
-                                    span { class: "stat-label", "places" }
-                                }
-                                div { class: "result-stat",
-                                    span { class: "stat-value", "{result.notes_count}" }
-                                    span { class: "stat-label", "notes" }
-                                }
-                            }
-                            if !result.warnings.is_empty() {
-                                div { class: "gedcom-warnings",
-                                    details {
-                                        summary { "{result.warnings.len()} warning(s)" }
-                                        ul {
-                                            for warning in result.warnings.iter() {
-                                                li { "{warning}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Export sub-section
-                div {
-                    div { class: "section-header",
-                        h3 { style: "font-size: 0.95rem;", "Export" }
-                        button {
-                            class: "btn btn-primary btn-sm",
-                            disabled: exporting(),
-                            onclick: on_export_gedcom,
-                            if exporting() { "Exporting..." } else { "Export GEDCOM..." }
-                        }
-                    }
-
-                    if let Some(err) = export_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-
-                    if let Some(msg) = export_success() {
-                        div { class: "success-msg", "{msg}" }
-                    }
-                }
-            }
-        }
+        } // close .tree-detail-page
     }
 }
