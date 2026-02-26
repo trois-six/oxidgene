@@ -1021,6 +1021,13 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .connector-group { display: flex; flex-direction: column; }
 
+    .connector-couple-bar {
+        height: 2px;
+        background: #2e4a6a;
+        margin: 0 25%;
+        flex-shrink: 0;
+    }
+
     .pedigree-marriage-date {
         font-size: 0.68rem;
         color: var(--text-secondary);
@@ -1052,10 +1059,104 @@ pub const LAYOUT_STYLES: &str = r#"
     .connector-stem { flex: 1; display: flex; justify-content: center; }
     .connector-stem::after { content: ''; width: 2px; background: #2e4a6a; height: 100%; }
 
-    /* ── Descendant connector ─────────────────────────────────────── */
+    /* ── Descendant connector system ──────────────────────────────── */
 
-    .pedigree-desc-connector { height: 24px; display: flex; justify-content: center; }
-    .pedigree-desc-connector::after { content: ''; width: 2px; background: #2e4a6a; height: 100%; }
+    .pedigree-desc-gen {
+        display: flex;
+        justify-content: center;
+        gap: 24px;
+        flex-wrap: wrap;
+    }
+
+    .desc-family-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .desc-stem-up {
+        width: 2px;
+        height: 14px;
+        background: #2e4a6a;
+        flex-shrink: 0;
+    }
+
+    /* Branch bar: flex row of arms, mirrors ancestor connector pattern */
+    .desc-branch { display: flex; align-self: stretch; height: 14px; }
+
+    .desc-arm {
+        flex: 1;
+        border-top: 2px solid #2e4a6a;
+    }
+
+    .desc-arm-first {
+        border-right: 2px solid #2e4a6a;
+        border-top-right-radius: 4px;
+        border-top: none;
+        margin-left: 50%;
+    }
+
+    .desc-arm-mid {
+        border-top: 2px solid #2e4a6a;
+        position: relative;
+    }
+    .desc-arm-mid::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 100%;
+        background: #2e4a6a;
+    }
+
+    .desc-arm-last {
+        border-left: 2px solid #2e4a6a;
+        border-top-left-radius: 4px;
+        border-top: none;
+        margin-right: 50%;
+    }
+
+    /* Children row: same flex distribution as branch arms for alignment */
+    .desc-children {
+        display: flex;
+        gap: 0;
+    }
+
+    .desc-child-cell {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2px 4px;
+        position: relative;
+    }
+
+    /* Add-parent "+" button on descendant cards */
+    .desc-add-parent-btn {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--bg-panel);
+        border: 1px dashed var(--text-muted);
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition: border-color 0.15s, color 0.15s;
+        position: absolute;
+        top: -6px;
+        right: -2px;
+    }
+
+    .desc-add-parent-btn:hover {
+        border-color: var(--orange);
+        color: var(--orange);
+    }
 
     /* ── Depth popover (from isb) ────────────────────────────────── */
 
