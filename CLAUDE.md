@@ -8,6 +8,8 @@ A multiplatform genealogy application built entirely in Rust:
 - **SeaORM** with PostgreSQL (web) or SQLite (desktop, embedded)
 - **GEDCOM** import/export via `ged_io 0.12`
 
+Specifications are available in the `docs/specifications/*.md`.
+
 ## Workspace layout
 
 ```
