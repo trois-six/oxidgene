@@ -211,24 +211,6 @@ impl PedigreeData {
         (father, mother)
     }
 
-    /// Get children of a person (union across all families they're a spouse in).
-    fn children_of(&self, person_id: Uuid) -> Vec<Uuid> {
-        let Some(family_ids) = self.families_as_spouse.get(&person_id) else {
-            return vec![];
-        };
-        let mut children = Vec::new();
-        for fid in family_ids {
-            if let Some(fam_children) = self.children_by_family.get(fid) {
-                for child in fam_children {
-                    if !children.contains(&child.person_id) {
-                        children.push(child.person_id);
-                    }
-                }
-            }
-        }
-        children
-    }
-
     /// Get the sex of a person.
     fn sex_of(&self, person_id: Uuid) -> Sex {
         self.persons
@@ -335,28 +317,94 @@ fn build_ancestor_slots(
     generations
 }
 
-/// Build descendant rows (one Vec<Uuid> per generation, starting from root's children).
-fn build_descendant_levels(
+/// A family group in the descendant tree: parent + optional spouse + children.
+#[derive(Clone, Debug)]
+struct DescendantFamily {
+    /// The parent person from the previous generation.
+    #[allow(dead_code)]
+    parent_id: Uuid,
+    /// The spouse/partner in this family (if any).
+    #[allow(dead_code)]
+    spouse_id: Option<Uuid>,
+    /// The family ID linking them.
+    family_id: Uuid,
+    /// Children of this family.
+    children: Vec<Uuid>,
+}
+
+/// A descendant generation: a list of family groups.
+#[derive(Clone, Debug)]
+struct DescendantGeneration {
+    families: Vec<DescendantFamily>,
+}
+
+/// Build descendant generations grouped by family, for proper branching connectors.
+fn build_descendant_generations(
     root_id: Uuid,
     data: &PedigreeData,
     max_levels: usize,
-) -> Vec<Vec<Uuid>> {
+) -> Vec<DescendantGeneration> {
     if max_levels == 0 {
         return vec![];
     }
     let mut result = Vec::new();
-    let mut current = vec![root_id];
+    let mut current_parents = vec![root_id];
 
     for _ in 0..max_levels {
-        let mut next = Vec::new();
-        for &pid in &current {
-            next.extend(data.children_of(pid));
+        let mut generation = DescendantGeneration {
+            families: Vec::new(),
+        };
+        let mut next_parents = Vec::new();
+        let mut seen_families = std::collections::HashSet::new();
+
+        for &parent_id in &current_parents {
+            let family_ids = data
+                .families_as_spouse
+                .get(&parent_id)
+                .cloned()
+                .unwrap_or_default();
+
+            for fid in family_ids {
+                if !seen_families.insert(fid) {
+                    continue; // already processed this family via the other spouse
+                }
+
+                let children: Vec<Uuid> = data
+                    .children_by_family
+                    .get(&fid)
+                    .map(|cs| cs.iter().map(|c| c.person_id).collect())
+                    .unwrap_or_default();
+
+                if children.is_empty() {
+                    continue;
+                }
+
+                let spouse_id = data
+                    .spouses_by_family
+                    .get(&fid)
+                    .and_then(|sps| sps.iter().find(|s| s.person_id != parent_id))
+                    .map(|s| s.person_id);
+
+                for &child_id in &children {
+                    if !next_parents.contains(&child_id) {
+                        next_parents.push(child_id);
+                    }
+                }
+
+                generation.families.push(DescendantFamily {
+                    parent_id,
+                    spouse_id,
+                    family_id: fid,
+                    children,
+                });
+            }
         }
-        if next.is_empty() {
+
+        if generation.families.is_empty() {
             break;
         }
-        result.push(next.clone());
-        current = next;
+        result.push(generation);
+        current_parents = next_parents;
     }
 
     result
@@ -428,8 +476,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     let deepest_anc = display_anc_gens.saturating_sub(1);
 
-    // ── Build descendant rows ──
-    let desc_gens = build_descendant_levels(props.root_person_id, &props.data, descendant_levels());
+    // ── Build descendant generations (grouped by family) ──
+    let desc_gens =
+        build_descendant_generations(props.root_person_id, &props.data, descendant_levels());
 
     // ── CSS transform for pan/zoom ──
     let transform = format!(
@@ -732,6 +781,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                         if !md.is_empty() {
                                                             div { class: "pedigree-marriage-date", "♥ {md}" }
                                                         }
+                                                        div { class: "connector-couple-bar" }
                                                         div { class: "connector-arms",
                                                             div { class: "connector-arm-left" }
                                                             div { class: "connector-arm-right" }
@@ -820,71 +870,139 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         // ═══════════════════════════════════════════
                         // DESCENDANT ROWS — children below root
                         // ═══════════════════════════════════════════
-                        for (desc_idx, desc_row) in desc_gens.iter().enumerate() {
+                        for (desc_idx, desc_gen) in desc_gens.iter().enumerate() {
                             {
-                                let desc_row = desc_row.clone();
+                                let families = desc_gen.families.clone();
                                 rsx! {
+                                    // Family blocks row: each family renders its own
+                                    // connector bracket + children cards as a single unit
                                     div {
-                                        key: "desc-conn-{desc_idx}",
-                                        class: "pedigree-desc-connector",
-                                    }
+                                        key: "desc-gen-{desc_idx}",
+                                        class: "pedigree-desc-gen",
 
-                                    div {
-                                        class: "pedigree-gen-row pedigree-desc-row",
-                                        for (di, pid) in desc_row.iter().enumerate() {
+                                        for (fi, family) in families.iter().enumerate() {
                                             {
-                                                let pid = *pid;
-                                                let sex = props.data.sex_of(pid);
-                                                let (given, surname, _) = props.data.name_parts(pid);
-                                                let has_name = given.is_some() || surname.is_some();
-                                                let given_s = given.unwrap_or_default();
-                                                let surname_s = surname.unwrap_or_default();
-                                                let birth_s = props.data.birth_date(pid).unwrap_or_default();
-                                                let death_s = props.data.death_date(pid).unwrap_or_default();
-                                                let initials = make_initials(&given_s, &surname_s);
-                                                let sex_class = match sex {
-                                                    Sex::Male    => "pedigree-node male",
-                                                    Sex::Female  => "pedigree-node female",
-                                                    Sex::Unknown => "pedigree-node",
-                                                };
-                                                let is_sel = selected_person_id() == pid;
-                                                let node_class = if is_sel {
-                                                    format!("{sex_class} selected")
-                                                } else {
-                                                    sex_class.to_string()
-                                                };
-                                                let on_navigate = props.on_person_navigate;
+                                                let children = family.children.clone();
+                                                let child_count = children.len();
+                                                let md = props.data.marriage_date_for_family(family.family_id)
+                                                    .unwrap_or_default();
+
                                                 rsx! {
                                                     div {
-                                                        key: "desc-{desc_idx}-{di}",
-                                                        class: "pedigree-slot-cell",
-                                                        style: "flex: 1;",
-                                                        div {
-                                                            class: node_class,
-                                                            onclick: move |_| {
-                                                                selected_person_id.set(pid);
-                                                                on_navigate.call(pid);
-                                                            },
-                                                            div { class: "pc-ph", "{initials}" }
-                                                            div { class: "pc-body",
-                                                                div { class: "pc-name",
-                                                                    if !surname_s.is_empty() {
-                                                                        span { class: "pc-last", "{surname_s}" }
-                                                                    }
-                                                                    if !given_s.is_empty() {
-                                                                        span { class: "pc-first", "{given_s}" }
-                                                                    }
-                                                                    if !has_name {
-                                                                        span { class: "pc-first", "Unknown" }
+                                                        key: "desc-fam-{desc_idx}-{fi}",
+                                                        class: "desc-family-block",
+
+                                                        // Stem down from parent above
+                                                        div { class: "desc-stem-up" }
+
+                                                        // Marriage date (optional)
+                                                        if !md.is_empty() {
+                                                            div { class: "pedigree-marriage-date", "♥ {md}" }
+                                                        }
+
+                                                        // Branching connector: horizontal bar + stems down to each child
+                                                        if child_count > 1 {
+                                                            div { class: "desc-branch",
+                                                                for ci in 0..child_count {
+                                                                    {
+                                                                        let arm_class = if ci == 0 {
+                                                                            "desc-arm desc-arm-first"
+                                                                        } else if ci == child_count - 1 {
+                                                                            "desc-arm desc-arm-last"
+                                                                        } else {
+                                                                            "desc-arm desc-arm-mid"
+                                                                        };
+                                                                        rsx! {
+                                                                            div {
+                                                                                key: "desc-arm-{desc_idx}-{fi}-{ci}",
+                                                                                class: arm_class,
+                                                                            }
+                                                                        }
                                                                     }
                                                                 }
-                                                                if !birth_s.is_empty() || !death_s.is_empty() {
-                                                                    div { class: "pc-dates",
-                                                                        if !birth_s.is_empty() {
-                                                                            span { class: "pc-born", "✦ {birth_s}" }
-                                                                        }
-                                                                        if !death_s.is_empty() {
-                                                                            span { class: "pc-died", "✝ {death_s}" }
+                                                            }
+                                                        } else {
+                                                            // Single child: just a vertical line
+                                                            div { class: "desc-stem-up" }
+                                                        }
+
+                                                        // Children cards row
+                                                        div { class: "desc-children",
+                                                            for (ci, pid) in children.iter().enumerate() {
+                                                                {
+                                                                    let pid = *pid;
+                                                                    let sex = props.data.sex_of(pid);
+                                                                    let (given, surname, _) = props.data.name_parts(pid);
+                                                                    let has_name = given.is_some() || surname.is_some();
+                                                                    let given_s = given.unwrap_or_default();
+                                                                    let surname_s = surname.unwrap_or_default();
+                                                                    let birth_s = props.data.birth_date(pid).unwrap_or_default();
+                                                                    let death_s = props.data.death_date(pid).unwrap_or_default();
+                                                                    let initials = make_initials(&given_s, &surname_s);
+                                                                    let sex_class = match sex {
+                                                                        Sex::Male    => "pedigree-node male",
+                                                                        Sex::Female  => "pedigree-node female",
+                                                                        Sex::Unknown => "pedigree-node",
+                                                                    };
+                                                                    let is_sel = selected_person_id() == pid;
+                                                                    let node_class = if is_sel {
+                                                                        format!("{sex_class} selected")
+                                                                    } else {
+                                                                        sex_class.to_string()
+                                                                    };
+                                                                    let on_navigate = props.on_person_navigate;
+                                                                    let has_parents = {
+                                                                        let (f, m) = props.data.parents_of(pid);
+                                                                        f.is_some() || m.is_some()
+                                                                    };
+                                                                    let on_empty = props.on_empty_slot;
+                                                                    rsx! {
+                                                                        div {
+                                                                            key: "desc-child-{desc_idx}-{fi}-{ci}",
+                                                                            class: "desc-child-cell",
+                                                                            div {
+                                                                                class: node_class,
+                                                                                onclick: move |_| {
+                                                                                    selected_person_id.set(pid);
+                                                                                    on_navigate.call(pid);
+                                                                                },
+                                                                                div { class: "pc-ph", "{initials}" }
+                                                                                div { class: "pc-body",
+                                                                                    div { class: "pc-name",
+                                                                                        if !surname_s.is_empty() {
+                                                                                            span { class: "pc-last", "{surname_s}" }
+                                                                                        }
+                                                                                        if !given_s.is_empty() {
+                                                                                            span { class: "pc-first", "{given_s}" }
+                                                                                        }
+                                                                                        if !has_name {
+                                                                                            span { class: "pc-first", "Unknown" }
+                                                                                        }
+                                                                                    }
+                                                                                    if !birth_s.is_empty() || !death_s.is_empty() {
+                                                                                        div { class: "pc-dates",
+                                                                                            if !birth_s.is_empty() {
+                                                                                                span { class: "pc-born", "✦ {birth_s}" }
+                                                                                            }
+                                                                                            if !death_s.is_empty() {
+                                                                                                span { class: "pc-died", "✝ {death_s}" }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            // Add-parent "+" button for persons without parents
+                                                                            if !has_parents {
+                                                                                button {
+                                                                                    class: "desc-add-parent-btn",
+                                                                                    title: "Add parents",
+                                                                                    onclick: move |evt: Event<MouseData>| {
+                                                                                        evt.stop_propagation();
+                                                                                        on_empty.call((pid, true));
+                                                                                    },
+                                                                                    "+"
+                                                                                }
+                                                                            }
                                                                         }
                                                                     }
                                                                 }
