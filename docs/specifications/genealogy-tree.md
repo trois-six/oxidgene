@@ -123,8 +123,35 @@ Appears only at the maximum ascending level, for each person whose parents are n
 When a card is clicked:
 - It becomes the new **focus** of the graph, the layout is recalculated centered on it
 - Distinctive orange border
-- A **pencil icon** appears just below the card, centered, to access editing
-- The pencil icon disappears as soon as another card is selected
+- A **pencil icon** appears just below the card, centered
+- The pencil icon disappears as soon as another card is selected or the canvas is clicked
+
+### Pencil Icon — Action Picker
+
+Clicking the pencil icon opens a small **action picker modal** (not a full-screen modal). It presents the available actions for the selected person as a list of labeled options:
+
+| Action | Description |
+|---|---|
+| **Edit individual** | Opens the full person edit modal |
+| **Merge with…** | Opens a person search to select a duplicate to merge |
+| **Edit union** | See below — expands into a sub-list if multiple unions exist |
+| **Add spouse** | Opens a new person form pre-linked as spouse |
+| **Add child** | Opens a new person form pre-linked as child |
+| **Add sibling** | Opens a new person form pre-linked as sibling |
+
+The picker is a compact overlay anchored just below the pencil icon, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.
+
+### Edit Union — Sub-list
+
+When the selected person has **exactly one union**, clicking "Edit union" immediately opens the couple edit modal.
+
+When the selected person has **two or more unions**, clicking "Edit union" expands an inline sub-list within the picker, replacing the action row. Each union is listed as a single line showing:
+
+```
+[Partner name]   ✦ birth year   💍 marriage year (if known)
+```
+
+Clicking a union entry closes the picker and opens the couple edit modal for that specific union. A back arrow at the top of the sub-list returns to the main action list.
 
 ---
 
