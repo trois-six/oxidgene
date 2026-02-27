@@ -1,7 +1,7 @@
 # OxidGene
 
 <p align="center">
-  <img src="docs/OxidGene.png" alt="OxidGene Logo" width="300">
+  <img src="docs/assets/OxidGene.png" alt="OxidGene Logo" width="300">
 </p>
 
 A modern, high-performance genealogy platform built entirely in Rust.
