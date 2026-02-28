@@ -1,10 +1,13 @@
 # Visual & Functional Specifications — Tree Settings Page
 
+> Part of the [OxidGene Specifications](README.md).
+> See also: [Homepage](ui-home.md) (settings button on cards) · [Tree View](ui-genealogy-tree.md) · [Person Edit Modal](ui-person-edit-modal.md) (privacy per person) · [Data Model](data-model.md) · [API Contract](api.md) (GEDCOM export)
+
 ---
 
 ## 1. Overview
 
-The settings page (`/tree/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, display preferences, data entry options, diagnostic tools, and export. It is accessed via the "Settings" button on each tree card on the homepage.
+The settings page (`/tree/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, display preferences, data entry options, diagnostic tools, and export. It is accessed via the "Settings" button on each tree card on the [Homepage](ui-home.md).
 
 ---
 
