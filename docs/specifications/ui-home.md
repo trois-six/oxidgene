@@ -1,5 +1,8 @@
 # Visual & Functional Specifications — Homepage
 
+> Part of the [OxidGene Specifications](README.md).
+> See also: [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) (Tree entity) · [API Contract](api.md) (Trees endpoints)
+
 ---
 
 ## 1. Overview
@@ -33,7 +36,7 @@ The homepage is the authenticated user's personal workspace. It lists all their 
 Height: fixed 56px, full width, sticky.
 
 **Left side:**
-- Logo + brand name "OxidGene" (Cinzel font, orange-tinted)
+- Logo (from `docs/assets/OxidGene.svg`) + brand name "OxidGene" (Cinzel font, orange-tinted)
 - Vertical divider
 - Main navigation links: My Trees · Sources · Places · Help
 
