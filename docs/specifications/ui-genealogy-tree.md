@@ -1,4 +1,7 @@
-# Visual Specifications — Genealogy Tree
+# Visual & Functional Specifications — Genealogy Tree
+
+> Part of the [OxidGene Specifications](README.md).
+> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Add Person](ui-add-person.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [GEDCOM Import](ui-gedcom-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
 
 ---
 
@@ -223,7 +226,7 @@ Fixed height (~48px), spans the full width above the canvas.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  [Logo]  |  My trees › Tree name     [Last name] [First name] [🔍] │
+│  [Logo (OxidGene.svg)]  |  My trees › Tree name     [Last name] [First name] [🔍] │
 └──────────────────────────────────────────────────────────────┘
 ```
 

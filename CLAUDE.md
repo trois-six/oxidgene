@@ -1,73 +1,100 @@
-# OxidGene — Project Context for Claude
+# OxidGene — Context for Claude
 
-## What this is
+## Project
 
-A multiplatform genealogy application built entirely in Rust:
-- **Dioxus 0.7** frontend (WASM web + desktop via WebView)
-- **Axum 0.8** backend exposing both REST (`/api/v1`) and GraphQL (`/graphql`)
-- **SeaORM** with PostgreSQL (web) or SQLite (desktop, embedded)
-- **GEDCOM** import/export via `ged_io 0.12`
+Multiplatform genealogy app, 100% Rust. Dioxus 0.7 frontend (WASM + desktop), Axum 0.8 backend (REST `/api/v1` + GraphQL `/graphql`), SeaORM (PostgreSQL web / SQLite desktop), GEDCOM via `ged_io 0.12`.
 
-Specifications are available in the `docs/specifications/*.md`.
+## Specs
 
-## Workspace layout
+All specifications live in `docs/specifications/` — always read the relevant spec before implementing a feature:
+
+| Spec | What it covers |
+|------|----------------|
+| `README.md` | Index with cross-links to all specs |
+| `general.md` | Vision, users, features, MVP scope |
+| `architecture.md` | Tech stack, crate layout, build, deployment |
+| `data-model.md` | All 14 entities, enums, ERD |
+| `api.md` | Full REST + GraphQL contract |
+| `roadmap.md` | EPICs A–F, sprint breakdown |
+| `ui-home.md` | Homepage / tree dashboard |
+| `ui-genealogy-tree.md` | Pedigree canvas, cards, connectors, sidebar |
+| `ui-person-edit-modal.md` | Person edit, couple edit, media, deletion |
+| `ui-settings.md` | Tree settings, tools, export |
+
+## Workspace
 
 ```
 crates/
-  oxidgene-core/    # Domain types, enums — no internal deps
-  oxidgene-db/      # SeaORM entities + migrations
-  oxidgene-gedcom/  # GEDCOM ↔ domain conversion (wraps ged_io)
-  oxidgene-api/     # Axum REST handlers + async-graphql resolvers
-  oxidgene-ui/      # Dioxus components, shared web/desktop
+  oxidgene-core/    # Domain types, enums, errors — no internal deps
+  oxidgene-db/      # SeaORM entities, migrations, repos
+  oxidgene-gedcom/  # GEDCOM ↔ domain (wraps ged_io)
+  oxidgene-api/     # Axum REST + async-graphql + service layer
+  oxidgene-ui/      # Dioxus components + pages
 apps/
   oxidgene-server/  # Web server binary
   oxidgene-desktop/ # Desktop binary (embeds Axum + SQLite + WebView)
   oxidgene-cli/     # CLI (import/export, migrations)
 ```
 
-## Key design decisions
+Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `core` ← `ui`.
 
-| Topic | Decision |
-|---|---|
-| Primary keys | UUID v7 (time-ordered) |
-| Pagination | Cursor-based (Relay-style) |
-| Deletion | Soft delete (`deleted_at`) |
-| Ancestor queries | `PersonAncestry` closure table |
-| Auth | Deferred to EPIC E (not in MVP) |
+## Key design rules
 
-## Core domain model
-
-- **Tree** → contains Persons, Families, Events, Sources, Media, Notes
-- **Person** → has PersonNames (one `is_primary`), FamilySpouse links, FamilyChild links, Events
-- **Family** → links spouses (FamilySpouse) and children (FamilyChild); has Events
-- **PersonAncestry** — closure table: `(ancestor_id, descendant_id, depth)` for O(1) traversal
+- **UUIDs v7** for all PKs (time-ordered)
+- **Cursor-based pagination** (Relay-style) on all list endpoints
+- **Soft delete** (`deleted_at`) — filter out by default
+- **`PersonAncestry` closure table** for O(1) ancestor/descendant traversal
+- **No auth in MVP** (EPIC E, deferred)
+- **Family-centric model**: Persons exist independently; Families link spouses + children
 
 ## Frontend (oxidgene-ui)
 
-Dioxus 0.7, components in `src/components/`, pages in `src/pages/`.
+Dioxus 0.7. Components in `src/components/`, pages in `src/pages/`.
 
-CSS is embedded as a `const &str` in `src/components/layout.rs` (`LAYOUT_STYLES`).
+**CSS**: all styles embedded as `const &str` in `components/layout.rs` (`LAYOUT_STYLES`). Uses CSS vars (see `ui-home.md` §12 for design tokens). Dark theme by default. Fonts: Cinzel (headings) + Lato (body) via Google Fonts `@import`.
 
-Key components:
-- `layout.rs` — app shell + all CSS
-- `pedigree_chart.rs` — vertical bidirectional pan/zoom tree (ancestors above root, descendants below)
-- `tree_detail.rs` — page orchestrator: data fetching, context menu, modals, GEDCOM I/O
-- `person_node.rs` — reusable person card
-- `person_form.rs` / `union_form.rs` — tabbed edit modals
+**Key files**:
+- `layout.rs` — app shell, navbar, all shared CSS
+- `pedigree_chart.rs` — vertical bidirectional pan/zoom tree canvas
+- `tree_detail.rs` — page orchestrator: data fetching, topbar, modals, GEDCOM I/O
+- `person_detail.rs` — full person profile page
+- `person_form.rs` — person edit modal (civil status, birth, death, events, media)
+- `union_form.rs` — couple edit modal (union events, children, both persons)
+- `person_node.rs` — reusable person card component
+- `home.rs` — tree dashboard with cards, create/delete
+- `api.rs` — HTTP client (`ApiClient`) for all backend calls
 
-## REST API base path: `/api/v1`
+**Dioxus 0.7 gotchas**:
+- `use_signal` returns Copy types — closures capture by copy
+- SVG in rsx!: use quoted attrs for camelCase — `"viewBox"`, `"strokeWidth"`, `"fillOpacity"`
+- `EventHandler<T>` for component callbacks (e.g. `on_confirm: EventHandler<()>`)
 
-Main resource paths:
-- `/trees`, `/trees/{tid}/persons`, `/trees/{tid}/families`
-- `/trees/{tid}/persons/{pid}/names`
-- `/trees/{tid}/families/{fid}/spouses`, `.../children`
-- `/trees/{tid}/events`, `/trees/{tid}/places`, `/trees/{tid}/sources`
-- `/trees/{tid}/gedcom/import`, `/trees/{tid}/gedcom/export`
+## Backend (oxidgene-api)
 
-## Current MVP sprint (EPIC C/D)
+- `rest/` — one handler file per resource (tree, person, family, event, place, source, citation, media, media_link, note, gedcom, family_member)
+- `graphql/` — query.rs, mutation.rs, types.rs, inputs.rs
+- `service/` — business logic (gedcom service)
+- `rest/dto.rs` — request/response DTOs
+- `rest/state.rs` — AppState (DB connection)
+- `router.rs` — Axum router wiring
 
-Sprints A–B complete. Currently in D-series (UX, tree visualization). The pedigree chart is a vertical bidirectional tree (ancestors up, descendants down) with pan/zoom and a floating depth-control panel.
+## Build commands
 
-## What's NOT in MVP
+```bash
+just build          # Build all
+just test           # Run tests
+just check          # fmt + clippy + test
+just fmt            # Format
+just clippy         # Lint
+just server         # Run web server (dev)
+just desktop        # Run desktop app (dev)
+just cli <ARGS>     # Run CLI
+```
 
-Authentication, access control, collaborative editing, tree matching, async upload pipeline.
+## Assets
+
+Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
+
+## Current sprint
+
+EPICs A–B complete. Currently in EPIC D (UX, tree visualization, design system). See `docs/specifications/roadmap.md` for details.

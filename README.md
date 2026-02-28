@@ -16,35 +16,16 @@ OxidGene is a multiplatform genealogy application featuring:
 - **Offline-capable**: Desktop app with embedded SQLite database
 - **Performant**: Rust from top to bottom, closure table for fast tree traversal
 
-## Tech Stack
+## Documentation
 
-| Layer | Technology |
-|---|---|
-| Language | Rust (stable) |
-| Frontend | Dioxus 0.7+ (Web + Desktop) |
-| Backend | Axum 0.8+ |
-| GraphQL | async-graphql 7.2+ |
-| ORM | SeaORM 1.1+ |
-| Web DB | PostgreSQL 16+ |
-| Desktop DB | SQLite 3.35+ |
-| GEDCOM | ged_io 0.12+ |
+Full specifications are available in [`docs/specifications/`](docs/specifications/README.md):
 
-## Project Structure
-
-```
-oxidgene/
-├── crates/
-│   ├── oxidgene-core/      # Domain types, enums, error types
-│   ├── oxidgene-db/        # SeaORM entities, migrations, repositories
-│   ├── oxidgene-api/       # Axum REST handlers + GraphQL resolvers
-│   ├── oxidgene-gedcom/    # GEDCOM import/export (wraps ged_io)
-│   └── oxidgene-ui/        # Dioxus frontend components
-├── apps/
-│   ├── oxidgene-server/    # Web backend binary
-│   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + WebView)
-│   └── oxidgene-cli/       # CLI tool
-└── docker/                 # Container build files
-```
+- [General](docs/specifications/general.md) — Vision, users, features, MVP scope
+- [Architecture](docs/specifications/architecture.md) — Tech stack, crate layout, build, deployment
+- [Data Model](docs/specifications/data-model.md) — Entities, enums, ERD
+- [API Contract](docs/specifications/api.md) — REST & GraphQL endpoints
+- [Roadmap](docs/specifications/roadmap.md) — EPICs & sprints
+- UI specs: [Homepage](docs/specifications/ui-home.md) · [Tree View](docs/specifications/ui-genealogy-tree.md) · [Person Edit](docs/specifications/ui-person-edit-modal.md) · [Settings](docs/specifications/ui-settings.md)
 
 ## Prerequisites
 

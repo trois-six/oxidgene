@@ -1,10 +1,13 @@
 # Visual & Functional Specifications — Person Edit Modal
 
+> Part of the [OxidGene Specifications](README.md).
+> See also: [Tree View](ui-genealogy-tree.md) (action picker opens this modal) · [Settings](ui-settings.md) (privacy rules, date display, entry options) · [Data Model](data-model.md) (Person, PersonName, Event, Family, Media) · [API Contract](api.md) (Persons, Events, Media endpoints)
+
 ---
 
 ## 1. Overview
 
-The person edit modal opens when the user selects **"Edit individual"** from the action picker (pencil icon below a selected card in the tree view). It is a single large scrollable modal that covers all editable data for one person: civil status, birth, death, privacy, optional supplementary fields, and additional events.
+The person edit modal opens when the user selects **"Edit individual"** from the action picker (pencil icon below a selected card in the [Tree View](ui-genealogy-tree.md)). It is a single large scrollable modal that covers all editable data for one person: civil status, birth, death, privacy, optional supplementary fields, and additional events.
 
 ---
 
@@ -83,7 +86,13 @@ Radio group with three options displayed as labeled buttons:
 
 ### Occupations
 
-Dynamic list, same pattern as first names: each entry is a text input with a remove button. An **"+ Add an occupation"** button appends a new entry. No ordering constraint.
+Occupations are stored as **Occupation events** (EventType `Occupation`), each with a date and place — not as free-text fields. However, for convenience, the civil status section presents them as a simplified dynamic list:
+
+- Each entry has a text input (occupation title), an optional date field, and an optional place field
+- An **"+ Add an occupation"** button appends a new entry
+- Under the hood, each entry creates an Event of type `Occupation` with the title in the `description` field
+
+This ensures GEDCOM round-trip fidelity (GEDCOM `OCCU` tag maps to `EventType::Occupation`).
 
 ### First Name Aliases
 
@@ -199,31 +208,38 @@ An **"+ Add an event"** button opens a small inline picker listing available eve
 
 ### Available event types
 
+Event types are organized by category. Types marked with **⟷** have a direct GEDCOM tag mapping (lossless round-trip via `ged_io`). Types without the marker are app-specific and export as GEDCOM `EVEN` with a TYPE subrecord.
+
 **Sacraments & religious**
-- Baptism
+- Baptism ⟷ `BAPM`
 - Confirmation
 - First communion
 - Bar/Bat Mitzvah
 
-**Civil**
-- Census
-- Residence
-- Naturalization
-- Emigration / Immigration
+**Civil & life**
+- Census ⟷ `CENS`
+- Residence ⟷ `RESI`
+- Naturalization ⟷ `NATU`
+- Emigration ⟷ `EMIG`
+- Immigration ⟷ `IMMI`
+- Graduation ⟷ `GRAD`
+- Occupation ⟷ `OCCU` (also editable from civil status section)
+- Retirement ⟷ `RETI`
 - Military service
-- Retirement
 
-**Family**
-- Engagement
-- Divorce / Separation
+**Death-related**
+- Burial ⟷ `BURI`
+- Cremation ⟷ `CREM`
+- Probate ⟷ `PROB`
+- Will ⟷ `WILL`
+
+**Family** (also available as union events in the [couple edit modal](#14-couple-edit-modal))
+- Engagement ⟷ `ENGA`
+- Divorce / Separation ⟷ `DIV`
 - Adoption
 
 **Other**
-- Education / Diploma
-- Will / Probate
-- Burial
-- Cremation
-- Custom event (free label)
+- Custom event (free label) → exports as GEDCOM `EVEN` with TYPE
 
 ### Event block structure
 
@@ -234,6 +250,7 @@ Each added event appears as a collapsible block with:
 - **Place** — text input with autocomplete
 - **Note** — free text input
 - **Source** — free text input
+- **Cause** — single-line text input, free text. Relevant for death, burial, and other events where a cause is meaningful. Maps to GEDCOM `CAUS` tag.
 - **Calendar** (supplementary, collapsed by default) — same calendar selector
 - **Witnesses** (supplementary, collapsed by default) — same dynamic list
 
@@ -432,21 +449,23 @@ Displayed first, before the children block and either person's fields.
 
 **Union events** — dynamic list of event blocks. Each event has the same structure as the "Other events" blocks in the individual edit modal (date qualifier + place + note + source + optional calendar + optional witnesses).
 
-**Core union event types** (always available):
+**Core union event types** (always available). Types marked with **⟷** have a direct GEDCOM tag mapping via `ged_io`:
 
-- Marriage
-- Divorce / Separation
-- Banns (publication of banns)
-- Civil ceremony
-- Religious ceremony
-- Annulment
+- Marriage ⟷ `MARR`
+- Divorce / Separation ⟷ `DIV`
+- Annulment ⟷ `ANUL`
+- Engagement ⟷ `ENGA`
+- Marriage Bann ⟷ `MARB`
+- Marriage Contract ⟷ `MARC`
+- Marriage License ⟷ `MARL`
+- Marriage Settlement ⟷ `MARS`
 
 **Optional event types** (same pool as individual events, applicable to the couple context):
 
-- Residence / Domicile
-- Census
-- Emigration / Immigration
-- Will / Probate
+- Residence / Domicile ⟷ `RESI`
+- Census ⟷ `CENS`
+- Emigration / Immigration ⟷ `EMIG` / `IMMI`
+- Will / Probate ⟷ `WILL` / `PROB`
 - Custom event (free label)
 
 An **"+ Add a union event"** button appends a new event block. Each block is collapsible after creation, showing only the event type and date summary when collapsed.
@@ -525,5 +544,5 @@ Same rules as the individual modal: no field is required, save is always availab
 
 This spec covers **"Edit individual"** and **"Edit union"**. The other actions from the pencil icon picker are out of scope here and covered in their own specs:
 
-- **Merge with…** → separate spec
-- **Add spouse / Add child / Add sibling** → use a lighter version of the individual edit modal, pre-filled with the relationship context and without union-related fields
+- **Merge with…** → see [Person Merge](ui-merge.md)
+- **Add spouse / Add child / Add sibling** → see [Add Person](ui-add-person.md)
