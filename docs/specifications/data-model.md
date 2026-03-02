@@ -107,11 +107,13 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree |
-| `name` | String | Required |
-| `latitude` | f64? | |
-| `longitude` | f64? | |
+| `name` | String | Required — single free-text string (e.g. "Beaune, 21200, Côte-d'Or, Bourgogne-Franche-Comté, France") |
+| `latitude` | f64? | Filled when selected from offline database or geocoding |
+| `longitude` | f64? | Filled when selected from offline database or geocoding |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
+
+The `name` is a single string. The recommended format is comma-separated from most specific to least specific (see [PlaceInput](ui-shared-components.md) §5), but any text is valid.
 
 ### Source
 
@@ -155,6 +157,8 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit
 | `file_size` | i64 | Bytes |
 | `title` | String? | |
 | `description` | String? | |
+| `date_value` | String? | Date of the media (GEDCOM date phrase, same format as Event) |
+| `place_id` | UUID v7? | FK → Place — where the media was created/taken |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -212,14 +216,14 @@ enum Sex {
 }
 
 enum NameType {
-    Birth,        // ged_io: Birth
-    Married,      // ged_io: Married
-    AlsoKnownAs,  // ged_io: Aka
-    Maiden,       // ged_io: Maiden
-    Religious,    // ged_io: Religious
-    Immigrant,    // ged_io: Immigrant
-    Professional, // ged_io: Professional
-    Other,        // ged_io: Other(_)
+    Birth,
+    Married,
+    Aka,
+    Maiden,
+    Religious,
+    Immigrant,
+    Professional,
+    Other,
 }
 
 enum SpouseRole {
@@ -229,11 +233,10 @@ enum SpouseRole {
 }
 
 enum ChildType {
-    Biological, // ged_io: Pedigree::Birth
-    Adopted,    // ged_io: Pedigree::Adopted
-    Foster,     // ged_io: Pedigree::Foster
-    Step,       // App-specific (no GEDCOM pedigree equivalent)
-    Unknown,    // ged_io: Pedigree::Sealing or absent
+    Birth,
+    Adopted,
+    Foster
+    Unknown,
 }
 
 // GEDCOM tag mapping is shown for types supported by ged_io 0.12.
@@ -252,7 +255,7 @@ enum EventType {
     Census,         // CENS → GedEvent::Census
     Occupation,     // OCCU → GedEvent::Occupation (description holds the title)
     Residence,      // RESI → GedEvent::Residence
-    Retirement,     // RETI → GedEvent::Retired
+    Retired,        // RETI → GedEvent::Retired
     Will,           // WILL → GedEvent::Will
     Probate,        // PROB → GedEvent::Probate
     // Family events
@@ -274,7 +277,6 @@ enum Confidence {
     Low,      // ged_io: Questionable (QUAY 1)
     Medium,   // ged_io: Secondary (QUAY 2)
     High,     // ged_io: Direct (QUAY 3)
-    VeryHigh, // App-specific (no GEDCOM equivalent, exports as QUAY 3)
 }
 ```
 
@@ -309,6 +311,7 @@ erDiagram
     Family ||--o{ Note : "has notes"
 
     Event }o--o| Place : "occurred at"
+    Media }o--o| Place : "taken at"
     Event ||--o{ Citation : "cited by"
     Event ||--o{ MediaLink : "linked media"
     Event ||--o{ Note : "has notes"
