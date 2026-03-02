@@ -7,7 +7,16 @@
 
 ## 1. Overview
 
-The person edit modal opens when the user selects **"Edit individual"** from the action picker (pencil icon below a selected card in the [Tree View](ui-genealogy-tree.md)). It is a single large scrollable modal that covers all editable data for one person: civil status, birth, death, privacy, optional supplementary fields, and additional events.
+A single modal is used for both **creating** and **editing** a person. The form content is identical — the only differences are in the header, footer actions, and optional pre-filled fields.
+
+| Aspect | Create mode | Edit mode |
+|---|---|---|
+| **Header title** | Varies by context (see §3) | Person's full name |
+| **Header subtitle** | "New person" | "Edit individual" |
+| **Footer actions** | Cancel · **Create** | Delete · Cancel · **Save** |
+| **Pre-filled fields** | Depends on context (see §3) | Current person data |
+
+The modal opens in **edit mode** when the user selects "Edit individual" from the action picker. It opens in **create mode** when the user triggers any "Add person" action (see §3).
 
 ---
 
@@ -23,7 +32,7 @@ The person edit modal opens when the user selects **"Edit individual"** from the
 ```
 ┌─────────────────────────────────────────────────┐  ← fixed header
 │  MARTIN Jean-Baptiste            [×]            │
-│  Edit individual                                │
+│  Edit individual / New person                   │
 ├─────────────────────────────────────────────────┤
 │                                                 │  ← scrollable body
 │  ── Civil Status ───────────────────────────    │
@@ -44,25 +53,92 @@ The person edit modal opens when the user selects **"Edit individual"** from the
 │  ── Other events ───────────────────────────    │
 │  [+ Add an event]                               │
 │                                                 │
+│  ── Media ──────────────────────────────────    │
+│  [gallery + upload]                             │
+│                                                 │
+│  ── Delete ─────────────────────────────────    │  ← edit mode only
+│  [Delete this person]                           │
+│                                                 │
 ├─────────────────────────────────────────────────┤  ← fixed footer
-│  [Cancel]                       [Save]          │
+│  [Cancel]                       [Create / Save] │
 └─────────────────────────────────────────────────┘
 ```
 
 ### Fixed Header
 
-- Person's current full name (family name + first name) as title
-- Subtitle: "Edit individual"
+- **Title**: person's current full name (edit mode) or context-specific title (create mode, see §3)
+- **Subtitle**: "Edit individual" (edit mode) or "New person" (create mode)
 - Close button `×` top-right — closes without saving, prompts confirmation if there are unsaved changes
 
 ### Fixed Footer
 
 - **Cancel** button (ghost style) — closes without saving
-- **Save** button (orange gradient) — validates and saves all changes
+- **Create** button (orange gradient, create mode) or **Save** button (orange gradient, edit mode)
 
 ---
 
-## 3. Section: Civil Status
+## 3. Create Mode — Context Variants
+
+In create mode, the modal adapts its title and pre-filled fields based on the trigger:
+
+### Add Spouse
+
+**Trigger**: "Add spouse" from the action picker on a selected person.
+
+| Aspect | Behavior |
+|---|---|
+| Title | "Add spouse to MARTIN Jean-Baptiste" |
+| Gender | Pre-selected to the opposite of the existing person (if Male → Female, and vice versa). Editable. |
+| Relationship created on save | A new Family is created (or the existing one is used if the person has no union yet). The new person is added as a FamilySpouse. |
+| Union section | A collapsed "Union details" section is available (date, place, note, source for the marriage). Same fields as the union block in the [couple edit modal](#14-couple-edit-modal). |
+
+### Add Child
+
+**Trigger**: "Add child" from the action picker.
+
+| Aspect | Behavior |
+|---|---|
+| Title | "Add child to MARTIN Jean-Baptiste & LEMAIRE Marguerite" (if the person has a union) or "Add child to MARTIN Jean-Baptiste" (if no union) |
+| Surname | Pre-filled with the selected person's surname. Editable. |
+| Gender | Not pre-selected. |
+| Union selector | If the selected person has **multiple unions**, a dropdown at the top of the modal asks which union this child belongs to. |
+| Relationship created on save | The new person is added as a FamilyChild to the selected union. |
+
+### Add Sibling
+
+**Trigger**: "Add sibling" from the action picker.
+
+| Aspect | Behavior |
+|---|---|
+| Title | "Add sibling of MARTIN Jean-Baptiste" |
+| Surname | Pre-filled with the selected person's surname. Editable. |
+| Gender | Not pre-selected. |
+| Relationship created on save | The new person is added as a FamilyChild to the **same Family** as the selected person (i.e. the Family where the selected person is a child). If the selected person has no parent family, a new Family is created with the selected person's parents (if known). |
+
+### Add Parent (from placeholder)
+
+**Trigger**: clicking the `+` on an unknown parent placeholder card at the top of the tree.
+
+| Aspect | Behavior |
+|---|---|
+| Title | "Add father of MARTIN Jean-Baptiste" or "Add mother of …" (depending on the placeholder position) |
+| Gender | Pre-selected (Male for father, Female for mother). Editable. |
+| Surname | Pre-filled with the child's surname (for father) or empty (for mother). Editable. |
+| Relationship created on save | The new person is added as a FamilySpouse to the child's parent Family (creating one if it doesn't exist). |
+
+### Add Person (standalone)
+
+**Trigger**: ＋👤 button in the left sidebar.
+
+| Aspect | Behavior |
+|---|---|
+| Title | "Add a person" |
+| Pre-filled fields | None. |
+| Relationship created on save | None — the person is added to the tree without any family link. |
+
+---
+
+## 4. Section: Civil Status
 
 Displayed as the first block in the scrollable body, with a section divider label "Civil Status".
 
@@ -108,7 +184,7 @@ Single text input, free text. Placeholder: "Reference, archive, document title�
 
 ---
 
-## 4. Section: Birth
+## 5. Section: Birth
 
 Displayed as the second block with a section divider label "Birth".
 
@@ -135,7 +211,7 @@ When **two fields** are shown (Or / Between), they are displayed side by side wi
 
 ### Place
 
-Single text input with **place autocomplete** (geolocated suggestions, if enabled in tree settings). Placeholder: "Town, département, country…"
+Single text input with **place autocomplete** (see [PlaceInput](ui-shared-components.md) §5). Placeholder: "City, postal code, département, region, country…"
 
 ### Note
 
@@ -147,7 +223,7 @@ Single-line text input, free text.
 
 ---
 
-## 5. Section: Death
+## 6. Section: Death
 
 Identical structure to the Birth section. Same date qualifier options, same place/note/source fields.
 
@@ -155,7 +231,7 @@ Section divider label: "Death".
 
 ---
 
-## 6. Section: Privacy
+## 7. Section: Privacy
 
 A single selector displayed below the Death section.
 
@@ -169,7 +245,7 @@ A single selector displayed below the Death section.
 
 ---
 
-## 7. Section: Additional Fields
+## 8. Section: Additional Fields
 
 Collapsed by default. Revealed by clicking **"+ Show supplementary fields"**. Once expanded, this button becomes **"− Hide supplementary fields"**.
 
@@ -200,7 +276,7 @@ Same structure as Birth supplements: calendar selector + witnesses dynamic list.
 
 ---
 
-## 8. Section: Other Events
+## 9. Section: Other Events
 
 Located at the bottom of the scrollable body, below the additional fields section.
 
@@ -258,29 +334,9 @@ Blocks can be reordered via drag handle. They are collapsed by default after cre
 
 ---
 
-## 9. Validation & Save Behavior
-
-- No field is strictly required — a person can be saved with only a name, or even completely empty
-- The **Save** button is always active
-- On save: the modal closes, the tree card updates immediately to reflect the new name and dates
-- On cancel or outside click with unsaved changes: a small confirmation prompt appears ("Discard changes?") with Confirm / Go back options
-
----
-
-## 10. Keyboard & Accessibility
-
-| Key | Behavior |
-|---|---|
-| `Escape` | Close modal (with discard prompt if unsaved changes) |
-| `Tab` | Move focus between fields in document order |
-| `Enter` in a text input | Move to the next field (does not submit) |
-| `Enter` in the footer | Triggers Save |
-
----
-
 ## 10. Section: Media
 
-Located at the bottom of the scrollable body, after the Other Events section. Accessible directly within the individual edit modal — no separate modal or action picker entry required.
+Located after the Other Events section. Accessible directly within the modal — no separate modal or action picker entry required.
 
 ### Layout
 
@@ -355,9 +411,11 @@ Clicking the trash icon on a tile shows a confirmation prompt inline ("Remove th
 
 ---
 
-## 11. Deleting a Person
+## 11. Deleting a Person (edit mode only)
 
-A **"Delete this person"** button is available at the bottom of the individual edit modal body, visually separated from the rest of the form by a divider. It uses a destructive style (red text, subtle red border).
+Not shown in create mode.
+
+A **"Delete this person"** button is available at the bottom of the modal body, visually separated from the rest of the form by a divider. It uses a destructive style (red text, subtle red border).
 
 ### Confirmation flow
 
@@ -380,27 +438,70 @@ On confirmation: the modal closes, the card is removed from the tree, and the la
 
 ---
 
-## 12. Validation & Save Behavior
+## 12. Suggest Existing Persons (create mode only)
+
+When the [tree setting](ui-settings.md) "Suggest existing persons" is enabled (§10) and the modal is in create mode, the modal offers to **link to an existing person** instead of creating a new one.
+
+### Behavior
+
+As the user types in the surname and first name fields, a suggestion dropdown appears below the form header:
+
+```
+┌─────────────────────────────────────────────────┐
+│  💡 Existing persons matching this name:        │
+│                                                  │
+│  [photo] LEMAIRE Marguerite  ✦ 1845  ✝ 1920    │
+│          Already in this tree, no family link    │
+│          [Link this person]                      │
+│                                                  │
+│  [photo] LEMAIRE Marie       ✦ 1850             │
+│          Already in this tree, no family link    │
+│          [Link this person]                      │
+│                                                  │
+│  Or continue creating a new person below.        │
+└─────────────────────────────────────────────────┘
+```
+
+- Suggestions are debounced (300ms) and filtered by name similarity
+- Only persons **not already linked** in the target relationship are shown (e.g. when adding a child, persons already children of this union are excluded)
+- Clicking **"Link this person"** links the existing person and closes the modal (no new person is created)
+- The suggestion panel can be dismissed and does not block the form
+
+---
+
+## 13. Validation & Save Behavior
 
 - No field is strictly required — a person can be saved with only a name, or even completely empty
-- The **Save** button is always active
-- On save: the modal closes, the tree card updates immediately to reflect the new name, dates, and profile image
+- The **Create / Save** button is always active
+- On save:
+  1. The person is created (create mode) or updated (edit mode) via the API
+  2. In create mode: the relationship link is created (FamilySpouse, FamilyChild, etc.) if applicable
+  3. The modal closes
+  4. The tree layout is recalculated
+  5. In create mode: the new person becomes the selected focus in the tree
 - On cancel or outside click with unsaved changes: a small confirmation prompt appears ("Discard changes?") with Confirm / Go back options
 
 ---
 
-## 13. Keyboard & Accessibility
+## 14. Keyboard & Accessibility
 
 | Key | Behavior |
 |---|---|
 | `Escape` | Close modal (with discard prompt if unsaved changes) |
 | `Tab` | Move focus between fields in document order |
 | `Enter` in a text input | Move to the next field (does not submit) |
-| `Enter` in the footer | Triggers Save |
+| `Enter` in the footer | Triggers Create / Save |
 
 ---
 
-## 14. Couple Edit Modal
+## 15. Responsive
+
+- Below **600px**: modal becomes full-screen drawer (slides up from bottom)
+- Union details section (for "Add spouse" in create mode) is initially collapsed on mobile
+
+---
+
+## 16. Couple Edit Modal
 
 ### Overview
 
@@ -540,9 +641,8 @@ Same rules as the individual modal: no field is required, save is always availab
 
 ---
 
-## 15. Relationship to Other Modals
+## 17. Relationship to Other Flows
 
-This spec covers **"Edit individual"** and **"Edit union"**. The other actions from the pencil icon picker are out of scope here and covered in their own specs:
+This spec covers **"Edit individual"**, **"Create person"** (all context variants), and **"Edit union"**. The other actions from the action picker are covered in their own specs:
 
 - **Merge with…** → see [Person Merge](ui-merge.md)
-- **Add spouse / Add child / Add sibling** → see [Add Person](ui-add-person.md)

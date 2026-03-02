@@ -135,35 +135,66 @@ A composite date input component handling GEDCOM-style date qualifiers and parti
 
 ### Used by
 
-- [Person Edit Modal](ui-person-edit-modal.md) — birth, death, and all event dates
-- [Add Person](ui-add-person.md) — birth, death dates
+- [Person Edit Modal](ui-person-edit-modal.md) — birth, death, and all event dates (create + edit modes)
 - [Person Merge](ui-merge.md) — date comparison
 
 ---
 
 ## 5. PlaceInput
 
-A text input with autocomplete for geolocated place names.
+A text input with autocomplete for place names. The autocomplete is **never restrictive** — the user can always type or keep free text.
+
+### Canonical place format
+
+Place names follow a structured format adapted per country:
+
+| Country | Format | Example |
+|---|---|---|
+| France | `City, Postal code, Département, Région, Country` | `Beaune, 21200, Côte-d'Or, Bourgogne-Franche-Comté, France` |
+| Belgium | `City, Postal code, Province, Country` | `Bruxelles, 1000, Bruxelles-Capitale, Belgique` |
+| Switzerland | `City, Postal code, Canton, Country` | `Genève, 1200, Genève, Suisse` |
+| USA | `City, ZIP, County, State, Country` | `Springfield, 62704, Sangamon, Illinois, United States` |
+| UK | `City, Postcode, County, Country` | `Oxford, OX1, Oxfordshire, United Kingdom` |
+| Germany | `City, PLZ, Kreis, Bundesland, Country` | `München, 80331, Oberbayern, Bayern, Deutschland` |
+
+The number of levels varies per country. The format is always comma-separated, from most specific to least specific, ending with the country name.
 
 ### Structure
 
 ```
-[Town, département, country…_________________________]
-  ┌──────────────────────────────────────────────────┐
-  │  📍 Beaune, Côte-d'Or, Bourgogne, France        │
-  │  📍 Beaune-la-Rolande, Loiret, Centre, France   │
-  │  📍 Beaune-sur-Arzon, Haute-Loire, France        │
-  └──────────────────────────────────────────────────┘
+[City, postal code, département, region, country…____]
+  ┌──────────────────────────────────────────────────────┐
+  │  📍 Beaune, 21200, Côte-d'Or, Bourgogne-F-C, France │
+  │  📍 Beaune-la-Rolande, 45340, Loiret, Centre, France │
+  │  📍 Beaune-sur-Arzon, 43500, Haute-Loire, France     │
+  └──────────────────────────────────────────────────────┘
 ```
 
 ### Behavior
 
-- Text input with placeholder "Town, département, country…"
+- Text input with placeholder "City, postal code, département, region, country…"
 - **Autocomplete**: when enabled in [tree settings](ui-settings.md) §10, suggestions appear after 3 characters with 300ms debounce
-- Suggestions come from: (1) existing places in the current tree, (2) external geocoding service (post-MVP)
-- Each suggestion shows a 📍 icon + formatted place name
-- Clicking a suggestion fills the input and links to the Place entity
-- Free text is always accepted (the autocomplete is optional, not restrictive)
+- Suggestions come from, in priority order:
+  1. **Existing places** in the current tree (always available)
+  2. **Offline place database** — a downloadable database of cities for supported countries (see §5.1)
+  3. **External geocoding service** (post-MVP, online only)
+- Each suggestion shows a 📍 icon + formatted place name in canonical format
+- Clicking a suggestion fills the input with the canonical place string and links to the Place entity
+- **Free text is always accepted** — the autocomplete is optional and never restrictive; the user may type any string, ignore suggestions, or edit a suggestion after selecting it
+- If the user modifies a suggestion after selection, the Place entity link is cleared (the value becomes free text)
+
+### 5.1 Offline Place Database
+
+To support autocomplete without network access (desktop mode, or web mode without external geocoding), the application ships with a downloadable database of cities per country.
+
+- **Data source**: open datasets (e.g. GeoNames, OpenDataSoft, national postal code databases)
+- **Storage**: SQLite database file per country, stored in the app data directory
+- **Download**: managed from [Settings](ui-settings.md) §10 — the user selects which countries to download
+- **Supported countries (MVP)**: France, Belgium, Switzerland, United States, United Kingdom, Germany
+- **Database content per city**: city name, postal code, administrative subdivisions (adapted per country), latitude, longitude
+- **Size**: ~5–20 MB per country (compressed)
+- **Updates**: periodic re-download from the settings page (manual, not automatic)
+- **Search**: matches on city name (prefix match), postal code (prefix match), or any administrative subdivision
 
 ### Properties
 
@@ -176,8 +207,7 @@ A text input with autocomplete for geolocated place names.
 
 ### Used by
 
-- [Person Edit Modal](ui-person-edit-modal.md) — birth, death, and event places
-- [Add Person](ui-add-person.md) — birth, death places
+- [Person Edit Modal](ui-person-edit-modal.md) — birth, death, and event places (create + edit modes)
 - [Search Results](ui-search-results.md) — place filter
 
 ---
