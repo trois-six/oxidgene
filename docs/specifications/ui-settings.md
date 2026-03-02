@@ -182,7 +182,7 @@ Dates entered in another calendar are automatically converted for display.
 
 | Toggle | Description |
 |---|---|
-| Place name autocomplete | Suggests geolocated place names as the user types |
+| Place name autocomplete | Suggests place names as the user types (from tree places + offline database). See [PlaceInput](ui-shared-components.md) §5 |
 | Automatic uppercase for surnames | Surname field is auto-uppercased on input |
 | Suggest existing persons | When adding a parent or partner, suggests persons already in the tree |
 
@@ -197,6 +197,32 @@ Dropdown for the expected date format during editing:
 ### Default calendar for input
 
 Same options as the display section. The calendar can be overridden field by field during editing.
+
+### Offline place databases
+
+When "Place name autocomplete" is enabled, the user can download city databases for supported countries to enable autocomplete without network access.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Offline place databases                            │
+│                                                     │
+│  ☑ France           12 MB   [Downloaded ✓]         │
+│  ☑ Belgium           3 MB   [Downloaded ✓]         │
+│  ☐ Switzerland        2 MB   [Download]             │
+│  ☐ United States     18 MB   [Download]             │
+│  ☐ United Kingdom     8 MB   [Download]             │
+│  ☐ Germany           10 MB   [Download]             │
+│                                                     │
+│  Last updated: 2025-01-15     [Update all]          │
+└─────────────────────────────────────────────────────┘
+```
+
+- Each country shows: checkbox, name, approximate size, download status
+- **Download**: clicking "[Download]" fetches the database file; a progress indicator replaces the button during download
+- **Update all**: re-downloads all already-downloaded databases
+- **Remove**: unchecking a downloaded country removes its database file
+- Downloaded databases are stored in the app data directory (desktop) or IndexedDB (web)
+- See [PlaceInput](ui-shared-components.md) §5.1 for supported countries and data content
 
 ---
 
