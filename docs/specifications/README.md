@@ -47,8 +47,7 @@ This directory contains all functional, technical, and visual specifications for
 
 | Document | Description | Key cross-references |
 |----------|-------------|----------------------|
-| [Person Edit Modal](ui-person-edit-modal.md) | Individual edit, couple/union edit, media management, person deletion | → [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) |
-| [Add Person](ui-add-person.md) | Lightweight modal for adding spouse, child, sibling, or parent | → [Person Edit Modal](ui-person-edit-modal.md) · [Tree View](ui-genealogy-tree.md) |
+| [Person Edit Modal](ui-person-edit-modal.md) | Create & edit person (all context variants), couple/union edit, media, deletion | → [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) |
 | [Person Merge](ui-merge.md) | 3-step wizard: select duplicate, compare side-by-side, confirm merge | → [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) (duplicates tool) |
 | [GEDCOM Import](ui-gedcom-import.md) | Upload, preview, and import a GEDCOM file into a tree | → [Tree View](ui-genealogy-tree.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) (export) |
 
@@ -84,8 +83,7 @@ README.md  ← you are here
     │   └── ui-settings.md          Tree settings & tools
     │
     └── Modals & Flows
-        ├── ui-person-edit-modal.md Edit individual & couple modals
-        ├── ui-add-person.md        Add person (spouse/child/sibling/parent)
+        ├── ui-person-edit-modal.md Person create/edit & couple edit modals
         ├── ui-merge.md             Person merge wizard
         └── ui-gedcom-import.md     GEDCOM import wizard
 ```

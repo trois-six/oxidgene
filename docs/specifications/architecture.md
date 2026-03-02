@@ -103,6 +103,7 @@ UI specifications:
 - Single binary per platform (Windows, Linux, macOS).
 - Built via `cargo build --release` with appropriate target.
 - No external runtime dependencies (SQLite embedded, WebView from system).
+- Offline place databases (SQLite files per country) stored in the app data directory; downloaded on demand from [Settings](ui-settings.md) §10. See [PlaceInput](ui-shared-components.md) §5.1.
 
 ---
 
@@ -113,68 +114,21 @@ UI specifications:
 ```
 oxidgene/
 ├── Cargo.toml              # Workspace root
-├── justfile                 # Build orchestration
-├── .gitignore
-├── README.md
-├── LICENSE
+├── justfile                # Build orchestration
+├── README.md               # Global README
 ├── docs/
 │   ├── specifications/     # This directory
-│   └── assets/
-│       ├── OxidGene.png    # Application logo (raster)
-│       └── OxidGene.svg    # Application logo (vector)
+│   └── assets/             # Logos in other assets
 ├── crates/
 │   ├── oxidgene-core/      # Domain types, enums, error types
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── types/      # Person, Family, Event, etc.
-│   │       ├── enums.rs    # Sex, EventType, NameType, etc.
-│   │       └── error.rs    # Shared error types
 │   ├── oxidgene-db/        # SeaORM entities + migrations
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── entities/   # SeaORM entity definitions
-│   │       ├── migration/  # Database migrations
-│   │       └── repo/       # Repository trait implementations
 │   ├── oxidgene-api/       # Axum handlers + GraphQL resolvers
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── rest/       # REST handlers per resource
-│   │       ├── graphql/    # GraphQL schema, queries, mutations
-│   │       └── router.rs   # Route definitions
 │   ├── oxidgene-gedcom/    # GEDCOM import/export (wraps ged_io)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── import.rs   # GEDCOM → domain conversion
-│   │       └── export.rs   # Domain → GEDCOM conversion
 │   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs
-│           ├── components/ # Reusable UI components
-│           ├── pages/      # Page-level components
-│           ├── router.rs   # Frontend routes
-│           └── api.rs      # HTTP client for backend calls
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       └── main.rs
 │   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + Dioxus WebView)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       └── main.rs
-│   └── oxidgene-cli/       # CLI tool (import/export, migrations)
-│       ├── Cargo.toml
-│       └── src/
-│           └── main.rs
-└── docker/
-    ├── Dockerfile.server   # Backend container
-    ├── Dockerfile.frontend # Frontend WASM container
-    └── docker-compose.yml  # Local dev stack
+└── docker/                 # Docker files
 ```
 
 ### 9.2 Crate Dependency Graph

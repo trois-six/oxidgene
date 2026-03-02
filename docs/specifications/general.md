@@ -41,7 +41,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 ### 1.4 Differentiation
 
 - Made in Rust — performance, safety, and a single language across the entire stack.
-- A theme-based UX system reproducing the experience of Geneanet, Filae, Ancestry, and MyHeritage.
+- A theme-based UX system reproducing the experience of Geneanet, Filae, Ancestry, or MyHeritage.
 - A unified Rust + WASM architecture with a single Dioxus codebase for web and desktop.
 - A dual REST/GraphQL API.
 - A fully offline-capable desktop client.
@@ -77,12 +77,12 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 ### 3.1 Tree Management
 
 - Create trees from scratch or via GEDCOM import.
-- Manage multiple trees (web version).
+- Manage multiple trees.
 - → see [Homepage spec](ui-home.md)
 
 ### 3.2 GEDCOM Import/Export
 
-- Full import/export using Rust crate `ged_io` (v0.12+).
+- Full import/export using Rust crate `ged_io` (v0.12+). Also Support exporting a subpart of the tree by selecting a root person when exporting.
 - Support for GEDCOM 5.5.1 and 7.0 (auto-detected).
 - Streaming parser for large files.
 - Error logging and normalization.
@@ -99,14 +99,13 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 ### 3.5 Themes / UX
 
-- Switch between multiple UX themes inspired by major genealogy platforms.
+- Switch between multiple UX themes inspired by major genealogy platforms from the settings.
 - → see [Settings](ui-settings.md)
 
 ### 3.6 Interface Language
 
-- Configurable UI language.
+- Configurable UI language, without restart.
 - User-level (web) or app-level (desktop).
-- Runtime switching.
 
 ### 3.7 REST & GraphQL APIs
 
@@ -119,12 +118,13 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 - Upload images/PDF/videos.
 - Metadata and viewer integration.
+- Post-MVP: identify someone in a subpart of an image, the selection will be seen as a media for the identified person.
 - Async upload pipeline (post-MVP).
 - → see [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
 ### 3.9 Statistics & Reports
 
-- Frequent surnames, birth stats, geographic distribution, etc.
+- Frequent last/first names, frequent occupations, birth distribution by months, parents age at birth, avg date at first union, birth/death stats, demographic pyramid, distribution of marriage days, avg duration of an union, avg children per union, avg duration between two children, avg age difference between first and last child in a couple, age diff between spouses, geographic distribution, last 100 births, last 100 deaths, last 100 unions, top 100 alive oldest, top 100 older...
 - Graphs, tables, PDF export.
 
 ### 3.10 Visualization & Printing
@@ -138,7 +138,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 ## 4. Security & Privacy
 
 - Mask contemporary individuals (< 100 years old) for guest users. → see [Settings](ui-settings.md) (privacy section)
-- Optional surname masking.
+- Optional last/first name masking.
 - Full audit logging.
 - Authentication and authorization in EPIC E. → see [Roadmap](roadmap.md)
 
