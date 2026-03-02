@@ -12,6 +12,43 @@ use crate::router::Route;
 /// Contains a navigation bar and an [`Outlet`] for the matched child route.
 #[component]
 pub fn Layout() -> Element {
+    let mut is_dark = use_signal(|| false);
+
+    // On mount: read persisted theme or respect system preference
+    use_effect(move || {
+        spawn(async move {
+            let result = document::eval(
+                r#"
+                let theme = localStorage.getItem('oxidgene-theme');
+                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                    return 'dark';
+                }
+                return 'light';
+                "#,
+            );
+            if let Ok(val) = result.await
+                && val.as_str() == Some("dark")
+            {
+                is_dark.set(true);
+            }
+        });
+    });
+
+    let toggle_theme = move |_| {
+        let new_dark = !is_dark();
+        is_dark.set(new_dark);
+        if new_dark {
+            document::eval(
+                "document.documentElement.classList.add('dark'); localStorage.setItem('oxidgene-theme','dark');",
+            );
+        } else {
+            document::eval(
+                "document.documentElement.classList.remove('dark'); localStorage.setItem('oxidgene-theme','light');",
+            );
+        }
+    };
+
     rsx! {
         style { {LAYOUT_STYLES} }
 
@@ -19,8 +56,16 @@ pub fn Layout() -> Element {
             Link { to: Route::Home {}, class: "nav-logo",
                 span { class: "nav-logo-text", "OxidGene" }
             }
-            div { class: "nav-links",
-                Link { to: Route::TreeList {}, class: "nav-link", "Trees" }
+            div { class: "nav-right",
+                div { class: "nav-links",
+                    Link { to: Route::TreeList {}, class: "nav-link", "Trees" }
+                }
+                button {
+                    class: "nav-theme-toggle",
+                    title: if is_dark() { "Switch to light mode" } else { "Switch to dark mode" },
+                    onclick: toggle_theme,
+                    if is_dark() { "\u{2600}\u{FE0F}" } else { "\u{1F319}" }
+                }
             }
         }
 
@@ -35,12 +80,12 @@ pub const LAYOUT_STYLES: &str = r#"
     @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap');
 
     :root {
-        /* ── Dark palette ─────────────────────────────────────────── */
-        --bg-deep:        #0d0f14;
-        --bg-panel:       #111318;
-        --bg-card:        #16191f;
-        --bg-card-hover:  #1c2030;
-        --border:         #252d3d;
+        /* ── Light palette (default) ─────────────────────────────── */
+        --bg-deep:        #f4f2ee;
+        --bg-panel:       #ede9e2;
+        --bg-card:        #ffffff;
+        --bg-card-hover:  #f5f3ef;
+        --border:         #d4ccc0;
         --border-glow:    #e07820;
         --orange:         #e07820;
         --orange-light:   #f5a03a;
@@ -48,10 +93,15 @@ pub const LAYOUT_STYLES: &str = r#"
         --green-light:    #7ec45f;
         --blue:           #4a90d9;
         --pink:           #c4587a;
-        --sel-bg:         #192038;
-        --text-primary:   #ddd8cc;
-        --text-secondary: #7a8da8;
-        --text-muted:     #404f65;
+        --sel-bg:         #e8e0d4;
+        --text-primary:   #1e1a14;
+        --text-secondary: #5c5447;
+        --text-muted:     #9e9488;
+        --connector:      #a0937f;
+        --nav-bg:         rgba(244,242,238,0.92);
+        --tree-visual-bg:     #e8e0d4;
+        --tree-visual-branch: #b0a898;
+        --color-danger-text:  #dc2626;
 
         /* ── Component dimensions ──────────────────────────────────── */
         --sb:   46px;   /* icon sidebar width */
@@ -66,11 +116,31 @@ pub const LAYOUT_STYLES: &str = r#"
         --color-text-muted:   var(--text-secondary);
         --color-border:       var(--border);
         --color-danger:       #e05252;
-        --shadow-sm:  0 1px 3px rgba(0,0,0,0.35);
-        --shadow-md:  0 4px 16px rgba(0,0,0,0.55);
+        --shadow-sm:  0 1px 3px rgba(0,0,0,0.08);
+        --shadow-md:  0 4px 16px rgba(0,0,0,0.12);
         --radius: 8px;
         --font-sans:    'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         --font-heading: 'Cinzel', Georgia, serif;
+    }
+
+    :root.dark {
+        /* ── Dark palette ─────────────────────────────────────────── */
+        --bg-deep:        #0d0f14;
+        --bg-panel:       #111318;
+        --bg-card:        #16191f;
+        --bg-card-hover:  #1c2030;
+        --border:         #252d3d;
+        --sel-bg:         #192038;
+        --text-primary:   #ddd8cc;
+        --text-secondary: #7a8da8;
+        --text-muted:     #404f65;
+        --connector:      var(--connector);
+        --nav-bg:         rgba(10,11,13,0.92);
+        --tree-visual-bg:     #0d1018;
+        --tree-visual-branch: #3a4458;
+        --color-danger-text:  #f87171;
+        --shadow-sm:  0 1px 3px rgba(0,0,0,0.35);
+        --shadow-md:  0 4px 16px rgba(0,0,0,0.55);
     }
 
     html { height: 100%; }
@@ -92,8 +162,8 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow-x: hidden;
     }
 
-    /* Subtle radial light leaks on the page background */
-    body::before {
+    /* Subtle radial light leaks on the page background (dark only) */
+    :root.dark body::before {
         content: '';
         position: fixed;
         inset: 0;
@@ -118,14 +188,14 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: space-between;
-        background: rgba(10, 11, 13, 0.92);
+        background: var(--nav-bg);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         color: var(--text-primary);
         padding: 0 2.5rem;
         height: 64px;
         border-bottom: 1px solid var(--border);
-        box-shadow: 0 2px 40px rgba(0,0,0,0.6);
+        box-shadow: var(--shadow-md);
         position: sticky;
         top: 0;
         z-index: 100;
@@ -148,6 +218,12 @@ pub const LAYOUT_STYLES: &str = r#"
         letter-spacing: 0.04em;
     }
 
+    .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
     .nav-links {
         display: flex;
         gap: 8px;
@@ -163,8 +239,24 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .nav-link:hover {
-        background: rgba(255,255,255,0.07);
+        background: rgba(128,128,128,0.1);
         color: var(--text-primary);
+    }
+
+    .nav-theme-toggle {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 1.1rem;
+        padding: 4px 8px;
+        line-height: 1;
+        transition: border-color 0.15s, background 0.15s;
+    }
+    .nav-theme-toggle:hover {
+        border-color: var(--orange);
+        background: var(--bg-card-hover);
     }
 
     /* ── Page layout containers ──────────────────────────────────── */
@@ -291,7 +383,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .error-msg {
         background: rgba(220, 82, 82, 0.12);
         border: 1px solid rgba(220, 82, 82, 0.4);
-        color: #f87171;
+        color: var(--color-danger-text);
         padding: 12px 16px;
         border-radius: var(--radius);
         margin-bottom: 16px;
@@ -747,7 +839,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .td-btn:disabled { opacity: 0.45; cursor: default; }
 
     .td-btn-danger { color: var(--color-danger); border-color: rgba(220,82,82,0.35); }
-    .td-btn-danger:hover:not(:disabled) { background: rgba(220,82,82,0.12); color: #f87171; }
+    .td-btn-danger:hover:not(:disabled) { background: rgba(220,82,82,0.12); color: var(--color-danger-text); }
 
     .td-btn-primary {
         background: linear-gradient(135deg, var(--orange), var(--orange-light));
@@ -1023,7 +1115,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .connector-couple-bar {
         height: 2px;
-        background: #2e4a6a;
+        background: var(--connector);
         margin: 0 25%;
         flex-shrink: 0;
     }
@@ -1044,20 +1136,20 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .connector-arm-left {
         flex: 1;
-        border-right: 2px solid #2e4a6a;
-        border-bottom: 2px solid #2e4a6a;
+        border-right: 2px solid var(--connector);
+        border-bottom: 2px solid var(--connector);
         border-bottom-right-radius: 4px;
     }
 
     .connector-arm-right {
         flex: 1;
-        border-left: 2px solid #2e4a6a;
-        border-bottom: 2px solid #2e4a6a;
+        border-left: 2px solid var(--connector);
+        border-bottom: 2px solid var(--connector);
         border-bottom-left-radius: 4px;
     }
 
     .connector-stem { flex: 1; display: flex; justify-content: center; }
-    .connector-stem::after { content: ''; width: 2px; background: #2e4a6a; height: 100%; }
+    .connector-stem::after { content: ''; width: 2px; background: var(--connector); height: 100%; }
 
     /* ── Descendant connector system ──────────────────────────────── */
 
@@ -1077,7 +1169,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .desc-stem-up {
         width: 2px;
         height: 14px;
-        background: #2e4a6a;
+        background: var(--connector);
         flex-shrink: 0;
     }
 
@@ -1086,18 +1178,18 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .desc-arm {
         flex: 1;
-        border-top: 2px solid #2e4a6a;
+        border-top: 2px solid var(--connector);
     }
 
     .desc-arm-first {
-        border-right: 2px solid #2e4a6a;
+        border-right: 2px solid var(--connector);
         border-top-right-radius: 4px;
         border-top: none;
         margin-left: 50%;
     }
 
     .desc-arm-mid {
-        border-top: 2px solid #2e4a6a;
+        border-top: 2px solid var(--connector);
         position: relative;
     }
     .desc-arm-mid::after {
@@ -1108,11 +1200,11 @@ pub const LAYOUT_STYLES: &str = r#"
         transform: translateX(-50%);
         width: 2px;
         height: 100%;
-        background: #2e4a6a;
+        background: var(--connector);
     }
 
     .desc-arm-last {
-        border-left: 2px solid #2e4a6a;
+        border-left: 2px solid var(--connector);
         border-top-left-radius: 4px;
         border-top: none;
         margin-right: 50%;
@@ -1358,7 +1450,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .context-menu-danger {
-        color: #f87171;
+        color: var(--color-danger-text);
     }
 
     .context-menu-danger:hover {
