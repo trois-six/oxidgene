@@ -304,22 +304,22 @@ fn TreeCard(
                     width: "100%",
                     height: "100%",
                     // Background
-                    rect { fill: "#080a0f", width: "300", height: "140" }
+                    rect { class: "tv-bg", width: "300", height: "140" }
                     // Soft glow
                     rect {
                         x: "90", y: "10", width: "120", height: "120", rx: "60",
                         fill: "#e07820", "fillOpacity": "0.07"
                     }
                     // Trunk
-                    rect { x: "147", y: "90", width: "6", height: "35", rx: "3", fill: "#3a4458" }
+                    rect { class: "tv-branch", x: "147", y: "90", width: "6", height: "35", rx: "3" }
                     // Main branches
-                    line { x1: "150", y1: "90", x2: "100", y2: "60", stroke: "#3a4458", "strokeWidth": "2.5" }
-                    line { x1: "150", y1: "90", x2: "200", y2: "60", stroke: "#3a4458", "strokeWidth": "2.5" }
+                    line { class: "tv-branch-line", x1: "150", y1: "90", x2: "100", y2: "60", "strokeWidth": "2.5" }
+                    line { class: "tv-branch-line", x1: "150", y1: "90", x2: "200", y2: "60", "strokeWidth": "2.5" }
                     // Sub-branches
-                    line { x1: "100", y1: "60", x2: "75",  y2: "40", stroke: "#3a4458", "strokeWidth": "1.5" }
-                    line { x1: "100", y1: "60", x2: "120", y2: "38", stroke: "#3a4458", "strokeWidth": "1.5" }
-                    line { x1: "200", y1: "60", x2: "225", y2: "40", stroke: "#3a4458", "strokeWidth": "1.5" }
-                    line { x1: "200", y1: "60", x2: "180", y2: "38", stroke: "#3a4458", "strokeWidth": "1.5" }
+                    line { class: "tv-branch-line", x1: "100", y1: "60", x2: "75",  y2: "40", "strokeWidth": "1.5" }
+                    line { class: "tv-branch-line", x1: "100", y1: "60", x2: "120", y2: "38", "strokeWidth": "1.5" }
+                    line { class: "tv-branch-line", x1: "200", y1: "60", x2: "225", y2: "40", "strokeWidth": "1.5" }
+                    line { class: "tv-branch-line", x1: "200", y1: "60", x2: "180", y2: "38", "strokeWidth": "1.5" }
                     // Root node (orange)
                     circle { cx: "150", cy: "93", r: "7",  fill: "#e07820", "fillOpacity": "0.9" }
                     // Gen-1 nodes (orange)
@@ -369,7 +369,7 @@ const HOME_STYLES: &str = r#"
     .gear-bg {
         position: fixed;
         border-radius: 50%;
-        border: 2px solid #2a3040;
+        border: 2px solid var(--border);
         opacity: 0.12;
         pointer-events: none;
         z-index: 0;
@@ -380,7 +380,7 @@ const HOME_STYLES: &str = r#"
         position: absolute;
         inset: -12px;
         border-radius: 50%;
-        border: 2px dashed #3a4458;
+        border: 2px dashed var(--text-muted);
         opacity: 0.5;
         animation: gear-spin 60s linear infinite;
     }
@@ -548,7 +548,7 @@ const HOME_STYLES: &str = r#"
         height: 140px;
         position: relative;
         overflow: hidden;
-        background: #0d1018;
+        background: var(--tree-visual-bg);
     }
 
     .tree-card-visual svg {
@@ -556,6 +556,11 @@ const HOME_STYLES: &str = r#"
         width: 100%;
         height: 100%;
     }
+
+    /* SVG tree illustration — theme-aware fills via CSS */
+    .tv-bg { fill: var(--tree-visual-bg); }
+    .tv-branch { fill: var(--tree-visual-branch); }
+    .tv-branch-line { stroke: var(--tree-visual-branch); }
 
     .tree-card-body {
         padding: 1.25rem 1.4rem 1.4rem;
