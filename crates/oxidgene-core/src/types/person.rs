@@ -16,7 +16,7 @@ pub struct Person {
 }
 
 /// A name for a person (a person can have multiple names).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersonName {
     pub id: Uuid,
     pub person_id: Uuid,

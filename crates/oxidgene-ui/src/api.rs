@@ -871,7 +871,7 @@ impl ApiClient {
         gedcom: &str,
     ) -> Result<ImportGedcomResult, ApiError> {
         self.post(
-            &format!("/api/v1/trees/{tree_id}/import"),
+            &format!("/api/v1/trees/{tree_id}/gedcom/import"),
             &ImportGedcomBody {
                 gedcom: gedcom.to_string(),
             },
@@ -880,6 +880,7 @@ impl ApiClient {
     }
 
     pub async fn export_gedcom(&self, tree_id: Uuid) -> Result<ExportGedcomResult, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/export")).await
+        self.get(&format!("/api/v1/trees/{tree_id}/gedcom/export"))
+            .await
     }
 }
