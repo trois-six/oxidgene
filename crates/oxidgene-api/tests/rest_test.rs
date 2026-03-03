@@ -1348,7 +1348,7 @@ async fn test_gedcom_import() {
     let (status, body) = send_request(
         app.clone(),
         Method::POST,
-        &format!("/api/v1/trees/{tree_id}/import"),
+        &format!("/api/v1/trees/{tree_id}/gedcom/import"),
         Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
     )
     .await;
@@ -1379,7 +1379,7 @@ async fn test_gedcom_import_invalid_tree() {
     let (status, _) = send_request(
         app.clone(),
         Method::POST,
-        &format!("/api/v1/trees/{fake_id}/import"),
+        &format!("/api/v1/trees/{fake_id}/gedcom/import"),
         Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
     )
     .await;
@@ -1404,7 +1404,7 @@ async fn test_gedcom_export_empty_tree() {
     let (status, body) = send_request(
         app.clone(),
         Method::GET,
-        &format!("/api/v1/trees/{tree_id}/export"),
+        &format!("/api/v1/trees/{tree_id}/gedcom/export"),
         None,
     )
     .await;
@@ -1431,7 +1431,7 @@ async fn test_gedcom_roundtrip() {
     let (status, import_body) = send_request(
         app.clone(),
         Method::POST,
-        &format!("/api/v1/trees/{tree_id}/import"),
+        &format!("/api/v1/trees/{tree_id}/gedcom/import"),
         Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
     )
     .await;
@@ -1441,7 +1441,7 @@ async fn test_gedcom_roundtrip() {
     let (status, export_body) = send_request(
         app.clone(),
         Method::GET,
-        &format!("/api/v1/trees/{tree_id}/export"),
+        &format!("/api/v1/trees/{tree_id}/gedcom/export"),
         None,
     )
     .await;
@@ -1466,7 +1466,7 @@ async fn test_gedcom_export_invalid_tree() {
     let (status, _) = send_request(
         app.clone(),
         Method::GET,
-        &format!("/api/v1/trees/{fake_id}/export"),
+        &format!("/api/v1/trees/{fake_id}/gedcom/export"),
         None,
     )
     .await;

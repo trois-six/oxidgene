@@ -43,6 +43,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // ── Tab / section state ──
     let mut active_tab = use_signal(|| "civil");
     let mut save_error = use_signal(|| None::<String>);
+    let mut has_changes = use_signal(|| false);
+    let mut show_discard_confirm = use_signal(|| false);
 
     // ── Sex editing ──
     let mut sex_val = use_signal(|| "Unknown".to_string());
@@ -502,9 +504,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
     // ── Render ──
 
+    let try_close = move |_| {
+        if has_changes() {
+            show_discard_confirm.set(true);
+        } else {
+            props.on_close.call(());
+        }
+    };
+
     rsx! {
         div { class: "modal-backdrop person-form-backdrop",
-            onclick: move |_| props.on_close.call(()),
+            onclick: try_close,
 
             div { class: "person-form-modal",
                 // Stop click propagation so clicking inside doesn't close.
@@ -515,7 +525,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     h2 { "{display_name}" }
                     button {
                         class: "person-form-close",
-                        onclick: move |_| props.on_close.call(()),
+                        onclick: try_close,
                         "x"
                     }
                 }
@@ -817,7 +827,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     r#type: "text",
                                     placeholder: "e.g. 1 Jan 1900, ABT 1850, BET 1800 AND 1810",
                                     value: "{birth_date}",
-                                    oninput: move |e: Event<FormData>| birth_date.set(e.value()),
+                                    oninput: move |e: Event<FormData>| { birth_date.set(e.value()); has_changes.set(true); },
                                 }
                             }
                             div { class: "form-group",
@@ -837,7 +847,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     r#type: "text",
                                     placeholder: "Optional description",
                                     value: "{birth_desc}",
-                                    oninput: move |e: Event<FormData>| birth_desc.set(e.value()),
+                                    oninput: move |e: Event<FormData>| { birth_desc.set(e.value()); has_changes.set(true); },
                                 }
                             }
                             button {
@@ -858,7 +868,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     r#type: "text",
                                     placeholder: "e.g. 15 Mar 1975",
                                     value: "{death_date}",
-                                    oninput: move |e: Event<FormData>| death_date.set(e.value()),
+                                    oninput: move |e: Event<FormData>| { death_date.set(e.value()); has_changes.set(true); },
                                 }
                             }
                             div { class: "form-group",
@@ -878,7 +888,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     r#type: "text",
                                     placeholder: "Optional description",
                                     value: "{death_desc}",
-                                    oninput: move |e: Event<FormData>| death_desc.set(e.value()),
+                                    oninput: move |e: Event<FormData>| { death_desc.set(e.value()); has_changes.set(true); },
                                 }
                             }
                             button {
@@ -912,20 +922,28 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             select {
                                                 value: "{event_form_type}",
                                                 oninput: move |e: Event<FormData>| event_form_type.set(e.value()),
-                                                option { value: "Baptism", "Baptism" }
-                                                option { value: "Burial", "Burial" }
-                                                option { value: "Cremation", "Cremation" }
-                                                option { value: "Graduation", "Graduation" }
-                                                option { value: "Immigration", "Immigration" }
-                                                option { value: "Emigration", "Emigration" }
-                                                option { value: "Naturalization", "Naturalization" }
-                                                option { value: "Census", "Census" }
-                                                option { value: "Occupation", "Occupation" }
-                                                option { value: "Residence", "Residence" }
-                                                option { value: "Retirement", "Retirement" }
-                                                option { value: "Will", "Will" }
-                                                option { value: "Probate", "Probate" }
-                                                option { value: "Other", "Other" }
+                                                optgroup { label: "Sacraments",
+                                                    option { value: "Baptism", "Baptism" }
+                                                    option { value: "Burial", "Burial" }
+                                                    option { value: "Cremation", "Cremation" }
+                                                }
+                                                optgroup { label: "Civil",
+                                                    option { value: "Census", "Census" }
+                                                    option { value: "Graduation", "Graduation" }
+                                                    option { value: "Immigration", "Immigration" }
+                                                    option { value: "Emigration", "Emigration" }
+                                                    option { value: "Naturalization", "Naturalization" }
+                                                    option { value: "Occupation", "Occupation" }
+                                                    option { value: "Residence", "Residence" }
+                                                    option { value: "Retirement", "Retirement" }
+                                                }
+                                                optgroup { label: "Legal",
+                                                    option { value: "Will", "Will" }
+                                                    option { value: "Probate", "Probate" }
+                                                }
+                                                optgroup { label: "Other",
+                                                    option { value: "Other", "Other" }
+                                                }
                                             }
                                         }
                                         div { class: "form-group",
@@ -1097,6 +1115,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         }
                     }
                 }
+            }
+        }
+
+        // Discard changes confirmation
+        if show_discard_confirm() {
+            crate::components::confirm_dialog::ConfirmDialog {
+                title: "Discard changes?",
+                message: "You have unsaved changes. Are you sure you want to close?".to_string(),
+                confirm_label: "Discard",
+                confirm_class: "btn btn-danger",
+                error: None,
+                on_confirm: move |_| {
+                    show_discard_confirm.set(false);
+                    props.on_close.call(());
+                },
+                on_cancel: move |_| {
+                    show_discard_confirm.set(false);
+                },
             }
         }
     }

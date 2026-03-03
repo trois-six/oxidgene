@@ -77,6 +77,11 @@ pub fn TreeDetail(tree_id: String) -> Element {
     let mut export_success = use_signal(|| None::<String>);
     let mut exporting = use_signal(|| false);
 
+    // ── Person search state ──
+    let mut search_last = use_signal(String::new);
+    let mut search_first = use_signal(String::new);
+    let mut search_focused = use_signal(|| false);
+
     // ── Fetch tree details ──
     let api_tree = api.clone();
     let tree_resource = use_resource(move || {
@@ -823,12 +828,82 @@ pub fn TreeDetail(tree_id: String) -> Element {
             };
             let tn = tree_name_str.clone();
             let td = tree_desc_str;
+            // Build search results from person_options
+            let last_q = search_last().to_lowercase();
+            let first_q = search_first().to_lowercase();
+            let has_search = !last_q.is_empty() || !first_q.is_empty();
+            let search_results: Vec<(Uuid, String)> = if has_search {
+                person_options.iter().filter(|(_pid, name)| {
+                    let name_lower = name.to_lowercase();
+                    let last_ok = last_q.is_empty() || name_lower.contains(&last_q);
+                    let first_ok = first_q.is_empty() || name_lower.contains(&first_q);
+                    last_ok && first_ok
+                }).take(8).cloned().collect()
+            } else {
+                vec![]
+            };
+
             rsx! {
                 div { class: "td-topbar",
                     nav { class: "td-bc",
-                        Link { to: Route::TreeList {}, "Trees" }
+                        Link { to: Route::Home {}, "Trees" }
                         span { class: "td-bc-sep", "/" }
                         span { class: "td-bc-current", "{tree_name_str}" }
+                    }
+                    // ── Person search fields ──
+                    div { class: "td-search-group",
+                        input {
+                            r#type: "text",
+                            class: "td-search-input",
+                            placeholder: "Last name",
+                            value: "{search_last}",
+                            oninput: move |e: Event<FormData>| {
+                                search_last.set(e.value());
+                                search_focused.set(true);
+                            },
+                            onfocusin: move |_| search_focused.set(true),
+                        }
+                        input {
+                            r#type: "text",
+                            class: "td-search-input",
+                            placeholder: "First name",
+                            value: "{search_first}",
+                            oninput: move |e: Event<FormData>| {
+                                search_first.set(e.value());
+                                search_focused.set(true);
+                            },
+                            onfocusin: move |_| search_focused.set(true),
+                        }
+                        if has_search && search_focused() {
+                            div { class: "td-search-dropdown",
+                                if search_results.is_empty() {
+                                    div { class: "td-search-no-results", "No results" }
+                                } else {
+                                    for (pid, name) in search_results.iter() {
+                                        { let pid = *pid; rsx! {
+                                            button {
+                                                class: "td-search-result",
+                                                onmousedown: move |e: Event<MouseData>| {
+                                                    e.prevent_default();
+                                                },
+                                                onclick: move |_| {
+                                                    selected_root.set(Some(pid));
+                                                    search_last.set(String::new());
+                                                    search_first.set(String::new());
+                                                    search_focused.set(false);
+                                                },
+                                                "{name}"
+                                            }
+                                        }}
+                                    }
+                                }
+                            }
+                            // Backdrop to close search
+                            div {
+                                class: "td-search-backdrop",
+                                onclick: move |_| search_focused.set(false),
+                            }
+                        }
                     }
                     div { class: "td-actions",
                         if !person_options.is_empty() {
