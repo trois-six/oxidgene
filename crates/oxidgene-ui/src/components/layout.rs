@@ -968,7 +968,9 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .td-search-result {
-        display: block;
+        display: flex;
+        align-items: center;
+        gap: 8px;
         width: 100%;
         padding: 8px 10px;
         background: none;
@@ -980,6 +982,22 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-secondary);
         cursor: pointer;
         transition: background 0.12s, color 0.12s;
+    }
+
+    .td-search-initials {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: var(--text-muted);
+        flex-shrink: 0;
+        text-transform: uppercase;
     }
 
     .td-search-result:hover {
@@ -1109,7 +1127,7 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: stretch;
-        min-height: 72px;
+        min-height: 84px;
     }
 
     .pedigree-desc-row { justify-content: center; gap: 8px; flex-wrap: wrap; }
@@ -1639,6 +1657,125 @@ pub const LAYOUT_STYLES: &str = r#"
         border: none;
         border-top: 1px solid var(--border);
         margin: 4px 0;
+    }
+
+    .context-menu-back {
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    /* ── SVG connector overlay ──────────────────────────────────── */
+
+    .pedigree-svg-connectors {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .pedigree-connector-line {
+        stroke: var(--connector);
+        stroke-width: 2;
+        stroke-linecap: round;
+    }
+
+    /* ── Absolute-positioned card wrapper ───────────────────────── */
+
+    .pedigree-card-wrap {
+        position: absolute;
+        width: 180px;
+        z-index: 1;
+    }
+
+    .pedigree-card-wrap .pedigree-node {
+        width: 180px;
+        max-width: 180px;
+        min-height: 72px;
+    }
+
+    /* ── Role-based card backgrounds ───────────────────────────── */
+
+    .pedigree-node.ancestor  { background: color-mix(in srgb, var(--bg-card) 95%, #4a90d9 5%); }
+    .pedigree-node.descendant { background: color-mix(in srgb, var(--bg-card) 95%, #5aab3c 5%); }
+
+    /* ── Animated transitions ──────────────────────────────────── */
+
+    .pedigree-animated .pedigree-inner {
+        transition: transform 0.3s ease;
+    }
+
+    /* ── Active sidebar button ─────────────────────────────────── */
+
+    .isb-btn-active {
+        color: var(--orange) !important;
+        background: rgba(224,120,32,0.12);
+    }
+
+    .isb-depth-wrap {
+        position: relative;
+    }
+
+    .pedigree-depth-arrow {
+        font-size: 1rem;
+        width: 16px;
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    /* ── Event panel year groups ────────────────────────────────── */
+
+    .ev-year-group {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .ev-year-group:last-child { border-bottom: none; }
+
+    .ev-year-header {
+        padding: 6px 14px 2px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--text-secondary);
+        position: sticky;
+        top: 0;
+        background: var(--bg-panel);
+        z-index: 1;
+    }
+
+    .ev-item-clickable {
+        cursor: pointer;
+    }
+
+    /* ── Responsive: cards below 900px ─────────────────────────── */
+
+    @media (max-width: 900px) {
+        .pedigree-card-wrap {
+            width: 130px;
+        }
+        .pedigree-card-wrap .pedigree-node,
+        .pedigree-node {
+            max-width: 130px;
+            min-height: 56px;
+            font-size: 0.72rem;
+        }
+        .pc-ph { width: 24px; height: 24px; font-size: 0.55rem; }
+        .pc-last { font-size: 0.68rem; }
+        .pc-first { font-size: 0.65rem; }
+        .pc-born, .pc-died { font-size: 0.6rem; }
+
+        /* Event panel as drawer on mobile */
+        .ev-panel {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 50;
+            box-shadow: var(--shadow-md);
+        }
+        .ev-panel-collapsed {
+            width: 0;
+            min-width: 0;
+            border-left: none;
+        }
     }
 
     /* ── Search person (typeahead) ────────────────────────────────── */

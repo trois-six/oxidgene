@@ -19,3 +19,4 @@ rfd = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+gloo-timers = { workspace = true }

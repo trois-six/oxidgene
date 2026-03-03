@@ -29,6 +29,10 @@ enum LinkingMode {
     Parents(Uuid),
     /// Adding a child for the given person (parent_id).
     Child(Uuid),
+    /// Adding a sibling for the given person.
+    Sibling(Uuid),
+    /// Merging person with another (search target).
+    Merge(Uuid),
 }
 
 /// Page rendered at `/trees/:tree_id`.
@@ -81,6 +85,23 @@ pub fn TreeDetail(tree_id: String) -> Element {
     let mut search_last = use_signal(String::new);
     let mut search_first = use_signal(String::new);
     let mut search_focused = use_signal(|| false);
+    let mut debounced_last = use_signal(String::new);
+    let mut debounced_first = use_signal(String::new);
+
+    // 200ms debounce for search queries.
+    {
+        let last_val = search_last();
+        let first_val = search_first();
+        use_effect(move || {
+            let last_val = last_val.clone();
+            let first_val = first_val.clone();
+            spawn(async move {
+                gloo_timers::future::TimeoutFuture::new(200).await;
+                debounced_last.set(last_val);
+                debounced_first.set(first_val);
+            });
+        });
+    }
 
     // ── Fetch tree details ──
     let api_tree = api.clone();
@@ -175,6 +196,29 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
     });
 
+    // ── Fetch all places ──
+    let api_places = api.clone();
+    let places_resource = use_resource(move || {
+        let api = api_places.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        async move {
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid tree ID".to_string(),
+                });
+            };
+            let conn = api.list_places(tid, Some(5000), None, None).await?;
+            let map: HashMap<Uuid, oxidgene_core::types::Place> = conn
+                .edges
+                .iter()
+                .map(|e| (e.node.id, e.node.clone()))
+                .collect();
+            Ok(map)
+        }
+    });
+
     // ── Fetch all family spouses and children ──
     let api_members = api.clone();
     let members_resource = use_resource(move || {
@@ -210,6 +254,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
         let names_data = names_resource.read();
         let members_data = members_resource.read();
         let events_data = events_resource.read();
+        let places_data = places_resource.read();
 
         match (&*persons_data, &*names_data, &*members_data) {
             (Some(Ok(conn)), Some(Ok(name_map)), Some(Ok((spouses, children)))) => {
@@ -219,12 +264,18 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     .and_then(|r| r.as_ref().ok())
                     .map(|ev_conn| ev_conn.edges.iter().map(|e| e.node.clone()).collect())
                     .unwrap_or_default();
+                let places: HashMap<Uuid, oxidgene_core::types::Place> = places_data
+                    .as_ref()
+                    .and_then(|r| r.as_ref().ok())
+                    .cloned()
+                    .unwrap_or_default();
                 Some(PedigreeData::build(
                     &persons,
                     name_map.clone(),
                     spouses,
                     children,
                     events,
+                    places,
                 ))
             }
             _ => None,
@@ -285,6 +336,18 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
     };
 
+    // Union list for context menu multi-union sub-list.
+    let ctx_unions: Vec<(Uuid, String, String)> = {
+        let ctx = context_menu_person();
+        match ctx {
+            Some((pid, _, _)) => pedigree_data
+                .as_ref()
+                .map(|d| d.unions_for_person(pid))
+                .unwrap_or_default(),
+            None => vec![],
+        }
+    };
+
     // ── Handlers ──
 
     // Save tree edit.
@@ -341,20 +404,22 @@ pub fn TreeDetail(tree_id: String) -> Element {
             PersonAction::Edit => {
                 editing_person_id.set(Some(pid));
             }
+            PersonAction::Merge => {
+                linking_mode.set(Some(LinkingMode::Merge(pid)));
+            }
             PersonAction::AddParents => {
-                // Open linking panel for adding parents.
                 linking_mode.set(Some(LinkingMode::Parents(pid)));
             }
             PersonAction::AddSpouse => {
-                // Open linking panel for adding spouse.
                 linking_mode.set(Some(LinkingMode::Spouse(pid)));
             }
             PersonAction::AddChild => {
-                // Open linking panel for adding child.
                 linking_mode.set(Some(LinkingMode::Child(pid)));
             }
+            PersonAction::AddSibling => {
+                linking_mode.set(Some(LinkingMode::Sibling(pid)));
+            }
             PersonAction::EditUnion => {
-                // Find the first family where this person is a spouse and open the union form.
                 let family_id = pedigree_data_ctx
                     .as_ref()
                     .and_then(|data| data.families_as_spouse.get(&pid))
@@ -362,6 +427,9 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 if let Some(fid) = family_id {
                     editing_union_id.set(Some(fid));
                 }
+            }
+            PersonAction::EditSpecificUnion(fid) => {
+                editing_union_id.set(Some(fid));
             }
             PersonAction::Delete => {
                 confirm_delete_person_id.set(Some(pid));
@@ -716,6 +784,104 @@ pub fn TreeDetail(tree_id: String) -> Element {
         });
     };
 
+    // AddSibling: link existing person as sibling (add them to the same parent family).
+    let api_link_sibling = api.clone();
+    let pedigree_data_sibling = pedigree_data.clone();
+    let on_link_sibling = move |person_id: Uuid| {
+        let api = api_link_sibling.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Sibling(for_pid)) = linking_mode() else {
+            return;
+        };
+        // Find the parent family of the person we want to add a sibling to.
+        let parent_family_id = pedigree_data_sibling
+            .as_ref()
+            .and_then(|data| data.families_as_child.get(&for_pid))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = parent_family_id {
+                fid
+            } else {
+                // No parent family exists yet — create one and add the original person as child.
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddChildBody {
+                    person_id: for_pid,
+                    child_type: oxidgene_core::ChildType::Biological,
+                    sort_order: 0,
+                };
+                let _ = api.add_child(tid, family.id, &body).await;
+                family.id
+            };
+            let body = crate::api::AddChildBody {
+                person_id,
+                child_type: oxidgene_core::ChildType::Biological,
+                sort_order: 1,
+            };
+            let _ = api.add_child(tid, fid, &body).await;
+            linking_mode.set(None);
+            refresh += 1;
+        });
+    };
+
+    // AddSibling: create new person as sibling.
+    let api_new_sibling = api.clone();
+    let pedigree_data_new_sibling = pedigree_data.clone();
+    let on_create_new_sibling = move |_| {
+        let api = api_new_sibling.clone();
+        let Some(tid) = tree_id_parsed else { return };
+        let Some(LinkingMode::Sibling(for_pid)) = linking_mode() else {
+            return;
+        };
+        let parent_family_id = pedigree_data_new_sibling
+            .as_ref()
+            .and_then(|data| data.families_as_child.get(&for_pid))
+            .and_then(|fids| fids.first().copied());
+        spawn(async move {
+            let fid = if let Some(fid) = parent_family_id {
+                fid
+            } else {
+                let Ok(family) = api.create_family(tid).await else {
+                    return;
+                };
+                let body = crate::api::AddChildBody {
+                    person_id: for_pid,
+                    child_type: oxidgene_core::ChildType::Biological,
+                    sort_order: 0,
+                };
+                let _ = api.add_child(tid, family.id, &body).await;
+                family.id
+            };
+            if let Ok(new_person) = api
+                .create_person(
+                    tid,
+                    &crate::api::CreatePersonBody {
+                        sex: oxidgene_core::Sex::Unknown,
+                    },
+                )
+                .await
+            {
+                let body = crate::api::AddChildBody {
+                    person_id: new_person.id,
+                    child_type: oxidgene_core::ChildType::Biological,
+                    sort_order: 1,
+                };
+                let _ = api.add_child(tid, fid, &body).await;
+            }
+            linking_mode.set(None);
+            refresh += 1;
+        });
+    };
+
+    // Merge: link existing person to merge with.
+    let on_link_merge = move |_target_id: Uuid| {
+        // TODO: Implement merge UI — should show a modal to choose which
+        // events/info/sources to keep from each person, then delete one.
+        // For now, just close the linking panel.
+        linking_mode.set(None);
+    };
+
     // ── GEDCOM handlers ──
 
     let api_import = api.clone();
@@ -809,6 +975,8 @@ pub fn TreeDetail(tree_id: String) -> Element {
         LinkingMode::Spouse(_) => "Add Spouse".to_string(),
         LinkingMode::Parents(_) => "Add Parent".to_string(),
         LinkingMode::Child(_) => "Add Child".to_string(),
+        LinkingMode::Sibling(_) => "Add Sibling".to_string(),
+        LinkingMode::Merge(_) => "Merge with\u{2026}".to_string(),
     });
 
     // ── Render ──
@@ -829,8 +997,8 @@ pub fn TreeDetail(tree_id: String) -> Element {
             let tn = tree_name_str.clone();
             let td = tree_desc_str;
             // Build search results from person_options
-            let last_q = search_last().to_lowercase();
-            let first_q = search_first().to_lowercase();
+            let last_q = debounced_last().to_lowercase();
+            let first_q = debounced_first().to_lowercase();
             let has_search = !last_q.is_empty() || !first_q.is_empty();
             let search_results: Vec<(Uuid, String)> = if has_search {
                 person_options.iter().filter(|(_pid, name)| {
@@ -880,7 +1048,14 @@ pub fn TreeDetail(tree_id: String) -> Element {
                                     div { class: "td-search-no-results", "No results" }
                                 } else {
                                     for (pid, name) in search_results.iter() {
-                                        { let pid = *pid; rsx! {
+                                        {
+                                            let pid = *pid;
+                                            let initials: String = name.split_whitespace()
+                                                .filter_map(|w| w.chars().next())
+                                                .take(2)
+                                                .collect::<String>()
+                                                .to_uppercase();
+                                            rsx! {
                                             button {
                                                 class: "td-search-result",
                                                 onmousedown: move |e: Event<MouseData>| {
@@ -892,7 +1067,8 @@ pub fn TreeDetail(tree_id: String) -> Element {
                                                     search_first.set(String::new());
                                                     search_focused.set(false);
                                                 },
-                                                "{name}"
+                                                span { class: "td-search-initials", "{initials}" }
+                                                span { "{name}" }
                                             }
                                         }}
                                     }
@@ -1000,6 +1176,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 x: x,
                 y: y,
                 has_union: ctx_person_has_union,
+                unions: ctx_unions.clone(),
                 on_action: on_context_action,
                 on_close: move |_| context_menu_person.set(None),
             }
@@ -1108,6 +1285,23 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     on_empty_slot: move |(child_id, is_father)| {
                         on_empty_slot((child_id, is_father));
                     },
+                    on_add_person: move |_| {
+                        // Create a new person and open edit form
+                        let api = api.clone();
+                        let Some(tid) = tree_id_parsed else { return };
+                        spawn(async move {
+                            if let Ok(new_person) = api.create_person(tid, &crate::api::CreatePersonBody { sex: oxidgene_core::Sex::Unknown }).await {
+                                editing_person_id.set(Some(new_person.id));
+                                refresh += 1;
+                            }
+                        });
+                    },
+                    on_profile_view: move |pid: Uuid| {
+                        nav.push(Route::PersonDetail {
+                            tree_id: tree_id.clone(),
+                            person_id: pid.to_string(),
+                        });
+                    },
                 }
             } else {
                 // Loading or empty state
@@ -1198,6 +1392,31 @@ pub fn TreeDetail(tree_id: String) -> Element {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_child,
                                     "Create New Person as Child"
+                                }
+                            },
+                            Some(LinkingMode::Sibling(_)) => rsx! {
+                                SearchPerson {
+                                    tree_id: tid,
+                                    placeholder: "Search for sibling...",
+                                    on_select: on_link_sibling,
+                                    on_cancel: move |_| linking_mode.set(None),
+                                }
+                                div { class: "linking-panel-or", "— or —" }
+                                button {
+                                    class: "btn btn-outline",
+                                    onclick: on_create_new_sibling,
+                                    "Create New Person as Sibling"
+                                }
+                            },
+                            Some(LinkingMode::Merge(_)) => rsx! {
+                                p { style: "font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;",
+                                    "Select the person to merge with. The selected person's events, sources, and notes will be reviewed for merging."
+                                }
+                                SearchPerson {
+                                    tree_id: tid,
+                                    placeholder: "Search for person to merge...",
+                                    on_select: on_link_merge,
+                                    on_cancel: move |_| linking_mode.set(None),
                                 }
                             },
                             None => rsx! {},
