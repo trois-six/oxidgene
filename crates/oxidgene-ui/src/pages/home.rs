@@ -32,6 +32,10 @@ pub fn Home() -> Element {
     let mut confirm_delete_name = use_signal(String::new);
     let mut delete_error = use_signal(|| None::<String>);
 
+    // Search & sort state.
+    let mut search_query = use_signal(String::new);
+    let mut sort_mode = use_signal(|| "recent".to_string());
+
     let api_create = api.clone();
     let on_create = move |_| {
         let api = api_create.clone();
@@ -95,11 +99,35 @@ pub fn Home() -> Element {
                     }
                 }
 
-                // ── Filter / action row ──────────────────────────────
-                div { class: "home-filter-row",
-                    span { class: "home-filter-label", "Filter:" }
-                    button { class: "home-filter-btn home-filter-btn-active", "All" }
-                    button { class: "home-filter-btn", "Recent" }
+                // ── Toolbar: search + sort + new tree ───────────────
+                div { class: "home-toolbar",
+                    div { class: "home-search-box",
+                        svg {
+                            class: "home-search-icon",
+                            width: "15",
+                            height: "15",
+                            fill: "none",
+                            "viewBox": "0 0 24 24",
+                            stroke: "currentColor",
+                            "strokeWidth": "2",
+                            circle { cx: "11", cy: "11", r: "8" }
+                            path { d: "M21 21l-4.35-4.35" }
+                        }
+                        input {
+                            r#type: "text",
+                            class: "home-search-input",
+                            placeholder: "Search a tree…",
+                            value: "{search_query}",
+                            oninput: move |e: Event<FormData>| search_query.set(e.value()),
+                        }
+                    }
+                    select {
+                        class: "home-sort-select",
+                        value: "{sort_mode}",
+                        onchange: move |e: Event<FormData>| sort_mode.set(e.value()),
+                        option { value: "recent", "Recently modified" }
+                        option { value: "name", "Name A → Z" }
+                    }
                     button {
                         class: "home-btn-new",
                         onclick: move |_| show_create.set(true),
@@ -118,53 +146,98 @@ pub fn Home() -> Element {
 
                 // ── Trees grid ───────────────────────────────────────
                 match &*trees_resource.read() {
-                    Some(Ok(conn)) => rsx! {
+                    Some(Ok(conn)) => {
+                        let query = search_query().to_lowercase();
+                        let sort = sort_mode();
+
+                        // Filter by search query
+                        let mut filtered: Vec<_> = conn.edges.iter().filter(|edge| {
+                            if query.is_empty() {
+                                return true;
+                            }
+                            let name_match = edge.node.name.to_lowercase().contains(&query);
+                            let desc_match = edge.node.description.as_deref()
+                                .unwrap_or("")
+                                .to_lowercase()
+                                .contains(&query);
+                            name_match || desc_match
+                        }).collect();
+
+                        // Sort
+                        match sort.as_str() {
+                            "name" => filtered.sort_by(|a, b| a.node.name.to_lowercase().cmp(&b.node.name.to_lowercase())),
+                            _ => filtered.sort_by(|a, b| b.node.updated_at.cmp(&a.node.updated_at)),
+                        }
+
                         if conn.edges.is_empty() {
-                            div { class: "home-empty",
-                                div { class: "home-empty-icon", "🌳" }
-                                h3 { "No trees yet" }
-                                p { "Create your first genealogy tree to get started." }
-                                button {
-                                    class: "home-btn-new",
-                                    style: "margin-top: 0.5rem;",
-                                    onclick: move |_| show_create.set(true),
-                                    "New Tree"
+                            rsx! {
+                                div { class: "home-empty",
+                                    div { class: "home-empty-icon", "🌳" }
+                                    h3 { "No trees yet" }
+                                    p { "Create your first genealogy tree to get started." }
+                                    button {
+                                        class: "home-btn-new",
+                                        style: "margin-top: 0.5rem;",
+                                        onclick: move |_| show_create.set(true),
+                                        "New Tree"
+                                    }
+                                }
+                            }
+                        } else if filtered.is_empty() {
+                            rsx! {
+                                div { class: "home-empty",
+                                    div { class: "home-empty-icon",
+                                        svg {
+                                            width: "48",
+                                            height: "48",
+                                            fill: "none",
+                                            "viewBox": "0 0 24 24",
+                                            stroke: "var(--text-muted)",
+                                            "strokeWidth": "1.5",
+                                            circle { cx: "11", cy: "11", r: "8" }
+                                            path { d: "M21 21l-4.35-4.35" }
+                                        }
+                                    }
+                                    h3 { "No tree found" }
+                                    p { "Try a different search term." }
                                 }
                             }
                         } else {
-                            div { class: "trees-grid",
-                                for edge in conn.edges.iter() {{
-                                    let tree = &edge.node;
-                                    let tid = tree.id;
-                                    let tid_str = tid.to_string();
-                                    let tree_name = tree.name.clone();
-                                    let tree_name_del = tree_name.clone();
-                                    let desc = tree.description.clone().unwrap_or_default();
-                                    let updated_at = tree.updated_at;
-                                    rsx! {
-                                        TreeCard {
-                                            key: "{tid}",
-                                            name: tree_name,
-                                            description: desc,
-                                            updated_at,
-                                            tree_id: tid_str,
-                                            on_delete: move |_| {
-                                                confirm_delete_id.set(Some(tid));
-                                                confirm_delete_name.set(tree_name_del.clone());
-                                                delete_error.set(None);
-                                            },
+                            rsx! {
+                                div { class: "trees-grid",
+                                    for edge in filtered.iter() {{
+                                        let tree = &edge.node;
+                                        let tid = tree.id;
+                                        let tid_str = tid.to_string();
+                                        let tree_name = tree.name.clone();
+                                        let tree_name_del = tree_name.clone();
+                                        let desc = tree.description.clone().unwrap_or_default();
+                                        let updated_at = tree.updated_at;
+                                        rsx! {
+                                            TreeCard {
+                                                key: "{tid}",
+                                                name: tree_name,
+                                                description: desc,
+                                                updated_at,
+                                                tree_id: tid_str,
+                                                on_delete: move |_| {
+                                                    confirm_delete_id.set(Some(tid));
+                                                    confirm_delete_name.set(tree_name_del.clone());
+                                                    delete_error.set(None);
+                                                },
+                                            }
                                         }
-                                    }
-                                }}
+                                    }}
 
-                                // Add-new card
-                                div {
-                                    class: "tree-card tree-card-add",
-                                    onclick: move |_| show_create.set(true),
-                                    div { class: "tree-card-add-icon", "＋" }
-                                    div { class: "tree-card-add-text", "Create a new tree" }
-                                    div { class: "tree-card-add-sub",
-                                        "Start a new family lineage from scratch or import a GEDCOM file"
+                                    // Add-new card
+                                    div {
+                                        class: "tree-card tree-card-add",
+                                        onclick: move |_| show_create.set(true),
+                                        div { class: "tree-card-add-icon", "＋" }
+                                        div { class: "tree-card-add-text", "Create a new tree" }
+                                        div { class: "tree-card-add-sub",
+                                            "Start a new family lineage from scratch or import a GEDCOM file"
+                                        }
                                     }
                                 }
                             }
@@ -278,6 +351,8 @@ fn TreeCard(
     tree_id: String,
     on_delete: EventHandler<()>,
 ) -> Element {
+    let mut menu_open = use_signal(|| false);
+
     let now = Utc::now();
     let diff = now.signed_duration_since(updated_at);
     let time_ago = if diff.num_days() == 0 {
@@ -294,6 +369,8 @@ fn TreeCard(
         format!("Modified {} month{} ago", m, if m == 1 { "" } else { "s" })
     };
 
+    let is_recent = diff.num_hours() < 24;
+
     rsx! {
         div { class: "tree-card",
             // ── Visual header ──────────────────────────────────────
@@ -303,29 +380,21 @@ fn TreeCard(
                     xmlns: "http://www.w3.org/2000/svg",
                     width: "100%",
                     height: "100%",
-                    // Background
                     rect { class: "tv-bg", width: "300", height: "140" }
-                    // Soft glow
                     rect {
                         x: "90", y: "10", width: "120", height: "120", rx: "60",
                         fill: "#e07820", "fillOpacity": "0.07"
                     }
-                    // Trunk
                     rect { class: "tv-branch", x: "147", y: "90", width: "6", height: "35", rx: "3" }
-                    // Main branches
                     line { class: "tv-branch-line", x1: "150", y1: "90", x2: "100", y2: "60", "strokeWidth": "2.5" }
                     line { class: "tv-branch-line", x1: "150", y1: "90", x2: "200", y2: "60", "strokeWidth": "2.5" }
-                    // Sub-branches
                     line { class: "tv-branch-line", x1: "100", y1: "60", x2: "75",  y2: "40", "strokeWidth": "1.5" }
                     line { class: "tv-branch-line", x1: "100", y1: "60", x2: "120", y2: "38", "strokeWidth": "1.5" }
                     line { class: "tv-branch-line", x1: "200", y1: "60", x2: "225", y2: "40", "strokeWidth": "1.5" }
                     line { class: "tv-branch-line", x1: "200", y1: "60", x2: "180", y2: "38", "strokeWidth": "1.5" }
-                    // Root node (orange)
                     circle { cx: "150", cy: "93", r: "7",  fill: "#e07820", "fillOpacity": "0.9" }
-                    // Gen-1 nodes (orange)
                     circle { cx: "100", cy: "60", r: "6",  fill: "#e07820", "fillOpacity": "0.8" }
                     circle { cx: "200", cy: "60", r: "6",  fill: "#e07820", "fillOpacity": "0.8" }
-                    // Gen-2 nodes (green)
                     circle { cx: "75",  cy: "40", r: "5",  fill: "#5aab3c", "fillOpacity": "0.9" }
                     circle { cx: "120", cy: "38", r: "5",  fill: "#5aab3c", "fillOpacity": "0.9" }
                     circle { cx: "225", cy: "40", r: "5",  fill: "#5aab3c", "fillOpacity": "0.9" }
@@ -335,28 +404,69 @@ fn TreeCard(
 
             // ── Card body ──────────────────────────────────────────
             div { class: "tree-card-body",
-                div { class: "tree-card-name", "{name}" }
+                div { class: "tree-card-header",
+                    div { class: "tree-card-name", "{name}" }
+                    // Three-dot menu
+                    div { class: "tree-card-menu-wrapper",
+                        button {
+                            class: "tree-card-menu-btn",
+                            title: "Tree actions",
+                            onclick: move |e: Event<MouseData>| {
+                                e.stop_propagation();
+                                menu_open.set(!menu_open());
+                            },
+                            "⋮"
+                        }
+                        if menu_open() {
+                            div { class: "tree-card-dropdown",
+                                Link {
+                                    to: Route::TreeDetail { tree_id: tree_id.clone() },
+                                    class: "tree-card-dropdown-item",
+                                    onclick: move |_| menu_open.set(false),
+                                    "Open"
+                                }
+                                Link {
+                                    to: Route::Settings { tree_id: tree_id.clone() },
+                                    class: "tree-card-dropdown-item",
+                                    onclick: move |_| menu_open.set(false),
+                                    "Settings"
+                                }
+                                button {
+                                    class: "tree-card-dropdown-item tree-card-dropdown-danger",
+                                    onclick: move |e: Event<MouseData>| {
+                                        e.stop_propagation();
+                                        menu_open.set(false);
+                                        on_delete.call(());
+                                    },
+                                    "Delete"
+                                }
+                            }
+                        }
+                    }
+                }
                 if !description.is_empty() {
                     div { class: "tree-card-desc", "{description}" }
                 }
                 div { class: "tree-card-footer",
-                    span { class: "tree-last-update", "{time_ago}" }
-                    div { class: "tree-card-actions",
-                        button {
-                            class: "btn-card-delete",
-                            title: "Delete tree",
-                            onclick: move |e: Event<MouseData>| {
-                                e.stop_propagation();
-                                on_delete.call(());
-                            },
-                            "✕"
-                        }
-                        Link {
-                            to: Route::TreeDetail { tree_id: tree_id.clone() },
-                            class: "btn-open",
-                            "Open"
+                    div { class: "tree-card-footer-left",
+                        span { class: "tree-last-update", "{time_ago}" }
+                        if is_recent {
+                            span { class: "tree-badge-recent", "Recent" }
                         }
                     }
+                    Link {
+                        to: Route::TreeDetail { tree_id: tree_id.clone() },
+                        class: "btn-open",
+                        "Open"
+                    }
+                }
+            }
+
+            // Backdrop to close dropdown on outside click
+            if menu_open() {
+                div {
+                    class: "tree-card-menu-backdrop",
+                    onclick: move |_| menu_open.set(false),
                 }
             }
         }
@@ -449,9 +559,9 @@ const HOME_STYLES: &str = r#"
         font-weight: 300;
     }
 
-    /* ── Filter / action row ─────────────────────────────────────── */
+    /* ── Toolbar ───────────────────────────────────────────────────── */
 
-    .home-filter-row {
+    .home-toolbar {
         display: flex;
         align-items: center;
         gap: 0.75rem;
@@ -460,35 +570,57 @@ const HOME_STYLES: &str = r#"
         animation: home-fade-up 0.6s 0.08s ease both;
     }
 
-    .home-filter-label {
-        font-size: 0.78rem;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-right: 0.25rem;
+    .home-search-box {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.45rem 0.75rem;
+        flex: 1;
+        max-width: 320px;
+        transition: border-color 0.2s;
     }
 
-    .home-filter-btn {
-        background: var(--bg-panel);
+    .home-search-box:focus-within {
+        border-color: var(--orange);
+    }
+
+    .home-search-icon {
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+
+    .home-search-input {
+        background: none;
+        border: none;
+        outline: none;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        font-family: var(--font-sans);
+        width: 100%;
+    }
+
+    .home-search-input::placeholder {
+        color: var(--text-muted);
+    }
+
+    .home-sort-select {
+        background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 20px;
-        padding: 0.35rem 1rem;
+        border-radius: 8px;
+        padding: 0.45rem 0.75rem;
         color: var(--text-secondary);
         font-size: 0.82rem;
-        cursor: pointer;
-        transition: border-color 0.2s, color 0.2s, background 0.2s;
         font-family: var(--font-sans);
+        cursor: pointer;
+        transition: border-color 0.2s;
     }
 
-    .home-filter-btn:hover {
+    .home-sort-select:focus {
+        outline: none;
         border-color: var(--orange);
-        color: var(--text-primary);
-    }
-
-    .home-filter-btn-active {
-        background: rgba(224, 120, 32, 0.12);
-        border-color: var(--orange);
-        color: var(--orange-light);
     }
 
     .home-btn-new {
@@ -566,15 +698,90 @@ const HOME_STYLES: &str = r#"
         padding: 1.25rem 1.4rem 1.4rem;
     }
 
+    .tree-card-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.3rem;
+    }
+
     .tree-card-name {
         font-family: var(--font-heading);
         font-size: 1.05rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: 0.3rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .tree-card-menu-wrapper {
+        position: relative;
+        flex-shrink: 0;
+    }
+
+    .tree-card-menu-btn {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.2rem;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 4px;
+        line-height: 1;
+        transition: background 0.15s, color 0.15s;
+    }
+
+    .tree-card-menu-btn:hover {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
+    }
+
+    .tree-card-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        z-index: 100;
+        min-width: 140px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        padding: 4px;
+        margin-top: 4px;
+    }
+
+    .tree-card-dropdown-item {
+        display: block;
+        width: 100%;
+        padding: 8px 12px;
+        background: none;
+        border: none;
+        border-radius: 5px;
+        text-align: left;
+        font-size: 0.82rem;
+        font-family: var(--font-sans);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+        text-decoration: none;
+    }
+
+    .tree-card-dropdown-item:hover {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
+    }
+
+    .tree-card-dropdown-danger:hover {
+        background: rgba(224, 82, 82, 0.1);
+        color: var(--color-danger);
+    }
+
+    .tree-card-menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 99;
     }
 
     .tree-card-desc {
@@ -595,15 +802,27 @@ const HOME_STYLES: &str = r#"
         margin-top: 0.75rem;
     }
 
+    .tree-card-footer-left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
     .tree-last-update {
         font-size: 0.75rem;
         color: var(--text-muted);
     }
 
-    .tree-card-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
+    .tree-badge-recent {
+        font-size: 0.65rem;
+        font-weight: 600;
+        color: var(--green-light);
+        background: rgba(90, 171, 60, 0.12);
+        border: 1px solid rgba(90, 171, 60, 0.3);
+        border-radius: 10px;
+        padding: 2px 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
 
     .btn-open {
@@ -624,29 +843,6 @@ const HOME_STYLES: &str = r#"
 
     .btn-open:hover {
         opacity: 0.85;
-    }
-
-    .btn-card-delete {
-        width: 28px;
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: none;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        transition: background 0.15s, border-color 0.15s, color 0.15s;
-        padding: 0;
-        line-height: 1;
-    }
-
-    .btn-card-delete:hover {
-        background: rgba(224, 82, 82, 0.1);
-        border-color: var(--color-danger);
-        color: var(--color-danger);
     }
 
     /* ── Add-new card ─────────────────────────────────────────────── */

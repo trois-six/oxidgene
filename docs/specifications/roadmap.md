@@ -102,7 +102,7 @@
 ## EPIC D — UX, Languages, Performance 🔶 (partial)
 
 - [x] Theme system (CSS-based, switchable at runtime). → see [Settings spec](ui-settings.md)
-- [ ] Implement at least 2 themes (default + one genealogy-platform-inspired theme). → see [Design Tokens](ui-design-tokens.md) §10
+- [x] Implement at least 2 themes (default + one genealogy-platform-inspired theme). → see [Design Tokens](ui-design-tokens.md) §10
 - [ ] Internationalization (i18n) with runtime language switching. → see [i18n spec](i18n.md)
 - [ ] At least 2 languages (English + French). → see [i18n spec](i18n.md) §6
 - [ ] Client-side caching of API responses.

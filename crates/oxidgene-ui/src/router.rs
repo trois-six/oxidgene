@@ -6,8 +6,8 @@
 use dioxus::prelude::*;
 
 use crate::pages::{
-    home::Home, not_found::NotFound, person_detail::PersonDetail, tree_detail::TreeDetail,
-    tree_list::TreeList,
+    home::Home, not_found::NotFound, person_detail::PersonDetail, settings::Settings,
+    tree_detail::TreeDetail, tree_list::TreeList,
 };
 
 /// All application routes.
@@ -35,6 +35,10 @@ pub enum Route {
     /// Detail view for a person within a tree.
     #[route("/trees/:tree_id/persons/:person_id")]
     PersonDetail { tree_id: String, person_id: String },
+
+    /// Settings page for a tree.
+    #[route("/trees/:tree_id/settings")]
+    Settings { tree_id: String },
 
     /// Catch-all 404 page.
     #[end_layout]

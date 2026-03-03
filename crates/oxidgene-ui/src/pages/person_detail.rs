@@ -340,6 +340,73 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // For the MVP, we show a create form and a list of person citations
     // stored in local state after creation.
 
+    // Fetch tree info (for breadcrumb).
+    let api_tree = api.clone();
+    let tree_resource = use_resource(move || {
+        let api = api_tree.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        async move {
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid tree ID".to_string(),
+                });
+            };
+            api.get_tree(tid).await
+        }
+    });
+
+    // Fetch families for family connections card.
+    let api_families = api.clone();
+    let families_resource = use_resource(move || {
+        let api = api_families.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        async move {
+            let Some(tid) = tid else {
+                return Ok::<_, crate::api::ApiError>((
+                    Vec::<oxidgene_core::types::Family>::new(),
+                    Vec::<(Uuid, oxidgene_core::types::FamilySpouse)>::new(),
+                    Vec::<(Uuid, oxidgene_core::types::FamilyChild)>::new(),
+                ));
+            };
+            let families = api
+                .list_families(tid, Some(500), None)
+                .await
+                .unwrap_or_else(|_| oxidgene_core::types::Connection::empty());
+            let mut all_spouses = Vec::new();
+            let mut all_children = Vec::new();
+            for edge in &families.edges {
+                let fid = edge.node.id;
+                if let Ok(spouses) = api.list_family_spouses(tid, fid).await {
+                    for s in &spouses {
+                        all_spouses.push((fid, s.clone()));
+                    }
+                }
+                if let Ok(children) = api.list_family_children(tid, fid).await {
+                    for c in &children {
+                        all_children.push((fid, c.clone()));
+                    }
+                }
+            }
+            Ok((
+                families
+                    .edges
+                    .into_iter()
+                    .map(|e| e.node)
+                    .collect::<Vec<_>>(),
+                all_spouses,
+                all_children,
+            ))
+        }
+    });
+
+    let tree_name_str = match &*tree_resource.read() {
+        Some(Ok(tree)) => tree.name.clone(),
+        _ => "Loading...".to_string(),
+    };
+
     // Derive display name from loaded names.
     let display_name = match &*names_resource.read() {
         Some(Ok(names)) => {
@@ -776,14 +843,91 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // ── Render ────────────────────────────────────────────────────────
 
+    // Build family connections for the current person.
+    let family_connections = {
+        let pid = person_id_parsed;
+        match (&*families_resource.read(), pid) {
+            (Some(Ok((_families, all_spouses, all_children))), Some(pid)) => {
+                // Families where this person is a spouse
+                let spouse_family_ids: Vec<Uuid> = all_spouses
+                    .iter()
+                    .filter(|(_fid, s)| s.person_id == pid)
+                    .map(|(fid, _)| *fid)
+                    .collect();
+
+                // For each such family, find the other spouse(s) and children
+                let mut partner_ids: Vec<Uuid> = Vec::new();
+                let mut child_ids: Vec<Uuid> = Vec::new();
+                for fid in &spouse_family_ids {
+                    for (_f, s) in all_spouses.iter() {
+                        if _f == fid && s.person_id != pid {
+                            partner_ids.push(s.person_id);
+                        }
+                    }
+                    for (_f, c) in all_children.iter() {
+                        if _f == fid {
+                            child_ids.push(c.person_id);
+                        }
+                    }
+                }
+
+                // Families where this person is a child → find parents
+                let child_family_ids: Vec<Uuid> = all_children
+                    .iter()
+                    .filter(|(_fid, c)| c.person_id == pid)
+                    .map(|(fid, _)| *fid)
+                    .collect();
+
+                let mut parent_ids: Vec<Uuid> = Vec::new();
+                let mut sibling_ids: Vec<Uuid> = Vec::new();
+                for fid in &child_family_ids {
+                    for (_f, s) in all_spouses.iter() {
+                        if _f == fid {
+                            parent_ids.push(s.person_id);
+                        }
+                    }
+                    for (_f, c) in all_children.iter() {
+                        if _f == fid && c.person_id != pid {
+                            sibling_ids.push(c.person_id);
+                        }
+                    }
+                }
+
+                Some((parent_ids, partner_ids, child_ids, sibling_ids))
+            }
+            _ => None,
+        }
+    };
+
+    // Helper to resolve person name from all_names or names_resource
+    let resolve_person_name = |pid: Uuid| -> String {
+        let names_data = all_names_resource.read();
+        if let Some(Ok(name_map)) = &*names_data {
+            return resolve_name(pid, name_map);
+        }
+        "Unknown".to_string()
+    };
+
     rsx! {
         div { class: "page-content",
-        // Back navigation
-        div { style: "margin-bottom: 16px;",
+        // Breadcrumb
+        div { class: "pd-breadcrumb",
+            Link { to: Route::Home {}, "Trees" }
+            span { class: "pd-breadcrumb-sep", " / " }
             Link {
                 to: Route::TreeDetail { tree_id: tree_id.clone() },
-                class: "back-link",
-                "← Back to Tree"
+                "{tree_name_str}"
+            }
+            span { class: "pd-breadcrumb-sep", " / " }
+            span { class: "pd-breadcrumb-current", "{display_name}" }
+        }
+
+        // Action buttons
+        div { class: "pd-action-bar",
+            Link {
+                to: Route::TreeDetail { tree_id: tree_id.clone() },
+                class: "btn btn-outline",
+                "View in tree"
             }
         }
 
@@ -942,6 +1086,79 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             None => rsx! {
                 div { class: "loading", "Loading person..." }
             },
+        }
+
+        // ── Family connections section ──────────────────────────────
+        if let Some((parent_ids, partner_ids, child_ids, sibling_ids)) = &family_connections {
+            div { class: "card", style: "margin-bottom: 24px;",
+                h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", "Family Connections" }
+
+                if !parent_ids.is_empty() {
+                    div { class: "pd-fc-section",
+                        h3 { class: "pd-fc-label", "Parents" }
+                        for pid in parent_ids.iter() {
+                            { let pid = *pid; let tid = tree_id.clone(); rsx! {
+                                Link {
+                                    to: Route::PersonDetail { tree_id: tid, person_id: pid.to_string() },
+                                    class: "pd-fc-link",
+                                    "{resolve_person_name(pid)}"
+                                }
+                            }}
+                        }
+                    }
+                }
+
+                if !partner_ids.is_empty() {
+                    div { class: "pd-fc-section",
+                        h3 { class: "pd-fc-label", "Spouses & Partners" }
+                        for pid in partner_ids.iter() {
+                            { let pid = *pid; let tid = tree_id.clone(); rsx! {
+                                Link {
+                                    to: Route::PersonDetail { tree_id: tid, person_id: pid.to_string() },
+                                    class: "pd-fc-link",
+                                    "{resolve_person_name(pid)}"
+                                }
+                            }}
+                        }
+                    }
+                }
+
+                if !child_ids.is_empty() {
+                    div { class: "pd-fc-section",
+                        h3 { class: "pd-fc-label", "Children" }
+                        for pid in child_ids.iter() {
+                            { let pid = *pid; let tid = tree_id.clone(); rsx! {
+                                Link {
+                                    to: Route::PersonDetail { tree_id: tid, person_id: pid.to_string() },
+                                    class: "pd-fc-link",
+                                    "{resolve_person_name(pid)}"
+                                }
+                            }}
+                        }
+                    }
+                }
+
+                if !sibling_ids.is_empty() {
+                    div { class: "pd-fc-section",
+                        h3 { class: "pd-fc-label", "Siblings" }
+                        for pid in sibling_ids.iter() {
+                            { let pid = *pid; let tid = tree_id.clone(); rsx! {
+                                Link {
+                                    to: Route::PersonDetail { tree_id: tid, person_id: pid.to_string() },
+                                    class: "pd-fc-link",
+                                    "{resolve_person_name(pid)}"
+                                }
+                            }}
+                        }
+                    }
+                }
+
+                if parent_ids.is_empty() && partner_ids.is_empty() && child_ids.is_empty() && sibling_ids.is_empty() {
+                    div { class: "empty-state",
+                        p { "No family connections found." }
+                    }
+                }
+            }
         }
 
         // ── Names section ────────────────────────────────────────────
