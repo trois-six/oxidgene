@@ -1,55 +1,48 @@
 //! Floating context menu for person nodes in pedigree charts.
 //!
-//! Shows actions like Edit, Add Parents, Add Spouse, Add Child, Edit Union,
-//! Delete when the user interacts with a person box in the pedigree view.
+//! Shows actions like Edit, Merge, Edit Union, Add Spouse, Add Child,
+//! Add Sibling, Delete when the user interacts with a person box.
 
 use dioxus::prelude::*;
+use uuid::Uuid;
 
 /// Actions that can be triggered from the context menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PersonAction {
-    /// Open the person edit form.
     Edit,
-    /// Add parents for this person.
+    Merge,
     AddParents,
-    /// Add a spouse / union.
     AddSpouse,
-    /// Add a child.
     AddChild,
-    /// Edit the union/family this person belongs to as a spouse.
+    AddSibling,
     EditUnion,
-    /// Delete this person.
+    EditSpecificUnion(Uuid),
     Delete,
 }
 
 /// Props for [`ContextMenu`].
 #[derive(Props, Clone, PartialEq)]
 pub struct ContextMenuProps {
-    /// The display name of the person (shown as the menu header).
     pub person_name: String,
-    /// Absolute X position (px) for the menu.
     pub x: f64,
-    /// Absolute Y position (px) for the menu.
     pub y: f64,
-    /// Whether this person is a spouse in at least one family.
     #[props(default = false)]
     pub has_union: bool,
-    /// Called with the chosen [`PersonAction`] when the user clicks a menu item.
+    /// List of unions: (family_id, partner_name, marriage_year).
+    #[props(default)]
+    pub unions: Vec<(Uuid, String, String)>,
     pub on_action: EventHandler<PersonAction>,
-    /// Called when the menu should be dismissed (backdrop click).
     pub on_close: EventHandler<()>,
 }
 
-/// A floating context menu anchored at an absolute position.
-///
-/// Renders a backdrop overlay that dismisses the menu on click, plus a card
-/// with action buttons.
 #[component]
 pub fn ContextMenu(props: ContextMenuProps) -> Element {
     let style = format!("left: {}px; top: {}px;", props.x, props.y);
+    let mut show_union_sub = use_signal(|| false);
+
+    let union_count = props.unions.len();
 
     rsx! {
-        // Invisible backdrop to catch clicks outside the menu.
         div {
             class: "context-menu-backdrop",
             onclick: move |_| props.on_close.call(()),
@@ -58,38 +51,81 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
             class: "context-menu",
             style: style,
             div { class: "context-menu-header", "{props.person_name}" }
-            button {
-                class: "context-menu-item",
-                onclick: move |_| props.on_action.call(PersonAction::Edit),
-                "Edit"
-            }
-            button {
-                class: "context-menu-item",
-                onclick: move |_| props.on_action.call(PersonAction::AddParents),
-                "Add Parents"
-            }
-            button {
-                class: "context-menu-item",
-                onclick: move |_| props.on_action.call(PersonAction::AddSpouse),
-                "Add Spouse"
-            }
-            button {
-                class: "context-menu-item",
-                onclick: move |_| props.on_action.call(PersonAction::AddChild),
-                "Add Child"
-            }
-            if props.has_union {
+
+            if show_union_sub() {
+                // Union sub-list: back arrow + union entries.
+                button {
+                    class: "context-menu-item context-menu-back",
+                    onclick: move |_| show_union_sub.set(false),
+                    "\u{2190} Back"
+                }
+                hr { class: "context-menu-divider" }
+                for (fid, partner, year) in props.unions.iter() {
+                    {
+                        let fid = *fid;
+                        let label = if year.is_empty() {
+                            partner.clone()
+                        } else {
+                            format!("{partner}  \u{1F48D} {year}")
+                        };
+                        let on_action = props.on_action;
+                        rsx! {
+                            button {
+                                class: "context-menu-item",
+                                onclick: move |_| on_action.call(PersonAction::EditSpecificUnion(fid)),
+                                "{label}"
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Main action list.
                 button {
                     class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::EditUnion),
-                    "Edit Union"
+                    onclick: move |_| props.on_action.call(PersonAction::Edit),
+                    "Edit individual"
                 }
-            }
-            hr { class: "context-menu-divider" }
-            button {
-                class: "context-menu-item context-menu-danger",
-                onclick: move |_| props.on_action.call(PersonAction::Delete),
-                "Delete"
+                button {
+                    class: "context-menu-item",
+                    onclick: move |_| props.on_action.call(PersonAction::Merge),
+                    "Merge with\u{2026}"
+                }
+                if props.has_union {
+                    if union_count > 1 {
+                        button {
+                            class: "context-menu-item",
+                            onclick: move |_| show_union_sub.set(true),
+                            "Edit union \u{25B8}"
+                        }
+                    } else {
+                        button {
+                            class: "context-menu-item",
+                            onclick: move |_| props.on_action.call(PersonAction::EditUnion),
+                            "Edit union"
+                        }
+                    }
+                }
+                button {
+                    class: "context-menu-item",
+                    onclick: move |_| props.on_action.call(PersonAction::AddSpouse),
+                    "Add spouse"
+                }
+                button {
+                    class: "context-menu-item",
+                    onclick: move |_| props.on_action.call(PersonAction::AddChild),
+                    "Add child"
+                }
+                button {
+                    class: "context-menu-item",
+                    onclick: move |_| props.on_action.call(PersonAction::AddSibling),
+                    "Add sibling"
+                }
+                hr { class: "context-menu-divider" }
+                button {
+                    class: "context-menu-item context-menu-danger",
+                    onclick: move |_| props.on_action.call(PersonAction::Delete),
+                    "Delete"
+                }
             }
         }
     }
