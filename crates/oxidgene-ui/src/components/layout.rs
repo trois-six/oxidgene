@@ -134,7 +134,7 @@ pub const LAYOUT_STYLES: &str = r#"
         --text-primary:   #ddd8cc;
         --text-secondary: #7a8da8;
         --text-muted:     #404f65;
-        --connector:      var(--connector);
+        --connector:      #2e4a6a;
         --nav-bg:         rgba(10,11,13,0.92);
         --tree-visual-bg:     #0d1018;
         --tree-visual-branch: #3a4458;
@@ -351,7 +351,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .btn-outline:hover {
-        background: rgba(255,255,255,0.05);
+        background: var(--bg-card-hover);
         color: var(--text-primary);
         border-color: var(--text-secondary);
     }
@@ -473,7 +473,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     tr:hover td {
-        background: rgba(255,255,255,0.03);
+        background: var(--bg-card-hover);
     }
 
     .empty-state {
@@ -493,7 +493,7 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.75rem;
         font-weight: 500;
         border-radius: 12px;
-        background: rgba(255,255,255,0.05);
+        background: var(--bg-panel);
         color: var(--text-secondary);
         border: 1px solid var(--border);
     }
@@ -523,6 +523,67 @@ pub const LAYOUT_STYLES: &str = r#"
     .back-link:hover {
         color: var(--orange-light);
         text-decoration: underline;
+    }
+
+    /* ── Person detail breadcrumb & action bar ───────────────────── */
+
+    .pd-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.85rem;
+        margin-bottom: 16px;
+    }
+    .pd-breadcrumb a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        transition: color 0.15s;
+    }
+    .pd-breadcrumb a:hover { color: var(--orange); }
+    .pd-breadcrumb-sep { color: var(--text-muted); }
+    .pd-breadcrumb-current {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    .pd-action-bar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 20px;
+    }
+
+    /* ── Family connections ──────────────────────────────────────── */
+
+    .pd-fc-section {
+        margin-bottom: 12px;
+    }
+    .pd-fc-section:last-child { margin-bottom: 0; }
+
+    .pd-fc-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--orange);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+    }
+
+    .pd-fc-link {
+        display: inline-block;
+        padding: 4px 10px;
+        margin: 2px 4px 2px 0;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .pd-fc-link:hover {
+        background: var(--bg-card-hover);
+        border-color: var(--orange);
+        color: var(--text-primary);
     }
 
     /* ── Modal / confirmation dialog ─────────────────────────────── */
@@ -821,7 +882,7 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 4px 10px;
         border: 1px solid var(--border);
         border-radius: 5px;
-        background: rgba(255,255,255,0.04);
+        background: var(--bg-card);
         color: var(--text-secondary);
         font-size: 0.8rem;
         cursor: pointer;
@@ -831,7 +892,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .td-btn:hover:not(:disabled) {
-        background: rgba(255,255,255,0.08);
+        background: var(--bg-card-hover);
         color: var(--text-primary);
         border-color: var(--text-secondary);
     }
@@ -853,11 +914,91 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.8rem;
         border: 1px solid var(--border);
         border-radius: 5px;
-        background: rgba(255,255,255,0.04);
+        background: var(--bg-card);
         color: var(--text-primary);
         cursor: pointer;
         max-width: 200px;
         width: auto;
+    }
+
+    /* ── Tree view search ─────────────────────────────────────────── */
+
+    .td-search-group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        position: relative;
+    }
+
+    .td-search-input {
+        padding: 4px 8px;
+        font-size: 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--bg-card);
+        color: var(--text-primary);
+        width: 120px;
+        font-family: var(--font-sans);
+        transition: border-color 0.2s;
+    }
+
+    .td-search-input:focus {
+        outline: none;
+        border-color: var(--orange);
+    }
+
+    .td-search-input::placeholder {
+        color: var(--text-muted);
+    }
+
+    .td-search-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        z-index: 200;
+        margin-top: 4px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        max-height: 280px;
+        overflow-y: auto;
+        padding: 4px;
+    }
+
+    .td-search-result {
+        display: block;
+        width: 100%;
+        padding: 8px 10px;
+        background: none;
+        border: none;
+        border-radius: 5px;
+        text-align: left;
+        font-size: 0.82rem;
+        font-family: var(--font-sans);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .td-search-result:hover {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
+    }
+
+    .td-search-no-results {
+        padding: 12px 10px;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        text-align: center;
+        font-style: italic;
+    }
+
+    .td-search-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 199;
     }
 
     /* ── Tree edit form (inline below topbar) ────────────────────── */
@@ -916,7 +1057,7 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 0;
     }
 
-    .isb-btn:hover { background: rgba(255,255,255,0.07); color: var(--orange); }
+    .isb-btn:hover { background: var(--bg-card-hover); color: var(--orange); }
     .isb-btn:active { background: rgba(224,120,32,0.12); }
 
     .isb-hr { width: 28px; height: 1px; background: var(--border); margin: 4px 0; }
@@ -1019,7 +1160,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .pedigree-node.female.current { border-left-color: var(--pink); }
 
     .pedigree-node.empty-slot {
-        background: rgba(255,255,255,0.02);
+        background: transparent;
         border-style: dashed;
         border-left-style: dashed;
         align-items: center;
@@ -1285,7 +1426,7 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(255,255,255,0.05);
+        background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: 4px;
         cursor: pointer;
@@ -1312,6 +1453,43 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-direction: column;
         overflow: hidden;
         flex-shrink: 0;
+        position: relative;
+        transition: width 0.2s, min-width 0.2s;
+    }
+
+    .ev-panel-collapsed {
+        width: 28px;
+        min-width: 28px;
+    }
+
+    .evp-toggle {
+        position: absolute;
+        top: 8px;
+        left: 4px;
+        width: 20px;
+        height: 28px;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text-muted);
+        font-size: 1rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        z-index: 10;
+        transition: background 0.15s, color 0.15s;
+    }
+
+    .evp-toggle:hover {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
+    }
+
+    .ev-panel:not(.ev-panel-collapsed) .evp-toggle {
+        left: -1px;
+        top: 8px;
     }
 
     .evp-hd {
@@ -1371,12 +1549,12 @@ pub const LAYOUT_STYLES: &str = r#"
         align-items: flex-start;
         gap: 8px;
         padding: 7px 14px;
-        border-bottom: 1px solid rgba(37,45,61,0.6);
+        border-bottom: 1px solid var(--border);
         transition: background 0.1s;
     }
 
     .ev-item:last-child { border-bottom: none; }
-    .ev-item:hover { background: rgba(255,255,255,0.03); }
+    .ev-item:hover { background: var(--bg-card-hover); }
 
     .ev-ic {
         width: 24px;
@@ -1393,7 +1571,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .ev-ic-birth { background: rgba(78,168,50,0.18);  color: var(--green);  }
     .ev-ic-death { background: rgba(74,144,217,0.15); color: var(--blue);   }
     .ev-ic-marry { background: rgba(224,120,32,0.15); color: var(--orange); }
-    .ev-ic-other { background: rgba(255,255,255,0.06);color: var(--text-secondary); }
+    .ev-ic-other { background: var(--bg-card-hover); color: var(--text-secondary); }
 
     .ev-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 
@@ -1446,7 +1624,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .context-menu-item:hover {
-        background: rgba(255,255,255,0.05);
+        background: var(--bg-card-hover);
     }
 
     .context-menu-danger {
@@ -1509,7 +1687,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .search-person-result:hover {
-        background: rgba(255,255,255,0.05);
+        background: var(--bg-card-hover);
     }
 
     .search-person-name {
@@ -1590,7 +1768,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .person-form-close:hover {
-        background: rgba(255,255,255,0.07);
+        background: var(--bg-card-hover);
         color: var(--text-primary);
     }
 
@@ -1642,13 +1820,13 @@ pub const LAYOUT_STYLES: &str = r#"
         border-radius: var(--radius);
         margin-bottom: 8px;
         gap: 12px;
-        background: rgba(255,255,255,0.02);
+        background: var(--bg-card);
     }
 
     .person-form-item.editing {
         display: block;
         padding: 12px;
-        background: rgba(255,255,255,0.03);
+        background: var(--bg-card);
     }
 
     .person-form-item-info {
@@ -1675,7 +1853,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .linking-panel {
         padding: 16px;
-        background: rgba(255,255,255,0.03);
+        background: var(--bg-card);
         border-radius: var(--radius);
         margin-top: 12px;
     }

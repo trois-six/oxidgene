@@ -452,6 +452,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Selected person (drives the event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
 
+    // ── Event panel collapse ──
+    let mut panel_collapsed = use_signal(|| false);
+
     // ── Reset pan/zoom/selection when the root person changes ──
     let mut prev_root = use_signal(|| props.root_person_id);
     if prev_root() != props.root_person_id {
@@ -1023,36 +1026,45 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             // ══════════════════════════════════
             // EVENT PANEL (selected person)
             // ══════════════════════════════════
-            div { class: "ev-panel",
-                div { class: "evp-hd", "Events" }
-                div { class: "evp-person",
-                    div { class: "evp-av", "{sel_initials}" }
-                    div { class: "evp-name",
-                        strong { "{sel_full_name}" }
-                        if !sel_dates.is_empty() {
-                            span { "{sel_dates}" }
+            div {
+                class: if panel_collapsed() { "ev-panel ev-panel-collapsed" } else { "ev-panel" },
+                button {
+                    class: "evp-toggle",
+                    title: if panel_collapsed() { "Show events" } else { "Hide events" },
+                    onclick: move |_| panel_collapsed.set(!panel_collapsed()),
+                    if panel_collapsed() { "›" } else { "‹" }
+                }
+                if !panel_collapsed() {
+                    div { class: "evp-hd", "Events" }
+                    div { class: "evp-person",
+                        div { class: "evp-av", "{sel_initials}" }
+                        div { class: "evp-name",
+                            strong { "{sel_full_name}" }
+                            if !sel_dates.is_empty() {
+                                span { "{sel_dates}" }
+                            }
                         }
                     }
-                }
-                div { class: "evp-list",
-                    if sel_events.is_empty() {
-                        div { class: "evp-empty", "No events recorded" }
-                    } else {
-                        for evt in sel_events.iter() {
-                            {
-                                let (icon, ic_class, label) = event_ui(evt.event_type);
-                                let date_s = evt.date_value.clone().unwrap_or_default();
-                                let desc_s = evt.description.clone().unwrap_or_default();
-                                rsx! {
-                                    div { class: "ev-item",
-                                        div { class: ic_class, "{icon}" }
-                                        div { class: "ev-info",
-                                            div { class: "ev-type", "{label}" }
-                                            if !date_s.is_empty() {
-                                                div { class: "ev-date", "{date_s}" }
-                                            }
-                                            if !desc_s.is_empty() {
-                                                div { class: "ev-place", "{desc_s}" }
+                    div { class: "evp-list",
+                        if sel_events.is_empty() {
+                            div { class: "evp-empty", "No events recorded" }
+                        } else {
+                            for evt in sel_events.iter() {
+                                {
+                                    let (icon, ic_class, label) = event_ui(evt.event_type);
+                                    let date_s = evt.date_value.clone().unwrap_or_default();
+                                    let desc_s = evt.description.clone().unwrap_or_default();
+                                    rsx! {
+                                        div { class: "ev-item",
+                                            div { class: ic_class, "{icon}" }
+                                            div { class: "ev-info",
+                                                div { class: "ev-type", "{label}" }
+                                                if !date_s.is_empty() {
+                                                    div { class: "ev-date", "{date_s}" }
+                                                }
+                                                if !desc_s.is_empty() {
+                                                    div { class: "ev-place", "{desc_s}" }
+                                                }
                                             }
                                         }
                                     }

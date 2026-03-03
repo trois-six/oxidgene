@@ -169,8 +169,14 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let gedcom_routes = Router::new()
-        .route("/{tree_id}/import", post(gedcom::import_gedcom_handler))
-        .route("/{tree_id}/export", get(gedcom::export_gedcom_handler))
+        .route(
+            "/{tree_id}/gedcom/import",
+            post(gedcom::import_gedcom_handler),
+        )
+        .route(
+            "/{tree_id}/gedcom/export",
+            get(gedcom::export_gedcom_handler),
+        )
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)); // 10 MiB
 
     // Build GraphQL schema

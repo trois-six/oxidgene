@@ -42,12 +42,19 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // ── State ──
     let mut save_error = use_signal(|| None::<String>);
 
-    // Marriage event state.
+    // Marriage event state (primary/first union event).
     let mut marriage_date = use_signal(String::new);
     let mut marriage_place_id = use_signal(String::new);
     let mut marriage_desc = use_signal(String::new);
     let mut marriage_event_id = use_signal(|| None::<Uuid>);
     let mut marriage_loaded = use_signal(|| false);
+
+    // Add union event state.
+    let mut show_add_union_event = use_signal(|| false);
+    let mut new_union_type = use_signal(|| "Marriage".to_string());
+    let mut new_union_date = use_signal(String::new);
+    let mut new_union_place = use_signal(String::new);
+    let mut new_union_desc = use_signal(String::new);
 
     // Add child linking mode.
     let mut show_add_child = use_signal(|| false);
@@ -142,6 +149,32 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
         marriage_loaded.set(true);
     }
 
+    // All union events (for display).
+    let union_events: Vec<oxidgene_core::types::Event> = {
+        let data = events_resource.read();
+        match &*data {
+            Some(Ok(conn)) => conn
+                .edges
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e.node.event_type,
+                        EventType::Marriage
+                            | EventType::Divorce
+                            | EventType::Annulment
+                            | EventType::Engagement
+                            | EventType::MarriageBann
+                            | EventType::MarriageContract
+                            | EventType::MarriageLicense
+                            | EventType::MarriageSettlement
+                    )
+                })
+                .map(|e| e.node.clone())
+                .collect(),
+            _ => vec![],
+        }
+    };
+
     // Place options.
     let place_options: Vec<(String, String)> = {
         let data = places_resource.read();
@@ -222,6 +255,50 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             }
         });
     };
+
+    // Create new union event handler.
+    let api_create_union = api.clone();
+    let on_saved_create_union = props.on_saved;
+    let on_create_union_event = move |_| {
+        let api = api_create_union.clone();
+        let evt_type_str = new_union_type();
+        let date = new_union_date().trim().to_string();
+        let place_str = new_union_place();
+        let desc = new_union_desc().trim().to_string();
+        spawn(async move {
+            let event_type = crate::utils::parse_event_type(&evt_type_str);
+            let place_id = if place_str.is_empty() {
+                None
+            } else {
+                place_str.parse::<Uuid>().ok()
+            };
+            let body = CreateEventBody {
+                event_type,
+                date_value: opt_str(&date),
+                date_sort: None,
+                place_id,
+                person_id: None,
+                family_id: Some(fid),
+                description: opt_str(&desc),
+            };
+            match api.create_event(tid, &body).await {
+                Ok(_) => {
+                    show_add_union_event.set(false);
+                    new_union_date.set(String::new());
+                    new_union_place.set(String::new());
+                    new_union_desc.set(String::new());
+                    save_error.set(None);
+                    on_saved_create_union.call(());
+                    refresh += 1;
+                }
+                Err(e) => save_error.set(Some(format!("{e}"))),
+            }
+        });
+    };
+
+    // Delete union event handler.
+    let api_del_union = api.clone();
+    let on_saved_del_union = props.on_saved;
 
     // Remove spouse handler — cloned per iteration in rsx.
     let api_rm_spouse = api.clone();
@@ -441,42 +518,162 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         }
                     }
 
-                    // ── Marriage event section ──
+                    // ── Union events section ──
                     div { class: "union-form-section",
-                        h3 { style: "font-size: 0.95rem; margin-bottom: 12px;", "Marriage / Union Event" }
-                        div { class: "form-group",
-                            label { "Date" }
-                            input {
-                                r#type: "text",
-                                placeholder: "e.g. 15 Jun 1920",
-                                value: "{marriage_date}",
-                                oninput: move |e: Event<FormData>| marriage_date.set(e.value()),
+                        div { class: "section-header",
+                            h3 { style: "font-size: 0.95rem;", "Union Events" }
+                            button {
+                                class: "btn btn-primary btn-sm",
+                                onclick: move |_| show_add_union_event.toggle(),
+                                if show_add_union_event() { "Cancel" } else { "+ Add union event" }
                             }
                         }
-                        div { class: "form-group",
-                            label { "Place" }
-                            select {
-                                value: "{marriage_place_id}",
-                                oninput: move |e: Event<FormData>| marriage_place_id.set(e.value()),
-                                option { value: "", "-- No place --" }
-                                for (pid, pname) in place_options.iter() {
-                                    option { value: "{pid}", "{pname}" }
+
+                        // Existing union events
+                        if union_events.is_empty() && marriage_event_id().is_none() {
+                            div { class: "empty-state",
+                                p { "No union events. Add a marriage, divorce, or other union event." }
+                            }
+                        }
+
+                        // Show the primary marriage event form if it exists (backward compat)
+                        if marriage_event_id().is_some() || union_events.is_empty() {
+                            div { style: "margin-bottom: 12px; padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border);",
+                                div { class: "form-group",
+                                    label { "Date" }
+                                    input {
+                                        r#type: "text",
+                                        placeholder: "e.g. 15 Jun 1920",
+                                        value: "{marriage_date}",
+                                        oninput: move |e: Event<FormData>| marriage_date.set(e.value()),
+                                    }
+                                }
+                                div { class: "form-group",
+                                    label { "Place" }
+                                    select {
+                                        value: "{marriage_place_id}",
+                                        oninput: move |e: Event<FormData>| marriage_place_id.set(e.value()),
+                                        option { value: "", "-- No place --" }
+                                        for (pid, pname) in place_options.iter() {
+                                            option { value: "{pid}", "{pname}" }
+                                        }
+                                    }
+                                }
+                                div { class: "form-group",
+                                    label { "Description" }
+                                    input {
+                                        r#type: "text",
+                                        placeholder: "Optional description",
+                                        value: "{marriage_desc}",
+                                        oninput: move |e: Event<FormData>| marriage_desc.set(e.value()),
+                                    }
+                                }
+                                button {
+                                    class: "btn btn-primary",
+                                    onclick: on_save_marriage,
+                                    if marriage_event_id().is_some() { "Update Marriage" } else { "Save Marriage" }
                                 }
                             }
                         }
-                        div { class: "form-group",
-                            label { "Description" }
-                            input {
-                                r#type: "text",
-                                placeholder: "Optional description",
-                                value: "{marriage_desc}",
-                                oninput: move |e: Event<FormData>| marriage_desc.set(e.value()),
+
+                        // Other union events (not the primary one)
+                        for evt in union_events.iter() {
+                            if Some(evt.id) != marriage_event_id() {
+                                {
+                                    let eid = evt.id;
+                                    let et = format!("{:?}", evt.event_type);
+                                    let date = evt.date_value.clone().unwrap_or_default();
+                                    let desc = evt.description.clone().unwrap_or_default();
+                                    rsx! {
+                                        div { class: "person-form-item",
+                                            div { class: "person-form-item-info",
+                                                span { class: "badge", "{et}" }
+                                                if !date.is_empty() { span { "{date}" } }
+                                                if !desc.is_empty() { span { class: "text-muted", "— {desc}" } }
+                                            }
+                                            div { class: "person-form-item-actions",
+                                                button {
+                                                    class: "btn btn-danger btn-sm",
+                                                    onclick: {
+                                                        let api = api_del_union.clone();
+                                                        move |_| {
+                                                            let api = api.clone();
+                                                            spawn(async move {
+                                                                match api.delete_event(tid, eid).await {
+                                                                    Ok(_) => {
+                                                                        on_saved_del_union.call(());
+                                                                        refresh += 1;
+                                                                    }
+                                                                    Err(e) => save_error.set(Some(format!("{e}"))),
+                                                                }
+                                                            });
+                                                        }
+                                                    },
+                                                    "Delete"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
-                        button {
-                            class: "btn btn-primary",
-                            onclick: on_save_marriage,
-                            if marriage_event_id().is_some() { "Update Marriage" } else { "Save Marriage" }
+
+                        // Add union event form
+                        if show_add_union_event() {
+                            div { style: "padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); margin-top: 8px;",
+                                div { class: "form-row",
+                                    div { class: "form-group",
+                                        label { "Event Type" }
+                                        select {
+                                            value: "{new_union_type}",
+                                            oninput: move |e: Event<FormData>| new_union_type.set(e.value()),
+                                            option { value: "Marriage", "Marriage" }
+                                            option { value: "Divorce", "Divorce" }
+                                            option { value: "Annulment", "Annulment" }
+                                            option { value: "Engagement", "Engagement" }
+                                            option { value: "MarriageBann", "Marriage Bann" }
+                                            option { value: "MarriageContract", "Marriage Contract" }
+                                            option { value: "MarriageLicense", "Marriage License" }
+                                            option { value: "MarriageSettlement", "Marriage Settlement" }
+                                        }
+                                    }
+                                    div { class: "form-group",
+                                        label { "Date" }
+                                        input {
+                                            r#type: "text",
+                                            placeholder: "e.g. 15 Jun 1920",
+                                            value: "{new_union_date}",
+                                            oninput: move |e: Event<FormData>| new_union_date.set(e.value()),
+                                        }
+                                    }
+                                }
+                                div { class: "form-row",
+                                    div { class: "form-group",
+                                        label { "Place" }
+                                        select {
+                                            value: "{new_union_place}",
+                                            oninput: move |e: Event<FormData>| new_union_place.set(e.value()),
+                                            option { value: "", "-- No place --" }
+                                            for (pid, pname) in place_options.iter() {
+                                                option { value: "{pid}", "{pname}" }
+                                            }
+                                        }
+                                    }
+                                    div { class: "form-group",
+                                        label { "Description" }
+                                        input {
+                                            r#type: "text",
+                                            value: "{new_union_desc}",
+                                            oninput: move |e: Event<FormData>| new_union_desc.set(e.value()),
+                                        }
+                                    }
+                                }
+                                button {
+                                    class: "btn btn-primary btn-sm",
+                                    onclick: on_create_union_event,
+                                    "Create Event"
+                                }
+                            }
                         }
                     }
 
