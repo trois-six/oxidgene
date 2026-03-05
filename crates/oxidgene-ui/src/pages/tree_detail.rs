@@ -17,6 +17,7 @@ use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
 use crate::components::person_form::PersonForm;
 use crate::components::search_person::SearchPerson;
 use crate::components::union_form::UnionForm;
+use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::resolve_name;
 
@@ -38,6 +39,7 @@ enum LinkingMode {
 /// Page rendered at `/trees/:tree_id`.
 #[component]
 pub fn TreeDetail(tree_id: String) -> Element {
+    let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
     let mut refresh = use_signal(|| 0u32);
@@ -96,7 +98,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
             let last_val = last_val.clone();
             let first_val = first_val.clone();
             spawn(async move {
-                gloo_timers::future::TimeoutFuture::new(200).await;
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 debounced_last.set(last_val);
                 debounced_first.set(first_val);
             });
@@ -137,7 +139,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
     });
 
-    // ── Fetch all person names ──
+    // ── Fetch all person names (parallel) ──
     let api_names = api.clone();
     let names_resource = use_resource(move || {
         let api = api_names.clone();
@@ -151,11 +153,19 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 });
             };
             let persons = api.list_persons(tid, Some(500), None).await?;
-            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
+            // Fetch names for all persons in parallel.
+            let mut set = tokio::task::JoinSet::new();
             for edge in &persons.edges {
-                if let Ok(names) = api.list_person_names(tid, edge.node.id).await {
-                    name_map.insert(edge.node.id, names);
-                }
+                let api2 = api.clone();
+                let pid = edge.node.id;
+                set.spawn(async move {
+                    let names = api2.list_person_names(tid, pid).await.unwrap_or_default();
+                    (pid, names)
+                });
+            }
+            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
+            while let Some(Ok((pid, names))) = set.join_next().await {
+                name_map.insert(pid, names);
             }
             Ok(name_map)
         }
@@ -219,7 +229,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
         }
     });
 
-    // ── Fetch all family spouses and children ──
+    // ── Fetch all family spouses and children (parallel) ──
     let api_members = api.clone();
     let members_resource = use_resource(move || {
         let api = api_members.clone();
@@ -233,16 +243,25 @@ pub fn TreeDetail(tree_id: String) -> Element {
                 });
             };
             let families = api.list_families(tid, Some(500), None).await?;
+            // Fetch spouses and children for all families in parallel.
+            let mut set = tokio::task::JoinSet::new();
+            for edge in &families.edges {
+                let api2 = api.clone();
+                let fid = edge.node.id;
+                set.spawn(async move {
+                    let spouses = api2.list_family_spouses(tid, fid).await.unwrap_or_default();
+                    let children = api2
+                        .list_family_children(tid, fid)
+                        .await
+                        .unwrap_or_default();
+                    (spouses, children)
+                });
+            }
             let mut all_spouses = Vec::new();
             let mut all_children = Vec::new();
-            for edge in &families.edges {
-                let fid = edge.node.id;
-                if let Ok(spouses) = api.list_family_spouses(tid, fid).await {
-                    all_spouses.extend(spouses);
-                }
-                if let Ok(children) = api.list_family_children(tid, fid).await {
-                    all_children.extend(children);
-                }
+            while let Some(Ok((spouses, children))) = set.join_next().await {
+                all_spouses.extend(spouses);
+                all_children.extend(children);
             }
             Ok((all_spouses, all_children))
         }
@@ -972,11 +991,11 @@ pub fn TreeDetail(tree_id: String) -> Element {
 
     // Linking mode label for the panel header.
     let linking_label: Option<String> = linking_mode().map(|mode| match &mode {
-        LinkingMode::Spouse(_) => "Add Spouse".to_string(),
-        LinkingMode::Parents(_) => "Add Parent".to_string(),
-        LinkingMode::Child(_) => "Add Child".to_string(),
-        LinkingMode::Sibling(_) => "Add Sibling".to_string(),
-        LinkingMode::Merge(_) => "Merge with\u{2026}".to_string(),
+        LinkingMode::Spouse(_) => i18n.t("linking.add_spouse"),
+        LinkingMode::Parents(_) => i18n.t("linking.add_parent"),
+        LinkingMode::Child(_) => i18n.t("linking.add_child"),
+        LinkingMode::Sibling(_) => i18n.t("linking.add_sibling"),
+        LinkingMode::Merge(_) => i18n.t("linking.merge"),
     });
 
     // ── Render ──
@@ -1014,7 +1033,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
             rsx! {
                 div { class: "td-topbar",
                     nav { class: "td-bc",
-                        Link { to: Route::Home {}, "Trees" }
+                        Link { to: Route::Home {}, {i18n.t("tree.breadcrumb_trees")} }
                         span { class: "td-bc-sep", "/" }
                         span { class: "td-bc-current", "{tree_name_str}" }
                     }
@@ -1023,7 +1042,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                         input {
                             r#type: "text",
                             class: "td-search-input",
-                            placeholder: "Last name",
+                            placeholder: "{i18n.t(\"tree.search_last\")}",
                             value: "{search_last}",
                             oninput: move |e: Event<FormData>| {
                                 search_last.set(e.value());
@@ -1034,7 +1053,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                         input {
                             r#type: "text",
                             class: "td-search-input",
-                            placeholder: "First name",
+                            placeholder: "{i18n.t(\"tree.search_first\")}",
                             value: "{search_first}",
                             oninput: move |e: Event<FormData>| {
                                 search_first.set(e.value());
@@ -1045,7 +1064,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                         if has_search && search_focused() {
                             div { class: "td-search-dropdown",
                                 if search_results.is_empty() {
-                                    div { class: "td-search-no-results", "No results" }
+                                    div { class: "td-search-no-results", {i18n.t("common.no_results")} }
                                 } else {
                                     for (pid, name) in search_results.iter() {
                                         {
@@ -1109,7 +1128,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                                     edit_error.set(None);
                                     editing.set(true);
                                 },
-                                "Edit"
+                                {i18n.t("common.edit")}
                             }
                             button {
                                 class: "td-btn td-btn-danger",
@@ -1117,19 +1136,19 @@ pub fn TreeDetail(tree_id: String) -> Element {
                                     confirm_delete.set(true);
                                     delete_error.set(None);
                                 },
-                                "Delete"
+                                {i18n.t("common.delete")}
                             }
                             button {
                                 class: "td-btn",
                                 disabled: importing(),
                                 onclick: on_import_gedcom,
-                                if importing() { "Importing…" } else { "Import" }
+                                if importing() { {i18n.t("common.importing")} } else { {i18n.t("common.import")} }
                             }
                             button {
                                 class: "td-btn",
                                 disabled: exporting(),
                                 onclick: on_export_gedcom,
-                                if exporting() { "Exporting…" } else { "Export" }
+                                if exporting() { {i18n.t("common.exporting")} } else { {i18n.t("common.export")} }
                             }
                         }
                     }
@@ -1140,9 +1159,9 @@ pub fn TreeDetail(tree_id: String) -> Element {
         // Delete tree confirmation
         if confirm_delete() {
             ConfirmDialog {
-                title: "Delete Tree",
-                message: "Are you sure you want to delete this tree and all its data? This action cannot be undone.",
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_tree.title"),
+                message: i18n.t("confirm.delete_tree.message"),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_error(),
                 on_confirm: move |_| on_confirm_delete(()),
@@ -1156,9 +1175,9 @@ pub fn TreeDetail(tree_id: String) -> Element {
         // Delete person confirmation
         if confirm_delete_person_id().is_some() {
             ConfirmDialog {
-                title: "Delete Person",
-                message: "Are you sure you want to delete this person? This action cannot be undone.",
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_person.title"),
+                message: i18n.t("confirm.delete_person.message"),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_person_error(),
                 on_confirm: move |_| on_confirm_delete_person(()),
@@ -1213,7 +1232,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     div { class: "error-msg", style: "width: 100%; margin-bottom: 6px;", "{err}" }
                 }
                 div { class: "form-group", style: "margin: 0; flex: 1; min-width: 160px;",
-                    label { "Name" }
+                    label { {i18n.t("tree.name_label")} }
                     input {
                         r#type: "text",
                         value: "{edit_name}",
@@ -1221,7 +1240,7 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     }
                 }
                 div { class: "form-group", style: "margin: 0; flex: 2; min-width: 200px;",
-                    label { "Description" }
+                    label { {i18n.t("tree.description_label")} }
                     input {
                         r#type: "text",
                         value: "{edit_desc}",
@@ -1229,11 +1248,11 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     }
                 }
                 div { style: "display: flex; gap: 6px; flex-shrink: 0; align-self: flex-end;",
-                    button { class: "td-btn td-btn-primary", onclick: on_save_edit, "Save" }
+                    button { class: "td-btn td-btn-primary", onclick: on_save_edit, {i18n.t("common.save")} }
                     button {
                         class: "td-btn",
                         onclick: move |_| { editing.set(false); edit_error.set(None); },
-                        "Cancel"
+                        {i18n.t("common.cancel")}
                     }
                 }
             }
@@ -1318,13 +1337,13 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     if all_loaded {
                         rsx! {
                             div { class: "empty-state",
-                                h3 { "No persons yet" }
-                                p { "Import a GEDCOM file or use the person detail page to add people." }
+                                h3 { {i18n.t("tree.no_persons")} }
+                                p { {i18n.t("tree.no_persons_hint")} }
                             }
                         }
                     } else {
                         rsx! {
-                            div { class: "loading", "Loading pedigree data..." }
+                            div { class: "loading", {i18n.t("tree.loading_pedigree")} }
                         }
                     }
                 }
@@ -1339,13 +1358,13 @@ pub fn TreeDetail(tree_id: String) -> Element {
                     button {
                         class: "btn btn-outline btn-sm",
                         onclick: move |_| linking_mode.set(None),
-                        "Cancel"
+                        {i18n.t("common.cancel")}
                     }
                 }
 
                 div { class: "linking-panel",
                     p { class: "linking-panel-title",
-                        "Search for an existing person to link, or create a new one:"
+                        {i18n.t("linking.search_existing")}
                     }
 
                     // Determine which handler to use based on mode.
@@ -1355,66 +1374,66 @@ pub fn TreeDetail(tree_id: String) -> Element {
                             Some(LinkingMode::Spouse(_)) => rsx! {
                                 SearchPerson {
                                     tree_id: tid,
-                                    placeholder: "Search for spouse...",
+                                    placeholder: i18n.t("linking.search_spouse"),
                                     on_select: on_link_spouse,
                                     on_cancel: move |_| linking_mode.set(None),
                                 }
-                                div { class: "linking-panel-or", "— or —" }
+                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
                                 button {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_spouse,
-                                    "Create New Person as Spouse"
+                                    {i18n.t("linking.create_spouse")}
                                 }
                             },
                             Some(LinkingMode::Parents(_)) => rsx! {
                                 SearchPerson {
                                     tree_id: tid,
-                                    placeholder: "Search for parent...",
+                                    placeholder: i18n.t("linking.search_parent"),
                                     on_select: on_link_parent,
                                     on_cancel: move |_| linking_mode.set(None),
                                 }
-                                div { class: "linking-panel-or", "— or —" }
+                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
                                 button {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_parent,
-                                    "Create New Person as Parent"
+                                    {i18n.t("linking.create_parent")}
                                 }
                             },
                             Some(LinkingMode::Child(_)) => rsx! {
                                 SearchPerson {
                                     tree_id: tid,
-                                    placeholder: "Search for child...",
+                                    placeholder: i18n.t("linking.search_child"),
                                     on_select: on_link_child,
                                     on_cancel: move |_| linking_mode.set(None),
                                 }
-                                div { class: "linking-panel-or", "— or —" }
+                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
                                 button {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_child,
-                                    "Create New Person as Child"
+                                    {i18n.t("linking.create_child")}
                                 }
                             },
                             Some(LinkingMode::Sibling(_)) => rsx! {
                                 SearchPerson {
                                     tree_id: tid,
-                                    placeholder: "Search for sibling...",
+                                    placeholder: i18n.t("linking.search_sibling"),
                                     on_select: on_link_sibling,
                                     on_cancel: move |_| linking_mode.set(None),
                                 }
-                                div { class: "linking-panel-or", "— or —" }
+                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
                                 button {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_sibling,
-                                    "Create New Person as Sibling"
+                                    {i18n.t("linking.create_sibling")}
                                 }
                             },
                             Some(LinkingMode::Merge(_)) => rsx! {
                                 p { style: "font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;",
-                                    "Select the person to merge with. The selected person's events, sources, and notes will be reviewed for merging."
+                                    {i18n.t("linking.merge_hint")}
                                 }
                                 SearchPerson {
                                     tree_id: tid,
-                                    placeholder: "Search for person to merge...",
+                                    placeholder: i18n.t("linking.search_merge"),
                                     on_select: on_link_merge,
                                     on_cancel: move |_| linking_mode.set(None),
                                 }

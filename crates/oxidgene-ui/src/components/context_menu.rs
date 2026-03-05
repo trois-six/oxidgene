@@ -6,6 +6,8 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 
+use crate::i18n::use_i18n;
+
 /// Actions that can be triggered from the context menu.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PersonAction {
@@ -37,6 +39,7 @@ pub struct ContextMenuProps {
 
 #[component]
 pub fn ContextMenu(props: ContextMenuProps) -> Element {
+    let i18n = use_i18n();
     let style = format!("left: {}px; top: {}px;", props.x, props.y);
     let mut show_union_sub = use_signal(|| false);
 
@@ -57,7 +60,7 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                 button {
                     class: "context-menu-item context-menu-back",
                     onclick: move |_| show_union_sub.set(false),
-                    "\u{2190} Back"
+                    "\u{2190} {i18n.t(\"common.back\")}"
                 }
                 hr { class: "context-menu-divider" }
                 for (fid, partner, year) in props.unions.iter() {
@@ -83,48 +86,48 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                 button {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::Edit),
-                    "Edit individual"
+                    {i18n.t("context.edit_individual")}
                 }
                 button {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::Merge),
-                    "Merge with\u{2026}"
+                    {i18n.t("context.merge")}
                 }
                 if props.has_union {
                     if union_count > 1 {
                         button {
                             class: "context-menu-item",
                             onclick: move |_| show_union_sub.set(true),
-                            "Edit union \u{25B8}"
+                            {i18n.t("context.edit_union_submenu")}
                         }
                     } else {
                         button {
                             class: "context-menu-item",
                             onclick: move |_| props.on_action.call(PersonAction::EditUnion),
-                            "Edit union"
+                            {i18n.t("context.edit_union")}
                         }
                     }
                 }
                 button {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::AddSpouse),
-                    "Add spouse"
+                    {i18n.t("context.add_spouse")}
                 }
                 button {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::AddChild),
-                    "Add child"
+                    {i18n.t("context.add_child")}
                 }
                 button {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::AddSibling),
-                    "Add sibling"
+                    {i18n.t("context.add_sibling")}
                 }
                 hr { class: "context-menu-divider" }
                 button {
                     class: "context-menu-item context-menu-danger",
                     onclick: move |_| props.on_action.call(PersonAction::Delete),
-                    "Delete"
+                    {i18n.t("common.delete")}
                 }
             }
         }

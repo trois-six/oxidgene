@@ -19,6 +19,8 @@ use oxidgene_core::types::{
 };
 use oxidgene_core::{EventType, Sex};
 
+use crate::i18n::use_i18n;
+
 // ── Layout constants ─────────────────────────────────────────────────────
 
 const CARD_W: f64 = 180.0;
@@ -60,33 +62,37 @@ fn make_initials(given: &str, surname: &str) -> String {
     }
 }
 
-/// Returns `(icon, css_class, label)` for an event type.
+/// Returns `(icon, css_class, i18n_key)` for an event type.
+///
+/// The third element is an i18n key that must be resolved via `i18n.t()`.
 fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
     match et {
-        EventType::Birth => ("\u{2726}", "ev-ic ev-ic-birth", "Birth"),
-        EventType::Baptism => ("\u{271F}", "ev-ic ev-ic-birth", "Baptism"),
-        EventType::Death => ("\u{271D}", "ev-ic ev-ic-death", "Death"),
-        EventType::Burial => ("\u{26B0}", "ev-ic ev-ic-death", "Burial"),
-        EventType::Cremation => ("\u{271D}", "ev-ic ev-ic-death", "Cremation"),
-        EventType::Marriage => ("\u{1F48D}", "ev-ic ev-ic-marry", "Marriage"),
-        EventType::Engagement => ("\u{1F48D}", "ev-ic ev-ic-marry", "Engagement"),
-        EventType::MarriageBann => ("\u{1F48D}", "ev-ic ev-ic-marry", "Banns"),
-        EventType::MarriageContract => ("\u{1F48D}", "ev-ic ev-ic-marry", "Contract"),
-        EventType::MarriageLicense => ("\u{1F48D}", "ev-ic ev-ic-marry", "License"),
-        EventType::MarriageSettlement => ("\u{1F48D}", "ev-ic ev-ic-marry", "Settlement"),
-        EventType::Divorce => ("\u{2696}", "ev-ic ev-ic-other", "Divorce"),
-        EventType::Annulment => ("\u{2696}", "ev-ic ev-ic-other", "Annulment"),
-        EventType::Graduation => ("\u{25C6}", "ev-ic ev-ic-other", "Graduation"),
-        EventType::Immigration => ("\u{25C6}", "ev-ic ev-ic-other", "Immigration"),
-        EventType::Emigration => ("\u{25C6}", "ev-ic ev-ic-other", "Emigration"),
-        EventType::Naturalization => ("\u{25C6}", "ev-ic ev-ic-other", "Naturalization"),
-        EventType::Census => ("\u{1F4DC}", "ev-ic ev-ic-other", "Census"),
-        EventType::Occupation => ("\u{2692}", "ev-ic ev-ic-other", "Occupation"),
-        EventType::Residence => ("\u{1F3E1}", "ev-ic ev-ic-other", "Residence"),
-        EventType::Retirement => ("\u{25C6}", "ev-ic ev-ic-other", "Retirement"),
-        EventType::Will => ("\u{1F4DC}", "ev-ic ev-ic-other", "Will"),
-        EventType::Probate => ("\u{1F4DC}", "ev-ic ev-ic-other", "Probate"),
-        EventType::Other => ("\u{25C6}", "ev-ic ev-ic-other", "Event"),
+        EventType::Birth => ("\u{2726}", "ev-ic ev-ic-birth", "event.type.birth"),
+        EventType::Baptism => ("\u{271F}", "ev-ic ev-ic-birth", "event.type.baptism"),
+        EventType::Death => ("\u{271D}", "ev-ic ev-ic-death", "event.type.death"),
+        EventType::Burial => ("\u{26B0}", "ev-ic ev-ic-death", "event.type.burial"),
+        EventType::Cremation => ("\u{271D}", "ev-ic ev-ic-death", "event.type.cremation"),
+        EventType::Marriage => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.type.marriage"),
+        EventType::Engagement => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.type.engagement"),
+        EventType::MarriageBann => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.banns"),
+        EventType::MarriageContract => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.contract"),
+        EventType::MarriageLicense => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.license"),
+        EventType::MarriageSettlement => {
+            ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.settlement")
+        }
+        EventType::Divorce => ("\u{2696}", "ev-ic ev-ic-other", "event.type.divorce"),
+        EventType::Annulment => ("\u{2696}", "ev-ic ev-ic-other", "event.type.annulment"),
+        EventType::Graduation => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.graduation"),
+        EventType::Immigration => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.immigration"),
+        EventType::Emigration => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.emigration"),
+        EventType::Naturalization => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.naturalization"),
+        EventType::Census => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.census"),
+        EventType::Occupation => ("\u{2692}", "ev-ic ev-ic-other", "event.type.occupation"),
+        EventType::Residence => ("\u{1F3E1}", "ev-ic ev-ic-other", "event.type.residence"),
+        EventType::Retirement => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.retirement"),
+        EventType::Will => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.will"),
+        EventType::Probate => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.probate"),
+        EventType::Other => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
     }
 }
 
@@ -814,6 +820,7 @@ pub struct PedigreeChartProps {
 
 #[component]
 pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
+    let i18n = use_i18n();
     // ── Depth controls (max 10) ──
     let mut ancestor_levels = use_signal(|| 4usize);
     let mut descendant_levels = use_signal(|| 3usize);
@@ -865,7 +872,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         selected_person_id.set(props.root_person_id);
         // Re-enable animation after a frame.
         spawn(async move {
-            gloo_timers::future::TimeoutFuture::new(50).await;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             animating.set(true);
         });
     }
@@ -951,7 +958,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 // Tree view (active)
                 button {
                     class: "isb-btn isb-btn-active",
-                    title: "Tree view",
+                    title: "{i18n.t(\"pedigree.tree_view\")}",
                     "\u{1F333}" // 🌳
                 }
 
@@ -962,7 +969,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     rsx! {
                         button {
                             class: "isb-btn",
-                            title: "Person profile",
+                            title: "{i18n.t(\"pedigree.profile_view\")}",
                             onclick: move |_| on_profile.call(sel),
                             "\u{1F464}" // 👤
                         }
@@ -985,13 +992,13 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     onmouseleave: move |_| {
                         // Close after 150ms delay.
                         spawn(async move {
-                            gloo_timers::future::TimeoutFuture::new(150).await;
+                            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                             depth_hover.set(false);
                         });
                     },
                     button {
                         class: "isb-btn",
-                        title: "Generation depth",
+                        title: "{i18n.t(\"pedigree.depth\")}",
                         "\u{2261}" // ≡
                     }
                     if depth_hover() {
@@ -1032,20 +1039,20 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
                 button {
                     class: "isb-btn",
-                    title: "Zoom in",
+                    title: "{i18n.t(\"pedigree.zoom_in\")}",
                     onclick: move |_| scale.set((scale() * 1.2).clamp(0.3, 2.0)),
                     "\u{2295}" // ⊕
                 }
                 button {
                     class: "isb-btn",
-                    title: "Zoom out",
+                    title: "{i18n.t(\"pedigree.zoom_out\")}",
                     onclick: move |_| scale.set((scale() / 1.2).clamp(0.3, 2.0)),
                     "\u{2296}" // ⊖
                 }
                 span { class: "isb-zoom-val", "{zoom_pct}%" }
                 button {
                     class: "isb-btn",
-                    title: "Fit to screen",
+                    title: "{i18n.t(\"pedigree.fit_screen\")}",
                     onclick: move |_| {
                         // Estimate viewport as 800x600 (reasonable default).
                         // A proper implementation would measure the DOM element.
@@ -1067,7 +1074,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     rsx! {
                         button {
                             class: "isb-btn",
-                            title: "Add a person",
+                            title: "{i18n.t(\"pedigree.add_person\")}",
                             onclick: move |_| on_add.call(()),
                             "+\u{1F464}"
                         }
@@ -1199,7 +1206,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                                 span { class: "pc-first", "{given_s}" }
                                                             }
                                                             if !has_name {
-                                                                span { class: "pc-first", "Unknown" }
+                                                                span { class: "pc-first", {i18n.t("common.unknown")} }
                                                             }
                                                         }
                                                         if !birth_s.is_empty() || !death_s.is_empty() {
@@ -1218,7 +1225,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                 if is_root {
                                                     button {
                                                         class: "pedigree-edit-fab",
-                                                        title: "Edit / actions",
+                                                        title: "{i18n.t(\"pedigree.edit_actions\")}",
                                                         onclick: move |evt: Event<MouseData>| {
                                                             evt.stop_propagation();
                                                             let coords = evt.client_coordinates();
@@ -1271,7 +1278,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 class: if panel_collapsed() { "ev-panel ev-panel-collapsed" } else { "ev-panel" },
                 button {
                     class: "evp-toggle",
-                    title: if panel_collapsed() { "Show events" } else { "Hide events" },
+                    title: if panel_collapsed() { i18n.t("pedigree.events") } else { i18n.t("pedigree.hide_events") },
                     onclick: move |_| {
                         let new_val = !panel_collapsed();
                         panel_collapsed.set(new_val);
@@ -1284,7 +1291,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     if panel_collapsed() { "\u{203A}" } else { "\u{2039}" }
                 }
                 if !panel_collapsed() {
-                    div { class: "evp-hd", "Events" }
+                    div { class: "evp-hd", {i18n.t("pedigree.events")} }
                     div { class: "evp-person",
                         div { class: "evp-av", "{sel_initials}" }
                         div { class: "evp-name",
@@ -1296,7 +1303,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     }
                     div { class: "evp-list",
                         if sel_events.is_empty() {
-                            div { class: "evp-empty", "No events recorded" }
+                            div { class: "evp-empty", {i18n.t("person_form.no_other_events")} }
                         } else {
                             for (gi, (year, events)) in event_groups.iter().enumerate() {
                                 {
@@ -1308,7 +1315,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             div { class: "ev-year-header", "{year}" }
                                             for (ei, evt) in events.iter().enumerate() {
                                                 {
-                                                    let (icon, ic_class, label) = event_ui(evt.event_type);
+                                                    let (icon, ic_class, label_key) = event_ui(evt.event_type);
+                                                    let label = i18n.t(label_key);
                                                     let date_s = evt.date_value.clone().unwrap_or_default();
                                                     let place_s = evt.place_id
                                                         .and_then(|pid| props.data.place_name(pid).map(String::from))

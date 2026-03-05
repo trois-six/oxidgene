@@ -5,6 +5,7 @@
 
 use dioxus::prelude::*;
 
+use crate::i18n::{self, Language, use_i18n};
 use crate::router::Route;
 
 /// Shared layout rendered around every page.
@@ -12,6 +13,8 @@ use crate::router::Route;
 /// Contains a navigation bar and an [`Outlet`] for the matched child route.
 #[component]
 pub fn Layout() -> Element {
+    let lang_signal = i18n::use_init_language();
+    let i18n = use_i18n();
     let mut is_dark = use_signal(|| false);
 
     // On mount: read persisted theme or respect system preference
@@ -58,11 +61,21 @@ pub fn Layout() -> Element {
             }
             div { class: "nav-right",
                 div { class: "nav-links",
-                    Link { to: Route::TreeList {}, class: "nav-link", "Trees" }
+                    Link { to: Route::TreeList {}, class: "nav-link", {i18n.t("nav.trees")} }
+                }
+                select {
+                    class: "nav-lang",
+                    value: "{lang_signal().code()}",
+                    onchange: move |evt: Event<FormData>| {
+                        let new_lang = Language::from_code(&evt.value());
+                        i18n::set_language(lang_signal, new_lang);
+                    },
+                    option { value: "en", "EN" }
+                    option { value: "fr", "FR" }
                 }
                 button {
                     class: "nav-theme-toggle",
-                    title: if is_dark() { "Switch to light mode" } else { "Switch to dark mode" },
+                    title: if is_dark() { i18n.t("nav.theme_light") } else { i18n.t("nav.theme_dark") },
                     onclick: toggle_theme,
                     if is_dark() { "\u{2600}\u{FE0F}" } else { "\u{1F319}" }
                 }
@@ -242,6 +255,23 @@ pub const LAYOUT_STYLES: &str = r#"
         background: rgba(128,128,128,0.1);
         color: var(--text-primary);
     }
+
+    .nav-lang {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 0.8rem;
+        font-family: var(--font-sans);
+        padding: 4px 6px;
+        line-height: 1;
+        transition: border-color 0.15s, background 0.15s;
+        appearance: none;
+        -webkit-appearance: none;
+    }
+    .nav-lang:hover { border-color: var(--orange); background: var(--bg-card-hover); }
+    .nav-lang option { background: var(--bg-card); color: var(--text-primary); }
 
     .nav-theme-toggle {
         background: none;
