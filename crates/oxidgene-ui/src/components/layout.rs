@@ -57,6 +57,11 @@ pub fn Layout() -> Element {
 
         nav { class: "app-nav",
             Link { to: Route::Home {}, class: "nav-logo",
+                img {
+                    src: asset!("/assets/OxidGene.png"),
+                    alt: "OxidGene",
+                    class: "nav-logo-img",
+                }
                 span { class: "nav-logo-text", "OxidGene" }
             }
             div { class: "nav-right",
@@ -218,6 +223,12 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         text-decoration: none;
+        gap: 8px;
+    }
+
+    .nav-logo-img {
+        height: 36px;
+        width: auto;
     }
 
     .nav-logo-text {
