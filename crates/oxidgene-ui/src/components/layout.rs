@@ -8,6 +8,9 @@ use dioxus::prelude::*;
 use crate::i18n::{self, Language, use_i18n};
 use crate::router::Route;
 
+/// Logo PNG embedded at compile time (64×64 resize).
+const LOGO_PNG_B64: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/logo_64.b64"));
+
 /// Shared layout rendered around every page.
 ///
 /// Contains a navigation bar and an [`Outlet`] for the matched child route.
@@ -58,7 +61,7 @@ pub fn Layout() -> Element {
         nav { class: "app-nav",
             Link { to: Route::Home {}, class: "nav-logo",
                 img {
-                    src: asset!("/assets/OxidGene.png"),
+                    src: LOGO_PNG_B64,
                     alt: "OxidGene",
                     class: "nav-logo-img",
                 }
