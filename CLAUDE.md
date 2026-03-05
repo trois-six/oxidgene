@@ -2,7 +2,7 @@
 
 ## Project
 
-Multiplatform genealogy app, 100% Rust. Dioxus 0.7 frontend (WASM + desktop), Axum 0.8 backend (REST `/api/v1` + GraphQL `/graphql`), SeaORM (PostgreSQL web / SQLite desktop), GEDCOM via `ged_io 0.12`.
+Multiplatform genealogy app, 100% Rust. Dioxus frontend (WASM + desktop), Axum backend (REST `/api/v1` + GraphQL `/graphql`), SeaORM (PostgreSQL web / SQLite desktop), GEDCOM via ged_io.
 
 ## Specs
 
@@ -49,7 +49,7 @@ Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` 
 
 ## Frontend (oxidgene-ui)
 
-Dioxus 0.7. Components in `src/components/`, pages in `src/pages/`.
+Dioxus. Components in `src/components/`, pages in `src/pages/`.
 
 **CSS**: all styles embedded as `const &str` in `components/layout.rs` (`LAYOUT_STYLES`). Uses CSS vars (see `ui-home.md` §12 for design tokens). Dark theme by default. Fonts: Cinzel (headings) + Lato (body) via Google Fonts `@import`.
 
