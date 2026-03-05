@@ -7,11 +7,13 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::i18n::use_i18n;
 use crate::router::Route;
 
 /// Settings page for a tree.
 #[component]
 pub fn Settings(tree_id: String) -> Element {
+    let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let refresh = use_signal(|| 0u32);
     let mut active_section = use_signal(|| "tree-roots".to_string());
@@ -34,7 +36,7 @@ pub fn Settings(tree_id: String) -> Element {
 
     let tree_name = match &*tree_resource.read() {
         Some(Some(Ok(tree))) => tree.name.clone(),
-        _ => "Loading...".to_string(),
+        _ => i18n.t("common.loading"),
     };
 
     // Export handler
@@ -84,66 +86,66 @@ pub fn Settings(tree_id: String) -> Element {
         div { class: "page-content",
             // Breadcrumb
             div { class: "settings-breadcrumb",
-                Link { to: Route::TreeList {}, "Trees" }
+                Link { to: Route::TreeList {}, {i18n.t("tree.breadcrumb_trees")} }
                 span { class: "pd-breadcrumb-sep", " / " }
                 Link {
                     to: Route::TreeDetail { tree_id: tree_id.clone() },
                     "{tree_name}"
                 }
                 span { class: "pd-breadcrumb-sep", " / " }
-                span { class: "pd-breadcrumb-current", "Settings" }
+                span { class: "pd-breadcrumb-current", {i18n.t("settings.breadcrumb")} }
             }
 
             div { class: "settings-layout",
                 // Left navigation
                 nav { class: "settings-nav",
                     div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", "Settings" }
+                        div { class: "settings-nav-group-label", {i18n.t("settings.breadcrumb")} }
                         button {
                             class: if sec == "tree-roots" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("tree-roots".to_string()),
-                            "Tree & Roots"
+                            {i18n.t("settings.tree_roots")}
                         }
                         button {
                             class: if sec == "privacy" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("privacy".to_string()),
-                            "Privacy"
+                            {i18n.t("settings.privacy")}
                         }
                         button {
                             class: if sec == "date-display" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("date-display".to_string()),
-                            "Date Display"
+                            {i18n.t("settings.date_display")}
                         }
                         button {
                             class: if sec == "entry-options" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("entry-options".to_string()),
-                            "Entry Options"
+                            {i18n.t("settings.entry_options")}
                         }
                     }
                     div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", "Tools" }
+                        div { class: "settings-nav-group-label", {i18n.t("settings.tools")} }
                         button {
                             class: if sec == "history" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("history".to_string()),
-                            "History"
+                            {i18n.t("settings.history")}
                         }
                         button {
                             class: if sec == "anomalies" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("anomalies".to_string()),
-                            "Anomalies"
+                            {i18n.t("settings.anomalies")}
                         }
                         button {
                             class: if sec == "duplicates" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("duplicates".to_string()),
-                            "Potential Duplicates"
+                            {i18n.t("settings.duplicates")}
                         }
                     }
                     div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", "Export" }
+                        div { class: "settings-nav-group-label", {i18n.t("common.export")} }
                         button {
                             class: if sec == "export" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("export".to_string()),
-                            "Export Tree"
+                            {i18n.t("settings.export_tree")}
                         }
                     }
                 }
@@ -172,36 +174,36 @@ pub fn Settings(tree_id: String) -> Element {
 
 #[component]
 fn TreeRootsSection(tree_id: String) -> Element {
+    let i18n = use_i18n();
     rsx! {
         div { class: "settings-section",
-            div { class: "settings-section-eyebrow", "Settings" }
-            h2 { class: "settings-section-title", "Tree & Roots" }
+            div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
+            h2 { class: "settings-section-title", {i18n.t("settings.tree_roots")} }
             p { class: "settings-section-subtitle",
-                "Configure the root person (SOSA 1) and personal identification."
+                {i18n.t("settings.tree_roots_desc")}
             }
 
             div { class: "card", style: "margin-top: 16px;",
                 h3 { style: "font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary);",
-                    "Root Person (SOSA 1)"
+                    {i18n.t("settings.root_person")}
                 }
                 p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
-                    "The root person is the starting point of the Sosa-Stradonitz numbering system. "
-                    "All ancestors are numbered relative to this person."
+                    {i18n.t("settings.root_person_desc")}
                 }
                 div { class: "settings-placeholder",
-                    "Root person selection will be available in a future update."
+                    {i18n.t("settings.root_person_future")}
                 }
             }
 
             div { class: "card", style: "margin-top: 16px;",
                 h3 { style: "font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary);",
-                    "Who am I?"
+                    {i18n.t("settings.who_am_i")}
                 }
                 p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
-                    "Select which person in the tree represents you."
+                    {i18n.t("settings.who_am_i_desc")}
                 }
                 div { class: "settings-placeholder",
-                    "Personal identification will be available in a future update."
+                    {i18n.t("settings.who_am_i_future")}
                 }
             }
         }
@@ -215,30 +217,30 @@ fn ExportSection(
     error: Option<String>,
     success: bool,
 ) -> Element {
+    let i18n = use_i18n();
     rsx! {
         div { class: "settings-section",
-            div { class: "settings-section-eyebrow", "Export" }
-            h2 { class: "settings-section-title", "Export Tree" }
+            div { class: "settings-section-eyebrow", {i18n.t("common.export")} }
+            h2 { class: "settings-section-title", {i18n.t("settings.export_tree")} }
             p { class: "settings-section-subtitle",
-                "Download your tree data in standard genealogy formats."
+                {i18n.t("settings.export_desc")}
             }
 
             div { class: "card", style: "margin-top: 16px;",
                 div { style: "display: flex; align-items: center; gap: 16px;",
                     div { style: "flex: 1;",
                         h3 { style: "font-size: 0.95rem; margin-bottom: 4px; color: var(--text-primary);",
-                            "GEDCOM 5.5.1"
+                            {i18n.t("settings.gedcom_title")}
                         }
                         p { style: "font-size: 0.82rem; color: var(--text-secondary);",
-                            "Standard genealogy exchange format (.ged). "
-                            "Compatible with most genealogy software."
+                            {i18n.t("settings.gedcom_desc")}
                         }
                     }
                     button {
                         class: "btn btn-primary",
                         disabled: loading,
                         onclick: on_export,
-                        if loading { "Exporting..." } else { "Download .ged" }
+                        if loading { {i18n.t("common.exporting")} } else { {i18n.t("settings.download_ged")} }
                     }
                 }
                 if let Some(err) = &error {
@@ -246,7 +248,7 @@ fn ExportSection(
                 }
                 if success {
                     div { class: "success-msg", style: "margin-top: 12px;",
-                        "Export completed successfully."
+                        {i18n.t("settings.export_success")}
                     }
                 }
             }
@@ -256,20 +258,21 @@ fn ExportSection(
 
 #[component]
 fn PlaceholderSection(section_name: String) -> Element {
+    let i18n = use_i18n();
     let display_name = match section_name.as_str() {
-        "privacy" => "Privacy",
-        "date-display" => "Date Display",
-        "entry-options" => "Entry Options",
-        "history" => "History",
-        "anomalies" => "Anomalies",
-        "duplicates" => "Potential Duplicates",
-        _ => &section_name,
+        "privacy" => i18n.t("settings.privacy"),
+        "date-display" => i18n.t("settings.date_display"),
+        "entry-options" => i18n.t("settings.entry_options"),
+        "history" => i18n.t("settings.history"),
+        "anomalies" => i18n.t("settings.anomalies"),
+        "duplicates" => i18n.t("settings.duplicates"),
+        _ => section_name.clone(),
     };
 
     let group = match section_name.as_str() {
-        "privacy" | "date-display" | "entry-options" => "Settings",
-        "history" | "anomalies" | "duplicates" => "Tools",
-        _ => "Settings",
+        "privacy" | "date-display" | "entry-options" => i18n.t("settings.breadcrumb"),
+        "history" | "anomalies" | "duplicates" => i18n.t("settings.tools"),
+        _ => i18n.t("settings.breadcrumb"),
     };
 
     rsx! {
@@ -279,8 +282,8 @@ fn PlaceholderSection(section_name: String) -> Element {
 
             div { class: "card", style: "margin-top: 16px;",
                 div { class: "empty-state",
-                    h3 { "Coming soon" }
-                    p { "This section is under development." }
+                    h3 { {i18n.t("settings.coming_soon")} }
+                    p { {i18n.t("settings.coming_soon_desc")} }
                 }
             }
         }

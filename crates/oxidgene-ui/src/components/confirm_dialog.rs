@@ -5,6 +5,8 @@
 
 use dioxus::prelude::*;
 
+use crate::i18n::use_i18n;
+
 /// Props for the [`ConfirmDialog`] component.
 #[derive(Props, Clone, PartialEq)]
 pub struct ConfirmDialogProps {
@@ -13,7 +15,7 @@ pub struct ConfirmDialogProps {
     /// Body message (e.g. "Are you sure you want to delete ...?").
     pub message: String,
     /// Label for the confirm button (e.g. "Delete").
-    #[props(default = "Confirm".to_string())]
+    #[props(default = String::new())]
     pub confirm_label: String,
     /// CSS class for the confirm button (e.g. "btn btn-danger").
     #[props(default = "btn btn-danger".to_string())]
@@ -44,6 +46,13 @@ pub struct ConfirmDialogProps {
 /// ```
 #[component]
 pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
+    let i18n = use_i18n();
+    let confirm_label = if props.confirm_label.is_empty() {
+        i18n.t("common.confirm")
+    } else {
+        props.confirm_label.clone()
+    };
+
     rsx! {
         div {
             class: "modal-backdrop",
@@ -61,12 +70,12 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
                     button {
                         class: "btn btn-outline",
                         onclick: move |_| props.on_cancel.call(()),
-                        "Cancel"
+                        {i18n.t("common.cancel")}
                     }
                     button {
                         class: "{props.confirm_class}",
                         onclick: move |_| props.on_confirm.call(()),
-                        "{props.confirm_label}"
+                        "{confirm_label}"
                     }
                 }
             }

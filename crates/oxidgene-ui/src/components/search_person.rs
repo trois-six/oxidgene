@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::i18n::use_i18n;
 use crate::utils::resolve_name;
 
 /// A search result entry.
@@ -26,7 +27,7 @@ pub struct SearchPersonProps {
     /// Tree ID to search within.
     pub tree_id: Uuid,
     /// Placeholder text for the input.
-    #[props(default = "Search for a person...".to_string())]
+    #[props(default = String::new())]
     pub placeholder: String,
     /// Called when the user selects a person from the results.
     pub on_select: EventHandler<Uuid>,
@@ -41,9 +42,16 @@ pub struct SearchPersonProps {
 /// moderate-sized trees.
 #[component]
 pub fn SearchPerson(props: SearchPersonProps) -> Element {
+    let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut query = use_signal(String::new);
     let tree_id = props.tree_id;
+
+    let placeholder = if props.placeholder.is_empty() {
+        i18n.t("search.placeholder")
+    } else {
+        props.placeholder.clone()
+    };
 
     // Fetch all persons and names for the tree.
     let api_persons = api.clone();
@@ -127,22 +135,22 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
             div { class: "search-person-input-row",
                 input {
                     r#type: "text",
-                    placeholder: "{props.placeholder}",
+                    placeholder: "{placeholder}",
                     value: "{query}",
                     oninput: move |e: Event<FormData>| query.set(e.value()),
                 }
                 button {
                     class: "btn btn-outline btn-sm",
                     onclick: move |_| props.on_cancel.call(()),
-                    "Cancel"
+                    {i18n.t("common.cancel")}
                 }
             }
 
             if is_loading {
-                div { class: "loading", "Loading persons..." }
+                div { class: "loading", {i18n.t("search.loading")} }
             } else if results.is_empty() {
                 div { class: "text-muted", style: "padding: 8px;",
-                    "No matching persons found."
+                    {i18n.t("search.no_match")}
                 }
             } else {
                 div { class: "search-person-results",

@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::i18n::use_i18n;
 use crate::router::Route;
 
 /// Dashboard shown at `/`.
@@ -35,6 +36,8 @@ pub fn Home() -> Element {
     // Search & sort state.
     let mut search_query = use_signal(String::new);
     let mut sort_mode = use_signal(|| "recent".to_string());
+
+    let i18n = use_i18n();
 
     let api_create = api.clone();
     let on_create = move |_| {
@@ -91,11 +94,11 @@ pub fn Home() -> Element {
                 // ── Page header ──────────────────────────────────────
                 div { class: "home-page-header",
                     h1 {
-                        "My "
-                        span { class: "home-title-accent", "Genealogy Trees" }
+                        {i18n.t("home.title_prefix")}
+                        span { class: "home-title-accent", {i18n.t("home.title_accent")} }
                     }
                     p { class: "home-subtitle",
-                        "Explore, enrich and share the history of your family lines."
+                        {i18n.t("home.subtitle")}
                     }
                 }
 
@@ -116,7 +119,7 @@ pub fn Home() -> Element {
                         input {
                             r#type: "text",
                             class: "home-search-input",
-                            placeholder: "Search a tree…",
+                            placeholder: i18n.t("home.search_placeholder"),
                             value: "{search_query}",
                             oninput: move |e: Event<FormData>| search_query.set(e.value()),
                         }
@@ -125,8 +128,8 @@ pub fn Home() -> Element {
                         class: "home-sort-select",
                         value: "{sort_mode}",
                         onchange: move |e: Event<FormData>| sort_mode.set(e.value()),
-                        option { value: "recent", "Recently modified" }
-                        option { value: "name", "Name A → Z" }
+                        option { value: "recent", {i18n.t("home.sort_recent")} }
+                        option { value: "name", {i18n.t("home.sort_name")} }
                     }
                     button {
                         class: "home-btn-new",
@@ -140,7 +143,7 @@ pub fn Home() -> Element {
                             "strokeWidth": "2.5",
                             path { d: "M12 5v14M5 12h14" }
                         }
-                        "New Tree"
+                        {i18n.t("home.new_tree")}
                     }
                 }
 
@@ -173,13 +176,13 @@ pub fn Home() -> Element {
                             rsx! {
                                 div { class: "home-empty",
                                     div { class: "home-empty-icon", "🌳" }
-                                    h3 { "No trees yet" }
-                                    p { "Create your first genealogy tree to get started." }
+                                    h3 { {i18n.t("home.no_trees")} }
+                                    p { {i18n.t("home.no_trees_hint")} }
                                     button {
                                         class: "home-btn-new",
                                         style: "margin-top: 0.5rem;",
                                         onclick: move |_| show_create.set(true),
-                                        "New Tree"
+                                        {i18n.t("home.new_tree")}
                                     }
                                 }
                             }
@@ -198,8 +201,8 @@ pub fn Home() -> Element {
                                             path { d: "M21 21l-4.35-4.35" }
                                         }
                                     }
-                                    h3 { "No tree found" }
-                                    p { "Try a different search term." }
+                                    h3 { {i18n.t("home.no_search_results")} }
+                                    p { {i18n.t("home.no_search_results_hint")} }
                                 }
                             }
                         } else {
@@ -234,9 +237,9 @@ pub fn Home() -> Element {
                                         class: "tree-card tree-card-add",
                                         onclick: move |_| show_create.set(true),
                                         div { class: "tree-card-add-icon", "＋" }
-                                        div { class: "tree-card-add-text", "Create a new tree" }
+                                        div { class: "tree-card-add-text", {i18n.t("home.add_card_title")} }
                                         div { class: "tree-card-add-sub",
-                                            "Start a new family lineage from scratch or import a GEDCOM file"
+                                            {i18n.t("home.add_card_subtitle")}
                                         }
                                     }
                                 }
@@ -266,7 +269,7 @@ pub fn Home() -> Element {
                     onclick: move |e: Event<MouseData>| e.stop_propagation(),
 
                     div { class: "home-create-modal-header",
-                        h2 { "New Tree" }
+                        h2 { {i18n.t("home.new_tree")} }
                         button {
                             class: "person-form-close",
                             onclick: move |_| {
@@ -282,19 +285,19 @@ pub fn Home() -> Element {
                             div { class: "error-msg", "{err}" }
                         }
                         div { class: "form-group",
-                            label { "Name" }
+                            label { {i18n.t("tree.form.name_label")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. Martin Family Tree",
+                                placeholder: i18n.t("tree.form.name_placeholder"),
                                 value: "{new_name}",
                                 oninput: move |e: Event<FormData>| new_name.set(e.value()),
                             }
                         }
                         div { class: "form-group",
-                            label { "Description (optional)" }
+                            label { {i18n.t("tree.form.description_label")} }
                             textarea {
                                 rows: 3,
-                                placeholder: "A brief description…",
+                                placeholder: i18n.t("tree.form.description_placeholder"),
                                 value: "{new_desc}",
                                 oninput: move |e: Event<FormData>| new_desc.set(e.value()),
                             }
@@ -306,12 +309,12 @@ pub fn Home() -> Element {
                                     show_create.set(false);
                                     form_error.set(None);
                                 },
-                                "Cancel"
+                                {i18n.t("common.cancel")}
                             }
                             button {
                                 class: "btn btn-primary",
                                 onclick: on_create,
-                                "Create"
+                                {i18n.t("common.create")}
                             }
                         }
                     }
@@ -322,12 +325,9 @@ pub fn Home() -> Element {
         // ── Delete confirmation ───────────────────────────────────────
         if confirm_delete_id().is_some() {
             ConfirmDialog {
-                title: "Delete Tree",
-                message: format!(
-                    "Delete \"{}\"? This action cannot be undone.",
-                    confirm_delete_name()
-                ),
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_tree.title"),
+                message: i18n.t_args("confirm.delete_tree.message_name", &[("name", &confirm_delete_name())]),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_error(),
                 on_confirm: on_confirm_delete,
@@ -351,22 +351,34 @@ fn TreeCard(
     tree_id: String,
     on_delete: EventHandler<()>,
 ) -> Element {
+    let i18n = use_i18n();
     let mut menu_open = use_signal(|| false);
 
     let now = Utc::now();
     let diff = now.signed_duration_since(updated_at);
     let time_ago = if diff.num_days() == 0 {
-        "Modified today".to_string()
+        i18n.t("home.modified_today")
     } else if diff.num_days() == 1 {
-        "Modified 1 day ago".to_string()
+        i18n.t("home.modified_1day")
     } else if diff.num_days() < 30 {
-        format!("Modified {} days ago", diff.num_days())
+        i18n.t_args(
+            "home.modified_days",
+            &[("count", &diff.num_days().to_string())],
+        )
     } else if diff.num_days() < 365 {
         let w = diff.num_weeks();
-        format!("Modified {} week{} ago", w, if w == 1 { "" } else { "s" })
+        if w == 1 {
+            i18n.t_args("home.modified_weeks_one", &[("count", &w.to_string())])
+        } else {
+            i18n.t_args("home.modified_weeks_other", &[("count", &w.to_string())])
+        }
     } else {
         let m = diff.num_days() / 30;
-        format!("Modified {} month{} ago", m, if m == 1 { "" } else { "s" })
+        if m == 1 {
+            i18n.t_args("home.modified_months_one", &[("count", &m.to_string())])
+        } else {
+            i18n.t_args("home.modified_months_other", &[("count", &m.to_string())])
+        }
     };
 
     let is_recent = diff.num_hours() < 24;
@@ -410,7 +422,7 @@ fn TreeCard(
                     div { class: "tree-card-menu-wrapper",
                         button {
                             class: "tree-card-menu-btn",
-                            title: "Tree actions",
+                            title: i18n.t("home.tree_actions"),
                             onclick: move |e: Event<MouseData>| {
                                 e.stop_propagation();
                                 menu_open.set(!menu_open());
@@ -423,13 +435,13 @@ fn TreeCard(
                                     to: Route::TreeDetail { tree_id: tree_id.clone() },
                                     class: "tree-card-dropdown-item",
                                     onclick: move |_| menu_open.set(false),
-                                    "Open"
+                                    {i18n.t("common.open")}
                                 }
                                 Link {
                                     to: Route::Settings { tree_id: tree_id.clone() },
                                     class: "tree-card-dropdown-item",
                                     onclick: move |_| menu_open.set(false),
-                                    "Settings"
+                                    {i18n.t("common.settings")}
                                 }
                                 button {
                                     class: "tree-card-dropdown-item tree-card-dropdown-danger",
@@ -438,7 +450,7 @@ fn TreeCard(
                                         menu_open.set(false);
                                         on_delete.call(());
                                     },
-                                    "Delete"
+                                    {i18n.t("common.delete")}
                                 }
                             }
                         }
@@ -451,13 +463,13 @@ fn TreeCard(
                     div { class: "tree-card-footer-left",
                         span { class: "tree-last-update", "{time_ago}" }
                         if is_recent {
-                            span { class: "tree-badge-recent", "Recent" }
+                            span { class: "tree-badge-recent", {i18n.t("home.badge_recent")} }
                         }
                     }
                     Link {
                         to: Route::TreeDetail { tree_id: tree_id.clone() },
                         class: "btn-open",
-                        "Open"
+                        {i18n.t("common.open")}
                     }
                 }
             }
