@@ -11,6 +11,7 @@ use crate::api::{
 };
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::person_node::PersonNode;
+use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::{
     generation_label, opt_str, parse_confidence, parse_event_type, parse_name_type, parse_sex,
@@ -21,6 +22,7 @@ use oxidgene_core::Sex;
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
 #[component]
 pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
+    let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
     let mut refresh = use_signal(|| 0u32);
@@ -404,7 +406,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     let tree_name_str = match &*tree_resource.read() {
         Some(Ok(tree)) => tree.name.clone(),
-        _ => "Loading...".to_string(),
+        _ => i18n.t("common.loading"),
     };
 
     // Derive display name from loaded names.
@@ -415,15 +417,15 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 Some(name) => {
                     let dn = name.display_name();
                     if dn.is_empty() {
-                        "Unnamed".to_string()
+                        i18n.t("common.unnamed")
                     } else {
                         dn
                     }
                 }
-                None => "Unnamed".to_string(),
+                None => i18n.t("common.unnamed"),
             }
         }
-        _ => "Loading...".to_string(),
+        _ => i18n.t("common.loading"),
     };
 
     // Helper: resolve place_id to place name.
@@ -905,14 +907,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         if let Some(Ok(name_map)) = &*names_data {
             return resolve_name(pid, name_map);
         }
-        "Unknown".to_string()
+        i18n.t("common.unknown")
     };
 
     rsx! {
         div { class: "page-content",
         // Breadcrumb
         div { class: "pd-breadcrumb",
-            Link { to: Route::Home {}, "Trees" }
+            Link { to: Route::Home {}, {i18n.t("tree.breadcrumb_trees")} }
             span { class: "pd-breadcrumb-sep", " / " }
             Link {
                 to: Route::TreeDetail { tree_id: tree_id.clone() },
@@ -927,16 +929,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             Link {
                 to: Route::TreeDetail { tree_id: tree_id.clone() },
                 class: "btn btn-outline",
-                "View in tree"
+                {i18n.t("person.view_in_tree")}
             }
         }
 
         // Delete person confirmation dialog
         if confirm_delete() {
             ConfirmDialog {
-                title: "Delete Person",
-                message: format!("Are you sure you want to delete {display_name}? This action cannot be undone."),
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_person.title"),
+                message: i18n.t_args("confirm.delete_person.message_name", &[("name", &display_name)]),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_error(),
                 on_confirm: move |_| on_confirm_delete(()),
@@ -950,9 +952,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Delete name confirmation dialog
         if confirm_delete_name_id().is_some() {
             ConfirmDialog {
-                title: "Delete Name",
-                message: "Are you sure you want to delete this name?",
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_name.title"),
+                message: i18n.t("confirm.delete_name.message"),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_name_error(),
                 on_confirm: move |_| on_confirm_delete_name(()),
@@ -966,9 +968,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Delete event confirmation dialog
         if confirm_delete_event_id().is_some() {
             ConfirmDialog {
-                title: "Delete Event",
-                message: "Are you sure you want to delete this event?",
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_event.title"),
+                message: i18n.t("confirm.delete_event.message"),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_event_error(),
                 on_confirm: move |_| on_confirm_delete_event(()),
@@ -982,9 +984,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Delete note confirmation dialog
         if confirm_delete_note_id().is_some() {
             ConfirmDialog {
-                title: "Delete Note",
-                message: "Are you sure you want to delete this note?",
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_note.title"),
+                message: i18n.t("confirm.delete_note.message"),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_note_error(),
                 on_confirm: move |_| on_confirm_delete_note(()),
@@ -998,9 +1000,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Delete citation confirmation dialog
         if confirm_delete_citation_id().is_some() {
             ConfirmDialog {
-                title: "Delete Citation",
-                message: "Are you sure you want to delete this citation?",
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_citation.title"),
+                message: i18n.t("confirm.delete_citation.message"),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_citation_error(),
                 on_confirm: move |_| on_confirm_delete_citation(()),
@@ -1014,7 +1016,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Person header
         match &*person_resource.read() {
             Some(Ok(person)) => {
-                let sex_str = format!("{:?}", person.sex);
+                let person_sex = person.sex;
+                let sex_str = match person_sex {
+                    Sex::Male => i18n.t("sex.male"),
+                    Sex::Female => i18n.t("sex.female"),
+                    Sex::Unknown => i18n.t("sex.unknown"),
+                };
                 rsx! {
                     div { class: "page-header",
                         div {
@@ -1024,14 +1031,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                     select {
                                         value: "{edit_sex_val}",
                                         oninput: move |e: Event<FormData>| edit_sex_val.set(e.value()),
-                                        option { value: "Unknown", "Unknown" }
-                                        option { value: "Male", "Male" }
-                                        option { value: "Female", "Female" }
+                                        option { value: "Unknown", {i18n.t("sex.unknown")} }
+                                        option { value: "Male", {i18n.t("sex.male")} }
+                                        option { value: "Female", {i18n.t("sex.female")} }
                                     }
                                     button {
                                         class: "btn btn-primary btn-sm",
                                         onclick: on_save_sex,
-                                        "Save"
+                                        {i18n.t("common.save")}
                                     }
                                     button {
                                         class: "btn btn-outline btn-sm",
@@ -1039,7 +1046,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                             editing_sex.set(false);
                                             edit_sex_error.set(None);
                                         },
-                                        "Cancel"
+                                        {i18n.t("common.cancel")}
                                     }
                                     if let Some(err) = edit_sex_error() {
                                         span { class: "error-msg", style: "margin: 0; padding: 4px 8px; font-size: 0.8rem;", "{err}" }
@@ -1049,10 +1056,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                     button {
                                         class: "btn btn-outline btn-sm",
                                         onclick: move |_| {
-                                            edit_sex_val.set(sex_str.clone());
+                                            edit_sex_val.set(format!("{:?}", person_sex));
                                             editing_sex.set(true);
                                         },
-                                        "Edit Sex"
+                                        {i18n.t("person.edit_sex")}
                                     }
                                 }
                                 span { class: "text-muted", style: "font-size: 0.85rem;",
@@ -1069,33 +1076,33 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                     confirm_delete.set(true);
                                     delete_error.set(None);
                                 },
-                                "Delete"
+                                {i18n.t("common.delete")}
                             }
                             button {
                                 class: "btn btn-outline",
                                 onclick: move |_| refresh += 1,
-                                "Refresh"
+                                {i18n.t("person.refresh")}
                             }
                         }
                     }
                 }
             },
             Some(Err(e)) => rsx! {
-                div { class: "error-msg", "Failed to load person: {e}" }
+                div { class: "error-msg", {i18n.t_args("person.load_error", &[("error", &e.to_string())])} }
             },
             None => rsx! {
-                div { class: "loading", "Loading person..." }
+                div { class: "loading", {i18n.t("person.loading")} }
             },
         }
 
         // ── Family connections section ──────────────────────────────
         if let Some((parent_ids, partner_ids, child_ids, sibling_ids)) = &family_connections {
             div { class: "card", style: "margin-bottom: 24px;",
-                h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", "Family Connections" }
+                h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t("person.family_connections")} }
 
                 if !parent_ids.is_empty() {
                     div { class: "pd-fc-section",
-                        h3 { class: "pd-fc-label", "Parents" }
+                        h3 { class: "pd-fc-label", {i18n.t("person.parents")} }
                         for pid in parent_ids.iter() {
                             { let pid = *pid; let tid = tree_id.clone(); rsx! {
                                 Link {
@@ -1110,7 +1117,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                 if !partner_ids.is_empty() {
                     div { class: "pd-fc-section",
-                        h3 { class: "pd-fc-label", "Spouses & Partners" }
+                        h3 { class: "pd-fc-label", {i18n.t("person.spouses_partners")} }
                         for pid in partner_ids.iter() {
                             { let pid = *pid; let tid = tree_id.clone(); rsx! {
                                 Link {
@@ -1125,7 +1132,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                 if !child_ids.is_empty() {
                     div { class: "pd-fc-section",
-                        h3 { class: "pd-fc-label", "Children" }
+                        h3 { class: "pd-fc-label", {i18n.t("person.children")} }
                         for pid in child_ids.iter() {
                             { let pid = *pid; let tid = tree_id.clone(); rsx! {
                                 Link {
@@ -1140,7 +1147,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                 if !sibling_ids.is_empty() {
                     div { class: "pd-fc-section",
-                        h3 { class: "pd-fc-label", "Siblings" }
+                        h3 { class: "pd-fc-label", {i18n.t("person.siblings")} }
                         for pid in sibling_ids.iter() {
                             { let pid = *pid; let tid = tree_id.clone(); rsx! {
                                 Link {
@@ -1155,7 +1162,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                 if parent_ids.is_empty() && partner_ids.is_empty() && child_ids.is_empty() && sibling_ids.is_empty() {
                     div { class: "empty-state",
-                        p { "No family connections found." }
+                        p { {i18n.t("person.no_family_connections")} }
                     }
                 }
             }
@@ -1164,18 +1171,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // ── Names section ────────────────────────────────────────────
         div { class: "card", style: "margin-bottom: 24px;",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "Names" }
+                h2 { style: "font-size: 1.1rem;", {i18n.t("person.names_section")} }
                 button {
                     class: "btn btn-primary btn-sm",
                     onclick: move |_| show_name_form.toggle(),
-                    if show_name_form() { "Cancel" } else { "Add Name" }
+                    if show_name_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_name")} }
                 }
             }
 
             // Add name form
             if show_name_form() {
                 div { style: "margin-bottom: 16px; padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
-                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", "New Name" }
+                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", {i18n.t("person.new_name")} }
 
                     if let Some(err) = name_form_error() {
                         div { class: "error-msg", "{err}" }
@@ -1183,43 +1190,43 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                     div { class: "form-row",
                         div { class: "form-group",
-                            label { "Name Type" }
+                            label { {i18n.t("person_form.name_type")} }
                             select {
                                 value: "{name_form_type}",
                                 oninput: move |e: Event<FormData>| name_form_type.set(e.value()),
-                                option { value: "Birth", "Birth" }
-                                option { value: "Married", "Married" }
-                                option { value: "AlsoKnownAs", "Also Known As" }
-                                option { value: "Maiden", "Maiden" }
-                                option { value: "Religious", "Religious" }
-                                option { value: "Other", "Other" }
+                                option { value: "Birth", {i18n.t("name_type_short.birth")} }
+                                option { value: "Married", {i18n.t("name_type_short.married")} }
+                                option { value: "AlsoKnownAs", {i18n.t("name_type_short.also_known_as")} }
+                                option { value: "Maiden", {i18n.t("name_type_short.maiden")} }
+                                option { value: "Religious", {i18n.t("name_type_short.religious")} }
+                                option { value: "Other", {i18n.t("name_type_short.other")} }
                             }
                         }
                         div { class: "form-group",
-                            label { "Primary" }
+                            label { {i18n.t("person_form.primary")} }
                             select {
                                 value: if name_form_primary() { "true" } else { "false" },
                                 oninput: move |e: Event<FormData>| name_form_primary.set(e.value() == "true"),
-                                option { value: "true", "Yes" }
-                                option { value: "false", "No" }
+                                option { value: "true", {i18n.t("common.yes")} }
+                                option { value: "false", {i18n.t("common.no")} }
                             }
                         }
                     }
                     div { class: "form-row",
                         div { class: "form-group",
-                            label { "Given Names" }
+                            label { {i18n.t("person_form.given_names")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. Jean-Pierre",
+                                placeholder: "{i18n.t(\"person_form.given_placeholder\")}",
                                 value: "{name_form_given}",
                                 oninput: move |e: Event<FormData>| name_form_given.set(e.value()),
                             }
                         }
                         div { class: "form-group",
-                            label { "Surname" }
+                            label { {i18n.t("person_form.surname")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. Dupont",
+                                placeholder: "{i18n.t(\"person_form.surname_placeholder\")}",
                                 value: "{name_form_surname}",
                                 oninput: move |e: Event<FormData>| name_form_surname.set(e.value()),
                             }
@@ -1227,34 +1234,34 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                     div { class: "form-row",
                         div { class: "form-group",
-                            label { "Prefix" }
+                            label { {i18n.t("person_form.prefix")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. Dr.",
+                                placeholder: "{i18n.t(\"person_form.prefix_placeholder\")}",
                                 value: "{name_form_prefix}",
                                 oninput: move |e: Event<FormData>| name_form_prefix.set(e.value()),
                             }
                         }
                         div { class: "form-group",
-                            label { "Suffix" }
+                            label { {i18n.t("person_form.suffix")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. Jr.",
+                                placeholder: "{i18n.t(\"person_form.suffix_placeholder\")}",
                                 value: "{name_form_suffix}",
                                 oninput: move |e: Event<FormData>| name_form_suffix.set(e.value()),
                             }
                         }
                         div { class: "form-group",
-                            label { "Nickname" }
+                            label { {i18n.t("person_form.nickname")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. JP",
+                                placeholder: "{i18n.t(\"person_form.nickname_placeholder\")}",
                                 value: "{name_form_nickname}",
                                 oninput: move |e: Event<FormData>| name_form_nickname.set(e.value()),
                             }
                         }
                     }
-                    button { class: "btn btn-primary btn-sm", onclick: on_create_name, "Create Name" }
+                    button { class: "btn btn-primary btn-sm", onclick: on_create_name, {i18n.t("person.create_name")} }
                 }
             }
 
@@ -1262,18 +1269,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 Some(Ok(names)) => rsx! {
                     if names.is_empty() {
                         div { class: "empty-state",
-                            p { "No names recorded." }
+                            p { {i18n.t("person.no_names")} }
                         }
                     } else {
                         div { class: "table-wrapper",
                             table {
                                 thead {
                                     tr {
-                                        th { "Type" }
-                                        th { "Given Names" }
-                                        th { "Surname" }
-                                        th { "Primary" }
-                                        th { style: "width: 140px;", "Actions" }
+                                        th { {i18n.t("person_form.type")} }
+                                        th { {i18n.t("person_form.given_names")} }
+                                        th { {i18n.t("person_form.surname")} }
+                                        th { {i18n.t("person_form.primary")} }
+                                        th { style: "width: 140px;", {i18n.t("person.actions")} }
                                     }
                                 }
                                 tbody {
@@ -1298,31 +1305,31 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                 }
                                                                 div { class: "form-row",
                                                                     div { class: "form-group",
-                                                                        label { "Name Type" }
+                                                                        label { {i18n.t("person_form.name_type")} }
                                                                         select {
                                                                             value: "{edit_name_type}",
                                                                             oninput: move |e: Event<FormData>| edit_name_type.set(e.value()),
-                                                                            option { value: "Birth", "Birth" }
-                                                                            option { value: "Married", "Married" }
-                                                                            option { value: "AlsoKnownAs", "Also Known As" }
-                                                                            option { value: "Maiden", "Maiden" }
-                                                                            option { value: "Religious", "Religious" }
-                                                                            option { value: "Other", "Other" }
+                                                                            option { value: "Birth", {i18n.t("name_type_short.birth")} }
+                                                                            option { value: "Married", {i18n.t("name_type_short.married")} }
+                                                                            option { value: "AlsoKnownAs", {i18n.t("name_type_short.also_known_as")} }
+                                                                            option { value: "Maiden", {i18n.t("name_type_short.maiden")} }
+                                                                            option { value: "Religious", {i18n.t("name_type_short.religious")} }
+                                                                            option { value: "Other", {i18n.t("name_type_short.other")} }
                                                                         }
                                                                     }
                                                                     div { class: "form-group",
-                                                                        label { "Primary" }
+                                                                        label { {i18n.t("person_form.primary")} }
                                                                         select {
                                                                             value: if edit_name_primary() { "true" } else { "false" },
                                                                             oninput: move |e: Event<FormData>| edit_name_primary.set(e.value() == "true"),
-                                                                            option { value: "true", "Yes" }
-                                                                            option { value: "false", "No" }
+                                                                            option { value: "true", {i18n.t("common.yes")} }
+                                                                            option { value: "false", {i18n.t("common.no")} }
                                                                         }
                                                                     }
                                                                 }
                                                                 div { class: "form-row",
                                                                     div { class: "form-group",
-                                                                        label { "Given Names" }
+                                                                        label { {i18n.t("person_form.given_names")} }
                                                                         input {
                                                                             r#type: "text",
                                                                             value: "{edit_name_given}",
@@ -1330,7 +1337,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                         }
                                                                     }
                                                                     div { class: "form-group",
-                                                                        label { "Surname" }
+                                                                        label { {i18n.t("person_form.surname")} }
                                                                         input {
                                                                             r#type: "text",
                                                                             value: "{edit_name_surname}",
@@ -1340,7 +1347,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                 }
                                                                 div { class: "form-row",
                                                                     div { class: "form-group",
-                                                                        label { "Prefix" }
+                                                                        label { {i18n.t("person_form.prefix")} }
                                                                         input {
                                                                             r#type: "text",
                                                                             value: "{edit_name_prefix}",
@@ -1348,7 +1355,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                         }
                                                                     }
                                                                     div { class: "form-group",
-                                                                        label { "Suffix" }
+                                                                        label { {i18n.t("person_form.suffix")} }
                                                                         input {
                                                                             r#type: "text",
                                                                             value: "{edit_name_suffix}",
@@ -1356,7 +1363,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                         }
                                                                     }
                                                                     div { class: "form-group",
-                                                                        label { "Nickname" }
+                                                                        label { {i18n.t("person_form.nickname")} }
                                                                         input {
                                                                             r#type: "text",
                                                                             value: "{edit_name_nickname}",
@@ -1368,7 +1375,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                     button {
                                                                         class: "btn btn-primary btn-sm",
                                                                         onclick: on_save_name_edit.clone(),
-                                                                        "Save"
+                                                                        {i18n.t("common.save")}
                                                                     }
                                                                     button {
                                                                         class: "btn btn-outline btn-sm",
@@ -1376,7 +1383,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                             editing_name_id.set(None);
                                                                             edit_name_error.set(None);
                                                                         },
-                                                                        "Cancel"
+                                                                        {i18n.t("common.cancel")}
                                                                     }
                                                                 }
                                                             }
@@ -1392,7 +1399,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                         td { {name.given_names.as_deref().unwrap_or("--")} }
                                                         td { {name.surname.as_deref().unwrap_or("--")} }
                                                         td {
-                                                            if name.is_primary { "Yes" } else { "No" }
+                                                            if name.is_primary { {i18n.t("common.yes")} } else { {i18n.t("common.no")} }
                                                         }
                                                         td {
                                                             div { style: "display: flex; gap: 4px;",
@@ -1409,7 +1416,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                         edit_name_primary.set(prim);
                                                                         edit_name_error.set(None);
                                                                     },
-                                                                    "Edit"
+                                                                    {i18n.t("common.edit")}
                                                                 }
                                                                 button {
                                                                     class: "btn btn-danger btn-sm",
@@ -1417,7 +1424,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                         confirm_delete_name_id.set(Some(nid));
                                                                         delete_name_error.set(None);
                                                                     },
-                                                                    "Delete"
+                                                                    {i18n.t("common.delete")}
                                                                 }
                                                             }
                                                         }
@@ -1432,10 +1439,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                 },
                 Some(Err(e)) => rsx! {
-                    div { class: "error-msg", "Failed to load names: {e}" }
+                    div { class: "error-msg", {i18n.t_args("person.load_names_error", &[("error", &e.to_string())])} }
                 },
                 None => rsx! {
-                    div { class: "loading", "Loading names..." }
+                    div { class: "loading", {i18n.t("person.loading_names")} }
                 },
             }
         }
@@ -1443,18 +1450,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // ── Events section ───────────────────────────────────────────
         div { class: "card", style: "margin-bottom: 24px;",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "Events" }
+                h2 { style: "font-size: 1.1rem;", {i18n.t("person.events_section")} }
                 button {
                     class: "btn btn-primary btn-sm",
                     onclick: move |_| show_event_form.toggle(),
-                    if show_event_form() { "Cancel" } else { "Add Event" }
+                    if show_event_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_event")} }
                 }
             }
 
             // Add event form
             if show_event_form() {
                 div { style: "margin-bottom: 16px; padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
-                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", "New Event" }
+                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", {i18n.t("person.new_event")} }
 
                     if let Some(err) = event_form_error() {
                         div { class: "error-msg", "{err}" }
@@ -1462,14 +1469,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                     div { class: "form-row",
                         div { class: "form-group",
-                            label { "Event Type" }
-                            {event_type_select("{event_form_type}", move |e: Event<FormData>| event_form_type.set(e.value()))}
+                            label { {i18n.t("person.event_type")} }
+                            {event_type_select("{event_form_type}", move |e: Event<FormData>| event_form_type.set(e.value()), &i18n)}
                         }
                         div { class: "form-group",
-                            label { "Date" }
+                            label { {i18n.t("person_form.date")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. 1 JAN 1900",
+                                placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
                                 value: "{event_form_date}",
                                 oninput: move |e: Event<FormData>| event_form_date.set(e.value()),
                             }
@@ -1477,20 +1484,20 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                     div { class: "form-row",
                         div { class: "form-group",
-                            label { "Place" }
-                            {place_select_widget(&places_resource, "{event_form_place_id}", move |e: Event<FormData>| event_form_place_id.set(e.value()))}
+                            label { {i18n.t("person_form.place")} }
+                            {place_select_widget(&places_resource, "{event_form_place_id}", move |e: Event<FormData>| event_form_place_id.set(e.value()), &i18n)}
                         }
                         div { class: "form-group",
-                            label { "Description" }
+                            label { {i18n.t("person_form.description")} }
                             input {
                                 r#type: "text",
-                                placeholder: "Optional description",
+                                placeholder: "{i18n.t(\"citation.optional_desc\")}",
                                 value: "{event_form_desc}",
                                 oninput: move |e: Event<FormData>| event_form_desc.set(e.value()),
                             }
                         }
                     }
-                    button { class: "btn btn-primary btn-sm", onclick: on_create_event, "Create Event" }
+                    button { class: "btn btn-primary btn-sm", onclick: on_create_event, {i18n.t("person.create_event")} }
                 }
             }
 
@@ -1498,18 +1505,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 Some(Ok(conn)) => rsx! {
                     if conn.edges.is_empty() {
                         div { class: "empty-state",
-                            p { "No events recorded." }
+                            p { {i18n.t("person.no_events")} }
                         }
                     } else {
                         div { class: "table-wrapper",
                             table {
                                 thead {
                                     tr {
-                                        th { "Type" }
-                                        th { "Date" }
-                                        th { "Place" }
-                                        th { "Description" }
-                                        th { style: "width: 140px;", "Actions" }
+                                        th { {i18n.t("person_form.type")} }
+                                        th { {i18n.t("person_form.date")} }
+                                        th { {i18n.t("person_form.place")} }
+                                        th { {i18n.t("person_form.description")} }
+                                        th { style: "width: 140px;", {i18n.t("person.actions")} }
                                     }
                                 }
                                 tbody {
@@ -1534,11 +1541,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                 }
                                                                 div { class: "form-row",
                                                                     div { class: "form-group",
-                                                                        label { "Event Type" }
-                                                                        {event_type_select("{edit_event_type}", move |e: Event<FormData>| edit_event_type.set(e.value()))}
+                                                                        label { {i18n.t("person.event_type")} }
+                                                                        {event_type_select("{edit_event_type}", move |e: Event<FormData>| edit_event_type.set(e.value()), &i18n)}
                                                                     }
                                                                     div { class: "form-group",
-                                                                        label { "Date" }
+                                                                        label { {i18n.t("person_form.date")} }
                                                                         input {
                                                                             r#type: "text",
                                                                             value: "{edit_event_date}",
@@ -1548,11 +1555,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                 }
                                                                 div { class: "form-row",
                                                                     div { class: "form-group",
-                                                                        label { "Place" }
-                                                                        {place_select_widget(&places_resource, "{edit_event_place_id}", move |e: Event<FormData>| edit_event_place_id.set(e.value()))}
+                                                                        label { {i18n.t("person_form.place")} }
+                                                                        {place_select_widget(&places_resource, "{edit_event_place_id}", move |e: Event<FormData>| edit_event_place_id.set(e.value()), &i18n)}
                                                                     }
                                                                     div { class: "form-group",
-                                                                        label { "Description" }
+                                                                        label { {i18n.t("person_form.description")} }
                                                                         input {
                                                                             r#type: "text",
                                                                             value: "{edit_event_desc}",
@@ -1564,7 +1571,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                     button {
                                                                         class: "btn btn-primary btn-sm",
                                                                         onclick: on_save_event_edit.clone(),
-                                                                        "Save"
+                                                                        {i18n.t("common.save")}
                                                                     }
                                                                     button {
                                                                         class: "btn btn-outline btn-sm",
@@ -1572,7 +1579,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                             editing_event_id.set(None);
                                                                             edit_event_error.set(None);
                                                                         },
-                                                                        "Cancel"
+                                                                        {i18n.t("common.cancel")}
                                                                     }
                                                                 }
                                                             }
@@ -1606,7 +1613,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                         edit_event_desc.set(desc.clone());
                                                                         edit_event_error.set(None);
                                                                     },
-                                                                    "Edit"
+                                                                    {i18n.t("common.edit")}
                                                                 }
                                                                 button {
                                                                     class: "btn btn-danger btn-sm",
@@ -1614,7 +1621,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                                         confirm_delete_event_id.set(Some(eid));
                                                                         delete_event_error.set(None);
                                                                     },
-                                                                    "Delete"
+                                                                    {i18n.t("common.delete")}
                                                                 }
                                                             }
                                                         }
@@ -1629,10 +1636,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                 },
                 Some(Err(e)) => rsx! {
-                    div { class: "error-msg", "Failed to load events: {e}" }
+                    div { class: "error-msg", {i18n.t_args("person.load_events_error", &[("error", &e.to_string())])} }
                 },
                 None => rsx! {
-                    div { class: "loading", "Loading events..." }
+                    div { class: "loading", {i18n.t("person.loading_events")} }
                 },
             }
         }
@@ -1640,33 +1647,33 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // ── Notes section ────────────────────────────────────────────
         div { class: "card", style: "margin-bottom: 24px;",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "Notes" }
+                h2 { style: "font-size: 1.1rem;", {i18n.t("person.notes_section")} }
                 button {
                     class: "btn btn-primary btn-sm",
                     onclick: move |_| show_note_form.toggle(),
-                    if show_note_form() { "Cancel" } else { "Add Note" }
+                    if show_note_form() { {i18n.t("common.cancel")} } else { {i18n.t("person.add_note")} }
                 }
             }
 
             // Add note form
             if show_note_form() {
                 div { style: "margin-bottom: 16px; padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
-                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", "New Note" }
+                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", {i18n.t("person.new_note")} }
 
                     if let Some(err) = note_form_error() {
                         div { class: "error-msg", "{err}" }
                     }
 
                     div { class: "form-group",
-                        label { "Text" }
+                        label { {i18n.t("person.note_text_label")} }
                         textarea {
                             rows: 3,
-                            placeholder: "Enter note text...",
+                            placeholder: "{i18n.t(\"person_form.note_placeholder\")}",
                             value: "{note_form_text}",
                             oninput: move |e: Event<FormData>| note_form_text.set(e.value()),
                         }
                     }
-                    button { class: "btn btn-primary btn-sm", onclick: on_create_note, "Create Note" }
+                    button { class: "btn btn-primary btn-sm", onclick: on_create_note, {i18n.t("person.create_note")} }
                 }
             }
 
@@ -1674,7 +1681,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 Some(Ok(notes)) => rsx! {
                     if notes.is_empty() {
                         div { class: "empty-state",
-                            p { "No notes recorded." }
+                            p { {i18n.t("person.no_notes")} }
                         }
                     } else {
                         for note in notes.iter() {
@@ -1701,7 +1708,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                 button {
                                                     class: "btn btn-primary btn-sm",
                                                     onclick: on_save_note_edit.clone(),
-                                                    "Save"
+                                                    {i18n.t("common.save")}
                                                 }
                                                 button {
                                                     class: "btn btn-outline btn-sm",
@@ -1709,7 +1716,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                         editing_note_id.set(None);
                                                         edit_note_error.set(None);
                                                     },
-                                                    "Cancel"
+                                                    {i18n.t("common.cancel")}
                                                 }
                                             }
                                         }
@@ -1727,7 +1734,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                         edit_note_text.set(note_text.clone());
                                                         edit_note_error.set(None);
                                                     },
-                                                    "Edit"
+                                                    {i18n.t("common.edit")}
                                                 }
                                                 button {
                                                     class: "btn btn-danger btn-sm",
@@ -1735,7 +1742,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                         confirm_delete_note_id.set(Some(note_id));
                                                         delete_note_error.set(None);
                                                     },
-                                                    "Delete"
+                                                    {i18n.t("common.delete")}
                                                 }
                                             }
                                         }
@@ -1746,10 +1753,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                 },
                 Some(Err(e)) => rsx! {
-                    div { class: "error-msg", "Failed to load notes: {e}" }
+                    div { class: "error-msg", {i18n.t_args("person.load_notes_error", &[("error", &e.to_string())])} }
                 },
                 None => rsx! {
-                    div { class: "loading", "Loading notes..." }
+                    div { class: "loading", {i18n.t("person.loading_notes")} }
                 },
             }
         }
@@ -1757,18 +1764,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // ── Citations section ────────────────────────────────────────
         div { class: "card",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "Citations" }
+                h2 { style: "font-size: 1.1rem;", {i18n.t("person.citations_section")} }
                 button {
                     class: "btn btn-primary btn-sm",
                     onclick: move |_| show_citation_form.toggle(),
-                    if show_citation_form() { "Cancel" } else { "Add Citation" }
+                    if show_citation_form() { {i18n.t("common.cancel")} } else { {i18n.t("person.add_citation")} }
                 }
             }
 
             // Add citation form
             if show_citation_form() {
                 div { style: "margin-bottom: 16px; padding: 16px; background: var(--color-bg); border-radius: var(--radius);",
-                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", "New Citation" }
+                    h3 { style: "margin-bottom: 12px; font-size: 0.95rem;", {i18n.t("person.new_citation")} }
 
                     if let Some(err) = citation_form_error() {
                         div { class: "error-msg", "{err}" }
@@ -1776,43 +1783,43 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                     div { class: "form-row",
                         div { class: "form-group",
-                            label { "Source" }
-                            {source_select_widget(&sources_resource, "{citation_form_source_id}", move |e: Event<FormData>| citation_form_source_id.set(e.value()))}
+                            label { {i18n.t("person.source")} }
+                            {source_select_widget(&sources_resource, "{citation_form_source_id}", move |e: Event<FormData>| citation_form_source_id.set(e.value()), &i18n)}
                         }
                         div { class: "form-group",
-                            label { "Confidence" }
+                            label { {i18n.t("person.confidence")} }
                             select {
                                 value: "{citation_form_confidence}",
                                 oninput: move |e: Event<FormData>| citation_form_confidence.set(e.value()),
-                                option { value: "VeryLow", "Very Low" }
-                                option { value: "Low", "Low" }
-                                option { value: "Medium", "Medium" }
-                                option { value: "High", "High" }
-                                option { value: "VeryHigh", "Very High" }
+                                option { value: "VeryLow", {i18n.t("confidence.very_low")} }
+                                option { value: "Low", {i18n.t("confidence.low")} }
+                                option { value: "Medium", {i18n.t("confidence.medium")} }
+                                option { value: "High", {i18n.t("confidence.high")} }
+                                option { value: "VeryHigh", {i18n.t("confidence.very_high")} }
                             }
                         }
                     }
                     div { class: "form-row",
                         div { class: "form-group",
-                            label { "Page" }
+                            label { {i18n.t("person.page")} }
                             input {
                                 r#type: "text",
-                                placeholder: "e.g. p. 42",
+                                placeholder: "{i18n.t(\"citation.page_placeholder\")}",
                                 value: "{citation_form_page}",
                                 oninput: move |e: Event<FormData>| citation_form_page.set(e.value()),
                             }
                         }
                         div { class: "form-group",
-                            label { "Text" }
+                            label { {i18n.t("person.citation_text_label")} }
                             input {
                                 r#type: "text",
-                                placeholder: "Citation text",
+                                placeholder: "{i18n.t(\"citation.text\")}",
                                 value: "{citation_form_text}",
                                 oninput: move |e: Event<FormData>| citation_form_text.set(e.value()),
                             }
                         }
                     }
-                    button { class: "btn btn-primary btn-sm", onclick: on_create_citation, "Create Citation" }
+                    button { class: "btn btn-primary btn-sm", onclick: on_create_citation, {i18n.t("person.create_citation")} }
                 }
             }
 
@@ -1821,18 +1828,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             // Users can manage citations after creation; a full list endpoint would
             // require backend changes. For now, we show a helpful message.
             div { class: "empty-state",
-                p { class: "text-muted", "Citations are linked to this person via the form above. View source details on the tree page to see all citations." }
+                p { class: "text-muted", {i18n.t("person.citation_hint")} }
             }
         }
 
         // ── Ancestors section ─────────────────────────────────────────
         div { class: "card", style: "margin-bottom: 24px;",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "Ancestors" }
+                h2 { style: "font-size: 1.1rem;", {i18n.t("person.ancestors")} }
                 button {
                     class: "btn btn-primary btn-sm",
                     onclick: move |_| show_ancestors.toggle(),
-                    if show_ancestors() { "Hide" } else { "Show Ancestors" }
+                    if show_ancestors() { {i18n.t("person.hide")} } else { {i18n.t("person.show_ancestors")} }
                 }
             }
 
@@ -1844,6 +1851,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     person_id_parsed,
                     &tree_id,
                     true,
+                    &i18n,
                 )}
             }
         }
@@ -1851,11 +1859,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // ── Descendants section ───────────────────────────────────────
         div { class: "card",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "Descendants" }
+                h2 { style: "font-size: 1.1rem;", {i18n.t("person.descendants")} }
                 button {
                     class: "btn btn-primary btn-sm",
                     onclick: move |_| show_descendants.toggle(),
-                    if show_descendants() { "Hide" } else { "Show Descendants" }
+                    if show_descendants() { {i18n.t("person.hide")} } else { {i18n.t("person.show_descendants")} }
                 }
             }
 
@@ -1867,6 +1875,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     person_id_parsed,
                     &tree_id,
                     false,
+                    &i18n,
                 )}
             }
         }
@@ -1877,35 +1886,39 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 // ── Widget helpers (remain local — they take Resource references) ─────
 
 /// Renders an event type `<select>` widget.
-fn event_type_select(value: &str, oninput: impl FnMut(Event<FormData>) + 'static) -> Element {
+fn event_type_select(
+    value: &str,
+    oninput: impl FnMut(Event<FormData>) + 'static,
+    i18n: &crate::i18n::I18n,
+) -> Element {
     rsx! {
         select {
             value: value,
             oninput: oninput,
-            option { value: "Birth", "Birth" }
-            option { value: "Death", "Death" }
-            option { value: "Baptism", "Baptism" }
-            option { value: "Burial", "Burial" }
-            option { value: "Cremation", "Cremation" }
-            option { value: "Graduation", "Graduation" }
-            option { value: "Immigration", "Immigration" }
-            option { value: "Emigration", "Emigration" }
-            option { value: "Naturalization", "Naturalization" }
-            option { value: "Census", "Census" }
-            option { value: "Occupation", "Occupation" }
-            option { value: "Residence", "Residence" }
-            option { value: "Retirement", "Retirement" }
-            option { value: "Will", "Will" }
-            option { value: "Probate", "Probate" }
-            option { value: "Marriage", "Marriage" }
-            option { value: "Divorce", "Divorce" }
-            option { value: "Annulment", "Annulment" }
-            option { value: "Engagement", "Engagement" }
-            option { value: "MarriageBann", "Marriage Bann" }
-            option { value: "MarriageContract", "Marriage Contract" }
-            option { value: "MarriageLicense", "Marriage License" }
-            option { value: "MarriageSettlement", "Marriage Settlement" }
-            option { value: "Other", "Other" }
+            option { value: "Birth", {i18n.t("event.type.birth")} }
+            option { value: "Death", {i18n.t("event.type.death")} }
+            option { value: "Baptism", {i18n.t("event.type.baptism")} }
+            option { value: "Burial", {i18n.t("event.type.burial")} }
+            option { value: "Cremation", {i18n.t("event.type.cremation")} }
+            option { value: "Graduation", {i18n.t("event.type.graduation")} }
+            option { value: "Immigration", {i18n.t("event.type.immigration")} }
+            option { value: "Emigration", {i18n.t("event.type.emigration")} }
+            option { value: "Naturalization", {i18n.t("event.type.naturalization")} }
+            option { value: "Census", {i18n.t("event.type.census")} }
+            option { value: "Occupation", {i18n.t("event.type.occupation")} }
+            option { value: "Residence", {i18n.t("event.type.residence")} }
+            option { value: "Retirement", {i18n.t("event.type.retirement")} }
+            option { value: "Will", {i18n.t("event.type.will")} }
+            option { value: "Probate", {i18n.t("event.type.probate")} }
+            option { value: "Marriage", {i18n.t("event.type.marriage")} }
+            option { value: "Divorce", {i18n.t("event.type.divorce")} }
+            option { value: "Annulment", {i18n.t("event.type.annulment")} }
+            option { value: "Engagement", {i18n.t("event.type.engagement")} }
+            option { value: "MarriageBann", {i18n.t("event.type.marriage_bann")} }
+            option { value: "MarriageContract", {i18n.t("event.type.marriage_contract")} }
+            option { value: "MarriageLicense", {i18n.t("event.type.marriage_license")} }
+            option { value: "MarriageSettlement", {i18n.t("event.type.marriage_settlement")} }
+            option { value: "Other", {i18n.t("event.type.other")} }
         }
     }
 }
@@ -1917,6 +1930,7 @@ fn place_select_widget(
     >,
     value: &str,
     oninput: impl FnMut(Event<FormData>) + 'static,
+    i18n: &crate::i18n::I18n,
 ) -> Element {
     let places_data = places_resource.read();
     let places: Vec<_> = match &*places_data {
@@ -1931,7 +1945,7 @@ fn place_select_widget(
         select {
             value: value,
             oninput: oninput,
-            option { value: "", "-- None --" }
+            option { value: "", {i18n.t("person_form.no_place")} }
             for (pid, name) in places.iter() {
                 option {
                     value: "{pid}",
@@ -1952,6 +1966,7 @@ fn source_select_widget(
     >,
     value: &str,
     oninput: impl FnMut(Event<FormData>) + 'static,
+    i18n: &crate::i18n::I18n,
 ) -> Element {
     let sources_data = sources_resource.read();
     let sources: Vec<_> = match &*sources_data {
@@ -1966,7 +1981,7 @@ fn source_select_widget(
         select {
             value: value,
             oninput: oninput,
-            option { value: "", "-- Select Source --" }
+            option { value: "", {i18n.t("person.select_source")} }
             for (sid, title) in sources.iter() {
                 option {
                     value: "{sid}",
@@ -1996,6 +2011,7 @@ fn render_ancestry_chart(
     current_person_id: Option<Uuid>,
     tree_id: &str,
     is_ancestors: bool,
+    i18n: &crate::i18n::I18n,
 ) -> Element {
     let edges_data = edges_resource.read();
     let persons_data = all_persons_resource.read();
@@ -2003,7 +2019,7 @@ fn render_ancestry_chart(
 
     if edges_data.is_none() || persons_data.is_none() || names_data.is_none() {
         return rsx! {
-            div { class: "loading", "Loading ancestry data..." }
+            div { class: "loading", {i18n.t("person.loading_ancestry")} }
         };
     }
 
@@ -2011,7 +2027,7 @@ fn render_ancestry_chart(
         Some(Ok(e)) => e,
         Some(Err(e)) => {
             return rsx! {
-                div { class: "error-msg", "Failed to load ancestry: {e}" }
+                div { class: "error-msg", {i18n.t_args("person.load_ancestry_error", &[("error", &e.to_string())])} }
             };
         }
         None => unreachable!(),
@@ -2019,16 +2035,15 @@ fn render_ancestry_chart(
 
     if edges.is_empty() {
         let label = if is_ancestors {
-            "ancestors"
+            i18n.t("person.no_ancestors_label")
         } else {
-            "descendants"
+            i18n.t("person.no_descendants_label")
         };
         return rsx! {
             div { class: "empty-state",
-                p { "No {label} data available." }
+                p { {i18n.t_args("person.no_ancestry_data", &[("label", &label)])} }
                 p { class: "text-muted",
-                    "Ancestry data is populated during GEDCOM import. "
-                    "Manual person creation does not build the ancestry closure table."
+                    {i18n.t("person.ancestry_hint")}
                 }
             }
         };
@@ -2067,7 +2082,7 @@ fn render_ancestry_chart(
             for (depth, person_ids) in by_depth.iter() {
                 div { class: "depth-group",
                     div { class: "gen-label",
-                        {generation_label(*depth, is_ancestors)}
+                        {generation_label(*depth, is_ancestors, i18n)}
                         " ({person_ids.len()})"
                     }
                     div { class: "depth-group-nodes",

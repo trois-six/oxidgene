@@ -154,20 +154,18 @@ pub fn resolve_name(
 // ── Generation labels ───────────────────────────────────────────────────
 
 /// Returns a human-readable generation label for ancestry/descendant charts.
-pub fn generation_label(depth: i32, is_ancestors: bool) -> String {
-    if is_ancestors {
-        match depth {
-            1 => "Parents".to_string(),
-            2 => "Grandparents".to_string(),
-            3 => "Great-Grandparents".to_string(),
-            n => format!("{n}x Great-Grandparents"),
-        }
+///
+/// Uses i18n keys `gen.ancestors.{1,2,3,n}` and `gen.descendants.{1,2,3,n}`.
+pub fn generation_label(depth: i32, is_ancestors: bool, i18n: &crate::i18n::I18n) -> String {
+    let prefix = if is_ancestors {
+        "gen.ancestors"
     } else {
-        match depth {
-            1 => "Children".to_string(),
-            2 => "Grandchildren".to_string(),
-            3 => "Great-Grandchildren".to_string(),
-            n => format!("{n}x Great-Grandchildren"),
-        }
+        "gen.descendants"
+    };
+    match depth {
+        1 => i18n.t(&format!("{prefix}.1")),
+        2 => i18n.t(&format!("{prefix}.2")),
+        3 => i18n.t(&format!("{prefix}.3")),
+        n => i18n.t_args(&format!("{prefix}.n"), &[("n", &n.to_string())]),
     }
 }

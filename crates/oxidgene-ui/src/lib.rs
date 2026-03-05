@@ -9,6 +9,7 @@
 
 pub mod api;
 pub mod components;
+pub mod i18n;
 pub mod pages;
 pub mod router;
 pub mod utils;

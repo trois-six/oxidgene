@@ -11,6 +11,7 @@ use crate::api::{
     ApiClient, CreateEventBody, CreateNoteBody, CreatePersonNameBody, UpdateEventBody,
     UpdatePersonBody, UpdatePersonNameBody,
 };
+use crate::i18n::use_i18n;
 use crate::utils::{opt_str, parse_event_type, parse_name_type, parse_sex};
 use oxidgene_core::EventType;
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
@@ -35,6 +36,7 @@ pub struct PersonFormProps {
 #[component]
 pub fn PersonForm(props: PersonFormProps) -> Element {
     let api = use_context::<ApiClient>();
+    let i18n = use_i18n();
     let mut refresh = use_signal(|| 0u32);
 
     let tid = props.tree_id;
@@ -183,15 +185,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 Some(n) => {
                     let dn = n.display_name();
                     if dn.is_empty() {
-                        "Unnamed".to_string()
+                        i18n.t("common.unnamed")
                     } else {
                         dn
                     }
                 }
-                None => "Unnamed".to_string(),
+                None => i18n.t("common.unnamed"),
             }
         }
-        _ => "Loading...".to_string(),
+        _ => i18n.t("common.loading"),
     };
 
     // Extract non-birth/death events.
@@ -384,7 +386,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let is_primary = name_form_primary();
         spawn(async move {
             if given.is_empty() && surname.is_empty() {
-                name_form_error.set(Some("Given names or surname is required".to_string()));
+                name_form_error.set(Some(i18n.t("person_form.given_or_surname_required")));
                 return;
             }
             let body = CreatePersonNameBody {
@@ -475,7 +477,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let text = note_form_text().trim().to_string();
         spawn(async move {
             if text.is_empty() {
-                note_form_error.set(Some("Note text is required".to_string()));
+                note_form_error.set(Some(i18n.t("person_form.note_required")));
                 return;
             }
             let body = CreateNoteBody {
@@ -512,6 +514,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
     };
 
+    // Pre-compute tab labels with counts.
+    let events_tab_label = i18n.t_args(
+        "person_form.tab_events",
+        &[("count", &other_events.len().to_string())],
+    );
+    let notes_tab_label = i18n.t_args(
+        "person_form.tab_notes",
+        &[("count", &notes_list.len().to_string())],
+    );
+
     rsx! {
         div { class: "modal-backdrop person-form-backdrop",
             onclick: try_close,
@@ -539,27 +551,27 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     button {
                         class: if active_tab() == "civil" { "person-form-tab active" } else { "person-form-tab" },
                         onclick: move |_| active_tab.set("civil"),
-                        "Civil Status"
+                        {i18n.t("person_form.tab_civil")}
                     }
                     button {
                         class: if active_tab() == "birth" { "person-form-tab active" } else { "person-form-tab" },
                         onclick: move |_| active_tab.set("birth"),
-                        "Birth"
+                        {i18n.t("person_form.birth")}
                     }
                     button {
                         class: if active_tab() == "death" { "person-form-tab active" } else { "person-form-tab" },
                         onclick: move |_| active_tab.set("death"),
-                        "Death"
+                        {i18n.t("person_form.death")}
                     }
                     button {
                         class: if active_tab() == "events" { "person-form-tab active" } else { "person-form-tab" },
                         onclick: move |_| active_tab.set("events"),
-                        "Events ({other_events.len()})"
+                        "{events_tab_label}"
                     }
                     button {
                         class: if active_tab() == "notes" { "person-form-tab active" } else { "person-form-tab" },
                         onclick: move |_| active_tab.set("notes"),
-                        "Notes ({notes_list.len()})"
+                        "{notes_tab_label}"
                     }
                 }
 
@@ -570,19 +582,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         div { class: "person-form-section",
                             // Sex
                             div { class: "form-group",
-                                label { "Sex" }
+                                label { {i18n.t("person_form.sex")} }
                                 div { style: "display: flex; gap: 8px; align-items: center;",
                                     select {
                                         value: "{sex_val}",
                                         oninput: move |e: Event<FormData>| sex_val.set(e.value()),
-                                        option { value: "Unknown", "Unknown" }
-                                        option { value: "Male", "Male" }
-                                        option { value: "Female", "Female" }
+                                        option { value: "Unknown", {i18n.t("sex.unknown")} }
+                                        option { value: "Male", {i18n.t("sex.male")} }
+                                        option { value: "Female", {i18n.t("sex.female")} }
                                     }
                                     button {
                                         class: "btn btn-primary btn-sm",
                                         onclick: on_save_sex,
-                                        "Save Sex"
+                                        {i18n.t("person_form.save_sex")}
                                     }
                                 }
                             }
@@ -590,17 +602,18 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             // Names
                             div { style: "margin-top: 16px;",
                                 div { class: "section-header",
-                                    h3 { style: "font-size: 0.95rem;", "Names" }
+                                    h3 { style: "font-size: 0.95rem;", {i18n.t("person_form.tab_names")} }
                                     button {
                                         class: "btn btn-primary btn-sm",
                                         onclick: move |_| show_name_form.toggle(),
-                                        if show_name_form() { "Cancel" } else { "Add Name" }
+                                        if show_name_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_name")} }
                                     }
                                 }
 
                                 // Add name form
                                 if show_name_form() {
                                     {render_name_form(
+                                        &i18n,
                                         &name_form_error,
                                         &mut name_form_type, &mut name_form_given, &mut name_form_surname,
                                         &mut name_form_prefix, &mut name_form_suffix, &mut name_form_nickname,
@@ -633,31 +646,31 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                             }
                                                             div { class: "form-row",
                                                                 div { class: "form-group",
-                                                                    label { "Name kind" }
+                                                                    label { {i18n.t("person_form.name_type")} }
                                                                     select {
                                                                         value: "{edit_name_type}",
                                                                         oninput: move |e: Event<FormData>| edit_name_type.set(e.value()),
-                                                                        option { value: "Birth", "Birth name" }
-                                                                        option { value: "Married", "Married name" }
-                                                                        option { value: "AlsoKnownAs", "Also known as" }
-                                                                        option { value: "Maiden", "Maiden name" }
-                                                                        option { value: "Religious", "Religious name" }
-                                                                        option { value: "Other", "Other" }
+                                                                        option { value: "Birth", {i18n.t("name_type.birth")} }
+                                                                        option { value: "Married", {i18n.t("name_type.married")} }
+                                                                        option { value: "AlsoKnownAs", {i18n.t("name_type.also_known_as")} }
+                                                                        option { value: "Maiden", {i18n.t("name_type.maiden")} }
+                                                                        option { value: "Religious", {i18n.t("name_type.religious")} }
+                                                                        option { value: "Other", {i18n.t("name_type.other")} }
                                                                     }
                                                                 }
                                                                 div { class: "form-group",
-                                                                    label { "Primary" }
+                                                                    label { {i18n.t("person_form.primary")} }
                                                                     select {
                                                                         value: if edit_name_primary() { "true" } else { "false" },
                                                                         oninput: move |e: Event<FormData>| edit_name_primary.set(e.value() == "true"),
-                                                                        option { value: "true", "Yes" }
-                                                                        option { value: "false", "No" }
+                                                                        option { value: "true", {i18n.t("common.yes")} }
+                                                                        option { value: "false", {i18n.t("common.no")} }
                                                                     }
                                                                 }
                                                             }
                                                             div { class: "form-row",
                                                                 div { class: "form-group",
-                                                                    label { "Given Names" }
+                                                                    label { {i18n.t("person_form.given_names")} }
                                                                     input {
                                                                         r#type: "text",
                                                                         value: "{edit_name_given}",
@@ -665,7 +678,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                     }
                                                                 }
                                                                 div { class: "form-group",
-                                                                    label { "Surname" }
+                                                                    label { {i18n.t("person_form.surname")} }
                                                                     input {
                                                                         r#type: "text",
                                                                         value: "{edit_name_surname}",
@@ -675,7 +688,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                             }
                                                             div { class: "form-row",
                                                                 div { class: "form-group",
-                                                                    label { "Prefix" }
+                                                                    label { {i18n.t("person_form.prefix")} }
                                                                     input {
                                                                         r#type: "text",
                                                                         value: "{edit_name_prefix}",
@@ -683,7 +696,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                     }
                                                                 }
                                                                 div { class: "form-group",
-                                                                    label { "Suffix" }
+                                                                    label { {i18n.t("person_form.suffix")} }
                                                                     input {
                                                                         r#type: "text",
                                                                         value: "{edit_name_suffix}",
@@ -691,7 +704,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                     }
                                                                 }
                                                                 div { class: "form-group",
-                                                                    label { "Nickname" }
+                                                                    label { {i18n.t("person_form.nickname")} }
                                                                     input {
                                                                         r#type: "text",
                                                                         value: "{edit_name_nickname}",
@@ -738,7 +751,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                             });
                                                                         }
                                                                     },
-                                                                    "Save"
+                                                                    {i18n.t("common.save")}
                                                                 }
                                                                 button {
                                                                     class: "btn btn-outline btn-sm",
@@ -746,7 +759,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                         editing_name_id.set(None);
                                                                         edit_name_error.set(None);
                                                                     },
-                                                                    "Cancel"
+                                                                    {i18n.t("common.cancel")}
                                                                 }
                                                             }
                                                         }
@@ -761,7 +774,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                     "{sn}"
                                                                 }
                                                                 if prim {
-                                                                    span { class: "badge", style: "background: var(--color-primary); color: white;", "Primary" }
+                                                                    span { class: "badge", style: "background: var(--color-primary); color: white;", {i18n.t("person_form.primary")} }
                                                                 }
                                                             }
                                                             div { class: "person-form-item-actions",
@@ -778,7 +791,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                         edit_name_primary.set(prim);
                                                                         edit_name_error.set(None);
                                                                     },
-                                                                    "Edit"
+                                                                    {i18n.t("common.edit")}
                                                                 }
                                                                 button {
                                                                     class: "btn btn-danger btn-sm",
@@ -797,7 +810,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                             });
                                                                         }
                                                                     },
-                                                                    "Delete"
+                                                                    {i18n.t("common.delete")}
                                                                 }
                                                             }
                                                         }
@@ -810,7 +823,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         div { class: "error-msg", "Failed to load names: {e}" }
                                     },
                                     None => rsx! {
-                                        div { class: "loading", "Loading names..." }
+                                        div { class: "loading", {i18n.t("person_form.loading_names")} }
                                     },
                                 }
                             }
@@ -820,32 +833,32 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     // ── Birth tab ──
                     if active_tab() == "birth" {
                         div { class: "person-form-section",
-                            h3 { style: "font-size: 0.95rem; margin-bottom: 12px;", "Birth" }
+                            h3 { style: "font-size: 0.95rem; margin-bottom: 12px;", {i18n.t("person_form.birth")} }
                             div { class: "form-group",
-                                label { "Date" }
+                                label { {i18n.t("person_form.date")} }
                                 input {
                                     r#type: "text",
-                                    placeholder: "e.g. 1 Jan 1900, ABT 1850, BET 1800 AND 1810",
+                                    placeholder: "{i18n.t(\"person_form.date_placeholder_long\")}",
                                     value: "{birth_date}",
                                     oninput: move |e: Event<FormData>| { birth_date.set(e.value()); has_changes.set(true); },
                                 }
                             }
                             div { class: "form-group",
-                                label { "Place" }
+                                label { {i18n.t("person_form.place")} }
                                 select {
                                     value: "{birth_place_id}",
                                     oninput: move |e: Event<FormData>| birth_place_id.set(e.value()),
-                                    option { value: "", "-- No place --" }
+                                    option { value: "", {i18n.t("person_form.no_place")} }
                                     for (pid, pname) in place_options.iter() {
                                         option { value: "{pid}", "{pname}" }
                                     }
                                 }
                             }
                             div { class: "form-group",
-                                label { "Description" }
+                                label { {i18n.t("person_form.description")} }
                                 input {
                                     r#type: "text",
-                                    placeholder: "Optional description",
+                                    placeholder: "{i18n.t(\"person_form.description_placeholder\")}",
                                     value: "{birth_desc}",
                                     oninput: move |e: Event<FormData>| { birth_desc.set(e.value()); has_changes.set(true); },
                                 }
@@ -853,7 +866,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             button {
                                 class: "btn btn-primary",
                                 onclick: on_save_birth,
-                                if birth_event_id().is_some() { "Update Birth" } else { "Save Birth" }
+                                if birth_event_id().is_some() { {i18n.t("person_form.update_birth")} } else { {i18n.t("person_form.save_birth")} }
                             }
                         }
                     }
@@ -861,32 +874,32 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     // ── Death tab ──
                     if active_tab() == "death" {
                         div { class: "person-form-section",
-                            h3 { style: "font-size: 0.95rem; margin-bottom: 12px;", "Death" }
+                            h3 { style: "font-size: 0.95rem; margin-bottom: 12px;", {i18n.t("person_form.death")} }
                             div { class: "form-group",
-                                label { "Date" }
+                                label { {i18n.t("person_form.date")} }
                                 input {
                                     r#type: "text",
-                                    placeholder: "e.g. 15 Mar 1975",
+                                    placeholder: "{i18n.t(\"person_form.death_date_placeholder\")}",
                                     value: "{death_date}",
                                     oninput: move |e: Event<FormData>| { death_date.set(e.value()); has_changes.set(true); },
                                 }
                             }
                             div { class: "form-group",
-                                label { "Place" }
+                                label { {i18n.t("person_form.place")} }
                                 select {
                                     value: "{death_place_id}",
                                     oninput: move |e: Event<FormData>| death_place_id.set(e.value()),
-                                    option { value: "", "-- No place --" }
+                                    option { value: "", {i18n.t("person_form.no_place")} }
                                     for (pid, pname) in place_options.iter() {
                                         option { value: "{pid}", "{pname}" }
                                     }
                                 }
                             }
                             div { class: "form-group",
-                                label { "Description" }
+                                label { {i18n.t("person_form.description")} }
                                 input {
                                     r#type: "text",
-                                    placeholder: "Optional description",
+                                    placeholder: "{i18n.t(\"person_form.description_placeholder\")}",
                                     value: "{death_desc}",
                                     oninput: move |e: Event<FormData>| { death_desc.set(e.value()); has_changes.set(true); },
                                 }
@@ -894,7 +907,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             button {
                                 class: "btn btn-primary",
                                 onclick: on_save_death,
-                                if death_event_id().is_some() { "Update Death" } else { "Save Death" }
+                                if death_event_id().is_some() { {i18n.t("person_form.update_death")} } else { {i18n.t("person_form.save_death")} }
                             }
                         }
                     }
@@ -903,11 +916,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     if active_tab() == "events" {
                         div { class: "person-form-section",
                             div { class: "section-header",
-                                h3 { style: "font-size: 0.95rem;", "Other Events" }
+                                h3 { style: "font-size: 0.95rem;", {i18n.t("person_form.other_events")} }
                                 button {
                                     class: "btn btn-primary btn-sm",
                                     onclick: move |_| show_event_form.toggle(),
-                                    if show_event_form() { "Cancel" } else { "Add Event" }
+                                    if show_event_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_event")} }
                                 }
                             }
 
@@ -918,39 +931,39 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                     div { class: "form-row",
                                         div { class: "form-group",
-                                            label { "Type" }
+                                            label { {i18n.t("person_form.type")} }
                                             select {
                                                 value: "{event_form_type}",
                                                 oninput: move |e: Event<FormData>| event_form_type.set(e.value()),
-                                                optgroup { label: "Sacraments",
-                                                    option { value: "Baptism", "Baptism" }
-                                                    option { value: "Burial", "Burial" }
-                                                    option { value: "Cremation", "Cremation" }
+                                                optgroup { label: "{i18n.t(\"person_form.sacraments\")}",
+                                                    option { value: "Baptism", {i18n.t("event.type.baptism")} }
+                                                    option { value: "Burial", {i18n.t("event.type.burial")} }
+                                                    option { value: "Cremation", {i18n.t("event.type.cremation")} }
                                                 }
-                                                optgroup { label: "Civil",
-                                                    option { value: "Census", "Census" }
-                                                    option { value: "Graduation", "Graduation" }
-                                                    option { value: "Immigration", "Immigration" }
-                                                    option { value: "Emigration", "Emigration" }
-                                                    option { value: "Naturalization", "Naturalization" }
-                                                    option { value: "Occupation", "Occupation" }
-                                                    option { value: "Residence", "Residence" }
-                                                    option { value: "Retirement", "Retirement" }
+                                                optgroup { label: "{i18n.t(\"person_form.civil\")}",
+                                                    option { value: "Census", {i18n.t("event.type.census")} }
+                                                    option { value: "Graduation", {i18n.t("event.type.graduation")} }
+                                                    option { value: "Immigration", {i18n.t("event.type.immigration")} }
+                                                    option { value: "Emigration", {i18n.t("event.type.emigration")} }
+                                                    option { value: "Naturalization", {i18n.t("event.type.naturalization")} }
+                                                    option { value: "Occupation", {i18n.t("event.type.occupation")} }
+                                                    option { value: "Residence", {i18n.t("event.type.residence")} }
+                                                    option { value: "Retirement", {i18n.t("event.type.retirement")} }
                                                 }
-                                                optgroup { label: "Legal",
-                                                    option { value: "Will", "Will" }
-                                                    option { value: "Probate", "Probate" }
+                                                optgroup { label: "{i18n.t(\"person_form.legal\")}",
+                                                    option { value: "Will", {i18n.t("event.type.will")} }
+                                                    option { value: "Probate", {i18n.t("event.type.probate")} }
                                                 }
-                                                optgroup { label: "Other",
-                                                    option { value: "Other", "Other" }
+                                                optgroup { label: "{i18n.t(\"name_type.other\")}",
+                                                    option { value: "Other", {i18n.t("event.type.other")} }
                                                 }
                                             }
                                         }
                                         div { class: "form-group",
-                                            label { "Date" }
+                                            label { {i18n.t("person_form.date")} }
                                             input {
                                                 r#type: "text",
-                                                placeholder: "e.g. 1 Jan 1900",
+                                                placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
                                                 value: "{event_form_date}",
                                                 oninput: move |e: Event<FormData>| event_form_date.set(e.value()),
                                             }
@@ -958,18 +971,18 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                     div { class: "form-row",
                                         div { class: "form-group",
-                                            label { "Place" }
+                                            label { {i18n.t("person_form.place")} }
                                             select {
                                                 value: "{event_form_place_id}",
                                                 oninput: move |e: Event<FormData>| event_form_place_id.set(e.value()),
-                                                option { value: "", "-- No place --" }
+                                                option { value: "", {i18n.t("person_form.no_place")} }
                                                 for (pid, pname) in place_options.iter() {
                                                     option { value: "{pid}", "{pname}" }
                                                 }
                                             }
                                         }
                                         div { class: "form-group",
-                                            label { "Description" }
+                                            label { {i18n.t("person_form.description")} }
                                             input {
                                                 r#type: "text",
                                                 value: "{event_form_desc}",
@@ -980,14 +993,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     button {
                                         class: "btn btn-primary btn-sm",
                                         onclick: on_create_event,
-                                        "Create Event"
+                                        {i18n.t("person.create_event")}
                                     }
                                 }
                             }
 
                             if other_events.is_empty() {
                                 div { class: "empty-state",
-                                    p { "No other events recorded." }
+                                    p { {i18n.t("person_form.no_other_events")} }
                                 }
                             } else {
                                 for ev in other_events.iter() {
@@ -1003,7 +1016,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                     span { class: "badge", "{et}" }
                                                     if !date.is_empty() { span { "{date}" } }
                                                     if !place.is_empty() { span { class: "text-muted", "@ {place}" } }
-                                                    if !desc.is_empty() { span { class: "text-muted", "— {desc}" } }
+                                                    if !desc.is_empty() { span { class: "text-muted", "\u{2014} {desc}" } }
                                                 }
                                                 div { class: "person-form-item-actions",
                                                     button {
@@ -1023,7 +1036,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 });
                                                             }
                                                         },
-                                                        "Delete"
+                                                        {i18n.t("common.delete")}
                                                     }
                                                 }
                                             }
@@ -1038,11 +1051,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     if active_tab() == "notes" {
                         div { class: "person-form-section",
                             div { class: "section-header",
-                                h3 { style: "font-size: 0.95rem;", "Notes" }
+                                h3 { style: "font-size: 0.95rem;", {i18n.t("person_form.notes")} }
                                 button {
                                     class: "btn btn-primary btn-sm",
                                     onclick: move |_| show_note_form.toggle(),
-                                    if show_note_form() { "Cancel" } else { "Add Note" }
+                                    if show_note_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_note")} }
                                 }
                             }
 
@@ -1054,7 +1067,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     div { class: "form-group",
                                         textarea {
                                             rows: 4,
-                                            placeholder: "Enter note text...",
+                                            placeholder: "{i18n.t(\"person_form.note_placeholder\")}",
                                             value: "{note_form_text}",
                                             oninput: move |e: Event<FormData>| note_form_text.set(e.value()),
                                         }
@@ -1062,14 +1075,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     button {
                                         class: "btn btn-primary btn-sm",
                                         onclick: on_create_note,
-                                        "Create Note"
+                                        {i18n.t("person.create_note")}
                                     }
                                 }
                             }
 
                             if notes_list.is_empty() {
                                 div { class: "empty-state",
-                                    p { "No notes recorded." }
+                                    p { {i18n.t("person_form.no_notes")} }
                                 }
                             } else {
                                 for note in notes_list.iter() {
@@ -1104,7 +1117,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 });
                                                             }
                                                         },
-                                                        "Delete"
+                                                        {i18n.t("common.delete")}
                                                     }
                                                 }
                                             }
@@ -1121,9 +1134,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         // Discard changes confirmation
         if show_discard_confirm() {
             crate::components::confirm_dialog::ConfirmDialog {
-                title: "Discard changes?",
-                message: "You have unsaved changes. Are you sure you want to close?".to_string(),
-                confirm_label: "Discard",
+                title: "{i18n.t(\"person_form.discard_title\")}",
+                message: i18n.t("person_form.discard_message"),
+                confirm_label: "{i18n.t(\"person_form.discard_confirm\")}",
                 confirm_class: "btn btn-danger",
                 error: None,
                 on_confirm: move |_| {
@@ -1142,6 +1155,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
 #[allow(clippy::too_many_arguments)]
 fn render_name_form(
+    i18n: &crate::i18n::I18n,
     error: &Signal<Option<String>>,
     name_type_mut: &mut Signal<String>,
     given_mut: &mut Signal<String>,
@@ -1152,6 +1166,7 @@ fn render_name_form(
     primary_mut: &mut Signal<bool>,
     on_create: impl FnMut(Event<MouseData>) + 'static,
 ) -> Element {
+    let i18n = *i18n;
     let mut name_type_sig = *name_type_mut;
     let mut given_sig = *given_mut;
     let mut surname_sig = *surname_mut;
@@ -1167,43 +1182,43 @@ fn render_name_form(
             }
             div { class: "form-row",
                 div { class: "form-group",
-                    label { "Name kind" }
+                    label { {i18n.t("person_form.name_type")} }
                     select {
                         value: "{name_type_sig}",
                         oninput: move |e: Event<FormData>| name_type_sig.set(e.value()),
-                        option { value: "Birth", "Birth name" }
-                        option { value: "Married", "Married name" }
-                        option { value: "AlsoKnownAs", "Also known as" }
-                        option { value: "Maiden", "Maiden name" }
-                        option { value: "Religious", "Religious name" }
-                        option { value: "Other", "Other" }
+                        option { value: "Birth", {i18n.t("name_type.birth")} }
+                        option { value: "Married", {i18n.t("name_type.married")} }
+                        option { value: "AlsoKnownAs", {i18n.t("name_type.also_known_as")} }
+                        option { value: "Maiden", {i18n.t("name_type.maiden")} }
+                        option { value: "Religious", {i18n.t("name_type.religious")} }
+                        option { value: "Other", {i18n.t("name_type.other")} }
                     }
                 }
                 div { class: "form-group",
-                    label { "Primary" }
+                    label { {i18n.t("person_form.primary")} }
                     select {
                         value: if primary_sig() { "true" } else { "false" },
                         oninput: move |e: Event<FormData>| primary_sig.set(e.value() == "true"),
-                        option { value: "true", "Yes" }
-                        option { value: "false", "No" }
+                        option { value: "true", {i18n.t("common.yes")} }
+                        option { value: "false", {i18n.t("common.no")} }
                     }
                 }
             }
             div { class: "form-row",
                 div { class: "form-group",
-                    label { "Given Names" }
+                    label { {i18n.t("person_form.given_names")} }
                     input {
                         r#type: "text",
-                        placeholder: "e.g. Jean-Pierre",
+                        placeholder: "{i18n.t(\"person_form.given_placeholder\")}",
                         value: "{given_sig}",
                         oninput: move |e: Event<FormData>| given_sig.set(e.value()),
                     }
                 }
                 div { class: "form-group",
-                    label { "Surname" }
+                    label { {i18n.t("person_form.surname")} }
                     input {
                         r#type: "text",
-                        placeholder: "e.g. Dupont",
+                        placeholder: "{i18n.t(\"person_form.surname_placeholder\")}",
                         value: "{surname_sig}",
                         oninput: move |e: Event<FormData>| surname_sig.set(e.value()),
                     }
@@ -1211,34 +1226,34 @@ fn render_name_form(
             }
             div { class: "form-row",
                 div { class: "form-group",
-                    label { "Prefix" }
+                    label { {i18n.t("person_form.prefix")} }
                     input {
                         r#type: "text",
-                        placeholder: "e.g. Dr.",
+                        placeholder: "{i18n.t(\"person_form.prefix_placeholder\")}",
                         value: "{prefix_sig}",
                         oninput: move |e: Event<FormData>| prefix_sig.set(e.value()),
                     }
                 }
                 div { class: "form-group",
-                    label { "Suffix" }
+                    label { {i18n.t("person_form.suffix")} }
                     input {
                         r#type: "text",
-                        placeholder: "e.g. Jr.",
+                        placeholder: "{i18n.t(\"person_form.suffix_placeholder\")}",
                         value: "{suffix_sig}",
                         oninput: move |e: Event<FormData>| suffix_sig.set(e.value()),
                     }
                 }
                 div { class: "form-group",
-                    label { "Nickname" }
+                    label { {i18n.t("person_form.nickname")} }
                     input {
                         r#type: "text",
-                        placeholder: "e.g. JP",
+                        placeholder: "{i18n.t(\"person_form.nickname_placeholder\")}",
                         value: "{nickname_sig}",
                         oninput: move |e: Event<FormData>| nickname_sig.set(e.value()),
                     }
                 }
             }
-            button { class: "btn btn-primary btn-sm", onclick: on_create, "Create Name" }
+            button { class: "btn btn-primary btn-sm", onclick: on_create, {i18n.t("person.create_name")} }
         }
     }
 }

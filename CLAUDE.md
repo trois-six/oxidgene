@@ -97,4 +97,4 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–B complete. Currently in EPIC D (UX, tree visualization, design system). See `docs/specifications/roadmap.md` for details. Update this file each time a new feature is developped.
+EPICs A–D complete. Starting EPIC E (Security & Deployment). See `docs/specifications/roadmap.md` for details. Update this file each time a new feature is developped.

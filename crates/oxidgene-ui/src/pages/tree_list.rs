@@ -5,11 +5,13 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::i18n::use_i18n;
 use crate::router::Route;
 
 /// Page rendered at `/trees`.
 #[component]
 pub fn TreeList() -> Element {
+    let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut refresh_counter = use_signal(|| 0u32);
 
@@ -46,7 +48,7 @@ pub fn TreeList() -> Element {
         let desc = new_desc().trim().to_string();
         spawn(async move {
             if name.is_empty() {
-                form_error.set(Some("Name is required".to_string()));
+                form_error.set(Some(i18n.t("tree.form.name_required")));
                 return;
             }
             let body = CreateTreeBody {
@@ -77,7 +79,7 @@ pub fn TreeList() -> Element {
         let desc = edit_desc().trim().to_string();
         spawn(async move {
             if name.is_empty() {
-                edit_error.set(Some("Name is required".to_string()));
+                edit_error.set(Some(i18n.t("tree.form.name_required")));
                 return;
             }
             let body = UpdateTreeBody {
@@ -120,51 +122,51 @@ pub fn TreeList() -> Element {
     rsx! {
         div { class: "page-content",
         div { class: "page-header",
-            h1 { "Genealogy Trees" }
+            h1 { {i18n.t("tree_list.title")} }
             button {
                 class: "btn btn-primary",
                 onclick: move |_| show_form.toggle(),
-                if show_form() { "Cancel" } else { "New Tree" }
+                if show_form() { {i18n.t("common.cancel")} } else { {i18n.t("home.new_tree")} }
             }
         }
 
         // Create tree form
         if show_form() {
             div { class: "card", style: "margin-bottom: 24px;",
-                h3 { style: "margin-bottom: 16px;", "Create New Tree" }
+                h3 { style: "margin-bottom: 16px;", {i18n.t("tree_list.create_title")} }
 
                 if let Some(err) = form_error() {
                     div { class: "error-msg", "{err}" }
                 }
 
                 div { class: "form-group",
-                    label { "Name" }
+                    label { {i18n.t("tree.form.name_label")} }
                     input {
                         r#type: "text",
-                        placeholder: "e.g. Erraud Family Tree",
+                        placeholder: "{i18n.t(\"tree.form.name_placeholder\")}",
                         value: "{new_name}",
                         oninput: move |e: Event<FormData>| new_name.set(e.value()),
                     }
                 }
                 div { class: "form-group",
-                    label { "Description (optional)" }
+                    label { {i18n.t("tree.form.description_label")} }
                     textarea {
                         rows: 3,
-                        placeholder: "A brief description of this tree...",
+                        placeholder: "{i18n.t(\"tree.form.description_placeholder\")}",
                         value: "{new_desc}",
                         oninput: move |e: Event<FormData>| new_desc.set(e.value()),
                     }
                 }
-                button { class: "btn btn-primary", onclick: on_create, "Create" }
+                button { class: "btn btn-primary", onclick: on_create, {i18n.t("common.create")} }
             }
         }
 
         // Delete confirmation dialog
         if confirm_delete_id().is_some() {
             ConfirmDialog {
-                title: "Delete Tree",
-                message: format!("Are you sure you want to delete {}? This action cannot be undone.", confirm_delete_name()),
-                confirm_label: "Delete",
+                title: i18n.t("confirm.delete_tree.title"),
+                message: i18n.t_args("confirm.delete_tree.message_name", &[("name", &confirm_delete_name())]),
+                confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
                 error: delete_error(),
                 on_confirm: on_confirm_delete,
@@ -180,8 +182,8 @@ pub fn TreeList() -> Element {
             Some(Ok(conn)) => rsx! {
                 if conn.edges.is_empty() {
                     div { class: "empty-state",
-                        h3 { "No trees yet" }
-                        p { "Create your first genealogy tree to get started." }
+                        h3 { {i18n.t("tree_list.no_trees")} }
+                        p { {i18n.t("tree_list.no_trees_hint")} }
                     }
                 } else {
                     div { class: "card",
@@ -189,10 +191,10 @@ pub fn TreeList() -> Element {
                             table {
                                 thead {
                                     tr {
-                                        th { "Name" }
-                                        th { "Description" }
-                                        th { "Created" }
-                                        th { style: "width: 140px;", "Actions" }
+                                        th { {i18n.t("tree.form.name_label")} }
+                                        th { {i18n.t("tree.form.description_label")} }
+                                        th { {i18n.t("tree_list.created")} }
+                                        th { style: "width: 140px;", {i18n.t("tree_list.actions")} }
                                     }
                                 }
                                 tbody {
@@ -214,7 +216,7 @@ pub fn TreeList() -> Element {
                                                                     div { class: "error-msg", "{err}" }
                                                                 }
                                                                 div { class: "form-group", style: "margin-bottom: 0;",
-                                                                    label { "Name" }
+                                                                    label { {i18n.t("tree.form.name_label")} }
                                                                     input {
                                                                         r#type: "text",
                                                                         value: "{edit_name}",
@@ -222,7 +224,7 @@ pub fn TreeList() -> Element {
                                                                     }
                                                                 }
                                                                 div { class: "form-group", style: "margin-bottom: 0;",
-                                                                    label { "Description" }
+                                                                    label { {i18n.t("tree.form.description_label")} }
                                                                     input {
                                                                         r#type: "text",
                                                                         value: "{edit_desc}",
@@ -233,7 +235,7 @@ pub fn TreeList() -> Element {
                                                                     button {
                                                                         class: "btn btn-primary",
                                                                         onclick: on_save_edit.clone(),
-                                                                        "Save"
+                                                                        {i18n.t("common.save")}
                                                                     }
                                                                     button {
                                                                         class: "btn btn-outline",
@@ -241,7 +243,7 @@ pub fn TreeList() -> Element {
                                                                             editing_id.set(None);
                                                                             edit_error.set(None);
                                                                         },
-                                                                        "Cancel"
+                                                                        {i18n.t("common.cancel")}
                                                                     }
                                                                 }
                                                             }
@@ -273,7 +275,7 @@ pub fn TreeList() -> Element {
                                                                         edit_desc.set(tree_desc.clone());
                                                                         edit_error.set(None);
                                                                     },
-                                                                    "Edit"
+                                                                    {i18n.t("common.edit")}
                                                                 }
                                                                 button {
                                                                     class: "btn btn-danger btn-sm",
@@ -282,7 +284,7 @@ pub fn TreeList() -> Element {
                                                                         confirm_delete_name.set(tree_name_del.clone());
                                                                         delete_error.set(None);
                                                                     },
-                                                                    "Delete"
+                                                                    {i18n.t("common.delete")}
                                                                 }
                                                             }
                                                         }
@@ -298,10 +300,10 @@ pub fn TreeList() -> Element {
                 }
             },
             Some(Err(e)) => rsx! {
-                div { class: "error-msg", "Failed to load trees: {e}" }
+                div { class: "error-msg", "{e}" }
             },
             None => rsx! {
-                div { class: "loading", "Loading trees..." }
+                div { class: "loading", {i18n.t("common.loading")} }
             },
         }
         } // .page-content
