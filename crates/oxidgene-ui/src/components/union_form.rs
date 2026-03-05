@@ -11,6 +11,7 @@ use crate::api::{
     AddChildBody, AddSpouseBody, ApiClient, CreateEventBody, CreatePersonBody, UpdateEventBody,
 };
 use crate::components::search_person::SearchPerson;
+use crate::i18n::use_i18n;
 use crate::utils::{opt_str, resolve_name};
 use oxidgene_core::{ChildType, EventType, Sex, SpouseRole};
 
@@ -33,6 +34,7 @@ pub struct UnionFormProps {
 /// Modal union/family edit form.
 #[component]
 pub fn UnionForm(props: UnionFormProps) -> Element {
+    let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut refresh = use_signal(|| 0u32);
 
@@ -419,7 +421,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
                 // Header
                 div { class: "union-form-header",
-                    h2 { "Edit Union" }
+                    h2 { {i18n.t("union_form.title")} }
                     button {
                         class: "person-form-close",
                         onclick: move |_| props.on_close.call(()),
@@ -435,23 +437,23 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     // ── Spouses section ──
                     div { class: "union-form-section",
                         div { class: "section-header",
-                            h3 { style: "font-size: 0.95rem;", "Spouses" }
+                            h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.spouses")} }
                             button {
                                 class: "btn btn-primary btn-sm",
                                 onclick: move |_| {
                                     show_add_spouse.toggle();
                                     show_add_child.set(false);
                                 },
-                                if show_add_spouse() { "Cancel" } else { "Add Spouse" }
+                                if show_add_spouse() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_spouse")} }
                             }
                         }
 
                         if show_add_spouse() {
                             div { class: "linking-panel",
-                                p { class: "linking-panel-title", "Link existing person or create new:" }
+                                p { class: "linking-panel-title", {i18n.t("union_form.link_or_create")} }
                                 SearchPerson {
                                     tree_id: tid,
-                                    placeholder: "Search for spouse...",
+                                    placeholder: i18n.t("union_form.search_spouse"),
                                     on_select: on_select_spouse,
                                     on_cancel: move |_| show_add_spouse.set(false),
                                 }
@@ -459,7 +461,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 button {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_spouse,
-                                    "Create New Person"
+                                    {i18n.t("union_form.create_person")}
                                 }
                             }
                         }
@@ -468,7 +470,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             Some(Ok(spouses)) => rsx! {
                                 if spouses.is_empty() {
                                     div { class: "empty-state",
-                                        p { "No spouses in this union." }
+                                        p { {i18n.t("union_form.no_spouses")} }
                                     }
                                 } else {
                                     for spouse in spouses.iter() {
@@ -500,7 +502,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                                     });
                                                                 }
                                                             },
-                                                            "Remove"
+                                                            {i18n.t("common.remove")}
                                                         }
                                                     }
                                                 }
@@ -510,10 +512,10 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 }
                             },
                             Some(Err(e)) => rsx! {
-                                div { class: "error-msg", "Failed to load spouses: {e}" }
+                                div { class: "error-msg", {i18n.t_args("union_form.load_spouses_error", &[("error", &e.to_string())])} }
                             },
                             None => rsx! {
-                                div { class: "loading", "Loading spouses..." }
+                                div { class: "loading", {i18n.t("union_form.loading_spouses")} }
                             },
                         }
                     }
@@ -521,18 +523,18 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     // ── Union events section ──
                     div { class: "union-form-section",
                         div { class: "section-header",
-                            h3 { style: "font-size: 0.95rem;", "Union Events" }
+                            h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.events")} }
                             button {
                                 class: "btn btn-primary btn-sm",
                                 onclick: move |_| show_add_union_event.toggle(),
-                                if show_add_union_event() { "Cancel" } else { "+ Add union event" }
+                                if show_add_union_event() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_event")} }
                             }
                         }
 
                         // Existing union events
                         if union_events.is_empty() && marriage_event_id().is_none() {
                             div { class: "empty-state",
-                                p { "No union events. Add a marriage, divorce, or other union event." }
+                                p { {i18n.t("union_form.no_events")} }
                             }
                         }
 
@@ -540,30 +542,30 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         if marriage_event_id().is_some() || union_events.is_empty() {
                             div { style: "margin-bottom: 12px; padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border);",
                                 div { class: "form-group",
-                                    label { "Date" }
+                                    label { {i18n.t("person_form.date")} }
                                     input {
                                         r#type: "text",
-                                        placeholder: "e.g. 15 Jun 1920",
+                                        placeholder: "{i18n.t(\"union_form.date_placeholder\")}",
                                         value: "{marriage_date}",
                                         oninput: move |e: Event<FormData>| marriage_date.set(e.value()),
                                     }
                                 }
                                 div { class: "form-group",
-                                    label { "Place" }
+                                    label { {i18n.t("person_form.place")} }
                                     select {
                                         value: "{marriage_place_id}",
                                         oninput: move |e: Event<FormData>| marriage_place_id.set(e.value()),
-                                        option { value: "", "-- No place --" }
+                                        option { value: "", {i18n.t("person_form.no_place")} }
                                         for (pid, pname) in place_options.iter() {
                                             option { value: "{pid}", "{pname}" }
                                         }
                                     }
                                 }
                                 div { class: "form-group",
-                                    label { "Description" }
+                                    label { {i18n.t("person_form.description")} }
                                     input {
                                         r#type: "text",
-                                        placeholder: "Optional description",
+                                        placeholder: "",
                                         value: "{marriage_desc}",
                                         oninput: move |e: Event<FormData>| marriage_desc.set(e.value()),
                                     }
@@ -571,7 +573,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 button {
                                     class: "btn btn-primary",
                                     onclick: on_save_marriage,
-                                    if marriage_event_id().is_some() { "Update Marriage" } else { "Save Marriage" }
+                                    if marriage_event_id().is_some() { {i18n.t("union_form.update_marriage")} } else { {i18n.t("union_form.save_marriage")} }
                                 }
                             }
                         }
@@ -609,7 +611,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                             });
                                                         }
                                                     },
-                                                    "Delete"
+                                                    {i18n.t("common.remove")}
                                                 }
                                             }
                                         }
@@ -623,25 +625,25 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             div { style: "padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); margin-top: 8px;",
                                 div { class: "form-row",
                                     div { class: "form-group",
-                                        label { "Event Type" }
+                                        label { {i18n.t("person_form.type")} }
                                         select {
                                             value: "{new_union_type}",
                                             oninput: move |e: Event<FormData>| new_union_type.set(e.value()),
-                                            option { value: "Marriage", "Marriage" }
-                                            option { value: "Divorce", "Divorce" }
-                                            option { value: "Annulment", "Annulment" }
-                                            option { value: "Engagement", "Engagement" }
-                                            option { value: "MarriageBann", "Marriage Bann" }
-                                            option { value: "MarriageContract", "Marriage Contract" }
-                                            option { value: "MarriageLicense", "Marriage License" }
-                                            option { value: "MarriageSettlement", "Marriage Settlement" }
+                                            option { value: "Marriage", {i18n.t("event.type.marriage")} }
+                                            option { value: "Divorce", {i18n.t("event.type.divorce")} }
+                                            option { value: "Annulment", {i18n.t("event.type.annulment")} }
+                                            option { value: "Engagement", {i18n.t("event.type.engagement")} }
+                                            option { value: "MarriageBann", {i18n.t("event.type.marriage_bann")} }
+                                            option { value: "MarriageContract", {i18n.t("event.type.marriage_contract")} }
+                                            option { value: "MarriageLicense", {i18n.t("event.type.marriage_license")} }
+                                            option { value: "MarriageSettlement", {i18n.t("event.type.marriage_settlement")} }
                                         }
                                     }
                                     div { class: "form-group",
-                                        label { "Date" }
+                                        label { {i18n.t("person_form.date")} }
                                         input {
                                             r#type: "text",
-                                            placeholder: "e.g. 15 Jun 1920",
+                                            placeholder: "{i18n.t(\"union_form.date_placeholder\")}",
                                             value: "{new_union_date}",
                                             oninput: move |e: Event<FormData>| new_union_date.set(e.value()),
                                         }
@@ -649,18 +651,18 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 }
                                 div { class: "form-row",
                                     div { class: "form-group",
-                                        label { "Place" }
+                                        label { {i18n.t("person_form.place")} }
                                         select {
                                             value: "{new_union_place}",
                                             oninput: move |e: Event<FormData>| new_union_place.set(e.value()),
-                                            option { value: "", "-- No place --" }
+                                            option { value: "", {i18n.t("person_form.no_place")} }
                                             for (pid, pname) in place_options.iter() {
                                                 option { value: "{pid}", "{pname}" }
                                             }
                                         }
                                     }
                                     div { class: "form-group",
-                                        label { "Description" }
+                                        label { {i18n.t("person_form.description")} }
                                         input {
                                             r#type: "text",
                                             value: "{new_union_desc}",
@@ -671,7 +673,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 button {
                                     class: "btn btn-primary btn-sm",
                                     onclick: on_create_union_event,
-                                    "Create Event"
+                                    {i18n.t("person.create_event")}
                                 }
                             }
                         }
@@ -680,23 +682,23 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     // ── Children section ──
                     div { class: "union-form-section",
                         div { class: "section-header",
-                            h3 { style: "font-size: 0.95rem;", "Children" }
+                            h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.children")} }
                             button {
                                 class: "btn btn-primary btn-sm",
                                 onclick: move |_| {
                                     show_add_child.toggle();
                                     show_add_spouse.set(false);
                                 },
-                                if show_add_child() { "Cancel" } else { "Add Child" }
+                                if show_add_child() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_child")} }
                             }
                         }
 
                         if show_add_child() {
                             div { class: "linking-panel",
-                                p { class: "linking-panel-title", "Link existing person or create new:" }
+                                p { class: "linking-panel-title", {i18n.t("union_form.link_or_create")} }
                                 SearchPerson {
                                     tree_id: tid,
-                                    placeholder: "Search for child...",
+                                    placeholder: i18n.t("union_form.search_child"),
                                     on_select: on_select_child,
                                     on_cancel: move |_| show_add_child.set(false),
                                 }
@@ -704,7 +706,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 button {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_child,
-                                    "Create New Person"
+                                    {i18n.t("union_form.create_person")}
                                 }
                             }
                         }
@@ -713,7 +715,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             Some(Ok(children)) => rsx! {
                                 if children.is_empty() {
                                     div { class: "empty-state",
-                                        p { "No children in this union." }
+                                        p { {i18n.t("union_form.no_children")} }
                                     }
                                 } else {
                                     for child in children.iter() {
@@ -745,7 +747,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                                     });
                                                                 }
                                                             },
-                                                            "Remove"
+                                                            {i18n.t("common.remove")}
                                                         }
                                                     }
                                                 }
@@ -755,10 +757,10 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 }
                             },
                             Some(Err(e)) => rsx! {
-                                div { class: "error-msg", "Failed to load children: {e}" }
+                                div { class: "error-msg", {i18n.t_args("union_form.load_children_error", &[("error", &e.to_string())])} }
                             },
                             None => rsx! {
-                                div { class: "loading", "Loading children..." }
+                                div { class: "loading", {i18n.t("union_form.loading_children")} }
                             },
                         }
                     }

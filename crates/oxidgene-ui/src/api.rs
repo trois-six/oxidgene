@@ -234,6 +234,56 @@ pub struct ExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
+// ── Response Cache ───────────────────────────────────────────────────
+
+const CACHE_TTL_SECS: i64 = 30;
+
+/// In-memory GET response cache with a fixed TTL.
+///
+/// Keyed by the request URL (path + serialised query string).
+/// Values are raw JSON bytes + the Unix timestamp when they were stored.
+type CacheInner =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (Vec<u8>, i64)>>>;
+
+#[derive(Clone, Default)]
+struct ResponseCache(CacheInner);
+
+impl std::fmt::Debug for ResponseCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ResponseCache({})",
+            self.0.lock().map(|c| c.len()).unwrap_or(0)
+        )
+    }
+}
+
+impl ResponseCache {
+    fn get(&self, key: &str) -> Option<Vec<u8>> {
+        let cache = self.0.lock().ok()?;
+        let (data, ts) = cache.get(key)?;
+        let age = chrono::Utc::now().timestamp() - ts;
+        if age < CACHE_TTL_SECS {
+            Some(data.clone())
+        } else {
+            None
+        }
+    }
+
+    fn set(&self, key: String, data: Vec<u8>) {
+        if let Ok(mut cache) = self.0.lock() {
+            cache.insert(key, (data, chrono::Utc::now().timestamp()));
+        }
+    }
+
+    /// Remove all entries whose key starts with `prefix`.
+    fn invalidate_prefix(&self, prefix: &str) {
+        if let Ok(mut cache) = self.0.lock() {
+            cache.retain(|k, _| !k.starts_with(prefix));
+        }
+    }
+}
+
 // ── API Client ──────────────────────────────────────────────────────
 
 /// Typed HTTP client for the OxidGene REST API.
@@ -241,6 +291,7 @@ pub struct ExportGedcomResult {
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
+    cache: ResponseCache,
 }
 
 /// Errors returned by the API client.
@@ -248,6 +299,8 @@ pub struct ApiClient {
 pub enum ApiError {
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 
     #[error("API error ({status}): {body}")]
     Api { status: u16, body: String },
@@ -265,6 +318,7 @@ impl ApiClient {
                 .build()
                 .expect("failed to build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
+            cache: ResponseCache::default(),
         }
     }
 
@@ -272,20 +326,63 @@ impl ApiClient {
         format!("{}{}", self.base_url, path)
     }
 
-    /// Helper: send a GET request and deserialize JSON response.
-    async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
-        let resp = self.client.get(self.url(path)).send().await?;
-        Self::handle_response(resp).await
+    /// Invalidate all cached responses for a given tree.
+    pub fn invalidate_tree(&self, tree_id: Uuid) {
+        self.cache
+            .invalidate_prefix(&format!("/api/v1/trees/{tree_id}"));
     }
 
-    /// Helper: send a GET request with query parameters.
+    /// Helper: send a cached GET request and deserialize JSON response.
+    async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+        if let Some(cached) = self.cache.get(path)
+            && let Ok(val) = serde_json::from_slice(&cached)
+        {
+            return Ok(val);
+        }
+        let resp = self.client.get(self.url(path)).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        let bytes = resp.bytes().await?;
+        let val: T = serde_json::from_slice(&bytes)?;
+        self.cache.set(path.to_string(), bytes.to_vec());
+        Ok(val)
+    }
+
+    /// Helper: send a cached GET request with query parameters.
     async fn get_with_query<T: serde::de::DeserializeOwned, Q: Serialize>(
         &self,
         path: &str,
         query: &Q,
     ) -> Result<T, ApiError> {
+        let cache_key = format!(
+            "{}?{}",
+            path,
+            serde_json::to_string(query).unwrap_or_default()
+        );
+        if let Some(cached) = self.cache.get(&cache_key)
+            && let Ok(val) = serde_json::from_slice(&cached)
+        {
+            return Ok(val);
+        }
         let resp = self.client.get(self.url(path)).query(query).send().await?;
-        Self::handle_response(resp).await
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        let bytes = resp.bytes().await?;
+        let val: T = serde_json::from_slice(&bytes)?;
+        self.cache.set(cache_key, bytes.to_vec());
+        Ok(val)
     }
 
     /// Helper: send a POST request with a JSON body.
@@ -359,15 +456,22 @@ impl ApiClient {
     }
 
     pub async fn create_tree(&self, body: &CreateTreeBody) -> Result<Tree, ApiError> {
-        self.post("/api/v1/trees", body).await
+        let result = self.post("/api/v1/trees", body).await?;
+        self.cache.invalidate_prefix("/api/v1/trees");
+        Ok(result)
     }
 
     pub async fn update_tree(&self, id: Uuid, body: &UpdateTreeBody) -> Result<Tree, ApiError> {
-        self.put(&format!("/api/v1/trees/{id}"), body).await
+        let result = self.put(&format!("/api/v1/trees/{id}"), body).await?;
+        self.cache.invalidate_prefix("/api/v1/trees");
+        Ok(result)
     }
 
     pub async fn delete_tree(&self, id: Uuid) -> Result<(), ApiError> {
-        self.delete_no_content(&format!("/api/v1/trees/{id}")).await
+        self.delete_no_content(&format!("/api/v1/trees/{id}"))
+            .await?;
+        self.cache.invalidate_prefix("/api/v1/trees");
+        Ok(())
     }
 
     // ── Persons ─────────────────────────────────────────────────────
@@ -399,8 +503,11 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreatePersonBody,
     ) -> Result<Person, ApiError> {
-        self.post(&format!("/api/v1/trees/{tree_id}/persons"), body)
-            .await
+        let result = self
+            .post(&format!("/api/v1/trees/{tree_id}/persons"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn update_person(
@@ -409,13 +516,18 @@ impl ApiClient {
         id: Uuid,
         body: &UpdatePersonBody,
     ) -> Result<Person, ApiError> {
-        self.put(&format!("/api/v1/trees/{tree_id}/persons/{id}"), body)
-            .await
+        let result = self
+            .put(&format!("/api/v1/trees/{tree_id}/persons/{id}"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_person(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/persons/{id}"))
-            .await
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     pub async fn get_ancestors(
@@ -471,11 +583,14 @@ impl ApiClient {
         person_id: Uuid,
         body: &CreatePersonNameBody,
     ) -> Result<PersonName, ApiError> {
-        self.post(
-            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
-            body,
-        )
-        .await
+        let result = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn update_person_name(
@@ -485,11 +600,14 @@ impl ApiClient {
         name_id: Uuid,
         body: &UpdatePersonNameBody,
     ) -> Result<PersonName, ApiError> {
-        self.put(
-            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
-            body,
-        )
-        .await
+        let result = self
+            .put(
+                &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_person_name(
@@ -501,7 +619,9 @@ impl ApiClient {
         self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"
         ))
-        .await
+        .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Families ────────────────────────────────────────────────────
@@ -529,16 +649,21 @@ impl ApiClient {
     }
 
     pub async fn create_family(&self, tree_id: Uuid) -> Result<Family, ApiError> {
-        self.post(
-            &format!("/api/v1/trees/{tree_id}/families"),
-            &serde_json::json!({}),
-        )
-        .await
+        let result = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/families"),
+                &serde_json::json!({}),
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_family(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/families/{id}"))
-            .await
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Family Spouses ──────────────────────────────────────────────
@@ -560,11 +685,14 @@ impl ApiClient {
         family_id: Uuid,
         body: &AddSpouseBody,
     ) -> Result<serde_json::Value, ApiError> {
-        self.post(
-            &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
-            body,
-        )
-        .await
+        let result = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn remove_spouse(
@@ -576,7 +704,9 @@ impl ApiClient {
         self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}"
         ))
-        .await
+        .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Family Children ─────────────────────────────────────────────
@@ -598,11 +728,14 @@ impl ApiClient {
         family_id: Uuid,
         body: &AddChildBody,
     ) -> Result<serde_json::Value, ApiError> {
-        self.post(
-            &format!("/api/v1/trees/{tree_id}/families/{family_id}/children"),
-            body,
-        )
-        .await
+        let result = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/families/{family_id}/children"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn remove_child(
@@ -614,7 +747,9 @@ impl ApiClient {
         self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/families/{family_id}/children/{child_id}"
         ))
-        .await
+        .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Events ──────────────────────────────────────────────────────
@@ -664,8 +799,11 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateEventBody,
     ) -> Result<Event, ApiError> {
-        self.post(&format!("/api/v1/trees/{tree_id}/events"), body)
-            .await
+        let result = self
+            .post(&format!("/api/v1/trees/{tree_id}/events"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn update_event(
@@ -674,13 +812,18 @@ impl ApiClient {
         id: Uuid,
         body: &UpdateEventBody,
     ) -> Result<Event, ApiError> {
-        self.put(&format!("/api/v1/trees/{tree_id}/events/{id}"), body)
-            .await
+        let result = self
+            .put(&format!("/api/v1/trees/{tree_id}/events/{id}"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_event(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/events/{id}"))
-            .await
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Places ──────────────────────────────────────────────────────
@@ -716,8 +859,11 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreatePlaceBody,
     ) -> Result<Place, ApiError> {
-        self.post(&format!("/api/v1/trees/{tree_id}/places"), body)
-            .await
+        let result = self
+            .post(&format!("/api/v1/trees/{tree_id}/places"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn update_place(
@@ -726,13 +872,18 @@ impl ApiClient {
         id: Uuid,
         body: &UpdatePlaceBody,
     ) -> Result<Place, ApiError> {
-        self.put(&format!("/api/v1/trees/{tree_id}/places/{id}"), body)
-            .await
+        let result = self
+            .put(&format!("/api/v1/trees/{tree_id}/places/{id}"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_place(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/places/{id}"))
-            .await
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Sources ─────────────────────────────────────────────────────
@@ -764,8 +915,11 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateSourceBody,
     ) -> Result<Source, ApiError> {
-        self.post(&format!("/api/v1/trees/{tree_id}/sources"), body)
-            .await
+        let result = self
+            .post(&format!("/api/v1/trees/{tree_id}/sources"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn update_source(
@@ -774,13 +928,18 @@ impl ApiClient {
         id: Uuid,
         body: &UpdateSourceBody,
     ) -> Result<Source, ApiError> {
-        self.put(&format!("/api/v1/trees/{tree_id}/sources/{id}"), body)
-            .await
+        let result = self
+            .put(&format!("/api/v1/trees/{tree_id}/sources/{id}"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_source(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/sources/{id}"))
-            .await
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Citations ────────────────────────────────────────────────────
@@ -790,8 +949,11 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateCitationBody,
     ) -> Result<Citation, ApiError> {
-        self.post(&format!("/api/v1/trees/{tree_id}/citations"), body)
-            .await
+        let result = self
+            .post(&format!("/api/v1/trees/{tree_id}/citations"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn update_citation(
@@ -800,16 +962,21 @@ impl ApiClient {
         citation_id: Uuid,
         body: &UpdateCitationBody,
     ) -> Result<Citation, ApiError> {
-        self.put(
-            &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
-            body,
-        )
-        .await
+        let result = self
+            .put(
+                &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_citation(&self, tree_id: Uuid, citation_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/citations/{citation_id}"))
-            .await
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Notes ─────────────────────────────────────────────────────────
@@ -844,8 +1011,11 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateNoteBody,
     ) -> Result<Note, ApiError> {
-        self.post(&format!("/api/v1/trees/{tree_id}/notes"), body)
-            .await
+        let result = self
+            .post(&format!("/api/v1/trees/{tree_id}/notes"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn update_note(
@@ -854,13 +1024,18 @@ impl ApiClient {
         note_id: Uuid,
         body: &UpdateNoteBody,
     ) -> Result<Note, ApiError> {
-        self.put(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"), body)
-            .await
+        let result = self
+            .put(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn delete_note(&self, tree_id: Uuid, note_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"))
-            .await
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── GEDCOM ──────────────────────────────────────────────────────
@@ -870,13 +1045,16 @@ impl ApiClient {
         tree_id: Uuid,
         gedcom: &str,
     ) -> Result<ImportGedcomResult, ApiError> {
-        self.post(
-            &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-            &ImportGedcomBody {
-                gedcom: gedcom.to_string(),
-            },
-        )
-        .await
+        let result = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/gedcom/import"),
+                &ImportGedcomBody {
+                    gedcom: gedcom.to_string(),
+                },
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn export_gedcom(&self, tree_id: Uuid) -> Result<ExportGedcomResult, ApiError> {

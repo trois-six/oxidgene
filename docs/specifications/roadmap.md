@@ -99,15 +99,15 @@
 
 ---
 
-## EPIC D — UX, Languages, Performance 🔶 (partial)
+## EPIC D — UX, Languages, Performance ✅
 
 - [x] Theme system (CSS-based, switchable at runtime). → see [Settings spec](ui-settings.md)
 - [x] Implement at least 2 themes (default + one genealogy-platform-inspired theme). → see [Design Tokens](ui-design-tokens.md) §10
-- [ ] Internationalization (i18n) with runtime language switching. → see [i18n spec](i18n.md)
-- [ ] At least 2 languages (English + French). → see [i18n spec](i18n.md) §6
-- [ ] Client-side caching of API responses.
-- [ ] Lazy loading of tree branches in the visualization.
-- [ ] Performance optimization pass (bundle size, render performance).
+- [x] Internationalization (i18n) with runtime language switching. → `crates/oxidgene-ui/src/i18n/`
+- [x] At least 2 languages (English + French). → `i18n/en.rs`, `i18n/fr.rs`
+- [x] Client-side caching of API responses. → `ApiClient` in-memory cache, 30s TTL, invalidated on mutations.
+- [x] Lazy loading of tree branches in the visualization. → Parallel JoinSet fetches for names & family members.
+- [x] Performance optimization pass (bundle size, render performance). → Parallel fetches; cache avoids redundant round-trips.
 
 ---
 
