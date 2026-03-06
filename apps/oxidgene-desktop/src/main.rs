@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 
 use axum::Router;
 use axum::routing::get;
+use clap::Parser;
 use dioxus::desktop::{Config, WindowBuilder};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
@@ -22,11 +23,22 @@ use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
+#[derive(Parser)]
+#[command(name = "oxidgene-desktop", about = "OxidGene desktop genealogy app")]
+struct Cli {
+    /// Enable debug logging (logs all person data received from the backend)
+    #[arg(long)]
+    debug: bool,
+}
+
 fn main() {
+    let cli = Cli::parse();
+
     // ── Initialize tracing ───────────────────────────────────────────
+    let default_level = if cli.debug { "debug" } else { "info" };
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level)),
         )
         .init();
 
