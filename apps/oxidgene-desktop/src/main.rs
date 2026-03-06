@@ -35,11 +35,13 @@ fn main() {
     let cli = Cli::parse();
 
     // ── Initialize tracing ───────────────────────────────────────────
-    let default_level = if cli.debug { "debug" } else { "info" };
+    let filter = if cli.debug {
+        "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug"
+    } else {
+        "info"
+    };
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level)),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(filter)))
         .init();
 
     // ── Resolve data directory ───────────────────────────────────────
