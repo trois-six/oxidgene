@@ -131,7 +131,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid IDs".to_string(),
                 });
             };
-            api.get_person(tid, pid).await
+            let person = api.get_person(tid, pid).await;
+            if let Ok(ref p) = person {
+                tracing::debug!(?p, "Person data received");
+            }
+            person
         }
     });
 
@@ -149,7 +153,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid IDs".to_string(),
                 });
             };
-            api.list_person_names(tid, pid).await
+            let names = api.list_person_names(tid, pid).await;
+            if let Ok(ref n) = names {
+                tracing::debug!(?n, "Person names received");
+            }
+            names
         }
     });
 
@@ -167,8 +175,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid IDs".to_string(),
                 });
             };
-            api.list_events(tid, Some(100), None, None, Some(pid), None)
-                .await
+            let events = api
+                .list_events(tid, Some(100), None, None, Some(pid), None)
+                .await;
+            if let Ok(ref e) = events {
+                tracing::debug!(?e, "Person events received");
+            }
+            events
         }
     });
 
@@ -203,7 +216,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid IDs".to_string(),
                 });
             };
-            api.list_notes(tid, Some(pid), None, None, None).await
+            let notes = api.list_notes(tid, Some(pid), None, None, None).await;
+            if let Ok(ref n) = notes {
+                tracing::debug!(?n, "Person notes received");
+            }
+            notes
         }
     });
 
@@ -392,7 +409,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                 }
             }
-            Ok((
+            let result = (
                 families
                     .edges
                     .into_iter()
@@ -400,7 +417,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     .collect::<Vec<_>>(),
                 all_spouses,
                 all_children,
-            ))
+            );
+            tracing::debug!(?result, "Person families received");
+            Ok(result)
         }
     });
 
