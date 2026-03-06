@@ -337,18 +337,23 @@ impl ApiClient {
         if let Some(cached) = self.cache.get(path)
             && let Ok(val) = serde_json::from_slice(&cached)
         {
+            tracing::debug!("GET {} (cached)", path);
             return Ok(val);
         }
-        let resp = self.client.get(self.url(path)).send().await?;
+        let url = self.url(path);
+        tracing::debug!("GET {url}");
+        let resp = self.client.get(&url).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            tracing::debug!("GET {url} -> {status} {body}");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = resp.bytes().await?;
+        tracing::debug!("GET {url} -> {status} ({} bytes): {}", bytes.len(), String::from_utf8_lossy(&bytes));
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(path.to_string(), bytes.to_vec());
         Ok(val)
@@ -368,18 +373,23 @@ impl ApiClient {
         if let Some(cached) = self.cache.get(&cache_key)
             && let Ok(val) = serde_json::from_slice(&cached)
         {
+            tracing::debug!("GET {} (cached)", cache_key);
             return Ok(val);
         }
-        let resp = self.client.get(self.url(path)).query(query).send().await?;
+        let url = self.url(path);
+        tracing::debug!("GET {url} query={}", serde_json::to_string(query).unwrap_or_default());
+        let resp = self.client.get(&url).query(query).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            tracing::debug!("GET {url} -> {status} {body}");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = resp.bytes().await?;
+        tracing::debug!("GET {url} -> {status} ({} bytes): {}", bytes.len(), String::from_utf8_lossy(&bytes));
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(cache_key, bytes.to_vec());
         Ok(val)
@@ -391,8 +401,11 @@ impl ApiClient {
         path: &str,
         body: &B,
     ) -> Result<T, ApiError> {
-        let resp = self.client.post(self.url(path)).json(body).send().await?;
-        Self::handle_response(resp).await
+        let url = self.url(path);
+        let body_json = serde_json::to_string(body).unwrap_or_default();
+        tracing::debug!("POST {url} body={body_json}");
+        let resp = self.client.post(&url).json(body).send().await?;
+        Self::handle_response(&url, "POST", resp).await
     }
 
     /// Helper: send a PUT request with a JSON body.
@@ -401,37 +414,49 @@ impl ApiClient {
         path: &str,
         body: &B,
     ) -> Result<T, ApiError> {
-        let resp = self.client.put(self.url(path)).json(body).send().await?;
-        Self::handle_response(resp).await
+        let url = self.url(path);
+        let body_json = serde_json::to_string(body).unwrap_or_default();
+        tracing::debug!("PUT {url} body={body_json}");
+        let resp = self.client.put(&url).json(body).send().await?;
+        Self::handle_response(&url, "PUT", resp).await
     }
 
     /// Helper: send a DELETE request expecting 204 No Content.
     async fn delete_no_content(&self, path: &str) -> Result<(), ApiError> {
-        let resp = self.client.delete(self.url(path)).send().await?;
+        let url = self.url(path);
+        tracing::debug!("DELETE {url}");
+        let resp = self.client.delete(&url).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            tracing::debug!("DELETE {url} -> {status} {body}");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
+        tracing::debug!("DELETE {url} -> {status}");
         Ok(())
     }
 
     /// Handle HTTP response: check status, parse JSON.
     async fn handle_response<T: serde::de::DeserializeOwned>(
+        url: &str,
+        method: &str,
         resp: reqwest::Response,
     ) -> Result<T, ApiError> {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            tracing::debug!("{method} {url} -> {status} {body}");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
-        Ok(resp.json::<T>().await?)
+        let bytes = resp.bytes().await?;
+        tracing::debug!("{method} {url} -> {status} ({} bytes): {}", bytes.len(), String::from_utf8_lossy(&bytes));
+        Ok(serde_json::from_slice(&bytes)?)
     }
 
     // ── Trees ───────────────────────────────────────────────────────
