@@ -234,7 +234,7 @@ Fixed height (~48px), spans the full width above the canvas.
 
 ### Search
 
-Two independent fields in the topbar: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined.
+Two independent fields in the topbar: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined. The **Last name(s)** field can be used to search a name or a SOSA number, if the element searched is a number it is a SOSA number.
 
 **Real-time behavior (dropdown)**:
 - Results filtered on each keystroke, 200ms debounce

@@ -457,6 +457,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 Ok(_) => {
                     nav.push(Route::TreeDetail {
                         tree_id: tree_id_nav,
+                        person: None,
                     });
                 }
                 Err(e) => {
@@ -917,7 +918,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             Link { to: Route::Home {}, {i18n.t("tree.breadcrumb_trees")} }
             span { class: "pd-breadcrumb-sep", " / " }
             Link {
-                to: Route::TreeDetail { tree_id: tree_id.clone() },
+                to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                 "{tree_name_str}"
             }
             span { class: "pd-breadcrumb-sep", " / " }
@@ -927,7 +928,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Action buttons
         div { class: "pd-action-bar",
             Link {
-                to: Route::TreeDetail { tree_id: tree_id.clone() },
+                to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                 class: "btn btn-outline",
                 {i18n.t("person.view_in_tree")}
             }

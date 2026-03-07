@@ -57,28 +57,27 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let api_persons = api.clone();
     let persons_resource = use_resource(move || {
         let api = api_persons.clone();
-        async move { api.list_persons(tree_id, Some(500), None).await }
+        async move { api.list_all_persons(tree_id).await }
     });
 
     let names_resource = use_resource(move || {
         let api = api.clone();
         async move {
-            let conn = api.list_persons(tree_id, Some(500), None).await.ok();
-            if let Some(conn) = conn {
-                let ids: Vec<Uuid> = conn.edges.iter().map(|e| e.node.id).collect();
-                let mut name_map = std::collections::HashMap::new();
-                for pid in ids {
-                    if let Ok(names) = api.list_person_names(tree_id, pid).await {
-                        name_map.insert(pid, names);
-                    }
-                }
-                Ok(name_map)
-            } else {
-                Err(crate::api::ApiError::Api {
-                    status: 0,
-                    body: "Failed to load persons".to_string(),
-                })
+            let persons = api.list_all_persons(tree_id).await?;
+            let mut name_map: std::collections::HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = std::collections::HashMap::new();
+            let mut set = tokio::task::JoinSet::new();
+            for person in &persons {
+                let api2 = api.clone();
+                let pid = person.id;
+                set.spawn(async move {
+                    let names = api2.list_person_names(tree_id, pid).await.unwrap_or_default();
+                    (pid, names)
+                });
             }
+            while let Some(Ok((pid, names))) = set.join_next().await {
+                name_map.insert(pid, names);
+            }
+            Ok::<_, crate::api::ApiError>(name_map)
         }
     });
 
@@ -89,32 +88,31 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
         let names_data = names_resource.read();
 
         match (&*persons_data, &*names_data) {
-            (Some(Ok(conn)), Some(Ok(name_map))) => {
+            (Some(Ok(persons)), Some(Ok(name_map))) => {
                 if q.is_empty() {
-                    // Show all persons when query is empty (limited).
-                    conn.edges
+                    persons
                         .iter()
                         .take(20)
-                        .map(|e| {
-                            let name = resolve_name(e.node.id, name_map);
-                            let sex_label = format!("{:?}", e.node.sex);
+                        .map(|p| {
+                            let name = resolve_name(p.id, name_map);
+                            let sex_label = format!("{:?}", p.sex);
                             PersonSearchResult {
-                                id: e.node.id,
+                                id: p.id,
                                 name,
                                 sex_label,
                             }
                         })
                         .collect()
                 } else {
-                    conn.edges
+                    persons
                         .iter()
-                        .filter_map(|e| {
-                            let name = resolve_name(e.node.id, name_map);
+                        .filter_map(|p| {
+                            let name = resolve_name(p.id, name_map);
                             if name.to_lowercase().contains(&q) {
                                 Some(PersonSearchResult {
-                                    id: e.node.id,
+                                    id: p.id,
                                     name,
-                                    sex_label: format!("{:?}", e.node.sex),
+                                    sex_label: format!("{:?}", p.sex),
                                 })
                             } else {
                                 None

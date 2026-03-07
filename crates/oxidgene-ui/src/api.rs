@@ -518,6 +518,21 @@ impl ApiClient {
             .await
     }
 
+    /// Fetch all persons by paginating through all pages.
+    pub async fn list_all_persons(&self, tree_id: Uuid) -> Result<Vec<Person>, ApiError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = self.list_persons(tree_id, Some(500), cursor.as_deref()).await?;
+            all.extend(page.edges.into_iter().map(|e| e.node));
+            if !page.page_info.has_next_page {
+                break;
+            }
+            cursor = page.page_info.end_cursor;
+        }
+        Ok(all)
+    }
+
     pub async fn get_person(&self, tree_id: Uuid, id: Uuid) -> Result<Person, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/persons/{id}"))
             .await
@@ -668,6 +683,21 @@ impl ApiClient {
             .await
     }
 
+    /// Fetch all families by paginating through all pages.
+    pub async fn list_all_families(&self, tree_id: Uuid) -> Result<Vec<Family>, ApiError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = self.list_families(tree_id, Some(500), cursor.as_deref()).await?;
+            all.extend(page.edges.into_iter().map(|e| e.node));
+            if !page.page_info.has_next_page {
+                break;
+            }
+            cursor = page.page_info.end_cursor;
+        }
+        Ok(all)
+    }
+
     pub async fn get_family(&self, tree_id: Uuid, id: Uuid) -> Result<Family, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/families/{id}"))
             .await
@@ -814,6 +844,23 @@ impl ApiClient {
             .await
     }
 
+    /// Fetch all events by paginating through all pages.
+    pub async fn list_all_events(&self, tree_id: Uuid) -> Result<Vec<Event>, ApiError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = self
+                .list_events(tree_id, Some(500), cursor.as_deref(), None, None, None)
+                .await?;
+            all.extend(page.edges.into_iter().map(|e| e.node));
+            if !page.page_info.has_next_page {
+                break;
+            }
+            cursor = page.page_info.end_cursor;
+        }
+        Ok(all)
+    }
+
     pub async fn get_event(&self, tree_id: Uuid, id: Uuid) -> Result<Event, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/events/{id}"))
             .await
@@ -872,6 +919,21 @@ impl ApiClient {
         }
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/places"), &params)
             .await
+    }
+
+    /// Fetch all places by paginating through all pages.
+    pub async fn list_all_places(&self, tree_id: Uuid) -> Result<Vec<Place>, ApiError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = self.list_places(tree_id, Some(500), cursor.as_deref(), None).await?;
+            all.extend(page.edges.into_iter().map(|e| e.node));
+            if !page.page_info.has_next_page {
+                break;
+            }
+            cursor = page.page_info.end_cursor;
+        }
+        Ok(all)
     }
 
     pub async fn get_place(&self, tree_id: Uuid, id: Uuid) -> Result<Place, ApiError> {

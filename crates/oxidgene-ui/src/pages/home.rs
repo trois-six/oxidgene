@@ -432,7 +432,7 @@ fn TreeCard(
                         if menu_open() {
                             div { class: "tree-card-dropdown",
                                 Link {
-                                    to: Route::TreeDetail { tree_id: tree_id.clone() },
+                                    to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                                     class: "tree-card-dropdown-item",
                                     onclick: move |_| menu_open.set(false),
                                     {i18n.t("common.open")}
@@ -467,7 +467,7 @@ fn TreeCard(
                         }
                     }
                     Link {
-                        to: Route::TreeDetail { tree_id: tree_id.clone() },
+                        to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                         class: "btn-open",
                         {i18n.t("common.open")}
                     }
@@ -675,7 +675,6 @@ const HOME_STYLES: &str = r#"
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: 16px;
-        overflow: hidden;
         cursor: pointer;
         transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.25s;
         position: relative;
@@ -692,6 +691,7 @@ const HOME_STYLES: &str = r#"
         height: 140px;
         position: relative;
         overflow: hidden;
+        border-radius: 16px 16px 0 0;
         background: var(--tree-visual-bg);
     }
 
