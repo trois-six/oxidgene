@@ -77,8 +77,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("tree.loading_pedigree", "Chargement du pedigree\u{2026}"),
         ("tree.no_persons", "Aucune personne"),
         ("tree.no_persons_hint", "Importez un fichier GEDCOM ou utilisez la page de d\u{00E9}tail pour ajouter des personnes."),
+        ("tree.add_first_person", "Ajouter une personne"),
         ("tree.search_last", "Nom de famille"),
         ("tree.search_first", "Pr\u{00E9}nom"),
+        ("tree.search", "Rechercher"),
         // ── Tree create / edit form ─────────────────────────────────
         ("tree.form.name_label", "Nom"),
         ("tree.form.name_placeholder", "ex. Arbre de la famille Martin"),
@@ -276,6 +278,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("search_results.title_all", "Toutes les personnes"),
         ("search_results.count", "{count} personne(s) trouv\u{00E9}e(s)"),
         ("search_results.back_to_tree", "Retour \u{00E0} l\u{2019}arbre"),
+        ("search_results.search", "Rechercher"),
         ("search_results.filters", "Filtres"),
         ("search_results.filter_gender", "Sexe"),
         ("search_results.all", "Tous"),
