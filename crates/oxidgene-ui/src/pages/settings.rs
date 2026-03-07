@@ -86,8 +86,13 @@ pub fn Settings(tree_id: String) -> Element {
         div { class: "page-content",
             // Breadcrumb
             div { class: "settings-breadcrumb",
-                Link { to: Route::TreeList {}, {i18n.t("tree.breadcrumb_trees")} }
-                span { class: "pd-breadcrumb-sep", " / " }
+                Link { to: Route::Home {}, class: "td-bc-logo",
+                    img {
+                        src: crate::components::layout::LOGO_PNG_B64,
+                        alt: "OxidGene",
+                        class: "td-bc-logo-img",
+                    }
+                }
                 Link {
                     to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                     "{tree_name}"

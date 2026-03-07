@@ -122,11 +122,13 @@ fn main() {
     dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_cfg(
-            Config::new().with_window(
-                WindowBuilder::new()
-                    .with_title("OxidGene — Genealogy")
-                    .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
-            ),
+            Config::new()
+                .with_menu(None::<dioxus::desktop::muda::Menu>)
+                .with_window(
+                    WindowBuilder::new()
+                        .with_title("OxidGene")
+                        .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
+                ),
         )
         .launch(oxidgene_ui::App);
 }
