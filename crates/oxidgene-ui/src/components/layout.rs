@@ -912,66 +912,13 @@ pub const LAYOUT_STYLES: &str = r#"
         max-width: 220px;
     }
 
-    .td-actions {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        flex-shrink: 0;
-    }
-
-    .td-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 4px 10px;
-        border: 1px solid var(--border);
-        border-radius: 5px;
-        background: var(--bg-card);
-        color: var(--text-secondary);
-        font-size: 0.8rem;
-        cursor: pointer;
-        font-family: var(--font-sans);
-        transition: background 0.12s, color 0.12s, border-color 0.12s;
-        white-space: nowrap;
-    }
-
-    .td-btn:hover:not(:disabled) {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-        border-color: var(--text-secondary);
-    }
-
-    .td-btn:disabled { opacity: 0.45; cursor: default; }
-
-    .td-btn-danger { color: var(--color-danger); border-color: rgba(220,82,82,0.35); }
-    .td-btn-danger:hover:not(:disabled) { background: rgba(220,82,82,0.12); color: var(--color-danger-text); }
-
-    .td-btn-primary {
-        background: linear-gradient(135deg, var(--orange), var(--orange-light));
-        border-color: var(--orange);
-        color: #fff;
-    }
-    .td-btn-primary:hover:not(:disabled) { opacity: 0.88; color: #fff; }
-
-    .td-select {
-        padding: 3px 8px;
-        font-size: 0.8rem;
-        border: 1px solid var(--border);
-        border-radius: 5px;
-        background: var(--bg-card);
-        color: var(--text-primary);
-        cursor: pointer;
-        max-width: 200px;
-        width: auto;
-    }
-
     /* ── Tree view search ─────────────────────────────────────────── */
 
     .td-search-group {
         display: flex;
         align-items: center;
         gap: 6px;
-        position: relative;
+        margin-left: auto;
     }
 
     .td-search-input {
@@ -981,7 +928,7 @@ pub const LAYOUT_STYLES: &str = r#"
         border-radius: 5px;
         background: var(--bg-card);
         color: var(--text-primary);
-        width: 120px;
+        width: 140px;
         font-family: var(--font-sans);
         transition: border-color 0.2s;
     }
@@ -993,87 +940,6 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .td-search-input::placeholder {
         color: var(--text-muted);
-    }
-
-    .td-search-dropdown {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        z-index: 200;
-        margin-top: 4px;
-        background: var(--bg-panel);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-        max-height: 280px;
-        overflow-y: auto;
-        padding: 4px;
-    }
-
-    .td-search-result {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 8px 10px;
-        background: none;
-        border: none;
-        border-radius: 5px;
-        text-align: left;
-        font-size: 0.82rem;
-        font-family: var(--font-sans);
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: background 0.12s, color 0.12s;
-    }
-
-    .td-search-initials {
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.6rem;
-        font-weight: 700;
-        color: var(--text-muted);
-        flex-shrink: 0;
-        text-transform: uppercase;
-    }
-
-    .td-search-result:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-    }
-
-    .td-search-no-results {
-        padding: 12px 10px;
-        font-size: 0.82rem;
-        color: var(--text-muted);
-        text-align: center;
-        font-style: italic;
-    }
-
-    .td-search-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 199;
-    }
-
-    /* ── Tree edit form (inline below topbar) ────────────────────── */
-
-    .td-edit-form {
-        padding: 10px 12px;
-        background: var(--bg-panel);
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-        display: flex;
-        gap: 10px;
-        align-items: flex-end;
-        flex-wrap: wrap;
     }
 
     /* ── Pedigree outer container ────────────────────────────────── */

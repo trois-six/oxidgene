@@ -33,6 +33,11 @@ pub fn Home() -> Element {
     let mut confirm_delete_name = use_signal(String::new);
     let mut delete_error = use_signal(|| None::<String>);
 
+    // Import state.
+    let mut import_error = use_signal(|| None::<String>);
+    let mut import_result = use_signal(|| None::<(String, crate::api::ImportGedcomResult)>);
+    let mut importing_tree_id = use_signal(|| None::<Uuid>);
+
     // Search & sort state.
     let mut search_query = use_signal(String::new);
     let mut sort_mode = use_signal(|| "recent".to_string());
@@ -66,8 +71,9 @@ pub fn Home() -> Element {
         });
     };
 
+    let api_del = api.clone();
     let on_confirm_delete = move |_| {
-        let api = api.clone();
+        let api = api_del.clone();
         let Some(id) = confirm_delete_id() else {
             return;
         };
@@ -214,8 +220,11 @@ pub fn Home() -> Element {
                                         let tid_str = tid.to_string();
                                         let tree_name = tree.name.clone();
                                         let tree_name_del = tree_name.clone();
+                                        let tree_name_import = tree_name.clone();
                                         let desc = tree.description.clone().unwrap_or_default();
                                         let updated_at = tree.updated_at;
+                                        let is_importing = importing_tree_id() == Some(tid);
+                                        let api_import = api.clone();
                                         rsx! {
                                             TreeCard {
                                                 key: "{tid}",
@@ -223,10 +232,49 @@ pub fn Home() -> Element {
                                                 description: desc,
                                                 updated_at,
                                                 tree_id: tid_str,
+                                                importing: is_importing,
                                                 on_delete: move |_| {
                                                     confirm_delete_id.set(Some(tid));
                                                     confirm_delete_name.set(tree_name_del.clone());
                                                     delete_error.set(None);
+                                                },
+                                                on_import: move |_| {
+                                                    let api = api_import.clone();
+                                                    let name_for_result = tree_name_import.clone();
+                                                    spawn(async move {
+                                                        let file = rfd::AsyncFileDialog::new()
+                                                            .add_filter("GEDCOM", &["ged"])
+                                                            .add_filter("All files", &["*"])
+                                                            .set_title("Select a GEDCOM file")
+                                                            .pick_file()
+                                                            .await;
+                                                        let Some(file) = file else { return };
+
+                                                        importing_tree_id.set(Some(tid));
+                                                        import_error.set(None);
+                                                        import_result.set(None);
+
+                                                        let path = file.path().to_path_buf();
+                                                        let gedcom = match tokio::fs::read_to_string(&path).await {
+                                                            Ok(content) => content,
+                                                            Err(e) => {
+                                                                import_error.set(Some(format!("Failed to read file: {e}")));
+                                                                importing_tree_id.set(None);
+                                                                return;
+                                                            }
+                                                        };
+                                                        match api.import_gedcom(tid, &gedcom).await {
+                                                            Ok(result) => {
+                                                                import_result.set(Some((name_for_result, result)));
+                                                                importing_tree_id.set(None);
+                                                                refresh_counter += 1;
+                                                            }
+                                                            Err(e) => {
+                                                                import_error.set(Some(format!("{e}")));
+                                                                importing_tree_id.set(None);
+                                                            }
+                                                        }
+                                                    });
                                                 },
                                             }
                                         }
@@ -338,6 +386,18 @@ pub fn Home() -> Element {
             }
         }
 
+        // ── Import feedback ──
+        if let Some(err) = import_error() {
+            div { class: "home-import-banner error-msg", "{err}" }
+        }
+        if let Some((tree_name_imp, result)) = import_result() {
+            div { class: "home-import-banner success-msg",
+                "\"{tree_name_imp}\": {result.persons_count} persons, \
+                 {result.families_count} families, \
+                 {result.events_count} events imported."
+            }
+        }
+
         style { {HOME_STYLES} }
     }
 }
@@ -349,7 +409,9 @@ fn TreeCard(
     description: String,
     updated_at: chrono::DateTime<Utc>,
     tree_id: String,
+    importing: bool,
     on_delete: EventHandler<()>,
+    on_import: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let mut menu_open = use_signal(|| false);
@@ -442,6 +504,16 @@ fn TreeCard(
                                     class: "tree-card-dropdown-item",
                                     onclick: move |_| menu_open.set(false),
                                     {i18n.t("common.settings")}
+                                }
+                                button {
+                                    class: "tree-card-dropdown-item",
+                                    disabled: importing,
+                                    onclick: move |e: Event<MouseData>| {
+                                        e.stop_propagation();
+                                        menu_open.set(false);
+                                        on_import.call(());
+                                    },
+                                    if importing { {i18n.t("common.importing")} } else { {i18n.t("common.import")} }
                                 }
                                 button {
                                     class: "tree-card-dropdown-item tree-card-dropdown-danger",
@@ -973,6 +1045,21 @@ const HOME_STYLES: &str = r#"
     @keyframes home-fade-up {
         from { opacity: 0; transform: translateY(20px); }
         to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Import banner ────────────────────────────────────────────── */
+
+    .home-import-banner {
+        position: fixed;
+        bottom: 1.5rem;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        max-width: 600px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
 
     /* ── Responsive ──────────────────────────────────────────────── */

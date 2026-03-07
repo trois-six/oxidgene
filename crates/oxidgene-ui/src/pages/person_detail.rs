@@ -928,7 +928,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Action buttons
         div { class: "pd-action-bar",
             Link {
-                to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
+                to: Route::TreeDetail { tree_id: tree_id.clone(), person: Some(person_id.clone()) },
                 class: "btn btn-outline",
                 {i18n.t("person.view_in_tree")}
             }

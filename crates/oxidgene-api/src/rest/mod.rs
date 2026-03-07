@@ -15,6 +15,7 @@ pub mod note;
 pub mod person;
 pub mod person_name;
 pub mod place;
+pub mod snapshot;
 pub mod source;
 pub mod state;
 pub mod tree;
