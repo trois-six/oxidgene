@@ -916,22 +916,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     }
 
     // ── Disable transition when root changes (avoid flying animation) ──
-    let mut animating = use_signal(|| true);
+    let mut animating = use_signal(|| false);
+
+    // ── Center the root in the viewport on first load and root change ──
+    let mut needs_center = use_signal(|| true);
 
     // ── Reset pan/zoom/selection when the root person changes ──
     let mut prev_root = use_signal(|| props.root_person_id);
     if prev_root() != props.root_person_id {
         prev_root.set(props.root_person_id);
         animating.set(false);
-        offset_x.set(0.0);
-        offset_y.set(0.0);
         scale.set(1.0);
         selected_person_id.set(props.root_person_id);
-        // Re-enable animation after a frame.
-        spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            animating.set(true);
-        });
+        needs_center.set(true);
     }
 
     // ── Compute layout ──
@@ -941,6 +938,32 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         ancestor_levels(),
         descendant_levels(),
     );
+
+    // ── Center root card in viewport when needed ──
+    if needs_center() {
+        let root_center = layout_nodes
+            .iter()
+            .find(|n| n.id == Some(props.root_person_id))
+            .map(|n| (n.x + CARD_W / 2.0, n.y + CARD_H / 2.0));
+        if let Some((rcx, rcy)) = root_center {
+            needs_center.set(false);
+            spawn(async move {
+                // Small delay so the DOM has rendered the viewport element.
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                if let Ok(val) = document::eval(
+                    "var el = document.querySelector('.pedigree-viewport'); return el ? [el.clientWidth, el.clientHeight] : [800, 600]"
+                ).await {
+                    let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(800.0);
+                    let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(600.0);
+                    offset_x.set(vw / 2.0 - rcx);
+                    offset_y.set(vh / 2.0 - rcy);
+                }
+                // Re-enable animation after centering.
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                animating.set(true);
+            });
+        }
+    }
 
     let transform = format!(
         "translate({}px, {}px) scale({})",
@@ -1111,14 +1134,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.fit_screen\")}",
                     onclick: move |_| {
-                        // Estimate viewport as 800x600 (reasonable default).
-                        // A proper implementation would measure the DOM element.
-                        let vw = 800.0f64;
-                        let vh = 600.0f64;
-                        let fit_scale = (vw / fit_total_w).min(vh / fit_total_h).clamp(0.3, 2.0) * 0.85;
-                        scale.set(fit_scale);
-                        offset_x.set(0.0);
-                        offset_y.set(0.0);
+                        spawn(async move {
+                            if let Ok(val) = document::eval(
+                                "var el = document.querySelector('.pedigree-viewport'); return el ? [el.clientWidth, el.clientHeight] : [800, 600]"
+                            ).await {
+                                let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(800.0);
+                                let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(600.0);
+                                let fit_scale = (vw / fit_total_w).min(vh / fit_total_h).clamp(0.3, 2.0) * 0.85;
+                                scale.set(fit_scale);
+                                // Center the content in the viewport.
+                                offset_x.set((vw - fit_total_w * fit_scale) / 2.0);
+                                offset_y.set((vh - fit_total_h * fit_scale) / 2.0);
+                            }
+                        });
                     },
                     "FIT"
                 }

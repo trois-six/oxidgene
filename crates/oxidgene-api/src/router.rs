@@ -16,6 +16,7 @@ use crate::rest::note;
 use crate::rest::person;
 use crate::rest::person_name;
 use crate::rest::place;
+use crate::rest::snapshot;
 use crate::rest::source;
 use crate::rest::state::AppState;
 use crate::rest::tree;
@@ -168,6 +169,8 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(note::delete_note),
         );
 
+    let snapshot_routes = Router::new().route("/{tree_id}/snapshot", get(snapshot::tree_snapshot));
+
     let gedcom_routes = Router::new()
         .route(
             "/{tree_id}/gedcom/import",
@@ -202,6 +205,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(media_routes)
                 .merge(media_link_routes)
                 .merge(note_routes)
+                .merge(snapshot_routes)
                 .merge(gedcom_routes),
         )
         .with_state(state)
