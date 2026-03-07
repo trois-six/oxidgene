@@ -234,6 +234,18 @@ pub struct ExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
+// ── Tree Snapshot ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TreeSnapshot {
+    pub persons: Vec<oxidgene_core::types::Person>,
+    pub names: Vec<oxidgene_core::types::PersonName>,
+    pub events: Vec<oxidgene_core::types::Event>,
+    pub places: Vec<oxidgene_core::types::Place>,
+    pub spouses: Vec<oxidgene_core::types::FamilySpouse>,
+    pub children: Vec<oxidgene_core::types::FamilyChild>,
+}
+
 // ── Response Cache ───────────────────────────────────────────────────
 
 const CACHE_TTL_SECS: i64 = 30;
@@ -512,6 +524,12 @@ impl ApiClient {
             .await?;
         self.cache.invalidate_prefix("/api/v1/trees");
         Ok(())
+    }
+
+    // ── Tree Snapshot ────────────────────────────────────────────────
+
+    pub async fn get_tree_snapshot(&self, tree_id: Uuid) -> Result<TreeSnapshot, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/snapshot")).await
     }
 
     // ── Persons ─────────────────────────────────────────────────────

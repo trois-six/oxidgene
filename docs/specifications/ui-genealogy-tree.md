@@ -225,22 +225,16 @@ The placeholder counts as a full card for midpoint calculation:
 Fixed height (~48px), spans the full width above the canvas.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  [Logo (OxidGene.svg)]  |  My trees › Tree name     [Last name] [First name] [🔍] │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  My trees › Tree name                            [Last name] [First name] │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 **Breadcrumb**: `My trees › Tree name`, clickable to return to the tree list.
 
 ### Search
 
-Two independent fields in the topbar: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined. The **Last name(s)** field can be used to search a name or a SOSA number, if the element searched is a number it is a SOSA number.
-
-**Real-time behavior (dropdown)**:
-- Results filtered on each keystroke, 200ms debounce
-- 7–8 results maximum, each with a thumbnail photo + full name + dates
-- Click on a result → that person becomes the focus, the dropdown closes
-- Subtle "No person found" message if no results
+Two independent fields in the topbar, aligned to the right: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined. The **Last name(s)** field can be used to search a name or a SOSA number, if the element searched is a number it is a SOSA number.
 
 **On Enter**:
 - Navigation to a dedicated **results page**

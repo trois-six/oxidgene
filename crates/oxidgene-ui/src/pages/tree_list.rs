@@ -40,6 +40,10 @@ pub fn TreeList() -> Element {
     let mut confirm_delete_name = use_signal(String::new);
     let mut delete_error = use_signal(|| None::<String>);
 
+    // Import state.
+    let mut importing_tree_id = use_signal(|| None::<Uuid>);
+    let mut import_error = use_signal(|| None::<String>);
+
     // Create tree handler.
     let api_create = api.clone();
     let on_create = move |_| {
@@ -100,8 +104,9 @@ pub fn TreeList() -> Element {
     };
 
     // Confirm delete handler.
+    let api_del = api.clone();
     let on_confirm_delete = move |_| {
-        let api = api.clone();
+        let api = api_del.clone();
         let Some(id) = confirm_delete_id() else {
             return;
         };
@@ -161,6 +166,11 @@ pub fn TreeList() -> Element {
             }
         }
 
+        // Import error
+        if let Some(err) = import_error() {
+            div { class: "error-msg", style: "margin-bottom: 12px;", "{err}" }
+        }
+
         // Delete confirmation dialog
         if confirm_delete_id().is_some() {
             ConfirmDialog {
@@ -194,7 +204,7 @@ pub fn TreeList() -> Element {
                                         th { {i18n.t("tree.form.name_label")} }
                                         th { {i18n.t("tree.form.description_label")} }
                                         th { {i18n.t("tree_list.created")} }
-                                        th { style: "width: 140px;", {i18n.t("tree_list.actions")} }
+                                        th { style: "width: 200px;", {i18n.t("tree_list.actions")} }
                                     }
                                 }
                                 tbody {
@@ -276,6 +286,47 @@ pub fn TreeList() -> Element {
                                                                         edit_error.set(None);
                                                                     },
                                                                     {i18n.t("common.edit")}
+                                                                }
+                                                                button {
+                                                                    class: "btn btn-outline btn-sm",
+                                                                    disabled: importing_tree_id() == Some(tid),
+                                                                    onclick: {
+                                                                        let api = api.clone();
+                                                                        move |_| {
+                                                                            let api = api.clone();
+                                                                            spawn(async move {
+                                                                                let file = rfd::AsyncFileDialog::new()
+                                                                                    .add_filter("GEDCOM", &["ged"])
+                                                                                    .add_filter("All files", &["*"])
+                                                                                    .set_title("Select a GEDCOM file")
+                                                                                    .pick_file()
+                                                                                    .await;
+                                                                                let Some(file) = file else { return };
+                                                                                importing_tree_id.set(Some(tid));
+                                                                                import_error.set(None);
+                                                                                let path = file.path().to_path_buf();
+                                                                                let gedcom = match tokio::fs::read_to_string(&path).await {
+                                                                                    Ok(c) => c,
+                                                                                    Err(e) => {
+                                                                                        import_error.set(Some(format!("Failed to read: {e}")));
+                                                                                        importing_tree_id.set(None);
+                                                                                        return;
+                                                                                    }
+                                                                                };
+                                                                                match api.import_gedcom(tid, &gedcom).await {
+                                                                                    Ok(_) => {
+                                                                                        importing_tree_id.set(None);
+                                                                                        refresh_counter += 1;
+                                                                                    }
+                                                                                    Err(e) => {
+                                                                                        import_error.set(Some(format!("{e}")));
+                                                                                        importing_tree_id.set(None);
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                        }
+                                                                    },
+                                                                    if importing_tree_id() == Some(tid) { {i18n.t("common.importing")} } else { {i18n.t("common.import")} }
                                                                 }
                                                                 button {
                                                                     class: "btn btn-danger btn-sm",

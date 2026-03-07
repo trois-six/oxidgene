@@ -1,16 +1,15 @@
 //! Tree detail page — Geneanet-style pedigree chart view.
 //!
-//! Shows the tree header with edit/delete, a root-person selector, the
-//! [`PedigreeChart`] as the main view, a context menu for person actions
-//! (including search-or-create flows for AddSpouse/AddParents/AddChild),
-//! union editing, and a collapsible GEDCOM import/export section.
+//! Shows the tree breadcrumb, search fields, the [`PedigreeChart`] as the
+//! main view, a context menu for person actions (including search-or-create
+//! flows for AddSpouse/AddParents/AddChild), and union editing.
 
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, UpdateTreeBody};
+use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
@@ -20,6 +19,77 @@ use crate::components::union_form::UnionForm;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::resolve_name;
+
+/// Isolated search bar — lives in its own component so signal updates on
+/// each keystroke only re-render this small widget, not the entire TreeDetail.
+#[component]
+fn TopbarSearch(tree_id: String) -> Element {
+    let i18n = use_i18n();
+    let nav = use_navigator();
+    let mut search_last = use_signal(String::new);
+    let mut search_first = use_signal(String::new);
+
+    let tree_id2 = tree_id.clone();
+    let on_search_enter = move |e: Event<KeyboardData>| {
+        if e.key() == Key::Enter
+            && (!search_last().trim().is_empty() || !search_first().trim().is_empty())
+        {
+            nav.push(Route::SearchResults {
+                tree_id: tree_id.clone(),
+                last: if search_last().is_empty() {
+                    None
+                } else {
+                    Some(search_last())
+                },
+                first: if search_first().is_empty() {
+                    None
+                } else {
+                    Some(search_first())
+                },
+            });
+        }
+    };
+    let on_search_enter2 = move |e: Event<KeyboardData>| {
+        if e.key() == Key::Enter
+            && (!search_last().trim().is_empty() || !search_first().trim().is_empty())
+        {
+            nav.push(Route::SearchResults {
+                tree_id: tree_id2.clone(),
+                last: if search_last().is_empty() {
+                    None
+                } else {
+                    Some(search_last())
+                },
+                first: if search_first().is_empty() {
+                    None
+                } else {
+                    Some(search_first())
+                },
+            });
+        }
+    };
+
+    rsx! {
+        div { class: "td-search-group",
+            input {
+                r#type: "text",
+                class: "td-search-input",
+                placeholder: "{i18n.t(\"tree.search_last\")}",
+                value: "{search_last}",
+                oninput: move |e: Event<FormData>| search_last.set(e.value()),
+                onkeydown: on_search_enter,
+            }
+            input {
+                r#type: "text",
+                class: "td-search-input",
+                placeholder: "{i18n.t(\"tree.search_first\")}",
+                value: "{search_first}",
+                oninput: move |e: Event<FormData>| search_first.set(e.value()),
+                onkeydown: on_search_enter2,
+            }
+        }
+    }
+}
 
 /// Describes which linking flow is active.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,16 +115,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let mut refresh = use_signal(|| 0u32);
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
-
-    // ── Tree edit state ──
-    let mut editing = use_signal(|| false);
-    let mut edit_name = use_signal(String::new);
-    let mut edit_desc = use_signal(String::new);
-    let mut edit_error = use_signal(|| None::<String>);
-
-    // ── Delete tree confirmation ──
-    let mut confirm_delete = use_signal(|| false);
-    let mut delete_error = use_signal(|| None::<String>);
 
     // ── Root person — from query param or first person ──
     let initial_person = person.as_deref().and_then(|p| p.parse::<Uuid>().ok());
@@ -85,36 +145,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let mut confirm_delete_person_id = use_signal(|| None::<Uuid>);
     let mut delete_person_error = use_signal(|| None::<String>);
 
-    // ── GEDCOM import/export state ──
-    let mut import_error = use_signal(|| None::<String>);
-    let mut import_result = use_signal(|| None::<crate::api::ImportGedcomResult>);
-    let mut importing = use_signal(|| false);
-    let mut export_error = use_signal(|| None::<String>);
-    let mut export_success = use_signal(|| None::<String>);
-    let mut exporting = use_signal(|| false);
-
-    // ── Person search state ──
-    let mut search_last = use_signal(String::new);
-    let mut search_first = use_signal(String::new);
-    let mut search_focused = use_signal(|| false);
-    let mut debounced_last = use_signal(String::new);
-    let mut debounced_first = use_signal(String::new);
-
-    // 200ms debounce for search queries.
-    {
-        let last_val = search_last();
-        let first_val = search_first();
-        use_effect(move || {
-            let last_val = last_val.clone();
-            let first_val = first_val.clone();
-            spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                debounced_last.set(last_val);
-                debounced_first.set(first_val);
-            });
-        });
-    }
-
     // ── Fetch tree details ──
     let api_tree = api.clone();
     let tree_resource = use_resource(move || {
@@ -132,10 +162,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
-    // ── Fetch all persons (auto-paginate) ──
-    let api_persons = api.clone();
-    let persons_resource = use_resource(move || {
-        let api = api_persons.clone();
+    // ── Fetch tree snapshot (all data in one request) ──
+    let api_snapshot = api.clone();
+    let snapshot_resource = use_resource(move || {
+        let api = api_snapshot.clone();
         let _tick = refresh();
         let tid = tree_id_parsed;
         async move {
@@ -145,143 +175,31 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.list_all_persons(tid).await
+            api.get_tree_snapshot(tid).await
         }
     });
 
-    // ── Fetch all person names (parallel) ──
-    let api_names = api.clone();
-    let names_resource = use_resource(move || {
-        let api = api_names.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed;
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            let persons = api.list_all_persons(tid).await?;
-            // Fetch names for all persons in parallel.
-            let mut set = tokio::task::JoinSet::new();
-            for person in &persons {
-                let api2 = api.clone();
-                let pid = person.id;
-                set.spawn(async move {
-                    let names = api2.list_person_names(tid, pid).await.unwrap_or_default();
-                    (pid, names)
-                });
-            }
-            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
-            while let Some(Ok((pid, names))) = set.join_next().await {
-                name_map.insert(pid, names);
-            }
-            Ok(name_map)
-        }
-    });
-
-    // ── Fetch all events (birth, death, marriage, …) ──
-    let api_events = api.clone();
-    let events_resource = use_resource(move || {
-        let api = api_events.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed;
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            api.list_all_events(tid).await
-        }
-    });
-
-    // ── Fetch all places ──
-    let api_places = api.clone();
-    let places_resource = use_resource(move || {
-        let api = api_places.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed;
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            let places = api.list_all_places(tid).await?;
-            let map: HashMap<Uuid, oxidgene_core::types::Place> =
-                places.into_iter().map(|p| (p.id, p)).collect();
-            Ok(map)
-        }
-    });
-
-    // ── Fetch all family spouses and children (parallel) ──
-    let api_members = api.clone();
-    let members_resource = use_resource(move || {
-        let api = api_members.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed;
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            let families = api.list_all_families(tid).await?;
-            // Fetch spouses and children for all families in parallel.
-            let mut set = tokio::task::JoinSet::new();
-            for family in &families {
-                let api2 = api.clone();
-                let fid = family.id;
-                set.spawn(async move {
-                    let spouses = api2.list_family_spouses(tid, fid).await.unwrap_or_default();
-                    let children = api2
-                        .list_family_children(tid, fid)
-                        .await
-                        .unwrap_or_default();
-                    (spouses, children)
-                });
-            }
-            let mut all_spouses = Vec::new();
-            let mut all_children = Vec::new();
-            while let Some(Ok((spouses, children))) = set.join_next().await {
-                all_spouses.extend(spouses);
-                all_children.extend(children);
-            }
-            Ok((all_spouses, all_children))
-        }
-    });
-
-    // ── Build pedigree data ──
+    // ── Build pedigree data from snapshot ──
     let pedigree_data: Option<PedigreeData> = {
-        let persons_data = persons_resource.read();
-        let names_data = names_resource.read();
-        let members_data = members_resource.read();
-        let events_data = events_resource.read();
-        let places_data = places_resource.read();
-
-        match (&*persons_data, &*names_data, &*members_data) {
-            (Some(Ok(persons)), Some(Ok(name_map)), Some(Ok((spouses, children)))) => {
-                let events: Vec<_> = events_data
-                    .as_ref()
-                    .and_then(|r| r.as_ref().ok())
-                    .cloned()
-                    .unwrap_or_default();
-                let places: HashMap<Uuid, oxidgene_core::types::Place> = places_data
-                    .as_ref()
-                    .and_then(|r| r.as_ref().ok())
-                    .cloned()
-                    .unwrap_or_default();
+        let snap_data = snapshot_resource.read();
+        match &*snap_data {
+            Some(Ok(snap)) => {
+                let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> =
+                    HashMap::new();
+                for name in &snap.names {
+                    name_map
+                        .entry(name.person_id)
+                        .or_default()
+                        .push(name.clone());
+                }
+                let places: HashMap<Uuid, oxidgene_core::types::Place> =
+                    snap.places.iter().map(|p| (p.id, p.clone())).collect();
                 Some(PedigreeData::build(
-                    persons,
-                    name_map.clone(),
-                    spouses,
-                    children,
-                    events,
+                    &snap.persons,
+                    name_map,
+                    &snap.spouses,
+                    &snap.children,
+                    snap.events.clone(),
                     places,
                 ))
             }
@@ -294,24 +212,28 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         if let Some(sel) = selected_root() {
             Some(sel)
         } else {
-            let persons_data = persons_resource.read();
-            match &*persons_data {
-                Some(Ok(persons)) => persons.first().map(|p| p.id),
+            let snap_data = snapshot_resource.read();
+            match &*snap_data {
+                Some(Ok(snap)) => snap.persons.first().map(|p| p.id),
                 _ => None,
             }
         }
     };
 
-    // Person list for quick search.
-    let person_options: Vec<(Uuid, String)> = {
-        let persons_data = persons_resource.read();
-        let names_data = names_resource.read();
-        match (&*persons_data, &*names_data) {
-            (Some(Ok(persons)), Some(Ok(name_map))) => persons
-                .iter()
-                .map(|p| (p.id, resolve_name(p.id, name_map)))
-                .collect(),
-            _ => vec![],
+    // Build name_map for context menu lookups.
+    let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = {
+        let snap_data = snapshot_resource.read();
+        match &*snap_data {
+            Some(Ok(snap)) => {
+                let mut map = HashMap::new();
+                for name in &snap.names {
+                    map.entry(name.person_id)
+                        .or_insert_with(Vec::new)
+                        .push(name.clone());
+                }
+                map
+            }
+            _ => HashMap::new(),
         }
     };
 
@@ -319,13 +241,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let ctx_person_name: String = {
         let ctx = context_menu_person();
         match ctx {
-            Some((pid, _, _)) => {
-                let names_data = names_resource.read();
-                match &*names_data {
-                    Some(Ok(name_map)) => resolve_name(pid, name_map),
-                    _ => "Unknown".to_string(),
-                }
-            }
+            Some((pid, _, _)) => resolve_name(pid, &name_map),
             None => String::new(),
         }
     };
@@ -355,48 +271,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     };
 
     // ── Handlers ──
-
-    // Save tree edit.
-    let api_edit = api.clone();
-    let on_save_edit = move |_| {
-        let api = api_edit.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let name = edit_name().trim().to_string();
-        let desc = edit_desc().trim().to_string();
-        spawn(async move {
-            if name.is_empty() {
-                edit_error.set(Some("Name is required".to_string()));
-                return;
-            }
-            let body = UpdateTreeBody {
-                name: Some(name),
-                description: Some(if desc.is_empty() { None } else { Some(desc) }),
-            };
-            match api.update_tree(tid, &body).await {
-                Ok(_) => {
-                    editing.set(false);
-                    edit_error.set(None);
-                    refresh += 1;
-                }
-                Err(e) => edit_error.set(Some(format!("{e}"))),
-            }
-        });
-    };
-
-    // Confirm delete tree.
-    let api_del = api.clone();
-    let on_confirm_delete = move |_| {
-        let api = api_del.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        spawn(async move {
-            match api.delete_tree(tid).await {
-                Ok(_) => {
-                    nav.push(Route::TreeList {});
-                }
-                Err(e) => delete_error.set(Some(format!("{e}"))),
-            }
-        });
-    };
 
     // Context menu action handler.
     let pedigree_data_ctx = pedigree_data.clone();
@@ -888,94 +762,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         linking_mode.set(None);
     };
 
-    // ── GEDCOM handlers ──
-
-    let api_import = api.clone();
-    let on_import_gedcom = move |_| {
-        let api = api_import.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        spawn(async move {
-            // Open native file picker dialog.
-            let file = rfd::AsyncFileDialog::new()
-                .add_filter("GEDCOM", &["ged"])
-                .add_filter("All files", &["*"])
-                .set_title("Select a GEDCOM file")
-                .pick_file()
-                .await;
-            let Some(file) = file else { return };
-
-            importing.set(true);
-            import_error.set(None);
-            import_result.set(None);
-
-            let path = file.path().to_path_buf();
-            let gedcom = match tokio::fs::read_to_string(&path).await {
-                Ok(content) => content,
-                Err(e) => {
-                    import_error.set(Some(format!("Failed to read file: {e}")));
-                    importing.set(false);
-                    return;
-                }
-            };
-            match api.import_gedcom(tid, &gedcom).await {
-                Ok(result) => {
-                    import_result.set(Some(result));
-                    importing.set(false);
-                    refresh += 1;
-                }
-                Err(e) => {
-                    import_error.set(Some(format!("{e}")));
-                    importing.set(false);
-                }
-            }
-        });
-    };
-
-    let api_export = api.clone();
-    let on_export_gedcom = move |_| {
-        let api = api_export.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        spawn(async move {
-            exporting.set(true);
-            export_error.set(None);
-            export_success.set(None);
-            match api.export_gedcom(tid).await {
-                Ok(result) => {
-                    // Open native save dialog.
-                    let file = rfd::AsyncFileDialog::new()
-                        .add_filter("GEDCOM", &["ged"])
-                        .set_title("Save GEDCOM file")
-                        .set_file_name("export.ged")
-                        .save_file()
-                        .await;
-                    if let Some(file) = file {
-                        let path = file.path().to_path_buf();
-                        match tokio::fs::write(&path, result.gedcom).await {
-                            Ok(_) => {
-                                let mut msg = format!("Exported to {}", path.display());
-                                if !result.warnings.is_empty() {
-                                    msg.push_str(&format!(
-                                        " ({} warning(s))",
-                                        result.warnings.len()
-                                    ));
-                                }
-                                export_success.set(Some(msg));
-                            }
-                            Err(e) => {
-                                export_error.set(Some(format!("Failed to write file: {e}")));
-                            }
-                        }
-                    }
-                    exporting.set(false);
-                }
-                Err(e) => {
-                    export_error.set(Some(format!("{e}")));
-                    exporting.set(false);
-                }
-            }
-        });
-    };
-
     // Linking mode label for the panel header.
     let linking_label: Option<String> = linking_mode().map(|mode| match &mode {
         LinkingMode::Spouse(_) => i18n.t("linking.add_spouse"),
@@ -990,31 +776,15 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     rsx! {
         div { class: "tree-detail-page",
 
-        // ── Topbar: breadcrumb + root selector + tree actions ──
+        // ── Topbar: breadcrumb + search ──
         {
-            let (tree_name_str, tree_desc_str, tree_loaded) = {
+            let tree_name_str = {
                 let guard = tree_resource.read();
                 match &*guard {
-                    Some(Ok(t)) => (t.name.clone(), t.description.clone().unwrap_or_default(), true),
-                    Some(Err(_)) => ("Error".to_string(), String::new(), false),
-                    None => ("Loading…".to_string(), String::new(), false),
+                    Some(Ok(t)) => t.name.clone(),
+                    Some(Err(_)) => "Error".to_string(),
+                    None => "Loading…".to_string(),
                 }
-            };
-            let tn = tree_name_str.clone();
-            let td = tree_desc_str;
-            // Build search results from person_options
-            let last_q = debounced_last().to_lowercase();
-            let first_q = debounced_first().to_lowercase();
-            let has_search = !last_q.is_empty() || !first_q.is_empty();
-            let search_results: Vec<(Uuid, String)> = if has_search {
-                person_options.iter().filter(|(_pid, name)| {
-                    let name_lower = name.to_lowercase();
-                    let last_ok = last_q.is_empty() || name_lower.contains(&last_q);
-                    let first_ok = first_q.is_empty() || name_lower.contains(&first_q);
-                    last_ok && first_ok
-                }).take(8).cloned().collect()
-            } else {
-                vec![]
             };
 
             rsx! {
@@ -1024,147 +794,8 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         span { class: "td-bc-sep", "/" }
                         span { class: "td-bc-current", "{tree_name_str}" }
                     }
-                    // ── Person search fields ──
-                    {
-                        let tree_id_nav1 = tree_id.clone();
-                        let tree_id_nav2 = tree_id.clone();
-                        let on_search_enter = move |e: Event<KeyboardData>| {
-                            if e.key() == Key::Enter && (!search_last().trim().is_empty() || !search_first().trim().is_empty()) {
-                                search_focused.set(false);
-                                nav.push(Route::SearchResults {
-                                    tree_id: tree_id_nav1.clone(),
-                                    last: if search_last().is_empty() { None } else { Some(search_last()) },
-                                    first: if search_first().is_empty() { None } else { Some(search_first()) },
-                                });
-                            }
-                        };
-                        let on_search_enter2 = move |e: Event<KeyboardData>| {
-                            if e.key() == Key::Enter && (!search_last().trim().is_empty() || !search_first().trim().is_empty()) {
-                                search_focused.set(false);
-                                nav.push(Route::SearchResults {
-                                    tree_id: tree_id_nav2.clone(),
-                                    last: if search_last().is_empty() { None } else { Some(search_last()) },
-                                    first: if search_first().is_empty() { None } else { Some(search_first()) },
-                                });
-                            }
-                        };
-                    rsx! {
-                    div { class: "td-search-group",
-                        input {
-                            r#type: "text",
-                            class: "td-search-input",
-                            placeholder: "{i18n.t(\"tree.search_last\")}",
-                            value: "{search_last}",
-                            oninput: move |e: Event<FormData>| {
-                                search_last.set(e.value());
-                                search_focused.set(true);
-                            },
-                            onfocusin: move |_| search_focused.set(true),
-                            onkeydown: on_search_enter,
-                        }
-                        input {
-                            r#type: "text",
-                            class: "td-search-input",
-                            placeholder: "{i18n.t(\"tree.search_first\")}",
-                            value: "{search_first}",
-                            oninput: move |e: Event<FormData>| {
-                                search_first.set(e.value());
-                                search_focused.set(true);
-                            },
-                            onfocusin: move |_| search_focused.set(true),
-                            onkeydown: on_search_enter2,
-                        }
-                        if has_search && search_focused() {
-                            div { class: "td-search-dropdown",
-                                if search_results.is_empty() {
-                                    div { class: "td-search-no-results", {i18n.t("common.no_results")} }
-                                } else {
-                                    for (pid, name) in search_results.iter() {
-                                        {
-                                            let pid = *pid;
-                                            let initials: String = name.split_whitespace()
-                                                .filter_map(|w| w.chars().next())
-                                                .take(2)
-                                                .collect::<String>()
-                                                .to_uppercase();
-                                            rsx! {
-                                            button {
-                                                class: "td-search-result",
-                                                onmousedown: move |e: Event<MouseData>| {
-                                                    e.prevent_default();
-                                                },
-                                                onclick: move |_| {
-                                                    selected_root.set(Some(pid));
-                                                    search_last.set(String::new());
-                                                    search_first.set(String::new());
-                                                    search_focused.set(false);
-                                                },
-                                                span { class: "td-search-initials", "{initials}" }
-                                                span { "{name}" }
-                                            }
-                                        }}
-                                    }
-                                }
-                            }
-                            // Backdrop to close search
-                            div {
-                                class: "td-search-backdrop",
-                                onclick: move |_| search_focused.set(false),
-                            }
-                        }
-                    }
-                    }}
-                    div { class: "td-actions",
-                        if tree_loaded {
-                            button {
-                                class: "td-btn",
-                                onclick: move |_| {
-                                    edit_name.set(tn.clone());
-                                    edit_desc.set(td.clone());
-                                    edit_error.set(None);
-                                    editing.set(true);
-                                },
-                                {i18n.t("common.edit")}
-                            }
-                            button {
-                                class: "td-btn td-btn-danger",
-                                onclick: move |_| {
-                                    confirm_delete.set(true);
-                                    delete_error.set(None);
-                                },
-                                {i18n.t("common.delete")}
-                            }
-                            button {
-                                class: "td-btn",
-                                disabled: importing(),
-                                onclick: on_import_gedcom,
-                                if importing() { {i18n.t("common.importing")} } else { {i18n.t("common.import")} }
-                            }
-                            button {
-                                class: "td-btn",
-                                disabled: exporting(),
-                                onclick: on_export_gedcom,
-                                if exporting() { {i18n.t("common.exporting")} } else { {i18n.t("common.export")} }
-                            }
-                        }
-                    }
+                    TopbarSearch { tree_id: tree_id.clone() }
                 }
-            }
-        }
-
-        // Delete tree confirmation
-        if confirm_delete() {
-            ConfirmDialog {
-                title: i18n.t("confirm.delete_tree.title"),
-                message: i18n.t("confirm.delete_tree.message"),
-                confirm_label: i18n.t("common.delete"),
-                confirm_class: "btn btn-danger",
-                error: delete_error(),
-                on_confirm: move |_| on_confirm_delete(()),
-                on_cancel: move |_| {
-                    confirm_delete.set(false);
-                    delete_error.set(None);
-                },
             }
         }
 
@@ -1221,67 +852,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             }
         }
 
-        // ── Inline edit form (shown below topbar when editing) ──
-        if editing() {
-            div { class: "td-edit-form",
-                if let Some(err) = edit_error() {
-                    div { class: "error-msg", style: "width: 100%; margin-bottom: 6px;", "{err}" }
-                }
-                div { class: "form-group", style: "margin: 0; flex: 1; min-width: 160px;",
-                    label { {i18n.t("tree.name_label")} }
-                    input {
-                        r#type: "text",
-                        value: "{edit_name}",
-                        oninput: move |e: Event<FormData>| edit_name.set(e.value()),
-                    }
-                }
-                div { class: "form-group", style: "margin: 0; flex: 2; min-width: 200px;",
-                    label { {i18n.t("tree.description_label")} }
-                    input {
-                        r#type: "text",
-                        value: "{edit_desc}",
-                        oninput: move |e: Event<FormData>| edit_desc.set(e.value()),
-                    }
-                }
-                div { style: "display: flex; gap: 6px; flex-shrink: 0; align-self: flex-end;",
-                    button { class: "td-btn td-btn-primary", onclick: on_save_edit, {i18n.t("common.save")} }
-                    button {
-                        class: "td-btn",
-                        onclick: move |_| { editing.set(false); edit_error.set(None); },
-                        {i18n.t("common.cancel")}
-                    }
-                }
-            }
-        }
-
-        // ── Feedback banners ──
-        if let Some(err) = import_error() {
-            div { class: "error-msg", style: "flex-shrink: 0; margin: 4px 12px;", "{err}" }
-        }
-        if let Some(result) = import_result() {
-            div { class: "success-msg", style: "flex-shrink: 0; margin: 4px 12px;",
-                "Import complete: {result.persons_count} persons, \
-                 {result.families_count} families, \
-                 {result.events_count} events."
-                if !result.warnings.is_empty() {
-                    details { style: "display: inline; margin-left: 8px;",
-                        summary { style: "display: inline; cursor: pointer;",
-                            "{result.warnings.len()} warning(s)"
-                        }
-                        ul { style: "margin: 4px 0 0 16px;",
-                            for w in result.warnings.iter() { li { "{w}" } }
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(err) = export_error() {
-            div { class: "error-msg", style: "flex-shrink: 0; margin: 4px 12px;", "{err}" }
-        }
-        if let Some(msg) = export_success() {
-            div { class: "success-msg", style: "flex-shrink: 0; margin: 4px 12px;", "{msg}" }
-        }
-
         // ── Pedigree chart (fills remaining space) ──
         div { class: "pedigree-card",
 
@@ -1321,14 +891,8 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             } else {
                 // Loading or empty state
                 {
-                    let persons_data = persons_resource.read();
-                    let names_data = names_resource.read();
-                    let members_data = members_resource.read();
-                    let events_data = events_resource.read();
-                    let all_loaded = persons_data.is_some()
-                        && names_data.is_some()
-                        && members_data.is_some()
-                        && events_data.is_some();
+                    let snap_data = snapshot_resource.read();
+                    let all_loaded = snap_data.is_some();
 
                     if all_loaded {
                         rsx! {
