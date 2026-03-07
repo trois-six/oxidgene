@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use oxidgene_core::types::Event as DomainEvent;
 use oxidgene_core::EventType;
+use oxidgene_core::types::Event as DomainEvent;
 use uuid::Uuid;
 
 use crate::api::{
@@ -28,6 +28,8 @@ enum EventOrigin {
     Individual,
     /// Event from a conjugal family (marriage, divorce…).
     ConjugalFamily,
+    /// Event from a child (birth, death, baptism, burial of a child).
+    ChildFamily,
     /// Event from the parental family (parent death, sibling birth…).
     ParentalFamily,
 }
@@ -331,8 +333,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 });
             };
             let snapshot = api.get_tree_snapshot(tid).await?;
-            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> =
-                HashMap::new();
+            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
             for pn in snapshot.names {
                 name_map.entry(pn.person_id).or_default().push(pn);
             }
@@ -980,7 +981,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     .collect();
 
                 let mut result: Vec<EnrichedEvent> = Vec::new();
-                let mut seen_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+                let mut seen_ids: std::collections::HashSet<Uuid> =
+                    std::collections::HashSet::new();
 
                 // 1. Individual events.
                 if let Some(person_events) = events_by_person.get(&pid) {
@@ -1011,6 +1013,30 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                     origin: EventOrigin::ConjugalFamily,
                                     context: partner_name.clone(),
                                 });
+                            }
+                        }
+                    }
+
+                    // Major individual events of children (birth, death, baptism, burial).
+                    for (f, c) in all_children.iter() {
+                        if *f != *fid {
+                            continue;
+                        }
+                        let child_name = resolve_person_name(c.person_id);
+                        if let Some(child_events) = events_by_person.get(&c.person_id) {
+                            for &e in child_events {
+                                if (e.event_type == EventType::Birth
+                                    || e.event_type == EventType::Death
+                                    || e.event_type == EventType::Baptism
+                                    || e.event_type == EventType::Burial)
+                                    && seen_ids.insert(e.id)
+                                {
+                                    result.push(EnrichedEvent {
+                                        event: e.clone(),
+                                        origin: EventOrigin::ChildFamily,
+                                        context: Some(child_name.clone()),
+                                    });
+                                }
                             }
                         }
                     }
@@ -1713,6 +1739,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                             let origin_label = match &ee.origin {
                                                 EventOrigin::Individual => i18n.t("person.origin_individual"),
                                                 EventOrigin::ConjugalFamily => i18n.t("person.origin_conjugal"),
+                                                EventOrigin::ChildFamily => i18n.t("person.origin_child"),
                                                 EventOrigin::ParentalFamily => i18n.t("person.origin_parental"),
                                             };
                                             let origin_display = if let Some(ref ctx) = ee.context {
