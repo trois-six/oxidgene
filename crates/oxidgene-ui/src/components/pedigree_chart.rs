@@ -14,6 +14,8 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
+use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
+
 use oxidgene_core::types::{
     Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place,
 };
@@ -888,15 +890,27 @@ pub struct PedigreeChartProps {
 #[component]
 pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let i18n = use_i18n();
+    let view_cache = use_view_state_cache();
+    let tid_parsed = props.tree_id.parse::<Uuid>().ok();
+    let saved = tid_parsed.and_then(|t| view_cache.get(t));
+
+    // Extract initial values from saved state (or defaults)
+    let init_anc = saved.as_ref().map_or(4, |s| s.ancestor_levels);
+    let init_desc = saved.as_ref().map_or(3, |s| s.descendant_levels);
+    let init_ox = saved.as_ref().map_or(0.0, |s| s.offset_x);
+    let init_oy = saved.as_ref().map_or(0.0, |s| s.offset_y);
+    let init_sc = saved.as_ref().map_or(1.0, |s| s.scale);
+    let has_saved_state = saved.is_some();
+
     // ── Depth controls (max 10) ──
-    let mut ancestor_levels = use_signal(|| 4usize);
-    let mut descendant_levels = use_signal(|| 3usize);
+    let mut ancestor_levels = use_signal(move || init_anc);
+    let mut descendant_levels = use_signal(move || init_desc);
     let mut depth_hover = use_signal(|| false);
     let mut depth_hover_gen = use_signal(|| 0u32);
 
     // ── Pan state ──
-    let mut offset_x = use_signal(|| 0.0f64);
-    let mut offset_y = use_signal(|| 0.0f64);
+    let mut offset_x = use_signal(move || init_ox);
+    let mut offset_y = use_signal(move || init_oy);
     let mut dragging = use_signal(|| false);
     let mut drag_start_x = use_signal(|| 0.0f64);
     let mut drag_start_y = use_signal(|| 0.0f64);
@@ -904,7 +918,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut drag_origin_y = use_signal(|| 0.0f64);
 
     // ── Zoom state ──
-    let mut scale = use_signal(|| 1.0f64);
+    let mut scale = use_signal(move || init_sc);
 
     // ── Selected person (drives event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
@@ -929,7 +943,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut animating = use_signal(|| false);
 
     // ── Center the root in the viewport on first load and root change ──
-    let mut needs_center = use_signal(|| true);
+    let mut needs_center = use_signal(move || !has_saved_state);
 
     // ── Reset pan/zoom/selection when the root person changes ──
     let mut prev_root = use_signal(|| props.root_person_id);
@@ -992,6 +1006,27 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 // Re-enable animation after centering.
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 animating.set(true);
+            });
+        }
+    }
+
+    // ── Persist view state into global cache so it survives navigation ──
+    {
+        let ox = offset_x();
+        let oy = offset_y();
+        let sc = scale();
+        let anc = ancestor_levels();
+        let desc = descendant_levels();
+        let root = props.root_person_id;
+        if let Some(tid) = tid_parsed {
+            view_cache.save(PedigreeViewState {
+                tree_id: tid,
+                offset_x: ox,
+                offset_y: oy,
+                scale: sc,
+                ancestor_levels: anc,
+                descendant_levels: desc,
+                selected_root: Some(root),
             });
         }
     }

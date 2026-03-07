@@ -30,9 +30,23 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("common.or_divider", "\u{2014} or \u{2014}"),
         ("common.no_results", "No results"),
         // ── Navigation ──────────────────────────────────────────────
-        ("nav.trees", "Trees"),
         ("nav.theme_light", "Switch to light mode"),
         ("nav.theme_dark", "Switch to dark mode"),
+        // ── App settings page ────────────────────────────────────────
+        ("app_settings.title", "Settings"),
+        ("app_settings.breadcrumb_home", "Home"),
+        ("app_settings.preferences", "Preferences"),
+        ("app_settings.appearance", "Appearance"),
+        ("app_settings.appearance_title", "Appearance"),
+        ("app_settings.appearance_desc", "Customise the look and feel of the application."),
+        ("app_settings.theme", "Theme"),
+        ("app_settings.theme_light", "Light"),
+        ("app_settings.theme_dark", "Dark"),
+        ("app_settings.theme_light_active", "Light theme is active"),
+        ("app_settings.theme_dark_active", "Dark theme is active"),
+        ("app_settings.language", "Language"),
+        ("app_settings.language_title", "Language"),
+        ("app_settings.language_desc", "Choose the display language for the interface."),
         // ── Home page ───────────────────────────────────────────────
         ("home.title_prefix", "My "),
         ("home.title_accent", "Genealogy Trees"),
@@ -56,13 +70,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("home.modified_weeks_other", "Modified {count} weeks ago"),
         ("home.modified_months_one", "Modified {count} month ago"),
         ("home.modified_months_other", "Modified {count} months ago"),
-        // ── Tree list page ──────────────────────────────────────────
-        ("tree_list.title", "Genealogy Trees"),
-        ("tree_list.create_title", "Create New Tree"),
-        ("tree_list.no_trees", "No trees yet"),
-        ("tree_list.no_trees_hint", "Create your first genealogy tree to get started."),
-        ("tree_list.created", "Created"),
-        ("tree_list.actions", "Actions"),
         // ── Tree detail / topbar ────────────────────────────────────
         ("tree.breadcrumb_trees", "Trees"),
         ("tree.name_label", "Name"),
