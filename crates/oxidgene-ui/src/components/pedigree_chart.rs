@@ -950,6 +950,18 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         needs_center.set(true);
     }
 
+    // ── Force re-centering when depth levels change ──
+    let anc_now = ancestor_levels();
+    let desc_now = descendant_levels();
+    let mut prev_anc = use_signal(|| anc_now);
+    let mut prev_desc = use_signal(|| desc_now);
+    if prev_anc() != anc_now || prev_desc() != desc_now {
+        prev_anc.set(anc_now);
+        prev_desc.set(desc_now);
+        animating.set(false);
+        needs_center.set(true);
+    }
+
     // ── Compute layout ──
     let (layout_nodes, connector_segments, total_w, total_h) = compute_layout(
         props.root_person_id,
