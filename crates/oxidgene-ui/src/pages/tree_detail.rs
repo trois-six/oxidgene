@@ -120,13 +120,20 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let initial_person = person.as_deref().and_then(|p| p.parse::<Uuid>().ok());
     let mut selected_root = use_signal(move || initial_person);
 
-    // Sync selected_root when navigating with a new person query param.
-    let mut prev_person_param = use_signal(move || initial_person);
-    if initial_person != prev_person_param() {
-        prev_person_param.set(initial_person);
+    // Generation counter: incremented every time we navigate with a ?person param
+    // so PedigreeChart re-centers even when the root person hasn't changed.
+    let mut center_gen = use_signal(|| 0u32);
+
+    // Sync selected_root when navigating with a (possibly identical) person query param.
+    // We compare the raw string to detect re-navigation to the same person.
+    let person_raw = person.clone();
+    let mut prev_person_raw = use_signal(move || person_raw);
+    if person != prev_person_raw() {
+        prev_person_raw.set(person.clone());
         if let Some(pid) = initial_person {
             selected_root.set(Some(pid));
         }
+        center_gen += 1;
     }
 
     // ── Context menu state ──
@@ -861,6 +868,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     root_person_id: root_id,
                     data: data,
                     tree_id: tree_id.clone(),
+                    center_gen: center_gen(),
                     on_person_click: move |(pid, x, y)| {
                         context_menu_person.set(Some((pid, x, y)));
                     },
