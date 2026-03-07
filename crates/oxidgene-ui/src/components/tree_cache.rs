@@ -17,10 +17,14 @@ use oxidgene_core::types::Tree;
 /// needs the data for the same `tree_id` that is already cached, it can
 /// read from the signals immediately (no HTTP round-trip, no loading
 /// spinner).
+///
+/// Tree and snapshot track their own `tree_id` independently so that
+/// storing one doesn't accidentally validate a stale entry for the other.
 #[derive(Clone, Copy)]
 pub struct TreeCache {
-    tree_id: Signal<Option<Uuid>>,
+    tree_tid: Signal<Option<Uuid>>,
     tree: Signal<Option<Tree>>,
+    snap_tid: Signal<Option<Uuid>>,
     snapshot: Signal<Option<TreeSnapshot>>,
     /// Monotonically increasing counter — bump to force a re-fetch.
     generation: Signal<u64>,
@@ -29,7 +33,7 @@ pub struct TreeCache {
 impl TreeCache {
     /// Return the cached tree if it matches `tid`, otherwise `None`.
     pub fn tree(&self, tid: Uuid) -> Option<Tree> {
-        if *self.tree_id.read() == Some(tid) {
+        if *self.tree_tid.read() == Some(tid) {
             self.tree.read().clone()
         } else {
             None
@@ -38,7 +42,7 @@ impl TreeCache {
 
     /// Return the cached snapshot if it matches `tid`, otherwise `None`.
     pub fn snapshot(&self, tid: Uuid) -> Option<TreeSnapshot> {
-        if *self.tree_id.read() == Some(tid) {
+        if *self.snap_tid.read() == Some(tid) {
             self.snapshot.read().clone()
         } else {
             None
@@ -47,7 +51,7 @@ impl TreeCache {
 
     /// Store freshly fetched data into the cache.
     pub fn store_tree(&self, tid: Uuid, tree: Tree) {
-        let mut id = self.tree_id;
+        let mut id = self.tree_tid;
         let mut t = self.tree;
         id.set(Some(tid));
         t.set(Some(tree));
@@ -55,7 +59,7 @@ impl TreeCache {
 
     /// Store freshly fetched snapshot into the cache.
     pub fn store_snapshot(&self, tid: Uuid, snapshot: TreeSnapshot) {
-        let mut id = self.tree_id;
+        let mut id = self.snap_tid;
         let mut s = self.snapshot;
         id.set(Some(tid));
         s.set(Some(snapshot));
@@ -64,11 +68,13 @@ impl TreeCache {
     /// Invalidate the cache and bump the generation counter so that
     /// any reactive `use_resource` that reads `generation()` will re-run.
     pub fn invalidate(&self) {
-        let mut id = self.tree_id;
+        let mut tid = self.tree_tid;
+        let mut stid = self.snap_tid;
         let mut t = self.tree;
         let mut s = self.snapshot;
         let mut generation = self.generation;
-        id.set(None);
+        tid.set(None);
+        stid.set(None);
         t.set(None);
         s.set(None);
         let next = *generation.peek() + 1;
@@ -87,8 +93,9 @@ impl TreeCache {
 /// Call once in the root Layout to provide the cache context.
 pub fn use_init_tree_cache() -> TreeCache {
     let cache = TreeCache {
-        tree_id: use_context_provider(|| Signal::new(None)),
+        tree_tid: use_context_provider(|| Signal::new(None)),
         tree: use_context_provider(|| Signal::new(None)),
+        snap_tid: use_context_provider(|| Signal::new(None)),
         snapshot: use_context_provider(|| Signal::new(None)),
         generation: use_context_provider(|| Signal::new(0u64)),
     };
@@ -134,8 +141,32 @@ impl ViewStateCache {
         })
     }
 
-    /// Save the current view state.
+    /// Same as [`get`] but does **not** subscribe the caller to changes.
+    pub fn get_untracked(&self, tid: Uuid) -> Option<PedigreeViewState> {
+        self.state.peek().as_ref().and_then(|s| {
+            if s.tree_id == tid {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Save the current view state (no-op if values are unchanged).
     pub fn save(&self, state: PedigreeViewState) {
+        let dominated = self.state.peek();
+        if let Some(existing) = dominated.as_ref()
+            && existing.tree_id == state.tree_id
+            && existing.offset_x == state.offset_x
+            && existing.offset_y == state.offset_y
+            && existing.scale == state.scale
+            && existing.ancestor_levels == state.ancestor_levels
+            && existing.descendant_levels == state.descendant_levels
+            && existing.selected_root == state.selected_root
+        {
+            return;
+        }
+        drop(dominated);
         let mut sig = self.state;
         sig.set(Some(state));
     }

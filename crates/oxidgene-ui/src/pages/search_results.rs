@@ -79,9 +79,13 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
-    // Search query state (pre-filled from URL params).
-    let mut search_last = use_signal(|| last.clone().unwrap_or_default());
-    let mut search_first = use_signal(|| first.clone().unwrap_or_default());
+    // Search query state.
+    // `committed_last`/`committed_first` track the last submitted query (Enter / button).
+    // Filtering reads only from committed signals. The live input signals live
+    // inside the isolated `SearchBar` component so keystrokes never re-render this
+    // heavy component.
+    let committed_last = use_signal(|| last.clone().unwrap_or_default());
+    let committed_first = use_signal(|| first.clone().unwrap_or_default());
 
     // Filters.
     let mut gender_filter = use_signal(|| GenderFilter::All);
@@ -135,8 +139,8 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
     // ── Build search results ──
     let is_loading = snapshot_resource.read().is_none();
 
-    let last_q = search_last().trim().to_lowercase();
-    let first_q = search_first().trim().to_lowercase();
+    let last_q = committed_last().trim().to_lowercase();
+    let first_q = committed_first().trim().to_lowercase();
     let has_query = !last_q.is_empty() || !first_q.is_empty();
 
     let mut results: Vec<SearchResult> = {
@@ -434,58 +438,6 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
         c
     };
 
-    // Navigate on Enter from search fields.
-    let tree_id_nav1 = tree_id.clone();
-    let tree_id_nav2 = tree_id.clone();
-    let tree_id_esc1 = tree_id.clone();
-    let tree_id_esc2 = tree_id.clone();
-    let on_search_keydown_last = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter {
-            nav.push(Route::SearchResults {
-                tree_id: tree_id_nav1.clone(),
-                last: if search_last().is_empty() {
-                    None
-                } else {
-                    Some(search_last())
-                },
-                first: if search_first().is_empty() {
-                    None
-                } else {
-                    Some(search_first())
-                },
-            });
-            current_page.set(0);
-        } else if e.key() == Key::Escape {
-            nav.push(Route::TreeDetail {
-                tree_id: tree_id_esc1.clone(),
-                person: None,
-            });
-        }
-    };
-    let on_search_keydown_first = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter {
-            nav.push(Route::SearchResults {
-                tree_id: tree_id_nav2.clone(),
-                last: if search_last().is_empty() {
-                    None
-                } else {
-                    Some(search_last())
-                },
-                first: if search_first().is_empty() {
-                    None
-                } else {
-                    Some(search_first())
-                },
-            });
-            current_page.set(0);
-        } else if e.key() == Key::Escape {
-            nav.push(Route::TreeDetail {
-                tree_id: tree_id_esc2.clone(),
-                person: None,
-            });
-        }
-    };
-
     let clear_filters = move |_| {
         gender_filter.set(GenderFilter::All);
         born_from.set(String::new());
@@ -515,40 +467,13 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                 span { class: "td-bc-sep", "/" }
                 span { class: "td-bc-current", {i18n.t("search_results.breadcrumb")} }
             }
-            div { class: "td-search-group",
-                input {
-                    r#type: "text",
-                    class: "td-search-input",
-                    placeholder: "{i18n.t(\"tree.search_last\")}",
-                    value: "{search_last}",
-                    oninput: move |e: Event<FormData>| search_last.set(e.value()),
-                    onkeydown: on_search_keydown_last,
-                }
-                input {
-                    r#type: "text",
-                    class: "td-search-input",
-                    placeholder: "{i18n.t(\"tree.search_first\")}",
-                    value: "{search_first}",
-                    oninput: move |e: Event<FormData>| search_first.set(e.value()),
-                    onkeydown: on_search_keydown_first,
-                }
-                Link {
-                    class: "td-back-btn",
-                    to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                    title: "{i18n.t(\"search_results.back_to_tree\")}",
-                    svg {
-                        width: "16",
-                        height: "16",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        // Tree/sitemap icon
-                        path { d: "M17 21v-2a4 4 0 00-4-4H5" }
-                        path { d: "M9 19l-4-4 4-4" }
-                        path { d: "M21 12V7a2 2 0 00-2-2h-4" }
-                    }
-                }
+            SearchBar {
+                tree_id: tree_id.clone(),
+                initial_last: last.clone().unwrap_or_default(),
+                initial_first: first.clone().unwrap_or_default(),
+                committed_last: committed_last,
+                committed_first: committed_first,
+                current_page: current_page,
             }
         }
 
@@ -561,10 +486,10 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                 h2 { class: "sr-title",
                     {i18n.t("search_results.title")}
                     if !last_q.is_empty() {
-                        span { class: "sr-highlight", " \"{search_last}\"" }
+                        span { class: "sr-highlight", " \"{committed_last}\"" }
                     }
                     if !first_q.is_empty() {
-                        span { class: "sr-highlight", " \"{search_first}\"" }
+                        span { class: "sr-highlight", " \"{committed_first}\"" }
                     }
                 }
             } else {
@@ -900,4 +825,108 @@ fn pagination_range(current: usize, total: usize) -> Vec<usize> {
     }
     pages.dedup();
     pages
+}
+
+/// Isolated search bar — lives in its own component so keystrokes only
+/// re-render this lightweight widget, not the entire SearchResults page.
+#[component]
+fn SearchBar(
+    tree_id: String,
+    initial_last: String,
+    initial_first: String,
+    committed_last: Signal<String>,
+    committed_first: Signal<String>,
+    current_page: Signal<usize>,
+) -> Element {
+    let i18n = use_i18n();
+    let nav = use_navigator();
+    let mut search_last = use_signal(|| initial_last.clone());
+    let mut search_first = use_signal(|| initial_first.clone());
+
+    let mut commit = move || {
+        committed_last.set(search_last());
+        committed_first.set(search_first());
+        current_page.set(0);
+    };
+
+    let mut commit2 = commit;
+    let mut commit3 = commit;
+    let tree_id_esc1 = tree_id.clone();
+    let tree_id_esc2 = tree_id.clone();
+
+    let on_keydown_last = move |e: Event<KeyboardData>| {
+        if e.key() == Key::Enter {
+            commit();
+        } else if e.key() == Key::Escape {
+            nav.push(Route::TreeDetail {
+                tree_id: tree_id_esc1.clone(),
+                person: None,
+            });
+        }
+    };
+    let on_keydown_first = move |e: Event<KeyboardData>| {
+        if e.key() == Key::Enter {
+            commit2();
+        } else if e.key() == Key::Escape {
+            nav.push(Route::TreeDetail {
+                tree_id: tree_id_esc2.clone(),
+                person: None,
+            });
+        }
+    };
+    let on_btn = move |_| {
+        commit3();
+    };
+
+    rsx! {
+        div { class: "td-search-group",
+            input {
+                r#type: "text",
+                class: "td-search-input",
+                placeholder: "{i18n.t(\"tree.search_last\")}",
+                value: "{search_last}",
+                oninput: move |e: Event<FormData>| search_last.set(e.value()),
+                onkeydown: on_keydown_last,
+            }
+            input {
+                r#type: "text",
+                class: "td-search-input",
+                placeholder: "{i18n.t(\"tree.search_first\")}",
+                value: "{search_first}",
+                oninput: move |e: Event<FormData>| search_first.set(e.value()),
+                onkeydown: on_keydown_first,
+            }
+            button {
+                class: "td-search-btn",
+                title: "{i18n.t(\"search_results.search\")}",
+                onclick: on_btn,
+                svg {
+                    width: "14",
+                    height: "14",
+                    fill: "none",
+                    "viewBox": "0 0 24 24",
+                    stroke: "currentColor",
+                    "strokeWidth": "2.5",
+                    circle { cx: "11", cy: "11", r: "8" }
+                    line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
+                }
+            }
+            Link {
+                class: "td-back-btn",
+                to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
+                title: "{i18n.t(\"search_results.back_to_tree\")}",
+                svg {
+                    width: "16",
+                    height: "16",
+                    fill: "none",
+                    "viewBox": "0 0 24 24",
+                    stroke: "currentColor",
+                    "strokeWidth": "2",
+                    path { d: "M17 21v-2a4 4 0 00-4-4H5" }
+                    path { d: "M9 19l-4-4 4-4" }
+                    path { d: "M21 12V7a2 2 0 00-2-2h-4" }
+                }
+            }
+        }
+    }
 }

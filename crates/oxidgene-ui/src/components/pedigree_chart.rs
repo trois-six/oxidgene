@@ -892,7 +892,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let i18n = use_i18n();
     let view_cache = use_view_state_cache();
     let tid_parsed = props.tree_id.parse::<Uuid>().ok();
-    let saved = tid_parsed.and_then(|t| view_cache.get(t));
+    let saved = tid_parsed.and_then(|t| view_cache.get_untracked(t));
 
     // Extract initial values from saved state (or defaults)
     let init_anc = saved.as_ref().map_or(4, |s| s.ancestor_levels);

@@ -32,44 +32,41 @@ fn TopbarSearch(tree_id: String) -> Element {
     let mut search_last = use_signal(String::new);
     let mut search_first = use_signal(String::new);
 
-    let tree_id2 = tree_id.clone();
+    let do_search = {
+        let tree_id = tree_id.clone();
+        move || {
+            if !search_last().trim().is_empty() || !search_first().trim().is_empty() {
+                nav.push(Route::SearchResults {
+                    tree_id: tree_id.clone(),
+                    last: if search_last().is_empty() {
+                        None
+                    } else {
+                        Some(search_last())
+                    },
+                    first: if search_first().is_empty() {
+                        None
+                    } else {
+                        Some(search_first())
+                    },
+                });
+            }
+        }
+    };
+
+    let do_search2 = do_search.clone();
+    let do_search3 = do_search.clone();
     let on_search_enter = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter
-            && (!search_last().trim().is_empty() || !search_first().trim().is_empty())
-        {
-            nav.push(Route::SearchResults {
-                tree_id: tree_id.clone(),
-                last: if search_last().is_empty() {
-                    None
-                } else {
-                    Some(search_last())
-                },
-                first: if search_first().is_empty() {
-                    None
-                } else {
-                    Some(search_first())
-                },
-            });
+        if e.key() == Key::Enter {
+            do_search();
         }
     };
     let on_search_enter2 = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter
-            && (!search_last().trim().is_empty() || !search_first().trim().is_empty())
-        {
-            nav.push(Route::SearchResults {
-                tree_id: tree_id2.clone(),
-                last: if search_last().is_empty() {
-                    None
-                } else {
-                    Some(search_last())
-                },
-                first: if search_first().is_empty() {
-                    None
-                } else {
-                    Some(search_first())
-                },
-            });
+        if e.key() == Key::Enter {
+            do_search2();
         }
+    };
+    let on_search_btn = move |_| {
+        do_search3();
     };
 
     rsx! {
@@ -89,6 +86,21 @@ fn TopbarSearch(tree_id: String) -> Element {
                 value: "{search_first}",
                 oninput: move |e: Event<FormData>| search_first.set(e.value()),
                 onkeydown: on_search_enter2,
+            }
+            button {
+                class: "td-search-btn",
+                title: "{i18n.t(\"tree.search\")}",
+                onclick: on_search_btn,
+                svg {
+                    width: "14",
+                    height: "14",
+                    fill: "none",
+                    "viewBox": "0 0 24 24",
+                    stroke: "currentColor",
+                    "strokeWidth": "2.5",
+                    circle { cx: "11", cy: "11", r: "8" }
+                    line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
+                }
             }
         }
     }
@@ -120,15 +132,22 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let tree_cache = use_tree_cache();
     let view_cache = use_view_state_cache();
 
-    let tree_id_parsed = tree_id.parse::<Uuid>().ok();
+    // Reactive tree_id: a signal always in sync with the prop so resources re-run.
+    let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
+    // Synchronously overwrite — write() updates in place for the current render.
+    let new_parsed = tree_id.parse::<Uuid>().ok();
+    let tree_changed = new_parsed != *tree_id_parsed.peek();
+    if tree_changed {
+        *tree_id_parsed.write() = new_parsed;
+    }
 
     // ── Root person — from query param, view-state cache, or first person ──
     let initial_person = person
         .as_deref()
         .and_then(|p| p.parse::<Uuid>().ok())
         .or_else(|| {
-            tree_id_parsed
-                .and_then(|tid| view_cache.get(tid))
+            tree_id_parsed()
+                .and_then(|tid| view_cache.get_untracked(tid))
                 .and_then(|vs| vs.selected_root)
         });
     let mut selected_root = use_signal(move || initial_person);
@@ -136,6 +155,14 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     // Generation counter: incremented every time we navigate with a ?person param
     // so PedigreeChart re-centers even when the root person hasn't changed.
     let mut center_gen = use_signal(|| 0u32);
+
+    // Reset state when navigating to a different tree (component is reused by the router).
+    let mut prev_tree_id = use_signal(|| tree_id.clone());
+    if tree_id != *prev_tree_id.peek() {
+        *prev_tree_id.write() = tree_id.clone();
+        selected_root.set(None);
+        center_gen += 1;
+    }
 
     // Sync selected_root when navigating with a (possibly identical) person query param.
     // We compare the raw string to detect re-navigation to the same person.
@@ -167,10 +194,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // ── Fetch tree details (cache-backed) ──
     let api_tree = api.clone();
-    let tree_resource = use_resource(move || {
+    let mut tree_resource = use_resource(move || {
         let api = api_tree.clone();
         let _gen = tree_cache.generation();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -184,10 +211,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // ── Fetch tree snapshot (cache-backed) ──
     let api_snapshot = api.clone();
-    let snapshot_resource = use_resource(move || {
+    let mut snapshot_resource = use_resource(move || {
         let api = api_snapshot.clone();
         let _gen = tree_cache.generation();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -198,6 +225,12 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             fetch_snapshot_cached(&api, &tree_cache, tid).await
         }
     });
+
+    // Force resources to re-fetch when tree_id changes (component reused by router).
+    if tree_changed {
+        tree_resource.restart();
+        snapshot_resource.restart();
+    }
 
     // ── Build pedigree data from snapshot ──
     let pedigree_data: Option<PedigreeData> = {
@@ -342,7 +375,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let api_del_person = api.clone();
     let on_confirm_delete_person = move |_| {
         let api = api_del_person.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(pid) = confirm_delete_person_id() else {
             return;
         };
@@ -366,7 +399,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_empty = pedigree_data.clone();
     let on_empty_slot = move |(child_id, is_father): (Uuid, bool)| {
         let api = api_empty.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
 
         let family_id = pedigree_data_empty
             .as_ref()
@@ -423,7 +456,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_spouse = pedigree_data.clone();
     let on_link_spouse = move |person_id: Uuid| {
         let api = api_link_spouse.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Spouse(for_pid)) = linking_mode() else {
             return;
         };
@@ -463,7 +496,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_new_spouse = pedigree_data.clone();
     let on_create_new_spouse = move |_| {
         let api = api_new_spouse.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Spouse(for_pid)) = linking_mode() else {
             return;
         };
@@ -512,7 +545,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_parent = pedigree_data.clone();
     let on_link_parent = move |person_id: Uuid| {
         let api = api_link_parent.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Parents(child_id)) = linking_mode() else {
             return;
         };
@@ -552,7 +585,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_new_parent = pedigree_data.clone();
     let on_create_new_parent = move |_| {
         let api = api_new_parent.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Parents(child_id)) = linking_mode() else {
             return;
         };
@@ -601,7 +634,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_child = pedigree_data.clone();
     let on_link_child = move |person_id: Uuid| {
         let api = api_link_child.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Child(parent_id)) = linking_mode() else {
             return;
         };
@@ -640,7 +673,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_new_child = pedigree_data.clone();
     let on_create_new_child = move |_| {
         let api = api_new_child.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Child(parent_id)) = linking_mode() else {
             return;
         };
@@ -689,7 +722,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_sibling = pedigree_data.clone();
     let on_link_sibling = move |person_id: Uuid| {
         let api = api_link_sibling.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Sibling(for_pid)) = linking_mode() else {
             return;
         };
@@ -730,7 +763,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let pedigree_data_new_sibling = pedigree_data.clone();
     let on_create_new_sibling = move |_| {
         let api = api_new_sibling.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(LinkingMode::Sibling(for_pid)) = linking_mode() else {
             return;
         };
@@ -855,7 +888,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
         // Person edit modal
         if let Some(edit_pid) = editing_person_id() {
-            if let Some(tid) = tree_id_parsed {
+            if let Some(tid) = tree_id_parsed() {
                 PersonForm {
                     tree_id: tid,
                     person_id: edit_pid,
@@ -867,7 +900,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
         // Union edit modal
         if let Some(union_fid) = editing_union_id() {
-            if let Some(tid) = tree_id_parsed {
+            if let Some(tid) = tree_id_parsed() {
                 UnionForm {
                     tree_id: tid,
                     family_id: union_fid,
@@ -899,7 +932,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     on_add_person: move |_| {
                         // Create a new person and open edit form
                         let api = api.clone();
-                        let Some(tid) = tree_id_parsed else { return };
+                        let Some(tid) = tree_id_parsed() else { return };
                         spawn(async move {
                             if let Ok(new_person) = api.create_person(tid, &crate::api::CreatePersonBody { sex: oxidgene_core::Sex::Unknown }).await {
                                 editing_person_id.set(Some(new_person.id));
@@ -922,9 +955,32 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
                     if all_loaded {
                         rsx! {
-                            div { class: "empty-state",
-                                h3 { {i18n.t("tree.no_persons")} }
-                                p { {i18n.t("tree.no_persons_hint")} }
+                            div { class: "empty-tree-container",
+                                button {
+                                    class: "empty-tree-slot",
+                                    title: "{i18n.t(\"tree.no_persons_hint\")}",
+                                    onclick: move |_| {
+                                        let api = api.clone();
+                                        let Some(tid) = tree_id_parsed() else { return };
+                                        spawn(async move {
+                                            if let Ok(new_person) = api.create_person(tid, &crate::api::CreatePersonBody { sex: oxidgene_core::Sex::Unknown }).await {
+                                                editing_person_id.set(Some(new_person.id));
+                                                tree_cache.invalidate();
+                                            }
+                                        });
+                                    },
+                                    svg {
+                                        width: "32",
+                                        height: "32",
+                                        fill: "none",
+                                        "viewBox": "0 0 24 24",
+                                        stroke: "currentColor",
+                                        "strokeWidth": "1.5",
+                                        line { x1: "12", y1: "5", x2: "12", y2: "19" }
+                                        line { x1: "5", y1: "12", x2: "19", y2: "12" }
+                                    }
+                                    span { {i18n.t("tree.add_first_person")} }
+                                }
                             }
                         }
                     } else {
@@ -937,7 +993,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
 
         // ── Linking panel (search-or-create for AddSpouse/AddParents/AddChild) ──
-        if let (Some(label), Some(tid)) = (linking_label, tree_id_parsed) {
+        if let (Some(label), Some(tid)) = (linking_label, tree_id_parsed()) {
             div { class: "card linking-card",
                 div { class: "section-header",
                     h2 { style: "font-size: 1.1rem;", "{label}" }
