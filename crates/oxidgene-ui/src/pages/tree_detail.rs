@@ -852,7 +852,9 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         }
                         span { class: "td-bc-current", "{tree_name_str}" }
                     }
-                    TopbarSearch { tree_id: tree_id.clone() }
+                    if root_person_id.is_some() {
+                        TopbarSearch { tree_id: tree_id.clone() }
+                    }
                 }
             }
         }

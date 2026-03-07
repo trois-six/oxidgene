@@ -404,6 +404,14 @@ pub fn Home() -> Element {
             }
         }
 
+        // ── Import blocking overlay ──
+        if importing_tree_id().is_some() {
+            div { class: "import-overlay",
+                div { class: "import-spinner" }
+                div { class: "import-overlay-text", {i18n.t("common.importing_gedcom")} }
+            }
+        }
+
         // ── Import feedback ──
         if let Some(err) = import_error() {
             div { class: "home-import-banner error-msg", "{err}" }

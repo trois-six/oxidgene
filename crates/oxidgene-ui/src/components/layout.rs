@@ -2420,6 +2420,41 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 4px;
     }
 
+    /* ── Import overlay (blocking spinner) ───────────────────────── */
+
+    .import-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(6px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+    }
+
+    .import-spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid var(--border);
+        border-top-color: var(--orange);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .import-overlay-text {
+        font-family: var(--font-heading);
+        font-size: 1.1rem;
+        color: var(--text-primary);
+        letter-spacing: 0.04em;
+    }
+
     /* ── Scrollbar ────────────────────────────────────────────────── */
 
     ::-webkit-scrollbar { width: 6px; height: 6px; }
