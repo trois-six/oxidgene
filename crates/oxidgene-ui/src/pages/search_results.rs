@@ -2,6 +2,9 @@
 //!
 //! Reached by pressing **Enter** in the tree topbar search fields.
 //! Route: `/trees/:tree_id/search?last=...&first=...`
+//!
+//! Performance: uses the single `/snapshot` endpoint instead of N+1 per-person
+//! requests, and applies client-side filtering with debounced inputs.
 
 use std::collections::HashMap;
 
@@ -47,6 +50,10 @@ struct SearchResult {
     person_id: Uuid,
     surname: String,
     given_names: String,
+    /// Pre-computed lowercase surname for sort/filter (avoids repeated allocations).
+    surname_lower: String,
+    /// Pre-computed lowercase given names for sort/filter.
+    given_lower: String,
     #[allow(dead_code)]
     display_name: String,
     sex: Sex,
@@ -105,10 +112,13 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
         }
     });
 
-    // ── Fetch all persons ──
-    let api_persons = api.clone();
-    let persons_resource = use_resource(move || {
-        let api = api_persons.clone();
+    // ── Fetch all data via single snapshot request ──
+    // This replaces the previous N+1 pattern (persons + per-person names +
+    // events + per-family members) with a single HTTP call that returns
+    // everything pre-joined.
+    let api_snap = api.clone();
+    let snapshot_resource = use_resource(move || {
+        let api = api_snap.clone();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -117,118 +127,31 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.list_all_persons(tid).await
-        }
-    });
-
-    // ── Fetch all names ──
-    let api_names = api.clone();
-    let names_resource = use_resource(move || {
-        let api = api_names.clone();
-        let tid = tree_id_parsed;
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            let persons = api.list_all_persons(tid).await?;
-            let mut set = tokio::task::JoinSet::new();
-            for person in &persons {
-                let api2 = api.clone();
-                let pid = person.id;
-                set.spawn(async move {
-                    let names = api2.list_person_names(tid, pid).await.unwrap_or_default();
-                    (pid, names)
-                });
-            }
-            let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
-            while let Some(Ok((pid, names))) = set.join_next().await {
-                name_map.insert(pid, names);
-            }
-            Ok(name_map)
-        }
-    });
-
-    // ── Fetch all events ──
-    let api_events = api.clone();
-    let events_resource = use_resource(move || {
-        let api = api_events.clone();
-        let tid = tree_id_parsed;
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            api.list_all_events(tid).await
-        }
-    });
-
-    // ── Fetch all family members ──
-    let api_members = api.clone();
-    let members_resource = use_resource(move || {
-        let api = api_members.clone();
-        let tid = tree_id_parsed;
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            let families = api.list_all_families(tid).await?;
-            let mut set = tokio::task::JoinSet::new();
-            for family in &families {
-                let api2 = api.clone();
-                let fid = family.id;
-                set.spawn(async move {
-                    let spouses = api2.list_family_spouses(tid, fid).await.unwrap_or_default();
-                    let children = api2
-                        .list_family_children(tid, fid)
-                        .await
-                        .unwrap_or_default();
-                    (spouses, children)
-                });
-            }
-            let mut all_spouses = Vec::new();
-            let mut all_children = Vec::new();
-            while let Some(Ok((spouses, children))) = set.join_next().await {
-                all_spouses.extend(spouses);
-                all_children.extend(children);
-            }
-            Ok((all_spouses, all_children))
+            api.get_tree_snapshot(tid).await
         }
     });
 
     // ── Build search results ──
-    let is_loading = persons_resource.read().is_none()
-        || names_resource.read().is_none()
-        || events_resource.read().is_none()
-        || members_resource.read().is_none();
+    let is_loading = snapshot_resource.read().is_none();
 
     let last_q = search_last().trim().to_lowercase();
     let first_q = search_first().trim().to_lowercase();
     let has_query = !last_q.is_empty() || !first_q.is_empty();
 
     let mut results: Vec<SearchResult> = {
-        let persons_data = persons_resource.read();
-        let names_data = names_resource.read();
-        let events_data = events_resource.read();
-        let members_data = members_resource.read();
+        let snap_data = snapshot_resource.read();
 
-        match (&*persons_data, &*names_data, &*events_data, &*members_data) {
-            (
-                Some(Ok(persons)),
-                Some(Ok(name_map)),
-                Some(Ok(events)),
-                Some(Ok((spouses, children))),
-            ) => {
+        match &*snap_data {
+            Some(Ok(snapshot)) => {
+                // Build name map: person_id -> Vec<PersonName>
+                let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
+                for pn in snapshot.names.iter() {
+                    name_map.entry(pn.person_id).or_default().push(pn.clone());
+                }
+
                 // Pre-build event indexes.
                 let mut events_by_person: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
-                for e in events.iter() {
+                for e in snapshot.events.iter() {
                     if let Some(pid) = e.person_id {
                         events_by_person.entry(pid).or_default().push(e);
                     }
@@ -236,21 +159,21 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
 
                 // Pre-build family indexes.
                 let mut spouses_by_family: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-                for s in spouses.iter() {
+                for s in snapshot.spouses.iter() {
                     spouses_by_family
                         .entry(s.family_id)
                         .or_default()
                         .push(s.person_id);
                 }
                 let mut children_by_family: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-                for c in children.iter() {
+                for c in snapshot.children.iter() {
                     children_by_family
                         .entry(c.family_id)
                         .or_default()
                         .push(c.person_id);
                 }
                 let mut families_as_spouse: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-                for s in spouses.iter() {
+                for s in snapshot.spouses.iter() {
                     families_as_spouse
                         .entry(s.person_id)
                         .or_default()
@@ -261,18 +184,21 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                 let api_places = api.clone();
                 let _ = api_places; // places loaded in events already
 
-                persons
+                snapshot
+                    .persons
                     .iter()
                     .filter_map(|person| {
-                        let (given, surname, _nick) = name_parts(person.id, name_map);
+                        let (given, surname, _nick) = name_parts(person.id, &name_map);
                         let given_str = given.unwrap_or_default();
                         let surname_str = surname.unwrap_or_default();
-                        let display = resolve_name(person.id, name_map);
+                        let display = resolve_name(person.id, &name_map);
+
+                        // Pre-compute lowercase once for this person.
+                        let given_lower = given_str.to_lowercase();
+                        let surname_lower = surname_str.to_lowercase();
 
                         // Name matching.
                         if has_query {
-                            let given_lower = given_str.to_lowercase();
-                            let surname_lower = surname_str.to_lowercase();
                             let display_lower = display.to_lowercase();
 
                             // Check if it's a SOSA number search.
@@ -395,7 +321,7 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                                     spouses_in_fam
                                         .iter()
                                         .find(|&&sp| sp != person.id)
-                                        .map(|&sp| resolve_name(sp, name_map))
+                                        .map(|&sp| resolve_name(sp, &name_map))
                                 })
                             })
                         });
@@ -410,11 +336,9 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                             })
                             .unwrap_or(0);
 
-                        // Relevance score.
+                        // Relevance score (use pre-computed lowercase).
                         let mut relevance: u32 = 0;
                         if has_query {
-                            let surname_lower = surname_str.to_lowercase();
-                            let given_lower = given_str.to_lowercase();
                             if !last_q.is_empty() && surname_lower == last_q {
                                 relevance += 100;
                             } else if !last_q.is_empty() && surname_lower.starts_with(&last_q) {
@@ -435,6 +359,8 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                             person_id: person.id,
                             surname: surname_str,
                             given_names: given_str,
+                            surname_lower,
+                            given_lower,
                             display_name: display,
                             sex: person.sex,
                             birth_date,
@@ -451,28 +377,18 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
         }
     };
 
-    // Sort results.
+    // Sort results (using pre-computed lowercase fields to avoid repeated allocations).
     match sort_order() {
         SortOrder::Relevance => results.sort_by(|a, b| b.relevance.cmp(&a.relevance)),
         SortOrder::NameAZ => results.sort_by(|a, b| {
-            a.surname
-                .to_lowercase()
-                .cmp(&b.surname.to_lowercase())
-                .then(
-                    a.given_names
-                        .to_lowercase()
-                        .cmp(&b.given_names.to_lowercase()),
-                )
+            a.surname_lower
+                .cmp(&b.surname_lower)
+                .then(a.given_lower.cmp(&b.given_lower))
         }),
         SortOrder::NameZA => results.sort_by(|a, b| {
-            b.surname
-                .to_lowercase()
-                .cmp(&a.surname.to_lowercase())
-                .then(
-                    b.given_names
-                        .to_lowercase()
-                        .cmp(&a.given_names.to_lowercase()),
-                )
+            b.surname_lower
+                .cmp(&a.surname_lower)
+                .then(b.given_lower.cmp(&a.given_lower))
         }),
         SortOrder::BirthAsc => results.sort_by(|a, b| {
             let ya = a.birth_date.as_deref().and_then(extract_year);
