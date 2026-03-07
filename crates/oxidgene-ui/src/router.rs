@@ -6,8 +6,9 @@
 use dioxus::prelude::*;
 
 use crate::pages::{
-    home::Home, not_found::NotFound, person_detail::PersonDetail, settings::Settings,
-    tree_detail::TreeDetail, tree_list::TreeList,
+    home::Home, not_found::NotFound, person_detail::PersonDetail,
+    search_results::SearchResults, settings::Settings, tree_detail::TreeDetail,
+    tree_list::TreeList,
 };
 
 /// All application routes.
@@ -29,8 +30,20 @@ pub enum Route {
     TreeList {},
 
     /// Detail view for a single tree (shows persons, families, etc.).
-    #[route("/trees/:tree_id")]
-    TreeDetail { tree_id: String },
+    /// Optional `person` query param to focus on a specific person.
+    #[route("/trees/:tree_id?:person")]
+    TreeDetail {
+        tree_id: String,
+        person: Option<String>,
+    },
+
+    /// Search results page for a tree.
+    #[route("/trees/:tree_id/search?:last&:first")]
+    SearchResults {
+        tree_id: String,
+        last: Option<String>,
+        first: Option<String>,
+    },
 
     /// Detail view for a person within a tree.
     #[route("/trees/:tree_id/persons/:person_id")]

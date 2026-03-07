@@ -470,19 +470,23 @@ fn convert_name(
     is_primary: bool,
     now: chrono::DateTime<Utc>,
 ) -> PersonName {
-    // ged_io Name has: given, surname, prefix, suffix, nickname, name_type
     let name_type = name
         .name_type
         .as_ref()
         .map(convert_name_type)
         .unwrap_or(NameType::Birth);
 
+    // ged_io populates name.given / name.surname only when GIVN/SURN sub-tags
+    // exist. Most GEDCOM files only have the full name on the NAME line
+    // (e.g. "Florence /ALFONSI/"), stored in name.value. Fall back to parsing it.
+    let (parsed_given, parsed_surname) = parse_name_value(name.value.as_deref());
+
     PersonName {
         id: Uuid::now_v7(),
         person_id,
         name_type,
-        given_names: name.given.clone(),
-        surname: name.surname.clone(),
+        given_names: name.given.clone().or(parsed_given),
+        surname: name.surname.clone().or(parsed_surname),
         prefix: name.prefix.clone(),
         suffix: name.suffix.clone(),
         nickname: name.nickname.clone(),
@@ -490,6 +494,28 @@ fn convert_name(
         created_at: now,
         updated_at: now,
     }
+}
+
+/// Parse given name and surname from a GEDCOM NAME value (e.g. "Florence /ALFONSI/").
+/// Surname is the text between `/` delimiters; given names are everything before the first `/`.
+fn parse_name_value(value: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(val) = value else {
+        return (None, None);
+    };
+
+    let surname = val.find('/').and_then(|start| {
+        val[start + 1..].find('/').and_then(|end| {
+            let s = val[start + 1..start + 1 + end].trim();
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        })
+    });
+
+    let given = val.find('/').and_then(|slash| {
+        let g = val[..slash].trim();
+        if g.is_empty() { None } else { Some(g.to_string()) }
+    });
+
+    (given, surname)
 }
 
 fn convert_name_type(nt: &ged_io::types::individual::name::NameType) -> NameType {
@@ -956,4 +982,51 @@ fn build_ancestry_closure(
     }
 
     entries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_name_value_full() {
+        let (g, s) = parse_name_value(Some("Florence /ALFONSI/"));
+        assert_eq!(g, Some("Florence".to_string()));
+        assert_eq!(s, Some("ALFONSI".to_string()));
+    }
+
+    #[test]
+    fn test_parse_name_value_multiple_given() {
+        let (g, s) = parse_name_value(Some("Gilles Armand Joseph /ALFONSI/"));
+        assert_eq!(g, Some("Gilles Armand Joseph".to_string()));
+        assert_eq!(s, Some("ALFONSI".to_string()));
+    }
+
+    #[test]
+    fn test_parse_name_value_surname_only() {
+        let (g, s) = parse_name_value(Some("/Doe/"));
+        assert_eq!(g, None);
+        assert_eq!(s, Some("Doe".to_string()));
+    }
+
+    #[test]
+    fn test_parse_name_value_no_slashes() {
+        let (g, s) = parse_name_value(Some("John"));
+        assert_eq!(g, None);
+        assert_eq!(s, None);
+    }
+
+    #[test]
+    fn test_parse_name_value_none() {
+        let (g, s) = parse_name_value(None);
+        assert_eq!(g, None);
+        assert_eq!(s, None);
+    }
+
+    #[test]
+    fn test_parse_name_value_empty_surname() {
+        let (g, s) = parse_name_value(Some("John //"));
+        assert_eq!(g, Some("John".to_string()));
+        assert_eq!(s, None);
+    }
 }

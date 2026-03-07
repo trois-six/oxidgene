@@ -562,7 +562,31 @@ fn compute_layout(
         }
     }
 
-    let total_width = anc_width.max(max_desc_width).max(CARD_W);
+    // Root spouses: find all distinct spouses across root's families.
+    let mut root_spouses_with_families: Vec<(Uuid, Uuid)> = Vec::new(); // (spouse_id, family_id)
+    {
+        let mut seen = std::collections::HashSet::new();
+        if let Some(fids) = data.families_as_spouse.get(&root_id) {
+            for &fid in fids {
+                if let Some(sps) = data.spouses_by_family.get(&fid) {
+                    if let Some(sp) = sps.iter().find(|s| s.person_id != root_id) {
+                        if seen.insert(sp.person_id) {
+                            root_spouses_with_families.push((sp.person_id, fid));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let n_root_spouses = root_spouses_with_families.len();
+    // Minimum width so root stays centered with spouses to the right.
+    let root_group_min_w = if n_root_spouses > 0 {
+        CARD_W + 2.0 * n_root_spouses as f64 * STEP
+    } else {
+        CARD_W
+    };
+
+    let total_width = anc_width.max(max_desc_width).max(root_group_min_w).max(CARD_W);
     let total_gen_count = display_anc + 1 + desc_gens.len(); // anc gens + root + desc gens
     let total_height = total_gen_count as f64 * (CARD_H + V_GAP) - V_GAP;
 
@@ -689,7 +713,7 @@ fn compute_layout(
         }
     }
 
-    // ── Root node ──
+    // ── Root node + spouse nodes ──
     let root_y = deepest_anc as f64 * (CARD_H + V_GAP);
     let root_x = (total_width - CARD_W) / 2.0;
     nodes.push(LayoutNode {
@@ -703,10 +727,37 @@ fn compute_layout(
         family_id: None,
     });
 
-    // ── Descendant nodes + connectors ──
-    // Track the center-x of each person in the current generation for connector drawing.
     let mut person_cx: HashMap<Uuid, f64> = HashMap::new();
+    let mut family_cx: HashMap<Uuid, f64> = HashMap::new();
     person_cx.insert(root_id, root_x + CARD_W / 2.0);
+
+    for (si, &(spouse_id, fid)) in root_spouses_with_families.iter().enumerate() {
+        let spouse_x = root_x + (si + 1) as f64 * STEP;
+        nodes.push(LayoutNode {
+            id: Some(spouse_id),
+            x: spouse_x,
+            y: root_y,
+            generation: 0,
+            slot_idx: si + 1,
+            child_of: None,
+            is_father: false,
+            family_id: Some(fid),
+        });
+        person_cx.insert(spouse_id, spouse_x + CARD_W / 2.0);
+
+        // Couple connector: horizontal line between root and spouse at card mid-height.
+        let conn_y = root_y + CARD_H / 2.0;
+        segments.push(Segment {
+            x1: root_x + CARD_W,
+            y1: conn_y,
+            x2: spouse_x,
+            y2: conn_y,
+        });
+
+        // Family center (midpoint between root and spouse).
+        let fc = (root_x + CARD_W / 2.0 + spouse_x + CARD_W / 2.0) / 2.0;
+        family_cx.insert(fid, fc);
+    }
 
     for (di, dg) in desc_gens.iter().enumerate() {
         let desc_row = deepest_anc + 1 + di;
@@ -729,12 +780,17 @@ fn compute_layout(
             let child_count = fam.children.len();
             let fam_w = child_count.max(1) as f64 * STEP - H_GAP;
 
-            // Find parent center x.
-            let parent_cx = person_cx
-                .get(&fam.parent_id)
+            // Find parent/family center x — prefer family center (couple midpoint) if available.
+            let parent_cx = family_cx
+                .get(&fam.family_id)
                 .copied()
-                .or_else(|| fam.spouse_id.and_then(|sid| person_cx.get(&sid).copied()))
-                .unwrap_or(x_cursor + fam_w / 2.0);
+                .unwrap_or_else(|| {
+                    person_cx
+                        .get(&fam.parent_id)
+                        .copied()
+                        .or_else(|| fam.spouse_id.and_then(|sid| person_cx.get(&sid).copied()))
+                        .unwrap_or(x_cursor + fam_w / 2.0)
+                });
 
             // Vertical stem from parent to mid_y.
             segments.push(Segment {
@@ -1162,8 +1218,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                         let birth_sym = props.data.birth_symbol(pid);
                                         let death_sym = props.data.death_symbol(pid);
                                         let initials = make_initials(&given_s, &surname_s);
-                                        let is_root = node.generation == 0;
-                                        let role_class = if is_root {
+                                        let is_focus = pid == props.root_person_id;
+                                        let role_class = if node.generation == 0 {
                                             "current"
                                         } else if node.generation < 0 {
                                             "ancestor"
@@ -1176,7 +1232,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             Sex::Unknown => "",
                                         };
                                         let is_sel = selected_person_id() == pid;
-                                        let sel_part = if is_sel || is_root { "selected" } else { "" };
+                                        let sel_part = if is_sel || is_focus { "selected" } else { "" };
                                         let node_class = format!(
                                             "pedigree-node {} {} {}",
                                             sex_part, role_class, sel_part
@@ -1221,8 +1277,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                         }
                                                     }
                                                 }
-                                                // Pencil FAB on root person
-                                                if is_root {
+                                                // Pencil FAB on focus person only
+                                                if is_focus {
                                                     button {
                                                         class: "pedigree-edit-fab",
                                                         title: "{i18n.t(\"pedigree.edit_actions\")}",
