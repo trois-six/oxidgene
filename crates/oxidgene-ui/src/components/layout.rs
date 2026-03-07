@@ -528,6 +528,37 @@ pub const LAYOUT_STYLES: &str = r#"
         font-weight: 500;
     }
 
+    .empty-tree-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        min-height: 400px;
+    }
+
+    .empty-tree-slot {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        width: 160px;
+        height: 160px;
+        border: 2px dashed var(--border);
+        border-radius: 16px;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: color 0.2s, border-color 0.2s;
+    }
+
+    .empty-tree-slot:hover {
+        color: var(--orange);
+        border-color: var(--orange);
+    }
+
     .badge {
         display: inline-block;
         padding: 2px 8px;
@@ -937,6 +968,27 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .td-back-btn:hover {
+        color: var(--orange);
+        border-color: var(--orange);
+    }
+
+    .td-search-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        color: var(--text-muted);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s;
+        flex-shrink: 0;
+        padding: 0;
+    }
+
+    .td-search-btn:hover {
         color: var(--orange);
         border-color: var(--orange);
     }
