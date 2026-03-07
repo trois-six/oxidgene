@@ -15,6 +15,9 @@ use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
 use crate::components::person_form::PersonForm;
 use crate::components::search_person::SearchPerson;
+use crate::components::tree_cache::{
+    fetch_snapshot_cached, fetch_tree_cached, use_tree_cache, use_view_state_cache,
+};
 use crate::components::union_form::UnionForm;
 use crate::i18n::use_i18n;
 use crate::router::Route;
@@ -112,12 +115,22 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
-    let mut refresh = use_signal(|| 0u32);
+
+    // ── Global caches ──
+    let tree_cache = use_tree_cache();
+    let view_cache = use_view_state_cache();
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
-    // ── Root person — from query param or first person ──
-    let initial_person = person.as_deref().and_then(|p| p.parse::<Uuid>().ok());
+    // ── Root person — from query param, view-state cache, or first person ──
+    let initial_person = person
+        .as_deref()
+        .and_then(|p| p.parse::<Uuid>().ok())
+        .or_else(|| {
+            tree_id_parsed
+                .and_then(|tid| view_cache.get(tid))
+                .and_then(|vs| vs.selected_root)
+        });
     let mut selected_root = use_signal(move || initial_person);
 
     // Generation counter: incremented every time we navigate with a ?person param
@@ -152,11 +165,11 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let mut confirm_delete_person_id = use_signal(|| None::<Uuid>);
     let mut delete_person_error = use_signal(|| None::<String>);
 
-    // ── Fetch tree details ──
+    // ── Fetch tree details (cache-backed) ──
     let api_tree = api.clone();
     let tree_resource = use_resource(move || {
         let api = api_tree.clone();
-        let _tick = refresh();
+        let _gen = tree_cache.generation();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -165,15 +178,15 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.get_tree(tid).await
+            fetch_tree_cached(&api, &tree_cache, tid).await
         }
     });
 
-    // ── Fetch tree snapshot (all data in one request) ──
+    // ── Fetch tree snapshot (cache-backed) ──
     let api_snapshot = api.clone();
     let snapshot_resource = use_resource(move || {
         let api = api_snapshot.clone();
-        let _tick = refresh();
+        let _gen = tree_cache.generation();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -182,7 +195,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.get_tree_snapshot(tid).await
+            fetch_snapshot_cached(&api, &tree_cache, tid).await
         }
     });
 
@@ -341,7 +354,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     if selected_root() == Some(pid) {
                         selected_root.set(None);
                     }
-                    refresh += 1;
+                    tree_cache.invalidate();
                 }
                 Err(e) => delete_person_error.set(Some(format!("{e}"))),
             }
@@ -399,7 +412,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 sort_order: 0,
             };
             let _ = api.add_spouse(tid, fid, &spouse_body).await;
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -441,7 +454,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             };
             let _ = api.add_spouse(tid, fid, &body).await;
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -490,7 +503,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 let _ = api.add_spouse(tid, fid, &body).await;
             }
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -530,7 +543,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             };
             let _ = api.add_spouse(tid, fid, &body).await;
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -579,7 +592,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 let _ = api.add_spouse(tid, fid, &body).await;
             }
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -618,7 +631,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             };
             let _ = api.add_child(tid, fid, &body).await;
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -667,7 +680,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 let _ = api.add_child(tid, fid, &body).await;
             }
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -708,7 +721,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             };
             let _ = api.add_child(tid, fid, &body).await;
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -757,7 +770,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 let _ = api.add_child(tid, fid, &body).await;
             }
             linking_mode.set(None);
-            refresh += 1;
+            tree_cache.invalidate();
         });
     };
 
@@ -797,8 +810,13 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             rsx! {
                 div { class: "td-topbar",
                     nav { class: "td-bc",
-                        Link { to: Route::Home {}, {i18n.t("tree.breadcrumb_trees")} }
-                        span { class: "td-bc-sep", "/" }
+                        Link { to: Route::Home {}, class: "td-bc-logo",
+                            img {
+                                src: crate::components::layout::LOGO_PNG_B64,
+                                alt: "OxidGene",
+                                class: "td-bc-logo-img",
+                            }
+                        }
                         span { class: "td-bc-current", "{tree_name_str}" }
                     }
                     TopbarSearch { tree_id: tree_id.clone() }
@@ -842,7 +860,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     tree_id: tid,
                     person_id: edit_pid,
                     on_close: move |_| editing_person_id.set(None),
-                    on_saved: move |_| refresh += 1,
+                    on_saved: move |_| tree_cache.invalidate(),
                 }
             }
         }
@@ -854,7 +872,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     tree_id: tid,
                     family_id: union_fid,
                     on_close: move |_| editing_union_id.set(None),
-                    on_saved: move |_| refresh += 1,
+                    on_saved: move |_| tree_cache.invalidate(),
                 }
             }
         }
@@ -885,7 +903,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         spawn(async move {
                             if let Ok(new_person) = api.create_person(tid, &crate::api::CreatePersonBody { sex: oxidgene_core::Sex::Unknown }).await {
                                 editing_person_id.set(Some(new_person.id));
-                                refresh += 1;
+                                tree_cache.invalidate();
                             }
                         });
                     },

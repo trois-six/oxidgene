@@ -13,6 +13,7 @@ use crate::api::{
 };
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::person_node::PersonNode;
+use crate::components::tree_cache::{fetch_snapshot_cached, fetch_tree_cached, use_tree_cache};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::{
@@ -49,6 +50,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
+    let tree_cache = use_tree_cache();
     let mut refresh = use_signal(|| 0u32);
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
@@ -314,16 +316,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     });
 
     // Fetch all person names in tree (for resolving names in ancestry charts).
-    // We use the list_persons result to gather person IDs, then load names.
-    // For simplicity, load names for each person found in the ancestry edges.
     // Build a name lookup for *all* persons in the tree — used by
     // family connections (parents, spouses, children, siblings) and
-    // ancestry charts. Uses the snapshot endpoint (single cached HTTP
-    // request) instead of the previous N+1 per-person approach.
+    // ancestry charts. Uses the snapshot endpoint (cache-backed).
     let api_all_names = api.clone();
     let all_names_resource = use_resource(move || {
         let api = api_all_names.clone();
         let _tick = refresh();
+        let _gen = tree_cache.generation();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -332,7 +332,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid IDs".to_string(),
                 });
             };
-            let snapshot = api.get_tree_snapshot(tid).await?;
+            let snapshot = fetch_snapshot_cached(&api, &tree_cache, tid).await?;
             let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
             for pn in snapshot.names {
                 name_map.entry(pn.person_id).or_default().push(pn);
@@ -341,11 +341,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch tree snapshot for enriched events (cached — same request as above).
+    // Fetch tree snapshot for enriched events (cache-backed).
     let api_snap = api.clone();
     let snapshot_resource = use_resource(move || {
         let api = api_snap.clone();
         let _tick = refresh();
+        let _gen = tree_cache.generation();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -354,7 +355,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.get_tree_snapshot(tid).await
+            fetch_snapshot_cached(&api, &tree_cache, tid).await
         }
     });
 
@@ -371,11 +372,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // For the MVP, we show a create form and a list of person citations
     // stored in local state after creation.
 
-    // Fetch tree info (for breadcrumb).
+    // Fetch tree info (for breadcrumb, cache-backed).
     let api_tree = api.clone();
     let tree_resource = use_resource(move || {
         let api = api_tree.clone();
         let _tick = refresh();
+        let _gen = tree_cache.generation();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -384,7 +386,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.get_tree(tid).await
+            fetch_tree_cached(&api, &tree_cache, tid).await
         }
     });
 
@@ -1116,8 +1118,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         div { class: "page-content",
         // Breadcrumb
         div { class: "pd-breadcrumb",
-            Link { to: Route::Home {}, {i18n.t("tree.breadcrumb_trees")} }
-            span { class: "pd-breadcrumb-sep", " / " }
+            Link { to: Route::Home {}, class: "td-bc-logo",
+                img {
+                    src: crate::components::layout::LOGO_PNG_B64,
+                    alt: "OxidGene",
+                    class: "td-bc-logo-img",
+                }
+            }
             Link {
                 to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                 "{tree_name_str}"

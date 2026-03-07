@@ -5,22 +5,22 @@
 
 use dioxus::prelude::*;
 
-use crate::i18n::{self, Language, use_i18n};
+use crate::components::tree_cache;
+use crate::i18n;
 use crate::router::Route;
 
 /// Logo PNG embedded at compile time (64×64 resize).
-const LOGO_PNG_B64: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/logo_64.b64"));
+pub const LOGO_PNG_B64: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/logo_64.b64"));
 
-/// Shared layout rendered around every page.
+/// Initialise the theme signal as a Dioxus context.
 ///
-/// Contains a navigation bar and an [`Outlet`] for the matched child route.
-#[component]
-pub fn Layout() -> Element {
-    let lang_signal = i18n::use_init_language();
-    let i18n = use_i18n();
-    let mut is_dark = use_signal(|| false);
+/// Reads persisted preference from `localStorage` (key `oxidgene-theme`),
+/// falling back to the OS-level `prefers-color-scheme` media query.
+/// Returns the shared signal so the Layout can consume it if needed.
+pub fn use_init_theme() -> Signal<bool> {
+    let mut is_dark = use_context_provider(|| Signal::new(false));
 
-    // On mount: read persisted theme or respect system preference
     use_effect(move || {
         spawn(async move {
             let result = document::eval(
@@ -41,51 +41,48 @@ pub fn Layout() -> Element {
         });
     });
 
-    let toggle_theme = move |_| {
-        let new_dark = !is_dark();
-        is_dark.set(new_dark);
-        if new_dark {
-            document::eval(
-                "document.documentElement.classList.add('dark'); localStorage.setItem('oxidgene-theme','dark');",
-            );
-        } else {
-            document::eval(
-                "document.documentElement.classList.remove('dark'); localStorage.setItem('oxidgene-theme','light');",
-            );
-        }
-    };
+    is_dark
+}
+
+/// Persist and apply a theme change.
+pub fn set_theme(mut is_dark: Signal<bool>, dark: bool) {
+    is_dark.set(dark);
+    if dark {
+        document::eval(
+            "document.documentElement.classList.add('dark'); localStorage.setItem('oxidgene-theme','dark');",
+        );
+    } else {
+        document::eval(
+            "document.documentElement.classList.remove('dark'); localStorage.setItem('oxidgene-theme','light');",
+        );
+    }
+}
+
+/// Shared layout rendered around every page.
+///
+/// Contains a navigation bar (shown only on Home / AppSettings) and an
+/// [`Outlet`] for the matched child route.
+#[component]
+pub fn Layout() -> Element {
+    let _lang_signal = i18n::use_init_language();
+    let _theme_signal = use_init_theme();
+    let _tree_cache = tree_cache::use_init_tree_cache();
+    let _view_cache = tree_cache::use_init_view_state_cache();
+
+    let route = use_route::<Route>();
+    let show_nav = matches!(route, Route::Home {} | Route::AppSettings {});
 
     rsx! {
         style { {LAYOUT_STYLES} }
 
-        nav { class: "app-nav",
-            Link { to: Route::Home {}, class: "nav-logo",
-                img {
-                    src: LOGO_PNG_B64,
-                    alt: "OxidGene",
-                    class: "nav-logo-img",
-                }
-                span { class: "nav-logo-text", "OxidGene" }
-            }
-            div { class: "nav-right",
-                div { class: "nav-links",
-                    Link { to: Route::TreeList {}, class: "nav-link", {i18n.t("nav.trees")} }
-                }
-                select {
-                    class: "nav-lang",
-                    value: "{lang_signal().code()}",
-                    onchange: move |evt: Event<FormData>| {
-                        let new_lang = Language::from_code(&evt.value());
-                        i18n::set_language(lang_signal, new_lang);
-                    },
-                    option { value: "en", "EN" }
-                    option { value: "fr", "FR" }
-                }
-                button {
-                    class: "nav-theme-toggle",
-                    title: if is_dark() { i18n.t("nav.theme_light") } else { i18n.t("nav.theme_dark") },
-                    onclick: toggle_theme,
-                    if is_dark() { "\u{2600}\u{FE0F}" } else { "\u{1F319}" }
+        if show_nav {
+            nav { class: "app-nav",
+                Link { to: Route::Home {}, class: "nav-logo",
+                    img {
+                        src: LOGO_PNG_B64,
+                        alt: "OxidGene",
+                        class: "nav-logo-img",
+                    }
                 }
             }
         }
@@ -910,6 +907,38 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow: hidden;
         text-overflow: ellipsis;
         max-width: 220px;
+    }
+
+    .td-bc-logo {
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+        margin-right: 2px;
+    }
+
+    .td-bc-logo-img {
+        height: 22px;
+        width: auto;
+    }
+
+    .td-back-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        color: var(--text-muted);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        text-decoration: none;
+        transition: color 0.15s, border-color 0.15s;
+        flex-shrink: 0;
+    }
+
+    .td-back-btn:hover {
+        color: var(--orange);
+        border-color: var(--orange);
     }
 
     /* ── Tree view search ─────────────────────────────────────────── */
