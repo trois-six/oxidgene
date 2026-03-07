@@ -511,77 +511,77 @@ const GENEANET_GEDCOM: &str = "\
 2 FORM LINEAGE-LINKED
 1 CHAR UTF-8
 0 @I55@ INDI
-1 NAME Georges Jean-Marie /LE CAM/
+1 NAME Henri Jean-Marc /DURAND/
 1 SEX M
 1 BIRT
-2 DATE 08 OCT 1954
-2 PLAC Marrakech, Maroc
-2 SOUR Livret de famille
-1 OCCU Entrepreneur
+2 DATE 15 MAR 1952
+2 PLAC Bordeaux, France
+2 SOUR Registre civil
+1 OCCU Architecte
 1 FAMC @F58@
 1 FAMS @F60@
 0 @I115@ INDI
-1 NAME Francine /SCHMIDT/
+1 NAME Marie /WEBER/
 1 SEX F
 1 BIRT
-2 DATE 09 MAR 1954
-2 PLAC Strasbourg, France
-2 SOUR Livret de famille
-1 OCCU Employée de banque
+2 DATE 22 JUN 1953
+2 PLAC Toulouse, France
+2 SOUR Registre civil
+1 OCCU Infirmiere
 1 FAMS @F60@
 0 @I61@ INDI
-1 NAME Julie Louise Rose /LE CAM/
+1 NAME Claire Sophie Anne /DURAND/
 1 SEX F
 1 BIRT
-2 DATE 30 DEC 1982
-2 PLAC Cormeilles-en-Parisis, France
-2 SOUR Livret de famille
-1 OCCU Chef de Projet
+2 DATE 18 APR 1980
+2 PLAC Nantes, France
+2 SOUR Registre civil
+1 OCCU Ingenieure
 1 FAMC @F60@
 1 FAMS @F65@
 1 OBJE
 2 FILE http://example.com/photo.jpg
 0 @I133@ INDI
-1 NAME Pierre /ERRAUD/
+1 NAME Thomas /MOREAU/
 1 SEX M
 1 BIRT
-2 DATE 02 OCT 1981
-2 PLAC Pontoise, France
-2 SOUR Livret de famille
-1 OCCU CTO
+2 DATE 07 AUG 1979
+2 PLAC Rennes, France
+2 SOUR Registre civil
+1 OCCU Professeur
 1 FAMS @F65@
 0 @I134@ INDI
-1 NAME Maya /ERRAUD/
+1 NAME Emma /MOREAU/
 1 SEX F
 1 BIRT
-2 DATE 14 SEP 2008
-2 PLAC Cormeilles-en-Parisis, France
-2 SOUR Livret de famille
+2 DATE 03 FEB 2006
+2 PLAC Nantes, France
+2 SOUR Registre civil
 1 FAMC @F65@
 0 @I141@ INDI
-1 NAME Maxime /ERRAUD/
+1 NAME Lucas /MOREAU/
 1 SEX M
 1 BIRT
-2 DATE 09 NOV 2011
-2 PLAC Lavaur, France
-2 SOUR Livret de famille
+2 DATE 25 JUL 2009
+2 PLAC Montpellier, France
+2 SOUR Registre civil
 1 FAMC @F65@
 0 @F58@ FAM
 1 HUSB @I500@
 1 CHIL @I55@
 0 @F60@ FAM
 1 MARR
-2 DATE 29 JUL 1977
-2 PLAC Strasbourg, France
-2 SOUR Livret de famille
+2 DATE 14 SEP 1975
+2 PLAC Toulouse, France
+2 SOUR Registre civil
 1 HUSB @I55@
 1 WIFE @I115@
 1 CHIL @I61@
 0 @F65@ FAM
 1 MARR
-2 DATE 07 JUL 2007
-2 PLAC Eragny, France
-2 SOUR Livret de famille
+2 DATE 21 JUN 2005
+2 PLAC Rennes, France
+2 SOUR Registre civil
 1 HUSB @I133@
 1 WIFE @I61@
 1 CHIL @I134@
@@ -607,19 +607,19 @@ fn test_import_geneanet_names_parsed_from_value() {
     }
 
     // Check specific names
-    let julie_person = result.persons.iter().find(|p| {
+    let claire_person = result.persons.iter().find(|p| {
         result.person_names.iter().any(|n| {
             n.person_id == p.id
-                && n.surname.as_deref() == Some("LE CAM")
-                && n.given_names.as_deref() == Some("Julie Louise Rose")
+                && n.surname.as_deref() == Some("DURAND")
+                && n.given_names.as_deref() == Some("Claire Sophie Anne")
         })
     });
-    assert!(julie_person.is_some(), "Julie LE CAM not found");
+    assert!(claire_person.is_some(), "Claire DURAND not found");
 
-    let pierre_name = result.person_names.iter().find(|n| {
-        n.surname.as_deref() == Some("ERRAUD") && n.given_names.as_deref() == Some("Pierre")
+    let thomas_name = result.person_names.iter().find(|n| {
+        n.surname.as_deref() == Some("MOREAU") && n.given_names.as_deref() == Some("Thomas")
     });
-    assert!(pierre_name.is_some(), "Pierre ERRAUD not found");
+    assert!(thomas_name.is_some(), "Thomas MOREAU not found");
 }
 
 #[test]
@@ -635,19 +635,19 @@ fn test_import_geneanet_birth_events() {
         .collect();
     assert_eq!(birth_events.len(), 6, "expected 6 birth events");
 
-    // Julie's birth should have date "30 DEC 1982"
-    let julie_id = result
+    // Claire's birth should have date "18 APR 1980"
+    let claire_id = result
         .person_names
         .iter()
-        .find(|n| n.given_names.as_deref() == Some("Julie Louise Rose"))
+        .find(|n| n.given_names.as_deref() == Some("Claire Sophie Anne"))
         .map(|n| n.person_id)
-        .expect("Julie not found");
+        .expect("Claire not found");
 
-    let julie_birth = birth_events
+    let claire_birth = birth_events
         .iter()
-        .find(|e| e.person_id == Some(julie_id))
-        .expect("Julie birth event missing");
-    assert_eq!(julie_birth.date_value.as_deref(), Some("30 DEC 1982"));
+        .find(|e| e.person_id == Some(claire_id))
+        .expect("Claire birth event missing");
+    assert_eq!(claire_birth.date_value.as_deref(), Some("18 APR 1980"));
 }
 
 #[test]
@@ -655,9 +655,9 @@ fn test_import_geneanet_family_spouses() {
     let tree_id = Uuid::now_v7();
     let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
 
-    // F60: Georges (HUSB) + Francine (WIFE), child: Julie
-    // F65: Pierre (HUSB) + Julie (WIFE), children: Maya, Maxime
-    // F58: unknown HUSB (I500 not defined), child: Georges
+    // F60: Henri (HUSB) + Marie (WIFE), child: Claire
+    // F65: Thomas (HUSB) + Claire (WIFE), children: Emma, Lucas
+    // F58: unknown HUSB (I500 not defined), child: Henri
     assert_eq!(result.families.len(), 3);
 
     // F60 should have 2 spouses
@@ -666,7 +666,7 @@ fn test_import_geneanet_family_spouses() {
         .iter()
         .filter(|s| {
             let fam = result.families.iter().find(|f| f.id == s.family_id);
-            // F60 has both HUSB (I55 = Georges) and WIFE (I115 = Francine)
+            // F60 has both HUSB (I55 = Henri) and WIFE (I115 = Marie)
             fam.is_some()
         })
         .collect();
@@ -686,11 +686,11 @@ fn test_import_geneanet_family_spouses() {
         .family_children
         .iter()
         .filter(|c| {
-            // Check the children belong to the family of Pierre+Julie
+            // Check the children belong to the family of Thomas+Claire
             result.family_spouses.iter().any(|s| {
                 s.family_id == c.family_id
                     && result.person_names.iter().any(|n| {
-                        n.person_id == s.person_id && n.given_names.as_deref() == Some("Pierre")
+                        n.person_id == s.person_id && n.given_names.as_deref() == Some("Thomas")
                     })
             })
         })
@@ -703,43 +703,40 @@ fn test_import_geneanet_mother_linked() {
     let tree_id = Uuid::now_v7();
     let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
 
-    // Find Julie's person_id
-    let julie_id = result
+    // Find Claire's person_id
+    let claire_id = result
         .person_names
         .iter()
-        .find(|n| n.given_names.as_deref() == Some("Julie Louise Rose"))
+        .find(|n| n.given_names.as_deref() == Some("Claire Sophie Anne"))
         .map(|n| n.person_id)
-        .expect("Julie not found");
+        .expect("Claire not found");
 
-    // Find Francine's person_id
-    let francine_id = result
+    // Find Marie's person_id
+    let marie_id = result
         .person_names
         .iter()
-        .find(|n| n.given_names.as_deref() == Some("Francine"))
+        .find(|n| n.given_names.as_deref() == Some("Marie"))
         .map(|n| n.person_id)
-        .expect("Francine not found");
+        .expect("Marie not found");
 
-    // Julie should be a child in a family
-    let julie_family_id = result
+    // Claire should be a child in a family
+    let claire_family_id = result
         .family_children
         .iter()
-        .find(|c| c.person_id == julie_id)
+        .find(|c| c.person_id == claire_id)
         .map(|c| c.family_id)
-        .expect("Julie not a child in any family");
+        .expect("Claire not a child in any family");
 
-    // That family should have Francine as a spouse (Wife)
-    let francine_spouse = result
+    // That family should have Marie as a spouse (Wife)
+    let marie_spouse = result
         .family_spouses
         .iter()
-        .find(|s| s.family_id == julie_family_id && s.person_id == francine_id);
+        .find(|s| s.family_id == claire_family_id && s.person_id == marie_id);
     assert!(
-        francine_spouse.is_some(),
-        "Francine not linked as spouse in Julie's parent family"
+        marie_spouse.is_some(),
+        "Marie not linked as spouse in Claire's parent family"
     );
-    assert_eq!(
-        francine_spouse.unwrap().role,
-        oxidgene_core::SpouseRole::Wife
-    );
+    assert_eq!(marie_spouse.unwrap().role, oxidgene_core::SpouseRole::Wife);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
