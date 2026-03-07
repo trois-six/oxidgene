@@ -616,10 +616,9 @@ fn test_import_geneanet_names_parsed_from_value() {
     });
     assert!(julie_person.is_some(), "Julie LE CAM not found");
 
-    let pierre_name = result
-        .person_names
-        .iter()
-        .find(|n| n.surname.as_deref() == Some("ERRAUD") && n.given_names.as_deref() == Some("Pierre"));
+    let pierre_name = result.person_names.iter().find(|n| {
+        n.surname.as_deref() == Some("ERRAUD") && n.given_names.as_deref() == Some("Pierre")
+    });
     assert!(pierre_name.is_some(), "Pierre ERRAUD not found");
 }
 
@@ -662,7 +661,7 @@ fn test_import_geneanet_family_spouses() {
     assert_eq!(result.families.len(), 3);
 
     // F60 should have 2 spouses
-    let f60_spouses: Vec<_> = result
+    let _f60_spouses: Vec<_> = result
         .family_spouses
         .iter()
         .filter(|s| {
@@ -691,8 +690,7 @@ fn test_import_geneanet_family_spouses() {
             result.family_spouses.iter().any(|s| {
                 s.family_id == c.family_id
                     && result.person_names.iter().any(|n| {
-                        n.person_id == s.person_id
-                            && n.given_names.as_deref() == Some("Pierre")
+                        n.person_id == s.person_id && n.given_names.as_deref() == Some("Pierre")
                     })
             })
         })

@@ -186,7 +186,10 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                 let fid = family.id;
                 set.spawn(async move {
                     let spouses = api2.list_family_spouses(tid, fid).await.unwrap_or_default();
-                    let children = api2.list_family_children(tid, fid).await.unwrap_or_default();
+                    let children = api2
+                        .list_family_children(tid, fid)
+                        .await
+                        .unwrap_or_default();
                     (spouses, children)
                 });
             }
@@ -216,12 +219,7 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
         let events_data = events_resource.read();
         let members_data = members_resource.read();
 
-        match (
-            &*persons_data,
-            &*names_data,
-            &*events_data,
-            &*members_data,
-        ) {
+        match (&*persons_data, &*names_data, &*events_data, &*members_data) {
             (
                 Some(Ok(persons)),
                 Some(Ok(name_map)),
@@ -328,9 +326,7 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                         let death_date = person_events.and_then(|evts| {
                             evts.iter()
                                 .find(|e| e.event_type == EventType::Death)
-                                .or_else(|| {
-                                    evts.iter().find(|e| e.event_type == EventType::Burial)
-                                })
+                                .or_else(|| evts.iter().find(|e| e.event_type == EventType::Burial))
                                 .and_then(|e| e.date_value.clone())
                         });
 
@@ -344,15 +340,15 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                             if let Some(ref bd) = birth_date {
                                 let year = extract_year(bd);
                                 if let Some(y) = year {
-                                    if let Ok(from) = born_from_val.parse::<i32>() {
-                                        if y < from {
-                                            return None;
-                                        }
+                                    if let Ok(from) = born_from_val.parse::<i32>()
+                                        && y < from
+                                    {
+                                        return None;
                                     }
-                                    if let Ok(to) = born_to_val.parse::<i32>() {
-                                        if y > to {
-                                            return None;
-                                        }
+                                    if let Ok(to) = born_to_val.parse::<i32>()
+                                        && y > to
+                                    {
+                                        return None;
                                     }
                                 } else {
                                     return None;
@@ -366,15 +362,15 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                             if let Some(ref dd) = death_date {
                                 let year = extract_year(dd);
                                 if let Some(y) = year {
-                                    if let Ok(from) = died_from_val.parse::<i32>() {
-                                        if y < from {
-                                            return None;
-                                        }
+                                    if let Ok(from) = died_from_val.parse::<i32>()
+                                        && y < from
+                                    {
+                                        return None;
                                     }
-                                    if let Ok(to) = died_to_val.parse::<i32>() {
-                                        if y > to {
-                                            return None;
-                                        }
+                                    if let Ok(to) = died_to_val.parse::<i32>()
+                                        && y > to
+                                    {
+                                        return None;
                                     }
                                 } else {
                                     return None;
@@ -462,13 +458,21 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
             a.surname
                 .to_lowercase()
                 .cmp(&b.surname.to_lowercase())
-                .then(a.given_names.to_lowercase().cmp(&b.given_names.to_lowercase()))
+                .then(
+                    a.given_names
+                        .to_lowercase()
+                        .cmp(&b.given_names.to_lowercase()),
+                )
         }),
         SortOrder::NameZA => results.sort_by(|a, b| {
             b.surname
                 .to_lowercase()
                 .cmp(&a.surname.to_lowercase())
-                .then(b.given_names.to_lowercase().cmp(&a.given_names.to_lowercase()))
+                .then(
+                    b.given_names
+                        .to_lowercase()
+                        .cmp(&a.given_names.to_lowercase()),
+                )
         }),
         SortOrder::BirthAsc => results.sort_by(|a, b| {
             let ya = a.birth_date.as_deref().and_then(extract_year);
@@ -522,24 +526,46 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
         if e.key() == Key::Enter {
             nav.push(Route::SearchResults {
                 tree_id: tree_id_nav1.clone(),
-                last: if search_last().is_empty() { None } else { Some(search_last()) },
-                first: if search_first().is_empty() { None } else { Some(search_first()) },
+                last: if search_last().is_empty() {
+                    None
+                } else {
+                    Some(search_last())
+                },
+                first: if search_first().is_empty() {
+                    None
+                } else {
+                    Some(search_first())
+                },
             });
             current_page.set(0);
         } else if e.key() == Key::Escape {
-            nav.push(Route::TreeDetail { tree_id: tree_id_esc1.clone(), person: None });
+            nav.push(Route::TreeDetail {
+                tree_id: tree_id_esc1.clone(),
+                person: None,
+            });
         }
     };
     let on_search_keydown_first = move |e: Event<KeyboardData>| {
         if e.key() == Key::Enter {
             nav.push(Route::SearchResults {
                 tree_id: tree_id_nav2.clone(),
-                last: if search_last().is_empty() { None } else { Some(search_last()) },
-                first: if search_first().is_empty() { None } else { Some(search_first()) },
+                last: if search_last().is_empty() {
+                    None
+                } else {
+                    Some(search_last())
+                },
+                first: if search_first().is_empty() {
+                    None
+                } else {
+                    Some(search_first())
+                },
             });
             current_page.set(0);
         } else if e.key() == Key::Escape {
-            nav.push(Route::TreeDetail { tree_id: tree_id_esc2.clone(), person: None });
+            nav.push(Route::TreeDetail {
+                tree_id: tree_id_esc2.clone(),
+                person: None,
+            });
         }
     };
 
@@ -918,10 +944,11 @@ fn name_parts(
 
 /// Extract a 4-digit year from a date string (e.g. "30 DEC 1982" -> 1982).
 fn extract_year(date_str: &str) -> Option<i32> {
-    date_str
-        .split_whitespace()
-        .rev()
-        .find_map(|part| part.parse::<i32>().ok().filter(|&y| (100..=3000).contains(&y)))
+    date_str.split_whitespace().rev().find_map(|part| {
+        part.parse::<i32>()
+            .ok()
+            .filter(|&y| (100..=3000).contains(&y))
+    })
 }
 
 /// Compute page numbers to display (first, last, current +/- 2).
