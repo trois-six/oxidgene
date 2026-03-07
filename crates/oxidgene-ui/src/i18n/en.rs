@@ -27,6 +27,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("common.import", "Import"),
         ("common.exporting", "Exporting\u{2026}"),
         ("common.importing", "Importing\u{2026}"),
+        ("common.importing_gedcom", "Importing GEDCOM file\u{2026}"),
         ("common.or_divider", "\u{2014} or \u{2014}"),
         ("common.no_results", "No results"),
         // ── Navigation ──────────────────────────────────────────────
