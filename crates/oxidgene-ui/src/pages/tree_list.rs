@@ -255,7 +255,7 @@ pub fn TreeList() -> Element {
                                                     tr {
                                                         td {
                                                             Link {
-                                                                to: Route::TreeDetail { tree_id: tid_str },
+                                                                to: Route::TreeDetail { tree_id: tid_str, person: None },
                                                                 "{tree.name}"
                                                             }
                                                         }

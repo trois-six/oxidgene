@@ -89,7 +89,7 @@ pub fn Settings(tree_id: String) -> Element {
                 Link { to: Route::TreeList {}, {i18n.t("tree.breadcrumb_trees")} }
                 span { class: "pd-breadcrumb-sep", " / " }
                 Link {
-                    to: Route::TreeDetail { tree_id: tree_id.clone() },
+                    to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                     "{tree_name}"
                 }
                 span { class: "pd-breadcrumb-sep", " / " }

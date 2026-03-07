@@ -492,6 +492,259 @@ fn test_roundtrip_preserves_names() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Geneanet-style import tests (no GIVN/SURN, inline SOUR, OBJE, OCCU)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Mimics a typical Geneanet GEDCOM export structure:
+/// - No GIVN/SURN sub-tags under NAME (name parsed from value)
+/// - Inline SOUR (text, not xref) under BIRT
+/// - OBJE with FILE sub-tag
+/// - OCCU (occupation attribute)
+/// - Family with HUSB, WIFE, CHIL, and MARR
+const GENEANET_GEDCOM: &str = "\
+0 HEAD
+1 SOUR Geneanet
+2 NAME GeneWeb
+2 VERS 7.0.0
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I55@ INDI
+1 NAME Georges Jean-Marie /LE CAM/
+1 SEX M
+1 BIRT
+2 DATE 08 OCT 1954
+2 PLAC Marrakech, Maroc
+2 SOUR Livret de famille
+1 OCCU Entrepreneur
+1 FAMC @F58@
+1 FAMS @F60@
+0 @I115@ INDI
+1 NAME Francine /SCHMIDT/
+1 SEX F
+1 BIRT
+2 DATE 09 MAR 1954
+2 PLAC Strasbourg, France
+2 SOUR Livret de famille
+1 OCCU Employée de banque
+1 FAMS @F60@
+0 @I61@ INDI
+1 NAME Julie Louise Rose /LE CAM/
+1 SEX F
+1 BIRT
+2 DATE 30 DEC 1982
+2 PLAC Cormeilles-en-Parisis, France
+2 SOUR Livret de famille
+1 OCCU Chef de Projet
+1 FAMC @F60@
+1 FAMS @F65@
+1 OBJE
+2 FILE http://example.com/photo.jpg
+0 @I133@ INDI
+1 NAME Pierre /ERRAUD/
+1 SEX M
+1 BIRT
+2 DATE 02 OCT 1981
+2 PLAC Pontoise, France
+2 SOUR Livret de famille
+1 OCCU CTO
+1 FAMS @F65@
+0 @I134@ INDI
+1 NAME Maya /ERRAUD/
+1 SEX F
+1 BIRT
+2 DATE 14 SEP 2008
+2 PLAC Cormeilles-en-Parisis, France
+2 SOUR Livret de famille
+1 FAMC @F65@
+0 @I141@ INDI
+1 NAME Maxime /ERRAUD/
+1 SEX M
+1 BIRT
+2 DATE 09 NOV 2011
+2 PLAC Lavaur, France
+2 SOUR Livret de famille
+1 FAMC @F65@
+0 @F58@ FAM
+1 HUSB @I500@
+1 CHIL @I55@
+0 @F60@ FAM
+1 MARR
+2 DATE 29 JUL 1977
+2 PLAC Strasbourg, France
+2 SOUR Livret de famille
+1 HUSB @I55@
+1 WIFE @I115@
+1 CHIL @I61@
+0 @F65@ FAM
+1 MARR
+2 DATE 07 JUL 2007
+2 PLAC Eragny, France
+2 SOUR Livret de famille
+1 HUSB @I133@
+1 WIFE @I61@
+1 CHIL @I134@
+1 CHIL @I141@
+0 TRLR
+";
+
+#[test]
+fn test_import_geneanet_names_parsed_from_value() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+
+    // All 6 persons imported
+    assert_eq!(result.persons.len(), 6, "persons: {:?}", result.warnings);
+
+    // Names should be parsed from value (no GIVN/SURN sub-tags)
+    for pn in &result.person_names {
+        assert!(
+            pn.given_names.is_some() || pn.surname.is_some(),
+            "Name has no given_names or surname: {:?}",
+            pn
+        );
+    }
+
+    // Check specific names
+    let julie_person = result.persons.iter().find(|p| {
+        result.person_names.iter().any(|n| {
+            n.person_id == p.id
+                && n.surname.as_deref() == Some("LE CAM")
+                && n.given_names.as_deref() == Some("Julie Louise Rose")
+        })
+    });
+    assert!(julie_person.is_some(), "Julie LE CAM not found");
+
+    let pierre_name = result
+        .person_names
+        .iter()
+        .find(|n| n.surname.as_deref() == Some("ERRAUD") && n.given_names.as_deref() == Some("Pierre"));
+    assert!(pierre_name.is_some(), "Pierre ERRAUD not found");
+}
+
+#[test]
+fn test_import_geneanet_birth_events() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+
+    // Each of the 6 persons has a BIRT event
+    let birth_events: Vec<_> = result
+        .events
+        .iter()
+        .filter(|e| e.event_type == oxidgene_core::EventType::Birth)
+        .collect();
+    assert_eq!(birth_events.len(), 6, "expected 6 birth events");
+
+    // Julie's birth should have date "30 DEC 1982"
+    let julie_id = result
+        .person_names
+        .iter()
+        .find(|n| n.given_names.as_deref() == Some("Julie Louise Rose"))
+        .map(|n| n.person_id)
+        .expect("Julie not found");
+
+    let julie_birth = birth_events
+        .iter()
+        .find(|e| e.person_id == Some(julie_id))
+        .expect("Julie birth event missing");
+    assert_eq!(julie_birth.date_value.as_deref(), Some("30 DEC 1982"));
+}
+
+#[test]
+fn test_import_geneanet_family_spouses() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+
+    // F60: Georges (HUSB) + Francine (WIFE), child: Julie
+    // F65: Pierre (HUSB) + Julie (WIFE), children: Maya, Maxime
+    // F58: unknown HUSB (I500 not defined), child: Georges
+    assert_eq!(result.families.len(), 3);
+
+    // F60 should have 2 spouses
+    let f60_spouses: Vec<_> = result
+        .family_spouses
+        .iter()
+        .filter(|s| {
+            let fam = result.families.iter().find(|f| f.id == s.family_id);
+            // F60 has both HUSB (I55 = Georges) and WIFE (I115 = Francine)
+            fam.is_some()
+        })
+        .collect();
+    // Total spouses across all families (F58 has warning for I500)
+    // F58: HUSB @I500@ → not found (warning), so 0 spouses for F58
+    // F60: 2 spouses, F65: 2 spouses = 4 total
+    assert_eq!(
+        result.family_spouses.len(),
+        4,
+        "spouses: {:?}, warnings: {:?}",
+        result.family_spouses,
+        result.warnings
+    );
+
+    // F65 should have 2 children
+    let f65_children_count = result
+        .family_children
+        .iter()
+        .filter(|c| {
+            // Check the children belong to the family of Pierre+Julie
+            result.family_spouses.iter().any(|s| {
+                s.family_id == c.family_id
+                    && result.person_names.iter().any(|n| {
+                        n.person_id == s.person_id
+                            && n.given_names.as_deref() == Some("Pierre")
+                    })
+            })
+        })
+        .count();
+    assert_eq!(f65_children_count, 2, "F65 should have 2 children");
+}
+
+#[test]
+fn test_import_geneanet_mother_linked() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+
+    // Find Julie's person_id
+    let julie_id = result
+        .person_names
+        .iter()
+        .find(|n| n.given_names.as_deref() == Some("Julie Louise Rose"))
+        .map(|n| n.person_id)
+        .expect("Julie not found");
+
+    // Find Francine's person_id
+    let francine_id = result
+        .person_names
+        .iter()
+        .find(|n| n.given_names.as_deref() == Some("Francine"))
+        .map(|n| n.person_id)
+        .expect("Francine not found");
+
+    // Julie should be a child in a family
+    let julie_family_id = result
+        .family_children
+        .iter()
+        .find(|c| c.person_id == julie_id)
+        .map(|c| c.family_id)
+        .expect("Julie not a child in any family");
+
+    // That family should have Francine as a spouse (Wife)
+    let francine_spouse = result
+        .family_spouses
+        .iter()
+        .find(|s| s.family_id == julie_family_id && s.person_id == francine_id);
+    assert!(
+        francine_spouse.is_some(),
+        "Francine not linked as spouse in Julie's parent family"
+    );
+    assert_eq!(
+        francine_spouse.unwrap().role,
+        oxidgene_core::SpouseRole::Wife
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Serialization tests
 // ═══════════════════════════════════════════════════════════════════════
 
