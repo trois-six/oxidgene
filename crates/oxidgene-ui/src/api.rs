@@ -353,7 +353,11 @@ impl ApiClient {
             });
         }
         let bytes = resp.bytes().await?;
-        tracing::debug!("GET {url} -> {status} ({} bytes): {}", bytes.len(), String::from_utf8_lossy(&bytes));
+        tracing::debug!(
+            "GET {url} -> {status} ({} bytes): {}",
+            bytes.len(),
+            String::from_utf8_lossy(&bytes)
+        );
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(path.to_string(), bytes.to_vec());
         Ok(val)
@@ -377,7 +381,10 @@ impl ApiClient {
             return Ok(val);
         }
         let url = self.url(path);
-        tracing::debug!("GET {url} query={}", serde_json::to_string(query).unwrap_or_default());
+        tracing::debug!(
+            "GET {url} query={}",
+            serde_json::to_string(query).unwrap_or_default()
+        );
         let resp = self.client.get(&url).query(query).send().await?;
         let status = resp.status();
         if !status.is_success() {
@@ -389,7 +396,11 @@ impl ApiClient {
             });
         }
         let bytes = resp.bytes().await?;
-        tracing::debug!("GET {url} -> {status} ({} bytes): {}", bytes.len(), String::from_utf8_lossy(&bytes));
+        tracing::debug!(
+            "GET {url} -> {status} ({} bytes): {}",
+            bytes.len(),
+            String::from_utf8_lossy(&bytes)
+        );
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(cache_key, bytes.to_vec());
         Ok(val)
@@ -455,7 +466,11 @@ impl ApiClient {
             });
         }
         let bytes = resp.bytes().await?;
-        tracing::debug!("{method} {url} -> {status} ({} bytes): {}", bytes.len(), String::from_utf8_lossy(&bytes));
+        tracing::debug!(
+            "{method} {url} -> {status} ({} bytes): {}",
+            bytes.len(),
+            String::from_utf8_lossy(&bytes)
+        );
         Ok(serde_json::from_slice(&bytes)?)
     }
 
@@ -523,7 +538,9 @@ impl ApiClient {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let page = self.list_persons(tree_id, Some(500), cursor.as_deref()).await?;
+            let page = self
+                .list_persons(tree_id, Some(500), cursor.as_deref())
+                .await?;
             all.extend(page.edges.into_iter().map(|e| e.node));
             if !page.page_info.has_next_page {
                 break;
@@ -688,7 +705,9 @@ impl ApiClient {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let page = self.list_families(tree_id, Some(500), cursor.as_deref()).await?;
+            let page = self
+                .list_families(tree_id, Some(500), cursor.as_deref())
+                .await?;
             all.extend(page.edges.into_iter().map(|e| e.node));
             if !page.page_info.has_next_page {
                 break;
@@ -926,7 +945,9 @@ impl ApiClient {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let page = self.list_places(tree_id, Some(500), cursor.as_deref(), None).await?;
+            let page = self
+                .list_places(tree_id, Some(500), cursor.as_deref(), None)
+                .await?;
             all.extend(page.edges.into_iter().map(|e| e.node));
             if !page.page_info.has_next_page {
                 break;

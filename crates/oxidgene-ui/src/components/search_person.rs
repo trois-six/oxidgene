@@ -64,13 +64,19 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
         let api = api.clone();
         async move {
             let persons = api.list_all_persons(tree_id).await?;
-            let mut name_map: std::collections::HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = std::collections::HashMap::new();
+            let mut name_map: std::collections::HashMap<
+                Uuid,
+                Vec<oxidgene_core::types::PersonName>,
+            > = std::collections::HashMap::new();
             let mut set = tokio::task::JoinSet::new();
             for person in &persons {
                 let api2 = api.clone();
                 let pid = person.id;
                 set.spawn(async move {
-                    let names = api2.list_person_names(tree_id, pid).await.unwrap_or_default();
+                    let names = api2
+                        .list_person_names(tree_id, pid)
+                        .await
+                        .unwrap_or_default();
                     (pid, names)
                 });
             }
