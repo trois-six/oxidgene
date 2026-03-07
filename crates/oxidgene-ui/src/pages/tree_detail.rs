@@ -212,10 +212,8 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 });
             };
             let places = api.list_all_places(tid).await?;
-            let map: HashMap<Uuid, oxidgene_core::types::Place> = places
-                .into_iter()
-                .map(|p| (p.id, p))
-                .collect();
+            let map: HashMap<Uuid, oxidgene_core::types::Place> =
+                places.into_iter().map(|p| (p.id, p)).collect();
             Ok(map)
         }
     });

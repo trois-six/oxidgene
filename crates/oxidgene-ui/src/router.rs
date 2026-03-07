@@ -6,9 +6,8 @@
 use dioxus::prelude::*;
 
 use crate::pages::{
-    home::Home, not_found::NotFound, person_detail::PersonDetail,
-    search_results::SearchResults, settings::Settings, tree_detail::TreeDetail,
-    tree_list::TreeList,
+    home::Home, not_found::NotFound, person_detail::PersonDetail, search_results::SearchResults,
+    settings::Settings, tree_detail::TreeDetail, tree_list::TreeList,
 };
 
 /// All application routes.
