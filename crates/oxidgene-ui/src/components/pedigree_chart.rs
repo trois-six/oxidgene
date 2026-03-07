@@ -248,6 +248,11 @@ impl PedigreeData {
         }
     }
 
+    /// Resolve a full display name for a person.
+    pub fn display_name(&self, person_id: Uuid) -> String {
+        crate::utils::resolve_name(person_id, &self.names)
+    }
+
     fn birth_date(&self, person_id: Uuid) -> Option<String> {
         let events = self.events_by_person.get(&person_id)?;
         if let Some(e) = events.iter().find(|e| e.event_type == EventType::Birth) {
@@ -999,12 +1004,71 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         (true, false) => format!("d. {sel_death}"),
         _ => format!("{sel_birth} \u{2013} {sel_death}"),
     };
+
+    // Collect all events relevant to this person:
+    // 1. Individual events (birth, death, occupation, etc.)
     let mut sel_events: Vec<DomainEvent> = props
         .data
         .events_by_person
         .get(&sel_pid)
         .cloned()
         .unwrap_or_default();
+    // 2. Conjugal family events (marriage, divorce, etc.)
+    if let Some(fam_ids) = props.data.families_as_spouse.get(&sel_pid) {
+        for fid in fam_ids {
+            if let Some(fam_events) = props.data.events_by_family.get(fid) {
+                sel_events.extend(fam_events.iter().cloned());
+            }
+        }
+    }
+    // 3. Parental family events (sibling birth, parent death, etc.)
+    if let Some(fam_ids) = props.data.families_as_child.get(&sel_pid) {
+        for fid in fam_ids {
+            if let Some(fam_events) = props.data.events_by_family.get(fid) {
+                sel_events.extend(fam_events.iter().cloned());
+            }
+            // Also include individual events of family members (parents, siblings).
+            if let Some(spouses) = props.data.spouses_by_family.get(fid) {
+                for spouse in spouses {
+                    if let Some(parent_events) = props.data.events_by_person.get(&spouse.person_id)
+                    {
+                        for pe in parent_events {
+                            // Include major life events of parents (death, burial).
+                            if pe.event_type == EventType::Death
+                                || pe.event_type == EventType::Burial
+                            {
+                                sel_events.push(pe.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(children) = props.data.children_by_family.get(fid) {
+                for child in children {
+                    if child.person_id == sel_pid {
+                        continue; // Skip self.
+                    }
+                    if let Some(sib_events) =
+                        props.data.events_by_person.get(&child.person_id)
+                    {
+                        for se in sib_events {
+                            // Include major life events of siblings (birth, death).
+                            if se.event_type == EventType::Birth
+                                || se.event_type == EventType::Death
+                                || se.event_type == EventType::Baptism
+                                || se.event_type == EventType::Burial
+                            {
+                                sel_events.push(se.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Deduplicate by event ID and sort by date.
+    sel_events.sort_by(|a, b| a.id.cmp(&b.id));
+    sel_events.dedup_by_key(|e| e.id);
     sel_events.sort_by(|a, b| a.date_sort.cmp(&b.date_sort));
 
     // Group events by year for display.
@@ -1407,6 +1471,26 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                         .and_then(|pid| props.data.place_name(pid).map(String::from))
                                                         .or_else(|| evt.description.clone())
                                                         .unwrap_or_default();
+                                                    // Build context label for events from related persons.
+                                                    let context_name: Option<String> = if evt.person_id.is_some() && evt.person_id != Some(sel_pid) {
+                                                        evt.person_id.map(|pid| props.data.display_name(pid))
+                                                    } else if evt.family_id.is_some() && evt.person_id.is_none() {
+                                                        // Family event (marriage, divorce…) — show partner name.
+                                                        evt.family_id.and_then(|fid| {
+                                                            props.data.spouses_by_family.get(&fid).and_then(|spouses| {
+                                                                spouses.iter()
+                                                                    .find(|s| s.person_id != sel_pid)
+                                                                    .map(|s| props.data.display_name(s.person_id))
+                                                            })
+                                                        })
+                                                    } else {
+                                                        None
+                                                    };
+                                                    let full_label = if let Some(ref ctx) = context_name {
+                                                        format!("{label} ({ctx})")
+                                                    } else {
+                                                        label
+                                                    };
                                                     let sel = sel_pid;
                                                     let tid = tree_id.clone();
                                                     let nav = use_navigator();
@@ -1422,7 +1506,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                             },
                                                             div { class: ic_class, "{icon}" }
                                                             div { class: "ev-info",
-                                                                div { class: "ev-type", "{label}" }
+                                                                div { class: "ev-type", "{full_label}" }
                                                                 if !date_s.is_empty() {
                                                                     div { class: "ev-date", "{date_s}" }
                                                                 }

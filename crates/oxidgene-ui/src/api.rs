@@ -246,6 +246,18 @@ pub struct TreeSnapshot {
     pub children: Vec<oxidgene_core::types::FamilyChild>,
 }
 
+// ── Person Search ──────────────────────────────────────────────────
+
+/// A person search result row (returned by the server-side search endpoint).
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct PersonSearchRow {
+    pub id: uuid::Uuid,
+    pub tree_id: uuid::Uuid,
+    pub sex: oxidgene_core::Sex,
+    pub surname: Option<String>,
+    pub given_names: Option<String>,
+}
+
 // ── Response Cache ───────────────────────────────────────────────────
 
 const CACHE_TTL_SECS: i64 = 30;
@@ -533,6 +545,43 @@ impl ApiClient {
     }
 
     // ── Persons ─────────────────────────────────────────────────────
+
+    /// Search persons by name, server-side. Returns pre-resolved results
+    /// with surname + given names already joined, so no N+1.
+    pub async fn search_persons(
+        &self,
+        tree_id: Uuid,
+        surname: Option<&str>,
+        given_names: Option<&str>,
+        sex: Option<&str>,
+        first: Option<u64>,
+        after: Option<&str>,
+    ) -> Result<Vec<PersonSearchRow>, ApiError> {
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(s) = surname
+            && !s.is_empty()
+        {
+            params.push(("surname", s.to_string()));
+        }
+        if let Some(g) = given_names
+            && !g.is_empty()
+        {
+            params.push(("given_names", g.to_string()));
+        }
+        if let Some(sx) = sex
+            && !sx.is_empty()
+        {
+            params.push(("sex", sx.to_string()));
+        }
+        if let Some(f) = first {
+            params.push(("first", f.to_string()));
+        }
+        if let Some(a) = after {
+            params.push(("after", a.to_string()));
+        }
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/persons/search"), &params)
+            .await
+    }
 
     pub async fn list_persons(
         &self,

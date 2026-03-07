@@ -37,6 +37,7 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/persons",
             get(person::list_persons).post(person::create_person),
         )
+        .route("/{tree_id}/persons/search", get(person::search_persons))
         .route(
             "/{tree_id}/persons/{person_id}",
             get(person::get_person)
