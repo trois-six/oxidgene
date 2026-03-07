@@ -892,7 +892,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut ancestor_levels = use_signal(|| 4usize);
     let mut descendant_levels = use_signal(|| 3usize);
     let mut depth_hover = use_signal(|| false);
-    let mut depth_hover_timeout = use_signal(|| None::<i32>);
+    let mut depth_hover_gen = use_signal(|| 0u32);
 
     // ── Pan state ──
     let mut offset_x = use_signal(|| 0.0f64);
@@ -1166,18 +1166,18 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 div {
                     class: "isb-depth-wrap",
                     onmouseenter: move |_| {
-                        // Cancel any pending close timeout.
-                        if let Some(tid) = depth_hover_timeout() {
-                            document::eval(&format!("clearTimeout({})", tid));
-                            depth_hover_timeout.set(None);
-                        }
+                        // Bump generation to cancel any pending close task.
+                        depth_hover_gen += 1;
                         depth_hover.set(true);
                     },
                     onmouseleave: move |_| {
-                        // Close after 150ms delay.
+                        // Close after 200ms unless mouse re-enters (generation changes).
+                        let leave_gen = depth_hover_gen();
                         spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                            depth_hover.set(false);
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            if depth_hover_gen() == leave_gen {
+                                depth_hover.set(false);
+                            }
                         });
                     },
                     button {
