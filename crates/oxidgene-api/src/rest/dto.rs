@@ -33,6 +33,31 @@ pub struct UpdateTreeRequest {
 
 // ── Person DTOs ──────────────────────────────────────────────────────
 
+/// Query parameters for searching persons by name.
+#[derive(Debug, Deserialize)]
+pub struct PersonSearchQuery {
+    /// Surname fragment (case-insensitive contains).
+    pub surname: Option<String>,
+    /// Given names fragment (case-insensitive contains).
+    pub given_names: Option<String>,
+    /// Filter by sex.
+    pub sex: Option<Sex>,
+    /// Number of items to return (default: 25, max: 100).
+    pub first: Option<u64>,
+    /// Cursor to start after (UUID string).
+    pub after: Option<String>,
+}
+
+/// Response for a person search result row.
+#[derive(Debug, Serialize)]
+pub struct PersonSearchResultDto {
+    pub id: uuid::Uuid,
+    pub tree_id: uuid::Uuid,
+    pub sex: Sex,
+    pub surname: Option<String>,
+    pub given_names: Option<String>,
+}
+
 /// Request body for creating a person.
 #[derive(Debug, Deserialize)]
 pub struct CreatePersonRequest {

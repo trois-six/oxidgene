@@ -2,8 +2,14 @@
 //!
 //! Used in the Geneanet-style UI for "Add Spouse", "Add Parents", "Add Child"
 //! flows where the user can either create a new person or link to an existing one.
+//!
+//! Performance: uses the single `/snapshot` endpoint (cached) instead of N+1
+//! per-person requests.
+
+use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use oxidgene_core::types::PersonName;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
@@ -37,9 +43,8 @@ pub struct SearchPersonProps {
 
 /// A typeahead search input that queries the person list and presents matches.
 ///
-/// The search filters client-side against the pre-fetched person list (names).
-/// This avoids a server-side search endpoint for now and works well for
-/// moderate-sized trees.
+/// Uses the snapshot endpoint (cached by `ApiClient`) so that even with 10 000+
+/// persons only a single HTTP request is made.
 #[component]
 pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let i18n = use_i18n();
@@ -53,54 +58,47 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
         props.placeholder.clone()
     };
 
-    // Fetch all persons and names for the tree.
-    let api_persons = api.clone();
-    let persons_resource = use_resource(move || {
-        let api = api_persons.clone();
-        async move { api.list_all_persons(tree_id).await }
+    // Debounce state: the actual query used for filtering is updated with a
+    // small delay so we don't re-filter 10 000+ persons on every keystroke.
+    let mut debounced_query = use_signal(String::new);
+    let _debounce_task = use_resource(move || {
+        let raw = query();
+        async move {
+            #[cfg(target_arch = "wasm32")]
+            gloo_timers::future::TimeoutFuture::new(200).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            debounced_query.set(raw);
+        }
     });
 
-    let names_resource = use_resource(move || {
-        let api = api.clone();
-        async move {
-            let persons = api.list_all_persons(tree_id).await?;
-            let mut name_map: std::collections::HashMap<
-                Uuid,
-                Vec<oxidgene_core::types::PersonName>,
-            > = std::collections::HashMap::new();
-            let mut set = tokio::task::JoinSet::new();
-            for person in &persons {
-                let api2 = api.clone();
-                let pid = person.id;
-                set.spawn(async move {
-                    let names = api2
-                        .list_person_names(tree_id, pid)
-                        .await
-                        .unwrap_or_default();
-                    (pid, names)
-                });
-            }
-            while let Some(Ok((pid, names))) = set.join_next().await {
-                name_map.insert(pid, names);
-            }
-            Ok::<_, crate::api::ApiError>(name_map)
-        }
+    // Fetch all data via snapshot (single HTTP request, cached).
+    let api_snap = api.clone();
+    let snapshot_resource = use_resource(move || {
+        let api = api_snap.clone();
+        async move { api.get_tree_snapshot(tree_id).await }
     });
 
     // Build search results from loaded data.
     let results: Vec<PersonSearchResult> = {
-        let q = query().to_lowercase();
-        let persons_data = persons_resource.read();
-        let names_data = names_resource.read();
+        let q = debounced_query().to_lowercase();
+        let snap_data = snapshot_resource.read();
 
-        match (&*persons_data, &*names_data) {
-            (Some(Ok(persons)), Some(Ok(name_map))) => {
+        match &*snap_data {
+            Some(Ok(snapshot)) => {
+                // Build name map from snapshot names.
+                let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
+                for pn in snapshot.names.iter() {
+                    name_map.entry(pn.person_id).or_default().push(pn.clone());
+                }
+
                 if q.is_empty() {
-                    persons
+                    snapshot
+                        .persons
                         .iter()
                         .take(20)
                         .map(|p| {
-                            let name = resolve_name(p.id, name_map);
+                            let name = resolve_name(p.id, &name_map);
                             let sex_label = format!("{:?}", p.sex);
                             PersonSearchResult {
                                 id: p.id,
@@ -110,10 +108,11 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
                         })
                         .collect()
                 } else {
-                    persons
+                    snapshot
+                        .persons
                         .iter()
                         .filter_map(|p| {
-                            let name = resolve_name(p.id, name_map);
+                            let name = resolve_name(p.id, &name_map);
                             if name.to_lowercase().contains(&q) {
                                 Some(PersonSearchResult {
                                     id: p.id,
@@ -132,7 +131,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
         }
     };
 
-    let is_loading = persons_resource.read().is_none() || names_resource.read().is_none();
+    let is_loading = snapshot_resource.read().is_none();
 
     rsx! {
         div { class: "search-person",

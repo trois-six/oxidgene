@@ -1008,6 +1008,7 @@ pub const LAYOUT_STYLES: &str = r#"
         min-height: 0;
         cursor: grab;
         background: var(--bg-deep);
+        -webkit-user-select: none;
         user-select: none;
     }
 
