@@ -3,10 +3,13 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::{PaginationParams, PersonAncestryRepo, PersonRepo};
+use oxidgene_db::repo::{PaginationParams, PersonAncestryRepo, PersonRepo, PersonSearchParams};
 use uuid::Uuid;
 
-use super::dto::{AncestryQuery, CreatePersonRequest, PaginationQuery, UpdatePersonRequest};
+use super::dto::{
+    AncestryQuery, CreatePersonRequest, PaginationQuery, PersonSearchQuery, PersonSearchResultDto,
+    UpdatePersonRequest,
+};
 use super::error::ApiError;
 use super::state::AppState;
 
@@ -98,4 +101,39 @@ pub async fn get_descendants(
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(descendants).unwrap()))
+}
+
+/// GET /api/v1/trees/:tree_id/persons/search
+///
+/// Server-side person search by name. JOINs `person` with `person_name`
+/// and applies case-insensitive LIKE filters, returning paginated results
+/// with pre-resolved name data. Much more efficient than fetching all
+/// persons + N individual name lookups on the client.
+pub async fn search_persons(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Query(query): Query<PersonSearchQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let after = query.after.as_ref().and_then(|s| s.parse::<Uuid>().ok());
+    let params = PersonSearchParams {
+        surname: query.surname,
+        given_names: query.given_names,
+        sex: query.sex,
+        limit: query.first.unwrap_or(25).min(100),
+        after,
+    };
+    let rows = PersonRepo::search(&state.db, tree_id, &params)
+        .await
+        .map_err(ApiError::from)?;
+    let results: Vec<PersonSearchResultDto> = rows
+        .into_iter()
+        .map(|r| PersonSearchResultDto {
+            id: r.id,
+            tree_id: r.tree_id,
+            sex: r.sex,
+            surname: r.surname,
+            given_names: r.given_names,
+        })
+        .collect();
+    Ok(Json(serde_json::to_value(results).unwrap()))
 }

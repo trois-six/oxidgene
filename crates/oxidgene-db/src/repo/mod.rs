@@ -33,6 +33,7 @@ pub use media_link::MediaLinkRepo;
 pub use note::NoteRepo;
 pub use pagination::PaginationParams;
 pub use person::PersonRepo;
+pub use person::{PersonSearchParams, PersonSearchRow};
 pub use person_ancestry::PersonAncestryRepo;
 pub use person_name::PersonNameRepo;
 pub use place::PlaceRepo;

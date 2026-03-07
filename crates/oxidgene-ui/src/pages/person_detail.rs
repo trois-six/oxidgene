@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use oxidgene_core::types::Event as DomainEvent;
+use oxidgene_core::EventType;
 use uuid::Uuid;
 
 use crate::api::{
@@ -18,6 +20,26 @@ use crate::utils::{
     resolve_name,
 };
 use oxidgene_core::Sex;
+
+/// Indicates the origin of an event relative to the displayed person.
+#[derive(Clone, Debug, PartialEq)]
+enum EventOrigin {
+    /// Event directly attached to this person (birth, death, occupation…).
+    Individual,
+    /// Event from a conjugal family (marriage, divorce…).
+    ConjugalFamily,
+    /// Event from the parental family (parent death, sibling birth…).
+    ParentalFamily,
+}
+
+/// An event enriched with origin metadata for display purposes.
+#[derive(Clone, Debug)]
+struct EnrichedEvent {
+    event: DomainEvent,
+    origin: EventOrigin,
+    /// Optional context label (e.g. spouse name, sibling name).
+    context: Option<String>,
+}
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
 #[component]
@@ -292,40 +314,46 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Fetch all person names in tree (for resolving names in ancestry charts).
     // We use the list_persons result to gather person IDs, then load names.
     // For simplicity, load names for each person found in the ancestry edges.
-    // Since there's no "list all names in tree" endpoint, we'll build a lookup
-    // from the persons + names loaded by ancestries.
+    // Build a name lookup for *all* persons in the tree — used by
+    // family connections (parents, spouses, children, siblings) and
+    // ancestry charts. Uses the snapshot endpoint (single cached HTTP
+    // request) instead of the previous N+1 per-person approach.
     let api_all_names = api.clone();
     let all_names_resource = use_resource(move || {
         let api = api_all_names.clone();
         let _tick = refresh();
         let tid = tree_id_parsed;
-        let need = show_ancestors() || show_descendants();
         async move {
-            if !need {
-                return Ok(HashMap::<Uuid, Vec<oxidgene_core::types::PersonName>>::new());
-            }
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
                     status: 400,
                     body: "Invalid IDs".to_string(),
                 });
             };
-            // Load all persons first, then load names for each.
-            let persons = api.list_persons(tid, Some(500), None).await?;
-            let mut name_map = HashMap::new();
-            for edge in &persons.edges {
-                let pid = edge.node.id;
-                match api.list_person_names(tid, pid).await {
-                    Ok(names) => {
-                        name_map.insert(pid, names);
-                    }
-                    Err(_) => {
-                        // If we can't load names for a person, skip.
-                        name_map.insert(pid, vec![]);
-                    }
-                }
+            let snapshot = api.get_tree_snapshot(tid).await?;
+            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> =
+                HashMap::new();
+            for pn in snapshot.names {
+                name_map.entry(pn.person_id).or_default().push(pn);
             }
             Ok(name_map)
+        }
+    });
+
+    // Fetch tree snapshot for enriched events (cached — same request as above).
+    let api_snap = api.clone();
+    let snapshot_resource = use_resource(move || {
+        let api = api_snap.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed;
+        async move {
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: "Invalid tree ID".to_string(),
+                });
+            };
+            api.get_tree_snapshot(tid).await
         }
     });
 
@@ -909,6 +937,153 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             return resolve_name(pid, name_map);
         }
         i18n.t("common.unknown")
+    };
+
+    // ── Build enriched event list ───────────────────────────────────
+    //
+    // Combines three sources:
+    //   1. Individual events (birth, death, occupation…)
+    //   2. Conjugal family events (marriage, divorce…)
+    //   3. Parental family events (parent death, sibling birth…)
+    let enriched_events: Vec<EnrichedEvent> = {
+        let snap_data = snapshot_resource.read();
+        let fam_data = families_resource.read();
+        let pid = person_id_parsed;
+
+        match (&*snap_data, &*fam_data, pid) {
+            (Some(Ok(snapshot)), Some(Ok((_families, all_spouses, all_children))), Some(pid)) => {
+                // Index events by person_id and family_id.
+                let mut events_by_person: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
+                let mut events_by_family: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
+                for e in snapshot.events.iter() {
+                    if e.deleted_at.is_some() {
+                        continue;
+                    }
+                    if let Some(epid) = e.person_id {
+                        events_by_person.entry(epid).or_default().push(e);
+                    }
+                    if let Some(fid) = e.family_id {
+                        events_by_family.entry(fid).or_default().push(e);
+                    }
+                }
+
+                // Derive family IDs (same logic as family_connections).
+                let spouse_family_ids: Vec<Uuid> = all_spouses
+                    .iter()
+                    .filter(|(_fid, s)| s.person_id == pid)
+                    .map(|(fid, _)| *fid)
+                    .collect();
+                let child_family_ids: Vec<Uuid> = all_children
+                    .iter()
+                    .filter(|(_fid, c)| c.person_id == pid)
+                    .map(|(fid, _)| *fid)
+                    .collect();
+
+                let mut result: Vec<EnrichedEvent> = Vec::new();
+                let mut seen_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+
+                // 1. Individual events.
+                if let Some(person_events) = events_by_person.get(&pid) {
+                    for &e in person_events {
+                        if seen_ids.insert(e.id) {
+                            result.push(EnrichedEvent {
+                                event: e.clone(),
+                                origin: EventOrigin::Individual,
+                                context: None,
+                            });
+                        }
+                    }
+                }
+
+                // 2. Conjugal family events (from families where person is spouse).
+                for fid in &spouse_family_ids {
+                    // Find partner name for context.
+                    let partner_name = all_spouses
+                        .iter()
+                        .find(|(f, s)| f == fid && s.person_id != pid)
+                        .map(|(_, s)| resolve_person_name(s.person_id));
+
+                    if let Some(fam_events) = events_by_family.get(fid) {
+                        for &e in fam_events {
+                            if seen_ids.insert(e.id) {
+                                result.push(EnrichedEvent {
+                                    event: e.clone(),
+                                    origin: EventOrigin::ConjugalFamily,
+                                    context: partner_name.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // 3. Parental family events (from families where person is child).
+                for fid in &child_family_ids {
+                    // Family-level events of parental family.
+                    if let Some(fam_events) = events_by_family.get(fid) {
+                        for &e in fam_events {
+                            if seen_ids.insert(e.id) {
+                                result.push(EnrichedEvent {
+                                    event: e.clone(),
+                                    origin: EventOrigin::ParentalFamily,
+                                    context: None,
+                                });
+                            }
+                        }
+                    }
+
+                    // Major individual events of parents (death, burial).
+                    for (f, s) in all_spouses.iter() {
+                        if f != fid {
+                            continue;
+                        }
+                        let parent_name = resolve_person_name(s.person_id);
+                        if let Some(parent_events) = events_by_person.get(&s.person_id) {
+                            for &e in parent_events {
+                                if (e.event_type == EventType::Death
+                                    || e.event_type == EventType::Burial)
+                                    && seen_ids.insert(e.id)
+                                {
+                                    result.push(EnrichedEvent {
+                                        event: e.clone(),
+                                        origin: EventOrigin::ParentalFamily,
+                                        context: Some(parent_name.clone()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    // Major individual events of siblings (birth, death, baptism, burial).
+                    for (f, c) in all_children.iter() {
+                        if f != fid || c.person_id == pid {
+                            continue;
+                        }
+                        let sib_name = resolve_person_name(c.person_id);
+                        if let Some(sib_events) = events_by_person.get(&c.person_id) {
+                            for &e in sib_events {
+                                if (e.event_type == EventType::Birth
+                                    || e.event_type == EventType::Death
+                                    || e.event_type == EventType::Baptism
+                                    || e.event_type == EventType::Burial)
+                                    && seen_ids.insert(e.id)
+                                {
+                                    result.push(EnrichedEvent {
+                                        event: e.clone(),
+                                        origin: EventOrigin::ParentalFamily,
+                                        context: Some(sib_name.clone()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sort by date.
+                result.sort_by(|a, b| a.event.date_sort.cmp(&b.event.date_sort));
+                result
+            }
+            _ => Vec::new(),
+        }
     };
 
     rsx! {
@@ -1503,8 +1678,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
 
             match &*events_resource.read() {
-                Some(Ok(conn)) => rsx! {
-                    if conn.edges.is_empty() {
+                Some(Ok(_conn)) => rsx! {
+                    if enriched_events.is_empty() {
                         div { class: "empty-state",
                             p { {i18n.t("person.no_events")} }
                         }
@@ -1517,25 +1692,39 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         th { {i18n.t("person_form.date")} }
                                         th { {i18n.t("person_form.place")} }
                                         th { {i18n.t("person_form.description")} }
+                                        th { {i18n.t("person.origin")} }
                                         th { style: "width: 140px;", {i18n.t("person.actions")} }
                                     }
                                 }
                                 tbody {
-                                    for edge in conn.edges.iter() {
+                                    for ee in enriched_events.iter() {
                                         {
-                                            let event = &edge.node;
+                                            let event = &ee.event;
                                             let eid = event.id;
-                                            let is_editing = editing_event_id() == Some(eid);
+                                            let is_own = ee.origin == EventOrigin::Individual;
+                                            let is_editing = is_own && editing_event_id() == Some(eid);
                                             let et = format!("{:?}", event.event_type);
                                             let dv = event.date_value.clone().unwrap_or_default();
                                             let desc = event.description.clone().unwrap_or_default();
                                             let pid_str = event.place_id.map(|p| p.to_string()).unwrap_or_default();
                                             let place_display = event.place_id.map(&place_name).unwrap_or_else(|| "--".to_string());
 
+                                            // Origin label.
+                                            let origin_label = match &ee.origin {
+                                                EventOrigin::Individual => i18n.t("person.origin_individual"),
+                                                EventOrigin::ConjugalFamily => i18n.t("person.origin_conjugal"),
+                                                EventOrigin::ParentalFamily => i18n.t("person.origin_parental"),
+                                            };
+                                            let origin_display = if let Some(ref ctx) = ee.context {
+                                                format!("{origin_label} ({ctx})")
+                                            } else {
+                                                origin_label
+                                            };
+
                                             if is_editing {
                                                 rsx! {
                                                     tr {
-                                                        td { colspan: 5,
+                                                        td { colspan: 6,
                                                             div { style: "padding: 8px; background: var(--color-bg); border-radius: var(--radius);",
                                                                 if let Some(err) = edit_event_error() {
                                                                     div { class: "error-msg", "{err}" }
@@ -1603,26 +1792,33 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                             {event.description.as_deref().unwrap_or("--")}
                                                         }
                                                         td {
-                                                            div { style: "display: flex; gap: 4px;",
-                                                                button {
-                                                                    class: "btn btn-outline btn-sm",
-                                                                    onclick: move |_| {
-                                                                        editing_event_id.set(Some(eid));
-                                                                        edit_event_type.set(et.clone());
-                                                                        edit_event_date.set(dv.clone());
-                                                                        edit_event_place_id.set(pid_str.clone());
-                                                                        edit_event_desc.set(desc.clone());
-                                                                        edit_event_error.set(None);
-                                                                    },
-                                                                    {i18n.t("common.edit")}
-                                                                }
-                                                                button {
-                                                                    class: "btn btn-danger btn-sm",
-                                                                    onclick: move |_| {
-                                                                        confirm_delete_event_id.set(Some(eid));
-                                                                        delete_event_error.set(None);
-                                                                    },
-                                                                    {i18n.t("common.delete")}
+                                                            span { class: "badge badge-origin",
+                                                                "{origin_display}"
+                                                            }
+                                                        }
+                                                        td {
+                                                            if is_own {
+                                                                div { style: "display: flex; gap: 4px;",
+                                                                    button {
+                                                                        class: "btn btn-outline btn-sm",
+                                                                        onclick: move |_| {
+                                                                            editing_event_id.set(Some(eid));
+                                                                            edit_event_type.set(et.clone());
+                                                                            edit_event_date.set(dv.clone());
+                                                                            edit_event_place_id.set(pid_str.clone());
+                                                                            edit_event_desc.set(desc.clone());
+                                                                            edit_event_error.set(None);
+                                                                        },
+                                                                        {i18n.t("common.edit")}
+                                                                    }
+                                                                    button {
+                                                                        class: "btn btn-danger btn-sm",
+                                                                        onclick: move |_| {
+                                                                            confirm_delete_event_id.set(Some(eid));
+                                                                            delete_event_error.set(None);
+                                                                        },
+                                                                        {i18n.t("common.delete")}
+                                                                    }
                                                                 }
                                                             }
                                                         }
