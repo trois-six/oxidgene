@@ -568,12 +568,13 @@ fn compute_layout(
         let mut seen = std::collections::HashSet::new();
         if let Some(fids) = data.families_as_spouse.get(&root_id) {
             for &fid in fids {
-                if let Some(sps) = data.spouses_by_family.get(&fid) {
-                    if let Some(sp) = sps.iter().find(|s| s.person_id != root_id) {
-                        if seen.insert(sp.person_id) {
-                            root_spouses_with_families.push((sp.person_id, fid));
-                        }
-                    }
+                if let Some(sp) = data
+                    .spouses_by_family
+                    .get(&fid)
+                    .and_then(|sps| sps.iter().find(|s| s.person_id != root_id))
+                    && seen.insert(sp.person_id)
+                {
+                    root_spouses_with_families.push((sp.person_id, fid));
                 }
             }
         }
@@ -586,7 +587,10 @@ fn compute_layout(
         CARD_W
     };
 
-    let total_width = anc_width.max(max_desc_width).max(root_group_min_w).max(CARD_W);
+    let total_width = anc_width
+        .max(max_desc_width)
+        .max(root_group_min_w)
+        .max(CARD_W);
     let total_gen_count = display_anc + 1 + desc_gens.len(); // anc gens + root + desc gens
     let total_height = total_gen_count as f64 * (CARD_H + V_GAP) - V_GAP;
 
@@ -781,16 +785,13 @@ fn compute_layout(
             let fam_w = child_count.max(1) as f64 * STEP - H_GAP;
 
             // Find parent/family center x — prefer family center (couple midpoint) if available.
-            let parent_cx = family_cx
-                .get(&fam.family_id)
-                .copied()
-                .unwrap_or_else(|| {
-                    person_cx
-                        .get(&fam.parent_id)
-                        .copied()
-                        .or_else(|| fam.spouse_id.and_then(|sid| person_cx.get(&sid).copied()))
-                        .unwrap_or(x_cursor + fam_w / 2.0)
-                });
+            let parent_cx = family_cx.get(&fam.family_id).copied().unwrap_or_else(|| {
+                person_cx
+                    .get(&fam.parent_id)
+                    .copied()
+                    .or_else(|| fam.spouse_id.and_then(|sid| person_cx.get(&sid).copied()))
+                    .unwrap_or(x_cursor + fam_w / 2.0)
+            });
 
             // Vertical stem from parent to mid_y.
             segments.push(Segment {

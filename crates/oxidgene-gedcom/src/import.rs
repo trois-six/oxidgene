@@ -506,13 +506,21 @@ fn parse_name_value(value: Option<&str>) -> (Option<String>, Option<String>) {
     let surname = val.find('/').and_then(|start| {
         val[start + 1..].find('/').and_then(|end| {
             let s = val[start + 1..start + 1 + end].trim();
-            if s.is_empty() { None } else { Some(s.to_string()) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
         })
     });
 
     let given = val.find('/').and_then(|slash| {
         let g = val[..slash].trim();
-        if g.is_empty() { None } else { Some(g.to_string()) }
+        if g.is_empty() {
+            None
+        } else {
+            Some(g.to_string())
+        }
     });
 
     (given, surname)
