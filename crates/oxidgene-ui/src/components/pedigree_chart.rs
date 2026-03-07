@@ -871,6 +871,11 @@ pub struct PedigreeChartProps {
     pub root_person_id: Uuid,
     pub data: PedigreeData,
     pub tree_id: String,
+    /// Incremented by the parent to force re-centering on the root person,
+    /// even when `root_person_id` hasn't changed (e.g. navigating back from
+    /// the person profile page).
+    #[props(default)]
+    pub center_gen: u32,
     pub on_person_click: EventHandler<(Uuid, f64, f64)>,
     pub on_person_navigate: EventHandler<Uuid>,
     pub on_empty_slot: EventHandler<(Uuid, bool)>,
@@ -933,6 +938,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         animating.set(false);
         scale.set(1.0);
         selected_person_id.set(props.root_person_id);
+        needs_center.set(true);
+    }
+
+    // ── Force re-centering when parent increments center_gen ──
+    let mut prev_center_gen = use_signal(|| props.center_gen);
+    if prev_center_gen() != props.center_gen {
+        prev_center_gen.set(props.center_gen);
+        animating.set(false);
+        scale.set(1.0);
         needs_center.set(true);
     }
 
