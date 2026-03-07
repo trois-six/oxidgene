@@ -14,6 +14,7 @@ use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::components::tree_cache::{fetch_snapshot_cached, fetch_tree_cached, use_tree_cache};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::resolve_name;
@@ -74,6 +75,7 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
+    let tree_cache = use_tree_cache();
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
@@ -96,10 +98,11 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
     // Filters visibility toggle.
     let mut filters_visible = use_signal(|| false);
 
-    // ── Fetch tree details ──
+    // ── Fetch tree details (cache-backed) ──
     let api_tree = api.clone();
     let tree_resource = use_resource(move || {
         let api = api_tree.clone();
+        let _gen = tree_cache.generation();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -108,17 +111,15 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.get_tree(tid).await
+            fetch_tree_cached(&api, &tree_cache, tid).await
         }
     });
 
-    // ── Fetch all data via single snapshot request ──
-    // This replaces the previous N+1 pattern (persons + per-person names +
-    // events + per-family members) with a single HTTP call that returns
-    // everything pre-joined.
+    // ── Fetch all data via single snapshot request (cache-backed) ──
     let api_snap = api.clone();
     let snapshot_resource = use_resource(move || {
         let api = api_snap.clone();
+        let _gen = tree_cache.generation();
         let tid = tree_id_parsed;
         async move {
             let Some(tid) = tid else {
@@ -127,7 +128,7 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.get_tree_snapshot(tid).await
+            fetch_snapshot_cached(&api, &tree_cache, tid).await
         }
     });
 
@@ -500,8 +501,13 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
         // ── Topbar ──
         div { class: "td-topbar",
             nav { class: "td-bc",
-                Link { to: Route::Home {}, {i18n.t("tree.breadcrumb_trees")} }
-                span { class: "td-bc-sep", "/" }
+                Link { to: Route::Home {}, class: "td-bc-logo",
+                    img {
+                        src: crate::components::layout::LOGO_PNG_B64,
+                        alt: "OxidGene",
+                        class: "td-bc-logo-img",
+                    }
+                }
                 Link {
                     to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                     "{tree_name}"
@@ -526,12 +532,22 @@ pub fn SearchResults(tree_id: String, last: Option<String>, first: Option<String
                     oninput: move |e: Event<FormData>| search_first.set(e.value()),
                     onkeydown: on_search_keydown_first,
                 }
-            }
-            div { class: "td-actions",
                 Link {
-                    class: "td-btn",
+                    class: "td-back-btn",
                     to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                    {i18n.t("search_results.back_to_tree")}
+                    title: "{i18n.t(\"search_results.back_to_tree\")}",
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        // Tree/sitemap icon
+                        path { d: "M17 21v-2a4 4 0 00-4-4H5" }
+                        path { d: "M9 19l-4-4 4-4" }
+                        path { d: "M21 12V7a2 2 0 00-2-2h-4" }
+                    }
                 }
             }
         }

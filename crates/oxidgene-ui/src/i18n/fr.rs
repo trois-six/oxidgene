@@ -30,9 +30,23 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("common.or_divider", "\u{2014} ou \u{2014}"),
         ("common.no_results", "Aucun r\u{00E9}sultat"),
         // ── Navigation ──────────────────────────────────────────────
-        ("nav.trees", "Arbres"),
         ("nav.theme_light", "Passer au th\u{00E8}me clair"),
         ("nav.theme_dark", "Passer au th\u{00E8}me sombre"),
+        // ── App settings page ────────────────────────────────────────
+        ("app_settings.title", "Param\u{00E8}tres"),
+        ("app_settings.breadcrumb_home", "Accueil"),
+        ("app_settings.preferences", "Pr\u{00E9}f\u{00E9}rences"),
+        ("app_settings.appearance", "Apparence"),
+        ("app_settings.appearance_title", "Apparence"),
+        ("app_settings.appearance_desc", "Personnalisez l\u{2019}apparence de l\u{2019}application."),
+        ("app_settings.theme", "Th\u{00E8}me"),
+        ("app_settings.theme_light", "Clair"),
+        ("app_settings.theme_dark", "Sombre"),
+        ("app_settings.theme_light_active", "Th\u{00E8}me clair actif"),
+        ("app_settings.theme_dark_active", "Th\u{00E8}me sombre actif"),
+        ("app_settings.language", "Langue"),
+        ("app_settings.language_title", "Langue"),
+        ("app_settings.language_desc", "Choisissez la langue d\u{2019}affichage de l\u{2019}interface."),
         // ── Home page ───────────────────────────────────────────────
         ("home.title_prefix", "Mes "),
         ("home.title_accent", "Arbres G\u{00E9}n\u{00E9}alogiques"),
@@ -56,13 +70,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("home.modified_weeks_other", "Modifi\u{00E9} il y a {count} semaines"),
         ("home.modified_months_one", "Modifi\u{00E9} il y a {count} mois"),
         ("home.modified_months_other", "Modifi\u{00E9} il y a {count} mois"),
-        // ── Tree list page ──────────────────────────────────────────
-        ("tree_list.title", "Arbres g\u{00E9}n\u{00E9}alogiques"),
-        ("tree_list.create_title", "Cr\u{00E9}er un nouvel arbre"),
-        ("tree_list.no_trees", "Aucun arbre"),
-        ("tree_list.no_trees_hint", "Cr\u{00E9}ez votre premier arbre g\u{00E9}n\u{00E9}alogique pour commencer."),
-        ("tree_list.created", "Cr\u{00E9}\u{00E9}"),
-        ("tree_list.actions", "Actions"),
         // ── Tree detail / topbar ────────────────────────────────────
         ("tree.breadcrumb_trees", "Arbres"),
         ("tree.name_label", "Nom"),
