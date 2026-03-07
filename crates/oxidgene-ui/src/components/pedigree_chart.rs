@@ -1019,6 +1019,22 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             if let Some(fam_events) = props.data.events_by_family.get(fid) {
                 sel_events.extend(fam_events.iter().cloned());
             }
+            // Also include major life events of children (birth, death, baptism, burial).
+            if let Some(children) = props.data.children_by_family.get(fid) {
+                for child in children {
+                    if let Some(child_events) = props.data.events_by_person.get(&child.person_id) {
+                        for ce in child_events {
+                            if ce.event_type == EventType::Birth
+                                || ce.event_type == EventType::Death
+                                || ce.event_type == EventType::Baptism
+                                || ce.event_type == EventType::Burial
+                            {
+                                sel_events.push(ce.clone());
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     // 3. Parental family events (sibling birth, parent death, etc.)
@@ -1048,9 +1064,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     if child.person_id == sel_pid {
                         continue; // Skip self.
                     }
-                    if let Some(sib_events) =
-                        props.data.events_by_person.get(&child.person_id)
-                    {
+                    if let Some(sib_events) = props.data.events_by_person.get(&child.person_id) {
                         for se in sib_events {
                             // Include major life events of siblings (birth, death).
                             if se.event_type == EventType::Birth

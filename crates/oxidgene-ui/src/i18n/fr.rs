@@ -154,6 +154,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person.origin", "Origine"),
         ("person.origin_individual", "Individuel"),
         ("person.origin_conjugal", "Famille conjugale"),
+        ("person.origin_child", "Enfant"),
         ("person.origin_parental", "Famille parentale"),
         ("person.loading_names", "Chargement des noms\u{2026}"),
         ("person.events_section", "\u{00C9}v\u{00E9}nements"),
