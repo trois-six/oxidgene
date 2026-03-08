@@ -9,6 +9,7 @@ COPY crates/oxidgene-core/Cargo.toml crates/oxidgene-core/Cargo.toml
 COPY crates/oxidgene-db/Cargo.toml crates/oxidgene-db/Cargo.toml
 COPY crates/oxidgene-api/Cargo.toml crates/oxidgene-api/Cargo.toml
 COPY crates/oxidgene-gedcom/Cargo.toml crates/oxidgene-gedcom/Cargo.toml
+COPY crates/oxidgene-cache/Cargo.toml crates/oxidgene-cache/Cargo.toml
 COPY crates/oxidgene-ui/Cargo.toml crates/oxidgene-ui/Cargo.toml
 COPY apps/oxidgene-server/Cargo.toml apps/oxidgene-server/Cargo.toml
 COPY apps/oxidgene-desktop/Cargo.toml apps/oxidgene-desktop/Cargo.toml
@@ -19,6 +20,7 @@ RUN mkdir -p crates/oxidgene-core/src && echo "" > crates/oxidgene-core/src/lib.
     mkdir -p crates/oxidgene-db/src && echo "" > crates/oxidgene-db/src/lib.rs && \
     mkdir -p crates/oxidgene-api/src && echo "" > crates/oxidgene-api/src/lib.rs && \
     mkdir -p crates/oxidgene-gedcom/src && echo "" > crates/oxidgene-gedcom/src/lib.rs && \
+    mkdir -p crates/oxidgene-cache/src && echo "" > crates/oxidgene-cache/src/lib.rs && \
     mkdir -p crates/oxidgene-ui/src && echo "" > crates/oxidgene-ui/src/lib.rs && \
     mkdir -p apps/oxidgene-server/src && echo "fn main() {}" > apps/oxidgene-server/src/main.rs && \
     mkdir -p apps/oxidgene-desktop/src && echo "fn main() {}" > apps/oxidgene-desktop/src/main.rs && \
@@ -59,5 +61,8 @@ EXPOSE 8080
 ENV OXIDGENE_HOST=0.0.0.0
 ENV OXIDGENE_PORT=8080
 ENV OXIDGENE_LOG_LEVEL=info
+ENV OXIDGENE_CACHE_BACKEND=redis
+ENV OXIDGENE_REDIS_URL=redis://127.0.0.1:6379
+ENV OXIDGENE_PEDIGREE_CACHE_MB=128
 
 ENTRYPOINT ["oxidgene-server"]

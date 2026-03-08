@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 oxidgene-core = { workspace = true }
+oxidgene-cache = { workspace = true }
 dioxus = { workspace = true, features = ["router"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

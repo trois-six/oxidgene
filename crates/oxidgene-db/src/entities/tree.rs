@@ -9,6 +9,7 @@ pub struct Model {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
+    pub sosa_root_person_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

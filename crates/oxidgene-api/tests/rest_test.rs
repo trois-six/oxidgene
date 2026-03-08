@@ -72,14 +72,14 @@ async fn test_tree_crud() {
         Method::POST,
         "/api/v1/trees",
         Some(serde_json::json!({
-            "name": "Erraud Family",
-            "description": "The Erraud family tree"
+            "name": "Doe Family",
+            "description": "The Doe family tree"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["name"], "Erraud Family");
-    assert_eq!(body["description"], "The Erraud family tree");
+    assert_eq!(body["name"], "Doe Family");
+    assert_eq!(body["description"], "The Doe family tree");
     let tree_id = body["id"].as_str().unwrap().to_string();
 
     // Get the tree
@@ -91,7 +91,7 @@ async fn test_tree_crud() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["name"], "Erraud Family");
+    assert_eq!(body["name"], "Doe Family");
 
     // Update the tree
     let (status, body) = send_request(
@@ -99,12 +99,12 @@ async fn test_tree_crud() {
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}"),
         Some(serde_json::json!({
-            "name": "Erraud-Perraud Family"
+            "name": "Doe-Pdoe Family"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["name"], "Erraud-Perraud Family");
+    assert_eq!(body["name"], "Doe-Pdoe Family");
 
     // List trees
     let (status, body) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
@@ -318,14 +318,14 @@ async fn test_person_name_crud() {
         Some(serde_json::json!({
             "name_type": "birth",
             "given_names": "Pierre",
-            "surname": "Erraud",
+            "surname": "Doe",
             "is_primary": true
         })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["given_names"], "Pierre");
-    assert_eq!(body["surname"], "Erraud");
+    assert_eq!(body["surname"], "Doe");
     let name_id = body["id"].as_str().unwrap().to_string();
 
     // List names
@@ -345,12 +345,12 @@ async fn test_person_name_crud() {
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
         Some(serde_json::json!({
-            "surname": "Perraud"
+            "surname": "Pdoe"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["surname"], "Perraud");
+    assert_eq!(body["surname"], "Pdoe");
 
     // Delete name
     let (status, _) = send_request(

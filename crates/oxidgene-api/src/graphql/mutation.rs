@@ -2,6 +2,7 @@
 
 use async_graphql::{Context, ID, Object, Result};
 use chrono::NaiveDate;
+use oxidgene_cache::invalidation;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
@@ -17,9 +18,9 @@ use super::inputs::{
     UpdateTreeInput, UploadMediaInput,
 };
 use super::types::{
-    GqlCitation, GqlEvent, GqlFamily, GqlFamilyChild, GqlFamilySpouse, GqlImportGedcomResult,
-    GqlMedia, GqlMediaLink, GqlNote, GqlPerson, GqlPersonName, GqlPlace, GqlSource, GqlTree,
-    db_from_ctx,
+    GqlCacheRebuildResult, GqlCitation, GqlEvent, GqlFamily, GqlFamilyChild, GqlFamilySpouse,
+    GqlImportGedcomResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta, GqlPedigreeDirection,
+    GqlPerson, GqlPersonName, GqlPlace, GqlSource, GqlTree, cache_from_ctx, db_from_ctx,
 };
 
 /// The root mutation type.
@@ -46,15 +47,23 @@ impl MutationRoot {
     ) -> Result<GqlTree> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let tree = TreeRepo::update(db, uuid, input.name, input.description.map(Some)).await?;
+        let sosa_root = input
+            .sosa_root_person_id
+            .map(|s| Uuid::parse_str(&s).map(Some))
+            .transpose()
+            .map_err(|e| async_graphql::Error::new(format!("Invalid sosa_root_person_id: {e}")))?;
+        let tree =
+            TreeRepo::update(db, uuid, input.name, input.description.map(Some), sosa_root).await?;
         Ok(tree.into())
     }
 
-    /// Delete a tree (soft delete).
+    /// Delete a tree (soft delete). Also invalidates all caches for the tree.
     async fn delete_tree(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         TreeRepo::delete(db, uuid).await?;
+        cache.invalidate_tree(uuid).await?;
         Ok(true)
     }
 
@@ -68,9 +77,12 @@ impl MutationRoot {
         input: CreatePersonInput,
     ) -> Result<GqlPerson> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let person = PersonRepo::create(db, id, tid, input.sex.into()).await?;
+        // New person is not linked to any family yet — just build its cache entry.
+        cache.rebuild_person(tid, id).await?;
         Ok(person.into())
     }
 
@@ -82,16 +94,34 @@ impl MutationRoot {
         input: UpdatePersonInput,
     ) -> Result<GqlPerson> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         let person = PersonRepo::update(db, uuid, input.sex.map(|s| s.into())).await?;
+        // Rebuild the affected set (person + spouses + children + parents).
+        let affected = invalidation::affected_persons(db, uuid).await?;
+        cache
+            .invalidate_for_mutation(person.tree_id, &affected)
+            .await?;
         Ok(person.into())
     }
 
     /// Delete a person (soft delete).
     async fn delete_person(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
+        // Compute affected set BEFORE delete (while relationships still exist).
+        let person = PersonRepo::get(db, uuid).await?;
+        let affected = invalidation::affected_persons(db, uuid).await?;
         PersonRepo::delete(db, uuid).await?;
+        // Delete this person's cache entry and rebuild affected relatives.
+        cache.store().delete_person(person.tree_id, uuid).await?;
+        let remaining: Vec<Uuid> = affected.into_iter().filter(|&id| id != uuid).collect();
+        if !remaining.is_empty() {
+            cache
+                .invalidate_for_mutation(person.tree_id, &remaining)
+                .await?;
+        }
         Ok(true)
     }
 
@@ -105,6 +135,7 @@ impl MutationRoot {
         input: PersonNameInput,
     ) -> Result<GqlPersonName> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let pid = Uuid::parse_str(person_id.as_str())?;
         let id = Uuid::now_v7();
         let name = PersonNameRepo::create(
@@ -120,6 +151,12 @@ impl MutationRoot {
             input.is_primary,
         )
         .await?;
+        // Name changes affect display_name references across relatives.
+        let affected = invalidation::affected_persons(db, pid).await?;
+        let person = PersonRepo::get(db, pid).await?;
+        cache
+            .invalidate_for_mutation(person.tree_id, &affected)
+            .await?;
         Ok(name.into())
     }
 
@@ -131,6 +168,7 @@ impl MutationRoot {
         input: UpdatePersonNameInput,
     ) -> Result<GqlPersonName> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         let name = PersonNameRepo::update(
             db,
@@ -144,14 +182,26 @@ impl MutationRoot {
             input.is_primary,
         )
         .await?;
+        let affected = invalidation::affected_persons(db, name.person_id).await?;
+        let person = PersonRepo::get(db, name.person_id).await?;
+        cache
+            .invalidate_for_mutation(person.tree_id, &affected)
+            .await?;
         Ok(name.into())
     }
 
     /// Delete a person name (hard delete).
-    async fn delete_person_name(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_person_name(&self, ctx: &Context<'_>, person_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
+        let pid = Uuid::parse_str(person_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         PersonNameRepo::delete(db, uuid).await?;
+        let affected = invalidation::affected_persons(db, pid).await?;
+        let person = PersonRepo::get(db, pid).await?;
+        cache
+            .invalidate_for_mutation(person.tree_id, &affected)
+            .await?;
         Ok(true)
     }
 
@@ -163,6 +213,7 @@ impl MutationRoot {
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let family = FamilyRepo::create(db, id, tid).await?;
+        // No cache impact — empty family.
         Ok(family.into())
     }
 
@@ -177,8 +228,17 @@ impl MutationRoot {
     /// Delete a family (soft delete).
     async fn delete_family(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
+        let family = FamilyRepo::get(db, uuid).await?;
+        // Compute affected BEFORE delete.
+        let affected = invalidation::affected_persons_for_family(db, uuid).await?;
         FamilyRepo::delete(db, uuid).await?;
+        if !affected.is_empty() {
+            cache
+                .invalidate_for_mutation(family.tree_id, &affected)
+                .await?;
+        }
         Ok(true)
     }
 
@@ -190,19 +250,43 @@ impl MutationRoot {
         input: AddSpouseInput,
     ) -> Result<GqlFamilySpouse> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let fid = Uuid::parse_str(family_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
         let spouse =
             FamilySpouseRepo::create(db, id, fid, pid, input.role.into(), input.sort_order).await?;
+        let affected =
+            invalidation::affected_persons_for_family_spouse_change(db, fid, pid).await?;
+        let family = FamilyRepo::get(db, fid).await?;
+        cache
+            .invalidate_for_mutation(family.tree_id, &affected)
+            .await?;
         Ok(spouse.into())
     }
 
     /// Remove a spouse from a family (hard delete).
-    async fn remove_spouse(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn remove_spouse(&self, ctx: &Context<'_>, family_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
+        let fid = Uuid::parse_str(family_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        // Look up which person this spouse link refers to BEFORE deletion.
+        let spouses = FamilySpouseRepo::list_by_families(db, &[fid]).await?;
+        let person_id = spouses.iter().find(|s| s.id == uuid).map(|s| s.person_id);
+        let family = FamilyRepo::get(db, fid).await?;
+        // Compute affected BEFORE delete.
+        let affected = if let Some(pid) = person_id {
+            invalidation::affected_persons_for_family_spouse_change(db, fid, pid).await?
+        } else {
+            vec![]
+        };
         FamilySpouseRepo::delete(db, uuid).await?;
+        if !affected.is_empty() {
+            cache
+                .invalidate_for_mutation(family.tree_id, &affected)
+                .await?;
+        }
         Ok(true)
     }
 
@@ -214,20 +298,42 @@ impl MutationRoot {
         input: AddChildInput,
     ) -> Result<GqlFamilyChild> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let fid = Uuid::parse_str(family_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
         let child =
             FamilyChildRepo::create(db, id, fid, pid, input.child_type.into(), input.sort_order)
                 .await?;
+        let affected = invalidation::affected_persons_for_family_child_change(db, fid, pid).await?;
+        let family = FamilyRepo::get(db, fid).await?;
+        cache
+            .invalidate_for_mutation(family.tree_id, &affected)
+            .await?;
         Ok(child.into())
     }
 
     /// Remove a child from a family (hard delete).
-    async fn remove_child(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn remove_child(&self, ctx: &Context<'_>, family_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
+        let fid = Uuid::parse_str(family_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        // Look up which person this child link refers to BEFORE deletion.
+        let children = FamilyChildRepo::list_by_families(db, &[fid]).await?;
+        let person_id = children.iter().find(|c| c.id == uuid).map(|c| c.person_id);
+        let family = FamilyRepo::get(db, fid).await?;
+        let affected = if let Some(pid) = person_id {
+            invalidation::affected_persons_for_family_child_change(db, fid, pid).await?
+        } else {
+            vec![]
+        };
         FamilyChildRepo::delete(db, uuid).await?;
+        if !affected.is_empty() {
+            cache
+                .invalidate_for_mutation(family.tree_id, &affected)
+                .await?;
+        }
         Ok(true)
     }
 
@@ -241,6 +347,7 @@ impl MutationRoot {
         input: CreateEventInput,
     ) -> Result<GqlEvent> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let place_id = input.place_id.as_deref().map(Uuid::parse_str).transpose()?;
@@ -273,6 +380,14 @@ impl MutationRoot {
             input.description,
         )
         .await?;
+        // Invalidate: person event or family event.
+        if let Some(pid) = person_id {
+            let affected = invalidation::affected_persons(db, pid).await?;
+            cache.invalidate_for_mutation(tid, &affected).await?;
+        } else if let Some(fid) = family_id {
+            let affected = invalidation::affected_persons_for_family(db, fid).await?;
+            cache.invalidate_for_mutation(tid, &affected).await?;
+        }
         Ok(event.into())
     }
 
@@ -284,6 +399,7 @@ impl MutationRoot {
         input: UpdateEventInput,
     ) -> Result<GqlEvent> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         let place_id = input.place_id.as_deref().map(Uuid::parse_str).transpose()?;
         let date_sort = input
@@ -302,14 +418,39 @@ impl MutationRoot {
             input.description.map(Some),
         )
         .await?;
+        // Invalidate based on event ownership.
+        if let Some(pid) = event.person_id {
+            let affected = invalidation::affected_persons(db, pid).await?;
+            cache
+                .invalidate_for_mutation(event.tree_id, &affected)
+                .await?;
+        } else if let Some(fid) = event.family_id {
+            let affected = invalidation::affected_persons_for_family(db, fid).await?;
+            cache
+                .invalidate_for_mutation(event.tree_id, &affected)
+                .await?;
+        }
         Ok(event.into())
     }
 
     /// Delete an event (soft delete).
     async fn delete_event(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
+        let event = EventRepo::get(db, uuid).await?;
         EventRepo::delete(db, uuid).await?;
+        if let Some(pid) = event.person_id {
+            let affected = invalidation::affected_persons(db, pid).await?;
+            cache
+                .invalidate_for_mutation(event.tree_id, &affected)
+                .await?;
+        } else if let Some(fid) = event.family_id {
+            let affected = invalidation::affected_persons_for_family(db, fid).await?;
+            cache
+                .invalidate_for_mutation(event.tree_id, &affected)
+                .await?;
+        }
         Ok(true)
     }
 
@@ -347,6 +488,10 @@ impl MutationRoot {
             input.longitude.map(Some),
         )
         .await?;
+        // Place changes could affect event display — but the event cache stores
+        // the place *name* snapshot. For now, place edits don't trigger person
+        // cache invalidation (place names in cache become stale). A full rebuild
+        // or explicit invalidation is needed after place renames.
         Ok(place.into())
     }
 
@@ -634,6 +779,7 @@ impl MutationRoot {
     // ── GEDCOM Mutations ──────────────────────────────────────────────
 
     /// Import a GEDCOM string into a tree, persisting all extracted entities.
+    /// Triggers a full cache rebuild after import.
     async fn import_gedcom(
         &self,
         ctx: &Context<'_>,
@@ -641,8 +787,11 @@ impl MutationRoot {
         input: ImportGedcomInput,
     ) -> Result<GqlImportGedcomResult> {
         let db = db_from_ctx(ctx);
+        let cache = cache_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let summary = crate::service::gedcom::import_and_persist(db, tid, &input.gedcom).await?;
+        // Eager full rebuild after GEDCOM import.
+        cache.rebuild_tree_full(tid).await?;
         Ok(GqlImportGedcomResult {
             persons_count: summary.persons_count as i32,
             families_count: summary.families_count as i32,
@@ -653,5 +802,76 @@ impl MutationRoot {
             notes_count: summary.notes_count as i32,
             warnings: summary.warnings,
         })
+    }
+
+    // ── Cache Admin Mutations ────────────────────────────────────────
+
+    /// Rebuild the entire cache for a tree (all persons + search index).
+    async fn rebuild_tree_cache(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<GqlCacheRebuildResult> {
+        let cache = cache_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let count = cache.rebuild_tree_full(tid).await?;
+        Ok(GqlCacheRebuildResult {
+            rebuilt: true,
+            persons_count: count as i32,
+        })
+    }
+
+    /// Rebuild the cache for a single person (and their affected set).
+    async fn rebuild_person_cache(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
+    ) -> Result<GqlCacheRebuildResult> {
+        let cache = cache_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let pid = Uuid::parse_str(person_id.as_str())?;
+        cache.rebuild_person(tid, pid).await?;
+        Ok(GqlCacheRebuildResult {
+            rebuilt: true,
+            persons_count: 1,
+        })
+    }
+
+    /// Drop all caches for a tree. Used for debugging or after bulk operations.
+    async fn invalidate_tree_cache(&self, ctx: &Context<'_>, tree_id: ID) -> Result<bool> {
+        let cache = cache_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        cache.invalidate_tree(tid).await?;
+        Ok(true)
+    }
+
+    /// Expand a cached pedigree in one direction, returning only the new nodes
+    /// and edges (delta). The client merges the delta into its current view.
+    async fn expand_pedigree(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        root_person_id: ID,
+        direction: GqlPedigreeDirection,
+        from_depth: i32,
+        to_depth: i32,
+    ) -> Result<GqlPedigreeDelta> {
+        let cache = cache_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let rid = Uuid::parse_str(root_person_id.as_str())?;
+
+        if to_depth <= from_depth {
+            return Err(async_graphql::Error::new(format!(
+                "toDepth ({to_depth}) must be greater than fromDepth ({from_depth})"
+            )));
+        }
+
+        let additional_levels = (to_depth - from_depth) as u32;
+        let dir: oxidgene_cache::types::PedigreeDirection = direction.into();
+        let delta = cache
+            .expand_pedigree(tid, rid, dir, additional_levels)
+            .await?;
+        Ok(delta.into())
     }
 }

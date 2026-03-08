@@ -2,9 +2,10 @@
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 
 use crate::graphql::{build_schema, graphql_handler, graphql_playground};
+use crate::rest::cache;
 use crate::rest::citation;
 use crate::rest::event;
 use crate::rest::family;
@@ -172,6 +173,31 @@ pub fn build_router(state: AppState) -> Router {
 
     let snapshot_routes = Router::new().route("/{tree_id}/snapshot", get(snapshot::tree_snapshot));
 
+    let cache_routes = Router::new()
+        .route(
+            "/{tree_id}/cache/persons/{person_id}",
+            get(cache::get_cached_person),
+        )
+        .route("/{tree_id}/cache/persons", get(cache::get_cached_persons))
+        .route("/{tree_id}/cache/rebuild", post(cache::rebuild_tree_cache))
+        .route(
+            "/{tree_id}/cache/rebuild/{person_id}",
+            post(cache::rebuild_person_cache),
+        )
+        .route("/{tree_id}/cache/search", get(cache::search_cached))
+        .route(
+            "/{tree_id}/cache/invalidate",
+            post(cache::invalidate_tree_cache),
+        )
+        .route(
+            "/{tree_id}/cache/pedigree/{root_person_id}",
+            get(cache::get_cached_pedigree),
+        )
+        .route(
+            "/{tree_id}/cache/pedigree/{root_person_id}/expand",
+            patch(cache::expand_pedigree),
+        );
+
     let gedcom_routes = Router::new()
         .route(
             "/{tree_id}/gedcom/import",
@@ -184,7 +210,7 @@ pub fn build_router(state: AppState) -> Router {
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)); // 10 MiB
 
     // Build GraphQL schema
-    let schema = build_schema(state.db.clone());
+    let schema = build_schema(state.db.clone(), state.cache.clone());
 
     let graphql_routes = Router::new()
         .route("/graphql", post(graphql_handler).get(graphql_playground))
@@ -207,6 +233,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(media_link_routes)
                 .merge(note_routes)
                 .merge(snapshot_routes)
+                .merge(cache_routes)
                 .merge(gedcom_routes),
         )
         .with_state(state)

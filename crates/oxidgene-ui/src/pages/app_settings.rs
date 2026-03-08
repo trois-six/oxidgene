@@ -24,15 +24,18 @@ pub fn AppSettings() -> Element {
     rsx! {
         style { {APP_SETTINGS_STYLES} }
 
-        div { class: "settings-page",
-            // ── Breadcrumb ──────────────────────────────────
-            nav { class: "settings-breadcrumb",
-                Link { to: Route::Home {}, {i18n.t("app_settings.breadcrumb_home")} }
-                span { " / " }
-                span { {i18n.t("app_settings.title")} }
+        div { class: "sub-page",
+            // ── Topbar breadcrumb ──────────────────────────────────
+            div { class: "td-topbar",
+                nav { class: "td-bc",
+                    Link { to: Route::Home {}, class: "td-bc-link", {i18n.t("app_settings.breadcrumb_home")} }
+                    span { class: "td-bc-sep", "/" }
+                    span { class: "td-bc-current", {i18n.t("app_settings.title")} }
+                }
             }
 
-            div { class: "settings-layout",
+            div { class: "sub-page-content",
+                div { class: "settings-layout",
                 // ── Left sidebar ────────────────────────────
                 nav { class: "settings-nav",
                     div { class: "settings-nav-group",
@@ -64,7 +67,8 @@ pub fn AppSettings() -> Element {
                     }
                 }
             }
-        }
+            } // close sub-page-content
+        } // close sub-page
     }
 }
 
@@ -178,27 +182,6 @@ fn LanguageSection(lang_signal: Signal<Language>) -> Element {
 // ── Styles ──────────────────────────────────────────────────────────────────
 
 const APP_SETTINGS_STYLES: &str = r#"
-    .settings-page {
-        max-width: 960px;
-        margin: 0 auto;
-        padding: 2rem 1.5rem;
-    }
-
-    .settings-breadcrumb {
-        font-size: 0.85rem;
-        color: var(--text-muted);
-        margin-bottom: 1.5rem;
-    }
-
-    .settings-breadcrumb a {
-        color: var(--orange);
-        text-decoration: none;
-    }
-
-    .settings-breadcrumb a:hover {
-        text-decoration: underline;
-    }
-
     .settings-layout {
         display: flex;
         gap: 2rem;

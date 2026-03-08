@@ -5,6 +5,7 @@
 //! from [`oxidgene_core`] directly, since those types already derive
 //! `Serialize` / `Deserialize`.
 
+use oxidgene_cache::types::{CachedPedigree, PedigreeDelta, SearchResult};
 use oxidgene_core::types::{
     Citation, Connection, Event, Family, FamilyChild, FamilySpouse, Note, Person, PersonAncestry,
     PersonName, Place, Source, Tree,
@@ -34,6 +35,8 @@ pub struct UpdateTreeBody {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sosa_root_person_id: Option<Option<Uuid>>,
 }
 
 // ── Person request bodies ───────────────────────────────────────────
@@ -1235,5 +1238,87 @@ impl ApiClient {
     pub async fn export_gedcom(&self, tree_id: Uuid) -> Result<ExportGedcomResult, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/gedcom/export"))
             .await
+    }
+
+    // ── Pedigree Cache ──────────────────────────────────────────────
+
+    /// Helper: send a PATCH request with query parameters (no body).
+    async fn patch_with_query<T: serde::de::DeserializeOwned, Q: Serialize>(
+        &self,
+        path: &str,
+        query: &Q,
+    ) -> Result<T, ApiError> {
+        let url = self.url(path);
+        tracing::debug!(
+            "PATCH {url} query={}",
+            serde_json::to_string(query).unwrap_or_default()
+        );
+        let resp = self.client.patch(&url).query(query).send().await?;
+        Self::handle_response(&url, "PATCH", resp).await
+    }
+
+    /// Fetch a windowed pedigree for a root person.
+    ///
+    /// Uses the cache endpoint; the server builds and caches lazily.
+    pub async fn get_pedigree(
+        &self,
+        tree_id: Uuid,
+        root_person_id: Uuid,
+        ancestor_depth: u32,
+        descendant_depth: u32,
+    ) -> Result<CachedPedigree, ApiError> {
+        let params = [
+            ("ancestor_depth", ancestor_depth.to_string()),
+            ("descendant_depth", descendant_depth.to_string()),
+        ];
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/cache/pedigree/{root_person_id}"),
+            &params,
+        )
+        .await
+    }
+
+    /// Expand a cached pedigree in one direction, returning only the new
+    /// nodes and edges (delta).
+    pub async fn expand_pedigree(
+        &self,
+        tree_id: Uuid,
+        root_person_id: Uuid,
+        direction: &str,
+        from_depth: u32,
+        to_depth: u32,
+    ) -> Result<PedigreeDelta, ApiError> {
+        let params = [
+            ("direction", direction.to_string()),
+            ("from_depth", from_depth.to_string()),
+            ("to_depth", to_depth.to_string()),
+        ];
+        self.patch_with_query(
+            &format!("/api/v1/trees/{tree_id}/cache/pedigree/{root_person_id}/expand"),
+            &params,
+        )
+        .await
+    }
+
+    // ── Cache search ────────────────────────────────────────────────────
+
+    /// Search persons in a tree using the server-side search index.
+    ///
+    /// The `query` string is matched against normalized names with
+    /// accent-folding. Spaces are preserved so "jean dup" matches
+    /// given_names containing "jean" AND surname containing "dup".
+    pub async fn cache_search(
+        &self,
+        tree_id: Uuid,
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Result<SearchResult, ApiError> {
+        // Minimal percent-encoding: replace spaces with %20.
+        let encoded_q = query.replace(' ', "%20");
+        let url = format!(
+            "/api/v1/trees/{tree_id}/cache/search?q={encoded_q}&limit={limit}&offset={offset}",
+        );
+        self.get(&url).await
     }
 }

@@ -3,29 +3,16 @@
 //! Used in the Geneanet-style UI for "Add Spouse", "Add Parents", "Add Child"
 //! flows where the user can either create a new person or link to an existing one.
 //!
-//! Performance: uses the single `/snapshot` endpoint (cached) instead of N+1
-//! per-person requests.
-
-use std::collections::HashMap;
+//! Performance: uses the server-side `/cache/search` endpoint which queries the
+//! accent-folded, normalised search index instead of downloading the full tree.
 
 use dioxus::prelude::*;
-use oxidgene_core::types::PersonName;
+use oxidgene_cache::types::SearchEntry;
+use oxidgene_core::Sex;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
 use crate::i18n::use_i18n;
-use crate::utils::resolve_name;
-
-/// A search result entry.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PersonSearchResult {
-    /// Person ID.
-    pub id: Uuid,
-    /// Display name (already resolved).
-    pub name: String,
-    /// Sex display string.
-    pub sex_label: String,
-}
 
 /// Props for [`SearchPerson`].
 #[derive(Props, Clone, PartialEq)]
@@ -41,10 +28,10 @@ pub struct SearchPersonProps {
     pub on_cancel: EventHandler<()>,
 }
 
-/// A typeahead search input that queries the person list and presents matches.
+/// A typeahead search input that queries the server-side search index.
 ///
-/// Uses the snapshot endpoint (cached by `ApiClient`) so that even with 10 000+
-/// persons only a single HTTP request is made.
+/// Keystroke input is debounced by 200 ms before the search request fires.
+/// At most 20 results are fetched per query.
 #[component]
 pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let i18n = use_i18n();
@@ -58,8 +45,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
         props.placeholder.clone()
     };
 
-    // Debounce state: the actual query used for filtering is updated with a
-    // small delay so we don't re-filter 10 000+ persons on every keystroke.
+    // Debounce: update the committed query after a short delay.
     let mut debounced_query = use_signal(String::new);
     let _debounce_task = use_resource(move || {
         let raw = query();
@@ -72,66 +58,29 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
         }
     });
 
-    // Fetch all data via snapshot (single HTTP request, cached).
-    let api_snap = api.clone();
-    let snapshot_resource = use_resource(move || {
-        let api = api_snap.clone();
-        async move { api.get_tree_snapshot(tree_id).await }
+    // Server-side search: fires when debounced_query changes.
+    let api_search = api.clone();
+    let search_resource = use_resource(move || {
+        let api = api_search.clone();
+        let q = debounced_query();
+        async move {
+            if q.is_empty() {
+                // Empty query: return first 20 persons (no filter).
+                return api.cache_search(tree_id, "", 20, 0).await;
+            }
+            api.cache_search(tree_id, &q, 20, 0).await
+        }
     });
 
-    // Build search results from loaded data.
-    let results: Vec<PersonSearchResult> = {
-        let q = debounced_query().to_lowercase();
-        let snap_data = snapshot_resource.read();
-
-        match &*snap_data {
-            Some(Ok(snapshot)) => {
-                // Build name map from snapshot names.
-                let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
-                for pn in snapshot.names.iter() {
-                    name_map.entry(pn.person_id).or_default().push(pn.clone());
-                }
-
-                if q.is_empty() {
-                    snapshot
-                        .persons
-                        .iter()
-                        .take(20)
-                        .map(|p| {
-                            let name = resolve_name(p.id, &name_map);
-                            let sex_label = format!("{:?}", p.sex);
-                            PersonSearchResult {
-                                id: p.id,
-                                name,
-                                sex_label,
-                            }
-                        })
-                        .collect()
-                } else {
-                    snapshot
-                        .persons
-                        .iter()
-                        .filter_map(|p| {
-                            let name = resolve_name(p.id, &name_map);
-                            if name.to_lowercase().contains(&q) {
-                                Some(PersonSearchResult {
-                                    id: p.id,
-                                    name,
-                                    sex_label: format!("{:?}", p.sex),
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .take(20)
-                        .collect()
-                }
-            }
+    let results: Vec<SearchEntry> = {
+        let data = search_resource.read();
+        match &*data {
+            Some(Ok(sr)) => sr.entries.clone(),
             _ => vec![],
         }
     };
 
-    let is_loading = snapshot_resource.read().is_none();
+    let is_loading = search_resource.read().is_none();
 
     rsx! {
         div { class: "search-person",
@@ -157,18 +106,69 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
                 }
             } else {
                 div { class: "search-person-results",
-                    for result in results.iter() {
-                        {
-                            let rid = result.id;
-                            rsx! {
-                                button {
-                                    class: "search-person-result",
-                                    onclick: move |_| props.on_select.call(rid),
-                                    span { class: "search-person-name", "{result.name}" }
-                                    span { class: "search-person-sex badge", "{result.sex_label}" }
-                                }
-                            }
-                        }
+                    for entry in results.iter() {
+                        {render_search_entry(entry, props.on_select)}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Render a single search result row.
+fn render_search_entry(entry: &SearchEntry, on_select: EventHandler<Uuid>) -> Element {
+    let rid = entry.person_id;
+    let sex_class = match entry.sex {
+        Sex::Male => "male",
+        Sex::Female => "female",
+        Sex::Unknown => "",
+    };
+
+    // Parse display_name into given_names + surname for initials.
+    let (given, surname) = match entry.display_name.rsplit_once(' ') {
+        Some((g, s)) => (g.to_string(), s.to_string()),
+        None => (entry.display_name.clone(), String::new()),
+    };
+
+    let initials: String = {
+        let first_c = given.chars().next().map(|c| c.to_ascii_uppercase());
+        let last_c = surname.chars().next().map(|c| c.to_ascii_uppercase());
+        match (first_c, last_c) {
+            (Some(f), Some(l)) => format!("{f}{l}"),
+            (Some(f), None) => f.to_string(),
+            (None, Some(l)) => l.to_string(),
+            _ => "?".to_string(),
+        }
+    };
+
+    rsx! {
+        button {
+            class: "search-person-result {sex_class}",
+            onclick: move |_| on_select.call(rid),
+            div { class: "sp-result-photo",
+                span { class: "sp-result-initials {sex_class}", "{initials}" }
+            }
+            div { class: "sp-result-info",
+                div { class: "sp-result-name",
+                    if !surname.is_empty() {
+                        span { class: "sp-surname", "{surname}" }
+                    }
+                    span { class: "sp-given", " {given}" }
+                    if surname.is_empty() && given.is_empty() {
+                        span { class: "sp-given", "?" }
+                    }
+                }
+                div { class: "sp-result-dates",
+                    if let Some(ref bd) = entry.birth_year {
+                        span { class: "sp-birth", "\u{2726} {bd}" }
+                    }
+                    if let Some(ref dd) = entry.death_year {
+                        span { class: "sp-death", "\u{271D} {dd}" }
+                    }
+                }
+                if let Some(ref bp) = entry.birth_place {
+                    div { class: "sp-result-meta",
+                        span { class: "sp-place", "{bp}" }
                     }
                 }
             }

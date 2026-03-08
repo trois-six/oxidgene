@@ -3,12 +3,18 @@
 //! Provides tree configuration (Tree & Roots), tools stubs,
 //! and GEDCOM export functionality.
 
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
+use oxidgene_core::types::PersonName;
 use uuid::Uuid;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, UpdateTreeBody};
+use crate::components::search_person::SearchPerson;
+use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::utils::resolve_name;
 
 /// Settings page for a tree.
 #[component]
@@ -83,24 +89,27 @@ pub fn Settings(tree_id: String) -> Element {
     rsx! {
         style { {SETTINGS_STYLES} }
 
-        div { class: "page-content",
+        div { class: "sub-page",
             // Breadcrumb
-            div { class: "settings-breadcrumb",
-                Link { to: Route::Home {}, class: "td-bc-logo",
-                    img {
-                        src: crate::components::layout::LOGO_PNG_B64,
-                        alt: "OxidGene",
-                        class: "td-bc-logo-img",
+            div { class: "td-topbar",
+                nav { class: "td-bc",
+                    Link { to: Route::Home {}, class: "td-bc-logo",
+                        img {
+                            src: crate::components::layout::LOGO_PNG_B64,
+                            alt: "OxidGene",
+                            class: "td-bc-logo-img",
+                        }
                     }
+                    Link {
+                        to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
+                        "{tree_name}"
+                    }
+                    span { class: "td-bc-sep", "/" }
+                    span { class: "td-bc-current", {i18n.t("settings.breadcrumb")} }
                 }
-                Link {
-                    to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                    "{tree_name}"
-                }
-                span { class: "pd-breadcrumb-sep", " / " }
-                span { class: "pd-breadcrumb-current", {i18n.t("settings.breadcrumb")} }
             }
 
+            div { class: "sub-page-content",
             div { class: "settings-layout",
                 // Left navigation
                 nav { class: "settings-nav",
@@ -160,6 +169,7 @@ pub fn Settings(tree_id: String) -> Element {
                     if sec == "tree-roots" {
                         TreeRootsSection {
                             tree_id: tree_id.clone(),
+                            tree_resource: tree_resource,
                         }
                     } else if sec == "export" {
                         ExportSection {
@@ -173,13 +183,131 @@ pub fn Settings(tree_id: String) -> Element {
                     }
                 }
             }
+            }
         }
     }
 }
 
 #[component]
-fn TreeRootsSection(tree_id: String) -> Element {
+fn TreeRootsSection(
+    tree_id: String,
+    tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
+) -> Element {
     let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let tree_id_parsed = tree_id.parse::<Uuid>().ok();
+
+    let mut show_search = use_signal(|| false);
+    let mut save_message = use_signal(|| None::<String>);
+    let mut save_error = use_signal(|| None::<String>);
+    // Local override so the UI updates immediately after save/clear,
+    // without waiting for tree_resource to re-fetch.
+    // None = use tree_resource value, Some(x) = override with x.
+    let mut local_sosa_override = use_signal(|| None::<Option<Uuid>>);
+
+    // Current sosa_root_person_id: local override takes precedence
+    let current_sosa_root = match local_sosa_override() {
+        Some(val) => val,
+        None => match &*tree_resource.read() {
+            Some(Some(Ok(tree))) => tree.sosa_root_person_id,
+            _ => None,
+        },
+    };
+
+    // Fetch root person's names directly (no full tree snapshot needed).
+    let api_names = api.clone();
+    let root_names_resource = use_resource(move || {
+        let api = api_names.clone();
+        let root_id = current_sosa_root;
+        let tid = tree_id_parsed;
+        async move {
+            let (Some(rid), Some(tid)) = (root_id, tid) else {
+                return None;
+            };
+            api.list_person_names(tid, rid).await.ok()
+        }
+    });
+
+    // Resolve the current root person's name
+    let root_person_name = {
+        if current_sosa_root.is_some() {
+            let data = root_names_resource.read();
+            match &*data {
+                Some(Some(names_vec)) => {
+                    let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
+                    for name in names_vec.iter() {
+                        name_map
+                            .entry(name.person_id)
+                            .or_default()
+                            .push(name.clone());
+                    }
+                    let rid = current_sosa_root.unwrap();
+                    Some(resolve_name(rid, &name_map))
+                }
+                Some(None) => Some(i18n.t("common.unknown")),
+                None => Some(i18n.t("common.loading")),
+            }
+        } else {
+            None
+        }
+    };
+
+    // Handler: save the selected person as sosa root
+    let api_save = api.clone();
+    let on_select_root = move |person_id: Uuid| {
+        let api = api_save.clone();
+        show_search.set(false);
+        save_message.set(None);
+        save_error.set(None);
+        spawn(async move {
+            if let Some(tid) = tree_id_parsed {
+                let body = UpdateTreeBody {
+                    name: None,
+                    description: None,
+                    sosa_root_person_id: Some(Some(person_id)),
+                };
+                match api.update_tree(tid, &body).await {
+                    Ok(_) => {
+                        tree_cache.invalidate();
+                        local_sosa_override.set(Some(Some(person_id)));
+                        save_message.set(Some("saved".to_string()));
+                    }
+                    Err(e) => {
+                        save_error.set(Some(format!("{e}")));
+                    }
+                }
+            }
+        });
+    };
+
+    // Handler: clear the root person
+    let api_clear = api.clone();
+    let on_clear_root = move |_| {
+        let api = api_clear.clone();
+        save_message.set(None);
+        save_error.set(None);
+        spawn(async move {
+            if let Some(tid) = tree_id_parsed {
+                let body = UpdateTreeBody {
+                    name: None,
+                    description: None,
+                    sosa_root_person_id: Some(None),
+                };
+                match api.update_tree(tid, &body).await {
+                    Ok(_) => {
+                        tree_cache.invalidate();
+                        local_sosa_override.set(Some(None));
+                        save_message.set(Some("saved".to_string()));
+                    }
+                    Err(e) => {
+                        save_error.set(Some(format!("{e}")));
+                    }
+                }
+            }
+        });
+    };
+
     rsx! {
         div { class: "settings-section",
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
@@ -195,8 +323,57 @@ fn TreeRootsSection(tree_id: String) -> Element {
                 p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
                     {i18n.t("settings.root_person_desc")}
                 }
-                div { class: "settings-placeholder",
-                    {i18n.t("settings.root_person_future")}
+
+                if show_search() {
+                    if let Some(tid) = tree_id_parsed {
+                        SearchPerson {
+                            tree_id: tid,
+                            placeholder: i18n.t("settings.root_person_search"),
+                            on_select: on_select_root,
+                            on_cancel: move |_| show_search.set(false),
+                        }
+                    }
+                } else if let Some(name) = &root_person_name {
+                    // Show current root person
+                    div { class: "sosa-root-display",
+                        div { class: "sosa-root-person",
+                            div { class: "sosa-root-avatar",
+                                {name.chars().next().unwrap_or('?').to_string()}
+                            }
+                            span { class: "sosa-root-name", "{name}" }
+                        }
+                        div { class: "sosa-root-actions",
+                            button {
+                                class: "btn btn-outline btn-sm",
+                                onclick: move |_| show_search.set(true),
+                                {i18n.t("settings.root_person_change")}
+                            }
+                            button {
+                                class: "btn btn-outline btn-sm btn-danger-outline",
+                                onclick: on_clear_root,
+                                {i18n.t("settings.root_person_clear")}
+                            }
+                        }
+                    }
+                } else {
+                    // No root person set
+                    div { class: "sosa-root-empty",
+                        p { class: "text-muted", {i18n.t("settings.root_person_none")} }
+                        button {
+                            class: "btn btn-primary btn-sm",
+                            onclick: move |_| show_search.set(true),
+                            {i18n.t("settings.root_person_change")}
+                        }
+                    }
+                }
+
+                if let Some(_msg) = &save_message() {
+                    div { class: "success-msg", style: "margin-top: 12px;",
+                        {i18n.t("settings.root_person_saved")}
+                    }
+                }
+                if let Some(err) = &save_error() {
+                    div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
                 }
             }
 
@@ -296,20 +473,6 @@ fn PlaceholderSection(section_name: String) -> Element {
 }
 
 const SETTINGS_STYLES: &str = r#"
-    .settings-breadcrumb {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.85rem;
-        margin-bottom: 20px;
-    }
-    .settings-breadcrumb a {
-        color: var(--text-secondary);
-        text-decoration: none;
-        transition: color 0.15s;
-    }
-    .settings-breadcrumb a:hover { color: var(--orange); }
-
     .settings-layout {
         display: flex;
         gap: 24px;
@@ -394,6 +557,63 @@ const SETTINGS_STYLES: &str = r#"
         color: var(--text-muted);
         font-size: 0.85rem;
         font-style: italic;
+    }
+
+    /* SOSA root person display */
+    .sosa-root-display {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+    }
+    .sosa-root-person {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .sosa-root-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--orange);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+    .sosa-root-name {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .sosa-root-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+    .sosa-root-empty {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        background: var(--bg-deep);
+        border: 1px dashed var(--border);
+        border-radius: 6px;
+    }
+    .btn-danger-outline {
+        color: var(--red, #e05555) !important;
+        border-color: var(--red, #e05555) !important;
+    }
+    .btn-danger-outline:hover {
+        background: rgba(224, 85, 85, 0.1) !important;
     }
 
     @media (max-width: 768px) {

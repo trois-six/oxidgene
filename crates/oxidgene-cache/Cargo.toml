@@ -1,0 +1,40 @@
+[package]
+name = "oxidgene-cache"
+description = "OxidGene server-side cache: PersonCache, PedigreeCache, SearchIndex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = ["memory"]
+memory = []
+redis = ["dep:redis", "dep:rmp-serde"]
+disk = ["dep:bincode", "dep:dirs", "dep:serde_json"]
+
+[dependencies]
+oxidgene-core = { workspace = true }
+oxidgene-db = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+async-trait = "0.1"
+dashmap = { workspace = true }
+
+# Redis backend (optional)
+redis = { workspace = true, optional = true }
+rmp-serde = { workspace = true, optional = true }
+
+# Disk persistence (optional)
+bincode = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+sea-orm = { workspace = true }
+tempfile = "3"

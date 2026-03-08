@@ -38,11 +38,11 @@ No variable spacing between cards on the same level. A cell is either occupied b
 Each level is centered relative to the **widest level** (the one occupying the most cells).
 
 ```
-Level -2 (8 cards) :   [A1][A2][A3][A4][A5][A6][A7][A8]   ← reference
-Level -1 (4 cards) :       [B1][B2][B3][B4]                ← centered
-Level  0 (2 cards) :           [C1][C2]                    ← centered
-Level +1 (3 cards) :          [D1][D2][D3]                 ← centered
-Level +2 (2 cards) :           [E1][E2]                    ← centered
+Level -2 (8 cards) :   [A1][A2][A3][A4][A5][A6][A7][A8]   <- reference
+Level -1 (4 cards) :       [B1][B2][B3][B4]                <- centered
+Level  0 (2 cards) :           [C1][C2]                    <- centered
+Level +1 (3 cards) :          [D1][D2][D3]                 <- centered
+Level +2 (2 cards) :           [E1][E2]                    <- centered
 ```
 
 ### Parity Handling
@@ -69,46 +69,45 @@ The goal is to **minimize the total width** of the graph:
 
 ### Dimensions
 
-- Standard size: **180×80px** (width × height)
-- Reduced size (viewport < 900px wide): **130×64px**
+- Standard size: **180x80px** (width x height)
+- Reduced size (viewport < 900px wide): **130x64px**
 - Identical for all generations, no variation by depth
 
 ### Internal Layout
 
-Horizontal arrangement: photo on the left, text information on the right.
+Horizontal arrangement: avatar on the left, text information on the right.
 
 ```
-┌──────────────────────────────────┐
-│ ┌──────┐  FAMILY NAME            │
-│ │      │  First name(s)          │
-│ │ photo│  ✦ 12/03/1842           │
-│ │      │  ✝ 07/11/1918           │
-│ └──────┘                         │
-└──────────────────────────────────┘
++----------------------------------+
+| +------+  FAMILY NAME            |
+| |      |  First name(s)          |
+| | init |  * 12/03/1842           |
+| |      |  + 07/11/1918           |
+| +------+                         |
++----------------------------------+
 ```
 
-**Photo**:
-- Rectangular, ~48×68px, `object-fit: cover`
-- If unavailable: gendered silhouette (male / female / unknown) in a rectangle of the same size, neutral background
-- Vertically centered within the card
+**Avatar** (`.pc-ph`):
+- Circular, ~38px diameter, with gendered background color (blue male, pink female, grey unknown)
+- Displays the person's **initials** (first letter of surname + first letter of first name) in white text
+- When a profile photo is available (future), it replaces the initials circle with `object-fit: cover`
+- **SOSA badge**: when the person has a SOSA number (ancestor of SOSA 1), a small colored dot (12px, `var(--green)` for ancestors, `var(--orange)` for SOSA 1) is displayed at the **bottom-center of the avatar circle**, with a 2px card-background border
 
-**Text information**:
-- Family name in uppercase, bold
-- First name(s)
-- Dates in priority order: Birth > Baptism for start date, Death > Burial for end date
+**Text information** (`.pc-body`):
+- Family name in uppercase, bold (`.pc-last`)
+- First name(s) (`.pc-first`)
+- Dates in priority order: Birth > Baptism for start date, Death > Burial for end date (`.pc-dates`)
 - Date format: `dd/mm/yyyy`, or year only if day/month is unknown
 
-**Date indicators**:
-| Symbol | Meaning |
-|---|---|
-| ✦ | Birth |
-| ✟ | Baptism (if no birth date) |
-| ✝ | Death |
-| ⚰ | Burial (if no death date) |
+**Date indicators** (`.pc-born`, `.pc-died`):
+| Symbol | Color | Meaning |
+|---|---|---|
+| * | Green (`var(--green)`) | Birth |
+| (cross) | Blue (`var(--blue)`) | Death |
 
 ### Visual Indicators
 
-- **Colored left border**: blue for male, pink for female, grey for unknown
+- **Colored left border**: blue for male, pink for female, grey for unknown (`.male`, `.female`)
 - **Orange border** for the focus person (currently selected)
 - **Slightly different background** by role: ancestor, descendant, focus, lateral generation
 
@@ -136,7 +135,7 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | Action | Description |
 |---|---|
 | **Edit individual** | Opens the full person edit modal |
-| **Merge with…** | Opens a person search to select a duplicate to merge |
+| **Merge with...** | Opens a person search to select a duplicate to merge |
 | **Edit union** | See below — expands into a sub-list if multiple unions exist |
 | **Add spouse** | Opens a new person form pre-linked as spouse |
 | **Add child** | Opens a new person form pre-linked as child |
@@ -151,7 +150,7 @@ When the selected person has **exactly one union**, clicking "Edit union" immedi
 When the selected person has **two or more unions**, clicking "Edit union" expands an inline sub-list within the picker, replacing the action row. Each union is listed as a single line showing:
 
 ```
-[Partner name]   ✦ birth year   💍 marriage year (if known)
+[Partner name]   * birth year   (ring) marriage year (if known)
 ```
 
 Clicking a union entry closes the picker and opens the couple edit modal for that specific union. A back arrow at the top of the sub-list returns to the main action list.
@@ -162,19 +161,19 @@ Clicking a union entry closes the picker and opens the couple edit modal for tha
 
 ### General Rules
 
-- Connectors use **L-shapes with 90° bends**, never diagonals
+- Connectors use **L-shapes with 90-degree bends**, never diagonals
 - **Solid line only**, regardless of the type of relationship (marriage, cohabitation, other) — no visual distinction by line style
-- Color: neutral blue-grey, so as not to compete with the cards
+- Color: `var(--connector)` (neutral blue-grey in dark theme, warm grey in light theme)
 - All horizontal segments within the same generation are strictly at the **same Y level**
 
-### Structure of a Couple → Children Link
+### Structure of a Couple -> Children Link
 
 ```
-     [Parent 1]──────────────[Parent 2]
-                      │
-                      │  ← departs from the exact midpoint of the segment
-                 ─────┴─────
-                 │         │
+     [Parent 1]--------------[Parent 2]
+                      |
+                      |  <- departs from the exact midpoint of the segment
+                 -----+-----
+                 |         |
              [Child 1]  [Child 2]
 ```
 
@@ -188,25 +187,25 @@ Clicking a union entry closes the picker and opens the couple edit modal for tha
 Each union produces an **independent horizontal segment**. All segments are at the same Y level. The vertical link to the children departs from the midpoint of each segment.
 
 ```
-[Mother B]──────[Father]──────[Mother A]
-          │             │
-          │             │
-     ─────┴─────   ─────┴─────
-     │         │   │         │
+[Mother B]------[Father]------[Mother A]
+          |             |
+          |             |
+     -----+-----   -----+-----
+     |         |   |         |
 [Child B1][Child B2] [Child A1][Child A2]
 ```
 
-The shared parent card is used by both segments. The vertical departure points are respectively the midpoint of `[Mother B]──[Father]` and the midpoint of `[Father]──[Mother A]`.
+The shared parent card is used by both segments. The vertical departure points are respectively the midpoint of `[Mother B]--[Father]` and the midpoint of `[Father]--[Mother A]`.
 
 ### Case: Unknown Parent (Placeholder)
 
 The placeholder counts as a full card for midpoint calculation:
 
 ```
-[Known parent]────[?]
-       │
+[Known parent]----[?]
+       |
   (midpoint of segment)
-       │
+       |
    [Child]
 ```
 
@@ -222,56 +221,58 @@ The placeholder counts as a full card for midpoint calculation:
 
 ### Topbar
 
-Fixed height (~48px), spans the full width above the canvas.
+Fixed height, spans the full width above the canvas. Uses the shared `td-topbar` component.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  My trees › Tree name                            [Last name] [First name] │
-└──────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------+
+|  [logo] tree_name / Tree              [Last name] [First name] [Q]   |
++----------------------------------------------------------------------+
 ```
 
-**Breadcrumb**: `My trees › Tree name`, clickable to return to the tree list.
+**Breadcrumb** (`.td-bc`): logo icon (links to homepage) + tree name (`.td-bc-link`) + `/` separator (`.td-bc-sep`) + "Tree" label (`.td-bc-current`). The tree name links to the tree view.
 
 ### Search
 
-Two independent fields in the topbar, aligned to the right: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined. The **Last name(s)** field can be used to search a name or a SOSA number, if the element searched is a number it is a SOSA number.
+Two independent fields in the topbar, aligned to the right: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined. The **Last name(s)** field can be used to search a name or a SOSA number, if the element searched is a number it is a SOSA number. A magnifying glass button triggers the search.
 
-**On Enter**:
-- Navigation to a dedicated **results page**
+**On Enter** (or click magnifying glass):
+- Navigation to a dedicated **results page** (`/trees/{id}/search`)
 - All matching persons displayed as a list
-- Additional filters available (dates, location, gender…)
+- Additional filters available (dates, location, gender...)
 - Each result is clickable and returns to the tree centered on that person
 
-### Left Sidebar
+### Left Sidebar (ISB)
 
-Fixed vertical bar (~48px wide). Icon buttons stacked vertically, tooltip on hover. No text displayed.
+Fixed vertical bar (`var(--sb)` = 46px wide). SVG stroke icon buttons stacked vertically, tooltip on hover. No text displayed. All icons use a consistent style: `stroke: currentColor`, `fill: none`, `strokeWidth: 2`, 16x16px viewBox.
 
 **Buttons top to bottom**:
 
-| Icon | Action |
-|---|---|
-| 🌳 | Tree view (active by default) |
-| 👤 | Detailed profile view |
-| ⬆⬇ | Depth selector |
-| ＋ | Zoom in |
-| FIT | Fit to screen |
-| － | Zoom out |
-| ＋👤 | Add a person |
+| Icon | SVG description | Action |
+|---|---|---|
+| Org-chart | 3 small rectangles connected by lines (sitemap) | Tree view (active by default) |
+| Person silhouette | Circle head + body path | Detailed profile view |
+| Stacked layers | 3 horizontal paths with decreasing width | Depth selector |
+| Magnifying glass + | Magnifying glass with plus sign | Zoom in |
+| Four corners | 4 corner arrows pointing outward (maximize) | Fit to screen |
+| Magnifying glass - | Magnifying glass with minus sign | Zoom out |
+| Person + plus | Person silhouette with a small plus | Add a person |
+| **separator** | Thin horizontal line | Visual divider |
+| Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](ui-settings.md) for this tree |
 
 **Depth selector — hover panel**:
 
 Appears to the right of the button on hover. No text, no Apply button. Changes are applied immediately.
 
 ```
-┌──────────┐
-│  ↑ − 2 + │
-│  ↓ − 2 + │
-└──────────┘
++----------+
+|  ^ - 2 + |
+|  v - 2 + |
++----------+
 ```
 
-- `↑`: number of ascending generations (0–10)
-- `↓`: number of descending generations (0–10)
-- Layout recalculated immediately on each `+` or `−`
+- `^`: number of ascending generations (0-10)
+- `v`: number of descending generations (0-10)
+- Layout recalculated immediately on each `+` or `-`
 - The panel stays open as long as the mouse is over the button or the panel
 - Closes on mouseout with a 150ms delay
 
@@ -284,7 +285,7 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Click on a card | New focus + pencil icon + events sidebar updated |
 | Click on placeholder `+` | Opens add-parent form |
 | Drag on canvas | Free pan |
-| Scroll wheel / pinch | Zoom, range 0.3×–2× |
+| Scroll wheel / pinch | Zoom, range 0.3x-2x |
 | FIT button | Reframes the entire tree in the window |
 | Depth selector | Recalculates layout, recenters on current focus |
 
@@ -300,49 +301,46 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 
 ### General Behavior
 
-- Width ~280px
-- Collapsible via a `‹ ›` button on its left edge
+- Width: 275px (`var(--evw)`)
+- Collapsible via a toggle button on its left edge
 - Collapsed: only the button remains visible, the canvas reclaims the space
 - Open/closed state is remembered
 
 ### Content
 
-Header with photo, full name and dates of the selected person. Then a chronological list of their events, grouped by year.
+Header with avatar (initials circle), full name and dates of the selected person. Then a chronological list of their events, grouped by year.
 
 ```
-┌──────────────────────────────┐
-│ [photo] FAMILY First name    │
-│         ✦ 1842  ✝ 1918       │
-├──────────────────────────────┤
-│ EVENTS                       │
-├──────────────────────────────┤
-│ 1842                         │
-│  ✦  Birth                    │
-│     Beaune, Côte-d'Or        │
-│                              │
-│ 1865                         │
-│  💍 Marriage                 │
-│     with Marguerite L.       │
-│                              │
-│ 1918                         │
-│  ✝  Death                    │
-│     Pommard                  │
-└──────────────────────────────┘
++------------------------------+
+| [avatar] FAMILY First name   |
+|          * 1842  + 1918      |
++------------------------------+
+| EVENTS                       |
++------------------------------+
+| 1842                         |
+|  *  Birth                    |
+|     Beaune, Cote-d'Or       |
+|                              |
+| 1865                         |
+|  (ring) Marriage             |
+|     with Marguerite L.      |
+|                              |
+| 1918                         |
+|  +  Death                    |
+|     Pommard                  |
++------------------------------+
 ```
 
 ### Event Types
 
-| Icon | Type |
-|---|---|
-| ✦ | Birth |
-| ✟ | Baptism |
-| ✝ | Death |
-| ⚰ | Burial |
-| 💍 | Marriage |
-| ⚖ | Divorce / Separation |
-| 🏡 | Move / Residence |
-| ⚒ | Occupation |
-| 📜 | Document / Source |
+Each event type has a colored circle icon (`.ev-ic-*`):
+
+| Icon class | Color | Type |
+|---|---|---|
+| `ev-ic-birth` | Green | Birth |
+| `ev-ic-death` | Blue | Death |
+| `ev-ic-marry` | Orange | Marriage |
+| `ev-ic-other` | Grey | Other events |
 
 Each event is clickable to display full details (complete location, source, notes).
 
@@ -351,29 +349,29 @@ Each event is clickable to display full details (complete location, source, note
 ## 7. Overall Layout
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        TOPBAR + SEARCH                               │
-├──────┬──────────────────────────────────────────┬────────────────┬───┤
-│      │                                          │                │ ‹ │
-│  S   │                                          │    EVENTS      │   │
-│  I   │           CANVAS — TREE                  │   SIDEBAR      │   │
-│  D   │                                          │                │   │
-│  E   │                                          │                │   │
-│      │                                          │                │   │
-└──────┴──────────────────────────────────────────┴────────────────┴───┘
++----------------------------------------------------------------------+
+|                        TOPBAR + SEARCH                                |
++------+----------------------------------------------+----------------+
+|      |                                              |                |
+|  I   |                                              |    EVENTS      |
+|  S   |           CANVAS -- TREE                     |   SIDEBAR      |
+|  B   |                                              |   (275px)      |
+|      |                                              |                |
+|      |                                              |                |
++------+----------------------------------------------+----------------+
 ```
 
 | Zone | Dimensions |
 |---|---|
-| Topbar | Fixed height 48px, full width |
-| Left sidebar | Fixed width 48px, height = zone below topbar |
+| Topbar | Auto height, full width |
+| Left sidebar (ISB) | Fixed width 46px (`var(--sb)`), height = zone below topbar |
 | Canvas | Remaining space, scrollable and zoomable |
-| Right sidebar | Width 280px, collapsible |
+| Right sidebar | Width 275px (`var(--evw)`), collapsible |
 
 ---
 
 ## 8. Responsive
 
-- Below **900px wide**: cards reduced to 130×64px, photo 36px, smaller text
+- Below **900px wide**: cards reduced to 130x64px, avatar 28px, smaller text
 - Right sidebar switches to a **drawer** sliding over the canvas
 - Left sidebar remains fixed but tooltips are replaced by visible labels below each icon

@@ -15,9 +15,7 @@ use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
 use crate::components::person_form::PersonForm;
 use crate::components::search_person::SearchPerson;
-use crate::components::tree_cache::{
-    fetch_snapshot_cached, fetch_tree_cached, use_tree_cache, use_view_state_cache,
-};
+use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache, use_view_state_cache};
 use crate::components::union_form::UnionForm;
 use crate::i18n::use_i18n;
 use crate::router::Route;
@@ -38,16 +36,8 @@ fn TopbarSearch(tree_id: String) -> Element {
             if !search_last().trim().is_empty() || !search_first().trim().is_empty() {
                 nav.push(Route::SearchResults {
                     tree_id: tree_id.clone(),
-                    last: if search_last().is_empty() {
-                        None
-                    } else {
-                        Some(search_last())
-                    },
-                    first: if search_first().is_empty() {
-                        None
-                    } else {
-                        Some(search_first())
-                    },
+                    last: search_last(),
+                    first: search_first(),
                 });
             }
         }
@@ -209,12 +199,16 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
-    // ── Fetch tree snapshot (cache-backed) ──
-    let api_snapshot = api.clone();
-    let mut snapshot_resource = use_resource(move || {
-        let api = api_snapshot.clone();
+    // ── Fetch pedigree from cache API ──
+    let api_pedigree = api.clone();
+    let mut pedigree_resource = use_resource(move || {
+        let api = api_pedigree.clone();
         let _gen = tree_cache.generation();
         let tid = tree_id_parsed();
+        let sel_root = selected_root();
+        let vs = tid.and_then(|t| view_cache.get(t));
+        let ancestor_levels = vs.as_ref().map(|v| v.ancestor_levels).unwrap_or(4);
+        let descendant_levels = vs.as_ref().map(|v| v.descendant_levels).unwrap_or(2);
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -222,73 +216,68 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            fetch_snapshot_cached(&api, &tree_cache, tid).await
+
+            // Resolve root person: selected > sosa_root from tree > first person.
+            let root_id = if let Some(sel) = sel_root {
+                Some(sel)
+            } else {
+                // Try sosa_root from tree settings.
+                let tree_root = match api.get_tree(tid).await {
+                    Ok(tree) => tree.sosa_root_person_id,
+                    Err(_) => None,
+                };
+                if tree_root.is_some() {
+                    tree_root
+                } else {
+                    // Fall back to first person in tree.
+                    match api.list_persons(tid, Some(1), None).await {
+                        Ok(list) => list.edges.first().map(|e| e.node.id),
+                        Err(_) => None,
+                    }
+                }
+            };
+
+            let Some(root_id) = root_id else {
+                // Empty tree — no persons at all.
+                return Err(crate::api::ApiError::Api {
+                    status: 404,
+                    body: "No persons in tree".to_string(),
+                });
+            };
+
+            api.get_pedigree(
+                tid,
+                root_id,
+                ancestor_levels as u32,
+                descendant_levels as u32,
+            )
+            .await
         }
     });
 
     // Force resources to re-fetch when tree_id changes (component reused by router).
     if tree_changed {
         tree_resource.restart();
-        snapshot_resource.restart();
+        pedigree_resource.restart();
     }
 
-    // ── Build pedigree data from snapshot ──
-    let pedigree_data: Option<PedigreeData> = {
-        let snap_data = snapshot_resource.read();
-        match &*snap_data {
-            Some(Ok(snap)) => {
-                let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> =
-                    HashMap::new();
-                for name in &snap.names {
-                    name_map
-                        .entry(name.person_id)
-                        .or_default()
-                        .push(name.clone());
-                }
-                let places: HashMap<Uuid, oxidgene_core::types::Place> =
-                    snap.places.iter().map(|p| (p.id, p.clone())).collect();
-                Some(PedigreeData::build(
-                    &snap.persons,
-                    name_map,
-                    &snap.spouses,
-                    &snap.children,
-                    snap.events.clone(),
-                    places,
-                ))
-            }
-            _ => None,
+    // ── Build pedigree data from cached pedigree ──
+    let (pedigree_data, root_person_id): (Option<PedigreeData>, Option<Uuid>) = {
+        let ped_data = pedigree_resource.read();
+        match &*ped_data {
+            Some(Ok(cached_ped)) => (
+                Some(PedigreeData::from_cached_pedigree(cached_ped)),
+                Some(cached_ped.root_person_id),
+            ),
+            _ => (None, selected_root()),
         }
     };
 
-    // Determine root person: selected or first person.
-    let root_person_id: Option<Uuid> = {
-        if let Some(sel) = selected_root() {
-            Some(sel)
-        } else {
-            let snap_data = snapshot_resource.read();
-            match &*snap_data {
-                Some(Ok(snap)) => snap.persons.first().map(|p| p.id),
-                _ => None,
-            }
-        }
-    };
-
-    // Build name_map for context menu lookups.
-    let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = {
-        let snap_data = snapshot_resource.read();
-        match &*snap_data {
-            Some(Ok(snap)) => {
-                let mut map = HashMap::new();
-                for name in &snap.names {
-                    map.entry(name.person_id)
-                        .or_insert_with(Vec::new)
-                        .push(name.clone());
-                }
-                map
-            }
-            _ => HashMap::new(),
-        }
-    };
+    // Build name_map for context menu lookups (from pedigree data).
+    let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = pedigree_data
+        .as_ref()
+        .map(|pd| pd.names.clone())
+        .unwrap_or_default();
 
     // Context menu person name.
     let ctx_person_name: String = {
@@ -850,7 +839,9 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                                 class: "td-bc-logo-img",
                             }
                         }
-                        span { class: "td-bc-current", "{tree_name_str}" }
+                        span { class: "td-bc-link", "{tree_name_str}" }
+                        span { class: "td-bc-sep", "/" }
+                        span { class: "td-bc-current", {i18n.t("pedigree.breadcrumb")} }
                     }
                     if root_person_id.is_some() {
                         TopbarSearch { tree_id: tree_id.clone() }
@@ -921,6 +912,13 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     root_person_id: root_id,
                     data: data,
                     tree_id: tree_id.clone(),
+                    sosa_root_person_id: {
+                        let guard = tree_resource.read();
+                        match &*guard {
+                            Some(Ok(tree)) => tree.sosa_root_person_id,
+                            _ => None,
+                        }
+                    },
                     center_gen: center_gen(),
                     on_person_click: move |(pid, x, y)| {
                         context_menu_person.set(Some((pid, x, y)));
@@ -942,18 +940,35 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                             }
                         });
                     },
-                    on_profile_view: move |pid: Uuid| {
-                        nav.push(Route::PersonDetail {
-                            tree_id: tree_id.clone(),
-                            person_id: pid.to_string(),
-                        });
+                    on_profile_view: {
+                        let tree_id = tree_id.clone();
+                        move |pid: Uuid| {
+                            nav.push(Route::PersonDetail {
+                                tree_id: tree_id.clone(),
+                                person_id: pid.to_string(),
+                            });
+                        }
+                    },
+                    on_settings: {
+                        let tree_id = tree_id.clone();
+                        move |_| {
+                            nav.push(Route::Settings {
+                                tree_id: tree_id.clone(),
+                            });
+                        }
                     },
                 }
             } else {
                 // Loading or empty state
                 {
-                    let snap_data = snapshot_resource.read();
-                    let all_loaded = snap_data.is_some();
+                    let ped_data = pedigree_resource.read();
+                    // Show empty-tree UI when pedigree loaded but tree has no persons,
+                    // or when the cache API returned a 404 (no persons in tree).
+                    let all_loaded = match &*ped_data {
+                        Some(Ok(_)) => true, // Has data but no pedigree_data (shouldn't happen)
+                        Some(Err(_)) => true, // Error = either no persons or network error
+                        None => false,        // Still loading
+                    };
 
                     if all_loaded {
                         rsx! {

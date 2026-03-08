@@ -29,6 +29,8 @@ pub struct UpdateTreeRequest {
     pub name: Option<String>,
     /// `null` clears the description; absent field leaves it unchanged.
     pub description: Option<Option<String>>,
+    /// `null` clears the root person; absent field leaves it unchanged.
+    pub sosa_root_person_id: Option<Option<uuid::Uuid>>,
 }
 
 // ── Person DTOs ──────────────────────────────────────────────────────
@@ -331,4 +333,50 @@ pub struct ImportGedcomResponse {
 pub struct ExportGedcomResponse {
     pub gedcom: String,
     pub warnings: Vec<String>,
+}
+
+// ── Cache DTOs ──────────────────────────────────────────────────────
+
+/// Query parameters for cached search.
+#[derive(Debug, Deserialize)]
+pub struct CacheSearchQuery {
+    /// Free-text query (searched across all indexed fields).
+    pub q: String,
+    /// Maximum results to return (default: 25, max: 100).
+    pub limit: Option<usize>,
+    /// Offset for pagination (default: 0).
+    pub offset: Option<usize>,
+}
+
+/// Response body for cache rebuild operations.
+#[derive(Debug, Serialize)]
+pub struct CacheRebuildResponse {
+    pub rebuilt: bool,
+    pub persons_count: usize,
+}
+
+/// Response body for cache invalidation.
+#[derive(Debug, Serialize)]
+pub struct CacheInvalidateResponse {
+    pub invalidated: bool,
+}
+
+/// Query parameters for pedigree cache lookup.
+#[derive(Debug, Deserialize)]
+pub struct PedigreeQuery {
+    /// Number of ancestor generations to include (e.g. 5).
+    pub ancestor_depth: u32,
+    /// Number of descendant generations to include (e.g. 3).
+    pub descendant_depth: u32,
+}
+
+/// Query parameters for pedigree expansion.
+#[derive(Debug, Deserialize)]
+pub struct PedigreeExpandQuery {
+    /// Direction to expand: "ancestors" or "descendants".
+    pub direction: String,
+    /// Current loaded depth in the expand direction.
+    pub from_depth: u32,
+    /// Target depth after expansion.
+    pub to_depth: u32,
 }

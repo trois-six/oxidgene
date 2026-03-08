@@ -2,6 +2,7 @@
 //!
 //! This module provides Axum handlers for all REST endpoints under `/api/v1`.
 
+pub mod cache;
 pub mod citation;
 pub mod dto;
 pub mod error;

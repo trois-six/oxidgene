@@ -365,7 +365,7 @@ async fn test_family_with_members() {
     // Remove spouse
     let resp = graphql(
         app.clone(),
-        &format!(r#"mutation {{ removeSpouse(id: "{spouse_link_id}") }}"#),
+        &format!(r#"mutation {{ removeSpouse(familyId: "{family_id}", id: "{spouse_link_id}") }}"#),
         None,
     )
     .await;
@@ -897,7 +897,7 @@ async fn test_person_name_update_delete() {
     // Delete name
     let resp = graphql(
         app,
-        &format!(r#"mutation {{ deletePersonName(id: "{name_id}") }}"#),
+        &format!(r#"mutation {{ deletePersonName(personId: "{person_id}", id: "{name_id}") }}"#),
         None,
     )
     .await;
