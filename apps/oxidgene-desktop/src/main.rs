@@ -105,11 +105,12 @@ fn main() {
 
     // ── Start embedded Axum server in a background tokio runtime ─────
     let (tx, rx) = std::sync::mpsc::channel::<u16>();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let db_path_for_persist = db_path.clone();
     let cache_dir_for_persist = cache_dir.clone();
 
-    std::thread::spawn(move || {
+    let server_handle = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
             // Connect to SQLite
@@ -149,10 +150,14 @@ fn main() {
 
             // Serve with graceful shutdown.
             let shutdown = async {
-                tokio::signal::ctrl_c()
-                    .await
-                    .expect("failed to listen for ctrl-c");
-                info!("Shutdown signal received");
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        info!("Ctrl+C received, shutting down…");
+                    }
+                    _ = shutdown_rx => {
+                        info!("Window closed, shutting down server…");
+                    }
+                }
             };
 
             axum::serve(listener, app)
@@ -200,6 +205,12 @@ fn main() {
                 ),
         )
         .launch(oxidgene_ui::App);
+
+    // ── Signal the server thread to shut down and persist cache ───────
+    info!("Dioxus window closed, signalling server shutdown…");
+    let _ = shutdown_tx.send(());
+    server_handle.join().expect("server thread panicked");
+    info!("Server thread exited cleanly");
 }
 
 /// Persist the cache from the CacheService's inner store.
