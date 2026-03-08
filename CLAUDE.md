@@ -15,7 +15,8 @@ All specifications live in `docs/specifications/` — always read the relevant s
 | `architecture.md` | Tech stack, crate layout, build, deployment |
 | `data-model.md` | All 14 entities, enums, ERD |
 | `api.md` | Full REST + GraphQL contract |
-| `roadmap.md` | EPICs A–F, sprint breakdown |
+| `roadmap.md` | EPICs A–G, sprint breakdown |
+| `caching.md` | Server-side cache: PersonCache, PedigreeCache, SearchIndex, invalidation |
 | `ui-home.md` | Homepage / tree dashboard |
 | `ui-genealogy-tree.md` | Pedigree canvas, cards, connectors, sidebar |
 | `ui-person-edit-modal.md` | Person edit, couple edit, media, deletion |
@@ -28,6 +29,7 @@ crates/
   oxidgene-core/    # Domain types, enums, errors — no internal deps
   oxidgene-db/      # SeaORM entities, migrations, repos
   oxidgene-gedcom/  # GEDCOM ↔ domain (wraps ged_io)
+  oxidgene-cache/   # Server-side cache (Redis / in-memory + disk)
   oxidgene-api/     # Axum REST + async-graphql + service layer
   oxidgene-ui/      # Dioxus components + pages
 apps/
@@ -36,7 +38,7 @@ apps/
   oxidgene-cli/     # CLI (import/export, migrations)
 ```
 
-Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `core` ← `ui`.
+Dependency flow: `core` ← `db` ← `cache` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `core` ← `ui`.
 
 ## Key design rules
 
@@ -44,7 +46,7 @@ Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` 
 - **Cursor-based pagination** (Relay-style) on all list endpoints
 - **Soft delete** (`deleted_at`) — filter out by default
 - **`PersonAncestry` closure table** for O(1) ancestor/descendant traversal
-- **No auth in MVP** (EPIC E, deferred)
+- **No auth in MVP** (EPIC F, deferred)
 - **Family-centric model**: Persons exist independently; Families link spouses + children
 
 ## Frontend (oxidgene-ui)
@@ -77,6 +79,7 @@ Dioxus. Components in `src/components/`, pages in `src/pages/`.
 - `rest/dto.rs` — request/response DTOs
 - `rest/state.rs` — AppState (DB connection)
 - `router.rs` — Axum router wiring
+- `service/cache_service.rs` — cache orchestration, invalidation, builders
 
 ## Build commands
 
@@ -97,4 +100,4 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–D complete. Starting EPIC E (Security & Deployment). See `docs/specifications/roadmap.md` for details. Update this file each time a new feature is developped.
+EPICs A–E complete. EPIC E (Server-Side Caching) finished — all 5 sprints done: cache foundation, person cache + API integration, pedigree cache with LRU, search index + GEDCOM integration, Redis backend + desktop disk persistence. Only "Performance testing with 100K-person trees" remains deferred. Next up: EPIC F (Security & Deployment). See `docs/specifications/roadmap.md` for details. Update this file each time a new feature is developped.

@@ -9,7 +9,9 @@ use async_graphql::{EmptySubscription, Schema, http::GraphiQLSource};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
 use axum::response::{Html, IntoResponse};
+use oxidgene_cache::CacheService;
 use sea_orm::DatabaseConnection;
+use std::sync::Arc;
 
 use mutation::MutationRoot;
 use query::QueryRoot;
@@ -17,10 +19,12 @@ use query::QueryRoot;
 /// The full GraphQL schema type.
 pub type OxidGeneSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
-/// Build the async-graphql schema with the given database connection.
-pub fn build_schema(db: DatabaseConnection) -> OxidGeneSchema {
+/// Build the async-graphql schema with the given database connection and cache
+/// service.
+pub fn build_schema(db: DatabaseConnection, cache: Arc<CacheService>) -> OxidGeneSchema {
     Schema::build(QueryRoot, MutationRoot, EmptySubscription)
         .data(db)
+        .data(cache)
         .finish()
 }
 

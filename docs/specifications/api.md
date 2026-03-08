@@ -8,6 +8,7 @@
 ## 1. REST API
 
 Base path: `/api/v1`
+The API must expose an OpenAPI description in YAML under the path: `/api/swagger.yaml`
 
 ### Trees
 
@@ -143,6 +144,23 @@ Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
 Used by: [Tree View](ui-genealogy-tree.md) (topbar import/export buttons) · [Settings](ui-settings.md) (export section)
 
+### Cache
+
+Server-side cache endpoints provide pre-built, denormalized data for instant page rendering. See [Caching](caching.md) for the full cache architecture.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/cache/persons/{person_id}` | Get a single cached person (full denormalized profile) |
+| `GET` | `/trees/{tree_id}/cache/persons?ids=uuid1,uuid2,...` | Batch get cached persons |
+| `GET` | `/trees/{tree_id}/cache/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Get windowed pedigree for a root person |
+| `PATCH` | `/trees/{tree_id}/cache/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N` | Expand pedigree depth (returns only new nodes/edges) |
+| `GET` | `/trees/{tree_id}/cache/search?q=query&limit=20&offset=0` | Server-side person search (paginated) |
+| `POST` | `/trees/{tree_id}/cache/rebuild` | Force full cache rebuild for a tree |
+
+Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
+
+**Note:** All existing mutation endpoints (create/update/delete) now include a synchronous cache update step after the DB write. The response waits for the cache to be refreshed, guaranteeing consistency on subsequent reads. See [Caching](caching.md) §4.
+
 ### Pagination
 
 All list endpoints accept:
@@ -203,6 +221,12 @@ type Query {
   # Media
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
   media(treeId: ID!, id: ID!): Media
+
+  # Cache (see Caching spec)
+  cachedPerson(treeId: ID!, personId: ID!): CachedPerson!
+  cachedPersons(treeId: ID!, personIds: [ID!]!): [CachedPerson!]!
+  pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): CachedPedigree!
+  searchPersons(treeId: ID!, query: String!, limit: Int, offset: Int): SearchResult!
 }
 ```
 
@@ -269,6 +293,10 @@ type Mutation {
   # GEDCOM
   importGedcom(treeId: ID!, file: Upload!): GedcomImportResult!
   exportGedcom(treeId: ID!): String!
+
+  # Cache management (see Caching spec)
+  expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!): PedigreeDelta!
+  rebuildTreeCache(treeId: ID!): Boolean!
 }
 ```
 
@@ -372,6 +400,132 @@ type PageInfo {
 }
 
 # Similar connection types for Person, Family, Event, Place, Source, Media
+
+# --- Cache types (see Caching spec for full details) ---
+
+type CachedPerson {
+  personId: ID!
+  treeId: ID!
+  sex: Sex!
+  primaryName: CachedName
+  otherNames: [CachedName!]!
+  birth: CachedEvent
+  death: CachedEvent
+  baptism: CachedEvent
+  burial: CachedEvent
+  occupation: String
+  otherEvents: [CachedEvent!]!
+  familiesAsSpouse: [CachedFamilyLink!]!
+  familyAsChild: CachedChildLink
+  primaryMedia: CachedMediaRef
+  mediaCount: Int!
+  citationCount: Int!
+  noteCount: Int!
+  updatedAt: DateTime!
+  cachedAt: DateTime!
+}
+
+type CachedName {
+  nameId: ID!
+  nameType: NameType!
+  displayName: String!
+  givenNames: String
+  surname: String
+}
+
+type CachedEvent {
+  eventId: ID!
+  eventType: EventType!
+  dateValue: String
+  dateSort: Date
+  placeName: String
+  placeId: ID
+  description: String
+}
+
+type CachedFamilyLink {
+  familyId: ID!
+  role: SpouseRole!
+  spouseId: ID
+  spouseDisplayName: String
+  spouseSex: Sex
+  marriage: CachedEvent
+  childrenIds: [ID!]!
+  childrenCount: Int!
+}
+
+type CachedChildLink {
+  familyId: ID!
+  childType: ChildType!
+  fatherId: ID
+  fatherDisplayName: String
+  motherId: ID
+  motherDisplayName: String
+}
+
+type CachedMediaRef {
+  mediaId: ID!
+  filePath: String!
+  mimeType: String!
+  title: String
+}
+
+type CachedPedigree {
+  treeId: ID!
+  rootPersonId: ID!
+  persons: [PedigreeNode!]!
+  edges: [PedigreeEdge!]!
+  ancestorDepthLoaded: Int!
+  descendantDepthLoaded: Int!
+  cachedAt: DateTime!
+}
+
+type PedigreeNode {
+  personId: ID!
+  sex: Sex!
+  displayName: String!
+  birthYear: String
+  birthPlace: String
+  deathYear: String
+  deathPlace: String
+  occupation: String
+  primaryMediaPath: String
+  generation: Int!
+  sosaNumber: Int
+}
+
+type PedigreeEdge {
+  parentId: ID!
+  childId: ID!
+  familyId: ID!
+  edgeType: ChildType!
+}
+
+type PedigreeDelta {
+  newNodes: [PedigreeNode!]!
+  newEdges: [PedigreeEdge!]!
+  ancestorDepthLoaded: Int!
+  descendantDepthLoaded: Int!
+}
+
+type SearchResult {
+  entries: [SearchEntry!]!
+  totalCount: Int!
+}
+
+type SearchEntry {
+  personId: ID!
+  sex: Sex!
+  displayName: String!
+  birthYear: String
+  birthPlace: String
+  deathYear: String
+}
+
+enum PedigreeDirection {
+  ANCESTORS
+  DESCENDANTS
+}
 ```
 
 ---

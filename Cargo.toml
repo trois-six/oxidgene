@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/oxidgene-core",
     "crates/oxidgene-db",
+    "crates/oxidgene-cache",
     "crates/oxidgene-api",
     "crates/oxidgene-gedcom",
     "crates/oxidgene-ui",
@@ -22,6 +23,7 @@ repository = "https://github.com/trois-six/oxidgene"
 # Internal crates
 oxidgene-core = { path = "crates/oxidgene-core" }
 oxidgene-db = { path = "crates/oxidgene-db" }
+oxidgene-cache = { path = "crates/oxidgene-cache" }
 oxidgene-api = { path = "crates/oxidgene-api" }
 oxidgene-gedcom = { path = "crates/oxidgene-gedcom" }
 oxidgene-ui = { path = "crates/oxidgene-ui" }
@@ -91,3 +93,9 @@ rfd = "0.17"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+
+# Cache
+dashmap = "6"
+redis = { version = "0.27", features = ["aio", "tokio-comp", "connection-manager"] }
+rmp-serde = "1"
+bincode = "1"

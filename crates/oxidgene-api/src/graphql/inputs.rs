@@ -18,6 +18,7 @@ pub struct CreateTreeInput {
 pub struct UpdateTreeInput {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub sosa_root_person_id: Option<String>,
 }
 
 // ── Person Inputs ────────────────────────────────────────────────────

@@ -24,6 +24,21 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Redis (cache backend) ───────────────────────────────────────────
+  redis:
+    image: redis:7-bookworm
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # ── OxidGene server ──────────────────────────────────────────────────
   server:
     build:
@@ -36,10 +51,15 @@ services:
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
       OXIDGENE_LOG_LEVEL: "info"
       OXIDGENE_CORS_ORIGIN: "*"
+      OXIDGENE_CACHE_BACKEND: "redis"
+      OXIDGENE_REDIS_URL: "redis://redis:6379"
+      OXIDGENE_PEDIGREE_CACHE_MB: "128"
     ports:
       - "8080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
@@ -50,3 +70,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

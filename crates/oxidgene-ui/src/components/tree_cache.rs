@@ -2,30 +2,27 @@
 //!
 //! Provided once via [`use_init_tree_cache`] in the Layout component.
 //! Consumed in child pages via [`use_tree_cache`].
+//!
+//! Since Sprint E.4, tree snapshots are no longer cached client-side.
+//! Pedigree and search data are fetched from the server-side cache instead.
 
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, TreeSnapshot};
+use crate::api::{ApiClient, ApiError};
 use oxidgene_core::types::Tree;
 
 // ─── Public context type ────────────────────────────────────────────
 
 /// Shared tree cache stored in Dioxus context.
 ///
-/// Holds the most recently loaded tree metadata + snapshot.  When a page
-/// needs the data for the same `tree_id` that is already cached, it can
-/// read from the signals immediately (no HTTP round-trip, no loading
-/// spinner).
-///
-/// Tree and snapshot track their own `tree_id` independently so that
-/// storing one doesn't accidentally validate a stale entry for the other.
+/// Holds the most recently loaded tree metadata.  When a page needs the
+/// tree for the same `tree_id` that is already cached, it can read from
+/// the signal immediately (no HTTP round-trip, no loading spinner).
 #[derive(Clone, Copy)]
 pub struct TreeCache {
     tree_tid: Signal<Option<Uuid>>,
     tree: Signal<Option<Tree>>,
-    snap_tid: Signal<Option<Uuid>>,
-    snapshot: Signal<Option<TreeSnapshot>>,
     /// Monotonically increasing counter — bump to force a re-fetch.
     generation: Signal<u64>,
 }
@@ -40,15 +37,6 @@ impl TreeCache {
         }
     }
 
-    /// Return the cached snapshot if it matches `tid`, otherwise `None`.
-    pub fn snapshot(&self, tid: Uuid) -> Option<TreeSnapshot> {
-        if *self.snap_tid.read() == Some(tid) {
-            self.snapshot.read().clone()
-        } else {
-            None
-        }
-    }
-
     /// Store freshly fetched data into the cache.
     pub fn store_tree(&self, tid: Uuid, tree: Tree) {
         let mut id = self.tree_tid;
@@ -57,26 +45,14 @@ impl TreeCache {
         t.set(Some(tree));
     }
 
-    /// Store freshly fetched snapshot into the cache.
-    pub fn store_snapshot(&self, tid: Uuid, snapshot: TreeSnapshot) {
-        let mut id = self.snap_tid;
-        let mut s = self.snapshot;
-        id.set(Some(tid));
-        s.set(Some(snapshot));
-    }
-
     /// Invalidate the cache and bump the generation counter so that
     /// any reactive `use_resource` that reads `generation()` will re-run.
     pub fn invalidate(&self) {
         let mut tid = self.tree_tid;
-        let mut stid = self.snap_tid;
         let mut t = self.tree;
-        let mut s = self.snapshot;
         let mut generation = self.generation;
         tid.set(None);
-        stid.set(None);
         t.set(None);
-        s.set(None);
         let next = *generation.peek() + 1;
         generation.set(next);
     }
@@ -95,8 +71,6 @@ pub fn use_init_tree_cache() -> TreeCache {
     let cache = TreeCache {
         tree_tid: use_context_provider(|| Signal::new(None)),
         tree: use_context_provider(|| Signal::new(None)),
-        snap_tid: use_context_provider(|| Signal::new(None)),
-        snapshot: use_context_provider(|| Signal::new(None)),
         generation: use_context_provider(|| Signal::new(0u64)),
     };
     use_context_provider(|| cache);
@@ -200,18 +174,4 @@ pub async fn fetch_tree_cached(
     let t = api.get_tree(tid).await?;
     cache.store_tree(tid, t.clone());
     Ok(t)
-}
-
-/// Fetch the snapshot, using the cache when possible.
-pub async fn fetch_snapshot_cached(
-    api: &ApiClient,
-    cache: &TreeCache,
-    tid: Uuid,
-) -> Result<TreeSnapshot, ApiError> {
-    if let Some(s) = cache.snapshot(tid) {
-        return Ok(s);
-    }
-    let s = api.get_tree_snapshot(tid).await?;
-    cache.store_snapshot(tid, s.clone());
-    Ok(s)
 }

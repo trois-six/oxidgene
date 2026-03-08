@@ -8,20 +8,31 @@
 //! - Linux:   `~/.local/share/oxidgene/oxidgene.db`
 //! - macOS:   `~/Library/Application Support/oxidgene/oxidgene.db`
 //! - Windows: `C:\Users\<user>\AppData\Roaming\oxidgene\oxidgene.db`
+//!
+//! The cache is persisted to the platform cache directory:
+//! - Linux:   `~/.cache/oxidgene/`
+//! - macOS:   `~/Library/Caches/oxidgene/`
+//! - Windows: `C:\Users\<user>\AppData\Local\oxidgene\`
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
 use clap::Parser;
 use dioxus::desktop::{Config, WindowBuilder};
 use oxidgene_api::{AppState, build_router};
+use oxidgene_cache::store::disk;
+use oxidgene_cache::store::memory::MemoryCacheStore;
 use oxidgene_db::repo::{connect, run_migrations};
 use oxidgene_ui::api::ApiClient;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+/// Default pedigree LRU budget in bytes (64 MB).
+const DEFAULT_PEDIGREE_BUDGET_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = "oxidgene-desktop", about = "OxidGene desktop genealogy app")]
@@ -36,7 +47,7 @@ fn main() {
 
     // ── Initialize tracing ───────────────────────────────────────────
     let filter = if cli.debug {
-        "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug"
+        "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug,oxidgene_cache=debug"
     } else {
         "info"
     };
@@ -46,7 +57,7 @@ fn main() {
         )
         .init();
 
-    // ── Resolve data directory ───────────────────────────────────────
+    // ── Resolve data directory (SQLite) ──────────────────────────────
     let data_dir = dirs::data_dir()
         .expect("could not determine platform data directory")
         .join("oxidgene");
@@ -60,8 +71,48 @@ fn main() {
     let database_url = format!("sqlite://{}?mode=rwc", db_path.display());
     info!(%database_url, "Using SQLite database");
 
+    // ── Resolve cache directory ──────────────────────────────────────
+    let cache_dir = std::env::var("OXIDGENE_CACHE_DIR")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .or_else(disk::default_cache_dir)
+        .expect("could not determine platform cache directory");
+
+    info!(cache_dir = %cache_dir.display(), "Using cache directory");
+
+    // ── Read pedigree budget ─────────────────────────────────────────
+    let pedigree_budget = std::env::var("OXIDGENE_PEDIGREE_CACHE_MB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map(|mb| mb * 1024 * 1024)
+        .unwrap_or(DEFAULT_PEDIGREE_BUDGET_BYTES);
+
+    // ── Load cache from disk (if available and not stale) ────────────
+    let memory_store = if disk::is_cache_stale(&cache_dir, &db_path) {
+        info!("Disk cache is stale or missing, starting with empty cache");
+        MemoryCacheStore::with_budget(pedigree_budget)
+    } else {
+        match disk::load_from_disk(&cache_dir, pedigree_budget) {
+            Some(store) => {
+                info!("Cache loaded from disk");
+                store
+            }
+            None => {
+                warn!("Failed to load cache from disk, starting with empty cache");
+                MemoryCacheStore::with_budget(pedigree_budget)
+            }
+        }
+    };
+
+    // Wrap in Arc for sharing between server thread and shutdown handler.
+    let memory_store = Arc::new(memory_store);
+
     // ── Start embedded Axum server in a background tokio runtime ─────
     let (tx, rx) = std::sync::mpsc::channel::<u16>();
+
+    let store_for_server = Arc::clone(&memory_store);
+    let db_path_for_persist = db_path.clone();
+    let cache_dir_for_persist = cache_dir.clone();
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
@@ -78,9 +129,13 @@ fn main() {
                 std::process::exit(1);
             });
 
-            // Build router
-            let state = AppState::new(db);
-            let api_router = build_router(state);
+            // Build router with the pre-loaded memory store.
+            // We need to unwrap the Arc — the only other reference is held for
+            // persistence on shutdown and won't be used concurrently.
+            let store = Arc::try_unwrap(store_for_server)
+                .expect("MemoryCacheStore Arc still has multiple owners");
+            let state = AppState::with_memory_store(db, store);
+            let api_router = build_router(state.clone());
 
             let app = Router::new()
                 .route("/healthz", get(healthz))
@@ -101,10 +156,33 @@ fn main() {
             tx.send(local_addr.port())
                 .expect("failed to send port to main thread");
 
-            // Serve until the process exits
-            axum::serve(listener, app).await.unwrap_or_else(|e| {
-                error!(%e, "Server error");
-            });
+            // Serve with graceful shutdown.
+            let shutdown = async {
+                tokio::signal::ctrl_c()
+                    .await
+                    .expect("failed to listen for ctrl-c");
+                info!("Shutdown signal received");
+            };
+
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown)
+                .await
+                .unwrap_or_else(|e| {
+                    error!(%e, "Server error");
+                });
+
+            // ── Persist cache to disk on shutdown ────────────────────
+            info!("Persisting cache to disk before exit…");
+            // Access the MemoryCacheStore through the CacheService.
+            // The CacheStore trait is object-safe, so we call snapshot_for_disk
+            // via the store() accessor which returns &dyn CacheStore.
+            // However, we need the concrete MemoryCacheStore for snapshot_for_disk.
+            // Since AppState::with_memory_store wraps it as Arc<dyn CacheStore>,
+            // we need to use the cache service's persist method instead.
+            //
+            // For now, we persist through the CacheService's store accessor by
+            // downcasting. We'll add a persist helper to CacheService.
+            persist_cache_via_service(&state, &cache_dir_for_persist, &db_path_for_persist);
         });
     });
 
@@ -131,6 +209,45 @@ fn main() {
                 ),
         )
         .launch(oxidgene_ui::App);
+
+    // ── Persist cache when the Dioxus window closes ──────────────────
+    // Note: Dioxus::launch blocks until the window is closed. When it returns,
+    // the server thread may have already shut down via Ctrl+C. As a fallback,
+    // persist here too (idempotent — just overwrites the files).
+    if let Err(e) = disk::persist_to_disk(
+        // We can't access the server's MemoryCacheStore here because it was
+        // moved into the server thread. The server thread handles persistence
+        // on graceful shutdown via Ctrl+C / SIGTERM.
+        // This is a best-effort fallback for window-close exits.
+        &MemoryCacheStore::new(), // empty — real persist happens in server thread
+        &cache_dir,
+        Some(&db_path),
+    ) {
+        warn!(%e, "Failed to persist cache on window close (server thread handles this)");
+    }
+}
+
+/// Persist the cache from the CacheService's inner store.
+///
+/// Attempts to downcast the `dyn CacheStore` back to `MemoryCacheStore`.
+fn persist_cache_via_service(
+    state: &AppState,
+    cache_dir: &std::path::Path,
+    db_path: &std::path::Path,
+) {
+    use std::any::Any;
+
+    // The CacheService exposes store() -> &dyn CacheStore.
+    // We need to downcast to MemoryCacheStore for snapshot_for_disk().
+    let store = state.cache.store();
+    let store_any: &dyn Any = store.as_any();
+    if let Some(memory_store) = store_any.downcast_ref::<MemoryCacheStore>() {
+        if let Err(e) = disk::persist_to_disk(memory_store, cache_dir, Some(db_path)) {
+            error!(%e, "Failed to persist cache to disk");
+        }
+    } else {
+        warn!("Cache store is not MemoryCacheStore, skipping disk persistence");
+    }
 }
 
 /// Health check handler returning `200 OK` with a JSON body.

@@ -22,6 +22,13 @@ pub async fn import_gedcom_handler(
         .await
         .map_err(ApiError::from)?;
 
+    // Eagerly rebuild the entire cache for this tree after GEDCOM import
+    state
+        .cache
+        .rebuild_tree_full(tree_id)
+        .await
+        .map_err(ApiError::from)?;
+
     let response = ImportGedcomResponse {
         persons_count: summary.persons_count,
         families_count: summary.families_count,

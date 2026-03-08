@@ -16,10 +16,11 @@ use uuid::Uuid;
 
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 
+use oxidgene_cache::types::CachedPedigree;
 use oxidgene_core::types::{
     Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place,
 };
-use oxidgene_core::{EventType, Sex};
+use oxidgene_core::{ChildType, EventType, Sex, SpouseRole};
 
 use crate::i18n::use_i18n;
 
@@ -186,6 +187,236 @@ impl PedigreeData {
             events_by_family,
             places,
         }
+    }
+
+    /// Build `PedigreeData` from a [`CachedPedigree`] returned by the cache API.
+    ///
+    /// Creates synthetic domain objects (Person, PersonName, Event) from the
+    /// denormalized pedigree nodes so the existing layout + rendering code works
+    /// unchanged.
+    pub fn from_cached_pedigree(pedigree: &CachedPedigree) -> Self {
+        use chrono::{NaiveDate, Utc};
+        use std::collections::HashSet;
+
+        let now = Utc::now();
+        let tree_id = pedigree.tree_id;
+
+        // ── Persons & Names ──
+        let mut persons: HashMap<Uuid, Person> = HashMap::new();
+        let mut names: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
+
+        for node in pedigree.persons.values() {
+            let person = Person {
+                id: node.person_id,
+                tree_id,
+                sex: node.sex,
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+            };
+            persons.insert(node.person_id, person);
+
+            // Parse display_name into given + surname (split on last space).
+            let (given, surname) = match node.display_name.rsplit_once(' ') {
+                Some((g, s)) => (Some(g.to_string()), Some(s.to_string())),
+                None => (Some(node.display_name.clone()), None),
+            };
+            let name = PersonName {
+                id: Uuid::nil(),
+                person_id: node.person_id,
+                name_type: oxidgene_core::NameType::Birth,
+                given_names: given,
+                surname,
+                prefix: None,
+                suffix: None,
+                nickname: None,
+                is_primary: true,
+                created_at: now,
+                updated_at: now,
+            };
+            names.insert(node.person_id, vec![name]);
+        }
+
+        // ── Synthetic events from PedigreeNode birth/death years ──
+        let mut events_by_person: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
+        for node in pedigree.persons.values() {
+            let mut person_events = Vec::new();
+            if let Some(ref year_str) = node.birth_year {
+                let date_sort = year_str
+                    .parse::<i32>()
+                    .ok()
+                    .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
+                let mut evt = DomainEvent {
+                    id: Uuid::nil(),
+                    tree_id,
+                    event_type: EventType::Birth,
+                    date_value: Some(year_str.clone()),
+                    date_sort,
+                    place_id: None,
+                    person_id: Some(node.person_id),
+                    family_id: None,
+                    description: None,
+                    created_at: now,
+                    updated_at: now,
+                    deleted_at: None,
+                };
+                // If we have a birth place string, we can't create a real Place
+                // (no UUID) — leave place_id as None; the chart reads place_name()
+                // but falls back gracefully.
+                if node.birth_place.is_some() {
+                    evt.description = node.birth_place.clone();
+                }
+                person_events.push(evt);
+            }
+            if let Some(ref year_str) = node.death_year {
+                let date_sort = year_str
+                    .parse::<i32>()
+                    .ok()
+                    .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
+                let mut evt = DomainEvent {
+                    id: Uuid::nil(),
+                    tree_id,
+                    event_type: EventType::Death,
+                    date_value: Some(year_str.clone()),
+                    date_sort,
+                    place_id: None,
+                    person_id: Some(node.person_id),
+                    family_id: None,
+                    description: None,
+                    created_at: now,
+                    updated_at: now,
+                    deleted_at: None,
+                };
+                if node.death_place.is_some() {
+                    evt.description = node.death_place.clone();
+                }
+                person_events.push(evt);
+            }
+            if !person_events.is_empty() {
+                events_by_person.insert(node.person_id, person_events);
+            }
+        }
+
+        // ── Family relationships from PedigreeEdge ──
+        //
+        // PedigreeEdge only carries parent→child. We group by family_id to
+        // reconstruct: spouses_by_family, children_by_family,
+        // families_as_child, families_as_spouse.
+
+        // Collect parents and children per family.
+        let mut family_parents: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
+        let mut family_children_map: HashMap<Uuid, Vec<(Uuid, ChildType)>> = HashMap::new();
+
+        for edge in &pedigree.edges {
+            family_parents
+                .entry(edge.family_id)
+                .or_default()
+                .insert(edge.parent_id);
+            family_children_map
+                .entry(edge.family_id)
+                .or_default()
+                .push((edge.child_id, edge.edge_type));
+        }
+
+        // Deduplicate children per family (same child may appear via two
+        // parent edges in the same family).
+        for children in family_children_map.values_mut() {
+            children.sort_by_key(|(id, _)| *id);
+            children.dedup_by_key(|(id, _)| *id);
+        }
+
+        let mut spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>> = HashMap::new();
+        let mut children_by_family: HashMap<Uuid, Vec<FamilyChild>> = HashMap::new();
+        let mut families_as_child: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+        let mut families_as_spouse: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+
+        for (family_id, parent_ids) in &family_parents {
+            // Build FamilySpouse entries — assign role by sex.
+            for (i, &pid) in parent_ids.iter().enumerate() {
+                let role = match persons.get(&pid).map(|p| &p.sex) {
+                    Some(Sex::Male) => SpouseRole::Husband,
+                    Some(Sex::Female) => SpouseRole::Wife,
+                    _ => {
+                        if i == 0 {
+                            SpouseRole::Husband
+                        } else {
+                            SpouseRole::Wife
+                        }
+                    }
+                };
+                let fs = FamilySpouse {
+                    id: Uuid::nil(),
+                    family_id: *family_id,
+                    person_id: pid,
+                    role,
+                    sort_order: i as i32,
+                };
+                spouses_by_family.entry(*family_id).or_default().push(fs);
+                families_as_spouse.entry(pid).or_default().push(*family_id);
+            }
+        }
+
+        // Deduplicate families_as_spouse entries (a person can appear once per family).
+        for fids in families_as_spouse.values_mut() {
+            fids.sort();
+            fids.dedup();
+        }
+
+        for (family_id, children) in &family_children_map {
+            for (i, (child_id, child_type)) in children.iter().enumerate() {
+                let fc = FamilyChild {
+                    id: Uuid::nil(),
+                    family_id: *family_id,
+                    person_id: *child_id,
+                    child_type: *child_type,
+                    sort_order: i as i32,
+                };
+                children_by_family.entry(*family_id).or_default().push(fc);
+                families_as_child
+                    .entry(*child_id)
+                    .or_default()
+                    .push(*family_id);
+            }
+        }
+
+        // Deduplicate families_as_child entries.
+        for fids in families_as_child.values_mut() {
+            fids.sort();
+            fids.dedup();
+        }
+
+        Self {
+            persons,
+            names,
+            spouses_by_family,
+            children_by_family,
+            families_as_child,
+            families_as_spouse,
+            events_by_person,
+            events_by_family: HashMap::new(),
+            places: HashMap::new(),
+        }
+    }
+
+    /// Compute the set of all ancestors of a given person (excluding the person).
+    pub fn ancestor_set(&self, person_id: Uuid) -> std::collections::HashSet<Uuid> {
+        let mut result = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(person_id);
+        while let Some(pid) = queue.pop_front() {
+            let (father, mother) = self.parents_of(pid);
+            if let Some(f) = father
+                && result.insert(f)
+            {
+                queue.push_back(f);
+            }
+            if let Some(m) = mother
+                && result.insert(m)
+            {
+                queue.push_back(m);
+            }
+        }
+        result
     }
 
     fn parents_of(&self, person_id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
@@ -873,6 +1104,10 @@ pub struct PedigreeChartProps {
     pub root_person_id: Uuid,
     pub data: PedigreeData,
     pub tree_id: String,
+    /// SOSA root person ID from tree settings. When set, ancestors of this
+    /// person get a small badge indicator on their card.
+    #[props(default)]
+    pub sosa_root_person_id: Option<Uuid>,
     /// Incremented by the parent to force re-centering on the root person,
     /// even when `root_person_id` hasn't changed (e.g. navigating back from
     /// the person profile page).
@@ -885,6 +1120,8 @@ pub struct PedigreeChartProps {
     pub on_add_person: EventHandler<()>,
     #[props(default)]
     pub on_profile_view: EventHandler<Uuid>,
+    #[props(default)]
+    pub on_settings: EventHandler<()>,
 }
 
 #[component]
@@ -983,6 +1220,12 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         ancestor_levels(),
         descendant_levels(),
     );
+
+    // ── Compute SOSA ancestor set (persons who are ancestors of the SOSA root) ──
+    let sosa_ancestors: std::collections::HashSet<Uuid> = props
+        .sosa_root_person_id
+        .map(|sosa_id| props.data.ancestor_set(sosa_id))
+        .unwrap_or_default();
 
     // ── Center root card in viewport when needed ──
     if needs_center() {
@@ -1178,7 +1421,23 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 button {
                     class: "isb-btn isb-btn-active",
                     title: "{i18n.t(\"pedigree.tree_view\")}",
-                    "\u{1F333}" // 🌳
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        // Tree/sitemap icon
+                        line { x1: "12", y1: "2", x2: "12", y2: "8" }
+                        rect { x: "8", y: "8", width: "8", height: "4", rx: "1" }
+                        line { x1: "12", y1: "12", x2: "12", y2: "15" }
+                        line { x1: "6", y1: "15", x2: "18", y2: "15" }
+                        line { x1: "6", y1: "15", x2: "6", y2: "18" }
+                        line { x1: "18", y1: "15", x2: "18", y2: "18" }
+                        rect { x: "2", y: "18", width: "8", height: "4", rx: "1" }
+                        rect { x: "14", y: "18", width: "8", height: "4", rx: "1" }
+                    }
                 }
 
                 // Profile view
@@ -1190,7 +1449,17 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             class: "isb-btn",
                             title: "{i18n.t(\"pedigree.profile_view\")}",
                             onclick: move |_| on_profile.call(sel),
-                            "\u{1F464}" // 👤
+                            svg {
+                                width: "16",
+                                height: "16",
+                                fill: "none",
+                                "viewBox": "0 0 24 24",
+                                stroke: "currentColor",
+                                "strokeWidth": "2",
+                                // Person icon
+                                circle { cx: "12", cy: "8", r: "4" }
+                                path { d: "M4 21v-1a6 6 0 0 1 12 0v1" }
+                            }
                         }
                     }
                 }
@@ -1218,7 +1487,18 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     button {
                         class: "isb-btn",
                         title: "{i18n.t(\"pedigree.depth\")}",
-                        "\u{2261}" // ≡
+                        svg {
+                            width: "16",
+                            height: "16",
+                            fill: "none",
+                            "viewBox": "0 0 24 24",
+                            stroke: "currentColor",
+                            "strokeWidth": "2",
+                            // Layers/depth icon
+                            path { d: "M12 2 2 7l10 5 10-5-10-5z" }
+                            path { d: "M2 17l10 5 10-5" }
+                            path { d: "M2 12l10 5 10-5" }
+                        }
                     }
                     if depth_hover() {
                         div { class: "pedigree-depth-popover",
@@ -1260,13 +1540,34 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.zoom_in\")}",
                     onclick: move |_| scale.set((scale() * 1.2).clamp(0.3, 2.0)),
-                    "\u{2295}" // ⊕
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        circle { cx: "11", cy: "11", r: "8" }
+                        line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
+                        line { x1: "11", y1: "8", x2: "11", y2: "14" }
+                        line { x1: "8", y1: "11", x2: "14", y2: "11" }
+                    }
                 }
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.zoom_out\")}",
                     onclick: move |_| scale.set((scale() / 1.2).clamp(0.3, 2.0)),
-                    "\u{2296}" // ⊖
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        circle { cx: "11", cy: "11", r: "8" }
+                        line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
+                        line { x1: "8", y1: "11", x2: "14", y2: "11" }
+                    }
                 }
                 span { class: "isb-zoom-val", "{zoom_pct}%" }
                 button {
@@ -1287,7 +1588,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             }
                         });
                     },
-                    "FIT"
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        // Maximize/fit-screen icon (four corners)
+                        path { d: "M3 8V5a2 2 0 0 1 2-2h3" }
+                        path { d: "M16 3h3a2 2 0 0 1 2 2v3" }
+                        path { d: "M21 16v3a2 2 0 0 1-2 2h-3" }
+                        path { d: "M8 21H5a2 2 0 0 1-2-2v-3" }
+                    }
                 }
 
                 div { class: "isb-hr" }
@@ -1300,7 +1613,44 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             class: "isb-btn",
                             title: "{i18n.t(\"pedigree.add_person\")}",
                             onclick: move |_| on_add.call(()),
-                            "+\u{1F464}"
+                            svg {
+                                width: "16",
+                                height: "16",
+                                fill: "none",
+                                "viewBox": "0 0 24 24",
+                                stroke: "currentColor",
+                                "strokeWidth": "2",
+                                // Person + plus icon
+                                circle { cx: "10", cy: "8", r: "4" }
+                                path { d: "M2 21v-1a6 6 0 0 1 12 0v1" }
+                                line { x1: "20", y1: "8", x2: "20", y2: "14" }
+                                line { x1: "17", y1: "11", x2: "23", y2: "11" }
+                            }
+                        }
+                    }
+                }
+
+                div { class: "isb-hr" }
+
+                // Settings
+                {
+                    let on_settings = props.on_settings;
+                    rsx! {
+                        button {
+                            class: "isb-btn",
+                            title: "{i18n.t(\"settings.breadcrumb\")}",
+                            onclick: move |_| on_settings.call(()),
+                            svg {
+                                width: "16",
+                                height: "16",
+                                fill: "none",
+                                "viewBox": "0 0 24 24",
+                                stroke: "currentColor",
+                                "strokeWidth": "2",
+                                // Gear icon
+                                circle { cx: "12", cy: "12", r: "3" }
+                                path { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" }
+                            }
                         }
                     }
                 }
@@ -1387,6 +1737,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                         let death_sym = props.data.death_symbol(pid);
                                         let initials = make_initials(&given_s, &surname_s);
                                         let is_focus = pid == props.root_person_id;
+                                        let is_sosa_ancestor = sosa_ancestors.contains(&pid);
+                                        let is_sosa_root = props.sosa_root_person_id == Some(pid);
                                         let role_class = if node.generation == 0 {
                                             "current"
                                         } else if node.generation < 0 {
@@ -1420,7 +1772,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                         selected_person_id.set(pid);
                                                         on_navigate.call(pid);
                                                     },
-                                                    div { class: "pc-ph", "{initials}" }
+                                                    div { class: "pc-ph",
+                                                        "{initials}"
+                                                        if is_sosa_root || is_sosa_ancestor {
+                                                            span {
+                                                                class: if is_sosa_root { "sosa-badge sosa-badge-root" } else { "sosa-badge" },
+                                                                title: if is_sosa_root { "SOSA 1" } else { "SOSA" },
+                                                            }
+                                                        }
+                                                    }
                                                     div { class: "pc-body",
                                                         div { class: "pc-name",
                                                             if !surname_s.is_empty() {

@@ -3,6 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use oxidgene_cache::invalidation;
 use oxidgene_db::repo::{PaginationParams, PersonAncestryRepo, PersonRepo, PersonSearchParams};
 use uuid::Uuid;
 
@@ -39,6 +40,12 @@ pub async fn create_person(
     let person = PersonRepo::create(&state.db, id, tree_id, body.sex)
         .await
         .map_err(ApiError::from)?;
+    // Build cache for the new person (not linked to any family yet).
+    state
+        .cache
+        .rebuild_person(tree_id, id)
+        .await
+        .map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(person).unwrap()),
@@ -59,23 +66,50 @@ pub async fn get_person(
 /// PUT /api/v1/trees/:tree_id/persons/:person_id
 pub async fn update_person(
     State(state): State<AppState>,
-    Path((_tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdatePersonRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let person = PersonRepo::update(&state.db, person_id, body.sex)
         .await
         .map_err(ApiError::from)?;
+    let affected = invalidation::affected_persons(&state.db, person_id)
+        .await
+        .map_err(ApiError)?;
+    state
+        .cache
+        .invalidate_for_mutation(tree_id, &affected)
+        .await
+        .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(person).unwrap()))
 }
 
 /// DELETE /api/v1/trees/:tree_id/persons/:person_id
 pub async fn delete_person(
     State(state): State<AppState>,
-    Path((_tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
+    // Compute affected set BEFORE deletion.
+    let affected = invalidation::affected_persons(&state.db, person_id)
+        .await
+        .map_err(ApiError)?;
     PersonRepo::delete(&state.db, person_id)
         .await
         .map_err(ApiError::from)?;
+    // Remove this person from cache; rebuild affected relatives.
+    state
+        .cache
+        .store()
+        .delete_person(tree_id, person_id)
+        .await
+        .map_err(ApiError)?;
+    let remaining: Vec<Uuid> = affected.into_iter().filter(|&id| id != person_id).collect();
+    if !remaining.is_empty() {
+        state
+            .cache
+            .invalidate_for_mutation(tree_id, &remaining)
+            .await
+            .map_err(ApiError)?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
