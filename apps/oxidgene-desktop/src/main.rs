@@ -15,7 +15,6 @@
 //! - Windows: `C:\Users\<user>\AppData\Local\oxidgene\`
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
@@ -104,13 +103,9 @@ fn main() {
         }
     };
 
-    // Wrap in Arc for sharing between server thread and shutdown handler.
-    let memory_store = Arc::new(memory_store);
-
     // ── Start embedded Axum server in a background tokio runtime ─────
     let (tx, rx) = std::sync::mpsc::channel::<u16>();
 
-    let store_for_server = Arc::clone(&memory_store);
     let db_path_for_persist = db_path.clone();
     let cache_dir_for_persist = cache_dir.clone();
 
@@ -130,11 +125,7 @@ fn main() {
             });
 
             // Build router with the pre-loaded memory store.
-            // We need to unwrap the Arc — the only other reference is held for
-            // persistence on shutdown and won't be used concurrently.
-            let store = Arc::try_unwrap(store_for_server)
-                .expect("MemoryCacheStore Arc still has multiple owners");
-            let state = AppState::with_memory_store(db, store);
+            let state = AppState::with_memory_store(db, memory_store);
             let api_router = build_router(state.clone());
 
             let app = Router::new()
@@ -209,22 +200,6 @@ fn main() {
                 ),
         )
         .launch(oxidgene_ui::App);
-
-    // ── Persist cache when the Dioxus window closes ──────────────────
-    // Note: Dioxus::launch blocks until the window is closed. When it returns,
-    // the server thread may have already shut down via Ctrl+C. As a fallback,
-    // persist here too (idempotent — just overwrites the files).
-    if let Err(e) = disk::persist_to_disk(
-        // We can't access the server's MemoryCacheStore here because it was
-        // moved into the server thread. The server thread handles persistence
-        // on graceful shutdown via Ctrl+C / SIGTERM.
-        // This is a best-effort fallback for window-close exits.
-        &MemoryCacheStore::new(), // empty — real persist happens in server thread
-        &cache_dir,
-        Some(&db_path),
-    ) {
-        warn!(%e, "Failed to persist cache on window close (server thread handles this)");
-    }
 }
 
 /// Persist the cache from the CacheService's inner store.
