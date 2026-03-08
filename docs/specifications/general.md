@@ -177,3 +177,86 @@ The MVP covers EPICs A through D (see [Roadmap](roadmap.md)):
 - Desktop and web deployment. → [Architecture](architecture.md)
 
 **Not in MVP**: authentication, access control, collaborative editing, tree matching, async pipeline.
+
+---
+
+## 8. Consistent Page Layout
+
+All pages share a common layout structure to ensure visual consistency across the application.
+
+### Navbar
+
+A minimal branding bar at the very top of every page. Contains only the logo (linking to homepage) in MVP. See [Topbar](ui-topbar.md) for full specification.
+
+### Page types
+
+The application has two distinct page layout patterns:
+
+#### 1. Homepage (`/`)
+
+Full-page scrollable layout. Content is constrained by `.home-main` (`max-width: 1200px`, centered, responsive padding). No topbar breadcrumb — the page header contains the title and subtitle directly.
+
+#### 2. Tree-scoped pages (`/trees/{id}/...` and `/settings`)
+
+All tree-scoped and app settings pages use the **`sub-page`** layout pattern:
+
+```
++----------------------------------------------------------------------+
+| NAVBAR                                                                |
++----------------------------------------------------------------------+
+| td-topbar (breadcrumb + optional actions)                            |
++----------------------------------------------------------------------+
+|                                                                       |
+|   sub-page-content (max-width: 1200px, centered, scrollable)        |
+|                                                                       |
+|   Page-specific content here                                         |
+|                                                                       |
++----------------------------------------------------------------------+
+```
+
+**CSS classes:**
+
+| Class | Purpose |
+|---|---|
+| `.sub-page` | Flex column container, fills available height (`flex: 1`), hides overflow |
+| `.td-topbar` | Full-width breadcrumb bar with bottom border. Contains `.td-bc` breadcrumb navigation |
+| `.sub-page-content` | Scrollable content area. `max-width: 1200px`, centered with `margin: 0 auto`, `padding: 24px` |
+
+**Exception — Pedigree tree view** (`/trees/{id}`): Uses its own layout with left sidebar (ISB), canvas, and events panel. Does not use `sub-page-content`. See [Tree View](ui-genealogy-tree.md) for details.
+
+### Breadcrumb pattern
+
+All pages (except homepage) display a breadcrumb in the `td-topbar`:
+
+| Page | Breadcrumb |
+|---|---|
+| Tree view | `logo` tree_name `/` Tree |
+| Tree settings | `logo` tree_name `/` Settings |
+| Search results | `logo` tree_name `/` Search |
+| Person profile | `logo` tree_name `/` Person Name |
+| App settings | Home `/` Settings |
+
+### Responsive behavior
+
+| Breakpoint | Behavior |
+|---|---|
+| >= 1200px | Full layout, content at max-width |
+| < 640px | `sub-page-content` padding reduces to `16px 12px`. `td-topbar` padding reduces to `10px 12px`. Homepage padding reduces to `2rem 1rem` |
+
+### Max-width consistency
+
+All content areas use `max-width: 1200px` for a unified reading width across all pages. This applies to:
+- Homepage (`.home-main`)
+- Tree settings, app settings, person profile, search results (`.sub-page-content`)
+
+---
+
+## 9. Respect of norms and standards
+
+The project must respect the norms and standards:
+
+- GEDCOM 5.5 and 7.0
+- XDG base directories for cache, config...
+- REST and GraphQL
+- OpenAPI
+- OAuth 2.0 / OpenID Connect (eventually SAML if we decide to use it)

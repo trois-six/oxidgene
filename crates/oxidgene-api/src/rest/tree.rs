@@ -62,9 +62,15 @@ pub async fn update_tree(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<UpdateTreeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let tree = TreeRepo::update(&state.db, tree_id, body.name, body.description)
-        .await
-        .map_err(ApiError::from)?;
+    let tree = TreeRepo::update(
+        &state.db,
+        tree_id,
+        body.name,
+        body.description,
+        body.sosa_root_person_id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(tree).unwrap()))
 }
 
@@ -76,5 +82,13 @@ pub async fn delete_tree(
     TreeRepo::delete(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
+
+    // Invalidate all caches for the deleted tree
+    state
+        .cache
+        .invalidate_tree(tree_id)
+        .await
+        .map_err(ApiError::from)?;
+
     Ok(StatusCode::NO_CONTENT)
 }

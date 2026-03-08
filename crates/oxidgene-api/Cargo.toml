@@ -7,9 +7,14 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+redis = ["oxidgene-cache/redis"]
+
 [dependencies]
 oxidgene-core = { workspace = true }
 oxidgene-db = { workspace = true }
+oxidgene-cache = { workspace = true }
 oxidgene-gedcom = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

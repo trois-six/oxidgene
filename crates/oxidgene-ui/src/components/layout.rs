@@ -322,6 +322,24 @@ pub const LAYOUT_STYLES: &str = r#"
         width: 100%;
     }
 
+    /* Sub-page: full-height flex container with topbar + scrollable content */
+    .sub-page {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .sub-page-content {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 24px;
+        max-width: 1200px;
+        width: 100%;
+        margin: 0 auto;
+    }
+
     /* Tree-detail page: fills app-main, stacks header + pedigree vertically */
     .tree-detail-page {
         flex: 1;
@@ -929,7 +947,12 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .td-bc a:hover { color: var(--orange); }
 
-    .td-bc-sep { color: var(--text-muted); }
+    .td-bc-sep { color: var(--text-muted); margin: 0 2px; }
+
+    .td-bc-link {
+        color: var(--text-secondary);
+        font-size: 0.88rem;
+    }
 
     .td-bc-current {
         color: var(--text-primary);
@@ -1150,6 +1173,7 @@ pub const LAYOUT_STYLES: &str = r#"
         width: 100%;
         max-width: 168px;
         min-width: 100px;
+        position: relative;
     }
 
     .pedigree-node.male   { border-left-color: rgba(74,144,217,0.55); }
@@ -1186,6 +1210,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     /* Avatar circle */
     .pc-ph {
+        position: relative;
         width: 32px;
         height: 32px;
         border-radius: 50%;
@@ -1204,6 +1229,23 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .pedigree-node.male   .pc-ph { background: rgba(74,144,217,0.12); border-color: rgba(74,144,217,0.35); color: var(--blue); }
     .pedigree-node.female .pc-ph { background: rgba(196,88,122,0.12); border-color: rgba(196,88,122,0.35); color: var(--pink); }
+
+    /* SOSA ancestor badge — anchored to bottom-center of avatar */
+    .sosa-badge {
+        position: absolute;
+        bottom: -3px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--green, #5aab3c);
+        border: 2px solid var(--bg-card);
+        pointer-events: none;
+    }
+    .sosa-badge-root {
+        background: var(--orange, #e07820);
+    }
 
     .pc-body { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
 
@@ -1788,7 +1830,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .search-person-results {
-        max-height: 200px;
+        max-height: 300px;
         overflow-y: auto;
         border: 1px solid var(--border);
         border-radius: var(--radius);
@@ -1797,7 +1839,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .search-person-result {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: 10px;
         width: 100%;
         padding: 8px 12px;
         background: none;
@@ -1819,13 +1861,59 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
     }
 
-    .search-person-name {
-        font-weight: 500;
+    .sp-result-photo {
+        flex-shrink: 0;
     }
 
-    .search-person-sex {
+    .sp-result-initials {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
         font-size: 0.75rem;
+        font-weight: 700;
+        background: rgba(128,128,128,0.15);
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
     }
+    .sp-result-initials.male   { background: rgba(74,144,217,0.12); color: var(--blue); border-color: rgba(74,144,217,0.35); }
+    .sp-result-initials.female { background: rgba(196,88,122,0.12); color: var(--pink); border-color: rgba(196,88,122,0.35); }
+
+    .sp-result-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .sp-result-name {
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .sp-surname { text-transform: uppercase; font-size: 0.82rem; }
+    .sp-given { font-weight: 400; font-size: 0.82rem; }
+
+    .sp-result-dates {
+        display: flex;
+        gap: 8px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-top: 1px;
+    }
+    .sp-birth { color: var(--green, #5aab3c); }
+    .sp-death { color: var(--blue, #4a90d9); }
+
+    .sp-result-meta {
+        font-size: 0.73rem;
+        color: var(--text-muted);
+        margin-top: 1px;
+    }
+    .sp-spouse { font-style: italic; }
+
+    .search-person-result.male { border-left: 3px solid rgba(74,144,217,0.4); }
+    .search-person-result.female { border-left: 3px solid rgba(196,88,122,0.4); }
 
     /* ── Root person selector ─────────────────────────────────────── */
 
@@ -2055,12 +2143,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .sr-content {
-        flex: 1;
-        overflow-y: auto;
-        padding: 0 24px 24px;
-        max-width: 960px;
-        width: 100%;
-        margin: 0 auto;
+        padding-top: 0;
     }
 
     .sr-header {
@@ -2466,5 +2549,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     @media (max-width: 640px) {
         .app-nav { padding: 0 1rem; }
+        .sub-page-content { padding: 16px 12px; }
+        .td-topbar { padding: 10px 12px; }
     }
 "#;
