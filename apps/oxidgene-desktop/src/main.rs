@@ -15,10 +15,12 @@
 //! - Windows: `C:\Users\<user>\AppData\Local\oxidgene\`
 
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::routing::get;
 use clap::Parser;
+use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::{Config, WindowBuilder};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_cache::store::disk;
@@ -107,10 +109,16 @@ fn main() {
     let (tx, rx) = std::sync::mpsc::channel::<u16>();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
+    // Wrap shutdown_tx so it can be captured by the Dioxus event handler closure.
+    let shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
+
+    // Channel for the server thread to signal that cache persistence is done.
+    let (persist_done_tx, persist_done_rx) = std::sync::mpsc::channel::<()>();
+
     let db_path_for_persist = db_path.clone();
     let cache_dir_for_persist = cache_dir.clone();
 
-    let server_handle = std::thread::spawn(move || {
+    std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
             // Connect to SQLite
@@ -169,16 +177,10 @@ fn main() {
 
             // ── Persist cache to disk on shutdown ────────────────────
             info!("Persisting cache to disk before exit…");
-            // Access the MemoryCacheStore through the CacheService.
-            // The CacheStore trait is object-safe, so we call snapshot_for_disk
-            // via the store() accessor which returns &dyn CacheStore.
-            // However, we need the concrete MemoryCacheStore for snapshot_for_disk.
-            // Since AppState::with_memory_store wraps it as Arc<dyn CacheStore>,
-            // we need to use the cache service's persist method instead.
-            //
-            // For now, we persist through the CacheService's store accessor by
-            // downcasting. We'll add a persist helper to CacheService.
             persist_cache_via_service(&state, &cache_dir_for_persist, &db_path_for_persist);
+
+            // Signal the event handler that persistence is done.
+            let _ = persist_done_tx.send(());
         });
     });
 
@@ -193,6 +195,10 @@ fn main() {
     let api_client = ApiClient::new(&api_url);
 
     // ── Launch Dioxus desktop window ─────────────────────────────────
+    // Dioxus `launch()` returns `-> !` (never returns), so we use a
+    // custom event handler to intercept `Event::LoopDestroyed` and
+    // trigger cache persistence before the process exits.
+    let shutdown_tx_for_handler = Arc::clone(&shutdown_tx);
     dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_cfg(
@@ -202,15 +208,24 @@ fn main() {
                     WindowBuilder::new()
                         .with_title("OxidGene")
                         .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
-                ),
+                )
+                .with_custom_event_handler(move |event, _target| {
+                    if let Event::LoopDestroyed = event {
+                        info!("Window closing, signalling server to persist cache…");
+                        // Take the sender (only fires once).
+                        if let Some(sender) = shutdown_tx_for_handler.lock().unwrap().take() {
+                            let _ = sender.send(());
+                            // Wait for the server thread to finish persisting.
+                            // Timeout after 5 seconds to avoid hanging.
+                            match persist_done_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                                Ok(()) => info!("Cache persisted to disk successfully"),
+                                Err(_) => warn!("Timed out waiting for cache persistence"),
+                            }
+                        }
+                    }
+                }),
         )
         .launch(oxidgene_ui::App);
-
-    // ── Signal the server thread to shut down and persist cache ───────
-    info!("Dioxus window closed, signalling server shutdown…");
-    let _ = shutdown_tx.send(());
-    server_handle.join().expect("server thread panicked");
-    info!("Server thread exited cleanly");
 }
 
 /// Persist the cache from the CacheService's inner store.
