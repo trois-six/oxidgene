@@ -8,8 +8,9 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-oxidgene-api = { workspace = true }
+oxidgene-api = { workspace = true, features = ["redis"] }
 oxidgene-db = { workspace = true }
+oxidgene-cache = { workspace = true, features = ["redis"] }
 axum = { workspace = true }
 tokio = { workspace = true }
 sea-orm = { workspace = true }

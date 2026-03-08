@@ -46,6 +46,7 @@ impl TreeRepo {
             id: Set(id),
             name: Set(name),
             description: Set(description),
+            sosa_root_person_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -63,6 +64,7 @@ impl TreeRepo {
         id: Uuid,
         name: Option<String>,
         description: Option<Option<String>>,
+        sosa_root_person_id: Option<Option<Uuid>>,
     ) -> Result<Tree, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
@@ -77,6 +79,9 @@ impl TreeRepo {
         }
         if let Some(description) = description {
             active.description = Set(description);
+        }
+        if let Some(sosa_root) = sosa_root_person_id {
+            active.sosa_root_person_id = Set(sosa_root);
         }
         active.updated_at = Set(Utc::now());
 
@@ -111,6 +116,7 @@ fn into_domain(m: tree::Model) -> Tree {
         id: m.id,
         name: m.name,
         description: m.description,
+        sosa_root_person_id: m.sosa_root_person_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

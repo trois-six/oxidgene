@@ -60,14 +60,16 @@ async fn tree_crud() {
     assert_eq!(fetched.id, id);
 
     // Update
-    let updated = TreeRepo::update(&db, id, Some("Renamed".into()), None)
+    let updated = TreeRepo::update(&db, id, Some("Renamed".into()), None, None)
         .await
         .unwrap();
     assert_eq!(updated.name, "Renamed");
     assert_eq!(updated.description.as_deref(), Some("desc")); // unchanged
 
     // Update description to None
-    let updated2 = TreeRepo::update(&db, id, None, Some(None)).await.unwrap();
+    let updated2 = TreeRepo::update(&db, id, None, Some(None), None)
+        .await
+        .unwrap();
     assert!(updated2.description.is_none());
 
     // Soft-delete

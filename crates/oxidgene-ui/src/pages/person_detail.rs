@@ -13,7 +13,7 @@ use crate::api::{
 };
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::person_node::PersonNode;
-use crate::components::tree_cache::{fetch_snapshot_cached, fetch_tree_cached, use_tree_cache};
+use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::{
@@ -318,7 +318,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Fetch all person names in tree (for resolving names in ancestry charts).
     // Build a name lookup for *all* persons in the tree — used by
     // family connections (parents, spouses, children, siblings) and
-    // ancestry charts. Uses the snapshot endpoint (cache-backed).
+    // ancestry charts. Uses the tree snapshot endpoint directly.
     let api_all_names = api.clone();
     let all_names_resource = use_resource(move || {
         let api = api_all_names.clone();
@@ -332,7 +332,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid IDs".to_string(),
                 });
             };
-            let snapshot = fetch_snapshot_cached(&api, &tree_cache, tid).await?;
+            let snapshot = api.get_tree_snapshot(tid).await?;
             let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
             for pn in snapshot.names {
                 name_map.entry(pn.person_id).or_default().push(pn);
@@ -341,7 +341,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch tree snapshot for enriched events (cache-backed).
+    // Fetch tree snapshot for enriched events (direct API call).
     let api_snap = api.clone();
     let snapshot_resource = use_resource(move || {
         let api = api_snap.clone();
@@ -355,7 +355,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            fetch_snapshot_cached(&api, &tree_cache, tid).await
+            api.get_tree_snapshot(tid).await
         }
     });
 
@@ -1115,23 +1115,27 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     };
 
     rsx! {
-        div { class: "page-content",
+        div { class: "sub-page",
         // Breadcrumb
-        div { class: "pd-breadcrumb",
-            Link { to: Route::Home {}, class: "td-bc-logo",
-                img {
-                    src: crate::components::layout::LOGO_PNG_B64,
-                    alt: "OxidGene",
-                    class: "td-bc-logo-img",
+        div { class: "td-topbar",
+            nav { class: "td-bc",
+                Link { to: Route::Home {}, class: "td-bc-logo",
+                    img {
+                        src: crate::components::layout::LOGO_PNG_B64,
+                        alt: "OxidGene",
+                        class: "td-bc-logo-img",
+                    }
                 }
+                Link {
+                    to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
+                    "{tree_name_str}"
+                }
+                span { class: "td-bc-sep", "/" }
+                span { class: "td-bc-current", "{display_name}" }
             }
-            Link {
-                to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                "{tree_name_str}"
-            }
-            span { class: "pd-breadcrumb-sep", " / " }
-            span { class: "pd-breadcrumb-current", "{display_name}" }
         }
+
+        div { class: "sub-page-content",
 
         // Action buttons
         div { class: "pd-action-bar",
@@ -2110,7 +2114,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 )}
             }
         }
-        } // .page-content
+        } // close sub-page-content
+        } // close sub-page
     }
 }
 

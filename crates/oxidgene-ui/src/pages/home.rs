@@ -635,9 +635,10 @@ const HOME_STYLES: &str = r#"
     }
 
     .home-main {
-        max-width: 1280px;
+        max-width: 1200px;
         margin: 0 auto;
-        padding: 3rem 2.5rem 5rem;
+        padding: 3rem 24px 5rem;
+        width: 100%;
     }
 
     /* ── Page header ─────────────────────────────────────────────── */

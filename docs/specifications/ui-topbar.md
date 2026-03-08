@@ -1,77 +1,105 @@
 # Visual & Functional Specifications — Topbar
 
 > Part of the [OxidGene Specifications](README.md).
-> See also: [Homepage](ui-home.md) · [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Design Tokens](ui-design-tokens.md)
+> See also: [Homepage](ui-home.md) · [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) · [App Settings](ui-app-settings.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Design Tokens](ui-design-tokens.md)
 
 ---
 
 ## 1. Overview
 
-The topbar is a **shared component** used across all pages. It provides branding, navigation, search (on tree pages), and user actions. Its content adapts based on the current page context.
+The application has two distinct top-level bars:
+
+1. **Navbar** (`app-nav`) — minimal branding bar, always visible on every page
+2. **Page topbar** (`td-topbar`) — contextual breadcrumb + actions, shown on tree-related pages
 
 ---
 
-## 2. Dimensions & Positioning
+## 2. Navbar
 
-- Height: **56px** (fixed)
+### Dimensions & Positioning
+
+- Height: auto (compact, ~48px)
 - Width: full viewport width
-- Position: **sticky** at the top of the viewport (`position: sticky; top: 0; z-index: 100`)
-- Background: `var(--bg-panel)` with a frosted glass effect (`backdrop-filter: blur(12px)`)
+- Position: part of the normal flow (not sticky)
+- Background: `var(--nav-bg)` with frosted glass effect (`backdrop-filter: blur(12px)`)
 - Bottom border: `1px solid var(--border)`
 
+### Content
+
+The navbar is deliberately minimal in MVP:
+
+- **Logo**: `OxidGene.svg` (from `docs/assets/`), rendered as an `<img>`, height ~32px
+- Logo acts as a link to the [Homepage](ui-home.md) (`/`)
+- No brand text, no navigation links, no right-side actions in MVP
+
+### Future (post-MVP)
+
+The following elements will be added in future EPICs:
+
+| Element | Description |
+|---------|-------------|
+| Brand name | "OxidGene" in Cinzel font, orange gradient text, next to the logo |
+| Navigation links | My Trees / Sources / Places / Help |
+| Theme toggle | Light/dark mode switch (icon button) |
+| Notifications | Bell icon button with optional badge |
+| Settings | Gear icon button, links to app-level settings |
+| User avatar | Initials in an orange gradient circle (32px), dropdown on click |
+
 ---
 
-## 3. Structure
+## 3. Page Topbar (`td-topbar`)
+
+### Dimensions
+
+- Height: auto (compact, ~40px)
+- Width: full viewport width
+- Padding: `10px 16px`
+- Background: transparent (inherits from page background)
+- Bottom border: `1px solid var(--border)`
+
+### Structure
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│  [Logo + Brand]  |  [Navigation / Breadcrumb]        [Actions]        │
-└────────────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------------+
+|  [logo] tree_name / Page Label        [search fields] [actions]         |
++------------------------------------------------------------------------+
 ```
 
-### Left zone — Logo & Brand
+The topbar has two zones:
 
-- Logo: `OxidGene.svg` (from `docs/assets/`), rendered as an inline SVG or `<img>`, height ~28px
-- Brand name: "OxidGene" in Cinzel font, orange gradient text (`--orange` to `--orange-light`)
-- Logo + brand name together act as a link to the [Homepage](ui-home.md) (`/`)
-- A **vertical divider** (1px, `var(--border)`, 24px tall) separates the logo zone from the navigation zone
+**Left zone — Breadcrumb** (`.td-bc`):
+- Small logo icon (links to homepage)
+- Tree name as a link (`.td-bc-link`, links to tree view)
+- `/` separator (`.td-bc-sep`)
+- Current page label (`.td-bc-current`, not clickable)
 
-### Center zone — Navigation or Breadcrumb
+**Right zone** — varies by page (search fields, action buttons, etc.)
 
-The center zone content depends on the current page:
+### Breadcrumb per page
 
-| Page | Center zone content |
-|------|---------------------|
-| [Homepage](ui-home.md) | Main navigation links: **My Trees** · **Sources** · **Places** · **Help** |
-| [Tree View](ui-genealogy-tree.md) | Breadcrumb + Search fields (see §4) |
-| [Person Profile](ui-person-profile.md) | Breadcrumb: `My trees › Tree name › Person name` |
-| [Search Results](ui-search-results.md) | Breadcrumb + Search fields (pre-filled) |
-| [Settings](ui-settings.md) | Breadcrumb: `My trees › Tree name › Settings` |
+| Page | Breadcrumb | Right zone |
+|------|------------|------------|
+| [Tree View](ui-genealogy-tree.md) | `logo` tree_name `/` Tree | Search fields + magnifying glass |
+| [Settings](ui-settings.md) | `logo` tree_name `/` Settings | (empty) |
+| [Search Results](ui-search-results.md) | `logo` tree_name `/` Search | Search fields (pre-filled) + fit button |
+| [Person Profile](ui-person-profile.md) | `logo` tree_name `/` Person Name | (empty) |
+| [App Settings](ui-app-settings.md) | Home `/` Settings | (empty) |
 
-**Navigation links** are styled as text links with `var(--text-secondary)` color, `var(--text-primary)` on hover, and `var(--orange)` for the active page. Font: Lato, 0.85rem.
+### Styling
 
-**Breadcrumbs** use `›` as separator. Each crumb except the last is a clickable link. The last crumb is `var(--text-primary)` and not clickable. Crumbs use Lato font, 0.85rem.
-
-### Right zone — Actions
-
-| Element | Description | Always visible |
-|---------|-------------|----------------|
-| Theme toggle | Light/dark mode switch (icon button) | Yes |
-| Notifications | Bell icon button with optional badge | Yes |
-| Settings | Gear icon button, links to app-level settings | Yes |
-| Vertical divider | 1px, 24px tall | Yes |
-| User avatar | Initials in an orange gradient circle (32px), dropdown on click | Yes |
-
-Icon buttons: 32×32px, transparent background, `var(--text-secondary)` icon color, `var(--text-primary)` on hover.
+- Breadcrumb font: Lato, 0.85rem
+- `.td-bc-link`: `var(--text-secondary)` color, hover: `var(--orange)`
+- `.td-bc-sep`: `var(--text-muted)`, padding `0 6px`
+- `.td-bc-current`: `var(--text-primary)`, font-weight 500
 
 ---
 
 ## 4. Search Fields (Tree Pages Only)
 
-On the [Tree View](ui-genealogy-tree.md) and [Search Results](ui-search-results.md) pages, the center zone includes two search fields after the breadcrumb:
+On the [Tree View](ui-genealogy-tree.md) and [Search Results](ui-search-results.md) pages, the topbar right zone includes search fields:
 
 ```
-My trees › Famille Martin    [Last name ________] [First name ________] [🔍]
+[Last name ________] [First name ________] [magnifying glass] [fit]
 ```
 
 ### Field specifications
@@ -80,24 +108,17 @@ My trees › Famille Martin    [Last name ________] [First name ________] [🔍]
 - Either field can be used alone, or both combined
 - Compact style: height 32px, `var(--bg-card)` background, `var(--border)` border, `var(--text-primary)` text
 - Placeholder text in `var(--text-muted)`
+- Magnifying glass icon button triggers the search
+- Fit-to-screen icon button (four corners) navigates back to tree view (on search results page)
 
-### Real-time dropdown (autocomplete)
-
-- Results filtered on each keystroke with **200ms debounce**
-- Maximum **7–8 results** displayed
-- Each result shows: thumbnail photo (28px square) + full name + birth/death dates
-- Click on a result → that person becomes the tree focus, dropdown closes
-- "No person found" message if no matches
-- Dropdown closes on outside click or `Escape`
-
-### On Enter
+### On Enter (or click magnifying glass)
 
 - Navigates to the [Search Results](ui-search-results.md) page with the full filtered results list
 - The search fields remain pre-filled on the results page
 
 ---
 
-## 5. User Avatar Dropdown
+## 5. User Avatar Dropdown (Future)
 
 Clicking the user avatar opens a dropdown menu anchored to the top-right corner:
 
@@ -105,7 +126,7 @@ Clicking the user avatar opens a dropdown menu anchored to the top-right corner:
 |------|--------|
 | **Profile** | Opens user profile settings |
 | **Preferences** | Opens app-level preferences (language, theme defaults) |
-| Divider | — |
+| Divider | --- |
 | **Sign out** | Logs out (post-MVP, EPIC E) |
 
 The dropdown closes on outside click or `Escape`.
@@ -116,9 +137,9 @@ The dropdown closes on outside click or `Escape`.
 
 | Breakpoint | Behavior |
 |---|---|
-| **≥ 900px** | Full layout: logo + navigation/breadcrumb + search + actions |
-| **< 900px** | Navigation links collapse into a hamburger menu (☰) to the right of the logo. Search fields move below the topbar as a collapsible row. Action icons reduce to avatar only (others in hamburger menu). |
-| **< 600px** | Brand name hidden, logo only. Breadcrumb truncated to last 2 crumbs. |
+| **>= 900px** | Full layout: logo + breadcrumb + search + actions |
+| **< 900px** | Search fields stack below breadcrumb. Person card sizes reduced. |
+| **< 640px** | Reduced padding on topbar (`10px 12px`). Breadcrumb truncated to last 2 crumbs. |
 
 ---
 

@@ -111,7 +111,58 @@
 
 ---
 
-## EPIC E — Security & Deployment
+## EPIC E — Server-Side Caching
+
+> See [Caching specification](caching.md) for the full architecture.
+
+### Sprint E.1 — Cache Foundation ✅
+
+- [x] Create `oxidgene-cache` crate with `CacheStore` trait. → see [Caching](caching.md)
+- [x] Implement cache type structs (`CachedPerson`, `CachedPedigree`, `CachedSearchIndex`, sub-types).
+- [x] Implement `MemoryCacheStore` (DashMap-based, no persistence yet).
+- [x] Implement `CacheBuilder` — build `CachedPerson` from DB data.
+- [x] Implement `CacheService` with `rebuild_person`, `rebuild_tree_full`.
+- [x] Unit tests for cache builder and service.
+
+### Sprint E.2 — Person Cache & API Integration ✅
+
+- [x] Add `CacheService` and `CacheStore` to `AppState`.
+- [x] Implement `GET /cache/persons/{id}` and `GET /cache/persons?ids=...` REST endpoints. → see [API Contract](api.md) (Cache)
+- [x] Implement `cachedPerson` and `cachedPersons` GraphQL queries.
+- [x] Hook all mutation handlers to trigger synchronous cache invalidation.
+- [x] Update `person_detail.rs` to use cached endpoint.
+- [x] Update `person_form.rs` and `union_form.rs` to use cached endpoint.
+
+### Sprint E.3 — Pedigree Cache ✅
+
+- [x] Implement pedigree cache builder from PersonAncestry + PersonCache.
+- [x] Implement `GET /cache/pedigree/{root_id}` and `PATCH .../expand` REST endpoints.
+- [x] Implement `pedigree` query and `expandPedigree` mutation in GraphQL.
+- [x] Implement LRU memory budget for pedigree caches (configurable per deployment).
+- [x] Update `pedigree_chart.rs` to consume pedigree cache instead of snapshot.
+- [x] Update `tree_detail.rs` page orchestration.
+
+### Sprint E.4 — Search Index & GEDCOM Integration ✅
+
+- [x] Implement `CachedSearchIndex` builder with accent-folding and normalization.
+- [x] Implement `GET /cache/search?q=...` REST endpoint and `searchPersons` GraphQL query.
+- [x] Hook GEDCOM import to trigger eager background cache build.
+- [x] Update search components to use server-side search.
+- [x] Remove `TreeSnapshot` endpoint and client-side `ResponseCache`.
+- [x] Implement `POST /cache/rebuild` REST endpoint and `rebuildTreeCache` GraphQL mutation.
+
+### Sprint E.5 — Redis Backend & Desktop Persistence ✅
+
+- [x] Implement `RedisCacheStore` (MessagePack serialization, `MGET` batch reads).
+- [x] Add Redis container to Docker Compose for web deployment.
+- [x] Implement disk persistence for `MemoryCacheStore` (bincode, serialize on exit, load on startup).
+- [x] Auto-detect Redis (web) vs. memory (desktop) via configuration.
+- [ ] Performance testing with 100K-person trees.
+- [x] Cache staleness detection and recovery for desktop.
+
+---
+
+## EPIC F — Security & Deployment
 
 - [ ] Authentication system (JWT or session-based).
 - [ ] User registration and login.
@@ -125,7 +176,7 @@
 
 ---
 
-## EPIC F — Asynchronous Pipeline (Post-MVP)
+## EPIC G — Asynchronous Pipeline (Post-MVP)
 
 - [ ] Message queue integration (Redis/RabbitMQ/NATS).
 - [ ] `document-queue` orchestration service.

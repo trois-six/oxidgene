@@ -7,52 +7,57 @@
 
 ## 1. Overview
 
-The person profile is a full-page detailed view of a single individual, replacing the tree canvas. It is accessed via the **profile icon** (👤) in the [Tree View](ui-genealogy-tree.md) left sidebar, and displays the currently selected person's complete information: identity, life events timeline, family connections, media gallery, notes, and sources.
-
-A **back button** returns to the tree view, centered on the same person.
+The person profile is a full-page detailed view of a single individual. It is accessed via the **profile icon** (person silhouette) in the [Tree View](ui-genealogy-tree.md) left sidebar, or by clicking a search result on the [Search Results](ui-search-results.md) page. It displays the currently selected person's complete information: identity, life events timeline, family connections, media gallery, notes, and sources.
 
 ---
 
 ## 2. Layout
 
+Uses the standard `sub-page` layout pattern (see [General](general.md) section 8). There is **no left sidebar (ISB)** on this page — the content fills the full width within the `sub-page-content` container.
+
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        TOPBAR + BREADCRUMB                           │
-├──────┬───────────────────────────────────────────────────────────────┤
-│      │                                                               │
-│  S   │  ┌─────────────────────────────────────────────────────────┐  │
-│  I   │  │  IDENTITY HEADER                                        │  │
-│  D   │  │  [photo]  Name · Dates · Gender                        │  │
-│  E   │  │           [Edit] [View in tree]                        │  │
-│  B   │  └─────────────────────────────────────────────────────────┘  │
-│  A   │                                                               │
-│  R   │  ┌──────────────────────┐  ┌──────────────────────────────┐  │
-│      │  │  FAMILY CONNECTIONS  │  │  TIMELINE                     │  │
-│      │  │  Parents             │  │  Events chronological list    │  │
-│      │  │  Spouses & children  │  │                               │  │
-│      │  │  Siblings            │  │                               │  │
-│      │  └──────────────────────┘  └──────────────────────────────┘  │
-│      │                                                               │
-│      │  ┌──────────────────────┐  ┌──────────────────────────────┐  │
-│      │  │  MEDIA               │  │  NOTES & SOURCES             │  │
-│      │  └──────────────────────┘  └──────────────────────────────┘  │
-│      │                                                               │
-└──────┴───────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------+
+| NAVBAR                                                                |
++----------------------------------------------------------------------+
+| [logo] tree_name / MARTIN Jean-Baptiste                              |  <- td-topbar
++----------------------------------------------------------------------+
+|                                                                       |
+|   +-------------------------------------------------------------+    |
+|   |  IDENTITY HEADER                                            |    |
+|   |  [avatar]  Name - Dates - Gender                            |    |
+|   |            [Edit] [View in tree]                            |    |
+|   +-------------------------------------------------------------+    |
+|                                                                       |
+|   +----------------------+  +-----------------------------------+    |
+|   |  FAMILY CONNECTIONS  |  |  TIMELINE                         |    |
+|   |  Parents             |  |  Events chronological list        |    |
+|   |  Spouses & children  |  |                                   |    |
+|   |  Siblings            |  |                                   |    |
+|   +----------------------+  +-----------------------------------+    |
+|                                                                       |
+|   +----------------------+  +-----------------------------------+    |
+|   |  MEDIA               |  |  NOTES & SOURCES                  |    |
+|   +----------------------+  +-----------------------------------+    |
+|                                                                       |
++----------------------------------------------------------------------+
 ```
 
-The left sidebar remains visible (same as in tree view). The content area scrolls vertically. Max-width: 1080px, centered within the available space.
+Content: `max-width: 1200px`, centered, scrollable.
 
 ---
 
 ## 3. Topbar
 
-Same topbar as the [Tree View](ui-genealogy-tree.md). The breadcrumb extends to include the person:
+Uses the shared `td-topbar` + `td-bc` breadcrumb component:
 
 ```
-My trees › Famille Martin — Bourgogne › MARTIN Jean-Baptiste
+[logo] tree_name / MARTIN Jean-Baptiste
 ```
 
-Each crumb is a clickable link. Clicking the tree name returns to the tree view.
+- Logo icon links to the homepage
+- Tree name (`.td-bc-link`) links to the tree view
+- `/` separator (`.td-bc-sep`)
+- Person name (`.td-bc-current`) — not clickable
 
 ---
 
@@ -63,23 +68,23 @@ Full-width card at the top of the content area.
 ### Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  ┌──────────┐                                                   │
-│  │          │  MARTIN                                           │
-│  │  photo   │  Jean-Baptiste                                    │
-│  │          │  ✦ 12/03/1842, Beaune  ·  ✝ 07/11/1918, Pommard  │
-│  │          │  Male · 76 years old                              │
-│  └──────────┘                                                   │
-│                                                                  │
-│  [✏ Edit]   [🌳 View in tree]   [⬇ Export]                     │
-└─────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|  +----------+                                                |
+|  |          |  MARTIN                                        |
+|  | avatar   |  Jean-Baptiste                                 |
+|  |          |  * 12/03/1842, Beaune  -  + 07/11/1918, Pommard|
+|  |          |  Male - 76 years old                           |
+|  +----------+                                                |
+|                                                               |
+|  [Edit]   [View in tree]   [Export]                          |
++-------------------------------------------------------------+
 ```
 
-**Photo**: 120×160px rectangle. If no profile image is set, the gendered silhouette placeholder is displayed.
+**Avatar**: 120x160px rectangle. If no profile image is set, a large initials circle placeholder is displayed with gendered background color.
 
 **Name**: surname in uppercase (bold, Cinzel), first name(s) below. If the person has alternate names (married, maiden, alias), they are listed below the primary name in muted text.
 
-**Dates**: birth and death with symbols (✦ / ✝), place names included. Calculated age displayed if both dates are known.
+**Dates**: birth and death with symbols (* / +), place names included. Calculated age displayed if both dates are known.
 
 **Gender**: label + colored dot (blue male, pink female, grey unknown).
 
@@ -97,15 +102,15 @@ Displayed as a card in the left column of the two-column layout.
 ### Parents
 
 ```
-┌──────────────────────────────┐
-│  PARENTS                     │
-├──────────────────────────────┤
-│  [avatar] MARTIN Pierre      │
-│           ✦ 1810  ✝ 1878    │
-│                              │
-│  [avatar] DUBOIS Marie       │
-│           ✦ 1815  ✝ 1890    │
-└──────────────────────────────┘
++------------------------------+
+|  PARENTS                     |
++------------------------------+
+|  [avatar] MARTIN Pierre      |
+|           * 1810  + 1878     |
+|                              |
+|  [avatar] DUBOIS Marie       |
+|           * 1815  + 1890     |
++------------------------------+
 ```
 
 Each parent is clickable — navigates to that person's profile. If a parent is unknown, a muted "Unknown father" / "Unknown mother" row is shown with a `+ Add` button.
@@ -115,15 +120,15 @@ Each parent is clickable — navigates to that person's profile. If a parent is 
 One sub-section per union, ordered chronologically by marriage date (if known).
 
 ```
-┌──────────────────────────────────────┐
-│  UNION WITH LEMAIRE Marguerite       │
-│  💍 1865, Beaune                     │
-├──────────────────────────────────────┤
-│  Children:                           │
-│  [avatar] MARTIN Henri    ✦ 1868     │
-│  [avatar] MARTIN Louise   ✦ 1871     │
-│  [avatar] MARTIN Pierre   ✦ 1875    │
-└──────────────────────────────────────┘
++--------------------------------------+
+|  UNION WITH LEMAIRE Marguerite       |
+|  (ring) 1865, Beaune                |
++--------------------------------------+
+|  Children:                           |
+|  [avatar] MARTIN Henri    * 1868     |
+|  [avatar] MARTIN Louise   * 1871     |
+|  [avatar] MARTIN Pierre   * 1875    |
++--------------------------------------+
 ```
 
 Spouse and children names are clickable links. An **"Edit union"** link in the sub-header opens the [couple edit modal](ui-person-edit-modal.md).
@@ -133,14 +138,14 @@ Spouse and children names are clickable links. An **"Edit union"** link in the s
 Listed below the parents section, grouped by shared parents.
 
 ```
-┌──────────────────────────────┐
-│  SIBLINGS                    │
-├──────────────────────────────┤
-│  [avatar] MARTIN Jeanne      │
-│           ✦ 1838  ✝ 1910    │
-│  [avatar] MARTIN Louis       │
-│           ✦ 1845  ✝ 1920    │
-└──────────────────────────────┘
++------------------------------+
+|  SIBLINGS                    |
++------------------------------+
+|  [avatar] MARTIN Jeanne      |
+|           * 1838  + 1910     |
+|  [avatar] MARTIN Louis       |
+|           * 1845  + 1920     |
++------------------------------+
 ```
 
 Each sibling is clickable. If no siblings are known, this section is hidden.
@@ -154,35 +159,35 @@ Displayed as a card in the right column. A vertical chronological list of all ev
 ### Structure
 
 ```
-┌─────────────────────────────────────────────┐
-│  TIMELINE                                    │
-├─────────────────────────────────────────────┤
-│                                              │
-│  1842  ✦  Birth                              │
-│            Beaune, Côte-d'Or, France         │
-│            📎 Acte de naissance n°42         │
-│                                              │
-│  1842  ✟  Baptism                            │
-│            Église Notre-Dame, Beaune         │
-│                                              │
-│  1860  ⚒  Occupation: Vigneron              │
-│                                              │
-│  1865  💍 Marriage with Marguerite LEMAIRE   │
-│            Mairie de Beaune                  │
-│            Witnesses: Pierre DUVAL, ...      │
-│                                              │
-│  1918  ✝  Death                              │
-│            Pommard, Côte-d'Or               │
-│                                              │
-└─────────────────────────────────────────────┘
++-----------------------------------------+
+|  TIMELINE                               |
++-----------------------------------------+
+|                                         |
+|  1842  *  Birth                         |
+|           Beaune, Cote-d'Or, France     |
+|           (clip) Acte de naissance n42  |
+|                                         |
+|  1842  (cross)  Baptism                 |
+|           Eglise Notre-Dame, Beaune     |
+|                                         |
+|  1860  (tool)  Occupation: Vigneron     |
+|                                         |
+|  1865  (ring) Marriage with M. LEMAIRE  |
+|           Mairie de Beaune              |
+|           Witnesses: Pierre DUVAL, ...  |
+|                                         |
+|  1918  +  Death                         |
+|           Pommard, Cote-d'Or            |
+|                                         |
++-----------------------------------------+
 ```
 
 Each event shows:
 - **Year** on the left, bold
-- **Icon** — same symbols as [Tree View](ui-genealogy-tree.md) events sidebar (✦ birth, ✟ baptism, ✝ death, ⚰ burial, 💍 marriage, ⚖ divorce, 🏡 residence, ⚒ occupation, 📜 source)
+- **Icon** — colored circle matching event type (same as [Tree View](ui-genealogy-tree.md) events sidebar)
 - **Event type** label, bold
 - **Place** if known, in muted text
-- **Source reference** if attached, with 📎 icon, clickable
+- **Source reference** if attached, with clip icon, clickable
 - **Note excerpt** if present, truncated to 2 lines with "Show more" expansion
 
 Events are ordered by `date_sort`. Events without dates are grouped at the bottom under a "Date unknown" label.
@@ -196,19 +201,19 @@ Clicking an event expands it inline to show full details (complete note, all sou
 Displayed as a full-width card below the two-column layout.
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  MEDIA (4)                                              [+ Add] │
-├──────────────────────────────────────────────────────────────────┤
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│  │  [img]  ★│  │  [img]   │  │  [pdf]   │  │  [img]   │        │
-│  │          │  │          │  │          │  │          │        │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
-│  Portrait      Wedding       Baptism cert.  Vineyard            │
-│  (profile)     1865          1842           c. 1880             │
-└──────────────────────────────────────────────────────────────────┘
++--------------------------------------------------------------+
+|  MEDIA (4)                                            [+ Add] |
++--------------------------------------------------------------+
+|  +----------+  +----------+  +----------+  +----------+      |
+|  |  [img]  *|  |  [img]   |  |  [pdf]   |  |  [img]   |     |
+|  |          |  |          |  |          |  |          |      |
+|  +----------+  +----------+  +----------+  +----------+      |
+|  Portrait      Wedding       Baptism cert.  Vineyard          |
+|  (profile)     1865          1842           c. 1880           |
++--------------------------------------------------------------+
 ```
 
-Same thumbnail grid as the [Person Edit Modal](ui-person-edit-modal.md) media section, but read-only by default. The ★ badge marks the profile image. Clicking a thumbnail opens a **lightbox overlay** with the full-size image, title, description, and associated event.
+Same thumbnail grid as the [Person Edit Modal](ui-person-edit-modal.md) media section, but read-only by default. The star badge marks the profile image. Clicking a thumbnail opens a **lightbox overlay** with the full-size image, title, description, and associated event.
 
 The **"+ Add"** button opens the [Person Edit Modal](ui-person-edit-modal.md), scrolled to the media section.
 
@@ -223,17 +228,17 @@ Displayed as a card alongside or below the media gallery.
 All notes associated with this person, displayed as expandable blocks:
 
 ```
-┌──────────────────────────────────────┐
-│  NOTES (2)                           │
-├──────────────────────────────────────┤
-│  Personal notes, anecdotes…         │
-│  (first 3 lines visible)            │
-│  [Show more]                         │
-│                                      │
-│  Research notes on birth date…      │
-│  (first 3 lines visible)            │
-│  [Show more]                         │
-└──────────────────────────────────────┘
++--------------------------------------+
+|  NOTES (2)                           |
++--------------------------------------+
+|  Personal notes, anecdotes...        |
+|  (first 3 lines visible)            |
+|  [Show more]                         |
+|                                      |
+|  Research notes on birth date...     |
+|  (first 3 lines visible)            |
+|  [Show more]                         |
++--------------------------------------+
 ```
 
 ### Sources
@@ -241,17 +246,17 @@ All notes associated with this person, displayed as expandable blocks:
 All citations linked to this person, grouped by source:
 
 ```
-┌──────────────────────────────────────┐
-│  SOURCES (3)                         │
-├──────────────────────────────────────┤
-│  📎 Archives départementales 21     │
-│     Page: 3E 42/128, f. 12          │
-│     Confidence: High                │
-│                                      │
-│  📎 Registre paroissial Beaune      │
-│     Page: Baptêmes 1842, n°15       │
-│     Confidence: High                │
-└──────────────────────────────────────┘
++--------------------------------------+
+|  SOURCES (3)                         |
++--------------------------------------+
+|  (clip) Archives departementales 21  |
+|     Page: 3E 42/128, f. 12          |
+|     Confidence: High                |
+|                                      |
+|  (clip) Registre paroissial Beaune   |
+|     Page: Baptemes 1842, n15        |
+|     Confidence: High                |
++--------------------------------------+
 ```
 
 Each citation shows the source title, page reference, confidence level, and extracted text if any.
@@ -260,9 +265,10 @@ Each citation shows the source title, page reference, confidence level, and extr
 
 ## 9. Responsive
 
-- Below **1080px**: the two-column layout (family connections + timeline) collapses to a single column, with family connections above timeline.
-- Below **900px**: identity header photo shrinks to 80×106px. Action buttons become icon-only.
-- The left sidebar remains fixed (same behavior as tree view).
+- Content max-width: 1200px, responsive padding
+- Below **1080px**: the two-column layout (family connections + timeline) collapses to a single column, with family connections above timeline
+- Below **900px**: identity header avatar shrinks to 80x106px. Action buttons become icon-only
+- Below **640px**: reduced padding
 
 ---
 
@@ -272,7 +278,7 @@ Each citation shows the source title, page reference, confidence level, and extr
 |---|---|
 | `Escape` | Returns to the tree view |
 | `E` | Opens the edit modal for the current person |
-| `←` / `→` | Navigate between persons (previous/next sibling or chronological order) |
+| `Left` / `Right` | Navigate between persons (previous/next sibling or chronological order) |
 
 ---
 
@@ -280,15 +286,15 @@ Each citation shows the source title, page reference, confidence level, and extr
 
 ```
 Tree View (canvas)
-  │
-  ├─ Click person card → selected in tree (events sidebar updates)
-  │
-  └─ Click profile icon (👤) in left sidebar
-       │
-       └─ Person Profile (this page)
-            │
-            ├─ Click family member → navigates to their profile
-            ├─ "View in tree" button → returns to tree view, centered on person
-            ├─ "Edit" button → opens Person Edit Modal
-            └─ Escape → returns to tree view
+  |
+  +- Click person card -> selected in tree (events sidebar updates)
+  |
+  +- Click profile icon (person silhouette) in left sidebar
+       |
+       +- Person Profile (this page)
+            |
+            +- Click family member -> navigates to their profile
+            +- "View in tree" button -> returns to tree view, centered on person
+            +- "Edit" button -> opens Person Edit Modal
+            +- Escape -> returns to tree view
 ```

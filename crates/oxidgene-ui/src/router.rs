@@ -36,8 +36,8 @@ pub enum Route {
     #[route("/trees/:tree_id/search?:last&:first")]
     SearchResults {
         tree_id: String,
-        last: Option<String>,
-        first: Option<String>,
+        last: String,
+        first: String,
     },
 
     /// Detail view for a person within a tree.
