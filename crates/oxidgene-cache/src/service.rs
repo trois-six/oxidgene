@@ -662,6 +662,56 @@ impl CacheService {
             all_person_map.insert(p.person_id, p);
         }
 
+        // 4b. Collect spouse IDs that are not already in the pedigree window.
+        //     Spouses may not be ancestors/descendants but still need nodes for display.
+        let mut spouse_ids: Vec<Uuid> = Vec::new();
+        for person in all_person_map.values() {
+            for family_link in &person.families_as_spouse {
+                if let Some(sid) = family_link.spouse_id
+                    && !all_person_map.contains_key(&sid)
+                    && !spouse_ids.contains(&sid)
+                {
+                    spouse_ids.push(sid);
+                }
+            }
+        }
+        let mut spouse_persons = Vec::new();
+        if !spouse_ids.is_empty() {
+            debug!(
+                "Pedigree build: fetching {} spouses outside pedigree window",
+                spouse_ids.len()
+            );
+            // Try cache first, then rebuild from DB.
+            let cached_spouses = self.store.get_persons_batch(tree_id, &spouse_ids).await?;
+            let cached_spouse_ids: std::collections::HashSet<Uuid> =
+                cached_spouses.iter().map(|p| p.person_id).collect();
+            let missing_spouses: Vec<Uuid> = spouse_ids
+                .iter()
+                .filter(|id| !cached_spouse_ids.contains(id))
+                .copied()
+                .collect();
+            spouse_persons.extend(cached_spouses);
+            if !missing_spouses.is_empty() {
+                let built = self.rebuild_persons(tree_id, &missing_spouses).await?;
+                spouse_persons.extend(built);
+            }
+        }
+        for p in &spouse_persons {
+            // Assign spouse the same generation as their partner.
+            if !depth_map.contains_key(&p.person_id) {
+                // Find the partner's generation from families_as_spouse.
+                let partner_gen = p
+                    .families_as_spouse
+                    .iter()
+                    .filter_map(|fl| fl.spouse_id)
+                    .find_map(|sid| depth_map.get(&sid).copied())
+                    .unwrap_or(0);
+                depth_map.insert(p.person_id, partner_gen);
+            }
+            all_person_map.insert(p.person_id, p);
+            person_ids.push(p.person_id);
+        }
+
         // 5. Build pedigree nodes.
         let mut nodes = std::collections::HashMap::new();
         for &pid in &person_ids {
@@ -706,12 +756,205 @@ impl CacheService {
         });
         edges.dedup_by(|a, b| a.parent_id == b.parent_id && a.child_id == b.child_id);
 
-        // 7. Build and store the pedigree.
+        // 7. Collect family events from CachedPerson family links.
+        let mut family_events: std::collections::HashMap<Uuid, Vec<crate::types::CachedEvent>> =
+            std::collections::HashMap::new();
+        for person in all_person_map.values() {
+            for family_link in &person.families_as_spouse {
+                if !family_link.events.is_empty() {
+                    family_events
+                        .entry(family_link.family_id)
+                        .or_default()
+                        .extend(family_link.events.iter().cloned());
+                }
+            }
+        }
+        // Deduplicate family events (both spouses may contribute the same events).
+        for events in family_events.values_mut() {
+            events.sort_by_key(|e| e.event_id);
+            events.dedup_by_key(|e| e.event_id);
+        }
+
+        // 8. Build family membership map (spouse IDs + children IDs per family).
+        //    This captures childless couples that produce no PedigreeEdge entries,
+        //    and parental families needed for sibling events.
+        let mut families: std::collections::HashMap<Uuid, crate::types::CachedFamily> =
+            std::collections::HashMap::new();
+        for person in all_person_map.values() {
+            // Families where this person is a spouse.
+            for family_link in &person.families_as_spouse {
+                let fam = families.entry(family_link.family_id).or_insert_with(|| {
+                    crate::types::CachedFamily {
+                        family_id: family_link.family_id,
+                        spouse_ids: Vec::new(),
+                        children_ids: Vec::new(),
+                        members: Vec::new(),
+                    }
+                });
+                if !fam.spouse_ids.contains(&person.person_id) {
+                    fam.spouse_ids.push(person.person_id);
+                }
+                for &child_id in &family_link.children_ids {
+                    if !fam.children_ids.contains(&child_id) {
+                        fam.children_ids.push(child_id);
+                    }
+                }
+            }
+            // Family where this person is a child.
+            if let Some(child_link) = &person.family_as_child {
+                let fam = families.entry(child_link.family_id).or_insert_with(|| {
+                    crate::types::CachedFamily {
+                        family_id: child_link.family_id,
+                        spouse_ids: Vec::new(),
+                        children_ids: Vec::new(),
+                        members: Vec::new(),
+                    }
+                });
+                if !fam.children_ids.contains(&person.person_id) {
+                    fam.children_ids.push(person.person_id);
+                }
+                // Add parents as spouses if known.
+                if let Some(father_id) = child_link.father_id
+                    && !fam.spouse_ids.contains(&father_id)
+                {
+                    fam.spouse_ids.push(father_id);
+                }
+                if let Some(mother_id) = child_link.mother_id
+                    && !fam.spouse_ids.contains(&mother_id)
+                {
+                    fam.spouse_ids.push(mother_id);
+                }
+            }
+        }
+
+        // 8a. For families created via family_as_child where the parents are outside
+        //     the pedigree window, fetch a parent's CachedPerson to get the full
+        //     children list (siblings). Without this, only the person themselves
+        //     appears in children_ids.
+        let mut parent_ids_to_fetch: Vec<Uuid> = Vec::new();
+        for fam in families.values() {
+            // If this family was created from family_as_child and NO parent is
+            // in all_person_map, we need to fetch a parent to get full children.
+            let has_parent_in_map = fam
+                .spouse_ids
+                .iter()
+                .any(|sid| all_person_map.contains_key(sid));
+            if !has_parent_in_map {
+                // Pick first available parent to fetch.
+                if let Some(&pid) = fam.spouse_ids.first()
+                    && !parent_ids_to_fetch.contains(&pid)
+                {
+                    parent_ids_to_fetch.push(pid);
+                }
+            }
+        }
+        if !parent_ids_to_fetch.is_empty() {
+            debug!(
+                "Pedigree build: fetching {} parents outside window for sibling data",
+                parent_ids_to_fetch.len()
+            );
+            let cached = self
+                .store
+                .get_persons_batch(tree_id, &parent_ids_to_fetch)
+                .await?;
+            let cached_ids: std::collections::HashSet<Uuid> =
+                cached.iter().map(|p| p.person_id).collect();
+            let missing: Vec<Uuid> = parent_ids_to_fetch
+                .iter()
+                .filter(|id| !cached_ids.contains(id))
+                .copied()
+                .collect();
+            let mut fetched_parents = cached;
+            if !missing.is_empty() {
+                let built = self.rebuild_persons(tree_id, &missing).await?;
+                fetched_parents.extend(built);
+            }
+            // Use the fetched parents' families_as_spouse to fill in missing children.
+            let parent_map: std::collections::HashMap<Uuid, &CachedPerson> =
+                fetched_parents.iter().map(|p| (p.person_id, p)).collect();
+            for fam in families.values_mut() {
+                for &sid in &fam.spouse_ids.clone() {
+                    if let Some(parent) = parent_map.get(&sid)
+                        && let Some(fl) = parent
+                            .families_as_spouse
+                            .iter()
+                            .find(|fl| fl.family_id == fam.family_id)
+                    {
+                        for &child_id in &fl.children_ids {
+                            if !fam.children_ids.contains(&child_id) {
+                                fam.children_ids.push(child_id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 8b. Fetch family members outside the pedigree window and populate
+        //     CachedFamily.members with their minimal info (for event panel).
+        let mut outside_member_ids: Vec<Uuid> = Vec::new();
+        for fam in families.values() {
+            for &cid in &fam.children_ids {
+                if !nodes.contains_key(&cid) && !outside_member_ids.contains(&cid) {
+                    outside_member_ids.push(cid);
+                }
+            }
+        }
+        if !outside_member_ids.is_empty() {
+            debug!(
+                "Pedigree build: fetching {} family members outside pedigree window",
+                outside_member_ids.len()
+            );
+            let cached_members = self
+                .store
+                .get_persons_batch(tree_id, &outside_member_ids)
+                .await?;
+            let cached_ids: std::collections::HashSet<Uuid> =
+                cached_members.iter().map(|p| p.person_id).collect();
+            let missing_member_ids: Vec<Uuid> = outside_member_ids
+                .iter()
+                .filter(|id| !cached_ids.contains(id))
+                .copied()
+                .collect();
+            let mut all_outside: Vec<CachedPerson> = cached_members;
+            if !missing_member_ids.is_empty() {
+                let built = self.rebuild_persons(tree_id, &missing_member_ids).await?;
+                all_outside.extend(built);
+            }
+            // Build a lookup for outside members.
+            let outside_map: std::collections::HashMap<Uuid, &CachedPerson> =
+                all_outside.iter().map(|p| (p.person_id, p)).collect();
+            // Populate CachedFamily.members for each family.
+            for fam in families.values_mut() {
+                for &cid in &fam.children_ids {
+                    if let Some(person) = outside_map.get(&cid) {
+                        let display_name = person
+                            .primary_name
+                            .as_ref()
+                            .map(|n| n.display_name.clone())
+                            .unwrap_or_default();
+                        let birth_year = person.birth.as_ref().and_then(builder::extract_year);
+                        let death_year = person.death.as_ref().and_then(builder::extract_year);
+                        fam.members.push(crate::types::CachedFamilyMember {
+                            person_id: cid,
+                            display_name,
+                            sex: person.sex,
+                            birth_year,
+                            death_year,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 9. Build and store the pedigree.
         let pedigree = CachedPedigree {
             tree_id,
             root_person_id,
             persons: nodes,
             edges,
+            family_events,
+            families,
             ancestor_depth_loaded: ancestor_depth,
             descendant_depth_loaded: descendant_depth,
             cached_at: chrono::Utc::now(),
@@ -720,9 +963,10 @@ impl CacheService {
         self.store.set_pedigree(&pedigree).await?;
 
         debug!(
-            "Built pedigree with {} nodes and {} edges for root {}",
+            "Built pedigree with {} nodes, {} edges, {} families for root {}",
             pedigree.persons.len(),
             pedigree.edges.len(),
+            pedigree.families.len(),
             root_person_id
         );
 
