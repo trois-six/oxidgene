@@ -2,6 +2,7 @@
 //!
 //! Combines server-side accent-folded name matching with lightweight
 //! client-side filters (gender, date range), sorting, and pagination.
+//! Uses the `sub-page` layout pattern (no left sidebar).
 
 use dioxus::prelude::*;
 use oxidgene_cache::types::SearchEntry;
@@ -58,11 +59,13 @@ pub struct SearchResultsProps {
 pub fn SearchResults(props: SearchResultsProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let nav = navigator();
+    let _nav = navigator();
 
     let tree_id = Uuid::parse_str(&props.tree_id).ok();
 
     // ── Search query state ──
+    let mut search_last = use_signal(|| props.last.clone());
+    let mut search_first = use_signal(|| props.first.clone());
     let mut committed_query = use_signal(|| {
         let parts: Vec<&str> = [props.last.as_str(), props.first.as_str()]
             .into_iter()
@@ -82,6 +85,20 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let mut died_from = use_signal(String::new);
     let mut died_to = use_signal(String::new);
 
+    // Sync props into signals when navigation changes the query parameters.
+    let prop_last = props.last.clone();
+    let prop_first = props.first.clone();
+    use_effect(move || {
+        search_last.set(prop_last.clone());
+        search_first.set(prop_first.clone());
+        let parts: Vec<&str> = [prop_last.as_str(), prop_first.as_str()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
+        committed_query.set(parts.join(" "));
+        current_page.set(1);
+    });
+
     // ── Server-side search ──
     let api_search = api.clone();
     let search_resource = use_resource(move || {
@@ -97,6 +114,31 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             api.cache_search(tid, &q, SERVER_LIMIT, 0).await
         }
     });
+
+    // Search action: combine last + first into a query string.
+    let mut do_search = move || {
+        let parts: Vec<String> = [search_last(), search_first()]
+            .into_iter()
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+        if !parts.is_empty() {
+            committed_query.set(parts.join(" "));
+            current_page.set(1);
+        }
+    };
+
+    let mut do_search2 = do_search;
+    let mut do_search3 = do_search;
+    let on_search_enter = move |e: Event<KeyboardData>| {
+        if e.key() == Key::Enter {
+            do_search();
+        }
+    };
+    let on_search_enter2 = move |e: Event<KeyboardData>| {
+        if e.key() == Key::Enter {
+            do_search2();
+        }
+    };
 
     // ── Apply client-side filters, sort, and paginate ──
     let all_entries: Vec<SearchEntry> = {
@@ -178,208 +220,244 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
     let is_loading = search_resource.read().is_none();
     let is_error = matches!(&*search_resource.read(), Some(Err(_)));
-    let tree_id_str = props.tree_id.clone();
 
     // ── Render ──
     rsx! {
         div { class: "search-results-page",
-            // ── Topbar ──
-            div { class: "sr-topbar",
-                div { class: "sr-breadcrumb",
-                    Link { to: Route::Home {}, class: "breadcrumb-link",
-                        {i18n.t("nav.my_trees")}
+            // ── Topbar (shared td-topbar / td-bc classes per spec §3) ──
+            div { class: "td-topbar",
+                nav { class: "td-bc",
+                    Link { to: Route::Home {}, class: "td-bc-logo",
+                        img {
+                            src: crate::components::layout::LOGO_PNG_B64,
+                            alt: "OxidGene",
+                            class: "td-bc-logo-img",
+                        }
                     }
-                    span { class: "breadcrumb-sep", " / " }
+                    span { class: "td-bc-sep", "/" }
                     Link {
-                        to: Route::TreeDetail { tree_id: tree_id_str.clone(), person: None },
-                        class: "breadcrumb-link",
+                        to: Route::TreeDetail { tree_id: props.tree_id.clone(), person: None },
+                        class: "td-bc-link",
                         {i18n.t("nav.tree")}
                     }
-                    span { class: "breadcrumb-sep", " / " }
-                    span { class: "breadcrumb-current", {i18n.t("search.title")} }
+                    span { class: "td-bc-sep", "/" }
+                    span { class: "td-bc-current", {i18n.t("search.title")} }
                 }
-                // Inline search bar
-                SearchBar {
-                    initial_query: committed_query(),
-                    on_search: move |q: String| {
-                        committed_query.set(q);
-                        current_page.set(1);
-                    },
-                    on_back: move |_| {
-                        nav.push(Route::TreeDetail { tree_id: tree_id_str.clone(), person: None });
-                    },
+                div { class: "td-search-group",
+                    input {
+                        r#type: "text",
+                        class: "td-search-input",
+                        placeholder: "{i18n.t(\"tree.search_last\")}",
+                        value: "{search_last}",
+                        oninput: move |e: Event<FormData>| search_last.set(e.value()),
+                        onkeydown: on_search_enter,
+                    }
+                    input {
+                        r#type: "text",
+                        class: "td-search-input",
+                        placeholder: "{i18n.t(\"tree.search_first\")}",
+                        value: "{search_first}",
+                        oninput: move |e: Event<FormData>| search_first.set(e.value()),
+                        onkeydown: on_search_enter2,
+                    }
+                    button {
+                        class: "td-search-btn",
+                        title: "{i18n.t(\"tree.search\")}",
+                        onclick: move |_| do_search3(),
+                        svg {
+                            width: "14",
+                            height: "14",
+                            fill: "none",
+                            "viewBox": "0 0 24 24",
+                            stroke: "currentColor",
+                            "strokeWidth": "2.5",
+                            circle { cx: "11", cy: "11", r: "8" }
+                            line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
+                        }
+                    }
                 }
             }
 
-            // ── Filter panel ──
-            div { class: "sr-filter-bar",
-                button {
-                    class: "btn btn-outline btn-sm",
-                    onclick: move |_| show_filters.set(!show_filters()),
-                    if show_filters() { "\u{25B2} " } else { "\u{25BC} " }
-                    {i18n.t("search.filters")}
+            // ── Scrollable content ──
+            div { class: "sub-page-content",
+
+                // ── Filter panel ──
+                div { class: "sr-filters-toggle",
+                    button {
+                        class: "btn btn-outline btn-sm",
+                        onclick: move |_| show_filters.set(!show_filters()),
+                        span { class: if show_filters() { "sr-chevron open" } else { "sr-chevron" }, "\u{25BC}" }
+                        " {i18n.t(\"search.filters\")}"
+                    }
                 }
                 if show_filters() {
                     div { class: "sr-filters",
-                        div { class: "sr-filter-group",
-                            label { {i18n.t("search.gender")} }
-                            select {
-                                value: "{gender_filter():?}",
-                                onchange: move |e: Event<FormData>| {
-                                    gender_filter.set(match e.value().as_str() {
-                                        "Male" => GenderFilter::Male,
-                                        "Female" => GenderFilter::Female,
-                                        "Unknown" => GenderFilter::Unknown,
-                                        _ => GenderFilter::All,
-                                    });
+                        div { class: "sr-filter-row",
+                            div { class: "sr-filter-group",
+                                label { {i18n.t("search.gender")} }
+                                select {
+                                    value: "{gender_filter():?}",
+                                    onchange: move |e: Event<FormData>| {
+                                        gender_filter.set(match e.value().as_str() {
+                                            "Male" => GenderFilter::Male,
+                                            "Female" => GenderFilter::Female,
+                                            "Unknown" => GenderFilter::Unknown,
+                                            _ => GenderFilter::All,
+                                        });
+                                        current_page.set(1);
+                                    },
+                                    option { value: "All", {i18n.t("search.all")} }
+                                    option { value: "Male", {i18n.t("search.male")} }
+                                    option { value: "Female", {i18n.t("search.female")} }
+                                    option { value: "Unknown", {i18n.t("search.unknown")} }
+                                }
+                            }
+                            div { class: "sr-filter-group",
+                                label { {i18n.t("search.born_between")} }
+                                div { class: "sr-date-range",
+                                    input {
+                                        r#type: "number",
+                                        placeholder: "1800",
+                                        value: "{born_from}",
+                                        oninput: move |e: Event<FormData>| {
+                                            born_from.set(e.value());
+                                            current_page.set(1);
+                                        },
+                                    }
+                                    span { "\u{2013}" }
+                                    input {
+                                        r#type: "number",
+                                        placeholder: "2000",
+                                        value: "{born_to}",
+                                        oninput: move |e: Event<FormData>| {
+                                            born_to.set(e.value());
+                                            current_page.set(1);
+                                        },
+                                    }
+                                }
+                            }
+                            div { class: "sr-filter-group",
+                                label { {i18n.t("search.died_between")} }
+                                div { class: "sr-date-range",
+                                    input {
+                                        r#type: "number",
+                                        placeholder: "1800",
+                                        value: "{died_from}",
+                                        oninput: move |e: Event<FormData>| {
+                                            died_from.set(e.value());
+                                            current_page.set(1);
+                                        },
+                                    }
+                                    span { "\u{2013}" }
+                                    input {
+                                        r#type: "number",
+                                        placeholder: "2000",
+                                        value: "{died_to}",
+                                        oninput: move |e: Event<FormData>| {
+                                            died_to.set(e.value());
+                                            current_page.set(1);
+                                        },
+                                    }
+                                }
+                            }
+                            button {
+                                class: "sr-clear-filters",
+                                onclick: move |_| {
+                                    gender_filter.set(GenderFilter::All);
+                                    born_from.set(String::new());
+                                    born_to.set(String::new());
+                                    died_from.set(String::new());
+                                    died_to.set(String::new());
                                     current_page.set(1);
                                 },
-                                option { value: "All", {i18n.t("search.all")} }
-                                option { value: "Male", {i18n.t("search.male")} }
-                                option { value: "Female", {i18n.t("search.female")} }
-                                option { value: "Unknown", {i18n.t("search.unknown")} }
+                                {i18n.t("search.clear_filters")}
                             }
                         }
-                        div { class: "sr-filter-group",
-                            label { {i18n.t("search.born_between")} }
-                            input {
-                                r#type: "number",
-                                placeholder: "1800",
-                                value: "{born_from}",
-                                oninput: move |e: Event<FormData>| {
-                                    born_from.set(e.value());
-                                    current_page.set(1);
-                                },
-                            }
-                            span { " – " }
-                            input {
-                                r#type: "number",
-                                placeholder: "2000",
-                                value: "{born_to}",
-                                oninput: move |e: Event<FormData>| {
-                                    born_to.set(e.value());
-                                    current_page.set(1);
-                                },
-                            }
+                    }
+                }
+
+                // ── Sort / view toolbar ──
+                div { class: "sr-toolbar",
+                    span { class: "sr-count",
+                        {format!("{} {}", total_filtered, i18n.t("search.results"))}
+                    }
+                    div { class: "sr-sort",
+                        select {
+                            value: "{sort_order():?}",
+                            onchange: move |e: Event<FormData>| {
+                                sort_order.set(match e.value().as_str() {
+                                    "NameAZ" => SortOrder::NameAZ,
+                                    "NameZA" => SortOrder::NameZA,
+                                    "BirthAsc" => SortOrder::BirthAsc,
+                                    "BirthDesc" => SortOrder::BirthDesc,
+                                    _ => SortOrder::Relevance,
+                                });
+                            },
+                            option { value: "Relevance", {i18n.t("search.sort_relevance")} }
+                            option { value: "NameAZ", {i18n.t("search.sort_name_az")} }
+                            option { value: "NameZA", {i18n.t("search.sort_name_za")} }
+                            option { value: "BirthAsc", {i18n.t("search.sort_birth_asc")} }
+                            option { value: "BirthDesc", {i18n.t("search.sort_birth_desc")} }
                         }
-                        div { class: "sr-filter-group",
-                            label { {i18n.t("search.died_between")} }
-                            input {
-                                r#type: "number",
-                                placeholder: "1800",
-                                value: "{died_from}",
-                                oninput: move |e: Event<FormData>| {
-                                    died_from.set(e.value());
-                                    current_page.set(1);
-                                },
-                            }
-                            span { " – " }
-                            input {
-                                r#type: "number",
-                                placeholder: "2000",
-                                value: "{died_to}",
-                                oninput: move |e: Event<FormData>| {
-                                    died_to.set(e.value());
-                                    current_page.set(1);
-                                },
+                    }
+                    div { class: "sr-view-modes",
+                        button {
+                            class: if view_mode() == ViewMode::List { "sr-view-btn active" } else { "sr-view-btn" },
+                            onclick: move |_| view_mode.set(ViewMode::List),
+                            "\u{2630}"
+                        }
+                        button {
+                            class: if view_mode() == ViewMode::Card { "sr-view-btn active" } else { "sr-view-btn" },
+                            onclick: move |_| view_mode.set(ViewMode::Card),
+                            "\u{25A6}"
+                        }
+                    }
+                }
+
+                // ── Results ──
+                if is_loading {
+                    div { class: "sr-empty", {i18n.t("search.loading")} }
+                } else if is_error {
+                    div { class: "sr-empty", {i18n.t("search.error")} }
+                } else if page_results.is_empty() {
+                    div { class: "sr-empty",
+                        p { {i18n.t("search.no_results")} }
+                    }
+                } else {
+                    div {
+                        class: "search-person-results sr-results-page",
+                        for entry in page_results.iter() {
+                            {render_result_item(entry, &props.tree_id, view_mode())}
+                        }
+                    }
+                }
+
+                // ── Pagination ──
+                if total_pages > 1 {
+                    div { class: "sr-pagination",
+                        button {
+                            class: "sr-page-btn",
+                            disabled: page <= 1,
+                            onclick: move |_| current_page.set(page.saturating_sub(1).max(1)),
+                            "\u{25C0}"
+                        }
+                        for p in pagination_range(page, total_pages) {
+                            if p == 0 {
+                                span { class: "sr-page-info", "\u{2026}" }
+                            } else {
+                                button {
+                                    class: if p == page { "sr-page-btn active" } else { "sr-page-btn" },
+                                    onclick: move |_| current_page.set(p),
+                                    "{p}"
+                                }
                             }
                         }
                         button {
-                            class: "btn btn-outline btn-sm",
-                            onclick: move |_| {
-                                gender_filter.set(GenderFilter::All);
-                                born_from.set(String::new());
-                                born_to.set(String::new());
-                                died_from.set(String::new());
-                                died_to.set(String::new());
-                                current_page.set(1);
-                            },
-                            {i18n.t("search.clear_filters")}
+                            class: "sr-page-btn",
+                            disabled: page >= total_pages,
+                            onclick: move |_| current_page.set((page + 1).min(total_pages)),
+                            "\u{25B6}"
                         }
-                    }
-                }
-            }
-
-            // ── Sort / view controls ──
-            div { class: "sr-sort-bar",
-                span { class: "sr-count",
-                    {format!("{} {}", total_filtered, i18n.t("search.results"))}
-                }
-                select {
-                    class: "sr-sort-select",
-                    value: "{sort_order():?}",
-                    onchange: move |e: Event<FormData>| {
-                        sort_order.set(match e.value().as_str() {
-                            "NameAZ" => SortOrder::NameAZ,
-                            "NameZA" => SortOrder::NameZA,
-                            "BirthAsc" => SortOrder::BirthAsc,
-                            "BirthDesc" => SortOrder::BirthDesc,
-                            _ => SortOrder::Relevance,
-                        });
-                    },
-                    option { value: "Relevance", {i18n.t("search.sort_relevance")} }
-                    option { value: "NameAZ", {i18n.t("search.sort_name_az")} }
-                    option { value: "NameZA", {i18n.t("search.sort_name_za")} }
-                    option { value: "BirthAsc", {i18n.t("search.sort_birth_asc")} }
-                    option { value: "BirthDesc", {i18n.t("search.sort_birth_desc")} }
-                }
-                div { class: "sr-view-toggle",
-                    button {
-                        class: if view_mode() == ViewMode::List { "active" } else { "" },
-                        onclick: move |_| view_mode.set(ViewMode::List),
-                        "\u{2630}" // ☰ list icon
-                    }
-                    button {
-                        class: if view_mode() == ViewMode::Card { "active" } else { "" },
-                        onclick: move |_| view_mode.set(ViewMode::Card),
-                        "\u{25A6}" // ▦ card icon
-                    }
-                }
-            }
-
-            // ── Results ──
-            if is_loading {
-                div { class: "sr-loading", {i18n.t("search.loading")} }
-            } else if is_error {
-                div { class: "sr-error", {i18n.t("search.error")} }
-            } else if page_results.is_empty() {
-                div { class: "sr-empty",
-                    p { {i18n.t("search.no_results")} }
-                }
-            } else {
-                div {
-                    class: if view_mode() == ViewMode::Card { "sr-results sr-card-grid" } else { "sr-results sr-list" },
-                    for entry in page_results.iter() {
-                        {render_result_item(entry, &props.tree_id, view_mode())}
-                    }
-                }
-            }
-
-            // ── Pagination ──
-            if total_pages > 1 {
-                div { class: "sr-pagination",
-                    button {
-                        class: "btn btn-sm",
-                        disabled: page <= 1,
-                        onclick: move |_| current_page.set(page.saturating_sub(1).max(1)),
-                        "\u{25C0}"
-                    }
-                    for p in pagination_range(page, total_pages) {
-                        if p == 0 {
-                            span { class: "sr-page-ellipsis", "…" }
-                        } else {
-                            button {
-                                class: if p == page { "btn btn-sm active" } else { "btn btn-sm" },
-                                onclick: move |_| current_page.set(p),
-                                "{p}"
-                            }
-                        }
-                    }
-                    button {
-                        class: "btn btn-sm",
-                        disabled: page >= total_pages,
-                        onclick: move |_| current_page.set((page + 1).min(total_pages)),
-                        "\u{25B6}"
                     }
                 }
             }
@@ -388,8 +466,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 }
 
 // ── Result item rendering ────────────────────────────────────────────────
+//
+// Reuses the same `search-person-result` / `sp-*` CSS classes as the
+// SearchPerson typeahead component (used in SOSA root selector, etc.)
+// so that person rows look identical everywhere.
 
-fn render_result_item(entry: &SearchEntry, tree_id: &str, view: ViewMode) -> Element {
+fn render_result_item(entry: &SearchEntry, tree_id: &str, _view: ViewMode) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
         Sex::Female => "female",
@@ -415,84 +497,39 @@ fn render_result_item(entry: &SearchEntry, tree_id: &str, view: ViewMode) -> Ele
     let tree_id_str = tree_id.to_string();
     let person_id_str = entry.person_id.to_string();
 
-    let item_class = if view == ViewMode::Card {
-        format!("sr-item sr-card {sex_class}")
-    } else {
-        format!("sr-item sr-row {sex_class}")
-    };
-
     rsx! {
         Link {
-            to: Route::PersonDetail {
+            to: Route::TreeDetail {
                 tree_id: tree_id_str,
-                person_id: person_id_str,
+                person: Some(person_id_str),
             },
-            class: "{item_class}",
-            div { class: "sr-item-photo",
-                span { class: "sr-item-initials {sex_class}", "{initials}" }
+            class: "search-person-result {sex_class}",
+            div { class: "sp-result-photo",
+                span { class: "sp-result-initials {sex_class}", "{initials}" }
             }
-            div { class: "sr-item-info",
-                div { class: "sr-item-name",
+            div { class: "sp-result-info",
+                div { class: "sp-result-name",
                     if !surname.is_empty() {
-                        span { class: "sr-surname", "{surname}" }
+                        span { class: "sp-surname", "{surname}" }
                     }
-                    span { class: "sr-given", " {given}" }
+                    span { class: "sp-given", " {given}" }
                     if surname.is_empty() && given.is_empty() {
-                        span { class: "sr-given", "?" }
+                        span { class: "sp-given", "?" }
                     }
                 }
-                div { class: "sr-item-dates",
+                div { class: "sp-result-dates",
                     if let Some(ref by) = entry.birth_year {
-                        span { class: "sr-birth", "\u{2726} {by}" }
+                        span { class: "sp-birth", "\u{2726} {by}" }
                     }
                     if let Some(ref dy) = entry.death_year {
-                        span { class: "sr-death", " \u{271D} {dy}" }
+                        span { class: "sp-death", "\u{271D} {dy}" }
                     }
                 }
                 if let Some(ref bp) = entry.birth_place {
-                    div { class: "sr-item-meta",
-                        span { class: "sr-place", "{bp}" }
+                    div { class: "sp-result-meta",
+                        span { class: "sp-place", "{bp}" }
                     }
                 }
-            }
-        }
-    }
-}
-
-// ── SearchBar sub-component ──────────────────────────────────────────────
-
-#[derive(Props, Clone, PartialEq)]
-struct SearchBarProps {
-    initial_query: String,
-    on_search: EventHandler<String>,
-    on_back: EventHandler<()>,
-}
-
-#[component]
-fn SearchBar(props: SearchBarProps) -> Element {
-    let i18n = use_i18n();
-    let mut query = use_signal(|| props.initial_query.clone());
-
-    rsx! {
-        div { class: "sr-searchbar",
-            input {
-                r#type: "text",
-                class: "sr-input",
-                placeholder: "{i18n.t(\"search.placeholder\")}",
-                value: "{query}",
-                oninput: move |e: Event<FormData>| query.set(e.value()),
-                onkeydown: move |e: Event<KeyboardData>| {
-                    if e.key() == Key::Enter {
-                        props.on_search.call(query());
-                    } else if e.key() == Key::Escape {
-                        props.on_back.call(());
-                    }
-                },
-            }
-            button {
-                class: "btn btn-primary btn-sm",
-                onclick: move |_| props.on_search.call(query()),
-                {i18n.t("search.go")}
             }
         }
     }

@@ -144,7 +144,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // Generation counter: incremented every time we navigate with a ?person param
     // so PedigreeChart re-centers even when the root person hasn't changed.
-    let mut center_gen = use_signal(|| 0u32);
+    // Start at 1 when a person param is present on mount, so centering triggers
+    // even though prev_person_raw is initialized to the same value.
+    let has_person_param = person.is_some();
+    let mut center_gen = use_signal(move || if has_person_param { 1u32 } else { 0u32 });
 
     // Reset state when navigating to a different tree (component is reused by the router).
     let mut prev_tree_id = use_signal(|| tree_id.clone());

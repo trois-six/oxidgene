@@ -216,10 +216,18 @@ fn TreeRootsSection(
     };
 
     // Fetch root person's names directly (no full tree snapshot needed).
+    // Reactive reads MUST happen inside the closure so use_resource re-runs
+    // when tree_resource or local_sosa_override change.
     let api_names = api.clone();
     let root_names_resource = use_resource(move || {
         let api = api_names.clone();
-        let root_id = current_sosa_root;
+        let root_id = match local_sosa_override() {
+            Some(val) => val,
+            None => match &*tree_resource.read() {
+                Some(Some(Ok(tree))) => tree.sosa_root_person_id,
+                _ => None,
+            },
+        };
         let tid = tree_id_parsed;
         async move {
             let (Some(rid), Some(tid)) = (root_id, tid) else {

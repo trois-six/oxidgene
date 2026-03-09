@@ -2142,8 +2142,13 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow: hidden;
     }
 
-    .sr-content {
-        padding-top: 0;
+    .search-results-page .sub-page-content {
+        flex: 1;
+        overflow-y: auto;
+        max-width: 1200px;
+        margin: 0 auto;
+        width: 100%;
+        padding: 16px 24px;
     }
 
     .sr-header {
@@ -2484,6 +2489,25 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.8rem;
         color: var(--text-muted);
         margin-left: 12px;
+    }
+
+    /* Full-page search results: override typeahead dropdown constraints */
+    .search-person-results.sr-results-page {
+        max-height: none;
+        overflow-y: visible;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+    }
+    .search-person-results.sr-results-page .search-person-result {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 4px;
+    }
+    a.search-person-result {
+        text-decoration: none;
+        color: inherit;
+        cursor: pointer;
     }
 
     /* Empty state */

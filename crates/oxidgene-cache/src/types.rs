@@ -77,6 +77,9 @@ pub struct CachedFamilyLink {
     pub spouse_display_name: Option<String>,
     pub spouse_sex: Option<Sex>,
     pub marriage: Option<CachedEvent>,
+    /// All family events (marriage, divorce, annulment, etc.)
+    #[serde(default)]
+    pub events: Vec<CachedEvent>,
     pub children_ids: Vec<Uuid>,
     pub children_count: u32,
 }
@@ -111,6 +114,13 @@ pub struct CachedPedigree {
     pub root_person_id: Uuid,
     pub persons: HashMap<Uuid, PedigreeNode>,
     pub edges: Vec<PedigreeEdge>,
+    /// Family events keyed by family_id (marriage, divorce, annulment, etc.)
+    #[serde(default)]
+    pub family_events: HashMap<Uuid, Vec<CachedEvent>>,
+    /// Family units with spouse and child membership (covers childless couples
+    /// that produce no PedigreeEdge entries).
+    #[serde(default)]
+    pub families: HashMap<Uuid, CachedFamily>,
     pub ancestor_depth_loaded: u32,
     pub descendant_depth_loaded: u32,
     pub cached_at: DateTime<Utc>,
@@ -122,6 +132,10 @@ pub struct PedigreeNode {
     pub person_id: Uuid,
     pub sex: Sex,
     pub display_name: String,
+    #[serde(default)]
+    pub given_names: Option<String>,
+    #[serde(default)]
+    pub surname: Option<String>,
     pub birth_year: Option<String>,
     pub birth_place: Option<String>,
     pub death_year: Option<String>,
@@ -139,6 +153,29 @@ pub struct PedigreeEdge {
     pub child_id: Uuid,
     pub family_id: Uuid,
     pub edge_type: ChildType,
+}
+
+/// A family unit in the pedigree, capturing spouse and child relationships
+/// independently of parent→child edges (which miss childless couples).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedFamily {
+    pub family_id: Uuid,
+    pub spouse_ids: Vec<Uuid>,
+    pub children_ids: Vec<Uuid>,
+    /// Minimal info for family members (children, spouses) who may be outside
+    /// the pedigree window — enough to build synthetic events in the UI.
+    #[serde(default)]
+    pub members: Vec<CachedFamilyMember>,
+}
+
+/// Minimal person info for a family member in the pedigree cache.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedFamilyMember {
+    pub person_id: Uuid,
+    pub display_name: String,
+    pub sex: Sex,
+    pub birth_year: Option<String>,
+    pub death_year: Option<String>,
 }
 
 /// The result of an incremental pedigree expansion.
