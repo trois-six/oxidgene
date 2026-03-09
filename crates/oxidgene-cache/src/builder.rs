@@ -286,12 +286,23 @@ fn build_one_person(
                 spouse_id.and_then(|sid| idx.display_names.get(&sid).cloned());
             let spouse_sex = spouse_id.and_then(|sid| idx.sex_by_person.get(&sid).copied());
 
-            // Find marriage event for this family
-            let marriage = idx
+            // Collect all family events (marriage, divorce, annulment, etc.)
+            let all_family_events: Vec<CachedEvent> = idx
                 .events_by_family
                 .get(&family_id)
-                .and_then(|events| events.iter().find(|e| e.event_type == EventType::Marriage))
-                .map(|e| build_cached_event(e, &idx.places_by_id));
+                .map(|events| {
+                    events
+                        .iter()
+                        .map(|e| build_cached_event(e, &idx.places_by_id))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Find marriage event for this family
+            let marriage = all_family_events
+                .iter()
+                .find(|e| e.event_type == EventType::Marriage)
+                .cloned();
 
             // Children in this family
             let family_children = idx
@@ -309,6 +320,7 @@ fn build_one_person(
                 spouse_display_name,
                 spouse_sex,
                 marriage,
+                events: all_family_events,
                 children_ids,
                 children_count,
             }
@@ -493,6 +505,11 @@ pub fn build_pedigree_node(
             .as_ref()
             .map(|n| n.display_name.clone())
             .unwrap_or_default(),
+        given_names: person
+            .primary_name
+            .as_ref()
+            .and_then(|n| n.given_names.clone()),
+        surname: person.primary_name.as_ref().and_then(|n| n.surname.clone()),
         birth_year: person.birth.as_ref().and_then(extract_year),
         birth_place: person.birth.as_ref().and_then(|e| e.place_name.clone()),
         death_year: person.death.as_ref().and_then(extract_year),
@@ -533,8 +550,12 @@ fn fold_accent(c: char) -> char {
 
 /// Search the index for persons matching the query.
 ///
-/// Performs case-insensitive, accent-folded substring matching on
-/// surname, given_names, and maiden_name fields.
+/// Performs case-insensitive, accent-folded matching with two strategies:
+/// 1. **Exact substring**: the full query matches any single field (handles
+///    compound names like "le cam").
+/// 2. **All-words**: every whitespace-delimited word in the query appears
+///    somewhere across all searchable fields (handles "erraud pierre"
+///    matching surname "ERRAUD" + given names containing "Pierre").
 pub fn search_index(
     index: &CachedSearchIndex,
     query: &str,
@@ -542,17 +563,31 @@ pub fn search_index(
     offset: usize,
 ) -> SearchResult {
     let normalized_query = normalize_for_search(query);
+    let words: Vec<&str> = normalized_query.split_whitespace().collect();
 
     let matching: Vec<&SearchEntry> = index
         .entries
         .iter()
         .filter(|entry| {
-            entry.surname_normalized.contains(&normalized_query)
-                || entry.given_names_normalized.contains(&normalized_query)
-                || entry
-                    .maiden_name_normalized
-                    .as_ref()
-                    .is_some_and(|mn| mn.contains(&normalized_query))
+            let sn = &entry.surname_normalized;
+            let gn = &entry.given_names_normalized;
+            let mn = entry.maiden_name_normalized.as_deref().unwrap_or("");
+
+            // Strategy 1: full query as a substring of any single field.
+            if sn.contains(&normalized_query)
+                || gn.contains(&normalized_query)
+                || (!mn.is_empty() && mn.contains(&normalized_query))
+            {
+                return true;
+            }
+
+            // Strategy 2: every word must appear in at least one field.
+            if words.len() > 1 {
+                let all = format!("{sn} {gn} {mn}");
+                return words.iter().all(|w| all.contains(w));
+            }
+
+            false
         })
         .collect();
 
