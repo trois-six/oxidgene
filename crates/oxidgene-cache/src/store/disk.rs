@@ -367,6 +367,8 @@ mod tests {
             PedigreeNode {
                 person_id: root_id,
                 display_name: "Root Person".into(),
+                given_names: None,
+                surname: None,
                 sex: Sex::Male,
                 birth_year: None,
                 birth_place: None,
@@ -383,6 +385,8 @@ mod tests {
             root_person_id: root_id,
             persons,
             edges: vec![],
+            family_events: HashMap::new(),
+            families: HashMap::new(),
             ancestor_depth_loaded: 4,
             descendant_depth_loaded: 2,
             cached_at: Utc::now(),

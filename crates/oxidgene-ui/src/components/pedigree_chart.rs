@@ -196,7 +196,6 @@ impl PedigreeData {
     /// unchanged.
     pub fn from_cached_pedigree(pedigree: &CachedPedigree) -> Self {
         use chrono::{NaiveDate, Utc};
-        use std::collections::HashSet;
 
         let now = Utc::now();
         let tree_id = pedigree.tree_id;
@@ -216,10 +215,14 @@ impl PedigreeData {
             };
             persons.insert(node.person_id, person);
 
-            // Parse display_name into given + surname (split on last space).
-            let (given, surname) = match node.display_name.rsplit_once(' ') {
-                Some((g, s)) => (Some(g.to_string()), Some(s.to_string())),
-                None => (Some(node.display_name.clone()), None),
+            // Use structured name fields if available, fall back to splitting display_name.
+            let (given, surname) = if node.given_names.is_some() || node.surname.is_some() {
+                (node.given_names.clone(), node.surname.clone())
+            } else {
+                match node.display_name.rsplit_once(' ') {
+                    Some((g, s)) => (Some(g.to_string()), Some(s.to_string())),
+                    None => (Some(node.display_name.clone()), None),
+                }
             };
             let name = PersonName {
                 id: Uuid::nil(),
@@ -247,7 +250,7 @@ impl PedigreeData {
                     .ok()
                     .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
                 let mut evt = DomainEvent {
-                    id: Uuid::nil(),
+                    id: Uuid::now_v7(),
                     tree_id,
                     event_type: EventType::Birth,
                     date_value: Some(year_str.clone()),
@@ -274,7 +277,7 @@ impl PedigreeData {
                     .ok()
                     .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
                 let mut evt = DomainEvent {
-                    id: Uuid::nil(),
+                    id: Uuid::now_v7(),
                     tree_id,
                     event_type: EventType::Death,
                     date_value: Some(year_str.clone()),
@@ -297,32 +300,16 @@ impl PedigreeData {
             }
         }
 
-        // ── Family relationships from PedigreeEdge ──
+        // ── Family relationships from CachedFamily + PedigreeEdge ──
         //
-        // PedigreeEdge only carries parent→child. We group by family_id to
-        // reconstruct: spouses_by_family, children_by_family,
-        // families_as_child, families_as_spouse.
+        // CachedFamily carries full family membership (spouses + children),
+        // covering childless couples that produce no PedigreeEdge.
+        // We supplement with edge data for child_type info.
 
-        // Collect parents and children per family.
-        let mut family_parents: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-        let mut family_children_map: HashMap<Uuid, Vec<(Uuid, ChildType)>> = HashMap::new();
-
+        // Build child_type lookup from edges.
+        let mut child_type_map: HashMap<(Uuid, Uuid), ChildType> = HashMap::new();
         for edge in &pedigree.edges {
-            family_parents
-                .entry(edge.family_id)
-                .or_default()
-                .insert(edge.parent_id);
-            family_children_map
-                .entry(edge.family_id)
-                .or_default()
-                .push((edge.child_id, edge.edge_type));
-        }
-
-        // Deduplicate children per family (same child may appear via two
-        // parent edges in the same family).
-        for children in family_children_map.values_mut() {
-            children.sort_by_key(|(id, _)| *id);
-            children.dedup_by_key(|(id, _)| *id);
+            child_type_map.insert((edge.family_id, edge.child_id), edge.edge_type);
         }
 
         let mut spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>> = HashMap::new();
@@ -330,10 +317,10 @@ impl PedigreeData {
         let mut families_as_child: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
         let mut families_as_spouse: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
 
-        for (family_id, parent_ids) in &family_parents {
+        for (family_id, cached_family) in &pedigree.families {
             // Build FamilySpouse entries — assign role by sex.
-            for (i, &pid) in parent_ids.iter().enumerate() {
-                let role = match persons.get(&pid).map(|p| &p.sex) {
+            for (i, &spouse_id) in cached_family.spouse_ids.iter().enumerate() {
+                let role = match persons.get(&spouse_id).map(|p| &p.sex) {
                     Some(Sex::Male) => SpouseRole::Husband,
                     Some(Sex::Female) => SpouseRole::Wife,
                     _ => {
@@ -347,42 +334,155 @@ impl PedigreeData {
                 let fs = FamilySpouse {
                     id: Uuid::nil(),
                     family_id: *family_id,
-                    person_id: pid,
+                    person_id: spouse_id,
                     role,
                     sort_order: i as i32,
                 };
                 spouses_by_family.entry(*family_id).or_default().push(fs);
-                families_as_spouse.entry(pid).or_default().push(*family_id);
+                families_as_spouse
+                    .entry(spouse_id)
+                    .or_default()
+                    .push(*family_id);
             }
-        }
 
-        // Deduplicate families_as_spouse entries (a person can appear once per family).
-        for fids in families_as_spouse.values_mut() {
-            fids.sort();
-            fids.dedup();
-        }
-
-        for (family_id, children) in &family_children_map {
-            for (i, (child_id, child_type)) in children.iter().enumerate() {
+            // Build FamilyChild entries.
+            for (i, &child_id) in cached_family.children_ids.iter().enumerate() {
+                let child_type = child_type_map
+                    .get(&(*family_id, child_id))
+                    .copied()
+                    .unwrap_or(ChildType::Biological);
                 let fc = FamilyChild {
                     id: Uuid::nil(),
                     family_id: *family_id,
-                    person_id: *child_id,
-                    child_type: *child_type,
+                    person_id: child_id,
+                    child_type,
                     sort_order: i as i32,
                 };
                 children_by_family.entry(*family_id).or_default().push(fc);
                 families_as_child
-                    .entry(*child_id)
+                    .entry(child_id)
                     .or_default()
                     .push(*family_id);
             }
+        }
+
+        // Deduplicate families_as_spouse entries.
+        for fids in families_as_spouse.values_mut() {
+            fids.sort();
+            fids.dedup();
         }
 
         // Deduplicate families_as_child entries.
         for fids in families_as_child.values_mut() {
             fids.sort();
             fids.dedup();
+        }
+
+        // ── Reconstruct family events from cached pedigree ──
+        let mut events_by_family: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
+        for (family_id, cached_events) in &pedigree.family_events {
+            let domain_events: Vec<DomainEvent> = cached_events
+                .iter()
+                .map(|ce| DomainEvent {
+                    id: ce.event_id,
+                    tree_id,
+                    event_type: ce.event_type,
+                    date_value: ce.date_value.clone(),
+                    date_sort: ce.date_sort,
+                    place_id: ce.place_id,
+                    person_id: None,
+                    family_id: Some(*family_id),
+                    description: ce.description.clone(),
+                    created_at: now,
+                    updated_at: now,
+                    deleted_at: None,
+                })
+                .collect();
+            events_by_family.insert(*family_id, domain_events);
+        }
+
+        // ── Synthetic events + names for family members outside the pedigree window ──
+        for cached_family in pedigree.families.values() {
+            for member in &cached_family.members {
+                // Skip members already in the pedigree persons map.
+                if persons.contains_key(&member.person_id) {
+                    continue;
+                }
+                // Build synthetic person + name (for display in event panel).
+                let (given, surname) = match member.display_name.rsplit_once(' ') {
+                    Some((g, s)) => (Some(g.to_string()), Some(s.to_string())),
+                    None => (Some(member.display_name.clone()), None),
+                };
+                let person = Person {
+                    id: member.person_id,
+                    tree_id,
+                    sex: member.sex,
+                    created_at: now,
+                    updated_at: now,
+                    deleted_at: None,
+                };
+                persons.insert(member.person_id, person);
+                let name = PersonName {
+                    id: Uuid::nil(),
+                    person_id: member.person_id,
+                    name_type: oxidgene_core::NameType::Birth,
+                    given_names: given,
+                    surname,
+                    prefix: None,
+                    suffix: None,
+                    nickname: None,
+                    is_primary: true,
+                    created_at: now,
+                    updated_at: now,
+                };
+                names.insert(member.person_id, vec![name]);
+
+                // Build synthetic birth/death events.
+                let mut member_events = Vec::new();
+                if let Some(ref year_str) = member.birth_year {
+                    let date_sort = year_str
+                        .parse::<i32>()
+                        .ok()
+                        .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
+                    member_events.push(DomainEvent {
+                        id: Uuid::now_v7(),
+                        tree_id,
+                        event_type: EventType::Birth,
+                        date_value: Some(year_str.clone()),
+                        date_sort,
+                        place_id: None,
+                        person_id: Some(member.person_id),
+                        family_id: None,
+                        description: None,
+                        created_at: now,
+                        updated_at: now,
+                        deleted_at: None,
+                    });
+                }
+                if let Some(ref year_str) = member.death_year {
+                    let date_sort = year_str
+                        .parse::<i32>()
+                        .ok()
+                        .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
+                    member_events.push(DomainEvent {
+                        id: Uuid::now_v7(),
+                        tree_id,
+                        event_type: EventType::Death,
+                        date_value: Some(year_str.clone()),
+                        date_sort,
+                        place_id: None,
+                        person_id: Some(member.person_id),
+                        family_id: None,
+                        description: None,
+                        created_at: now,
+                        updated_at: now,
+                        deleted_at: None,
+                    });
+                }
+                if !member_events.is_empty() {
+                    events_by_person.insert(member.person_id, member_events);
+                }
+            }
         }
 
         Self {
@@ -393,7 +493,7 @@ impl PedigreeData {
             families_as_child,
             families_as_spouse,
             events_by_person,
-            events_by_family: HashMap::new(),
+            events_by_family,
             places: HashMap::new(),
         }
     }
@@ -1180,7 +1280,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut animating = use_signal(|| false);
 
     // ── Center the root in the viewport on first load and root change ──
-    let mut needs_center = use_signal(move || !has_saved_state);
+    // Also center when explicitly requested via center_gen > 0 (e.g. navigation
+    // from search results), even when there is saved pan/zoom state.
+    let mut needs_center = use_signal(move || !has_saved_state || props.center_gen > 0);
 
     // ── Reset pan/zoom/selection when the root person changes ──
     let mut prev_root = use_signal(|| props.root_person_id);
