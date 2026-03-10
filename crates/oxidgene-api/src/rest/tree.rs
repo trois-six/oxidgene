@@ -6,9 +6,10 @@ use axum::http::StatusCode;
 use oxidgene_db::repo::{PaginationParams, TreeRepo};
 use uuid::Uuid;
 
-use super::dto::{CreateTreeRequest, PaginationQuery, UpdateTreeRequest};
+use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
 use super::error::ApiError;
 use super::state::AppState;
+use crate::service::gedcom;
 
 /// GET /api/v1/trees
 pub async fn list_trees(
@@ -72,6 +73,49 @@ pub async fn update_tree(
     .await
     .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(tree).unwrap()))
+}
+
+/// POST /api/v1/trees/:tree_id/duplicate
+///
+/// Duplicate a tree by exporting its GEDCOM and importing it into a new tree.
+pub async fn duplicate_tree(
+    State(state): State<AppState>,
+    Path(source_tree_id): Path<Uuid>,
+    Json(body): Json<DuplicateTreeRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    if body.name.trim().is_empty() {
+        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
+            "name must not be empty".to_string(),
+        )));
+    }
+
+    // Export GEDCOM from source tree
+    let export = gedcom::load_and_export(&state.db, source_tree_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    // Create the new tree
+    let new_id = Uuid::now_v7();
+    let new_tree = TreeRepo::create(&state.db, new_id, body.name, None)
+        .await
+        .map_err(ApiError::from)?;
+
+    // Import GEDCOM into the new tree
+    gedcom::import_and_persist(&state.db, new_id, &export.gedcom)
+        .await
+        .map_err(ApiError::from)?;
+
+    // Rebuild cache for the new tree
+    state
+        .cache
+        .rebuild_tree_full(new_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(new_tree).unwrap()),
+    ))
 }
 
 /// DELETE /api/v1/trees/:tree_id

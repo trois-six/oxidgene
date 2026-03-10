@@ -4,7 +4,7 @@ use chrono::Utc;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, CreateTreeBody};
+use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::i18n::use_i18n;
 use crate::router::Route;
@@ -37,6 +37,14 @@ pub fn Home() -> Element {
     let mut import_error = use_signal(|| None::<String>);
     let mut import_result = use_signal(|| None::<(String, crate::api::ImportGedcomResult)>);
     let mut importing_tree_id = use_signal(|| None::<Uuid>);
+
+    // Rename state.
+    let mut rename_tree_id = use_signal(|| None::<Uuid>);
+    let mut rename_name = use_signal(String::new);
+    let mut rename_error = use_signal(|| None::<String>);
+
+    // Duplicate state.
+    let mut duplicating_tree_id = use_signal(|| None::<Uuid>);
 
     // Search & sort state.
     let mut search_query = use_signal(String::new);
@@ -238,11 +246,15 @@ pub fn Home() -> Element {
                                         let tid_str = tid.to_string();
                                         let tree_name = tree.name.clone();
                                         let tree_name_del = tree_name.clone();
+                                        let tree_name_rename = tree_name.clone();
                                         let tree_name_import = tree_name.clone();
+                                        let tree_name_dup = tree_name.clone();
                                         let desc = tree.description.clone().unwrap_or_default();
                                         let updated_at = tree.updated_at;
                                         let is_importing = importing_tree_id() == Some(tid);
+                                        let is_duplicating = duplicating_tree_id() == Some(tid);
                                         let api_import = api.clone();
+                                        let api_dup = api.clone();
                                         rsx! {
                                             TreeCard {
                                                 key: "{tid}",
@@ -251,6 +263,30 @@ pub fn Home() -> Element {
                                                 updated_at,
                                                 tree_id: tid_str,
                                                 importing: is_importing,
+                                                duplicating: is_duplicating,
+                                                on_rename: move |_| {
+                                                    rename_tree_id.set(Some(tid));
+                                                    rename_name.set(tree_name_rename.clone());
+                                                    rename_error.set(None);
+                                                },
+                                                on_duplicate: move |_| {
+                                                    let api = api_dup.clone();
+                                                    let dup_name = format!("{}{}", tree_name_dup, i18n.t("home.duplicate_suffix"));
+                                                    spawn(async move {
+                                                        duplicating_tree_id.set(Some(tid));
+                                                        let body = DuplicateTreeBody { name: dup_name };
+                                                        match api.duplicate_tree(tid, &body).await {
+                                                            Ok(_) => {
+                                                                duplicating_tree_id.set(None);
+                                                                refresh_counter += 1;
+                                                            }
+                                                            Err(e) => {
+                                                                duplicating_tree_id.set(None);
+                                                                import_error.set(Some(format!("{e}")));
+                                                            }
+                                                        }
+                                                    });
+                                                },
                                                 on_delete: move |_| {
                                                     confirm_delete_id.set(Some(tid));
                                                     confirm_delete_name.set(tree_name_del.clone());
@@ -404,11 +440,100 @@ pub fn Home() -> Element {
             }
         }
 
-        // ── Import blocking overlay ──
+        // ── Rename modal ────────────────────────────────────────────
+        if rename_tree_id().is_some() {
+            div {
+                class: "modal-backdrop",
+                onclick: move |_| {
+                    rename_tree_id.set(None);
+                    rename_error.set(None);
+                },
+                div {
+                    class: "home-create-modal",
+                    onclick: move |e: Event<MouseData>| e.stop_propagation(),
+
+                    div { class: "home-create-modal-header",
+                        h2 { {i18n.t("home.rename_tree")} }
+                        button {
+                            class: "person-form-close",
+                            onclick: move |_| {
+                                rename_tree_id.set(None);
+                                rename_error.set(None);
+                            },
+                            "\u{2715}"
+                        }
+                    }
+
+                    div { class: "home-create-modal-body",
+                        if let Some(err) = rename_error() {
+                            div { class: "error-msg", "{err}" }
+                        }
+                        div { class: "form-group",
+                            label { {i18n.t("tree.form.name_label")} }
+                            input {
+                                r#type: "text",
+                                placeholder: i18n.t("tree.form.name_placeholder"),
+                                value: "{rename_name}",
+                                oninput: move |e: Event<FormData>| rename_name.set(e.value()),
+                            }
+                        }
+                        div { class: "modal-actions",
+                            button {
+                                class: "btn btn-outline",
+                                onclick: move |_| {
+                                    rename_tree_id.set(None);
+                                    rename_error.set(None);
+                                },
+                                {i18n.t("common.cancel")}
+                            }
+                            button {
+                                class: "btn btn-primary",
+                                onclick: {
+                                    let api = api.clone();
+                                    move |_| {
+                                        let api = api.clone();
+                                        let name = rename_name().trim().to_string();
+                                        spawn(async move {
+                                            if name.is_empty() {
+                                                rename_error.set(Some(i18n.t("tree.form.name_required").to_string()));
+                                                return;
+                                            }
+                                            let Some(tid) = rename_tree_id() else { return };
+                                            let body = UpdateTreeBody {
+                                                name: Some(name),
+                                                description: None,
+                                                sosa_root_person_id: None,
+                                            };
+                                            match api.update_tree(tid, &body).await {
+                                                Ok(_) => {
+                                                    rename_tree_id.set(None);
+                                                    rename_error.set(None);
+                                                    refresh_counter += 1;
+                                                }
+                                                Err(e) => rename_error.set(Some(format!("{e}"))),
+                                            }
+                                        });
+                                    }
+                                },
+                                {i18n.t("common.save")}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Import / duplicate blocking overlay ──
         if importing_tree_id().is_some() {
             div { class: "import-overlay",
                 div { class: "import-spinner" }
                 div { class: "import-overlay-text", {i18n.t("common.importing_gedcom")} }
+            }
+        }
+        if duplicating_tree_id().is_some() {
+            div { class: "import-overlay",
+                div { class: "import-spinner" }
+                div { class: "import-overlay-text", {i18n.t("common.duplicating")} }
             }
         }
 
@@ -436,6 +561,9 @@ fn TreeCard(
     updated_at: chrono::DateTime<Utc>,
     tree_id: String,
     importing: bool,
+    duplicating: bool,
+    on_rename: EventHandler<()>,
+    on_duplicate: EventHandler<()>,
     on_delete: EventHandler<()>,
     on_import: EventHandler<()>,
 ) -> Element {
@@ -525,11 +653,24 @@ fn TreeCard(
                                     onclick: move |_| menu_open.set(false),
                                     {i18n.t("common.open")}
                                 }
-                                Link {
-                                    to: Route::Settings { tree_id: tree_id.clone() },
+                                button {
                                     class: "tree-card-dropdown-item",
-                                    onclick: move |_| menu_open.set(false),
-                                    {i18n.t("common.settings")}
+                                    onclick: move |e: Event<MouseData>| {
+                                        e.stop_propagation();
+                                        menu_open.set(false);
+                                        on_rename.call(());
+                                    },
+                                    {i18n.t("common.rename")}
+                                }
+                                button {
+                                    class: "tree-card-dropdown-item",
+                                    disabled: duplicating,
+                                    onclick: move |e: Event<MouseData>| {
+                                        e.stop_propagation();
+                                        menu_open.set(false);
+                                        on_duplicate.call(());
+                                    },
+                                    if duplicating { {i18n.t("common.duplicating")} } else { {i18n.t("common.duplicate")} }
                                 }
                                 button {
                                     class: "tree-card-dropdown-item",
@@ -540,6 +681,12 @@ fn TreeCard(
                                         on_import.call(());
                                     },
                                     if importing { {i18n.t("common.importing")} } else { {i18n.t("common.import")} }
+                                }
+                                Link {
+                                    to: Route::Settings { tree_id: tree_id.clone() },
+                                    class: "tree-card-dropdown-item",
+                                    onclick: move |_| menu_open.set(false),
+                                    {i18n.t("common.settings")}
                                 }
                                 button {
                                     class: "tree-card-dropdown-item tree-card-dropdown-danger",
