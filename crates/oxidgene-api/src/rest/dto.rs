@@ -33,6 +33,12 @@ pub struct UpdateTreeRequest {
     pub sosa_root_person_id: Option<Option<uuid::Uuid>>,
 }
 
+/// Request body for duplicating a tree.
+#[derive(Debug, Deserialize)]
+pub struct DuplicateTreeRequest {
+    pub name: String,
+}
+
 // ── Person DTOs ──────────────────────────────────────────────────────
 
 /// Query parameters for searching persons by name.
