@@ -1208,6 +1208,11 @@ pub struct PedigreeChartProps {
     /// person get a small badge indicator on their card.
     #[props(default)]
     pub sosa_root_person_id: Option<Uuid>,
+    /// Pre-computed set of ancestor IDs for the SOSA root (from the closure
+    /// table). When provided, used instead of traversing the limited pedigree
+    /// graph — ensures badges appear even when jumping to distant ancestors.
+    #[props(default)]
+    pub sosa_ancestor_ids: Option<std::collections::HashSet<Uuid>>,
     /// Incremented by the parent to force re-centering on the root person,
     /// even when `root_person_id` hasn't changed (e.g. navigating back from
     /// the person profile page).
@@ -1324,9 +1329,16 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     );
 
     // ── Compute SOSA ancestor set (persons who are ancestors of the SOSA root) ──
+    // Use server-provided SOSA ancestor set (from closure table) when available,
+    // falling back to local graph traversal (which only works within the pedigree window).
     let sosa_ancestors: std::collections::HashSet<Uuid> = props
-        .sosa_root_person_id
-        .map(|sosa_id| props.data.ancestor_set(sosa_id))
+        .sosa_ancestor_ids
+        .clone()
+        .or_else(|| {
+            props
+                .sosa_root_person_id
+                .map(|sosa_id| props.data.ancestor_set(sosa_id))
+        })
         .unwrap_or_default();
 
     // ── Center root card in viewport when needed ──
