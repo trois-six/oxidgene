@@ -202,6 +202,33 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
+    // ── Fetch SOSA ancestor IDs from closure table ──
+    // This set is used to display the green SOSA badge on ancestor cards,
+    // even when jumping to a distant ancestor outside the pedigree window.
+    let api_sosa = api.clone();
+    let sosa_ancestors_resource = use_resource(move || {
+        let api = api_sosa.clone();
+        let tid = tree_id_parsed();
+        let _gen = tree_cache.generation();
+        // Read sosa_root_person_id reactively from tree_resource.
+        let sosa_root = match &*tree_resource.read() {
+            Some(Ok(tree)) => tree.sosa_root_person_id,
+            _ => None,
+        };
+        async move {
+            let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
+                return std::collections::HashSet::new();
+            };
+            match api.get_ancestors(tid, sosa_id, None).await {
+                Ok(entries) => entries
+                    .into_iter()
+                    .map(|a| a.ancestor_id)
+                    .collect::<std::collections::HashSet<Uuid>>(),
+                Err(_) => std::collections::HashSet::new(),
+            }
+        }
+    });
+
     // ── Fetch pedigree from cache API ──
     let api_pedigree = api.clone();
     let mut pedigree_resource = use_resource(move || {
@@ -919,6 +946,13 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         let guard = tree_resource.read();
                         match &*guard {
                             Some(Ok(tree)) => tree.sosa_root_person_id,
+                            _ => None,
+                        }
+                    },
+                    sosa_ancestor_ids: {
+                        let guard = sosa_ancestors_resource.read();
+                        match &*guard {
+                            Some(set) if !set.is_empty() => Some(set.clone()),
                             _ => None,
                         }
                     },
