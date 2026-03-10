@@ -39,6 +39,11 @@ pub struct UpdateTreeBody {
     pub sosa_root_person_id: Option<Option<Uuid>>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DuplicateTreeBody {
+    pub name: String,
+}
+
 // ── Person request bodies ───────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -530,6 +535,18 @@ impl ApiClient {
 
     pub async fn update_tree(&self, id: Uuid, body: &UpdateTreeBody) -> Result<Tree, ApiError> {
         let result = self.put(&format!("/api/v1/trees/{id}"), body).await?;
+        self.cache.invalidate_prefix("/api/v1/trees");
+        Ok(result)
+    }
+
+    pub async fn duplicate_tree(
+        &self,
+        id: Uuid,
+        body: &DuplicateTreeBody,
+    ) -> Result<Tree, ApiError> {
+        let result = self
+            .post(&format!("/api/v1/trees/{id}/duplicate"), body)
+            .await?;
         self.cache.invalidate_prefix("/api/v1/trees");
         Ok(result)
     }

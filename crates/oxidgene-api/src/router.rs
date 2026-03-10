@@ -31,7 +31,8 @@ pub fn build_router(state: AppState) -> Router {
             get(tree::get_tree)
                 .put(tree::update_tree)
                 .delete(tree::delete_tree),
-        );
+        )
+        .route("/{tree_id}/duplicate", post(tree::duplicate_tree));
 
     let person_routes = Router::new()
         .route(

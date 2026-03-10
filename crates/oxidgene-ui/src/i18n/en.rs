@@ -22,6 +22,9 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("common.or", "or"),
         ("common.unnamed", "Unnamed"),
         ("common.unknown", "Unknown"),
+        ("common.rename", "Rename"),
+        ("common.duplicate", "Duplicate"),
+        ("common.duplicating", "Duplicating\u{2026}"),
         ("common.settings", "Settings"),
         ("common.export", "Export"),
         ("common.import", "Import"),
@@ -91,6 +94,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("tree.form.description_label", "Description (optional)"),
         ("tree.form.description_placeholder", "A brief description\u{2026}"),
         // ── Confirm dialogs ─────────────────────────────────────────
+        ("home.rename_tree", "Rename Tree"),
+        ("home.duplicate_suffix", " (copy)"),
         ("confirm.delete_tree.title", "Delete Tree"),
         ("confirm.delete_tree.message", "Are you sure you want to delete this tree and all its data? This action cannot be undone."),
         ("confirm.delete_tree.message_name", "Delete \"{name}\"? This action cannot be undone."),
