@@ -1747,96 +1747,209 @@ pub const LAYOUT_STYLES: &str = r#"
         z-index: 1;
     }
 
-    .pedigree-card-wrap .pedigree-node {
-        width: 185px;
-        max-width: 185px;
-        min-height: 88px;
+    /* ── RT card design — matches svg-renderer.js dimensions exactly ────── */
+    /*
+     * Layout unit:  normal=185×96  compact=95×144
+     * Visible card: normal=175×67  compact=82×115  (5px margin from unit)
+     * Gender line:  2px wide × 50px tall, positioned 4px from card left, 10px from top
+     * Photo:        50×50px square, 5px from card left, 10px from top
+     * Text:         starts at x=65 (normal) or x=10/y=76 (compact below photo)
+     * SOSA badge:   15×15px circle at (50,50) from card origin (normal) or (55,45) (compact)
+     */
+
+    /* Card wrapper = layout unit, transparent, just for positioning */
+    .pedigree-card-wrap {
+        overflow: visible;
     }
 
-    /* ── New RT card design ──────────────────────────────────────── */
-
+    /* Visible card: 175×67, offset 5px inside the 185×96 layout unit */
     .pedigree-node {
-        display: flex;
-        flex-direction: row;
-        align-items: stretch;
-        background: var(--pn-bg);
-        color: var(--pn-text);
-        border-radius: 4px;
+        position: absolute;
+        left: 5px;
+        top: 5px;
+        width: 175px;
+        height: 67px;
+        border-radius: 5px;
         overflow: hidden;
         cursor: pointer;
-        box-shadow: var(--shadow-sm);
-        transition: box-shadow 0.15s, outline 0.1s;
-        outline: 2px solid transparent;
-        position: relative;
+        background: var(--pn-bg);
+        color: var(--pn-text);
+        border: 1px solid var(--pn-border);
+        transition: box-shadow 0.15s;
     }
 
-    .pedigree-node.current {
-        background: var(--pn-root-bg);
-        color: #ffffff;
-    }
+    .pedigree-node.current  { background: var(--pn-root-bg); color: #ffffff; border-color: var(--pn-root-bg); }
+    .pedigree-node.sibling  { background: var(--pn-spouse-bg); }
+    .pedigree-node.selected { box-shadow: 0 0 0 2px var(--orange); }
+    .pedigree-node:hover    { box-shadow: 0 0 0 1px rgba(224,120,32,0.5); }
 
-    .pedigree-node.selected {
-        outline: 2px solid var(--orange);
-    }
-
-    .pedigree-node:hover { box-shadow: 0 0 0 1px rgba(224,120,32,0.3), var(--shadow-sm); }
-
-    /* ── Gender line strip ───────────────────────────────────────── */
-
+    /* Gender line: 2px vertical stroke, left of photo (same as SVG path M9,10 L9,60) */
     .pc-gender-line {
-        width: 3px;
-        flex-shrink: 0;
+        position: absolute;
+        left: 4px;
+        top: 10px;
+        width: 2px;
+        height: 50px;
         background: var(--pn-border);
+        border-radius: 1px;
     }
     .pc-gender-line-male   { background: var(--pn-male-line); }
     .pc-gender-line-female { background: var(--pn-female-line); }
 
-    /* ── Avatar circle ───────────────────────────────────────────── */
+    /* Photo: 50×50 square at (5,10) inside card — same as SVG x=10,y=10 with card offset 5 */
+    .pc-ph {
+        position: absolute;
+        left: 5px;
+        top: 10px;
+        width: 50px;
+        height: 50px;
+        overflow: hidden;
+        background: var(--pn-spouse-bg);
+    }
 
     .pc-avatar {
-        width: 44px;
-        height: 44px;
-        border-radius: 50%;
+        width: 50px;
+        height: 50px;
         object-fit: cover;
-        flex-shrink: 0;
-        align-self: center;
-        margin: 0 6px;
+        display: block;
     }
 
     .pc-initials {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(128,128,128,0.15);
-        font-size: 0.85rem;
+        width: 50px;
+        height: 50px;
+        font-size: 0.9rem;
         font-weight: 600;
-        color: inherit;
+        color: var(--pn-text-muted);
+        background: rgba(128,128,128,0.12);
     }
 
-    /* ── Compact card (deepest ancestor level) ───────────────────── */
+    /* SOSA badge: 15×15 circle at card (50,50) — matches SVG cx=57.5, cy=57.5 within card */
+    .sosa-badge {
+        position: absolute;
+        left: 50px;
+        top: 50px;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+    }
+    .sosa-badge-root {
+        background: rgb(109, 161, 24);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        color: #fff;
+        line-height: 1;
+    }
+    .sosa-badge-direct {
+        background: rgb(149, 196, 23);
+        box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(149,196,23);
+    }
 
-    .pedigree-node-compact {
+    /* Text body: starts at x=65 from card left, y=16 from card top */
+    .pc-body {
+        position: absolute;
+        left: 65px;
+        top: 16px;
+        right: 4px;
+        bottom: 4px;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
-        align-items: center;
-        background: var(--pn-bg);
-        color: var(--pn-text);
-        border-radius: 4px;
-        overflow: hidden;
-        cursor: pointer;
-        box-shadow: var(--shadow-sm);
-        padding: 6px 4px;
-        font-size: 0.72rem;
-        outline: 2px solid transparent;
+        gap: 0;
     }
 
-    .pedigree-node-compact.selected { outline: 2px solid var(--orange); }
-    .pedigree-node-compact.current  { background: var(--pn-root-bg); color: #ffffff; }
+    .pc-name {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .pc-last {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.3;
+    }
+
+    .pc-first {
+        font-size: 0.7rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--pn-text);
+        line-height: 1.3;
+    }
+
+    .pc-dates {
+        font-size: 0.65rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        margin-top: 2px;
+    }
+
+    .pc-born { color: var(--pn-born); line-height: 1.2; }
+    .pc-died { color: var(--pn-died); line-height: 1.2; }
+
+    /* ── Compact card (deepest ancestor level): 82×115 at (5,5) in 95×144 unit ── */
+
+    .pedigree-node-compact {
+        position: absolute;
+        left: 5px;
+        top: 5px;
+        width: 82px;
+        height: 115px;
+        border-radius: 5px;
+        overflow: hidden;
+        cursor: pointer;
+        background: var(--pn-bg);
+        color: var(--pn-text);
+        border: 1px solid var(--pn-border);
+        transition: box-shadow 0.15s;
+    }
+
+    .pedigree-node-compact.current  { background: var(--pn-root-bg); color: #ffffff; border-color: var(--pn-root-bg); }
+    .pedigree-node-compact.selected { box-shadow: 0 0 0 2px var(--orange); }
+    .pedigree-node-compact:hover    { box-shadow: 0 0 0 1px rgba(224,120,32,0.5); }
+
+    /* Compact gender line: same height as photo, at (14,10) from card */
+    .pedigree-node-compact .pc-gender-line {
+        left: 14px;
+    }
+
+    /* Compact photo: at (15,10) from card left, same as SVG x=20,y=10 with 5px offset */
+    .pedigree-node-compact .pc-ph {
+        left: 15px;
+    }
+
+    /* Compact SOSA badge: at (55,45) from card = SVG (60,50) with 5px offset */
+    .pedigree-node-compact .sosa-badge {
+        left: 55px;
+        top: 45px;
+    }
+
+    /* Compact text body: below photo, starts at y=71 (SVG y=76) from card top */
+    .pedigree-node-compact .pc-body {
+        position: absolute;
+        left: 5px;
+        top: 71px;
+        right: 4px;
+        bottom: 4px;
+        font-size: 0.65rem;
+    }
 
     /* ── Role-based card backgrounds ───────────────────────────── */
 
-    .pedigree-node.ancestor  { background: color-mix(in srgb, var(--bg-card) 95%, #4a90d9 5%); }
-    .pedigree-node.descendant { background: color-mix(in srgb, var(--bg-card) 95%, #5aab3c 5%); }
+    .pedigree-node.ancestor  { background: var(--pn-bg); }
+    .pedigree-node.descendant { background: var(--pn-bg); }
 
     /* ── Animated transitions ──────────────────────────────────── */
 

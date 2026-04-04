@@ -615,6 +615,7 @@ impl PedigreeData {
     }
 
     /// Returns the correct symbol for the birth/start date.
+    #[allow(dead_code)]
     fn birth_symbol(&self, person_id: Uuid) -> &'static str {
         let Some(events) = self.events_by_person.get(&person_id) else {
             return "\u{2726}";
@@ -635,6 +636,7 @@ impl PedigreeData {
     }
 
     /// Returns the correct symbol for the death/end date.
+    #[allow(dead_code)]
     fn death_symbol(&self, person_id: Uuid) -> &'static str {
         let Some(events) = self.events_by_person.get(&person_id) else {
             return "\u{271D}";
@@ -2815,8 +2817,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                         let has_name = !given_s.is_empty() || !surname_s.is_empty();
                                         let birth_s = node.birth_year.map(|y| y.to_string()).unwrap_or_default();
                                         let death_s = node.death_year.map(|y| y.to_string()).unwrap_or_default();
-                                        let birth_sym = props.data.birth_symbol(pid);
-                                        let death_sym = props.data.death_symbol(pid);
                                         let initials = make_initials(&given_s, &surname_s);
                                         let is_focus = pid == props.root_person_id;
                                         let is_sosa_ancestor = matches!(node.sosa_badge, SosaBadge::Direct);
@@ -2860,9 +2860,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                         selected_person_id.set(pid);
                                                         on_navigate.call(pid);
                                                     },
-                                                    // Gender line strip
+                                                    // Gender line (2px vertical, left of photo)
                                                     div { class: gender_line_class }
-                                                    // Avatar
+                                                    // Photo (50×50 square)
                                                     div { class: "pc-ph",
                                                         if let Some(ref url) = photo_url {
                                                             img {
@@ -2871,34 +2871,37 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                                 alt: "{initials}",
                                                             }
                                                         } else {
-                                                            span { class: "pc-avatar pc-initials", "{initials}" }
-                                                        }
-                                                        if is_sosa_root || is_sosa_ancestor {
-                                                            span {
-                                                                class: if is_sosa_root { "sosa-badge sosa-badge-root" } else { "sosa-badge" },
-                                                                title: if is_sosa_root { "SOSA 1" } else { "SOSA" },
-                                                            }
+                                                            span { class: "pc-initials", "{initials}" }
                                                         }
                                                     }
+                                                    // SOSA badge (positioned absolute, sibling of photo)
+                                                    if is_sosa_root {
+                                                        span { class: "sosa-badge sosa-badge-root", title: "SOSA 1", "1" }
+                                                    } else if is_sosa_ancestor {
+                                                        span { class: "sosa-badge sosa-badge-direct", title: "SOSA" }
+                                                    }
+                                                    // Text body
                                                     div { class: "pc-body",
-                                                        div { class: "pc-name",
-                                                            if !surname_s.is_empty() {
-                                                                span { class: "pc-last", "{surname_s}" }
-                                                            }
-                                                            if !given_s.is_empty() {
-                                                                span { class: "pc-first", "{given_s}" }
-                                                            }
-                                                            if !has_name {
-                                                                span { class: "pc-first", {i18n.t("common.unknown")} }
-                                                            }
+                                                        if !surname_s.is_empty() {
+                                                            span { class: "pc-last", "{surname_s}" }
+                                                        }
+                                                        if !given_s.is_empty() {
+                                                            span { class: "pc-first", "{given_s}" }
+                                                        }
+                                                        if !has_name {
+                                                            span { class: "pc-first", {i18n.t("common.unknown")} }
                                                         }
                                                         if !birth_s.is_empty() || !death_s.is_empty() {
                                                             div { class: "pc-dates",
-                                                                if !birth_s.is_empty() {
-                                                                    span { class: "pc-born", "{birth_sym} {birth_s}" }
-                                                                }
-                                                                if !death_s.is_empty() {
-                                                                    span { class: "pc-died", "{death_sym} {death_s}" }
+                                                                span { class: "pc-born",
+                                                                    {
+                                                                        match (!birth_s.is_empty(), !death_s.is_empty()) {
+                                                                            (true, true)  => format!("{birth_s}-{death_s}"),
+                                                                            (true, false) => format!("{birth_s}-"),
+                                                                            (false, true) => format!("-{death_s}"),
+                                                                            _ => String::new(),
+                                                                        }
+                                                                    }
                                                                 }
                                                             }
                                                         }
