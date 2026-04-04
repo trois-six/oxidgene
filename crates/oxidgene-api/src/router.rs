@@ -153,7 +153,7 @@ pub fn build_router(state: AppState) -> Router {
     let media_link_routes = Router::new()
         .route(
             "/{tree_id}/media-links",
-            post(media_link::create_media_link),
+            get(media_link::list_media_links).post(media_link::create_media_link),
         )
         .route(
             "/{tree_id}/media-links/{link_id}",

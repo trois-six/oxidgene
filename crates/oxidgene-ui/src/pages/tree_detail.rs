@@ -285,6 +285,27 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
+    // ── Fetch photo map for the tree (person_id → file_path) ──
+    let api_photos = api.clone();
+    let photos_resource = use_resource(move || {
+        let api = api_photos.clone();
+        let tid = tree_id_parsed();
+        let _gen = tree_cache.generation();
+        async move {
+            let Some(tid) = tid else {
+                return std::collections::HashMap::new();
+            };
+            match api.list_media_links_for_tree(tid).await {
+                Ok(rows) => rows
+                    .into_iter()
+                    .filter(|r| r.entity_type == "person")
+                    .map(|r| (r.entity_id, r.file_path))
+                    .collect::<std::collections::HashMap<Uuid, String>>(),
+                Err(_) => std::collections::HashMap::new(),
+            }
+        }
+    });
+
     // Force resources to re-fetch when tree_id changes (component reused by router).
     if tree_changed {
         tree_resource.restart();
@@ -294,11 +315,19 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     // ── Build pedigree data from cached pedigree ──
     let (pedigree_data, root_person_id): (Option<PedigreeData>, Option<Uuid>) = {
         let ped_data = pedigree_resource.read();
+        let photos: std::collections::HashMap<Uuid, String> = {
+            let guard = photos_resource.read();
+            match &*guard {
+                Some(map) => map.clone(),
+                None => std::collections::HashMap::new(),
+            }
+        };
         match &*ped_data {
-            Some(Ok(cached_ped)) => (
-                Some(PedigreeData::from_cached_pedigree(cached_ped)),
-                Some(cached_ped.root_person_id),
-            ),
+            Some(Ok(cached_ped)) => {
+                let mut pd = PedigreeData::from_cached_pedigree(cached_ped);
+                pd.photos = photos;
+                (Some(pd), Some(cached_ped.root_person_id))
+            }
             _ => (None, selected_root()),
         }
     };
