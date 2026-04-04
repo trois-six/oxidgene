@@ -5,10 +5,11 @@
 //!   -> `.pedigree-viewport` (pannable/zoomable canvas)
 //!   -> `.ev-panel` (selected-person event list)
 //!
-//! Cards are placed on a fixed-step grid using absolute positioning.
-//! Connectors are drawn via SVG overlay with 90-degree L-shaped bends.
+//! Cards are positioned using the Reingold-Tilford (Buchheim variant) algorithm,
+//! the same algorithm used by Geneanet's tree view.
+//! Connectors are drawn via SVG overlay with Bézier curves.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
@@ -24,14 +25,18 @@ use oxidgene_core::{ChildType, EventType, Sex, SpouseRole};
 
 use crate::i18n::use_i18n;
 
-// ── Layout constants ─────────────────────────────────────────────────────
+// ── Layout constants (matching the JS reference implementation) ──────────
 
-const CARD_W: f64 = 180.0;
-const CARD_H: f64 = 80.0;
-const H_GAP: f64 = 16.0;
-const V_GAP: f64 = 40.0;
-const STEP: f64 = CARD_W + H_GAP; // 196
-const _CONNECTOR_MID: f64 = V_GAP / 2.0; // vertical midpoint between rows
+/// Standard card width in pixels.
+const CARD_W: f64 = 185.0;
+/// Standard card height in pixels.
+const CARD_H: f64 = 96.0;
+/// Compact ancestor card width (for deepest level).
+const COMPACT_W: f64 = 95.0;
+/// Compact ancestor card height.
+const COMPACT_H: f64 = 144.0;
+/// First descendant level height.
+const DESC_H: f64 = 140.0;
 
 // ── Helper functions ─────────────────────────────────────────────────────
 
@@ -113,6 +118,12 @@ pub struct PedigreeData {
     pub events_by_person: HashMap<Uuid, Vec<DomainEvent>>,
     pub events_by_family: HashMap<Uuid, Vec<DomainEvent>>,
     pub places: HashMap<Uuid, Place>,
+    /// person_id → photo URL (file_path from media table).
+    pub photos: HashMap<Uuid, String>,
+    /// Pre-computed SOSA ancestor set (persons who are ancestors of the SOSA root).
+    pub sosa_ancestors: HashSet<Uuid>,
+    /// The SOSA root person ID (from tree settings).
+    pub sosa_root_id: Option<Uuid>,
 }
 
 impl PartialEq for PedigreeData {
@@ -186,6 +197,9 @@ impl PedigreeData {
             events_by_person,
             events_by_family,
             places,
+            photos: HashMap::new(),
+            sosa_ancestors: HashSet::new(),
+            sosa_root_id: None,
         }
     }
 
@@ -495,6 +509,9 @@ impl PedigreeData {
             events_by_person,
             events_by_family,
             places: HashMap::new(),
+            photos: HashMap::new(),
+            sosa_ancestors: HashSet::new(),
+            sosa_root_id: None,
         }
     }
 
@@ -700,501 +717,1449 @@ impl PedigreeData {
     }
 }
 
-// ── Ancestor slot tree ───────────────────────────────────────────────────
+// ── RT Layout Engine ─────────────────────────────────────────────────────
+//
+// Port of the Reingold-Tilford (Buchheim variant) algorithm from the
+// JavaScript reference at test-tree-algo/layout.js + tree-builder.js.
+// All traversals use explicit stacks to avoid stack overflows on deep trees.
 
-#[derive(Clone, Debug)]
-enum PedigreeSlot {
-    Person(Uuid),
-    Empty,
+/// SOSA badge type for a node.
+#[derive(Clone, Debug, PartialEq)]
+enum SosaBadge {
+    None,
+    Root,
+    Direct,
 }
 
-fn build_ancestor_slots(
-    root_id: Uuid,
-    data: &PedigreeData,
-    levels: usize,
-) -> Vec<Vec<PedigreeSlot>> {
-    let mut generations = vec![vec![PedigreeSlot::Person(root_id)]];
-    for _ in 0..levels {
-        let prev = generations.last().unwrap();
-        let mut next = Vec::new();
-        for slot in prev {
-            match slot {
-                PedigreeSlot::Person(pid) => {
-                    let (father, mother) = data.parents_of(*pid);
-                    next.push(match father {
-                        Some(id) => PedigreeSlot::Person(id),
-                        None => PedigreeSlot::Empty,
-                    });
-                    next.push(match mother {
-                        Some(id) => PedigreeSlot::Person(id),
-                        None => PedigreeSlot::Empty,
-                    });
-                }
-                PedigreeSlot::Empty => {
-                    next.push(PedigreeSlot::Empty);
-                    next.push(PedigreeSlot::Empty);
-                }
-            }
+/// A node in the layout tree arena.
+#[derive(Clone, Debug)]
+struct TreeNode {
+    id: Option<Uuid>,
+    depth: i32,
+    sex: Sex,
+    label_surname: String,
+    label_given: String,
+    birth_year: Option<i32>,
+    death_year: Option<i32>,
+    photo_url: Option<String>,
+    sosa_badge: SosaBadge,
+    /// Indices into the TreeNode arena of children (for RT traversal).
+    children: Vec<usize>,
+    /// Spouse node indices (siblings in RT terms).
+    siblings: Vec<usize>,
+    parent2: Option<usize>,
+    /// 0 = male-first ordering, 1 = female-first.
+    after: i32,
+    is_sibling: bool,
+    before_sibling: bool,
+    after_sibling: bool,
+    x: f64,
+    y: f64,
+    #[allow(dead_code)]
+    show: bool,
+    /// For empty ancestor slots: which child they belong to.
+    child_of: Option<Uuid>,
+    /// For empty ancestor slots: is this the father slot?
+    is_father: bool,
+}
+
+impl TreeNode {
+    #[allow(clippy::too_many_arguments)]
+    fn new_real(
+        id: Uuid,
+        depth: i32,
+        sex: Sex,
+        given: String,
+        surname: String,
+        birth_year: Option<i32>,
+        death_year: Option<i32>,
+        photo_url: Option<String>,
+        sosa_badge: SosaBadge,
+        after: i32,
+        before_sibling: bool,
+        after_sibling: bool,
+    ) -> Self {
+        Self {
+            id: Some(id),
+            depth,
+            sex,
+            label_surname: surname,
+            label_given: given,
+            birth_year,
+            death_year,
+            photo_url,
+            sosa_badge,
+            children: vec![],
+            siblings: vec![],
+            parent2: None,
+            after,
+            is_sibling: false,
+            before_sibling,
+            after_sibling,
+            x: 0.0,
+            y: 0.0,
+            show: true,
+            child_of: None,
+            is_father: false,
         }
-        generations.push(next);
     }
-    generations
+
+    fn new_empty(depth: i32, child_of: Option<Uuid>, is_father: bool) -> Self {
+        Self {
+            id: None,
+            depth,
+            sex: Sex::Unknown,
+            label_surname: String::new(),
+            label_given: String::new(),
+            birth_year: None,
+            death_year: None,
+            photo_url: None,
+            sosa_badge: SosaBadge::None,
+            children: vec![],
+            siblings: vec![],
+            parent2: None,
+            after: 0,
+            is_sibling: false,
+            before_sibling: false,
+            after_sibling: false,
+            x: 0.0,
+            y: 0.0,
+            show: true,
+            child_of,
+            is_father,
+        }
+    }
 }
 
-// ── Descendant structures ────────────────────────────────────────────────
-
+/// Working node for the Reingold-Tilford algorithm.
 #[derive(Clone, Debug)]
-struct DescendantFamily {
-    #[allow(dead_code)]
-    parent_id: Uuid,
-    #[allow(dead_code)]
-    spouse_id: Option<Uuid>,
-    family_id: Uuid,
-    children: Vec<Uuid>,
+struct WrapNode {
+    orig: usize,
+    parent: Option<usize>,
+    children: Vec<usize>,
+    siblings: Vec<usize>,
+    parent2: Option<usize>,
+    z: f64,
+    m: f64,
+    c: f64,
+    s: f64,
+    t: Option<usize>,
+    /// ancestor pointer (self-index by default)
+    a: usize,
+    i: usize,
 }
 
-#[derive(Clone, Debug)]
-struct DescendantGeneration {
-    families: Vec<DescendantFamily>,
+/// Connectivity for a single person extracted from pedigree data.
+struct PersonNode {
+    sex: Sex,
+    given: String,
+    surname: String,
+    birth_year: Option<i32>,
+    death_year: Option<i32>,
+    photo_url: Option<String>,
+    sosa_badge: SosaBadge,
 }
 
-fn build_descendant_generations(
+impl PersonNode {
+    fn from_data(
+        id: Uuid,
+        data: &PedigreeData,
+        sosa_root_id: Option<Uuid>,
+        sosa_ancestors: &HashSet<Uuid>,
+    ) -> Self {
+        let sex = data.sex_of(id);
+        let (given, surname, _) = data.name_parts(id);
+        let given = given.unwrap_or_default();
+        let surname = surname.unwrap_or_default();
+
+        let birth_year = data
+            .events_by_person
+            .get(&id)
+            .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Birth))
+            .and_then(|e| e.date_value.as_deref())
+            .and_then(|d| {
+                d.split_whitespace()
+                    .find(|w| w.len() == 4 && w.parse::<u32>().is_ok())
+                    .and_then(|w| w.parse::<i32>().ok())
+            });
+
+        let death_year = data
+            .events_by_person
+            .get(&id)
+            .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Death))
+            .and_then(|e| e.date_value.as_deref())
+            .and_then(|d| {
+                d.split_whitespace()
+                    .find(|w| w.len() == 4 && w.parse::<u32>().is_ok())
+                    .and_then(|w| w.parse::<i32>().ok())
+            });
+
+        let photo_url = data.photos.get(&id).cloned();
+
+        let sosa_badge = if sosa_root_id == Some(id) {
+            SosaBadge::Root
+        } else if sosa_ancestors.contains(&id) {
+            SosaBadge::Direct
+        } else {
+            SosaBadge::None
+        };
+
+        PersonNode {
+            sex,
+            given,
+            surname,
+            birth_year,
+            death_year,
+            photo_url,
+            sosa_badge,
+        }
+    }
+}
+
+/// Build the ascending (ancestor) tree into the arena.
+/// Returns index of root node in the arena.
+fn build_ascending_tree(
     root_id: Uuid,
     data: &PedigreeData,
-    max_levels: usize,
-) -> Vec<DescendantGeneration> {
-    if max_levels == 0 {
-        return vec![];
-    }
-    let mut result = Vec::new();
-    let mut current_parents = vec![root_id];
+    max_ascendants: usize,
+    sosa_root_id: Option<Uuid>,
+    sosa_ancestors: &HashSet<Uuid>,
+) -> Vec<TreeNode> {
+    let mut arena: Vec<TreeNode> = Vec::new();
 
-    for _ in 0..max_levels {
-        let mut generation = DescendantGeneration {
-            families: Vec::new(),
+    // Helper: get parents of a person (father, mother).
+    let get_parents = |pid: Uuid| -> (Option<Uuid>, Option<Uuid>) { data.parents_of(pid) };
+
+    // Check if root has siblings (children of same parent family).
+    let (before_sibling, after_sibling) = {
+        let siblings = get_siblings(root_id, data);
+        let idx = siblings.iter().position(|&s| s == root_id).unwrap_or(0);
+        (idx > 0, idx < siblings.len().saturating_sub(1))
+    };
+
+    let root_pn = PersonNode::from_data(root_id, data, sosa_root_id, sosa_ancestors);
+    let root_after = if root_pn.sex == Sex::Female { 1 } else { 0 };
+    arena.push(TreeNode::new_real(
+        root_id,
+        0,
+        root_pn.sex,
+        root_pn.given,
+        root_pn.surname,
+        root_pn.birth_year,
+        root_pn.death_year,
+        root_pn.photo_url,
+        root_pn.sosa_badge,
+        root_after,
+        before_sibling,
+        after_sibling,
+    ));
+
+    // Iterative BFS to build ancestor tree.
+    // Stack items: (arena_index, current_depth).
+    let mut work: Vec<(usize, i32)> = vec![(0, 0)];
+    while let Some((node_idx, depth)) = work.pop() {
+        if depth.unsigned_abs() as usize >= max_ascendants {
+            continue;
+        }
+        let pid = match arena[node_idx].id {
+            Some(p) => p,
+            None => continue,
         };
-        let mut next_parents = Vec::new();
-        let mut seen_families = std::collections::HashSet::new();
+        let (father_id, mother_id) = get_parents(pid);
+        let child_depth = depth - 1;
 
-        for &parent_id in &current_parents {
-            let family_ids = data
-                .families_as_spouse
-                .get(&parent_id)
-                .cloned()
-                .unwrap_or_default();
+        let mut child_indices = Vec::new();
 
-            for fid in family_ids {
-                if !seen_families.insert(fid) {
-                    continue;
-                }
+        if let Some(fid) = father_id {
+            let pn = PersonNode::from_data(fid, data, sosa_root_id, sosa_ancestors);
+            let idx = arena.len();
+            arena.push(TreeNode::new_real(
+                fid,
+                child_depth,
+                pn.sex,
+                pn.given,
+                pn.surname,
+                pn.birth_year,
+                pn.death_year,
+                pn.photo_url,
+                pn.sosa_badge,
+                0,
+                false,
+                false,
+            ));
+            child_indices.push(idx);
+            work.push((idx, child_depth));
+        } else if father_id.is_none() && mother_id.is_some() {
+            // Empty father slot.
+            let idx = arena.len();
+            arena.push(TreeNode::new_empty(child_depth, Some(pid), true));
+            child_indices.push(idx);
+        }
 
+        if let Some(mid) = mother_id {
+            let pn = PersonNode::from_data(mid, data, sosa_root_id, sosa_ancestors);
+            let idx = arena.len();
+            arena.push(TreeNode::new_real(
+                mid,
+                child_depth,
+                pn.sex,
+                pn.given,
+                pn.surname,
+                pn.birth_year,
+                pn.death_year,
+                pn.photo_url,
+                pn.sosa_badge,
+                1,
+                false,
+                false,
+            ));
+            child_indices.push(idx);
+            work.push((idx, child_depth));
+        } else if mother_id.is_none() && father_id.is_some() {
+            // Empty mother slot.
+            let idx = arena.len();
+            arena.push(TreeNode::new_empty(child_depth, Some(pid), false));
+            child_indices.push(idx);
+        }
+
+        arena[node_idx].children = child_indices;
+    }
+
+    arena
+}
+
+/// Get ordered siblings of a person from their parent family.
+fn get_siblings(pid: Uuid, data: &PedigreeData) -> Vec<Uuid> {
+    let Some(fids) = data.families_as_child.get(&pid) else {
+        return vec![pid];
+    };
+    let Some(&fid) = fids.first() else {
+        return vec![pid];
+    };
+    let children: Vec<Uuid> = data
+        .children_by_family
+        .get(&fid)
+        .map(|cs| cs.iter().map(|c| c.person_id).collect())
+        .unwrap_or_default();
+    if children.is_empty() {
+        vec![pid]
+    } else {
+        children
+    }
+}
+
+/// Build the descending (descendant) tree into the arena.
+fn build_descending_tree(
+    root_id: Uuid,
+    data: &PedigreeData,
+    max_descendants: usize,
+    sosa_root_id: Option<Uuid>,
+    sosa_ancestors: &HashSet<Uuid>,
+) -> Vec<TreeNode> {
+    let mut arena: Vec<TreeNode> = Vec::new();
+
+    let (before_sibling, after_sibling) = {
+        let siblings = get_siblings(root_id, data);
+        let idx = siblings.iter().position(|&s| s == root_id).unwrap_or(0);
+        (idx > 0, idx < siblings.len().saturating_sub(1))
+    };
+
+    let root_pn = PersonNode::from_data(root_id, data, sosa_root_id, sosa_ancestors);
+    let root_after = if root_pn.sex == Sex::Female { 1 } else { 0 };
+    arena.push(TreeNode::new_real(
+        root_id,
+        0,
+        root_pn.sex,
+        root_pn.given,
+        root_pn.surname,
+        root_pn.birth_year,
+        root_pn.death_year,
+        root_pn.photo_url,
+        root_pn.sosa_badge,
+        root_after,
+        before_sibling,
+        after_sibling,
+    ));
+
+    // Iterative DFS to build descendant tree.
+    let mut visited: HashSet<Uuid> = HashSet::new();
+    let mut work: Vec<(usize, i32)> = vec![(0, 0)];
+
+    while let Some((node_idx, depth)) = work.pop() {
+        let pid = match arena[node_idx].id {
+            Some(p) => p,
+            None => continue,
+        };
+        if visited.contains(&pid) {
+            continue;
+        }
+        visited.insert(pid);
+
+        let family_ids: Vec<Uuid> = data
+            .families_as_spouse
+            .get(&pid)
+            .cloned()
+            .unwrap_or_default();
+
+        for fid in family_ids {
+            let spouse_id = data
+                .spouses_by_family
+                .get(&fid)
+                .and_then(|sps| sps.iter().find(|s| s.person_id != pid))
+                .map(|s| s.person_id);
+
+            let Some(sid) = spouse_id else { continue };
+
+            if visited.contains(&sid) {
+                continue;
+            }
+
+            let spn = PersonNode::from_data(sid, data, sosa_root_id, sosa_ancestors);
+            let spouse_after = if spn.sex == Sex::Female { 1 } else { 0 };
+            let spouse_arena_idx = arena.len();
+            let mut spouse_node = TreeNode::new_real(
+                sid,
+                depth,
+                spn.sex,
+                spn.given,
+                spn.surname,
+                spn.birth_year,
+                spn.death_year,
+                spn.photo_url,
+                spn.sosa_badge,
+                spouse_after,
+                false,
+                false,
+            );
+            spouse_node.is_sibling = true;
+            arena.push(spouse_node);
+            arena[node_idx].siblings.push(spouse_arena_idx);
+
+            if depth < max_descendants as i32 {
                 let children: Vec<Uuid> = data
                     .children_by_family
                     .get(&fid)
                     .map(|cs| cs.iter().map(|c| c.person_id).collect())
                     .unwrap_or_default();
 
-                if children.is_empty() {
-                    continue;
-                }
-
-                let spouse_id = data
-                    .spouses_by_family
-                    .get(&fid)
-                    .and_then(|sps| sps.iter().find(|s| s.person_id != parent_id))
-                    .map(|s| s.person_id);
-
-                for &child_id in &children {
-                    if !next_parents.contains(&child_id) {
-                        next_parents.push(child_id);
+                for child_id in children {
+                    if visited.contains(&child_id) {
+                        continue;
                     }
+                    let cpn = PersonNode::from_data(child_id, data, sosa_root_id, sosa_ancestors);
+                    let child_after = if cpn.sex == Sex::Female { 1 } else { 0 };
+                    let child_arena_idx = arena.len();
+                    let mut child_node = TreeNode::new_real(
+                        child_id,
+                        depth + 1,
+                        cpn.sex,
+                        cpn.given,
+                        cpn.surname,
+                        cpn.birth_year,
+                        cpn.death_year,
+                        cpn.photo_url,
+                        cpn.sosa_badge,
+                        child_after,
+                        false,
+                        false,
+                    );
+                    child_node.parent2 = Some(spouse_arena_idx);
+                    arena.push(child_node);
+                    arena[node_idx].children.push(child_arena_idx);
+                    work.push((child_arena_idx, depth + 1));
                 }
-
-                generation.families.push(DescendantFamily {
-                    parent_id,
-                    spouse_id,
-                    family_id: fid,
-                    children,
-                });
             }
         }
-
-        if generation.families.is_empty() {
-            break;
-        }
-        result.push(generation);
-        current_parents = next_parents;
     }
 
+    arena
+}
+
+// ── Reingold-Tilford core ────────────────────────────────────────────────
+
+fn wrap_tree(arena: &[TreeNode]) -> Vec<WrapNode> {
+    let n = arena.len();
+    // Pre-allocate all wrap nodes (one per arena node plus a virtual root).
+    // We use indices into this vec. The virtual root is at index n.
+    let mut wrap: Vec<WrapNode> = Vec::with_capacity(n + 1);
+
+    // Initialize one WrapNode per TreeNode.
+    for (i, tn) in arena.iter().enumerate() {
+        wrap.push(WrapNode {
+            orig: i,
+            parent: None,
+            children: tn.children.clone(),
+            siblings: tn.siblings.clone(),
+            parent2: tn.parent2,
+            z: 0.0,
+            m: 0.0,
+            c: 0.0,
+            s: 0.0,
+            t: None,
+            a: i, // self by default
+            i: 0,
+        });
+    }
+
+    // Wire parent pointers and child indices.
+    // Process children (wire parent = this node, i = position among children).
+    for wi in 0..n {
+        let children = wrap[wi].children.clone();
+        for (ci, &child_idx) in children.iter().enumerate() {
+            wrap[child_idx].parent = Some(wi);
+            wrap[child_idx].i = ci;
+        }
+    }
+
+    wrap
+}
+
+fn tree_left(wrap: &[WrapNode], v: usize) -> Option<usize> {
+    let children = &wrap[v].children;
+    if !children.is_empty() {
+        Some(children[0])
+    } else {
+        wrap[v].t
+    }
+}
+
+fn tree_right(wrap: &[WrapNode], v: usize) -> Option<usize> {
+    let children = &wrap[v].children;
+    if !children.is_empty() {
+        Some(*children.last().unwrap())
+    } else {
+        wrap[v].t
+    }
+}
+
+fn tree_move(wrap: &mut [WrapNode], wm: usize, wp: usize, shift: f64) {
+    let range = (wrap[wp].i as f64) - (wrap[wm].i as f64);
+    if range > 0.0 {
+        let change = shift / range;
+        wrap[wp].c -= change;
+        wrap[wm].c += change;
+    }
+    wrap[wp].s += shift;
+    wrap[wp].z += shift;
+    wrap[wp].m += shift;
+}
+
+fn tree_ancestor(wrap: &[WrapNode], vim: usize, v: usize, ancestor: usize) -> usize {
+    let vim_a = wrap[vim].a;
+    if wrap[vim_a].parent == wrap[v].parent {
+        vim_a
+    } else {
+        ancestor
+    }
+}
+
+fn tree_shift(wrap: &mut [WrapNode], node: usize) {
+    let children = wrap[node].children.clone();
+    let mut shift = 0.0f64;
+    let mut change = 0.0f64;
+    for i in (0..children.len()).rev() {
+        let w = children[i];
+        wrap[w].z += shift;
+        wrap[w].m += shift;
+        change += wrap[w].c;
+        shift += wrap[w].s + change;
+    }
+}
+
+fn tree_separation(arena: &[TreeNode], a: usize, b: usize, last_level: i32) -> f64 {
+    let a_depth = arena[a].depth;
+    let a_parent_depth = arena[b].depth; // same depth for siblings
+    let b_parent = arena[b].depth;
+    let _ = b_parent; // unused
+    if a_depth == last_level && a_parent_depth == last_level {
+        0.5
+    } else if arena[a].depth == arena[b].depth {
+        // same parent heuristic via depth equality
+        1.0
+    } else {
+        2.0
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apportion(
+    wrap: &mut [WrapNode],
+    arena: &[TreeNode],
+    v: usize,
+    w: Option<usize>,
+    ancestor_in: usize,
+    last_level: i32,
+) -> usize {
+    let mut ancestor = ancestor_in;
+    let Some(w) = w else { return ancestor };
+
+    let mut vip = v;
+    let mut vop = v;
+    let mut vim = w;
+    let vom_start = wrap[v].parent.map(|p| wrap[p].children[0]).unwrap_or(v);
+    let mut vom = vom_start;
+    let mut sip = wrap[vip].m;
+    let mut sop = wrap[vop].m;
+    let mut sim = wrap[vim].m;
+    let mut som = wrap[vom].m;
+
+    loop {
+        let vim_right = tree_right(wrap, vim);
+        let vip_left = tree_left(wrap, vip);
+        if vim_right.is_none() || vip_left.is_none() {
+            break;
+        }
+        let vim_next = vim_right.unwrap();
+        let vip_next = vip_left.unwrap();
+
+        // Update vom and vop.
+        let vom_left = tree_left(wrap, vom);
+        let vop_right = tree_right(wrap, vop);
+        if vom_left.is_none() || vop_right.is_none() {
+            break;
+        }
+        vom = vom_left.unwrap();
+        let vop_next = vop_right.unwrap();
+        wrap[vop_next].a = v;
+
+        // Compute siblings contribution for shift.
+        let mut sibling_z: f64 = 0.0;
+        for &si in &wrap[vim_next].siblings.clone() {
+            sibling_z += wrap[si].z;
+        }
+
+        let sep = tree_separation(arena, vim_next, vip_next, last_level);
+        let shift = wrap[vim_next].z + sim + sibling_z - wrap[vip_next].z - sip + sep;
+        if shift > 0.0 {
+            let anc = tree_ancestor(wrap, vim_next, v, ancestor);
+            tree_move(wrap, anc, v, shift);
+            sip += shift;
+            sop += shift;
+        }
+
+        sim += wrap[vim_next].m;
+        sip += wrap[vip_next].m;
+        som += wrap[vom].m;
+        sop += wrap[vop_next].m;
+
+        vim = vim_next;
+        vip = vip_next;
+        vop = vop_next;
+    }
+
+    if tree_right(wrap, vim).is_some() && tree_right(wrap, vop).is_none() {
+        let vim_r = tree_right(wrap, vim).unwrap();
+        wrap[vop].t = Some(vim_r);
+        wrap[vop].m += sim - sop;
+    }
+    if tree_left(wrap, vip).is_some() && tree_left(wrap, vom).is_none() {
+        let vip_l = tree_left(wrap, vip).unwrap();
+        wrap[vom].t = Some(vip_l);
+        wrap[vom].m += sip - som;
+        ancestor = v;
+    }
+
+    ancestor
+}
+
+fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level: i32) {
+    // Iterative post-order via explicit stack.
+    let mut post_order: Vec<usize> = Vec::new();
+    let mut stack = vec![root];
+    while let Some(v) = stack.pop() {
+        post_order.push(v);
+        for &c in &wrap[v].children.clone() {
+            stack.push(c);
+        }
+    }
+    post_order.reverse();
+
+    for v in post_order {
+        let parent = wrap[v].parent;
+        let siblings_in_parent = parent.map(|p| wrap[p].children.clone()).unwrap_or_default();
+        let prev_sibling = if wrap[v].i > 0 {
+            siblings_in_parent.get(wrap[v].i - 1).copied()
+        } else {
+            None
+        };
+
+        // Determine effective children: filter by first sibling's parent2 if node has siblings.
+        let node_siblings = wrap[v].siblings.clone();
+        let orig_children = wrap[v].children.clone();
+        let effective_children: Vec<usize> = if node_siblings.is_empty() {
+            orig_children.clone()
+        } else {
+            // Filter children belonging to first sibling (spouse).
+            let first_sib_orig = node_siblings.first().map(|&si| wrap[si].orig);
+            orig_children
+                .iter()
+                .copied()
+                .filter(|&ci| wrap[ci].parent2.map(|p2| wrap[p2].orig) == first_sib_orig)
+                .collect()
+        };
+
+        if !effective_children.is_empty() {
+            tree_shift(wrap, v);
+
+            let mut midpoint = 0.0f64;
+            if !node_siblings.is_empty() && (arena[v].after != 1 || effective_children.len() == 1) {
+                midpoint -= 0.5;
+            }
+
+            // Adjustment for female-first nodes (after=1) with siblings.
+            let first_child = effective_children[0];
+            let last_child = *effective_children.last().unwrap();
+            let mut m_adj = 0.0f64;
+            if arena[wrap[first_child].orig].after == 1 {
+                let fc_sibs = wrap[first_child].siblings.clone();
+                if let Some(&last_fc_sib) = fc_sibs.last() {
+                    m_adj += wrap[last_fc_sib].z;
+                }
+            }
+            let last_child_orig = wrap[last_child].orig;
+            if arena[last_child_orig].after == 1 {
+                let lc_sibs = wrap[last_child].siblings.clone();
+                if let Some(&last_lc_sib) = lc_sibs.last() {
+                    m_adj += wrap[last_lc_sib].z;
+                }
+            }
+
+            let last_sib_z = {
+                let lc_sibs = wrap[last_child].siblings.clone();
+                lc_sibs.last().map(|&s| wrap[s].z).unwrap_or(0.0)
+            };
+            midpoint += (wrap[first_child].z + wrap[last_child].z + last_sib_z + m_adj) / 2.0;
+
+            // Special case for 2 children at deepest level.
+            if effective_children.len() == 2 && arena[wrap[first_child].orig].depth == last_level {
+                midpoint -= 0.25;
+            }
+
+            match prev_sibling {
+                Some(w) => {
+                    let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
+                    let sep = if parent.is_some() {
+                        let w_orig = wrap[w].orig;
+                        let v_orig = wrap[v].orig;
+                        // Same parent = 1, else 2
+                        if arena[v_orig].depth == arena[w_orig].depth {
+                            1.0
+                        } else {
+                            2.0
+                        }
+                    } else {
+                        1.0
+                    };
+                    wrap[v].z = wrap[w].z + w_sib_z + sep;
+                    wrap[v].m = wrap[v].z - midpoint;
+                }
+                None => {
+                    wrap[v].z = midpoint;
+                }
+            }
+        } else if let Some(w) = prev_sibling {
+            let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
+            wrap[v].z = wrap[w].z + w_sib_z + 1.0;
+        }
+
+        // Multi-spouse positioning (simplified port).
+        let mut last_z = 0.0f64;
+        let node_siblings_clone = wrap[v].siblings.clone();
+        let orig_children_clone = wrap[v].children.clone();
+
+        if !node_siblings_clone.is_empty() && arena[v].after == 1 && effective_children.len() != 1 {
+            wrap[v].m -= 0.5;
+        }
+
+        for (si, &sib_wi) in node_siblings_clone.iter().enumerate() {
+            let sib_children: Vec<usize> = orig_children_clone
+                .iter()
+                .copied()
+                .filter(|&ci| wrap[ci].parent2 == Some(sib_wi))
+                .collect();
+
+            if si == 0 {
+                wrap[sib_wi].z = 1.0;
+                last_z = wrap[sib_wi].z;
+            } else if !sib_children.is_empty() {
+                let first_sc = sib_children[0];
+                let last_sc = *sib_children.last().unwrap();
+                let mut mp = (wrap[first_sc].z + wrap[last_sc].z) / 2.0;
+                mp += if sib_children.len() > 1 { 0.0 } else { 0.5 };
+                if arena[v].after == 1 {
+                    mp = (wrap[first_sc].z + wrap[last_sc].z) / 2.0 + 0.5;
+                }
+                // Adjust relative to parent position.
+                let parent_z = if !orig_children_clone.is_empty() {
+                    wrap[orig_children_clone[0]]
+                        .parent
+                        .map(|p| wrap[p].m)
+                        .unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+                wrap[sib_wi].z = (mp - parent_z).max(last_z + 1.0);
+                last_z = wrap[sib_wi].z;
+            } else {
+                last_z += 1.0;
+                wrap[sib_wi].z = last_z;
+            }
+
+            wrap[sib_wi].m = wrap[v].m;
+        }
+
+        // Apportion.
+        let _new_ancestor = apportion(
+            wrap,
+            arena,
+            v,
+            prev_sibling,
+            siblings_in_parent.first().copied().unwrap_or(v),
+            last_level,
+        );
+    }
+}
+
+fn second_walk(wrap: &mut [WrapNode], arena: &mut [TreeNode], root: usize) {
+    // Iterative pre-order.
+    let mut stack = vec![root];
+    while let Some(v) = stack.pop() {
+        // Get parent m.
+        let parent_m = wrap[v].parent.map(|p| wrap[p].m).unwrap_or(0.0);
+
+        if arena[v].after == 1
+            && let Some(&last_sib) = wrap[v].siblings.last()
+        {
+            wrap[v].z += wrap[last_sib].z;
+        }
+
+        let node_x = wrap[v].z + parent_m;
+        arena[v].x = node_x;
+        wrap[v].m += parent_m;
+
+        // Position siblings (spouses).
+        let sibs = wrap[v].siblings.clone();
+        for &sib_wi in &sibs {
+            let sib_x = if arena[v].after == 1 {
+                let last_sib_z = wrap[v].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
+                node_x - last_sib_z + wrap[sib_wi].z - 1.0
+            } else {
+                node_x + wrap[sib_wi].z
+            };
+            arena[sib_wi].x = sib_x;
+        }
+
+        // Process children.
+        for &c in &wrap[v].children.clone() {
+            stack.push(c);
+        }
+    }
+}
+
+fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
+    let siblings = arena[node].siblings.clone();
+    let children = arena[node].children.clone();
+
+    if !siblings.is_empty() && !children.is_empty() {
+        // Group children by parent2.
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        let mut current_p2: Option<usize> = Some(usize::MAX);
+        let mut current_group: Vec<usize> = Vec::new();
+
+        for &ci in &children {
+            if arena[ci].parent2 != current_p2 {
+                if !current_group.is_empty() {
+                    groups.push(std::mem::take(&mut current_group));
+                }
+                current_p2 = arena[ci].parent2;
+            }
+            current_group.push(ci);
+        }
+        if !current_group.is_empty() {
+            groups.push(current_group);
+        }
+
+        for g in 1..groups.len() {
+            let prev_group = groups[g - 1].clone();
+            let next_group = groups[g].clone();
+
+            let mut prev_max_x = f64::NEG_INFINITY;
+            for &ci in &prev_group {
+                collect_max_x(arena, ci, &mut prev_max_x);
+            }
+            let mut next_min_x = f64::INFINITY;
+            for &ci in &next_group {
+                collect_min_x(arena, ci, &mut next_min_x);
+            }
+
+            let gap = next_min_x - prev_max_x;
+            if gap < 1.0 {
+                let shift = 1.0 - gap;
+                for group in groups.iter().skip(g) {
+                    for &ci in group {
+                        shift_subtree(arena, ci, shift);
+                    }
+                }
+                // Shift spouse siblings too.
+                for si in g..siblings.len() {
+                    arena[siblings[si]].x += shift;
+                }
+            }
+        }
+    }
+
+    // Recurse iteratively.
+    let mut stack: Vec<usize> = children;
+    while let Some(ci) = stack.pop() {
+        let sub_children = arena[ci].children.clone();
+        fix_spouse_group_overlaps(arena, ci);
+        stack.extend(sub_children);
+    }
+}
+
+fn collect_max_x(arena: &[TreeNode], node: usize, max_x: &mut f64) {
+    if arena[node].x > *max_x {
+        *max_x = arena[node].x;
+    }
+    for &si in &arena[node].siblings.clone() {
+        if arena[si].x > *max_x {
+            *max_x = arena[si].x;
+        }
+    }
+    for &ci in &arena[node].children.clone() {
+        collect_max_x(arena, ci, max_x);
+    }
+}
+
+fn collect_min_x(arena: &[TreeNode], node: usize, min_x: &mut f64) {
+    if arena[node].x < *min_x {
+        *min_x = arena[node].x;
+    }
+    for &si in &arena[node].siblings.clone() {
+        if arena[si].x < *min_x {
+            *min_x = arena[si].x;
+        }
+    }
+    for &ci in &arena[node].children.clone() {
+        collect_min_x(arena, ci, min_x);
+    }
+}
+
+fn shift_subtree(arena: &mut Vec<TreeNode>, node: usize, shift: f64) {
+    arena[node].x += shift;
+    let sibs = arena[node].siblings.clone();
+    for si in sibs {
+        arena[si].x += shift;
+    }
+    let children = arena[node].children.clone();
+    for ci in children {
+        shift_subtree(arena, ci, shift);
+    }
+}
+
+fn size_node(
+    arena: &mut Vec<TreeNode>,
+    node: usize,
+    translate_x: f64,
+    translate_depth: i32,
+    last_level: i32,
+) {
+    let tn = &arena[node];
+    let depth = tn.depth - translate_depth;
+    // Determine card height for this depth.
+    let sh = if tn.depth > 0 {
+        DESC_H
+    } else if translate_depth < 0 && translate_depth == last_level {
+        COMPACT_H
+    } else {
+        CARD_H
+    };
+
+    let pixel_x = (arena[node].x - translate_x) * CARD_W;
+    let pixel_y = if depth > 0 {
+        (depth as f64 - 1.0) * CARD_H + sh
+    } else {
+        0.0
+    };
+    arena[node].x = pixel_x;
+    arena[node].y = pixel_y;
+
+    // Size siblings (spouses).
+    let sibs = arena[node].siblings.clone();
+    for si in sibs {
+        size_node(arena, si, translate_x, translate_depth, last_level);
+    }
+}
+
+/// Collect all nodes flat from the tree arena (including siblings).
+fn collect_all_nodes(arena: &[TreeNode]) -> Vec<usize> {
+    let mut result = Vec::new();
+    let mut stack = vec![0usize];
+    let mut visited: HashSet<usize> = HashSet::new();
+    while let Some(n) = stack.pop() {
+        if !visited.insert(n) {
+            continue;
+        }
+        result.push(n);
+        for &si in &arena[n].siblings {
+            result.push(si);
+        }
+        for &ci in &arena[n].children {
+            stack.push(ci);
+        }
+    }
     result
 }
 
-// ── Grid layout computation ──────────────────────────────────────────────
+/// Entry point: run the full RT layout on an arena.
+fn layout_tree(arena: &mut Vec<TreeNode>, last_level: i32) -> (f64, f64) {
+    if arena.is_empty() {
+        return (0.0, 0.0);
+    }
 
-/// A positioned node on the canvas.
+    let mut wrap = wrap_tree(arena);
+    first_walk(&mut wrap, arena, 0, last_level);
+
+    // Adjust root's parent m so root starts at 0.
+    if let Some(p) = wrap[0].parent {
+        wrap[p].m = -wrap[0].z;
+    }
+
+    second_walk(&mut wrap, arena, 0);
+    fix_spouse_group_overlaps(arena, 0);
+
+    // Compute bounding box.
+    let all = collect_all_nodes(arena);
+    let min_x = all
+        .iter()
+        .map(|&i| arena[i].x)
+        .fold(f64::INFINITY, f64::min);
+    let max_x = all
+        .iter()
+        .map(|&i| arena[i].x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min_depth = all.iter().map(|&i| arena[i].depth).min().unwrap_or(0);
+    let max_depth = all.iter().map(|&i| arena[i].depth).max().unwrap_or(0);
+
+    let translate_x = min_x;
+    let translate_depth = min_depth;
+
+    // Size all nodes (convert tree units → pixels).
+    let mut stack = vec![0usize];
+    let mut visited: HashSet<usize> = HashSet::new();
+    while let Some(n) = stack.pop() {
+        if !visited.insert(n) {
+            continue;
+        }
+        size_node(arena, n, translate_x, translate_depth, last_level);
+        let sibs = arena[n].siblings.clone();
+        for si in sibs {
+            size_node(arena, si, translate_x, translate_depth, last_level);
+        }
+        let children = arena[n].children.clone();
+        for ci in children {
+            stack.push(ci);
+        }
+    }
+
+    let tree_h = (max_depth - min_depth) as f64 * CARD_H;
+    let tree_w = (max_x - min_x) * CARD_W;
+    (tree_w.max(CARD_W), tree_h.max(CARD_H))
+}
+
+// ── Bézier path generators ────────────────────────────────────────────────
+
+/// Horizontal line between spouses (from right edge of node to left edge of spouse).
+fn diagonal_spouse_link(n1_x: f64, n1_y: f64, n2_x: f64, _n2_y: f64, y_offset: f64) -> String {
+    let x1 = n1_x + CARD_W - 15.0;
+    let x2 = n2_x + 5.0;
+    let y = n1_y + y_offset;
+    format!("M{x1},{y} L{x2},{y}")
+}
+
+/// S-curve from parent to single child (no spouse).
+fn diagonal_simple_child(
+    n1_x: f64,
+    n1_y: f64,
+    n2_x: f64,
+    n2_y: f64,
+    is_first_or_last: bool,
+) -> String {
+    let sx = n1_x + CARD_W / 2.0;
+    let sy = n1_y + CARD_H - 23.0;
+    let ex = n2_x + CARD_W / 2.0;
+    let ey = n2_y + 5.0;
+    let m = (sy + ey) / 2.0;
+
+    if is_first_or_last && (sx - ex).abs() > 0.5 {
+        let ctrl_offset = if sx > ex { ex + 8.0 } else { ex - 8.0 };
+        format!(
+            "M{sx},{sy} L{sx},{m} L{ctrl_offset},{m} S{ex},{m} {ex},{} L{ex},{ey}",
+            m + 8.0
+        )
+    } else {
+        format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
+    }
+}
+
+/// Double S-curve from child up to ancestor (ascending tree).
+#[allow(clippy::too_many_arguments)]
+fn diagonal_parent(
+    n1_x: f64,
+    n1_y: f64,
+    n1_before_sib: bool,
+    n1_after_sib: bool,
+    n2_x: f64,
+    n2_y: f64,
+    n1_depth: i32,
+    n2_depth: i32,
+    last_level: i32,
+) -> String {
+    let sw = if n2_depth == last_level {
+        COMPACT_W
+    } else {
+        CARD_W
+    };
+    let sh = if n2_depth == last_level {
+        COMPACT_H
+    } else if n2_depth > 0 {
+        DESC_H
+    } else {
+        CARD_H
+    };
+
+    let sx = n1_x + CARD_W / 2.0;
+    let sy = n1_y + 4.0;
+    let ex = n2_x + sw / 2.0;
+    let ey = n2_y + sh - 23.0;
+    let m = (sy + ey) / 2.0;
+
+    // Simple path when root has siblings that would cause crossings.
+    if n1_depth == 0 && ((n1_before_sib && sx > ex) || (n1_after_sib && sx < ex)) {
+        let c1x = if sx > ex { sx - 8.0 } else { sx + 8.0 };
+        return format!(
+            "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{ex},{ey}",
+            sy - 5.0
+        );
+    }
+
+    let c1x = if sx > ex { sx - 8.0 } else { sx + 8.0 };
+    let c2x = if sx > ex { ex + 8.0 } else { ex - 8.0 };
+    format!(
+        "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{c2x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
+        sy - 5.0,
+        ey + 5.0
+    )
+}
+
+/// Curved path from spouse to child.
+fn diagonal_child(
+    spouse_x: f64,
+    spouse_y: f64,
+    child_x: f64,
+    child_y: f64,
+    parent_after: i32,
+    y_offset: f64,
+    is_first_or_last: bool,
+) -> String {
+    let sx = if parent_after == 1 {
+        spouse_x + CARD_W
+    } else {
+        spouse_x
+    };
+    let sy = spouse_y + y_offset;
+    let ex = child_x + CARD_W / 2.0;
+    let ey = child_y + 4.0;
+    let m = child_y + (CARD_H - 23.0) / 2.0 - 50.0;
+
+    if is_first_or_last && (sx - ex).abs() > 0.5 {
+        let ctrl_x = if sx > ex { ex + 8.0 } else { ex - 8.0 };
+        format!(
+            "M{sx},{sy} L{sx},{m} {ctrl_x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
+            m + 8.0
+        )
+    } else {
+        format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
+    }
+}
+
+// ── Link/path collection ──────────────────────────────────────────────────
+
+/// An SVG path for a connector between nodes.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
+struct ConnectorPath {
+    d: String,
+}
+
+fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
+    let mut links = Vec::new();
+    let mut stack = vec![0usize];
+    let mut visited: HashSet<usize> = HashSet::new();
+
+    while let Some(ni) = stack.pop() {
+        if !visited.insert(ni) {
+            continue;
+        }
+        let node = &arena[ni];
+
+        if !node.siblings.is_empty() {
+            // Spouse links + child links.
+            let center = {
+                let base =
+                    (CARD_H - 23.0).min((4.0 * node.siblings.len() as f64 + CARD_H - 23.0) / 2.0);
+                base.max(6.0)
+            };
+
+            for (si, &sib_ni) in node.siblings.iter().enumerate() {
+                let y = if node.after != 1 {
+                    (center - 4.0 * si as f64).max(6.0)
+                } else {
+                    (center - 4.0 * (node.siblings.len() - si) as f64).max(6.0)
+                };
+
+                // Spouse connector.
+                links.push(ConnectorPath {
+                    d: diagonal_spouse_link(node.x, node.y, arena[sib_ni].x, arena[sib_ni].y, y),
+                });
+
+                // Children of this spouse.
+                let sib_node = &arena[sib_ni];
+                let children_of_sib: Vec<usize> = node
+                    .children
+                    .iter()
+                    .copied()
+                    .filter(|&ci| arena[ci].parent2 == Some(sib_ni))
+                    .collect();
+
+                for (ci, &child_ni) in children_of_sib.iter().enumerate() {
+                    let is_edge = ci == 0 || ci == children_of_sib.len() - 1;
+                    links.push(ConnectorPath {
+                        d: diagonal_child(
+                            sib_node.x,
+                            sib_node.y,
+                            arena[child_ni].x,
+                            arena[child_ni].y,
+                            node.after,
+                            y,
+                            is_edge,
+                        ),
+                    });
+                    // Push child onto stack.
+                    stack.push(child_ni);
+                }
+            }
+        } else {
+            // Simple parent→child links.
+            for (ci, &child_ni) in node.children.iter().enumerate() {
+                if arena[child_ni].depth < 0 {
+                    // Ascending: child → ancestor.
+                    links.push(ConnectorPath {
+                        d: diagonal_parent(
+                            node.x,
+                            node.y,
+                            node.before_sibling,
+                            node.after_sibling,
+                            arena[child_ni].x,
+                            arena[child_ni].y,
+                            node.depth,
+                            arena[child_ni].depth,
+                            last_level,
+                        ),
+                    });
+                } else {
+                    let is_edge = ci == 0 || ci == node.children.len() - 1;
+                    links.push(ConnectorPath {
+                        d: diagonal_simple_child(
+                            node.x,
+                            node.y,
+                            arena[child_ni].x,
+                            arena[child_ni].y,
+                            is_edge,
+                        ),
+                    });
+                }
+                stack.push(child_ni);
+            }
+        }
+    }
+
+    links
+}
+
+// ── Flat layout result ────────────────────────────────────────────────────
+
+/// A positioned node on the canvas (derived from TreeNode after layout).
+#[derive(Clone, Debug)]
 struct LayoutNode {
     id: Option<Uuid>,
     x: f64,
     y: f64,
-    generation: i32,         // negative = ancestor, 0 = root, positive = descendant
-    slot_idx: usize,         // index within generation for ancestors, child index for descendants
-    child_of: Option<Uuid>,  // child person id (for empty ancestor slots)
-    is_father: bool,         // for empty ancestor slots
-    family_id: Option<Uuid>, // for descendant nodes, which family they belong to
+    depth: i32,
+    sex: Sex,
+    label_surname: String,
+    label_given: String,
+    birth_year: Option<i32>,
+    death_year: Option<i32>,
+    photo_url: Option<String>,
+    sosa_badge: SosaBadge,
+    is_compact: bool,
+    /// For empty ancestor slots: which child they belong to.
+    child_of: Option<Uuid>,
+    is_father: bool,
+    #[allow(dead_code)]
+    is_sibling: bool,
 }
 
-/// SVG line segment.
-#[derive(Clone, Debug)]
-struct Segment {
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
-}
-
-/// Compute full grid layout.
+/// Compute the RT layout and return flat nodes + connector paths.
 fn compute_layout(
     root_id: Uuid,
     data: &PedigreeData,
     ancestor_levels: usize,
     descendant_levels: usize,
-) -> (Vec<LayoutNode>, Vec<Segment>, f64, f64) {
-    let anc_gens = build_ancestor_slots(root_id, data, ancestor_levels);
+) -> (Vec<LayoutNode>, Vec<ConnectorPath>, f64, f64) {
+    let sosa_root_id = data.sosa_root_id;
+    let sosa_ancestors = &data.sosa_ancestors;
 
-    // Find deepest ancestor gen with at least one real person.
-    let max_anc_gen_idx = anc_gens
+    // ── Build ascending tree ──
+    let last_asc_level = -(ancestor_levels as i32);
+    let mut asc_arena =
+        build_ascending_tree(root_id, data, ancestor_levels, sosa_root_id, sosa_ancestors);
+    let (_asc_w, _asc_h) = layout_tree(&mut asc_arena, last_asc_level);
+    let asc_links = collect_links(&asc_arena, last_asc_level);
+
+    // ── Build descending tree ──
+    let mut desc_arena = build_descending_tree(
+        root_id,
+        data,
+        descendant_levels,
+        sosa_root_id,
+        sosa_ancestors,
+    );
+    let (_desc_w, _desc_h) = layout_tree(&mut desc_arena, 0);
+    let desc_links = collect_links(&desc_arena, 0);
+
+    // ── Merge the two arenas into a flat node list ──
+    // Ascending arena: root is at y=0. We need to merge ascending nodes above the root.
+    // Descending arena: root is at y=0. Nodes go downward.
+    //
+    // Strategy:
+    //  - Use descending arena as the "base" (root at origin).
+    //  - Ascending nodes (non-root) get negated y so they appear above.
+    //  - Root from ascending arena is at the same logical position as desc root.
+
+    // Find root node positions in each arena.
+    let asc_root_x = asc_arena[0].x;
+    let asc_root_y = asc_arena[0].y;
+    let desc_root_x = desc_arena[0].x;
+
+    let asc_all = collect_all_nodes(&asc_arena);
+    let desc_all = collect_all_nodes(&desc_arena);
+
+    // Y offset so that the ascending root aligns with the desc root.
+    let asc_height = asc_root_y.abs();
+    let y_offset = asc_height;
+
+    let x_shift_desc = asc_root_x - desc_root_x; // shift desc nodes to align roots in X
+
+    // Collect flat nodes.
+    let mut layout_nodes: Vec<LayoutNode> = Vec::new();
+
+    // Ascending nodes (skip root — it comes from desc arena).
+    let deepest_anc_depth = asc_all
         .iter()
-        .rposition(|g| g.iter().any(|s| matches!(s, PedigreeSlot::Person(_))))
+        .map(|&i| asc_arena[i].depth)
+        .min()
         .unwrap_or(0);
-    let display_anc = (max_anc_gen_idx + 1)
-        .min(anc_gens.len())
-        .max(if ancestor_levels > 0 { 2 } else { 1 });
-    let deepest_anc = display_anc.saturating_sub(1);
 
-    // Descendant data.
-    let desc_gens = build_descendant_generations(root_id, data, descendant_levels);
+    for &ni in &asc_all {
+        let tn = &asc_arena[ni];
+        let is_compact = tn.depth == deepest_anc_depth && deepest_anc_depth < 0;
+        let px = tn.x;
+        // Ancestors have positive y in the asc arena (root=0 at bottom, ancestors above).
+        // We need to flip: ancestors should appear at smaller y than root.
+        let py_final = y_offset - (asc_root_y - tn.y) - CARD_H;
+        let py_display = if tn.depth == 0 {
+            y_offset
+        } else {
+            py_final.max(0.0)
+        };
 
-    // Width determined by the widest ancestor generation.
-    let max_anc_slots = if deepest_anc > 0 {
-        1usize << deepest_anc
-    } else {
-        1
-    };
-    let anc_width = max_anc_slots as f64 * STEP - H_GAP;
-
-    // Descendant width: sum of all families' children widths + gaps.
-    let mut max_desc_width: f64 = 0.0;
-    for dg in &desc_gens {
-        let mut gen_width: f64 = 0.0;
-        for (fi, fam) in dg.families.iter().enumerate() {
-            let fam_w = fam.children.len().max(1) as f64 * STEP - H_GAP;
-            gen_width += fam_w;
-            if fi < dg.families.len() - 1 {
-                gen_width += STEP; // gap between families
-            }
+        // Skip duplicate root (depth==0 comes from desc arena).
+        if tn.depth == 0 && ni != 0 {
+            continue;
         }
-        if gen_width > max_desc_width {
-            max_desc_width = gen_width;
-        }
-    }
+        if tn.depth == 0 {
+            continue;
+        } // root handled by desc
 
-    // Root spouses: find all distinct spouses across root's families.
-    let mut root_spouses_with_families: Vec<(Uuid, Uuid)> = Vec::new(); // (spouse_id, family_id)
-    {
-        let mut seen = std::collections::HashSet::new();
-        if let Some(fids) = data.families_as_spouse.get(&root_id) {
-            for &fid in fids {
-                if let Some(sp) = data
-                    .spouses_by_family
-                    .get(&fid)
-                    .and_then(|sps| sps.iter().find(|s| s.person_id != root_id))
-                    && seen.insert(sp.person_id)
-                {
-                    root_spouses_with_families.push((sp.person_id, fid));
-                }
-            }
-        }
-    }
-    let n_root_spouses = root_spouses_with_families.len();
-    // Minimum width so root stays centered with spouses to the right.
-    let root_group_min_w = if n_root_spouses > 0 {
-        CARD_W + 2.0 * n_root_spouses as f64 * STEP
-    } else {
-        CARD_W
-    };
-
-    let total_width = anc_width
-        .max(max_desc_width)
-        .max(root_group_min_w)
-        .max(CARD_W);
-    let total_gen_count = display_anc + 1 + desc_gens.len(); // anc gens + root + desc gens
-    let total_height = total_gen_count as f64 * (CARD_H + V_GAP) - V_GAP;
-
-    let mut nodes = Vec::new();
-    let mut segments = Vec::new();
-
-    // ── Ancestor nodes ──
-    for gen_idx in 0..display_anc {
-        let num_slots = 1usize << gen_idx;
-        let gen_width = num_slots as f64 * STEP - H_GAP;
-        let x_offset = (total_width - gen_width) / 2.0;
-        // Row Y: deepest ancestor is at top (row 0), root is at row deepest_anc.
-        let row = deepest_anc - gen_idx;
-        let y = row as f64 * (CARD_H + V_GAP);
-
-        for (si, slot) in anc_gens[gen_idx].iter().enumerate() {
-            if si >= num_slots {
-                break;
-            }
-            let slot_width = gen_width / num_slots as f64;
-            let x = x_offset + si as f64 * slot_width + (slot_width - CARD_W) / 2.0;
-
-            let child_of = if gen_idx > 0 {
-                let child_idx = si / 2;
-                match anc_gens[gen_idx - 1].get(child_idx) {
-                    Some(PedigreeSlot::Person(pid)) => Some(*pid),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-
-            nodes.push(LayoutNode {
-                id: match slot {
-                    PedigreeSlot::Person(pid) => Some(*pid),
-                    PedigreeSlot::Empty => None,
-                },
-                x,
-                y,
-                generation: -(gen_idx as i32),
-                slot_idx: si,
-                child_of,
-                is_father: si % 2 == 0,
-                family_id: None,
-            });
-        }
-    }
-
-    // ── Ancestor connectors ──
-    // Between each ancestor gen and its child gen.
-    for gen_idx in 1..display_anc {
-        let parent_gen = gen_idx;
-        let child_gen = gen_idx - 1;
-        let parent_slots = 1usize << parent_gen;
-        let child_slots = 1usize << child_gen;
-        let parent_gen_w = parent_slots as f64 * STEP - H_GAP;
-        let child_gen_w = child_slots as f64 * STEP - H_GAP;
-        let parent_x_off = (total_width - parent_gen_w) / 2.0;
-        let child_x_off = (total_width - child_gen_w) / 2.0;
-        let parent_row = deepest_anc - parent_gen;
-        let child_row = deepest_anc - child_gen;
-        let parent_y_bottom = parent_row as f64 * (CARD_H + V_GAP) + CARD_H;
-        let child_y_top = child_row as f64 * (CARD_H + V_GAP);
-        let mid_y = (parent_y_bottom + child_y_top) / 2.0;
-
-        let parent_slot_w = parent_gen_w / parent_slots as f64;
-        let child_slot_w = child_gen_w / child_slots as f64;
-
-        // Each pair of parents (2k, 2k+1) connects to child k.
-        for ci in 0..child_slots {
-            let father_si = ci * 2;
-            let mother_si = ci * 2 + 1;
-
-            let father_cx = parent_x_off + father_si as f64 * parent_slot_w + parent_slot_w / 2.0;
-            let mother_cx = parent_x_off + mother_si as f64 * parent_slot_w + parent_slot_w / 2.0;
-            let child_cx = child_x_off + ci as f64 * child_slot_w + child_slot_w / 2.0;
-            let couple_mid_x = (father_cx + mother_cx) / 2.0;
-
-            // Has at least one real parent?
-            let has_father = matches!(
-                anc_gens[parent_gen].get(father_si),
-                Some(PedigreeSlot::Person(_))
-            );
-            let has_mother = matches!(
-                anc_gens[parent_gen].get(mother_si),
-                Some(PedigreeSlot::Person(_))
-            );
-            let has_child = matches!(anc_gens[child_gen].get(ci), Some(PedigreeSlot::Person(_)));
-
-            if !has_child || (!has_father && !has_mother) {
-                continue;
-            }
-
-            // Horizontal bar between parents.
-            segments.push(Segment {
-                x1: father_cx,
-                y1: parent_y_bottom + 2.0,
-                x2: mother_cx,
-                y2: parent_y_bottom + 2.0,
-            });
-            // Vertical from couple midpoint down to mid_y.
-            segments.push(Segment {
-                x1: couple_mid_x,
-                y1: parent_y_bottom + 2.0,
-                x2: couple_mid_x,
-                y2: mid_y,
-            });
-            // Horizontal at mid_y from couple_mid to child_cx.
-            if (couple_mid_x - child_cx).abs() > 0.5 {
-                segments.push(Segment {
-                    x1: couple_mid_x,
-                    y1: mid_y,
-                    x2: child_cx,
-                    y2: mid_y,
-                });
-            }
-            // Vertical from mid_y down to child top.
-            segments.push(Segment {
-                x1: child_cx,
-                y1: mid_y,
-                x2: child_cx,
-                y2: child_y_top - 2.0,
-            });
-        }
-    }
-
-    // ── Root node + spouse nodes ──
-    let root_y = deepest_anc as f64 * (CARD_H + V_GAP);
-    let root_x = (total_width - CARD_W) / 2.0;
-    nodes.push(LayoutNode {
-        id: Some(root_id),
-        x: root_x,
-        y: root_y,
-        generation: 0,
-        slot_idx: 0,
-        child_of: None,
-        is_father: false,
-        family_id: None,
-    });
-
-    let mut person_cx: HashMap<Uuid, f64> = HashMap::new();
-    let mut family_cx: HashMap<Uuid, f64> = HashMap::new();
-    person_cx.insert(root_id, root_x + CARD_W / 2.0);
-
-    for (si, &(spouse_id, fid)) in root_spouses_with_families.iter().enumerate() {
-        let spouse_x = root_x + (si + 1) as f64 * STEP;
-        nodes.push(LayoutNode {
-            id: Some(spouse_id),
-            x: spouse_x,
-            y: root_y,
-            generation: 0,
-            slot_idx: si + 1,
-            child_of: None,
-            is_father: false,
-            family_id: Some(fid),
+        layout_nodes.push(LayoutNode {
+            id: tn.id,
+            x: px,
+            y: py_display,
+            depth: tn.depth,
+            sex: tn.sex,
+            label_surname: tn.label_surname.clone(),
+            label_given: tn.label_given.clone(),
+            birth_year: tn.birth_year,
+            death_year: tn.death_year,
+            photo_url: tn.photo_url.clone(),
+            sosa_badge: tn.sosa_badge.clone(),
+            is_compact,
+            child_of: tn.child_of,
+            is_father: tn.is_father,
+            is_sibling: tn.is_sibling,
         });
-        person_cx.insert(spouse_id, spouse_x + CARD_W / 2.0);
+    }
 
-        // Couple connector: horizontal line between root and spouse at card mid-height.
-        let conn_y = root_y + CARD_H / 2.0;
-        segments.push(Segment {
-            x1: root_x + CARD_W,
-            y1: conn_y,
-            x2: spouse_x,
-            y2: conn_y,
+    // Descending nodes (including root at depth 0).
+    for &ni in &desc_all {
+        let tn = &desc_arena[ni];
+        let px = tn.x + x_shift_desc;
+        let py = tn.y + y_offset;
+        let is_compact = false;
+
+        layout_nodes.push(LayoutNode {
+            id: tn.id,
+            x: px,
+            y: py,
+            depth: tn.depth,
+            sex: tn.sex,
+            label_surname: tn.label_surname.clone(),
+            label_given: tn.label_given.clone(),
+            birth_year: tn.birth_year,
+            death_year: tn.death_year,
+            photo_url: tn.photo_url.clone(),
+            sosa_badge: tn.sosa_badge.clone(),
+            is_compact,
+            child_of: tn.child_of,
+            is_father: tn.is_father,
+            is_sibling: tn.is_sibling,
         });
-
-        // Family center (midpoint between root and spouse).
-        let fc = (root_x + CARD_W / 2.0 + spouse_x + CARD_W / 2.0) / 2.0;
-        family_cx.insert(fid, fc);
     }
 
-    for (di, dg) in desc_gens.iter().enumerate() {
-        let desc_row = deepest_anc + 1 + di;
-        let desc_y = desc_row as f64 * (CARD_H + V_GAP);
-        let parent_y_bottom = (desc_row as f64 - 1.0) * (CARD_H + V_GAP) + CARD_H;
-        let mid_y = (parent_y_bottom + desc_y) / 2.0;
+    // Collect all links (ascending + descending).
+    let mut all_links: Vec<ConnectorPath> = Vec::with_capacity(asc_links.len() + desc_links.len());
+    all_links.extend(asc_links);
+    all_links.extend(desc_links);
 
-        // Compute total width of this generation.
-        let mut gen_total_w: f64 = 0.0;
-        for (fi, fam) in dg.families.iter().enumerate() {
-            gen_total_w += fam.children.len().max(1) as f64 * STEP - H_GAP;
-            if fi < dg.families.len() - 1 {
-                gen_total_w += STEP;
-            }
-        }
-        let gen_x_off = (total_width - gen_total_w) / 2.0;
+    // Compute bounding box from layout_nodes.
+    let min_x = layout_nodes
+        .iter()
+        .map(|n| n.x)
+        .fold(f64::INFINITY, f64::min)
+        .max(0.0);
+    let max_x = layout_nodes
+        .iter()
+        .map(|n| n.x + CARD_W)
+        .fold(0.0f64, f64::max);
+    let max_y = layout_nodes
+        .iter()
+        .map(|n| n.y + CARD_H)
+        .fold(0.0f64, f64::max);
+    let total_w = (max_x - min_x).max(CARD_W) + CARD_W; // some padding
+    let total_h = max_y.max(CARD_H) + CARD_H;
 
-        let mut x_cursor = gen_x_off;
-        for (fi, fam) in dg.families.iter().enumerate() {
-            let child_count = fam.children.len();
-            let fam_w = child_count.max(1) as f64 * STEP - H_GAP;
-
-            // Find parent/family center x — prefer family center (couple midpoint) if available.
-            let parent_cx = family_cx.get(&fam.family_id).copied().unwrap_or_else(|| {
-                person_cx
-                    .get(&fam.parent_id)
-                    .copied()
-                    .or_else(|| fam.spouse_id.and_then(|sid| person_cx.get(&sid).copied()))
-                    .unwrap_or(x_cursor + fam_w / 2.0)
-            });
-
-            // Vertical stem from parent to mid_y.
-            segments.push(Segment {
-                x1: parent_cx,
-                y1: parent_y_bottom + 2.0,
-                x2: parent_cx,
-                y2: mid_y,
-            });
-
-            if child_count > 1 {
-                // Horizontal bar at mid_y spanning all children.
-                let first_child_cx = x_cursor + CARD_W / 2.0;
-                let last_child_cx = x_cursor + (child_count - 1) as f64 * STEP + CARD_W / 2.0;
-                segments.push(Segment {
-                    x1: first_child_cx,
-                    y1: mid_y,
-                    x2: last_child_cx,
-                    y2: mid_y,
-                });
-                // Connect parent stem to the bar if not aligned.
-                if parent_cx < first_child_cx - 0.5 || parent_cx > last_child_cx + 0.5 {
-                    let bar_connect = parent_cx.clamp(first_child_cx, last_child_cx);
-                    segments.push(Segment {
-                        x1: parent_cx,
-                        y1: mid_y,
-                        x2: bar_connect,
-                        y2: mid_y,
-                    });
-                }
-            }
-
-            for (ci, &child_id) in fam.children.iter().enumerate() {
-                let child_x = x_cursor + ci as f64 * STEP;
-                let child_cx_val = child_x + CARD_W / 2.0;
-
-                nodes.push(LayoutNode {
-                    id: Some(child_id),
-                    x: child_x,
-                    y: desc_y,
-                    generation: (di + 1) as i32,
-                    slot_idx: ci,
-                    child_of: None,
-                    is_father: false,
-                    family_id: Some(fam.family_id),
-                });
-
-                person_cx.insert(child_id, child_cx_val);
-
-                // Vertical from mid_y to child top.
-                segments.push(Segment {
-                    x1: child_cx_val,
-                    y1: mid_y,
-                    x2: child_cx_val,
-                    y2: desc_y - 2.0,
-                });
-            }
-
-            x_cursor += fam_w;
-            if fi < dg.families.len() - 1 {
-                x_cursor += STEP;
-            }
-        }
-    }
-
-    (nodes, segments, total_width, total_height)
+    (layout_nodes, all_links, total_w, total_h)
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -1320,18 +2285,10 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         needs_center.set(true);
     }
 
-    // ── Compute layout ──
-    let (layout_nodes, connector_segments, total_w, total_h) = compute_layout(
-        props.root_person_id,
-        &props.data,
-        ancestor_levels(),
-        descendant_levels(),
-    );
-
     // ── Compute SOSA ancestor set (persons who are ancestors of the SOSA root) ──
     // Use server-provided SOSA ancestor set (from closure table) when available,
     // falling back to local graph traversal (which only works within the pedigree window).
-    let sosa_ancestors: std::collections::HashSet<Uuid> = props
+    let sosa_ancestors: HashSet<Uuid> = props
         .sosa_ancestor_ids
         .clone()
         .or_else(|| {
@@ -1340,6 +2297,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 .map(|sosa_id| props.data.ancestor_set(sosa_id))
         })
         .unwrap_or_default();
+
+    // ── Augment PedigreeData with SOSA info for the layout engine ──
+    let mut data_with_sosa = props.data.clone();
+    data_with_sosa.sosa_ancestors = sosa_ancestors.clone();
+    data_with_sosa.sosa_root_id = props.sosa_root_person_id;
+
+    // ── Compute layout ──
+    let (layout_nodes, connector_paths, total_w, total_h) = compute_layout(
+        props.root_person_id,
+        &data_with_sosa,
+        ancestor_levels(),
+        descendant_levels(),
+    );
 
     // ── Center root card in viewport when needed ──
     if needs_center() {
@@ -1817,14 +2787,12 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             "viewBox": "0 0 {total_w} {total_h}",
                             width: "{total_w}",
                             height: "{total_h}",
-                            for (si, seg) in connector_segments.iter().enumerate() {
-                                line {
+                            for (si, path) in connector_paths.iter().enumerate() {
+                                path {
                                     key: "seg-{si}",
-                                    x1: "{seg.x1}",
-                                    y1: "{seg.y1}",
-                                    x2: "{seg.x2}",
-                                    y2: "{seg.y2}",
-                                    class: "pedigree-connector-line",
+                                    d: "{path.d}",
+                                    class: "pedigree-connector-path",
+                                    fill: "none",
                                 }
                             }
                         }
@@ -1833,44 +2801,50 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         for (ni, node) in layout_nodes.iter().enumerate() {
                             {
                                 let node = node.clone();
+                                let card_w = if node.is_compact { COMPACT_W } else { CARD_W };
+                                let card_h = if node.is_compact { COMPACT_H } else if node.depth > 0 { DESC_H } else { CARD_H };
                                 let style = format!(
-                                    "position: absolute; left: {}px; top: {}px; width: {}px;",
-                                    node.x, node.y, CARD_W
+                                    "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: {:.1}px;",
+                                    node.x, node.y, card_w, card_h
                                 );
 
                                 match node.id {
                                     Some(pid) => {
-                                        let sex = props.data.sex_of(pid);
-                                        let (given, surname, _) = props.data.name_parts(pid);
-                                        let has_name = given.is_some() || surname.is_some();
-                                        let given_s = given.unwrap_or_default();
-                                        let surname_s = surname.unwrap_or_default();
-                                        let birth_s = props.data.birth_date(pid).unwrap_or_default();
-                                        let death_s = props.data.death_date(pid).unwrap_or_default();
+                                        let given_s = node.label_given.clone();
+                                        let surname_s = node.label_surname.clone();
+                                        let has_name = !given_s.is_empty() || !surname_s.is_empty();
+                                        let birth_s = node.birth_year.map(|y| y.to_string()).unwrap_or_default();
+                                        let death_s = node.death_year.map(|y| y.to_string()).unwrap_or_default();
                                         let birth_sym = props.data.birth_symbol(pid);
                                         let death_sym = props.data.death_symbol(pid);
                                         let initials = make_initials(&given_s, &surname_s);
                                         let is_focus = pid == props.root_person_id;
-                                        let is_sosa_ancestor = sosa_ancestors.contains(&pid);
-                                        let is_sosa_root = props.sosa_root_person_id == Some(pid);
-                                        let role_class = if node.generation == 0 {
+                                        let is_sosa_ancestor = matches!(node.sosa_badge, SosaBadge::Direct);
+                                        let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
+                                        let role_class = if node.depth == 0 {
                                             "current"
-                                        } else if node.generation < 0 {
+                                        } else if node.depth < 0 {
                                             "ancestor"
                                         } else {
                                             "descendant"
                                         };
-                                        let sex_part = match sex {
+                                        let sex_part = match node.sex {
                                             Sex::Male => "male",
                                             Sex::Female => "female",
                                             Sex::Unknown => "",
                                         };
                                         let is_sel = selected_person_id() == pid;
                                         let sel_part = if is_sel || is_focus { "selected" } else { "" };
+                                        let compact_part = if node.is_compact { "pedigree-node-compact" } else { "pedigree-node" };
                                         let node_class = format!(
-                                            "pedigree-node {} {} {}",
-                                            sex_part, role_class, sel_part
+                                            "{compact_part} {sex_part} {role_class} {sel_part}"
                                         );
+                                        let photo_url = node.photo_url.clone();
+                                        let gender_line_class = match node.sex {
+                                            Sex::Male => "pc-gender-line pc-gender-line-male",
+                                            Sex::Female => "pc-gender-line pc-gender-line-female",
+                                            Sex::Unknown => "pc-gender-line",
+                                        };
 
                                         let on_navigate = props.on_person_navigate;
                                         let on_click = props.on_person_click;
@@ -1886,8 +2860,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                         selected_person_id.set(pid);
                                                         on_navigate.call(pid);
                                                     },
+                                                    // Gender line strip
+                                                    div { class: gender_line_class }
+                                                    // Avatar
                                                     div { class: "pc-ph",
-                                                        "{initials}"
+                                                        if let Some(ref url) = photo_url {
+                                                            img {
+                                                                class: "pc-avatar",
+                                                                src: "{url}",
+                                                                alt: "{initials}",
+                                                            }
+                                                        } else {
+                                                            span { class: "pc-avatar pc-initials", "{initials}" }
+                                                        }
                                                         if is_sosa_root || is_sosa_ancestor {
                                                             span {
                                                                 class: if is_sosa_root { "sosa-badge sosa-badge-root" } else { "sosa-badge" },

@@ -274,6 +274,16 @@ pub struct UpdateMediaRequest {
 
 // ── MediaLink DTOs ──────────────────────────────────────────────────
 
+/// Row returned by the bulk media-links endpoint.
+#[derive(Debug, Serialize)]
+pub struct MediaLinkListRow {
+    pub entity_id: uuid::Uuid,
+    pub entity_type: String,
+    pub media_id: uuid::Uuid,
+    pub file_path: String,
+    pub file_name: String,
+}
+
 /// Request body for creating a media link.
 #[derive(Debug, Deserialize)]
 pub struct CreateMediaLinkRequest {

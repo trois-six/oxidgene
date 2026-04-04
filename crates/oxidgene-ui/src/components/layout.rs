@@ -139,9 +139,27 @@ pub const LAYOUT_STYLES: &str = r#"
         --radius: 8px;
         --font-sans:    'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         --font-heading: 'Cinzel', Georgia, serif;
+
+        /* ── Person node (pedigree card) variables ─────────────────── */
+        --pn-bg:          #efefef;
+        --pn-root-bg:     #006AC4;
+        --pn-spouse-bg:   #ffffff;
+        --pn-border:      #888888;
+        --pn-male-line:   #00A6C0;
+        --pn-female-line: #FF6699;
+        --pn-born:        #4ea832;
+        --pn-died:        #4a90d9;
+        --pn-sosa:        #95C417;
+        --pn-text:        #111111;
+        --pn-text-muted:  #555555;
     }
 
     :root.dark {
+        /* ── Dark pedigree node overrides ───────────────────────────── */
+        --pn-bg:         #1e2330;
+        --pn-spouse-bg:  #252d3d;
+        --pn-text:       #e8dfc8;
+        --pn-text-muted: #7a8da8;
         /* ── Dark palette ─────────────────────────────────────────── */
         --bg-deep:        #0d0f14;
         --bg-panel:       #111318;
@@ -1713,19 +1731,107 @@ pub const LAYOUT_STYLES: &str = r#"
         stroke-linecap: round;
     }
 
+    /* ── RT Bézier connector paths ───────────────────────────────── */
+
+    .pedigree-connector-path {
+        stroke: var(--connector);
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        fill: none;
+    }
+
     /* ── Absolute-positioned card wrapper ───────────────────────── */
 
     .pedigree-card-wrap {
         position: absolute;
-        width: 180px;
         z-index: 1;
     }
 
     .pedigree-card-wrap .pedigree-node {
-        width: 180px;
-        max-width: 180px;
-        min-height: 72px;
+        width: 185px;
+        max-width: 185px;
+        min-height: 88px;
     }
+
+    /* ── New RT card design ──────────────────────────────────────── */
+
+    .pedigree-node {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        background: var(--pn-bg);
+        color: var(--pn-text);
+        border-radius: 4px;
+        overflow: hidden;
+        cursor: pointer;
+        box-shadow: var(--shadow-sm);
+        transition: box-shadow 0.15s, outline 0.1s;
+        outline: 2px solid transparent;
+        position: relative;
+    }
+
+    .pedigree-node.current {
+        background: var(--pn-root-bg);
+        color: #ffffff;
+    }
+
+    .pedigree-node.selected {
+        outline: 2px solid var(--orange);
+    }
+
+    .pedigree-node:hover { box-shadow: 0 0 0 1px rgba(224,120,32,0.3), var(--shadow-sm); }
+
+    /* ── Gender line strip ───────────────────────────────────────── */
+
+    .pc-gender-line {
+        width: 3px;
+        flex-shrink: 0;
+        background: var(--pn-border);
+    }
+    .pc-gender-line-male   { background: var(--pn-male-line); }
+    .pc-gender-line-female { background: var(--pn-female-line); }
+
+    /* ── Avatar circle ───────────────────────────────────────────── */
+
+    .pc-avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        object-fit: cover;
+        flex-shrink: 0;
+        align-self: center;
+        margin: 0 6px;
+    }
+
+    .pc-initials {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(128,128,128,0.15);
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: inherit;
+    }
+
+    /* ── Compact card (deepest ancestor level) ───────────────────── */
+
+    .pedigree-node-compact {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: var(--pn-bg);
+        color: var(--pn-text);
+        border-radius: 4px;
+        overflow: hidden;
+        cursor: pointer;
+        box-shadow: var(--shadow-sm);
+        padding: 6px 4px;
+        font-size: 0.72rem;
+        outline: 2px solid transparent;
+    }
+
+    .pedigree-node-compact.selected { outline: 2px solid var(--orange); }
+    .pedigree-node-compact.current  { background: var(--pn-root-bg); color: #ffffff; }
 
     /* ── Role-based card backgrounds ───────────────────────────── */
 
