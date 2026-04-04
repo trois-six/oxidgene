@@ -6,9 +6,30 @@ use axum::http::StatusCode;
 use oxidgene_db::repo::MediaLinkRepo;
 use uuid::Uuid;
 
-use super::dto::CreateMediaLinkRequest;
+use super::dto::{CreateMediaLinkRequest, MediaLinkListRow};
 use super::error::ApiError;
 use super::state::AppState;
+
+/// GET /api/v1/trees/:tree_id/media-links
+pub async fn list_media_links(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<Vec<MediaLinkListRow>>, ApiError> {
+    let db_rows = MediaLinkRepo::list_for_tree(&state.db, tree_id)
+        .await
+        .map_err(ApiError::from)?;
+    let response = db_rows
+        .into_iter()
+        .map(|r| MediaLinkListRow {
+            entity_id: r.entity_id,
+            entity_type: r.entity_type,
+            media_id: r.media_id,
+            file_path: r.file_path,
+            file_name: r.file_name,
+        })
+        .collect();
+    Ok(Json(response))
+}
 
 /// POST /api/v1/trees/:tree_id/media-links
 pub async fn create_media_link(

@@ -217,6 +217,18 @@ pub struct UpdateNoteBody {
     pub text: Option<String>,
 }
 
+// ── MediaLink DTOs ───────────────────────────────────────────────────
+
+/// A row from the bulk media-links endpoint.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MediaLinkRow {
+    pub entity_id: uuid::Uuid,
+    pub entity_type: String,
+    pub media_id: uuid::Uuid,
+    pub file_path: String,
+    pub file_name: String,
+}
+
 // ── GEDCOM DTOs ─────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -1231,6 +1243,17 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(())
+    }
+
+    // ── MediaLinks ──────────────────────────────────────────────────
+
+    /// Fetch all media links for persons in a tree (for photo display).
+    pub async fn list_media_links_for_tree(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Vec<MediaLinkRow>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/media-links"))
+            .await
     }
 
     // ── GEDCOM ──────────────────────────────────────────────────────
