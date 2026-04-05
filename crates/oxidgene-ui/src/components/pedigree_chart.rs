@@ -1268,19 +1268,9 @@ fn tree_shift(wrap: &mut [WrapNode], node: usize) {
     }
 }
 
-fn tree_separation(arena: &[TreeNode], a: usize, b: usize, last_level: i32) -> f64 {
-    let a_depth = arena[a].depth;
-    let a_parent_depth = arena[b].depth; // same depth for siblings
-    let b_parent = arena[b].depth;
-    let _ = b_parent; // unused
-    if a_depth == last_level && a_parent_depth == last_level {
-        0.5
-    } else if arena[a].depth == arena[b].depth {
-        // same parent heuristic via depth equality
-        1.0
-    } else {
-        2.0
-    }
+fn tree_separation(_arena: &[TreeNode], _a: usize, _b: usize, _last_level: i32) -> f64 {
+    // Called only from apportion() for cross-subtree nodes — always return 2.
+    2.0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1440,18 +1430,16 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             match prev_sibling {
                 Some(w) => {
                     let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
-                    let sep = if parent.is_some() {
-                        let w_orig = wrap[w].orig;
-                        let v_orig = wrap[v].orig;
-                        // Same parent = 1, else 2
-                        if arena[v_orig].depth == arena[w_orig].depth {
-                            1.0
+                    // Consecutive siblings share the same parent: separation is 0.5 at
+                    // last_level (compact deepest ancestors), 1 everywhere else.
+                    let v_orig = wrap[v].orig;
+                    let w_orig = wrap[w].orig;
+                    let sep =
+                        if arena[v_orig].depth == last_level && arena[w_orig].depth == last_level {
+                            0.5
                         } else {
-                            2.0
-                        }
-                    } else {
-                        1.0
-                    };
+                            1.0
+                        };
                     wrap[v].z = wrap[w].z + w_sib_z + sep;
                     wrap[v].m = wrap[v].z - midpoint;
                 }
@@ -1461,7 +1449,14 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             }
         } else if let Some(w) = prev_sibling {
             let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
-            wrap[v].z = wrap[w].z + w_sib_z + 1.0;
+            let v_orig = wrap[v].orig;
+            let w_orig = wrap[w].orig;
+            let sep = if arena[v_orig].depth == last_level && arena[w_orig].depth == last_level {
+                0.5
+            } else {
+                1.0
+            };
+            wrap[v].z = wrap[w].z + w_sib_z + sep;
         }
 
         // Multi-spouse positioning (simplified port).
@@ -1996,6 +1991,7 @@ struct LayoutNode {
     id: Option<Uuid>,
     x: f64,
     y: f64,
+    #[allow(dead_code)]
     depth: i32,
     sex: Sex,
     label_surname: String,
@@ -2012,24 +2008,61 @@ struct LayoutNode {
     is_sibling: bool,
 }
 
-/// Compute the RT layout and return flat nodes + connector paths.
+/// Result of the pedigree layout computation.
+///
+/// The ascending and descending trees are kept in their own coordinate spaces so
+/// that their SVG groups can each receive the correct `translate()` transform —
+/// mirroring how `generate.js` + `renderSVG` work in the reference project.
+struct PedigreeLayout {
+    /// Ascending tree nodes in ascending-tree coordinate space.
+    asc_nodes: Vec<LayoutNode>,
+    /// Descending tree nodes in descending-tree coordinate space.
+    desc_nodes: Vec<LayoutNode>,
+    /// SVG connector paths for the ascending tree (in ascending coordinate space).
+    asc_links: Vec<ConnectorPath>,
+    /// SVG connector paths for the descending tree (in descending coordinate space).
+    desc_links: Vec<ConnectorPath>,
+    /// X translate applied to the outer SVG group (shifts content so x ≥ 0).
+    main_tx: f64,
+    /// Y translate applied to the outer SVG group (shifts content so y ≥ 0).
+    main_ty: f64,
+    /// X translate for the descending `<g>` (aligns desc root X with asc root X).
+    desc_tx: f64,
+    /// Y translate for the descending `<g>` (= asc root y, aligns vertically).
+    desc_ty: f64,
+    /// Total SVG viewport width.
+    total_w: f64,
+    /// Total SVG viewport height.
+    total_h: f64,
+    /// Root card centre x in final SVG coordinates (for auto-centering).
+    root_cx: f64,
+    /// Root card centre y in final SVG coordinates (for auto-centering).
+    root_cy: f64,
+}
+
+/// Compute the RT layout for both ascending and descending trees.
+///
+/// Uses two independent `LayoutTreeService`-equivalent passes (one per tree) and
+/// computes the SVG group transforms needed to make the root card appear at the
+/// same canvas position in both trees — exactly as `generate.js` / `renderSVG`
+/// do in the JS reference implementation.
 fn compute_layout(
     root_id: Uuid,
     data: &PedigreeData,
     ancestor_levels: usize,
     descendant_levels: usize,
-) -> (Vec<LayoutNode>, Vec<ConnectorPath>, f64, f64) {
+) -> PedigreeLayout {
     let sosa_root_id = data.sosa_root_id;
     let sosa_ancestors = &data.sosa_ancestors;
-
-    // ── Build ascending tree ──
     let last_asc_level = -(ancestor_levels as i32);
+
+    // ── Ascending tree ──
     let mut asc_arena =
         build_ascending_tree(root_id, data, ancestor_levels, sosa_root_id, sosa_ancestors);
-    let (_asc_w, _asc_h) = layout_tree(&mut asc_arena, last_asc_level);
+    layout_tree(&mut asc_arena, last_asc_level);
     let asc_links = collect_links(&asc_arena, last_asc_level);
 
-    // ── Build descending tree ──
+    // ── Descending tree ──
     let mut desc_arena = build_descending_tree(
         root_id,
         data,
@@ -2037,131 +2070,112 @@ fn compute_layout(
         sosa_root_id,
         sosa_ancestors,
     );
-    let (_desc_w, _desc_h) = layout_tree(&mut desc_arena, 0);
+    layout_tree(&mut desc_arena, 0);
     let desc_links = collect_links(&desc_arena, 0);
 
-    // ── Merge the two arenas into a flat node list ──
-    // Ascending arena: root is at y=0. We need to merge ascending nodes above the root.
-    // Descending arena: root is at y=0. Nodes go downward.
-    //
-    // Strategy:
-    //  - Use descending arena as the "base" (root at origin).
-    //  - Ascending nodes (non-root) get negated y so they appear above.
-    //  - Root from ascending arena is at the same logical position as desc root.
-
-    // Find root node positions in each arena.
+    // Root is always at arena index 0 in both trees.
     let asc_root_x = asc_arena[0].x;
     let asc_root_y = asc_arena[0].y;
     let desc_root_x = desc_arena[0].x;
+    let desc_root_y = desc_arena[0].y;
 
+    // Descending-group SVG transform that aligns desc root with asc root:
+    //   global_x(desc_node) = desc_node.x + desc_tx + main_tx
+    //   global_x(asc_node)  = asc_node.x          + main_tx
+    // At root: asc_root_x = desc_root_x + desc_tx  →  desc_tx = asc_root_x - desc_root_x
+    let desc_tx = asc_root_x - desc_root_x;
+    let desc_ty = asc_root_y - desc_root_y; // desc_root_y is 0 after layout_tree
+
+    // ── Global bounding box (descending nodes shifted by desc_tx/ty) ──
     let asc_all = collect_all_nodes(&asc_arena);
     let desc_all = collect_all_nodes(&desc_arena);
 
-    // Y offset so that the ascending root aligns with the desc root.
-    let asc_height = asc_root_y.abs();
-    let y_offset = asc_height;
-
-    let x_shift_desc = asc_root_x - desc_root_x; // shift desc nodes to align roots in X
-
-    // Collect flat nodes.
-    let mut layout_nodes: Vec<LayoutNode> = Vec::new();
-
-    // Ascending nodes (skip root — it comes from desc arena).
-    let deepest_anc_depth = asc_all
-        .iter()
-        .map(|&i| asc_arena[i].depth)
-        .min()
-        .unwrap_or(0);
+    let mut gmin_x = f64::INFINITY;
+    let mut gmax_x = f64::NEG_INFINITY;
+    let mut gmin_y = f64::INFINITY;
+    let mut gmax_y = f64::NEG_INFINITY;
 
     for &ni in &asc_all {
         let tn = &asc_arena[ni];
-        let is_compact = tn.depth == deepest_anc_depth && deepest_anc_depth < 0;
-        let px = tn.x;
-        // Ancestors have positive y in the asc arena (root=0 at bottom, ancestors above).
-        // We need to flip: ancestors should appear at smaller y than root.
-        let py_final = y_offset - (asc_root_y - tn.y) - CARD_H;
-        let py_display = if tn.depth == 0 {
-            y_offset
+        let cw = if tn.depth == last_asc_level {
+            COMPACT_W
         } else {
-            py_final.max(0.0)
+            CARD_W
         };
-
-        // Skip duplicate root (depth==0 comes from desc arena).
-        if tn.depth == 0 && ni != 0 {
-            continue;
-        }
-        if tn.depth == 0 {
-            continue;
-        } // root handled by desc
-
-        layout_nodes.push(LayoutNode {
-            id: tn.id,
-            x: px,
-            y: py_display,
-            depth: tn.depth,
-            sex: tn.sex,
-            label_surname: tn.label_surname.clone(),
-            label_given: tn.label_given.clone(),
-            birth_year: tn.birth_year,
-            death_year: tn.death_year,
-            photo_url: tn.photo_url.clone(),
-            sosa_badge: tn.sosa_badge.clone(),
-            is_compact,
-            child_of: tn.child_of,
-            is_father: tn.is_father,
-            is_sibling: tn.is_sibling,
-        });
+        let ch = if tn.depth == last_asc_level {
+            COMPACT_H
+        } else {
+            CARD_H
+        };
+        gmin_x = gmin_x.min(tn.x);
+        gmax_x = gmax_x.max(tn.x + cw);
+        gmin_y = gmin_y.min(tn.y);
+        gmax_y = gmax_y.max(tn.y + ch);
     }
-
-    // Descending nodes (including root at depth 0).
     for &ni in &desc_all {
         let tn = &desc_arena[ni];
-        let px = tn.x + x_shift_desc;
-        let py = tn.y + y_offset;
-        let is_compact = false;
-
-        layout_nodes.push(LayoutNode {
-            id: tn.id,
-            x: px,
-            y: py,
-            depth: tn.depth,
-            sex: tn.sex,
-            label_surname: tn.label_surname.clone(),
-            label_given: tn.label_given.clone(),
-            birth_year: tn.birth_year,
-            death_year: tn.death_year,
-            photo_url: tn.photo_url.clone(),
-            sosa_badge: tn.sosa_badge.clone(),
-            is_compact,
-            child_of: tn.child_of,
-            is_father: tn.is_father,
-            is_sibling: tn.is_sibling,
-        });
+        let ch = if tn.depth > 0 { DESC_H } else { CARD_H };
+        let gx = tn.x + desc_tx;
+        let gy = tn.y + desc_ty;
+        gmin_x = gmin_x.min(gx);
+        gmax_x = gmax_x.max(gx + CARD_W);
+        gmin_y = gmin_y.min(gy);
+        gmax_y = gmax_y.max(gy + ch);
     }
 
-    // Collect all links (ascending + descending).
-    let mut all_links: Vec<ConnectorPath> = Vec::with_capacity(asc_links.len() + desc_links.len());
-    all_links.extend(asc_links);
-    all_links.extend(desc_links);
+    let margin = 50.0;
+    // Shift so that no node has a negative coordinate inside the main group.
+    let main_tx = (-gmin_x + margin).max(margin);
+    let main_ty = (-gmin_y + margin).max(margin);
+    let total_w = (gmax_x - gmin_x + 2.0 * margin).max(CARD_W);
+    let total_h = (gmax_y - gmin_y + 2.0 * margin).max(CARD_H);
 
-    // Compute bounding box from layout_nodes.
-    let min_x = layout_nodes
-        .iter()
-        .map(|n| n.x)
-        .fold(f64::INFINITY, f64::min)
-        .max(0.0);
-    let max_x = layout_nodes
-        .iter()
-        .map(|n| n.x + CARD_W)
-        .fold(0.0f64, f64::max);
-    let max_y = layout_nodes
-        .iter()
-        .map(|n| n.y + CARD_H)
-        .fold(0.0f64, f64::max);
-    let total_w = (max_x - min_x).max(CARD_W) + CARD_W; // some padding
-    let total_h = max_y.max(CARD_H) + CARD_H;
+    // Root card centre in final SVG coordinates (used for auto-centering).
+    let root_cx = asc_root_x + main_tx + CARD_W / 2.0;
+    let root_cy = asc_root_y + main_ty + CARD_H / 2.0;
 
-    (layout_nodes, all_links, total_w, total_h)
+    // ── Build LayoutNode lists ──
+    let make_node = |ni: usize, arena: &Vec<TreeNode>, is_compact: bool| LayoutNode {
+        id: arena[ni].id,
+        x: arena[ni].x,
+        y: arena[ni].y,
+        depth: arena[ni].depth,
+        sex: arena[ni].sex,
+        label_surname: arena[ni].label_surname.clone(),
+        label_given: arena[ni].label_given.clone(),
+        birth_year: arena[ni].birth_year,
+        death_year: arena[ni].death_year,
+        photo_url: arena[ni].photo_url.clone(),
+        sosa_badge: arena[ni].sosa_badge.clone(),
+        is_compact,
+        child_of: arena[ni].child_of,
+        is_father: arena[ni].is_father,
+        is_sibling: arena[ni].is_sibling,
+    };
+
+    let asc_nodes: Vec<LayoutNode> = asc_all
+        .iter()
+        .map(|&ni| make_node(ni, &asc_arena, asc_arena[ni].depth == last_asc_level))
+        .collect();
+    let desc_nodes: Vec<LayoutNode> = desc_all
+        .iter()
+        .map(|&ni| make_node(ni, &desc_arena, false))
+        .collect();
+
+    PedigreeLayout {
+        asc_nodes,
+        desc_nodes,
+        asc_links,
+        desc_links,
+        main_tx,
+        main_ty,
+        desc_tx,
+        desc_ty,
+        total_w,
+        total_h,
+        root_cx,
+        root_cy,
+    }
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -2306,7 +2320,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     data_with_sosa.sosa_root_id = props.sosa_root_person_id;
 
     // ── Compute layout ──
-    let (layout_nodes, connector_paths, total_w, total_h) = compute_layout(
+    let layout = compute_layout(
         props.root_person_id,
         &data_with_sosa,
         ancestor_levels(),
@@ -2315,10 +2329,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // ── Center root card in viewport when needed ──
     if needs_center() {
-        let root_center = layout_nodes
-            .iter()
-            .find(|n| n.id == Some(props.root_person_id))
-            .map(|n| (n.x + CARD_W / 2.0, n.y + CARD_H / 2.0));
+        let root_center = Some((layout.root_cx, layout.root_cy));
         if let Some((rcx, rcy)) = root_center {
             needs_center.set(false);
             spawn(async move {
@@ -2493,8 +2504,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     }
 
     // ── Fit-to-content zoom calculation ──
-    let fit_total_w = total_w;
-    let fit_total_h = total_h;
+    let fit_total_w = layout.total_w;
+    let fit_total_h = layout.total_h;
 
     rsx! {
         div { class: "pedigree-outer",
@@ -2781,171 +2792,255 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
                     div {
                         class: "pedigree-tree",
-                        style: "position: relative; width: {total_w}px; height: {total_h}px;",
+                        style: "position: relative; width: {layout.total_w}px; height: {layout.total_h}px;",
 
-                        // SVG connector overlay
                         svg {
-                            class: "pedigree-svg-connectors",
-                            "viewBox": "0 0 {total_w} {total_h}",
-                            width: "{total_w}",
-                            height: "{total_h}",
-                            for (si, path) in connector_paths.iter().enumerate() {
-                                path {
-                                    key: "seg-{si}",
-                                    d: "{path.d}",
-                                    class: "pedigree-connector-path",
-                                    fill: "none",
-                                }
-                            }
-                        }
+                            "viewBox": "0 0 {layout.total_w} {layout.total_h}",
+                            width: "{layout.total_w}",
+                            height: "{layout.total_h}",
+                            style: "display: block; overflow: visible;",
 
-                        // Person cards (absolute positioned)
-                        for (ni, node) in layout_nodes.iter().enumerate() {
-                            {
-                                let node = node.clone();
-                                let card_w = if node.is_compact { COMPACT_W } else { CARD_W };
-                                let card_h = if node.is_compact { COMPACT_H } else if node.depth > 0 { DESC_H } else { CARD_H };
-                                let style = format!(
-                                    "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: {:.1}px;",
-                                    node.x, node.y, card_w, card_h
-                                );
+                            g { transform: "translate({layout.main_tx},{layout.main_ty})",
 
-                                match node.id {
-                                    Some(pid) => {
-                                        let given_s = node.label_given.clone();
-                                        let surname_s = node.label_surname.clone();
-                                        let has_name = !given_s.is_empty() || !surname_s.is_empty();
-                                        let birth_s = node.birth_year.map(|y| y.to_string()).unwrap_or_default();
-                                        let death_s = node.death_year.map(|y| y.to_string()).unwrap_or_default();
-                                        let initials = make_initials(&given_s, &surname_s);
-                                        let is_focus = pid == props.root_person_id;
-                                        let is_sosa_ancestor = matches!(node.sosa_badge, SosaBadge::Direct);
-                                        let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
-                                        let role_class = if node.depth == 0 {
-                                            "current"
-                                        } else if node.depth < 0 {
-                                            "ancestor"
-                                        } else {
-                                            "descendant"
-                                        };
-                                        let sex_part = match node.sex {
-                                            Sex::Male => "male",
-                                            Sex::Female => "female",
-                                            Sex::Unknown => "",
-                                        };
-                                        let is_sel = selected_person_id() == pid;
-                                        let sel_part = if is_sel || is_focus { "selected" } else { "" };
-                                        let compact_part = if node.is_compact { "pedigree-node-compact" } else { "pedigree-node" };
-                                        let node_class = format!(
-                                            "{compact_part} {sex_part} {role_class} {sel_part}"
-                                        );
-                                        let photo_url = node.photo_url.clone();
-                                        let gender_line_class = match node.sex {
-                                            Sex::Male => "pc-gender-line pc-gender-line-male",
-                                            Sex::Female => "pc-gender-line pc-gender-line-female",
-                                            Sex::Unknown => "pc-gender-line",
-                                        };
+                                // ── Ascending tree ──
+                                g {
+                                    for (si, path) in layout.asc_links.iter().enumerate() {
+                                        path { key: "al-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                                    }
+                                    for (ni, node) in layout.asc_nodes.iter().enumerate() {
+                                        {
+                                            let node = node.clone();
+                                            let is_compact = node.is_compact;
+                                            let (rw, rh) = if is_compact { (82.0f64, 115.0f64) } else { (175.0f64, 67.0f64) };
+                                            let (gl_path, ph_x) = if is_compact { ("M19,10 L19,60", 20.0f64) } else { ("M9,10 L9,60", 10.0f64) };
+                                            let (tx, ty) = if is_compact { (10.0f64, 81.0f64) } else { (70.0f64, 21.0f64) };
+                                            let (sosa_cx, sosa_cy) = if is_compact { (67.5f64, 57.5f64) } else { (57.5f64, 57.5f64) };
+                                            let ph_cx = ph_x + 25.0;
+                                            let ph_cy = 35.0f64;
 
-                                        let on_navigate = props.on_person_navigate;
-                                        let on_click = props.on_person_click;
-
-                                        rsx! {
-                                            div {
-                                                key: "node-{ni}",
-                                                class: "pedigree-card-wrap",
-                                                style: style,
-                                                div {
-                                                    class: node_class,
-                                                    onclick: move |_| {
-                                                        selected_person_id.set(pid);
-                                                        on_navigate.call(pid);
-                                                    },
-                                                    // Gender line (2px vertical, left of photo)
-                                                    div { class: gender_line_class }
-                                                    // Photo (50×50 square)
-                                                    div { class: "pc-ph",
-                                                        if let Some(ref url) = photo_url {
-                                                            img {
-                                                                class: "pc-avatar",
-                                                                src: "{url}",
-                                                                alt: "{initials}",
+                                            match node.id {
+                                                Some(pid) => {
+                                                    let is_focus = pid == props.root_person_id;
+                                                    let is_selected = selected_person_id() == pid;
+                                                    let bg = if is_focus { "var(--pn-root-bg)" } else if node.is_sibling { "var(--pn-spouse-bg)" } else { "var(--pn-bg)" };
+                                                    let text_fill = if is_focus { "#ffffff" } else { "var(--pn-text)" };
+                                                    let gender_stroke = match node.sex { Sex::Male => "var(--pn-male-line)", Sex::Female => "var(--pn-female-line)", _ => "#888888" };
+                                                    let initials = make_initials(&node.label_given, &node.label_surname);
+                                                    let surname_up = node.label_surname.to_uppercase();
+                                                    let surname_disp = if is_compact { surname_up.chars().take(7).collect::<String>() } else { surname_up };
+                                                    let given_disp = if is_compact { node.label_given.chars().take(7).collect::<String>() } else { node.label_given.clone() };
+                                                    let birth_s = node.birth_year.map(|y| y.to_string()).unwrap_or_default();
+                                                    let death_s = node.death_year.map(|y| y.to_string()).unwrap_or_default();
+                                                    let date_s = match (!birth_s.is_empty(), !death_s.is_empty()) {
+                                                        (true, true) => format!("{birth_s}-{death_s}"),
+                                                        (true, false) => format!("{birth_s}-"),
+                                                        (false, true) => format!("-{death_s}"),
+                                                        _ => String::new(),
+                                                    };
+                                                    let has_surname = !surname_disp.is_empty();
+                                                    let has_given = !given_disp.is_empty();
+                                                    let has_date = !date_s.is_empty();
+                                                    let given_dy = if has_surname { "14" } else { "0" };
+                                                    let date_dy = if has_surname || has_given { "14" } else { "0" };
+                                                    let on_nav = props.on_person_navigate;
+                                                    let on_click = props.on_person_click;
+                                                    let photo_url = node.photo_url.clone();
+                                                    let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
+                                                    let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
+                                                    rsx! {
+                                                        g {
+                                                            key: "an-{ni}",
+                                                            transform: "translate({node.x},{node.y})",
+                                                            style: "cursor:pointer",
+                                                            onclick: move |_| { selected_person_id.set(pid); on_nav.call(pid); },
+                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:#888888;stroke-width:1" }
+                                                            if is_selected || is_focus {
+                                                                rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
                                                             }
-                                                        } else {
-                                                            span { class: "pc-initials", "{initials}" }
-                                                        }
-                                                    }
-                                                    // SOSA badge (positioned absolute, sibling of photo)
-                                                    if is_sosa_root {
-                                                        span { class: "sosa-badge sosa-badge-root", title: "SOSA 1", "1" }
-                                                    } else if is_sosa_ancestor {
-                                                        span { class: "sosa-badge sosa-badge-direct", title: "SOSA" }
-                                                    }
-                                                    // Text body
-                                                    div { class: "pc-body",
-                                                        if !surname_s.is_empty() {
-                                                            span { class: "pc-last", "{surname_s}" }
-                                                        }
-                                                        if !given_s.is_empty() {
-                                                            span { class: "pc-first", "{given_s}" }
-                                                        }
-                                                        if !has_name {
-                                                            span { class: "pc-first", {i18n.t("common.unknown")} }
-                                                        }
-                                                        if !birth_s.is_empty() || !death_s.is_empty() {
-                                                            div { class: "pc-dates",
-                                                                span { class: "pc-born",
-                                                                    {
-                                                                        match (!birth_s.is_empty(), !death_s.is_empty()) {
-                                                                            (true, true)  => format!("{birth_s}-{death_s}"),
-                                                                            (true, false) => format!("{birth_s}-"),
-                                                                            (false, true) => format!("-{death_s}"),
-                                                                            _ => String::new(),
-                                                                        }
-                                                                    }
+                                                            path { d: "{gl_path}", style: "stroke:{gender_stroke};stroke-width:2;fill:none" }
+                                                            rect { x: "{ph_x}", y: "10", width: "50", height: "50", style: "fill:#ffffff" }
+                                                            if let Some(ref url) = photo_url {
+                                                                image { "href": "{url}", x: "{ph_x}", y: "10", width: "50", height: "50", style: "object-fit:cover" }
+                                                            } else {
+                                                                text { x: "{ph_cx}", y: "{ph_cy}", style: "font-size:14px;font-family:'Lato',sans-serif;font-weight:600;fill:var(--pn-text-muted);text-anchor:middle;dominant-baseline:central", "{initials}" }
+                                                            }
+                                                            if is_sosa_root {
+                                                                g {
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(109,161,24)" }
+                                                                    text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:#fff;font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
+                                                                }
+                                                            } else if is_sosa_direct {
+                                                                g {
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(149,196,23)" }
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:#fff" }
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:rgb(149,196,23)" }
+                                                                }
+                                                            }
+                                                            text {
+                                                                if has_surname {
+                                                                    tspan { x: "{tx}", y: "{ty}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_disp}" }
+                                                                }
+                                                                if has_given {
+                                                                    tspan { x: "{tx}", dy: "{given_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
+                                                                }
+                                                                if has_date {
+                                                                    tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:var(--pn-born)", "{date_s}" }
+                                                                }
+                                                            }
+                                                            if is_focus {
+                                                                g {
+                                                                    transform: "translate({5.0+rw/2.0},{5.0+rh+16.0})",
+                                                                    style: "cursor:pointer",
+                                                                    onclick: move |evt: Event<MouseData>| {
+                                                                        evt.stop_propagation();
+                                                                        let coords = evt.client_coordinates();
+                                                                        on_click.call((pid, coords.x, coords.y));
+                                                                    },
+                                                                    circle { r: "14", style: "fill:var(--pn-root-bg);stroke:#fff;stroke-width:2" }
+                                                                    text { x: "0", y: "6", style: "fill:#fff;font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
                                                                 }
                                                             }
                                                         }
                                                     }
                                                 }
-                                                // Pencil FAB on focus person only
-                                                if is_focus {
-                                                    button {
-                                                        class: "pedigree-edit-fab",
-                                                        title: "{i18n.t(\"pedigree.edit_actions\")}",
-                                                        onclick: move |evt: Event<MouseData>| {
-                                                            evt.stop_propagation();
-                                                            let coords = evt.client_coordinates();
-                                                            on_click.call((pid, coords.x, coords.y));
-                                                        },
-                                                        "\u{270E}" // ✎
+                                                None => {
+                                                    let child_id = node.child_of;
+                                                    let is_father = node.is_father;
+                                                    rsx! {
+                                                        g { key: "an-{ni}", transform: "translate({node.x},{node.y})",
+                                                            if let Some(cid) = child_id {
+                                                                {
+                                                                    let on_empty = props.on_empty_slot;
+                                                                    rsx! {
+                                                                        g {
+                                                                            style: "cursor:pointer",
+                                                                            onclick: move |_| on_empty.call((cid, is_father)),
+                                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4" }
+                                                                            text { x: "{5.0+rw/2.0}", y: "{5.0+rh/2.0+8.0}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                    None => {
-                                        // Empty placeholder slot
-                                        let child_id = node.child_of;
-                                        let is_father = node.is_father;
-                                        if let Some(cid) = child_id {
-                                            let on_empty = props.on_empty_slot;
-                                            rsx! {
-                                                div {
-                                                    key: "node-{ni}",
-                                                    style: style,
-                                                    button {
-                                                        class: "pedigree-node empty-slot",
-                                                        onclick: move |_| on_empty.call((cid, is_father)),
-                                                        "+"
+                                }
+
+                                // ── Descending tree ──
+                                g {
+                                    transform: "translate({layout.desc_tx},{layout.desc_ty})",
+                                    for (si, path) in layout.desc_links.iter().enumerate() {
+                                        path { key: "dl-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                                    }
+                                    for (ni, node) in layout.desc_nodes.iter().enumerate() {
+                                        {
+                                            let node = node.clone();
+                                            let rw = 175.0f64;
+                                            let rh = 67.0f64;
+                                            let gl_path = "M9,10 L9,60";
+                                            let ph_x = 10.0f64;
+                                            let tx = 70.0f64;
+                                            let ty = 21.0f64;
+                                            let sosa_cx = 57.5f64;
+                                            let sosa_cy = 57.5f64;
+                                            let ph_cx = 35.0f64;
+                                            let ph_cy = 35.0f64;
+
+                                            match node.id {
+                                                Some(pid) => {
+                                                    let is_focus = pid == props.root_person_id;
+                                                    let is_selected = selected_person_id() == pid;
+                                                    let bg = if is_focus { "var(--pn-root-bg)" } else if node.is_sibling { "var(--pn-spouse-bg)" } else { "var(--pn-bg)" };
+                                                    let text_fill = if is_focus { "#ffffff" } else { "var(--pn-text)" };
+                                                    let gender_stroke = match node.sex { Sex::Male => "var(--pn-male-line)", Sex::Female => "var(--pn-female-line)", _ => "#888888" };
+                                                    let initials = make_initials(&node.label_given, &node.label_surname);
+                                                    let surname_up = node.label_surname.to_uppercase();
+                                                    let birth_s = node.birth_year.map(|y| y.to_string()).unwrap_or_default();
+                                                    let death_s = node.death_year.map(|y| y.to_string()).unwrap_or_default();
+                                                    let date_s = match (!birth_s.is_empty(), !death_s.is_empty()) {
+                                                        (true, true) => format!("{birth_s}-{death_s}"),
+                                                        (true, false) => format!("{birth_s}-"),
+                                                        (false, true) => format!("-{death_s}"),
+                                                        _ => String::new(),
+                                                    };
+                                                    let has_surname = !surname_up.is_empty();
+                                                    let has_given = !node.label_given.is_empty();
+                                                    let has_date = !date_s.is_empty();
+                                                    let given_dy = if has_surname { "14" } else { "0" };
+                                                    let date_dy = if has_surname || has_given { "14" } else { "0" };
+                                                    let on_nav = props.on_person_navigate;
+                                                    let on_click = props.on_person_click;
+                                                    let photo_url = node.photo_url.clone();
+                                                    let given_name = node.label_given.clone();
+                                                    let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
+                                                    let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
+                                                    rsx! {
+                                                        g {
+                                                            key: "dn-{ni}",
+                                                            transform: "translate({node.x},{node.y})",
+                                                            style: "cursor:pointer",
+                                                            onclick: move |_| { selected_person_id.set(pid); on_nav.call(pid); },
+                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:#888888;stroke-width:1" }
+                                                            if is_selected || is_focus {
+                                                                rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
+                                                            }
+                                                            path { d: "{gl_path}", style: "stroke:{gender_stroke};stroke-width:2;fill:none" }
+                                                            rect { x: "{ph_x}", y: "10", width: "50", height: "50", style: "fill:#ffffff" }
+                                                            if let Some(ref url) = photo_url {
+                                                                image { "href": "{url}", x: "{ph_x}", y: "10", width: "50", height: "50", style: "object-fit:cover" }
+                                                            } else {
+                                                                text { x: "{ph_cx}", y: "{ph_cy}", style: "font-size:14px;font-family:'Lato',sans-serif;font-weight:600;fill:var(--pn-text-muted);text-anchor:middle;dominant-baseline:central", "{initials}" }
+                                                            }
+                                                            if is_sosa_root {
+                                                                g {
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(109,161,24)" }
+                                                                    text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:#fff;font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
+                                                                }
+                                                            } else if is_sosa_direct {
+                                                                g {
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(149,196,23)" }
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:#fff" }
+                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:rgb(149,196,23)" }
+                                                                }
+                                                            }
+                                                            text {
+                                                                if has_surname {
+                                                                    tspan { x: "{tx}", y: "{ty}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_up}" }
+                                                                }
+                                                                if has_given {
+                                                                    tspan { x: "{tx}", dy: "{given_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_name}" }
+                                                                }
+                                                                if has_date {
+                                                                    tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:var(--pn-born)", "{date_s}" }
+                                                                }
+                                                            }
+                                                            if is_focus {
+                                                                g {
+                                                                    transform: "translate({5.0+rw/2.0},{5.0+rh+16.0})",
+                                                                    style: "cursor:pointer",
+                                                                    onclick: move |evt: Event<MouseData>| {
+                                                                        evt.stop_propagation();
+                                                                        let coords = evt.client_coordinates();
+                                                                        on_click.call((pid, coords.x, coords.y));
+                                                                    },
+                                                                    circle { r: "14", style: "fill:var(--pn-root-bg);stroke:#fff;stroke-width:2" }
+                                                                    text { x: "0", y: "6", style: "fill:#fff;font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        } else {
-                                            rsx! {
-                                                div {
-                                                    key: "node-{ni}",
-                                                    style: style,
-                                                    div { class: "pedigree-node empty-slot disabled" }
+                                                None => {
+                                                    rsx! {
+                                                        g { key: "dn-{ni}", transform: "translate({node.x},{node.y})",
+                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
