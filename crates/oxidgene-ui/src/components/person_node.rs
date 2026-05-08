@@ -48,26 +48,3 @@ pub fn PersonNode(props: PersonNodeProps) -> Element {
         }
     }
 }
-
-/// An empty slot in a pedigree chart that can be clicked to add a person.
-#[derive(Props, Clone, PartialEq)]
-pub struct EmptySlotProps {
-    /// Label for the slot (e.g. "Add Father", "Add Mother").
-    pub label: String,
-    /// Called when the user clicks the empty slot.
-    pub on_click: EventHandler<()>,
-}
-
-/// Renders a placeholder box that the user can click to add a missing person
-/// (e.g. an unknown parent).
-#[component]
-pub fn EmptySlot(props: EmptySlotProps) -> Element {
-    rsx! {
-        button {
-            class: "tree-node empty-slot",
-            onclick: move |_| props.on_click.call(()),
-            span { class: "sex-icon", "+" }
-            "{props.label}"
-        }
-    }
-}
