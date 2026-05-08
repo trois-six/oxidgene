@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::{Confidence, EventType, NameType, Sex};
 
 // ── Enum parsers ────────────────────────────────────────────────────────
 
@@ -67,27 +67,6 @@ pub fn parse_confidence(s: &str) -> Confidence {
         "High" => Confidence::High,
         "VeryHigh" => Confidence::VeryHigh,
         _ => Confidence::Medium,
-    }
-}
-
-/// Parse a string value from a `<select>` into a [`SpouseRole`] enum.
-pub fn parse_spouse_role(s: &str) -> SpouseRole {
-    match s {
-        "Husband" => SpouseRole::Husband,
-        "Wife" => SpouseRole::Wife,
-        "Partner" => SpouseRole::Partner,
-        _ => SpouseRole::Partner,
-    }
-}
-
-/// Parse a string value from a `<select>` into a [`ChildType`] enum.
-pub fn parse_child_type(s: &str) -> ChildType {
-    match s {
-        "Biological" => ChildType::Biological,
-        "Adopted" => ChildType::Adopted,
-        "Foster" => ChildType::Foster,
-        "Step" => ChildType::Step,
-        _ => ChildType::Unknown,
     }
 }
 
