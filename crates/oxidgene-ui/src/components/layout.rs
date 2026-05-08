@@ -249,75 +249,6 @@ pub const LAYOUT_STYLES: &str = r#"
         width: auto;
     }
 
-    .nav-logo-text {
-        font-family: var(--font-heading);
-        font-size: 1.35rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, var(--orange) 0%, var(--green) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        letter-spacing: 0.04em;
-    }
-
-    .nav-right {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-
-    .nav-links {
-        display: flex;
-        gap: 8px;
-    }
-
-    .nav-link {
-        color: var(--text-secondary);
-        text-decoration: none;
-        padding: 6px 14px;
-        border-radius: var(--radius);
-        font-size: 0.9rem;
-        transition: background 0.15s, color 0.15s;
-    }
-
-    .nav-link:hover {
-        background: rgba(128,128,128,0.1);
-        color: var(--text-primary);
-    }
-
-    .nav-lang {
-        background: none;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        color: var(--text-primary);
-        cursor: pointer;
-        font-size: 0.8rem;
-        font-family: var(--font-sans);
-        padding: 4px 6px;
-        line-height: 1;
-        transition: border-color 0.15s, background 0.15s;
-        appearance: none;
-        -webkit-appearance: none;
-    }
-    .nav-lang:hover { border-color: var(--orange); background: var(--bg-card-hover); }
-    .nav-lang option { background: var(--bg-card); color: var(--text-primary); }
-
-    .nav-theme-toggle {
-        background: none;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        color: var(--text-primary);
-        cursor: pointer;
-        font-size: 1.1rem;
-        padding: 4px 8px;
-        line-height: 1;
-        transition: border-color 0.15s, background 0.15s;
-    }
-    .nav-theme-toggle:hover {
-        border-color: var(--orange);
-        background: var(--bg-card-hover);
-    }
-
     /* ── Page layout containers ──────────────────────────────────── */
 
     /* Full-height flex host for all page content */
@@ -329,15 +260,6 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow: hidden;
         position: relative;
         z-index: 1;
-    }
-
-    /* Standard scrollable page wrapper (tree-list, person-detail…) */
-    .page-content {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 24px;
-        overflow-y: auto;
-        width: 100%;
     }
 
     /* Sub-page: full-height flex container with topbar + scrollable content */
@@ -620,39 +542,7 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.8rem;
     }
 
-    .back-link {
-        color: var(--orange);
-        text-decoration: none;
-        font-size: 0.9rem;
-        font-weight: 500;
-        transition: color 0.15s;
-    }
-
-    .back-link:hover {
-        color: var(--orange-light);
-        text-decoration: underline;
-    }
-
-    /* ── Person detail breadcrumb & action bar ───────────────────── */
-
-    .pd-breadcrumb {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.85rem;
-        margin-bottom: 16px;
-    }
-    .pd-breadcrumb a {
-        color: var(--text-secondary);
-        text-decoration: none;
-        transition: color 0.15s;
-    }
-    .pd-breadcrumb a:hover { color: var(--orange); }
-    .pd-breadcrumb-sep { color: var(--text-muted); }
-    .pd-breadcrumb-current {
-        color: var(--text-primary);
-        font-weight: 600;
-    }
+    /* ── Person detail action bar ────────────────────────────────── */
 
     .pd-action-bar {
         display: flex;
@@ -740,66 +630,6 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 16px 0;
     }
 
-    .ancestor-chart {
-        display: flex;
-        align-items: center;
-    }
-
-    .ancestor-chart .gen-col {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 8px;
-        margin-right: 4px;
-    }
-
-    .ancestor-chart .gen-col .connector {
-        display: flex;
-        align-items: center;
-    }
-
-    .ancestor-chart .gen-col .connector::after {
-        content: "";
-        display: inline-block;
-        width: 20px;
-        height: 2px;
-        background: var(--border);
-        margin-left: 4px;
-    }
-
-    .ancestor-chart .gen-col:last-child .connector::after {
-        display: none;
-    }
-
-    .descendant-chart {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-
-    .descendant-chart .gen-row {
-        display: flex;
-        justify-content: center;
-        gap: 12px;
-        margin-bottom: 8px;
-        position: relative;
-    }
-
-    .descendant-chart .gen-row::before {
-        content: "";
-        position: absolute;
-        top: -8px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 2px;
-        height: 8px;
-        background: var(--border);
-    }
-
-    .descendant-chart .gen-row:first-child::before {
-        display: none;
-    }
-
     /* Shared person node card */
     .tree-node {
         display: inline-flex;
@@ -854,84 +684,6 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-    }
-
-    /* ── GEDCOM import / export ──────────────────────────────────── */
-
-    .gedcom-textarea {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.8rem;
-        line-height: 1.4;
-        min-height: 200px;
-        max-height: 400px;
-        resize: vertical;
-        white-space: pre;
-        overflow-wrap: normal;
-        overflow-x: auto;
-    }
-
-    .gedcom-result {
-        background: rgba(90, 171, 60, 0.07);
-        border: 1px solid rgba(90, 171, 60, 0.3);
-        border-radius: var(--radius);
-        padding: 16px;
-        margin-top: 12px;
-    }
-
-    .gedcom-result h4 {
-        font-size: 0.9rem;
-        font-weight: 600;
-        margin-bottom: 8px;
-        color: var(--green-light);
-    }
-
-    .result-stats {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 8px;
-    }
-
-    .result-stat {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 0.85rem;
-    }
-
-    .result-stat .stat-value {
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .result-stat .stat-label {
-        color: var(--text-secondary);
-    }
-
-    .gedcom-warnings {
-        margin-top: 8px;
-        padding: 12px;
-        background: rgba(245, 157, 58, 0.08);
-        border: 1px solid rgba(245, 157, 58, 0.3);
-        border-radius: var(--radius);
-        font-size: 0.8rem;
-        color: var(--orange-light);
-    }
-
-    .gedcom-warnings summary {
-        cursor: pointer;
-        font-weight: 500;
-        margin-bottom: 4px;
-    }
-
-    .gedcom-warnings ul {
-        list-style: disc;
-        padding-left: 20px;
-        margin-top: 4px;
-    }
-
-    .gedcom-warnings li {
-        margin-bottom: 2px;
     }
 
     /* ── Tree detail topbar ──────────────────────────────────────── */
@@ -991,26 +743,6 @@ pub const LAYOUT_STYLES: &str = r#"
     .td-bc-logo-img {
         height: 22px;
         width: auto;
-    }
-
-    .td-back-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        border-radius: 6px;
-        color: var(--text-muted);
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        text-decoration: none;
-        transition: color 0.15s, border-color 0.15s;
-        flex-shrink: 0;
-    }
-
-    .td-back-btn:hover {
-        color: var(--orange);
-        border-color: var(--orange);
     }
 
     .td-search-btn {
@@ -1156,311 +888,6 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 24px 32px;
     }
 
-    .pedigree-gen-row {
-        display: flex;
-        align-items: center;
-        justify-content: stretch;
-        min-height: 84px;
-    }
-
-    .pedigree-desc-row { justify-content: center; gap: 8px; flex-wrap: wrap; }
-
-    .pedigree-slot-cell {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2px 3px;
-    }
-
-    /* ── Person card ─────────────────────────────────────────────── */
-
-    .pedigree-node {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 7px;
-        padding: 6px 8px;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-left: 3px solid var(--border);
-        border-radius: 0 var(--radius) var(--radius) 0;
-        font-size: 0.82rem;
-        cursor: pointer;
-        transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-        color: var(--text-primary);
-        width: 100%;
-        max-width: 168px;
-        min-width: 100px;
-        position: relative;
-    }
-
-    .pedigree-node.male   { border-left-color: rgba(74,144,217,0.55); }
-    .pedigree-node.female { border-left-color: rgba(196,88,122,0.55); }
-
-    .pedigree-node:hover { box-shadow: 0 0 0 1px rgba(224,120,32,0.2); }
-
-    .pedigree-node.selected,
-    .pedigree-node.current {
-        background: var(--sel-bg);
-        border-left-color: var(--orange);
-        box-shadow: 0 0 0 1px rgba(224,120,32,0.2);
-    }
-
-    .pedigree-node.male.selected,
-    .pedigree-node.male.current   { border-left-color: var(--blue); }
-    .pedigree-node.female.selected,
-    .pedigree-node.female.current { border-left-color: var(--pink); }
-
-    .pedigree-node.empty-slot {
-        background: transparent;
-        border-style: dashed;
-        border-left-style: dashed;
-        align-items: center;
-        justify-content: center;
-        color: var(--text-muted);
-        font-size: 1.1rem;
-        font-weight: 300;
-        min-height: 32px;
-    }
-
-    .pedigree-node.empty-slot:hover { border-color: var(--orange); color: var(--orange); }
-    .pedigree-node.empty-slot.disabled { opacity: 0.3; cursor: default; pointer-events: none; }
-
-    /* Avatar circle */
-    .pc-ph {
-        position: relative;
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: var(--bg-panel);
-        border: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.65rem;
-        font-weight: 700;
-        color: var(--text-muted);
-        flex-shrink: 0;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-    }
-
-    .pedigree-node.male   .pc-ph { background: rgba(74,144,217,0.12); border-color: rgba(74,144,217,0.35); color: var(--blue); }
-    .pedigree-node.female .pc-ph { background: rgba(196,88,122,0.12); border-color: rgba(196,88,122,0.35); color: var(--pink); }
-
-    /* SOSA ancestor badge — anchored to bottom-center of avatar */
-    .sosa-badge {
-        position: absolute;
-        bottom: -3px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: var(--green, #5aab3c);
-        border: 2px solid var(--bg-card);
-        pointer-events: none;
-    }
-    .sosa-badge-root {
-        background: var(--orange, #e07820);
-    }
-
-    .pc-body { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
-
-    .pc-name { display: flex; flex-direction: column; min-width: 0; }
-
-    .pc-last {
-        font-size: 0.77rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.25;
-    }
-
-    .pc-first {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.25;
-    }
-
-    .pc-dates { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
-
-    .pc-born { font-size: 0.68rem; color: var(--green); line-height: 1.3; }
-    .pc-died { font-size: 0.68rem; color: var(--blue);  line-height: 1.3; }
-
-    /* Root wrapper + FAB */
-    .pedigree-root-wrapper { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-
-    .pedigree-edit-fab {
-        width: 26px;
-        height: 26px;
-        border-radius: 50%;
-        background: var(--orange);
-        color: #fff;
-        border: 2px solid var(--bg-deep);
-        box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-        cursor: pointer;
-        font-size: 13px;
-        line-height: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        transition: background 0.15s, transform 0.1s;
-        flex-shrink: 0;
-    }
-
-    .pedigree-edit-fab:hover { background: var(--orange-light); transform: scale(1.12); }
-
-    /* ── Ancestor connector rows ─────────────────────────────────── */
-
-    .pedigree-connector-row { display: flex; min-height: 36px; align-items: stretch; }
-
-    .connector-group { display: flex; flex-direction: column; }
-
-    .connector-couple-bar {
-        height: 2px;
-        background: var(--connector);
-        margin: 0 25%;
-        flex-shrink: 0;
-    }
-
-    .pedigree-marriage-date {
-        font-size: 0.68rem;
-        color: var(--text-secondary);
-        text-align: center;
-        padding: 1px 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.3;
-        flex-shrink: 0;
-    }
-
-    .connector-arms { display: flex; flex: 1; }
-
-    .connector-arm-left {
-        flex: 1;
-        border-right: 2px solid var(--connector);
-        border-bottom: 2px solid var(--connector);
-        border-bottom-right-radius: 4px;
-    }
-
-    .connector-arm-right {
-        flex: 1;
-        border-left: 2px solid var(--connector);
-        border-bottom: 2px solid var(--connector);
-        border-bottom-left-radius: 4px;
-    }
-
-    .connector-stem { flex: 1; display: flex; justify-content: center; }
-    .connector-stem::after { content: ''; width: 2px; background: var(--connector); height: 100%; }
-
-    /* ── Descendant connector system ──────────────────────────────── */
-
-    .pedigree-desc-gen {
-        display: flex;
-        justify-content: center;
-        gap: 24px;
-        flex-wrap: wrap;
-    }
-
-    .desc-family-block {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-
-    .desc-stem-up {
-        width: 2px;
-        height: 14px;
-        background: var(--connector);
-        flex-shrink: 0;
-    }
-
-    /* Branch bar: flex row of arms, mirrors ancestor connector pattern */
-    .desc-branch { display: flex; align-self: stretch; height: 14px; }
-
-    .desc-arm {
-        flex: 1;
-        border-top: 2px solid var(--connector);
-    }
-
-    .desc-arm-first {
-        border-right: 2px solid var(--connector);
-        border-top-right-radius: 4px;
-        border-top: none;
-        margin-left: 50%;
-    }
-
-    .desc-arm-mid {
-        border-top: 2px solid var(--connector);
-        position: relative;
-    }
-    .desc-arm-mid::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 2px;
-        height: 100%;
-        background: var(--connector);
-    }
-
-    .desc-arm-last {
-        border-left: 2px solid var(--connector);
-        border-top-left-radius: 4px;
-        border-top: none;
-        margin-right: 50%;
-    }
-
-    /* Children row: same flex distribution as branch arms for alignment */
-    .desc-children {
-        display: flex;
-        gap: 0;
-    }
-
-    .desc-child-cell {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 2px 4px;
-        position: relative;
-    }
-
-    /* Add-parent "+" button on descendant cards */
-    .desc-add-parent-btn {
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: var(--bg-panel);
-        border: 1px dashed var(--text-muted);
-        color: var(--text-muted);
-        font-size: 0.7rem;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        transition: border-color 0.15s, color 0.15s;
-        position: absolute;
-        top: -6px;
-        right: -2px;
-    }
-
-    .desc-add-parent-btn:hover {
-        border-color: var(--orange);
-        color: var(--orange);
-    }
-
     /* ── Depth popover (from isb) ────────────────────────────────── */
 
     .pedigree-depth-popover {
@@ -1477,18 +904,8 @@ pub const LAYOUT_STYLES: &str = r#"
         pointer-events: all;
     }
 
-    .pedigree-depth-title {
-        font-size: 0.72rem;
-        font-weight: 700;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 10px;
-    }
-
     .pedigree-depth-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
     .pedigree-depth-row:last-child { margin-bottom: 0; }
-    .pedigree-depth-label { font-size: 0.82rem; flex: 1; color: var(--text-primary); }
 
     .pedigree-depth-btn {
         width: 24px;
@@ -1716,30 +1133,6 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-secondary);
     }
 
-    /* ── SVG connector overlay ──────────────────────────────────── */
-
-    .pedigree-svg-connectors {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        z-index: 0;
-    }
-
-    .pedigree-connector-line {
-        stroke: var(--connector);
-        stroke-width: 2;
-        stroke-linecap: round;
-    }
-
-    /* ── RT Bézier connector paths ───────────────────────────────── */
-
-    .pedigree-connector-path {
-        stroke: var(--connector);
-        stroke-width: 1.5;
-        stroke-linecap: round;
-        fill: none;
-    }
-
     /* ── SVG pedigree connector paths ─────────────────────────────── */
 
     .pedigree-connector-path {
@@ -1801,23 +1194,9 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
-    /* ── Responsive: cards below 900px ─────────────────────────── */
+    /* ── Responsive: event panel below 900px ────────────────────── */
 
     @media (max-width: 900px) {
-        .pedigree-card-wrap {
-            width: 130px;
-        }
-        .pedigree-card-wrap .pedigree-node,
-        .pedigree-node {
-            max-width: 130px;
-            min-height: 56px;
-            font-size: 0.72rem;
-        }
-        .pc-ph { width: 24px; height: 24px; font-size: 0.55rem; }
-        .pc-last { font-size: 0.68rem; }
-        .pc-first { font-size: 0.65rem; }
-        .pc-born, .pc-died { font-size: 0.6rem; }
-
         /* Event panel as drawer on mobile */
         .ev-panel {
             position: absolute;
@@ -1932,33 +1311,9 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-muted);
         margin-top: 1px;
     }
-    .sp-spouse { font-style: italic; }
 
     .search-person-result.male { border-left: 3px solid rgba(74,144,217,0.4); }
     .search-person-result.female { border-left: 3px solid rgba(196,88,122,0.4); }
-
-    /* ── Root person selector ─────────────────────────────────────── */
-
-    .root-selector {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 16px;
-        flex-wrap: wrap;
-    }
-
-    .root-selector label {
-        display: inline;
-        font-size: 0.85rem;
-        font-weight: 500;
-        margin-bottom: 0;
-        color: var(--text-primary);
-    }
-
-    .root-selector select {
-        width: auto;
-        min-width: 200px;
-    }
 
     /* ── Person form modal ────────────────────────────────────────── */
 
@@ -2173,22 +1528,6 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 16px 24px;
     }
 
-    .sr-header {
-        margin-bottom: 16px;
-        padding-top: 16px;
-    }
-
-    .sr-title {
-        font-size: 1.3rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 0 0 4px;
-    }
-
-    .sr-highlight {
-        color: var(--orange);
-    }
-
     .sr-count {
         font-size: 0.85rem;
         color: var(--text-muted);
@@ -2198,20 +1537,6 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Filters */
     .sr-filters-toggle {
         margin-bottom: 8px;
-    }
-
-    .sr-filter-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--orange);
-        color: #fff;
-        border-radius: 50%;
-        width: 18px;
-        height: 18px;
-        font-size: 0.7rem;
-        font-weight: 700;
-        margin-left: 6px;
     }
 
     .sr-chevron {
@@ -2351,125 +1676,6 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
     }
 
-    /* Results list */
-    .sr-results.sr-list {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .sr-results.sr-card-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 12px;
-    }
-
-    .sr-result-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 14px;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-left: 3px solid var(--border);
-        border-radius: 6px;
-        cursor: pointer;
-        transition: background 0.15s, border-color 0.15s;
-    }
-
-    .sr-result-item:hover {
-        background: var(--bg-card-hover);
-        border-color: var(--orange);
-    }
-
-    .sr-result-item.male {
-        border-left-color: #4a90d9;
-    }
-
-    .sr-result-item.female {
-        border-left-color: #d94a8c;
-    }
-
-    .sr-result-photo {
-        flex-shrink: 0;
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        background: var(--bg-deep);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .sr-card-grid .sr-result-photo {
-        width: 64px;
-        height: 64px;
-    }
-
-    .sr-result-initials {
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: var(--text-muted);
-    }
-
-    .sr-result-initials.male {
-        color: #4a90d9;
-    }
-
-    .sr-result-initials.female {
-        color: #d94a8c;
-    }
-
-    .sr-result-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .sr-result-name {
-        font-size: 0.95rem;
-        line-height: 1.3;
-    }
-
-    .sr-surname {
-        font-weight: 700;
-        text-transform: uppercase;
-        color: var(--text-primary);
-    }
-
-    .sr-given {
-        color: var(--text-primary);
-    }
-
-    .sr-result-dates {
-        display: flex;
-        gap: 12px;
-        font-size: 0.8rem;
-        color: var(--text-muted);
-        margin-top: 2px;
-    }
-
-    .sr-birth {
-        color: var(--green);
-    }
-
-    .sr-death {
-        color: #6ea8d8;
-    }
-
-    .sr-result-meta {
-        font-size: 0.78rem;
-        color: var(--text-muted);
-        margin-top: 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .sr-place::before {
-        content: "\1F4CD ";
-        font-size: 0.7rem;
-    }
-
     /* Pagination */
     .sr-pagination {
         display: flex;
@@ -2537,16 +1743,6 @@ pub const LAYOUT_STYLES: &str = r#"
         text-align: center;
         padding: 48px 24px;
         color: var(--text-muted);
-    }
-
-    .sr-empty-icon {
-        font-size: 2rem;
-        margin-bottom: 8px;
-    }
-
-    .sr-empty-hint {
-        font-size: 0.85rem;
-        margin-top: 4px;
     }
 
     /* ── Import overlay (blocking spinner) ───────────────────────── */
