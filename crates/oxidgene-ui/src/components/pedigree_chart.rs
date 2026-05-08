@@ -38,6 +38,71 @@ const COMPACT_H: f64 = 144.0;
 /// First descendant level height.
 const DESC_H: f64 = 140.0;
 
+// ── Card inner SVG geometry (rect / photo / text positions) ──────────────
+
+const CARD_BORDER_RADIUS: f64 = 5.0;
+const CARD_PADDING: f64 = 5.0;
+const CARD_INNER_W: f64 = 175.0;
+const CARD_INNER_H: f64 = 67.0;
+const COMPACT_INNER_W: f64 = 82.0;
+const COMPACT_INNER_H: f64 = 115.0;
+const PHOTO_W: f64 = 50.0;
+const PHOTO_H: f64 = 50.0;
+const PHOTO_Y: f64 = 10.0;
+const PHOTO_X_FULL: f64 = 10.0;
+const PHOTO_X_COMPACT: f64 = 20.0;
+const PHOTO_CY: f64 = 35.0;
+const PHOTO_CX_OFFSET: f64 = 25.0;
+const TEXT_X_FULL: f64 = 70.0;
+const TEXT_X_COMPACT: f64 = 10.0;
+const TEXT_Y_FULL: f64 = 21.0;
+const TEXT_Y_COMPACT: f64 = 81.0;
+const SOSA_CX_FULL: f64 = 57.5;
+const SOSA_CX_COMPACT: f64 = 67.5;
+const SOSA_CY: f64 = 57.5;
+const SOSA_R: f64 = 7.5;
+const EDIT_FAB_R: f64 = 14.0;
+const EDIT_FAB_GAP: f64 = 16.0;
+const COMPACT_TEXT_TRUNCATE: usize = 7;
+
+// ── Connector / Bézier path parameters ───────────────────────────────────
+
+/// Card-bottom Y offset where downward connectors enter (sh − 23).
+const CARD_BOTTOM_OFFSET: f64 = 23.0;
+/// Card-top Y offset where upward connectors exit (n_y + 4).
+const CARD_TOP_OFFSET: f64 = 4.0;
+/// Small vertical indent for entry/exit segments (sy − 5, ey + 5).
+const CARD_TOP_INDENT: f64 = 5.0;
+/// Horizontal control-point offset for S-curve segments.
+const BEZIER_CTRL_OFFSET: f64 = 8.0;
+/// Spouse link inset from card edges.
+const SPOUSE_LINK_INSET: f64 = 15.0;
+
+// ── Layout spacing ───────────────────────────────────────────────────────
+
+/// Outer margin around the rendered tree before computing the SVG viewBox.
+const LAYOUT_MARGIN: f64 = 50.0;
+/// Horizontal spacing between root biological siblings.
+const SIBLING_SPACING: f64 = 200.0;
+/// Per-sibling vertical step in spouse/child connector rows.
+const SIBLING_VERTICAL_STEP: f64 = 4.0;
+/// Minimum sibling vertical offset.
+const SIBLING_MIN_OFFSET: f64 = 6.0;
+
+// ── Viewport / zoom ──────────────────────────────────────────────────────
+
+const VIEWPORT_DEFAULT_W: f64 = 800.0;
+const VIEWPORT_DEFAULT_H: f64 = 600.0;
+const ZOOM_FACTOR: f64 = 1.2;
+const ZOOM_MIN: f64 = 0.3;
+const ZOOM_MAX: f64 = 2.0;
+const FIT_ZOOM_FACTOR: f64 = 0.85;
+
+// ── Year extraction ──────────────────────────────────────────────────────
+
+const YEAR_MIN: u32 = 1000;
+const YEAR_MAX: u32 = 2099;
+
 // ── Helper functions ─────────────────────────────────────────────────────
 
 /// Extract a 4-digit year from a GEDCOM date string (e.g. "ABT 1842", "1 JAN 1900").
@@ -46,7 +111,7 @@ fn fmt_year(date: &str) -> String {
         if word.len() == 4
             && word
                 .parse::<u32>()
-                .is_ok_and(|y| (1000..=2099).contains(&y))
+                .is_ok_and(|y| (YEAR_MIN..=YEAR_MAX).contains(&y))
         {
             return word.to_string();
         }
@@ -67,6 +132,36 @@ fn make_initials(given: &str, surname: &str) -> String {
         (Some(f), None) => f.to_string(),
         (None, Some(l)) => l.to_string(),
         _ => "?".to_string(),
+    }
+}
+
+/// Format a "birth-death" lifespan string from optional years.
+fn format_lifespan(birth: Option<i32>, death: Option<i32>) -> String {
+    match (birth, death) {
+        (Some(b), Some(d)) => format!("{b}-{d}"),
+        (Some(b), None) => format!("{b}-"),
+        (None, Some(d)) => format!("-{d}"),
+        _ => String::new(),
+    }
+}
+
+/// CSS variable for the gender-coded card border stroke.
+fn gender_stroke(sex: Sex) -> &'static str {
+    match sex {
+        Sex::Male => "var(--pn-male-line)",
+        Sex::Female => "var(--pn-female-line)",
+        _ => "#888888",
+    }
+}
+
+/// CSS variable for the card background fill.
+fn card_bg(is_focus: bool, is_sibling: bool) -> &'static str {
+    if is_focus {
+        "var(--pn-root-bg)"
+    } else if is_sibling {
+        "var(--pn-spouse-bg)"
+    } else {
+        "var(--pn-bg)"
     }
 }
 
@@ -991,8 +1086,8 @@ fn build_ascending_tree(
             ));
             child_indices.push(idx);
             work.push((idx, child_depth));
-        } else if father_id.is_none() && mother_id.is_some() {
-            // Empty father slot.
+        } else {
+            // Empty father slot (always shown when father is missing).
             let idx = arena.len();
             arena.push(TreeNode::new_empty(child_depth, Some(pid), true));
             child_indices.push(idx);
@@ -1017,8 +1112,8 @@ fn build_ascending_tree(
             ));
             child_indices.push(idx);
             work.push((idx, child_depth));
-        } else if mother_id.is_none() && father_id.is_some() {
-            // Empty mother slot.
+        } else {
+            // Empty mother slot (always shown when mother is missing).
             let idx = arena.len();
             arena.push(TreeNode::new_empty(child_depth, Some(pid), false));
             child_indices.push(idx);
@@ -1268,9 +1363,21 @@ fn tree_shift(wrap: &mut [WrapNode], node: usize) {
     }
 }
 
-fn tree_separation(_arena: &[TreeNode], _a: usize, _b: usize, _last_level: i32) -> f64 {
-    // Called only from apportion() for cross-subtree nodes — always return 2.
-    2.0
+/// Port of JS `treeSeparation(a, b)`.
+///
+/// In the reference, tree nodes have no `parent` property, so
+/// `a.parent == b.parent` is always `undefined == undefined` = true.
+/// The function therefore NEVER returns 2 — it returns 0.5 when the
+/// left node is at the deepest (compact) level, and 1.0 otherwise.
+fn tree_separation(
+    wrap: &[WrapNode],
+    arena: &[TreeNode],
+    a: usize,
+    _b: usize,
+    last_level: i32,
+) -> f64 {
+    let a_depth = arena[wrap[a].orig].depth;
+    if a_depth == last_level { 0.5 } else { 1.0 }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1320,7 +1427,7 @@ fn apportion(
             sibling_z += wrap[si].z;
         }
 
-        let sep = tree_separation(arena, vim_next, vip_next, last_level);
+        let sep = tree_separation(wrap, arena, vim_next, vip_next, last_level);
         let shift = wrap[vim_next].z + sim + sibling_z - wrap[vip_next].z - sip + sep;
         if shift > 0.0 {
             let anc = tree_ancestor(wrap, vim_next, v, ancestor);
@@ -1433,13 +1540,12 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
                     // Consecutive siblings share the same parent: separation is 0.5 at
                     // last_level (compact deepest ancestors), 1 everywhere else.
                     let v_orig = wrap[v].orig;
-                    let w_orig = wrap[w].orig;
-                    let sep =
-                        if arena[v_orig].depth == last_level && arena[w_orig].depth == last_level {
-                            0.5
-                        } else {
-                            1.0
-                        };
+                    // JS treeSeparation only checks a.depth (the current node), not b.depth.
+                    let sep = if arena[v_orig].depth == last_level {
+                        0.5
+                    } else {
+                        1.0
+                    };
                     wrap[v].z = wrap[w].z + w_sib_z + sep;
                     wrap[v].m = wrap[v].z - midpoint;
                 }
@@ -1450,8 +1556,8 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
         } else if let Some(w) = prev_sibling {
             let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
             let v_orig = wrap[v].orig;
-            let w_orig = wrap[w].orig;
-            let sep = if arena[v_orig].depth == last_level && arena[w_orig].depth == last_level {
+            // JS treeSeparation only checks a.depth (the current node), not b.depth.
+            let sep = if arena[v_orig].depth == last_level {
                 0.5
             } else {
                 1.0
@@ -1466,6 +1572,20 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
 
         if !node_siblings_clone.is_empty() && arena[v].after == 1 && effective_children.len() != 1 {
             wrap[v].m -= 0.5;
+            // Port of JS `firstSibWithChild` correction:
+            // if the FIRST sibling (index 0) is the parent2 of the children,
+            // firstSibWithChild = 0 - 1 = -1 → node.m -= (-1) → m += 1.
+            // Net result for the common case (first spouse has the children): m += 0.5.
+            let mut first_sib_with_child = 0i32;
+            if !orig_children_clone.is_empty() {
+                let first_child_p2 = wrap[orig_children_clone[0]].parent2;
+                for (index, &sib_wi) in node_siblings_clone.iter().enumerate() {
+                    if first_child_p2 == Some(sib_wi) {
+                        first_sib_with_child = index as i32 - 1;
+                    }
+                }
+            }
+            wrap[v].m -= first_sib_with_child as f64;
         }
 
         for (si, &sib_wi) in node_siblings_clone.iter().enumerate() {
@@ -1742,6 +1862,8 @@ fn layout_tree(arena: &mut Vec<TreeNode>, last_level: i32) -> (f64, f64) {
     let translate_depth = min_depth;
 
     // Size all nodes (convert tree units → pixels).
+    // Note: size_node handles siblings internally (matching JS sizeNode which calls
+    // node.siblings.forEach(sizeNode)). preOrderTraversal only visits children.
     let mut stack = vec![0usize];
     let mut visited: HashSet<usize> = HashSet::new();
     while let Some(n) = stack.pop() {
@@ -1749,10 +1871,6 @@ fn layout_tree(arena: &mut Vec<TreeNode>, last_level: i32) -> (f64, f64) {
             continue;
         }
         size_node(arena, n, translate_x, translate_depth, last_level);
-        let sibs = arena[n].siblings.clone();
-        for si in sibs {
-            size_node(arena, si, translate_x, translate_depth, last_level);
-        }
         let children = arena[n].children.clone();
         for ci in children {
             stack.push(ci);
@@ -1766,10 +1884,29 @@ fn layout_tree(arena: &mut Vec<TreeNode>, last_level: i32) -> (f64, f64) {
 
 // ── Bézier path generators ────────────────────────────────────────────────
 
+/// Horizontal control-point X for an S-curve, stepping `BEZIER_CTRL_OFFSET`
+/// inward toward the destination from the source.
+fn ctrl_x_toward(src: f64, dst: f64) -> f64 {
+    if src > dst {
+        dst + BEZIER_CTRL_OFFSET
+    } else {
+        dst - BEZIER_CTRL_OFFSET
+    }
+}
+
+/// Horizontal control-point X stepping `BEZIER_CTRL_OFFSET` outward from the source.
+fn ctrl_x_outward(src: f64, dst: f64) -> f64 {
+    if src > dst {
+        src - BEZIER_CTRL_OFFSET
+    } else {
+        src + BEZIER_CTRL_OFFSET
+    }
+}
+
 /// Horizontal line between spouses (from right edge of node to left edge of spouse).
 fn diagonal_spouse_link(n1_x: f64, n1_y: f64, n2_x: f64, _n2_y: f64, y_offset: f64) -> String {
-    let x1 = n1_x + CARD_W - 15.0;
-    let x2 = n2_x + 5.0;
+    let x1 = n1_x + CARD_W - SPOUSE_LINK_INSET;
+    let x2 = n2_x + CARD_PADDING;
     let y = n1_y + y_offset;
     format!("M{x1},{y} L{x2},{y}")
 }
@@ -1783,16 +1920,16 @@ fn diagonal_simple_child(
     is_first_or_last: bool,
 ) -> String {
     let sx = n1_x + CARD_W / 2.0;
-    let sy = n1_y + CARD_H - 23.0;
+    let sy = n1_y + CARD_H - CARD_BOTTOM_OFFSET;
     let ex = n2_x + CARD_W / 2.0;
-    let ey = n2_y + 5.0;
+    let ey = n2_y + CARD_PADDING;
     let m = (sy + ey) / 2.0;
 
     if is_first_or_last && (sx - ex).abs() > 0.5 {
-        let ctrl_offset = if sx > ex { ex + 8.0 } else { ex - 8.0 };
+        let ctrl_offset = ctrl_x_toward(sx, ex);
         format!(
             "M{sx},{sy} L{sx},{m} L{ctrl_offset},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-            m + 8.0
+            m + BEZIER_CTRL_OFFSET
         )
     } else {
         format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
@@ -1826,27 +1963,71 @@ fn diagonal_parent(
     };
 
     let sx = n1_x + CARD_W / 2.0;
-    let sy = n1_y + 4.0;
+    let sy = n1_y + CARD_TOP_OFFSET;
     let ex = n2_x + sw / 2.0;
-    let ey = n2_y + sh - 23.0;
+    let ey = n2_y + sh - CARD_BOTTOM_OFFSET;
     let m = (sy + ey) / 2.0;
 
     // Simple path when root has siblings that would cause crossings.
+    // Only goes to (ex, m) — the parent x at the midpoint — matching JS p[5], not all the way to (ex, ey).
     if n1_depth == 0 && ((n1_before_sib && sx > ex) || (n1_after_sib && sx < ex)) {
-        let c1x = if sx > ex { sx - 8.0 } else { sx + 8.0 };
+        let c1x = ctrl_x_outward(sx, ex);
         return format!(
-            "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{ex},{ey}",
-            sy - 5.0
+            "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{ex},{m}",
+            sy - CARD_TOP_INDENT
         );
     }
 
-    let c1x = if sx > ex { sx - 8.0 } else { sx + 8.0 };
-    let c2x = if sx > ex { ex + 8.0 } else { ex - 8.0 };
+    let c1x = ctrl_x_outward(sx, ex);
+    let c2x = ctrl_x_toward(sx, ex);
     format!(
         "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{c2x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-        sy - 5.0,
-        ey + 5.0
+        sy - CARD_TOP_INDENT,
+        ey + CARD_TOP_INDENT
     )
+}
+
+/// Path from a parent node up to a root biological sibling.
+/// Port of `diagonalSibling` from layout.js.
+#[allow(clippy::too_many_arguments)]
+fn diagonal_sibling(
+    n1_x: f64,
+    n1_y: f64,
+    n1_depth: i32,
+    n2_x: f64,
+    n2_y: f64,
+    index: usize,
+    nb_children: usize,
+    simple: bool,
+    last_level: i32,
+) -> String {
+    let sw = if n1_depth == last_level {
+        COMPACT_W
+    } else {
+        CARD_W
+    };
+    let sh = if n1_depth == last_level {
+        COMPACT_H
+    } else {
+        CARD_H
+    };
+
+    let s_x = n1_x + sw / 2.0;
+    let s_y = n1_y + sh - CARD_BOTTOM_OFFSET;
+    let e_x = n2_x + CARD_W / 2.0;
+    let e_y = n2_y + CARD_TOP_OFFSET;
+    let m = (s_y + e_y) / 2.0;
+
+    // Simple straight path for all but the last sibling; S-curve for the last one.
+    if (index != nb_children.saturating_sub(1)) || (s_x - e_x).abs() < 0.001 || simple {
+        format!("M{s_x},{s_y} L{s_x},{m} {e_x},{m} {e_x},{e_y}")
+    } else {
+        let ctrl_x = ctrl_x_toward(s_x, e_x);
+        format!(
+            "M{s_x},{s_y} L{s_x},{m} {ctrl_x},{m} S{e_x},{m} {e_x},{} L{e_x},{e_y}",
+            m + BEZIER_CTRL_OFFSET
+        )
+    }
 }
 
 /// Curved path from spouse to child.
@@ -1866,14 +2047,14 @@ fn diagonal_child(
     };
     let sy = spouse_y + y_offset;
     let ex = child_x + CARD_W / 2.0;
-    let ey = child_y + 4.0;
-    let m = child_y + (CARD_H - 23.0) / 2.0 - 50.0;
+    let ey = child_y + CARD_TOP_OFFSET;
+    let m = child_y + (CARD_H - CARD_BOTTOM_OFFSET) / 2.0 - LAYOUT_MARGIN;
 
     if is_first_or_last && (sx - ex).abs() > 0.5 {
-        let ctrl_x = if sx > ex { ex + 8.0 } else { ex - 8.0 };
+        let ctrl_x = ctrl_x_toward(sx, ex);
         format!(
             "M{sx},{sy} L{sx},{m} {ctrl_x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-            m + 8.0
+            m + BEZIER_CTRL_OFFSET
         )
     } else {
         format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
@@ -1902,16 +2083,19 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
         if !node.siblings.is_empty() {
             // Spouse links + child links.
             let center = {
-                let base =
-                    (CARD_H - 23.0).min((4.0 * node.siblings.len() as f64 + CARD_H - 23.0) / 2.0);
-                base.max(6.0)
+                let exit = CARD_H - CARD_BOTTOM_OFFSET;
+                let base = exit.min(
+                    (SIBLING_VERTICAL_STEP * node.siblings.len() as f64 + exit) / 2.0,
+                );
+                base.max(SIBLING_MIN_OFFSET)
             };
 
             for (si, &sib_ni) in node.siblings.iter().enumerate() {
                 let y = if node.after != 1 {
-                    (center - 4.0 * si as f64).max(6.0)
+                    (center - SIBLING_VERTICAL_STEP * si as f64).max(SIBLING_MIN_OFFSET)
                 } else {
-                    (center - 4.0 * (node.siblings.len() - si) as f64).max(6.0)
+                    (center - SIBLING_VERTICAL_STEP * (node.siblings.len() - si) as f64)
+                        .max(SIBLING_MIN_OFFSET)
                 };
 
                 // Spouse connector.
@@ -2060,7 +2244,7 @@ fn compute_layout(
     let mut asc_arena =
         build_ascending_tree(root_id, data, ancestor_levels, sosa_root_id, sosa_ancestors);
     layout_tree(&mut asc_arena, last_asc_level);
-    let asc_links = collect_links(&asc_arena, last_asc_level);
+    let mut asc_links = collect_links(&asc_arena, last_asc_level);
 
     // ── Descending tree ──
     let mut desc_arena = build_descending_tree(
@@ -2085,6 +2269,130 @@ fn compute_layout(
     // At root: asc_root_x = desc_root_x + desc_tx  →  desc_tx = asc_root_x - desc_root_x
     let desc_tx = asc_root_x - desc_root_x;
     let desc_ty = asc_root_y - desc_root_y; // desc_root_y is 0 after layout_tree
+
+    // ── Root biological siblings (placed outside RT layout, same row as root) ──
+    // Port of the siblingsBefore/siblingsAfter logic from generate.js.
+    let mut extra_asc_nodes: Vec<LayoutNode> = Vec::new();
+    {
+        let all_siblings = get_siblings(root_id, data);
+        if all_siblings.len() > 1 {
+            let root_sib_idx = all_siblings.iter().position(|&s| s == root_id).unwrap_or(0);
+            let sibs_before = &all_siblings[..root_sib_idx];
+            let sibs_after = &all_siblings[root_sib_idx + 1..];
+
+            // Extend minX/maxX based on desc root's spouses (mirrors generate.js).
+            let mut sib_min_x = asc_root_x;
+            let mut sib_max_x = asc_root_x;
+            if desc_arena[0].after == 0 && !desc_arena[0].siblings.is_empty() {
+                // Male root: wife is to the right → extend maxX.
+                let last_si = *desc_arena[0].siblings.last().unwrap();
+                sib_max_x += desc_arena[last_si].x - desc_root_x;
+            } else if !desc_arena[0].siblings.is_empty() {
+                // Female root: husband is to the left → extend minX.
+                let first_si = desc_arena[0].siblings[0];
+                sib_min_x -= desc_root_x - desc_arena[first_si].x;
+            }
+
+            // Father: asc_arena[0].children[0], Mother: children[1] (if present).
+            let father_data = asc_arena[0]
+                .children
+                .first()
+                .map(|&ci| (asc_arena[ci].x, asc_arena[ci].y, asc_arena[ci].depth));
+            let parent_idx = if asc_arena[0].children.len() > 1 {
+                1
+            } else {
+                0
+            };
+            let mother_data = asc_arena[0]
+                .children
+                .get(parent_idx)
+                .map(|&ci| (asc_arena[ci].x, asc_arena[ci].y, asc_arena[ci].depth));
+
+            let len_before = sibs_before.len();
+            let len_after = sibs_after.len();
+
+            for (i, &sib_id) in sibs_before.iter().enumerate() {
+                let sib_x = sib_min_x - SIBLING_SPACING * (len_before - i) as f64;
+                let sib_y = asc_root_y;
+                let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
+                extra_asc_nodes.push(LayoutNode {
+                    id: Some(sib_id),
+                    x: sib_x,
+                    y: sib_y,
+                    depth: 0,
+                    sex: pn.sex,
+                    label_surname: pn.surname,
+                    label_given: pn.given,
+                    birth_year: pn.birth_year,
+                    death_year: pn.death_year,
+                    photo_url: pn.photo_url,
+                    sosa_badge: pn.sosa_badge,
+                    is_compact: false,
+                    child_of: None,
+                    is_father: false,
+                    is_sibling: false,
+                });
+                // Link from father node (index reversed so furthest sibling is "last").
+                if let Some((fx, fy, fd)) = father_data {
+                    let rev_idx = len_before - i - 1;
+                    let simple = sib_x >= fx;
+                    asc_links.push(ConnectorPath {
+                        d: diagonal_sibling(
+                            fx,
+                            fy,
+                            fd,
+                            sib_x,
+                            sib_y,
+                            rev_idx,
+                            len_before,
+                            simple,
+                            last_asc_level,
+                        ),
+                    });
+                }
+            }
+
+            for (i, &sib_id) in sibs_after.iter().enumerate() {
+                let sib_x = sib_max_x + SIBLING_SPACING * (i + 1) as f64;
+                let sib_y = asc_root_y;
+                let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
+                extra_asc_nodes.push(LayoutNode {
+                    id: Some(sib_id),
+                    x: sib_x,
+                    y: sib_y,
+                    depth: 0,
+                    sex: pn.sex,
+                    label_surname: pn.surname,
+                    label_given: pn.given,
+                    birth_year: pn.birth_year,
+                    death_year: pn.death_year,
+                    photo_url: pn.photo_url,
+                    sosa_badge: pn.sosa_badge,
+                    is_compact: false,
+                    child_of: None,
+                    is_father: false,
+                    is_sibling: false,
+                });
+                // Link from mother (or father if no mother).
+                if let Some((px, py, pd)) = mother_data {
+                    let simple = sib_x <= px;
+                    asc_links.push(ConnectorPath {
+                        d: diagonal_sibling(
+                            px,
+                            py,
+                            pd,
+                            sib_x,
+                            sib_y,
+                            i,
+                            len_after,
+                            simple,
+                            last_asc_level,
+                        ),
+                    });
+                }
+            }
+        }
+    }
 
     // ── Global bounding box (descending nodes shifted by desc_tx/ty) ──
     let asc_all = collect_all_nodes(&asc_arena);
@@ -2122,8 +2430,15 @@ fn compute_layout(
         gmin_y = gmin_y.min(gy);
         gmax_y = gmax_y.max(gy + ch);
     }
+    // Include root biological siblings in bounding box.
+    for node in &extra_asc_nodes {
+        gmin_x = gmin_x.min(node.x);
+        gmax_x = gmax_x.max(node.x + CARD_W);
+        gmin_y = gmin_y.min(node.y);
+        gmax_y = gmax_y.max(node.y + CARD_H);
+    }
 
-    let margin = 50.0;
+    let margin = LAYOUT_MARGIN;
     // Shift so that no node has a negative coordinate inside the main group.
     let main_tx = (-gmin_x + margin).max(margin);
     let main_ty = (-gmin_y + margin).max(margin);
@@ -2153,10 +2468,11 @@ fn compute_layout(
         is_sibling: arena[ni].is_sibling,
     };
 
-    let asc_nodes: Vec<LayoutNode> = asc_all
+    let mut asc_nodes: Vec<LayoutNode> = asc_all
         .iter()
         .map(|&ni| make_node(ni, &asc_arena, asc_arena[ni].depth == last_asc_level))
         .collect();
+    asc_nodes.extend(extra_asc_nodes);
     let desc_nodes: Vec<LayoutNode> = desc_all
         .iter()
         .map(|&ni| make_node(ni, &desc_arena, false))
@@ -2208,6 +2524,159 @@ pub struct PedigreeChartProps {
     pub on_profile_view: EventHandler<Uuid>,
     #[props(default)]
     pub on_settings: EventHandler<()>,
+}
+
+/// Render one card (person or empty slot) of the pedigree as an SVG `<g>`.
+///
+/// Used for both ascending and descending trees — pass the matching key prefix
+/// (`"an"` / `"dn"`) and `allow_empty_click=true` only on the asc side, where
+/// missing parents can be added inline.
+#[allow(clippy::too_many_arguments)]
+fn render_pedigree_card(
+    node: &LayoutNode,
+    ni: usize,
+    key_prefix: &str,
+    root_person_id: Uuid,
+    mut selected_person_id: Signal<Uuid>,
+    on_person_navigate: EventHandler<Uuid>,
+    on_person_click: EventHandler<(Uuid, f64, f64)>,
+    on_empty_slot: EventHandler<(Uuid, bool)>,
+    allow_empty_click: bool,
+) -> Element {
+    let is_compact = node.is_compact;
+    let (rw, rh) = if is_compact {
+        (COMPACT_INNER_W, COMPACT_INNER_H)
+    } else {
+        (CARD_INNER_W, CARD_INNER_H)
+    };
+    let (gl_path, ph_x) = if is_compact {
+        ("M19,10 L19,60", PHOTO_X_COMPACT)
+    } else {
+        ("M9,10 L9,60", PHOTO_X_FULL)
+    };
+    let (tx, ty) = if is_compact {
+        (TEXT_X_COMPACT, TEXT_Y_COMPACT)
+    } else {
+        (TEXT_X_FULL, TEXT_Y_FULL)
+    };
+    let sosa_cx = if is_compact { SOSA_CX_COMPACT } else { SOSA_CX_FULL };
+    let sosa_cy = SOSA_CY;
+    let ph_cx = ph_x + PHOTO_CX_OFFSET;
+    let ph_cy = PHOTO_CY;
+    let key = format!("{key_prefix}-{ni}");
+    let nx = node.x;
+    let ny = node.y;
+
+    match node.id {
+        Some(pid) => {
+            let is_focus = pid == root_person_id;
+            let is_selected = selected_person_id() == pid;
+            let bg = card_bg(is_focus, node.is_sibling);
+            let text_fill = if is_focus { "#ffffff" } else { "var(--pn-text)" };
+            let stroke = gender_stroke(node.sex);
+            let initials = make_initials(&node.label_given, &node.label_surname);
+            let surname_up = node.label_surname.to_uppercase();
+            let surname_disp = if is_compact {
+                surname_up.chars().take(COMPACT_TEXT_TRUNCATE).collect::<String>()
+            } else {
+                surname_up
+            };
+            let given_disp = if is_compact {
+                node.label_given
+                    .chars()
+                    .take(COMPACT_TEXT_TRUNCATE)
+                    .collect::<String>()
+            } else {
+                node.label_given.clone()
+            };
+            let date_s = format_lifespan(node.birth_year, node.death_year);
+            let has_surname = !surname_disp.is_empty();
+            let has_given = !given_disp.is_empty();
+            let has_date = !date_s.is_empty();
+            let given_dy = if has_surname { "14" } else { "0" };
+            let date_dy = if has_surname || has_given { "14" } else { "0" };
+            let photo_url = node.photo_url.clone();
+            let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
+            let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
+            let fab_x = CARD_PADDING + rw / 2.0;
+            let fab_y = CARD_PADDING + rh + EDIT_FAB_GAP;
+            rsx! {
+                g {
+                    key: "{key}",
+                    transform: "translate({nx},{ny})",
+                    style: "cursor:pointer",
+                    onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
+                    rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:#888888;stroke-width:1" }
+                    if is_selected || is_focus {
+                        rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
+                    }
+                    path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
+                    rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:#ffffff" }
+                    if let Some(ref url) = photo_url {
+                        image { "href": "{url}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
+                    } else {
+                        text { x: "{ph_cx}", y: "{ph_cy}", style: "font-size:14px;font-family:'Lato',sans-serif;font-weight:600;fill:var(--pn-text-muted);text-anchor:middle;dominant-baseline:central", "{initials}" }
+                    }
+                    if is_sosa_root {
+                        g {
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:rgb(109,161,24)" }
+                            text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:#fff;font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
+                        }
+                    } else if is_sosa_direct {
+                        g {
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:rgb(149,196,23)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:#fff" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:rgb(149,196,23)" }
+                        }
+                    }
+                    text {
+                        if has_surname {
+                            tspan { x: "{tx}", y: "{ty}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_disp}" }
+                        }
+                        if has_given {
+                            tspan { x: "{tx}", dy: "{given_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
+                        }
+                        if has_date {
+                            tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:var(--pn-born)", "{date_s}" }
+                        }
+                    }
+                    if is_focus {
+                        g {
+                            transform: "translate({fab_x},{fab_y})",
+                            style: "cursor:pointer",
+                            onclick: move |evt: Event<MouseData>| {
+                                evt.stop_propagation();
+                                let coords = evt.client_coordinates();
+                                on_person_click.call((pid, coords.x, coords.y));
+                            },
+                            circle { r: "{EDIT_FAB_R}", style: "fill:var(--pn-root-bg);stroke:#fff;stroke-width:2" }
+                            text { x: "0", y: "6", style: "fill:#fff;font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
+                        }
+                    }
+                }
+            }
+        }
+        None => {
+            let child_id = node.child_of;
+            let is_father = node.is_father;
+            let plus_x = CARD_PADDING + rw / 2.0;
+            let plus_y = CARD_PADDING + rh / 2.0 + 8.0;
+            rsx! {
+                g { key: "{key}", transform: "translate({nx},{ny})",
+                    if let (true, Some(cid)) = (allow_empty_click, child_id) {
+                        g {
+                            style: "cursor:pointer",
+                            onclick: move |_| on_empty_slot.call((cid, is_father)),
+                            rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4" }
+                            text { x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
+                        }
+                    } else {
+                        rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[component]
@@ -2338,8 +2807,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 if let Ok(val) = document::eval(
                     "var el = document.querySelector('.pedigree-viewport'); return el ? [el.clientWidth, el.clientHeight] : [800, 600]"
                 ).await {
-                    let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(800.0);
-                    let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(600.0);
+                    let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_W);
+                    let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_H);
                     offset_x.set(vw / 2.0 - rcx);
                     offset_y.set(vh / 2.0 - rcy);
                 }
@@ -2636,7 +3105,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.zoom_in\")}",
-                    onclick: move |_| scale.set((scale() * 1.2).clamp(0.3, 2.0)),
+                    onclick: move |_| scale.set((scale() * ZOOM_FACTOR).clamp(ZOOM_MIN, ZOOM_MAX)),
                     svg {
                         width: "16",
                         height: "16",
@@ -2653,7 +3122,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.zoom_out\")}",
-                    onclick: move |_| scale.set((scale() / 1.2).clamp(0.3, 2.0)),
+                    onclick: move |_| scale.set((scale() / ZOOM_FACTOR).clamp(ZOOM_MIN, ZOOM_MAX)),
                     svg {
                         width: "16",
                         height: "16",
@@ -2675,9 +3144,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             if let Ok(val) = document::eval(
                                 "var el = document.querySelector('.pedigree-viewport'); return el ? [el.clientWidth, el.clientHeight] : [800, 600]"
                             ).await {
-                                let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(800.0);
-                                let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(600.0);
-                                let fit_scale = (vw / fit_total_w).min(vh / fit_total_h).clamp(0.3, 2.0) * 0.85;
+                                let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_W);
+                                let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_H);
+                                let fit_scale = (vw / fit_total_w).min(vh / fit_total_h).clamp(ZOOM_MIN, ZOOM_MAX) * FIT_ZOOM_FACTOR;
                                 scale.set(fit_scale);
                                 // Center the content in the viewport.
                                 offset_x.set((vw - fit_total_w * fit_scale) / 2.0);
@@ -2783,7 +3252,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         WheelDelta::Pages(p) => p.y * 400.0,
                     };
                     let factor = if delta_y > 0.0 { 0.9 } else { 1.0 / 0.9 };
-                    scale.set((scale() * factor).clamp(0.3, 2.0));
+                    scale.set((scale() * factor).clamp(ZOOM_MIN, ZOOM_MAX));
                 },
 
                 div {
@@ -2808,126 +3277,17 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                         path { key: "al-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
                                     }
                                     for (ni, node) in layout.asc_nodes.iter().enumerate() {
-                                        {
-                                            let node = node.clone();
-                                            let is_compact = node.is_compact;
-                                            let (rw, rh) = if is_compact { (82.0f64, 115.0f64) } else { (175.0f64, 67.0f64) };
-                                            let (gl_path, ph_x) = if is_compact { ("M19,10 L19,60", 20.0f64) } else { ("M9,10 L9,60", 10.0f64) };
-                                            let (tx, ty) = if is_compact { (10.0f64, 81.0f64) } else { (70.0f64, 21.0f64) };
-                                            let (sosa_cx, sosa_cy) = if is_compact { (67.5f64, 57.5f64) } else { (57.5f64, 57.5f64) };
-                                            let ph_cx = ph_x + 25.0;
-                                            let ph_cy = 35.0f64;
-
-                                            match node.id {
-                                                Some(pid) => {
-                                                    let is_focus = pid == props.root_person_id;
-                                                    let is_selected = selected_person_id() == pid;
-                                                    let bg = if is_focus { "var(--pn-root-bg)" } else if node.is_sibling { "var(--pn-spouse-bg)" } else { "var(--pn-bg)" };
-                                                    let text_fill = if is_focus { "#ffffff" } else { "var(--pn-text)" };
-                                                    let gender_stroke = match node.sex { Sex::Male => "var(--pn-male-line)", Sex::Female => "var(--pn-female-line)", _ => "#888888" };
-                                                    let initials = make_initials(&node.label_given, &node.label_surname);
-                                                    let surname_up = node.label_surname.to_uppercase();
-                                                    let surname_disp = if is_compact { surname_up.chars().take(7).collect::<String>() } else { surname_up };
-                                                    let given_disp = if is_compact { node.label_given.chars().take(7).collect::<String>() } else { node.label_given.clone() };
-                                                    let birth_s = node.birth_year.map(|y| y.to_string()).unwrap_or_default();
-                                                    let death_s = node.death_year.map(|y| y.to_string()).unwrap_or_default();
-                                                    let date_s = match (!birth_s.is_empty(), !death_s.is_empty()) {
-                                                        (true, true) => format!("{birth_s}-{death_s}"),
-                                                        (true, false) => format!("{birth_s}-"),
-                                                        (false, true) => format!("-{death_s}"),
-                                                        _ => String::new(),
-                                                    };
-                                                    let has_surname = !surname_disp.is_empty();
-                                                    let has_given = !given_disp.is_empty();
-                                                    let has_date = !date_s.is_empty();
-                                                    let given_dy = if has_surname { "14" } else { "0" };
-                                                    let date_dy = if has_surname || has_given { "14" } else { "0" };
-                                                    let on_nav = props.on_person_navigate;
-                                                    let on_click = props.on_person_click;
-                                                    let photo_url = node.photo_url.clone();
-                                                    let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
-                                                    let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
-                                                    rsx! {
-                                                        g {
-                                                            key: "an-{ni}",
-                                                            transform: "translate({node.x},{node.y})",
-                                                            style: "cursor:pointer",
-                                                            onclick: move |_| { selected_person_id.set(pid); on_nav.call(pid); },
-                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:#888888;stroke-width:1" }
-                                                            if is_selected || is_focus {
-                                                                rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
-                                                            }
-                                                            path { d: "{gl_path}", style: "stroke:{gender_stroke};stroke-width:2;fill:none" }
-                                                            rect { x: "{ph_x}", y: "10", width: "50", height: "50", style: "fill:#ffffff" }
-                                                            if let Some(ref url) = photo_url {
-                                                                image { "href": "{url}", x: "{ph_x}", y: "10", width: "50", height: "50", style: "object-fit:cover" }
-                                                            } else {
-                                                                text { x: "{ph_cx}", y: "{ph_cy}", style: "font-size:14px;font-family:'Lato',sans-serif;font-weight:600;fill:var(--pn-text-muted);text-anchor:middle;dominant-baseline:central", "{initials}" }
-                                                            }
-                                                            if is_sosa_root {
-                                                                g {
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(109,161,24)" }
-                                                                    text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:#fff;font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
-                                                                }
-                                                            } else if is_sosa_direct {
-                                                                g {
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(149,196,23)" }
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:#fff" }
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:rgb(149,196,23)" }
-                                                                }
-                                                            }
-                                                            text {
-                                                                if has_surname {
-                                                                    tspan { x: "{tx}", y: "{ty}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_disp}" }
-                                                                }
-                                                                if has_given {
-                                                                    tspan { x: "{tx}", dy: "{given_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
-                                                                }
-                                                                if has_date {
-                                                                    tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:var(--pn-born)", "{date_s}" }
-                                                                }
-                                                            }
-                                                            if is_focus {
-                                                                g {
-                                                                    transform: "translate({5.0+rw/2.0},{5.0+rh+16.0})",
-                                                                    style: "cursor:pointer",
-                                                                    onclick: move |evt: Event<MouseData>| {
-                                                                        evt.stop_propagation();
-                                                                        let coords = evt.client_coordinates();
-                                                                        on_click.call((pid, coords.x, coords.y));
-                                                                    },
-                                                                    circle { r: "14", style: "fill:var(--pn-root-bg);stroke:#fff;stroke-width:2" }
-                                                                    text { x: "0", y: "6", style: "fill:#fff;font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                None => {
-                                                    let child_id = node.child_of;
-                                                    let is_father = node.is_father;
-                                                    rsx! {
-                                                        g { key: "an-{ni}", transform: "translate({node.x},{node.y})",
-                                                            if let Some(cid) = child_id {
-                                                                {
-                                                                    let on_empty = props.on_empty_slot;
-                                                                    rsx! {
-                                                                        g {
-                                                                            style: "cursor:pointer",
-                                                                            onclick: move |_| on_empty.call((cid, is_father)),
-                                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4" }
-                                                                            text { x: "{5.0+rw/2.0}", y: "{5.0+rh/2.0+8.0}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            } else {
-                                                                rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        {render_pedigree_card(
+                                            node,
+                                            ni,
+                                            "an",
+                                            props.root_person_id,
+                                            selected_person_id,
+                                            props.on_person_navigate,
+                                            props.on_person_click,
+                                            props.on_empty_slot,
+                                            true,
+                                        )}
                                     }
                                 }
 
@@ -2938,112 +3298,17 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                         path { key: "dl-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
                                     }
                                     for (ni, node) in layout.desc_nodes.iter().enumerate() {
-                                        {
-                                            let node = node.clone();
-                                            let rw = 175.0f64;
-                                            let rh = 67.0f64;
-                                            let gl_path = "M9,10 L9,60";
-                                            let ph_x = 10.0f64;
-                                            let tx = 70.0f64;
-                                            let ty = 21.0f64;
-                                            let sosa_cx = 57.5f64;
-                                            let sosa_cy = 57.5f64;
-                                            let ph_cx = 35.0f64;
-                                            let ph_cy = 35.0f64;
-
-                                            match node.id {
-                                                Some(pid) => {
-                                                    let is_focus = pid == props.root_person_id;
-                                                    let is_selected = selected_person_id() == pid;
-                                                    let bg = if is_focus { "var(--pn-root-bg)" } else if node.is_sibling { "var(--pn-spouse-bg)" } else { "var(--pn-bg)" };
-                                                    let text_fill = if is_focus { "#ffffff" } else { "var(--pn-text)" };
-                                                    let gender_stroke = match node.sex { Sex::Male => "var(--pn-male-line)", Sex::Female => "var(--pn-female-line)", _ => "#888888" };
-                                                    let initials = make_initials(&node.label_given, &node.label_surname);
-                                                    let surname_up = node.label_surname.to_uppercase();
-                                                    let birth_s = node.birth_year.map(|y| y.to_string()).unwrap_or_default();
-                                                    let death_s = node.death_year.map(|y| y.to_string()).unwrap_or_default();
-                                                    let date_s = match (!birth_s.is_empty(), !death_s.is_empty()) {
-                                                        (true, true) => format!("{birth_s}-{death_s}"),
-                                                        (true, false) => format!("{birth_s}-"),
-                                                        (false, true) => format!("-{death_s}"),
-                                                        _ => String::new(),
-                                                    };
-                                                    let has_surname = !surname_up.is_empty();
-                                                    let has_given = !node.label_given.is_empty();
-                                                    let has_date = !date_s.is_empty();
-                                                    let given_dy = if has_surname { "14" } else { "0" };
-                                                    let date_dy = if has_surname || has_given { "14" } else { "0" };
-                                                    let on_nav = props.on_person_navigate;
-                                                    let on_click = props.on_person_click;
-                                                    let photo_url = node.photo_url.clone();
-                                                    let given_name = node.label_given.clone();
-                                                    let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
-                                                    let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
-                                                    rsx! {
-                                                        g {
-                                                            key: "dn-{ni}",
-                                                            transform: "translate({node.x},{node.y})",
-                                                            style: "cursor:pointer",
-                                                            onclick: move |_| { selected_person_id.set(pid); on_nav.call(pid); },
-                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:#888888;stroke-width:1" }
-                                                            if is_selected || is_focus {
-                                                                rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
-                                                            }
-                                                            path { d: "{gl_path}", style: "stroke:{gender_stroke};stroke-width:2;fill:none" }
-                                                            rect { x: "{ph_x}", y: "10", width: "50", height: "50", style: "fill:#ffffff" }
-                                                            if let Some(ref url) = photo_url {
-                                                                image { "href": "{url}", x: "{ph_x}", y: "10", width: "50", height: "50", style: "object-fit:cover" }
-                                                            } else {
-                                                                text { x: "{ph_cx}", y: "{ph_cy}", style: "font-size:14px;font-family:'Lato',sans-serif;font-weight:600;fill:var(--pn-text-muted);text-anchor:middle;dominant-baseline:central", "{initials}" }
-                                                            }
-                                                            if is_sosa_root {
-                                                                g {
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(109,161,24)" }
-                                                                    text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:#fff;font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
-                                                                }
-                                                            } else if is_sosa_direct {
-                                                                g {
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "7.5", style: "fill:rgb(149,196,23)" }
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:#fff" }
-                                                                    circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:rgb(149,196,23)" }
-                                                                }
-                                                            }
-                                                            text {
-                                                                if has_surname {
-                                                                    tspan { x: "{tx}", y: "{ty}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_up}" }
-                                                                }
-                                                                if has_given {
-                                                                    tspan { x: "{tx}", dy: "{given_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_name}" }
-                                                                }
-                                                                if has_date {
-                                                                    tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:var(--pn-born)", "{date_s}" }
-                                                                }
-                                                            }
-                                                            if is_focus {
-                                                                g {
-                                                                    transform: "translate({5.0+rw/2.0},{5.0+rh+16.0})",
-                                                                    style: "cursor:pointer",
-                                                                    onclick: move |evt: Event<MouseData>| {
-                                                                        evt.stop_propagation();
-                                                                        let coords = evt.client_coordinates();
-                                                                        on_click.call((pid, coords.x, coords.y));
-                                                                    },
-                                                                    circle { r: "14", style: "fill:var(--pn-root-bg);stroke:#fff;stroke-width:2" }
-                                                                    text { x: "0", y: "6", style: "fill:#fff;font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                None => {
-                                                    rsx! {
-                                                        g { key: "dn-{ni}", transform: "translate({node.x},{node.y})",
-                                                            rect { x: "5", y: "5", rx: "5", ry: "5", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        {render_pedigree_card(
+                                            node,
+                                            ni,
+                                            "dn",
+                                            props.root_person_id,
+                                            selected_person_id,
+                                            props.on_person_navigate,
+                                            props.on_person_click,
+                                            props.on_empty_slot,
+                                            false,
+                                        )}
                                     }
                                 }
                             }
