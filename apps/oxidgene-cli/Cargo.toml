@@ -8,12 +8,4 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-oxidgene-db = { workspace = true }
-oxidgene-gedcom = { workspace = true }
-oxidgene-core = { workspace = true }
-sea-orm = { workspace = true }
-tokio = { workspace = true }
-clap = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-anyhow = { workspace = true }
+# Stub binary for Sprint A.7 — deps will be re-added when implemented.
