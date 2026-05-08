@@ -3861,10 +3861,8 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "tokio",
  "tower",
- "tower-http",
  "tracing",
  "uuid",
 ]
@@ -3886,7 +3884,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
@@ -3895,17 +3892,6 @@ dependencies = [
 [[package]]
 name = "oxidgene-cli"
 version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "oxidgene-core",
- "oxidgene-db",
- "oxidgene-gedcom",
- "sea-orm",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "oxidgene-core"
@@ -3927,7 +3913,6 @@ dependencies = [
  "oxidgene-core",
  "sea-orm",
  "sea-orm-migration",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
@@ -3945,8 +3930,6 @@ dependencies = [
  "oxidgene-cache",
  "oxidgene-db",
  "oxidgene-ui",
- "sea-orm",
- "serde",
  "serde_json",
  "tokio",
  "tower-http",
@@ -3963,8 +3946,6 @@ dependencies = [
  "oxidgene-core",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
- "tracing",
  "uuid",
 ]
 
@@ -3975,9 +3956,7 @@ dependencies = [
  "axum",
  "config",
  "oxidgene-api",
- "oxidgene-cache",
  "oxidgene-db",
- "sea-orm",
  "serde",
  "serde_json",
  "tokio",

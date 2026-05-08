@@ -12,8 +12,6 @@ oxidgene-core = { workspace = true }
 ged_io = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
