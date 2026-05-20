@@ -2084,9 +2084,8 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
             // Spouse links + child links.
             let center = {
                 let exit = CARD_H - CARD_BOTTOM_OFFSET;
-                let base = exit.min(
-                    (SIBLING_VERTICAL_STEP * node.siblings.len() as f64 + exit) / 2.0,
-                );
+                let base =
+                    exit.min((SIBLING_VERTICAL_STEP * node.siblings.len() as f64 + exit) / 2.0);
                 base.max(SIBLING_MIN_OFFSET)
             };
 
@@ -2559,7 +2558,11 @@ fn render_pedigree_card(
     } else {
         (TEXT_X_FULL, TEXT_Y_FULL)
     };
-    let sosa_cx = if is_compact { SOSA_CX_COMPACT } else { SOSA_CX_FULL };
+    let sosa_cx = if is_compact {
+        SOSA_CX_COMPACT
+    } else {
+        SOSA_CX_FULL
+    };
     let sosa_cy = SOSA_CY;
     let ph_cx = ph_x + PHOTO_CX_OFFSET;
     let ph_cy = PHOTO_CY;
@@ -2572,12 +2575,19 @@ fn render_pedigree_card(
             let is_focus = pid == root_person_id;
             let is_selected = selected_person_id() == pid;
             let bg = card_bg(is_focus, node.is_sibling);
-            let text_fill = if is_focus { "#ffffff" } else { "var(--pn-text)" };
+            let text_fill = if is_focus {
+                "#ffffff"
+            } else {
+                "var(--pn-text)"
+            };
             let stroke = gender_stroke(node.sex);
             let initials = make_initials(&node.label_given, &node.label_surname);
             let surname_up = node.label_surname.to_uppercase();
             let surname_disp = if is_compact {
-                surname_up.chars().take(COMPACT_TEXT_TRUNCATE).collect::<String>()
+                surname_up
+                    .chars()
+                    .take(COMPACT_TEXT_TRUNCATE)
+                    .collect::<String>()
             } else {
                 surname_up
             };
@@ -2951,9 +2961,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         }
     }
     // Deduplicate by event ID and sort by date.
-    sel_events.sort_by(|a, b| a.id.cmp(&b.id));
+    sel_events.sort_by_key(|a| a.id);
     sel_events.dedup_by_key(|e| e.id);
-    sel_events.sort_by(|a, b| a.date_sort.cmp(&b.date_sort));
+    sel_events.sort_by_key(|a| a.date_sort);
 
     // Group events by year for display.
     let mut event_groups: Vec<(String, Vec<DomainEvent>)> = Vec::new();

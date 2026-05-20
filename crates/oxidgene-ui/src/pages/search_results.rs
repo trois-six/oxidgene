@@ -203,8 +203,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                 .cmp(&a.surname_normalized)
                 .then(b.given_names_normalized.cmp(&a.given_names_normalized))
         }),
-        SortOrder::BirthAsc => sorted.sort_by(|a, b| a.date_sort.cmp(&b.date_sort)),
-        SortOrder::BirthDesc => sorted.sort_by(|a, b| b.date_sort.cmp(&a.date_sort)),
+        SortOrder::BirthAsc => sorted.sort_by_key(|a| a.date_sort),
+        SortOrder::BirthDesc => sorted.sort_by_key(|b| std::cmp::Reverse(b.date_sort)),
     }
 
     // 4) Paginate
