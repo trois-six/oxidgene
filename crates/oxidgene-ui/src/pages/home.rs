@@ -201,7 +201,7 @@ pub fn Home() -> Element {
                         // Sort
                         match sort.as_str() {
                             "name" => filtered.sort_by(|a, b| a.node.name.to_lowercase().cmp(&b.node.name.to_lowercase())),
-                            _ => filtered.sort_by(|a, b| b.node.updated_at.cmp(&a.node.updated_at)),
+                            _ => filtered.sort_by_key(|b| std::cmp::Reverse(b.node.updated_at)),
                         }
 
                         if conn.edges.is_empty() {
