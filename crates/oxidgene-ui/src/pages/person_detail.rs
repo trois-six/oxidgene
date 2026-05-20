@@ -1107,7 +1107,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 }
 
                 // Sort by date.
-                result.sort_by(|a, b| a.event.date_sort.cmp(&b.event.date_sort));
+                result.sort_by_key(|a| a.event.date_sort);
                 result
             }
             _ => Vec::new(),
