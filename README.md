@@ -18,7 +18,7 @@ OxidGene is a multiplatform genealogy application featuring:
 
 ## Documentation
 
-Full specifications are available in [`docs/specifications/`](docs/specifications/README.md):
+Full specifications are available in [`docs/specifications/`](docs/specifications/index.md):
 
 - [General](docs/specifications/general.md) — Vision, users, features, MVP scope
 - [Architecture](docs/specifications/architecture.md) — Tech stack, crate layout, build, deployment
