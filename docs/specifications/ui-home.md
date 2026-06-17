@@ -1,7 +1,16 @@
+---
+type: "UI Specification"
+title: "Visual & Functional Specifications — Homepage"
+description: "UI behavior and interaction specification for Visual & Functional Specifications — Homepage."
+tags: [oxidgene, specification, ui, ux]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Visual & Functional Specifications — Homepage
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) · [App Settings](ui-app-settings.md) · [Data Model](data-model.md) (Tree entity) · [API Contract](api.md) (Trees endpoints)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Tree View](/ui-genealogy-tree.md) · [Settings](/ui-settings.md) · [App Settings](/ui-app-settings.md) · [Data Model](/data-model.md) (Tree entity) · [API Contract](/api.md) (Trees endpoints)
 
 ---
 
@@ -37,7 +46,7 @@ Content area: `max-width: 1200px`, centered horizontally, responsive padding.
 
 ## 3. Navbar
 
-Minimal shared navbar, always visible at the top. See [Topbar](ui-topbar.md) for full specification.
+Minimal shared navbar, always visible at the top. See [Topbar](/ui-topbar.md) for full specification.
 
 - Logo (`OxidGene.svg`) on the left, acts as a link to the homepage
 - No navigation links in MVP
@@ -51,7 +60,7 @@ Displayed below the navbar, above the toolbar.
 
 - Page title: "My **Genealogy Trees**" (Cinzel font, large). The accent word is styled in orange
 - Subtitle: "Explore, enrich and share the history of your family lines."
-- **Gear icon button** (top-right of header): links to [App Settings](ui-app-settings.md) (`/settings`)
+- **Gear icon button** (top-right of header): links to [App Settings](/ui-app-settings.md) (`/settings`)
 
 ---
 
@@ -161,7 +170,7 @@ When the user has no trees at all (first login), a different empty state encoura
 
 ## 11. Design Tokens (reference)
 
-See [Design Tokens](ui-design-tokens.md) for the full token list. Key tokens used on this page:
+See [Design Tokens](/ui-design-tokens.md) for the full token list. Key tokens used on this page:
 
 | Token | Purpose |
 |---|---|

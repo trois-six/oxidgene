@@ -1,7 +1,16 @@
+---
+type: "UI Specification"
+title: "Visual & Functional Specifications — GEDCOM Import"
+description: "UI behavior and interaction specification for Visual & Functional Specifications — GEDCOM Import."
+tags: [oxidgene, specification, ui, ux]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Visual & Functional Specifications — GEDCOM Import
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Tree View](ui-genealogy-tree.md) (import button in topbar) · [Settings](ui-settings.md) (export section) · [API Contract](api.md) (GEDCOM endpoints) · [Data Model](data-model.md)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Tree View](/ui-genealogy-tree.md) (import button in topbar) · [Settings](/ui-settings.md) (export section) · [API Contract](/api.md) (GEDCOM endpoints) · [Data Model](/data-model.md)
 
 ---
 
@@ -11,8 +20,8 @@ The GEDCOM import flow allows users to upload a GEDCOM file (`.ged`) and import 
 
 The import can be triggered from:
 
-- The [Tree View](ui-genealogy-tree.md) **topbar**: "Import" button (imports into the current tree)
-- The [Homepage](ui-home.md) **"+ New tree" modal**: an additional option "Import from GEDCOM" (creates a new tree from the file)
+- The [Tree View](/ui-genealogy-tree.md) **topbar**: "Import" button (imports into the current tree)
+- The [Homepage](/ui-home.md) **"+ New tree" modal**: an additional option "Import from GEDCOM" (creates a new tree from the file)
 
 ---
 
@@ -276,7 +285,7 @@ On total failure, the import is rolled back — no partial data is left in the t
 
 ## 6. Import into New Tree
 
-When triggered from the [Homepage](ui-home.md):
+When triggered from the [Homepage](/ui-home.md):
 
 - Step 1 includes an additional field: **Tree name** (required, text input above the upload zone)
 - The tree is created first, then the import proceeds into it
@@ -287,7 +296,7 @@ When triggered from the [Homepage](ui-home.md):
 
 ## 7. Data Mapping & Fidelity
 
-The import uses `ged_io` 0.12 to parse GEDCOM files. See [API Contract](api.md) §3 for the full round-trip fidelity table.
+The import uses `ged_io` 0.12 to parse GEDCOM files. See [API Contract](/api.md) §3 for the full round-trip fidelity table.
 
 ### What imports cleanly
 
