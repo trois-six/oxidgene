@@ -9,20 +9,20 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — Person Profile
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Tree View](/ui-genealogy-tree.md) (profile button in left sidebar) · [Person Edit Modal](/ui-person-edit-modal.md) · [Data Model](/data-model.md) (Person, PersonName, Event, Family, Media) · [API Contract](/api.md) (Persons, Events endpoints)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Tree View](ui-genealogy-tree.md) (profile button in left sidebar) · [Person Edit Modal](ui-person-edit-modal.md) · [Data Model](data-model.md) (Person, PersonName, Event, Family, Media) · [API Contract](api.md) (Persons, Events endpoints)
 
 ---
 
 ## 1. Overview
 
-The person profile is a full-page detailed view of a single individual. It is accessed via the **profile icon** (person silhouette) in the [Tree View](/ui-genealogy-tree.md) left sidebar, or by clicking a search result on the [Search Results](/ui-search-results.md) page. It displays the currently selected person's complete information: identity, life events timeline, family connections, media gallery, notes, and sources.
+The person profile is a full-page detailed view of a single individual. It is accessed via the **profile icon** (person silhouette) in the [Tree View](ui-genealogy-tree.md) left sidebar, or by clicking a search result on the [Search Results](ui-search-results.md) page. It displays the currently selected person's complete information: identity, life events timeline, family connections, media gallery, notes, and sources.
 
 ---
 
 ## 2. Layout
 
-Uses the standard `sub-page` layout pattern (see [General](/general.md) section 8). There is **no left sidebar (ISB)** on this page — the content fills the full width within the `sub-page-content` container.
+Uses the standard `sub-page` layout pattern (see [General](general.md) section 8). There is **no left sidebar (ISB)** on this page — the content fills the full width within the `sub-page-content` container.
 
 ```
 +----------------------------------------------------------------------+
@@ -98,7 +98,7 @@ Full-width card at the top of the content area.
 **Gender**: label + colored dot (blue male, pink female, grey unknown).
 
 **Action buttons**:
-- **Edit** — opens the [Person Edit Modal](/ui-person-edit-modal.md)
+- **Edit** — opens the [Person Edit Modal](ui-person-edit-modal.md)
 - **View in tree** — returns to the tree view, centered on this person
 - **Export** — downloads a mini GEDCOM of this person and their immediate family
 
@@ -140,7 +140,7 @@ One sub-section per union, ordered chronologically by marriage date (if known).
 +--------------------------------------+
 ```
 
-Spouse and children names are clickable links. An **"Edit union"** link in the sub-header opens the [couple edit modal](/ui-person-edit-modal.md).
+Spouse and children names are clickable links. An **"Edit union"** link in the sub-header opens the [couple edit modal](ui-person-edit-modal.md).
 
 ### Siblings
 
@@ -193,7 +193,7 @@ Displayed as a card in the right column. A vertical chronological list of all ev
 
 Each event shows:
 - **Year** on the left, bold
-- **Icon** — colored circle matching event type (same as [Tree View](/ui-genealogy-tree.md) events sidebar)
+- **Icon** — colored circle matching event type (same as [Tree View](ui-genealogy-tree.md) events sidebar)
 - **Event type** label, bold
 - **Place** if known, in muted text
 - **Source reference** if attached, with clip icon, clickable
@@ -222,9 +222,9 @@ Displayed as a full-width card below the two-column layout.
 +--------------------------------------------------------------+
 ```
 
-Same thumbnail grid as the [Person Edit Modal](/ui-person-edit-modal.md) media section, but read-only by default. The star badge marks the profile image. Clicking a thumbnail opens a **lightbox overlay** with the full-size image, title, description, and associated event.
+Same thumbnail grid as the [Person Edit Modal](ui-person-edit-modal.md) media section, but read-only by default. The star badge marks the profile image. Clicking a thumbnail opens a **lightbox overlay** with the full-size image, title, description, and associated event.
 
-The **"+ Add"** button opens the [Person Edit Modal](/ui-person-edit-modal.md), scrolled to the media section.
+The **"+ Add"** button opens the [Person Edit Modal](ui-person-edit-modal.md), scrolled to the media section.
 
 ---
 

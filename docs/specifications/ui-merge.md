@@ -9,8 +9,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — Person Merge
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Tree View](/ui-genealogy-tree.md) (action picker "Merge with…") · [Person Edit Modal](/ui-person-edit-modal.md) · [Settings](/ui-settings.md) (potential duplicates tool) · [Data Model](/data-model.md) (Person, PersonName, Event, Family)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Tree View](ui-genealogy-tree.md) (action picker "Merge with…") · [Person Edit Modal](ui-person-edit-modal.md) · [Settings](ui-settings.md) (potential duplicates tool) · [Data Model](data-model.md) (Person, PersonName, Event, Family)
 
 ---
 
@@ -20,8 +20,8 @@ The merge flow allows combining two person records that represent the same indiv
 
 The merge flow can be triggered from:
 
-- The [Tree View](/ui-genealogy-tree.md) **action picker**: "Merge with…" on a selected person
-- The [Settings](/ui-settings.md) **Potential Duplicates** tool: "Merge" button on a detected pair
+- The [Tree View](ui-genealogy-tree.md) **action picker**: "Merge with…" on a selected person
+- The [Settings](ui-settings.md) **Potential Duplicates** tool: "Merge" button on a detected pair
 
 ---
 
@@ -70,7 +70,7 @@ The source person is already selected (the person on which "Merge with…" was c
 └─────────────────────────────────────────────────────┘
 ```
 
-- Search uses the same person search as the [tree topbar](/ui-genealogy-tree.md), filtered to the current tree
+- Search uses the same person search as the [tree topbar](ui-genealogy-tree.md), filtered to the current tree
 - The source person is excluded from results
 - The user selects one person via radio button
 - **Next** is disabled until a target is selected

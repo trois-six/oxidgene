@@ -9,8 +9,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — Genealogy Tree
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Person Edit Modal](/ui-person-edit-modal.md) · [Person Merge](/ui-merge.md) · [Person Profile](/ui-person-profile.md) · [Search Results](/ui-search-results.md) · [GEDCOM Import](/ui-gedcom-import.md) · [Homepage](/ui-home.md) · [Settings](/ui-settings.md) · [Data Model](/data-model.md) · [API Contract](/api.md)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [GEDCOM Import](ui-gedcom-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
 
 ---
 
@@ -266,7 +266,7 @@ Fixed vertical bar (`var(--sb)` = 46px wide). SVG stroke icon buttons stacked ve
 | Magnifying glass - | Magnifying glass with minus sign | Zoom out |
 | Person + plus | Person silhouette with a small plus | Add a person |
 | **separator** | Thin horizontal line | Visual divider |
-| Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](/ui-settings.md) for this tree |
+| Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](ui-settings.md) for this tree |
 
 **Depth selector — hover panel**:
 

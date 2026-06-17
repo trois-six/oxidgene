@@ -9,20 +9,20 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — Tree Settings Page
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Homepage](/ui-home.md) (settings button on cards) · [Tree View](/ui-genealogy-tree.md) · [Person Edit Modal](/ui-person-edit-modal.md) (privacy per person) · [Data Model](/data-model.md) · [API Contract](/api.md) (GEDCOM export)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Homepage](ui-home.md) (settings button on cards) · [Tree View](ui-genealogy-tree.md) · [Person Edit Modal](ui-person-edit-modal.md) (privacy per person) · [Data Model](data-model.md) · [API Contract](api.md) (GEDCOM export)
 
 ---
 
 ## 1. Overview
 
-The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, display preferences, data entry options, diagnostic tools, and export. It is accessed via the **gear icon** in the [Tree View](/ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](/ui-home.md).
+The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, display preferences, data entry options, diagnostic tools, and export. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
 
 ---
 
 ## 2. Layout
 
-Uses the standard `sub-page` layout pattern (see [General](/general.md) section 8).
+Uses the standard `sub-page` layout pattern (see [General](general.md) section 8).
 
 ```
 +----------------------------------------------------------------------+
@@ -137,7 +137,7 @@ When no root person is selected, a muted message is shown: "No root person selec
 
 Help text explains the Sosa-Stradonitz numbering system: "The root person is the starting point of the Sosa-Stradonitz numbering system. All ancestors are numbered relative to this person."
 
-When a SOSA root is set, all direct ancestors visible in the tree view display a **SOSA badge** on their avatar circle (see [Tree View](/ui-genealogy-tree.md) section 3).
+When a SOSA root is set, all direct ancestors visible in the tree view display a **SOSA badge** on their avatar circle (see [Tree View](ui-genealogy-tree.md) section 3).
 
 ### Who am I?
 
@@ -209,7 +209,7 @@ Dates entered in another calendar are automatically converted for display.
 
 | Toggle | Description |
 |---|---|
-| Place name autocomplete | Suggests place names as the user types (from tree places + offline database). See [PlaceInput](/ui-shared-components.md) section 5 |
+| Place name autocomplete | Suggests place names as the user types (from tree places + offline database). See [PlaceInput](ui-shared-components.md) section 5 |
 | Automatic uppercase for surnames | Surname field is auto-uppercased on input |
 | Suggest existing persons | When adding a parent or partner, suggests persons already in the tree |
 
@@ -249,7 +249,7 @@ When "Place name autocomplete" is enabled, the user can download city databases 
 - **Update all**: re-downloads all already-downloaded databases
 - **Remove**: unchecking a downloaded country removes its database file
 - Downloaded databases are stored in the app data directory (desktop) or IndexedDB (web)
-- See [PlaceInput](/ui-shared-components.md) section 5.1 for supported countries and data content
+- See [PlaceInput](ui-shared-components.md) section 5.1 for supported countries and data content
 
 ---
 
@@ -377,4 +377,4 @@ Export is triggered directly by the format buttons.
 
 ## 19. Design Consistency
 
-The settings page uses the standard `sub-page` layout pattern shared with all non-pedigree pages (see [General](/general.md) section 8). All interactive elements follow the same hover/focus/active patterns from the [Design Tokens](/ui-design-tokens.md). The light/dark theme applies globally.
+The settings page uses the standard `sub-page` layout pattern shared with all non-pedigree pages (see [General](general.md) section 8). All interactive elements follow the same hover/focus/active patterns from the [Design Tokens](ui-design-tokens.md). The light/dark theme applies globally.

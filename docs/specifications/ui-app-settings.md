@@ -9,22 +9,22 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — App Settings
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Homepage](/ui-home.md) (gear icon in header) · [Topbar](/ui-topbar.md) · [Design Tokens](/ui-design-tokens.md) (theme switching)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Homepage](ui-home.md) (gear icon in header) · [Topbar](ui-topbar.md) · [Design Tokens](ui-design-tokens.md) (theme switching)
 
 ---
 
 ## 1. Overview
 
-The app settings page (`/settings`) is a dedicated full-page interface for configuring **application-level** preferences that are not tied to any specific tree. It is accessed via the gear icon in the [Homepage](/ui-home.md) page header.
+The app settings page (`/settings`) is a dedicated full-page interface for configuring **application-level** preferences that are not tied to any specific tree. It is accessed via the gear icon in the [Homepage](ui-home.md) page header.
 
-This page is distinct from [Tree Settings](/ui-settings.md), which configure per-tree options.
+This page is distinct from [Tree Settings](ui-settings.md), which configure per-tree options.
 
 ---
 
 ## 2. Layout
 
-Uses the standard `sub-page` layout pattern (see [General](/general.md) section 8).
+Uses the standard `sub-page` layout pattern (see [General](general.md) section 8).
 
 ```
 +----------------------------------------------------------------------+
