@@ -9,8 +9,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — Design Tokens
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Shared Components](/ui-shared-components.md) · [Topbar](/ui-topbar.md)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Shared Components](ui-shared-components.md) · [Topbar](ui-topbar.md)
 
 ---
 

@@ -11,8 +11,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 # General — Vision, Users & Features
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Architecture](/architecture.md) · [Data Model](/data-model.md) · [API Contract](/api.md) · [Roadmap](/roadmap.md)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Architecture](architecture.md) · [Data Model](data-model.md) · [API Contract](api.md) · [Roadmap](roadmap.md)
 
 ---
 
@@ -34,7 +34,7 @@ The application is designed to be:
     - database container (PostgreSQL),
     - queuing application container (for EPIC F — Asynchronous Pipeline, post-MVP).
 
-For technical details, see [Architecture](/architecture.md).
+For technical details, see [Architecture](architecture.md).
 
 ### 1.2 Nature of the Application
 
@@ -43,7 +43,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 ### 1.3 Main Objectives
 
 - Deliver a modern, high-performance, portable genealogy application.
-- Provide an open API (REST + GraphQL) aligned with the design principles of the FamilySearch API. → see [API Contract](/api.md)
+- Provide an open API (REST + GraphQL) aligned with the design principles of the FamilySearch API. → see [API Contract](api.md)
 - Ensure a user experience comparable to leading genealogy platforms.
 - Allow progressive evolution toward advanced and paid features.
 
@@ -69,7 +69,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 ### 2.2 User Roles (per tree)
 
-- **Guest**: limited access, contemporary individuals hidden. → see [Settings](/ui-settings.md) (privacy section)
+- **Guest**: limited access, contemporary individuals hidden. → see [Settings](ui-settings.md) (privacy section)
 - **Full Read-only**: full tree access.
 - **Editor**: read + create/modify/delete.
 
@@ -77,7 +77,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 - Trees can be private, shared, or public.
 - Access rights defined per tree.
-- Authentication deferred to EPIC E (not in MVP). → see [Roadmap](/roadmap.md)
+- Authentication deferred to EPIC E (not in MVP). → see [Roadmap](roadmap.md)
 
 ---
 
@@ -87,7 +87,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 - Create trees from scratch or via GEDCOM import.
 - Manage multiple trees.
-- → see [Homepage spec](/ui-home.md)
+- → see [Homepage spec](ui-home.md)
 
 ### 3.2 GEDCOM Import/Export
 
@@ -95,7 +95,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Support for GEDCOM 5.5.1 and 7.0 (auto-detected).
 - Streaming parser for large files.
 - Error logging and normalization.
-- → see [API Contract](/api.md) (GEDCOM endpoints) · [Settings](/ui-settings.md) (export section)
+- → see [API Contract](api.md) (GEDCOM endpoints) · [Settings](ui-settings.md) (export section)
 
 ### 3.3 Collaborative Editing (Web) — Post-MVP
 
@@ -109,7 +109,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 ### 3.5 Themes / UX
 
 - Switch between multiple UX themes inspired by major genealogy platforms from the settings.
-- → see [Settings](/ui-settings.md)
+- → see [Settings](ui-settings.md)
 
 ### 3.6 Interface Language
 
@@ -121,7 +121,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Full feature parity between both protocols.
 - FamilySearch-inspired structure.
 - Available from EPIC A onward.
-- → see [API Contract](/api.md)
+- → see [API Contract](api.md)
 
 ### 3.8 Media Management
 
@@ -129,7 +129,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Metadata and viewer integration.
 - Post-MVP: identify someone in a subpart of an image, the selection will be seen as a media for the identified person.
 - Async upload pipeline (post-MVP).
-- → see [Person Edit Modal](/ui-person-edit-modal.md) (media section)
+- → see [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
 ### 3.9 Statistics & Reports
 
@@ -140,16 +140,16 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 - Multiple tree layouts (ancestor chart, descendant chart, fan chart).
 - Export high-resolution PDFs.
-- → see [Tree View spec](/ui-genealogy-tree.md)
+- → see [Tree View spec](ui-genealogy-tree.md)
 
 ---
 
 ## 4. Security & Privacy
 
-- Mask contemporary individuals (< 100 years old) for guest users. → see [Settings](/ui-settings.md) (privacy section)
+- Mask contemporary individuals (< 100 years old) for guest users. → see [Settings](ui-settings.md) (privacy section)
 - Optional last/first name masking.
 - Full audit logging.
-- Authentication and authorization in EPIC E. → see [Roadmap](/roadmap.md)
+- Authentication and authorization in EPIC E. → see [Roadmap](roadmap.md)
 
 ---
 
@@ -157,9 +157,9 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 - Lazy loading of tree branches.
 - Server-side caching.
-- PersonAncestry closure table for O(1) ancestor/descendant queries. → see [Data Model](/data-model.md) (PersonAncestry)
+- PersonAncestry closure table for O(1) ancestor/descendant queries. → see [Data Model](data-model.md) (PersonAncestry)
 - Streaming GEDCOM parser for large files.
-- Cursor-based pagination to avoid expensive offset scans. → see [API Contract](/api.md) (pagination)
+- Cursor-based pagination to avoid expensive offset scans. → see [API Contract](api.md) (pagination)
 
 ---
 
@@ -174,16 +174,16 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 ## 7. MVP Scope
 
-The MVP covers EPICs A through D (see [Roadmap](/roadmap.md)):
+The MVP covers EPICs A through D (see [Roadmap](roadmap.md)):
 
-- Interactive tree visualization. → [Tree View](/ui-genealogy-tree.md)
+- Interactive tree visualization. → [Tree View](ui-genealogy-tree.md)
 - Person selection and detail view.
-- Full CRUD editing (persons, families, events, sources, media, places, notes). → [Person Edit Modal](/ui-person-edit-modal.md)
+- Full CRUD editing (persons, families, events, sources, media, places, notes). → [Person Edit Modal](ui-person-edit-modal.md)
 - GEDCOM import/export.
 - Language switching.
-- Theme support. → [Settings](/ui-settings.md)
-- REST + GraphQL API. → [API Contract](/api.md)
-- Desktop and web deployment. → [Architecture](/architecture.md)
+- Theme support. → [Settings](ui-settings.md)
+- REST + GraphQL API. → [API Contract](api.md)
+- Desktop and web deployment. → [Architecture](architecture.md)
 
 **Not in MVP**: authentication, access control, collaborative editing, tree matching, async pipeline.
 
@@ -195,7 +195,7 @@ All pages share a common layout structure to ensure visual consistency across th
 
 ### Navbar
 
-A minimal branding bar at the very top of every page. Contains only the logo (linking to homepage) in MVP. See [Topbar](/ui-topbar.md) for full specification.
+A minimal branding bar at the very top of every page. Contains only the logo (linking to homepage) in MVP. See [Topbar](ui-topbar.md) for full specification.
 
 ### Page types
 
@@ -231,7 +231,7 @@ All tree-scoped and app settings pages use the **`sub-page`** layout pattern:
 | `.td-topbar` | Full-width breadcrumb bar with bottom border. Contains `.td-bc` breadcrumb navigation |
 | `.sub-page-content` | Scrollable content area. `max-width: 1200px`, centered with `margin: 0 auto`, `padding: 24px` |
 
-**Exception — Pedigree tree view** (`/trees/{id}`): Uses its own layout with left sidebar (ISB), canvas, and events panel. Does not use `sub-page-content`. See [Tree View](/ui-genealogy-tree.md) for details.
+**Exception — Pedigree tree view** (`/trees/{id}`): Uses its own layout with left sidebar (ISB), canvas, and events panel. Does not use `sub-page-content`. See [Tree View](ui-genealogy-tree.md) for details.
 
 ### Breadcrumb pattern
 

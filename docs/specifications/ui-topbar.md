@@ -9,8 +9,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — Topbar
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Homepage](/ui-home.md) · [Tree View](/ui-genealogy-tree.md) · [Settings](/ui-settings.md) · [App Settings](/ui-app-settings.md) · [Person Profile](/ui-person-profile.md) · [Search Results](/ui-search-results.md) · [Design Tokens](/ui-design-tokens.md)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Homepage](ui-home.md) · [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) · [App Settings](ui-app-settings.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Design Tokens](ui-design-tokens.md)
 
 ---
 
@@ -38,7 +38,7 @@ The application has two distinct top-level bars:
 The navbar is deliberately minimal in MVP:
 
 - **Logo**: `OxidGene.svg` (from `docs/assets/`), rendered as an `<img>`, height ~32px
-- Logo acts as a link to the [Homepage](/ui-home.md) (`/`)
+- Logo acts as a link to the [Homepage](ui-home.md) (`/`)
 - No brand text, no navigation links, no right-side actions in MVP
 
 ### Future (post-MVP)
@@ -88,11 +88,11 @@ The topbar has two zones:
 
 | Page | Breadcrumb | Right zone |
 |------|------------|------------|
-| [Tree View](/ui-genealogy-tree.md) | `logo` tree_name `/` Tree | Search fields + magnifying glass |
-| [Settings](/ui-settings.md) | `logo` tree_name `/` Settings | (empty) |
-| [Search Results](/ui-search-results.md) | `logo` tree_name `/` Search | Search fields (pre-filled) + fit button |
-| [Person Profile](/ui-person-profile.md) | `logo` tree_name `/` Person Name | (empty) |
-| [App Settings](/ui-app-settings.md) | Home `/` Settings | (empty) |
+| [Tree View](ui-genealogy-tree.md) | `logo` tree_name `/` Tree | Search fields + magnifying glass |
+| [Settings](ui-settings.md) | `logo` tree_name `/` Settings | (empty) |
+| [Search Results](ui-search-results.md) | `logo` tree_name `/` Search | Search fields (pre-filled) + fit button |
+| [Person Profile](ui-person-profile.md) | `logo` tree_name `/` Person Name | (empty) |
+| [App Settings](ui-app-settings.md) | Home `/` Settings | (empty) |
 
 ### Styling
 
@@ -105,7 +105,7 @@ The topbar has two zones:
 
 ## 4. Search Fields (Tree Pages Only)
 
-On the [Tree View](/ui-genealogy-tree.md) and [Search Results](/ui-search-results.md) pages, the topbar right zone includes search fields:
+On the [Tree View](ui-genealogy-tree.md) and [Search Results](ui-search-results.md) pages, the topbar right zone includes search fields:
 
 ```
 [Last name ________] [First name ________] [magnifying glass] [fit]
@@ -122,7 +122,7 @@ On the [Tree View](/ui-genealogy-tree.md) and [Search Results](/ui-search-result
 
 ### On Enter (or click magnifying glass)
 
-- Navigates to the [Search Results](/ui-search-results.md) page with the full filtered results list
+- Navigates to the [Search Results](ui-search-results.md) page with the full filtered results list
 - The search fields remain pre-filled on the results page
 
 ---
