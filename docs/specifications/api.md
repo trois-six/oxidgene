@@ -1,7 +1,16 @@
+---
+type: "API Specification"
+title: "API Contract"
+description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
+tags: [oxidgene, specification, api, contract]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # API Contract
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Data Model](data-model.md) · [Architecture](architecture.md)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Data Model](/data-model.md) · [Architecture](/architecture.md)
 
 ---
 
@@ -20,7 +29,7 @@ The API must expose an OpenAPI description in YAML under the path: `/api/swagger
 | `PUT` | `/trees/{tree_id}` | Update a tree |
 | `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
 
-Used by: [Homepage](ui-home.md) (tree list, create, delete)
+Used by: [Homepage](/ui-home.md) (tree list, create, delete)
 
 ### Persons
 
@@ -34,7 +43,7 @@ Used by: [Homepage](ui-home.md) (tree list, create, delete)
 | `GET` | `/trees/{tree_id}/persons/{person_id}/ancestors` | Get ancestors (depth param) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/descendants` | Get descendants (depth param) |
 
-Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Modal](ui-person-edit-modal.md) (edit/delete)
+Used by: [Tree View](/ui-genealogy-tree.md) (pedigree chart) · [Person Edit Modal](/ui-person-edit-modal.md) (edit/delete)
 
 ### Person Names
 
@@ -55,7 +64,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Moda
 | `PUT` | `/trees/{tree_id}/families/{family_id}` | Update a family |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}` | Soft-delete a family |
 
-Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](ui-person-edit-modal.md) (couple edit)
+Used by: [Tree View](/ui-genealogy-tree.md) (connectors) · [Person Edit Modal](/ui-person-edit-modal.md) (couple edit)
 
 ### Family Members
 
@@ -76,7 +85,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 | `PUT` | `/trees/{tree_id}/events/{event_id}` | Update an event |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}` | Soft-delete an event |
 
-Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](ui-person-edit-modal.md) (event blocks)
+Used by: [Tree View](/ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](/ui-person-edit-modal.md) (event blocks)
 
 ### Places
 
@@ -117,7 +126,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Soft-delete media |
 
-Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
+Used by: [Person Edit Modal](/ui-person-edit-modal.md) (media section)
 
 ### Media Links
 
@@ -142,11 +151,11 @@ Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 | `POST` | `/trees/{tree_id}/gedcom/import` | Import GEDCOM file (multipart) |
 | `GET` | `/trees/{tree_id}/gedcom/export` | Export tree as GEDCOM file |
 
-Used by: [Tree View](ui-genealogy-tree.md) (topbar import/export buttons) · [Settings](ui-settings.md) (export section)
+Used by: [Tree View](/ui-genealogy-tree.md) (topbar import/export buttons) · [Settings](/ui-settings.md) (export section)
 
 ### Cache
 
-Server-side cache endpoints provide pre-built, denormalized data for instant page rendering. See [Caching](caching.md) for the full cache architecture.
+Server-side cache endpoints provide pre-built, denormalized data for instant page rendering. See [Caching](/caching.md) for the full cache architecture.
 
 | Method | Path | Description |
 |---|---|---|
@@ -157,9 +166,9 @@ Server-side cache endpoints provide pre-built, denormalized data for instant pag
 | `GET` | `/trees/{tree_id}/cache/search?q=query&limit=20&offset=0` | Server-side person search (paginated) |
 | `POST` | `/trees/{tree_id}/cache/rebuild` | Force full cache rebuild for a tree |
 
-Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
+Used by: [Tree View](/ui-genealogy-tree.md) (pedigree chart) · [Person Profile](/ui-person-profile.md) (person detail) · [Search Results](/ui-search-results.md) (search)
 
-**Note:** All existing mutation endpoints (create/update/delete) now include a synchronous cache update step after the DB write. The response waits for the cache to be refreshed, guaranteeing consistency on subsequent reads. See [Caching](caching.md) §4.
+**Note:** All existing mutation endpoints (create/update/delete) now include a synchronous cache update step after the DB write. The response waits for the cache to be refreshed, guaranteeing consistency on subsequent reads. See [Caching](/caching.md) §4.
 
 ### Pagination
 
@@ -532,7 +541,7 @@ enum PedigreeDirection {
 
 ## 3. GEDCOM Compatibility Reference
 
-The API handles GEDCOM import/export via the `ged_io` 0.12 crate. See [Data Model](data-model.md) for the full enum-to-GEDCOM-tag mapping.
+The API handles GEDCOM import/export via the `ged_io` 0.12 crate. See [Data Model](/data-model.md) for the full enum-to-GEDCOM-tag mapping.
 
 ### Round-trip fidelity
 

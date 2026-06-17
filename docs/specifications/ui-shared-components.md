@@ -1,7 +1,16 @@
+---
+type: "UI Specification"
+title: "Visual & Functional Specifications — Shared Components"
+description: "UI behavior and interaction specification for Visual & Functional Specifications — Shared Components."
+tags: [oxidgene, specification, ui, ux]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Visual & Functional Specifications — Shared Components
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Design Tokens](ui-design-tokens.md) · [Topbar](ui-topbar.md)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Design Tokens](/ui-design-tokens.md) · [Topbar](/ui-topbar.md)
 
 ---
 
@@ -49,10 +58,10 @@ A modal confirmation prompt used for destructive or irreversible actions (delete
 
 ### Used by
 
-- [Homepage](ui-home.md) — delete tree
-- [Person Edit Modal](ui-person-edit-modal.md) — delete person, discard changes, remove media
-- [Person Edit Modal](ui-person-edit-modal.md) — delete couple, detach child
-- [Person Merge](ui-merge.md) — confirm merge
+- [Homepage](/ui-home.md) — delete tree
+- [Person Edit Modal](/ui-person-edit-modal.md) — delete person, discard changes, remove media
+- [Person Edit Modal](/ui-person-edit-modal.md) — delete couple, detach child
+- [Person Merge](/ui-merge.md) — confirm merge
 
 ---
 
@@ -73,7 +82,7 @@ A component for selecting a person from the current tree. Used in settings (SOSA
 ### Behavior
 
 - **Display mode**: shows the currently selected person as a badge with avatar (initials circle), full name, and birth/death dates
-- **"Change…" button**: opens a person search modal (same search as the [topbar](ui-topbar.md) §4, but in a modal overlay)
+- **"Change…" button**: opens a person search modal (same search as the [topbar](/ui-topbar.md) §4, but in a modal overlay)
 - **Search modal**: last name + first name fields, real-time results, click to select
 - **Clear button** (×): removes the selection (if the field is optional)
 
@@ -89,8 +98,8 @@ A component for selecting a person from the current tree. Used in settings (SOSA
 
 ### Used by
 
-- [Settings](ui-settings.md) — SOSA 1, "Who am I?"
-- [Person Merge](ui-merge.md) — Step 1 duplicate selection
+- [Settings](/ui-settings.md) — SOSA 1, "Who am I?"
+- [Person Merge](/ui-merge.md) — Step 1 duplicate selection
 
 ---
 
@@ -123,7 +132,7 @@ A composite date input component handling GEDCOM-style date qualifiers and parti
 ### Date field
 
 - Text input accepting `dd/mm/yyyy`, `mm/yyyy`, or `yyyy` (partial dates are valid)
-- Input format follows the tree setting "Input date format" (see [Settings](ui-settings.md) §10)
+- Input format follows the tree setting "Input date format" (see [Settings](/ui-settings.md) §10)
 - Validation: red border on invalid format, tooltip with expected format
 
 ### Properties
@@ -135,8 +144,8 @@ A composite date input component handling GEDCOM-style date qualifiers and parti
 
 ### Used by
 
-- [Person Edit Modal](ui-person-edit-modal.md) — birth, death, and all event dates (create + edit modes)
-- [Person Merge](ui-merge.md) — date comparison
+- [Person Edit Modal](/ui-person-edit-modal.md) — birth, death, and all event dates (create + edit modes)
+- [Person Merge](/ui-merge.md) — date comparison
 
 ---
 
@@ -173,7 +182,7 @@ The number of levels varies per country. The format is always comma-separated, f
 ### Behavior
 
 - Text input with placeholder "City, postal code, département, region, country…"
-- **Autocomplete**: when enabled in [tree settings](ui-settings.md) §10, suggestions appear after 3 characters with 300ms debounce
+- **Autocomplete**: when enabled in [tree settings](/ui-settings.md) §10, suggestions appear after 3 characters with 300ms debounce
 - Suggestions come from, in priority order:
   1. **Existing places** in the current tree (always available)
   2. **Offline place database** — a downloadable database of cities for supported countries (see §5.1)
@@ -189,7 +198,7 @@ To support autocomplete without network access (desktop mode, or web mode withou
 
 - **Data source**: open datasets (e.g. GeoNames, OpenDataSoft, national postal code databases)
 - **Storage**: SQLite database file per country, stored in the app data directory
-- **Download**: managed from [Settings](ui-settings.md) §10 — the user selects which countries to download
+- **Download**: managed from [Settings](/ui-settings.md) §10 — the user selects which countries to download
 - **Supported countries (MVP)**: France, Belgium, Switzerland, United States, United Kingdom, Germany
 - **Database content per city**: city name, postal code, administrative subdivisions (adapted per country), latitude, longitude
 - **Size**: ~5–20 MB per country (compressed)
@@ -207,8 +216,8 @@ To support autocomplete without network access (desktop mode, or web mode withou
 
 ### Used by
 
-- [Person Edit Modal](ui-person-edit-modal.md) — birth, death, and event places (create + edit modes)
-- [Search Results](ui-search-results.md) — place filter
+- [Person Edit Modal](/ui-person-edit-modal.md) — birth, death, and event places (create + edit modes)
+- [Search Results](/ui-search-results.md) — place filter
 
 ---
 
@@ -249,8 +258,8 @@ A file upload component for attaching media to a person or event.
 
 ### Used by
 
-- [Person Edit Modal](ui-person-edit-modal.md) — media section
-- [Person Profile](ui-person-profile.md) — media gallery "Add" button
+- [Person Edit Modal](/ui-person-edit-modal.md) — media section
+- [Person Profile](/ui-person-profile.md) — media gallery "Add" button
 
 ---
 
@@ -275,7 +284,7 @@ A small inline component rendering the appropriate symbol for an event type.
 | Census | 📋 | `var(--text-secondary)` |
 | Other | 📜 | `var(--text-secondary)` |
 
-Used throughout: [Tree View](ui-genealogy-tree.md) (events sidebar, person cards), [Person Profile](ui-person-profile.md) (timeline), [Person Edit Modal](ui-person-edit-modal.md) (event blocks).
+Used throughout: [Tree View](/ui-genealogy-tree.md) (events sidebar, person cards), [Person Profile](/ui-person-profile.md) (timeline), [Person Edit Modal](/ui-person-edit-modal.md) (event blocks).
 
 ---
 
@@ -308,7 +317,7 @@ A placeholder component displayed when a list or area has no content.
 
 ### Used by
 
-- [Homepage](ui-home.md) — no trees, no search results
-- [Search Results](ui-search-results.md) — no results
-- [Person Profile](ui-person-profile.md) — no events, no media
-- [Settings](ui-settings.md) — empty anomalies list, empty duplicates list
+- [Homepage](/ui-home.md) — no trees, no search results
+- [Search Results](/ui-search-results.md) — no results
+- [Person Profile](/ui-person-profile.md) — no events, no media
+- [Settings](/ui-settings.md) — empty anomalies list, empty duplicates list

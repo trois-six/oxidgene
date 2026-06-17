@@ -1,7 +1,16 @@
+---
+type: "Caching Specification"
+title: "Server-Side Caching"
+description: "Server-side caching design for OxidGene, including cache types, invalidation, and storage backends."
+tags: [oxidgene, specification, caching, performance]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Server-Side Caching
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Architecture](architecture.md) · [API Contract](api.md) · [Data Model](data-model.md) · [Roadmap](roadmap.md)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Architecture](/architecture.md) · [API Contract](/api.md) · [Data Model](/data-model.md) · [Roadmap](/roadmap.md)
 
 ---
 
@@ -255,7 +264,7 @@ Used when the application runs as a web server behind Redis.
 | **TTL** | None by default (explicit invalidation on mutations). Optional 24-hour safety TTL as a fallback. |
 | **Bulk invalidation** | `SCAN` + `DEL` with prefix patterns (e.g. `pc:{tree_id}:*`, `ped:{tree_id}:*`, `si:{tree_id}`) |
 
-Redis is added as a container in the Docker Compose stack for web deployment. See [Architecture](architecture.md) §8.1.
+Redis is added as a container in the Docker Compose stack for web deployment. See [Architecture](/architecture.md) §8.1.
 
 ### 3.3 In-Memory + Disk Backend (Desktop)
 
@@ -357,7 +366,7 @@ Base path: `/api/v1`
 | `GET` | `/trees/{tree_id}/cache/search?q=query&limit=20&offset=0` | Server-side person search (paginated) |
 | `POST` | `/trees/{tree_id}/cache/rebuild` | Force full cache rebuild for a tree (admin/debug) |
 
-Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
+Used by: [Tree View](/ui-genealogy-tree.md) (pedigree chart) · [Person Profile](/ui-person-profile.md) (person detail) · [Search Results](/ui-search-results.md) (search)
 
 **Note:** All existing mutation endpoints (create/update/delete person, name, event, family, family_member, etc.) are unchanged but now include a synchronous cache update step after the DB write. See §4.
 
