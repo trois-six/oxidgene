@@ -9,16 +9,16 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Visual & Functional Specifications — Search Results
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Tree View](/ui-genealogy-tree.md) (search fields in topbar) · [Person Profile](/ui-person-profile.md) · [Data Model](/data-model.md) (Person, PersonName, Event) · [API Contract](/api.md) (Persons endpoint with search)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Tree View](ui-genealogy-tree.md) (search fields in topbar) · [Person Profile](ui-person-profile.md) · [Data Model](data-model.md) (Person, PersonName, Event) · [API Contract](api.md) (Persons endpoint with search)
 
 ---
 
 ## 1. Overview
 
-The search results page (`/trees/{id}/search`) is a dedicated full-page view for browsing persons matching a search query. It is reached by pressing **Enter** in the [Tree View](/ui-genealogy-tree.md) topbar search fields or clicking the magnifying glass button. It provides a filterable, sortable list of matching persons with the ability to navigate back to the tree or to a person's profile.
+The search results page (`/trees/{id}/search`) is a dedicated full-page view for browsing persons matching a search query. It is reached by pressing **Enter** in the [Tree View](ui-genealogy-tree.md) topbar search fields or clicking the magnifying glass button. It provides a filterable, sortable list of matching persons with the ability to navigate back to the tree or to a person's profile.
 
-This page uses the standard `sub-page` layout pattern (see [General](/general.md) section 8). There is **no left sidebar** on this page — the content fills the full width within the `sub-page-content` container.
+This page uses the standard `sub-page` layout pattern (see [General](general.md) section 8). There is **no left sidebar** on this page — the content fills the full width within the `sub-page-content` container.
 
 ---
 
@@ -134,7 +134,7 @@ Each row shows:
 
 ### Card View
 
-Results displayed as a responsive grid of cards (same `minmax(280px, 1fr)` pattern as the [Homepage](/ui-home.md) tree cards). Each card contains the same information as a list row, with a larger avatar area.
+Results displayed as a responsive grid of cards (same `minmax(280px, 1fr)` pattern as the [Homepage](ui-home.md) tree cards). Each card contains the same information as a list row, with a larger avatar area.
 
 ---
 
@@ -142,7 +142,7 @@ Results displayed as a responsive grid of cards (same `minmax(280px, 1fr)` patte
 
 | Action | Behavior |
 |---|---|
-| **Click a result** | Navigates to the [Person Profile](/ui-person-profile.md) for that person |
+| **Click a result** | Navigates to the [Person Profile](ui-person-profile.md) for that person |
 | **Hover** | Subtle highlight, pointer cursor |
 
 ---

@@ -9,8 +9,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Roadmap — EPICs, Sprints & Milestones
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [Architecture](/architecture.md) · [General](/general.md) (MVP scope)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Architecture](architecture.md) · [General](general.md) (MVP scope)
 
 ---
 
@@ -27,7 +27,7 @@ timestamp: 2026-06-17T00:00:00Z
 
 ### Sprint A.2 — Database Schema & Migrations ✅
 
-- [x] Define SeaORM entities for all 13 tables in `oxidgene-db`. → see [Data Model](/data-model.md)
+- [x] Define SeaORM entities for all 13 tables in `oxidgene-db`. → see [Data Model](data-model.md)
 - [x] Write database migrations (create tables, indexes, foreign keys).
 - [x] Implement migration runner (up/down).
 - [x] Test migrations against both PostgreSQL and SQLite.
@@ -36,12 +36,12 @@ timestamp: 2026-06-17T00:00:00Z
 
 - [x] Implement repository traits in `oxidgene-db` for CRUD operations.
 - [x] Implement soft-delete filtering.
-- [x] Implement cursor-based pagination helpers. → see [API Contract](/api.md) (pagination)
+- [x] Implement cursor-based pagination helpers. → see [API Contract](api.md) (pagination)
 - [x] Unit tests for all repositories.
 
 ### Sprint A.4 — REST API Skeleton ✅
 
-- [x] Set up Axum router in `oxidgene-api`. → see [API Contract](/api.md) (REST)
+- [x] Set up Axum router in `oxidgene-api`. → see [API Contract](api.md) (REST)
 - [x] Implement REST handlers for Trees (full CRUD).
 - [x] Implement REST handlers for Persons (full CRUD + names).
 - [x] Implement REST handlers for Families (full CRUD + spouses + children).
@@ -57,7 +57,7 @@ timestamp: 2026-06-17T00:00:00Z
 
 ### Sprint A.6 — GraphQL API ✅
 
-- [x] Set up async-graphql schema in `oxidgene-api`. → see [API Contract](/api.md) (GraphQL)
+- [x] Set up async-graphql schema in `oxidgene-api`. → see [API Contract](api.md) (GraphQL)
 - [x] Implement all queries with connection types (cursor pagination).
 - [x] Implement all mutations.
 - [x] GraphQL playground / introspection endpoint.
@@ -65,7 +65,7 @@ timestamp: 2026-06-17T00:00:00Z
 
 ### Sprint A.7 — Web Server Binary ✅
 
-- [x] Create `oxidgene-server` binary. → see [Architecture](/architecture.md) (deployment)
+- [x] Create `oxidgene-server` binary. → see [Architecture](architecture.md) (deployment)
 - [x] Configuration loading (environment variables, config file).
 - [x] Database connection pool setup (PostgreSQL).
 - [x] Health check endpoint (`/healthz`).
@@ -74,7 +74,7 @@ timestamp: 2026-06-17T00:00:00Z
 
 ### Sprint A.8 — Desktop Binary Skeleton ✅
 
-- [x] Create `oxidgene-desktop` binary. → see [Architecture](/architecture.md) (desktop)
+- [x] Create `oxidgene-desktop` binary. → see [Architecture](architecture.md) (desktop)
 - [x] Embed Axum server on localhost with SQLite.
 - [x] Open Dioxus WebView pointing to the local server.
 - [x] Verify all API endpoints work with SQLite backend.
@@ -90,18 +90,18 @@ timestamp: 2026-06-17T00:00:00Z
 - [x] Round-trip tests (import → export → import, verify equivalence).
 - [x] Error and warning collection during import.
 - [x] Streaming import for large files.
-- [x] Wire up import/export REST and GraphQL endpoints. → see [API Contract](/api.md) (GEDCOM)
+- [x] Wire up import/export REST and GraphQL endpoints. → see [API Contract](api.md) (GEDCOM)
 - [ ] Performance benchmarks on large GEDCOM files.
 
 ---
 
 ## EPIC C — Tree Editing (Frontend) ✅
 
-- [x] Set up `oxidgene-ui` crate with Dioxus. → see [Architecture](/architecture.md) (frontend)
+- [x] Set up `oxidgene-ui` crate with Dioxus. → see [Architecture](architecture.md) (frontend)
 - [x] Implement frontend routing (tree list, tree detail, person detail).
-- [x] Visual tree component (ancestor/descendant chart). → see [Tree View spec](/ui-genealogy-tree.md)
+- [x] Visual tree component (ancestor/descendant chart). → see [Tree View spec](ui-genealogy-tree.md)
 - [x] Person detail sheet (names, events, sources, media, notes).
-- [x] Inline editing of persons, families, events. → see [Person Edit Modal spec](/ui-person-edit-modal.md)
+- [x] Inline editing of persons, families, events. → see [Person Edit Modal spec](ui-person-edit-modal.md)
 - [x] Family creation and member linking UI.
 - [x] GEDCOM import/export UI (file upload, download).
 - [x] Frontend integration with REST/GraphQL API.
@@ -110,8 +110,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 ## EPIC D — UX, Languages, Performance ✅
 
-- [x] Theme system (CSS-based, switchable at runtime). → see [Settings spec](/ui-settings.md)
-- [x] Implement at least 2 themes (default + one genealogy-platform-inspired theme). → see [Design Tokens](/ui-design-tokens.md) §10
+- [x] Theme system (CSS-based, switchable at runtime). → see [Settings spec](ui-settings.md)
+- [x] Implement at least 2 themes (default + one genealogy-platform-inspired theme). → see [Design Tokens](ui-design-tokens.md) §10
 - [x] Internationalization (i18n) with runtime language switching. → `crates/oxidgene-ui/src/i18n/`
 - [x] At least 2 languages (English + French). → `i18n/en.rs`, `i18n/fr.rs`
 - [x] Client-side caching of API responses. → `ApiClient` in-memory cache, 30s TTL, invalidated on mutations.
@@ -122,11 +122,11 @@ timestamp: 2026-06-17T00:00:00Z
 
 ## EPIC E — Server-Side Caching
 
-> See [Caching specification](/caching.md) for the full architecture.
+> See [Caching specification](caching.md) for the full architecture.
 
 ### Sprint E.1 — Cache Foundation ✅
 
-- [x] Create `oxidgene-cache` crate with `CacheStore` trait. → see [Caching](/caching.md)
+- [x] Create `oxidgene-cache` crate with `CacheStore` trait. → see [Caching](caching.md)
 - [x] Implement cache type structs (`CachedPerson`, `CachedPedigree`, `CachedSearchIndex`, sub-types).
 - [x] Implement `MemoryCacheStore` (DashMap-based, no persistence yet).
 - [x] Implement `CacheBuilder` — build `CachedPerson` from DB data.
@@ -136,7 +136,7 @@ timestamp: 2026-06-17T00:00:00Z
 ### Sprint E.2 — Person Cache & API Integration ✅
 
 - [x] Add `CacheService` and `CacheStore` to `AppState`.
-- [x] Implement `GET /cache/persons/{id}` and `GET /cache/persons?ids=...` REST endpoints. → see [API Contract](/api.md) (Cache)
+- [x] Implement `GET /cache/persons/{id}` and `GET /cache/persons?ids=...` REST endpoints. → see [API Contract](api.md) (Cache)
 - [x] Implement `cachedPerson` and `cachedPersons` GraphQL queries.
 - [x] Hook all mutation handlers to trigger synchronous cache invalidation.
 - [x] Update `person_detail.rs` to use cached endpoint.
@@ -175,8 +175,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 - [ ] Authentication system (JWT or session-based).
 - [ ] User registration and login.
-- [ ] Per-tree access control (guest, read-only, editor). → see [General](/general.md) (user roles)
-- [ ] Contemporary individual masking for guests. → see [Settings spec](/ui-settings.md) (privacy section)
+- [ ] Per-tree access control (guest, read-only, editor). → see [General](general.md) (user roles)
+- [ ] Contemporary individual masking for guests. → see [Settings spec](ui-settings.md) (privacy section)
 - [ ] Audit logging.
 - [ ] Kubernetes manifests (deployment, service, ingress).
 - [ ] FluxCD GitOps configuration.

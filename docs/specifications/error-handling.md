@@ -9,8 +9,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 # Error Handling & Loading States Specification
 
-> Part of the [OxidGene Specifications](/index.md).
-> See also: [API Contract](/api.md) · [Architecture](/architecture.md) · [i18n](/i18n.md) (error message translations)
+> Part of the [OxidGene Specifications](index.md).
+> See also: [API Contract](api.md) · [Architecture](architecture.md) · [i18n](i18n.md) (error message translations)
 
 ---
 
@@ -192,7 +192,7 @@ When the pedigree tree is loading or recalculating:
 
 ## 5. Empty States
 
-Empty states are shown when a list or area has no content. See [EmptyState component](/ui-shared-components.md) §8.
+Empty states are shown when a list or area has no content. See [EmptyState component](ui-shared-components.md) §8.
 
 | Context | Icon | Title | Subtitle | Action |
 |---|---|---|---|---|
