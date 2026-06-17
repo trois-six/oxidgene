@@ -1,7 +1,16 @@
+---
+type: "UI Specification"
+title: "Visual & Functional Specifications — Design Tokens"
+description: "UI behavior and interaction specification for Visual & Functional Specifications — Design Tokens."
+tags: [oxidgene, specification, ui, ux]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Visual & Functional Specifications — Design Tokens
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Shared Components](ui-shared-components.md) · [Topbar](ui-topbar.md)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Shared Components](/ui-shared-components.md) · [Topbar](/ui-topbar.md)
 
 ---
 

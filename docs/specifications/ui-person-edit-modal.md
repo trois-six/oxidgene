@@ -1,7 +1,16 @@
+---
+type: "UI Specification"
+title: "Visual & Functional Specifications — Person Edit Modal"
+description: "UI behavior and interaction specification for Visual & Functional Specifications — Person Edit Modal."
+tags: [oxidgene, specification, ui, ux]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Visual & Functional Specifications — Person Edit Modal
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Tree View](ui-genealogy-tree.md) (action picker opens this modal) · [Settings](ui-settings.md) (privacy rules, date display, entry options) · [Data Model](data-model.md) (Person, PersonName, Event, Family, Media) · [API Contract](api.md) (Persons, Events, Media endpoints)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Tree View](/ui-genealogy-tree.md) (action picker opens this modal) · [Settings](/ui-settings.md) (privacy rules, date display, entry options) · [Data Model](/data-model.md) (Person, PersonName, Event, Family, Media) · [API Contract](/api.md) (Persons, Events, Media endpoints)
 
 ---
 
@@ -211,7 +220,7 @@ When **two fields** are shown (Or / Between), they are displayed side by side wi
 
 ### Place
 
-Single text input with **place autocomplete** (see [PlaceInput](ui-shared-components.md) §5). Placeholder: "City, postal code, département, region, country…"
+Single text input with **place autocomplete** (see [PlaceInput](/ui-shared-components.md) §5). Placeholder: "City, postal code, département, region, country…"
 
 ### Note
 
@@ -440,7 +449,7 @@ On confirmation: the modal closes, the card is removed from the tree, and the la
 
 ## 12. Suggest Existing Persons (create mode only)
 
-When the [tree setting](ui-settings.md) "Suggest existing persons" is enabled (§10) and the modal is in create mode, the modal offers to **link to an existing person** instead of creating a new one.
+When the [tree setting](/ui-settings.md) "Suggest existing persons" is enabled (§10) and the modal is in create mode, the modal offers to **link to an existing person** instead of creating a new one.
 
 ### Behavior
 
@@ -645,4 +654,4 @@ Same rules as the individual modal: no field is required, save is always availab
 
 This spec covers **"Edit individual"**, **"Create person"** (all context variants), and **"Edit union"**. The other actions from the action picker are covered in their own specs:
 
-- **Merge with…** → see [Person Merge](ui-merge.md)
+- **Merge with…** → see [Person Merge](/ui-merge.md)

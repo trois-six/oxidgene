@@ -1,7 +1,16 @@
+---
+type: "Architecture Specification"
+title: "Technical Architecture"
+description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
+tags: [oxidgene, specification, architecture, rust]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Technical Architecture
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Data Model](data-model.md) · [API Contract](api.md) · [Roadmap](roadmap.md)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Data Model](/data-model.md) · [API Contract](/api.md) · [Roadmap](/roadmap.md)
 
 ---
 
@@ -18,8 +27,8 @@
 | Web database | PostgreSQL | 16+ | Production web deployment |
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
 | GEDCOM | ged_io | 0.12+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
-| Cache (web) | Redis | 7+ | Server-side cache backend for web deployment. See [Caching](caching.md) |
-| Cache (desktop) | DashMap + bincode | — | In-memory cache with disk persistence. See [Caching](caching.md) |
+| Cache (web) | Redis | 7+ | Server-side cache backend for web deployment. See [Caching](/caching.md) |
+| Cache (desktop) | DashMap + bincode | — | In-memory cache with disk persistence. See [Caching](/caching.md) |
 | Build orchestration | just | latest | Unified justfile for all tasks |
 
 ---
@@ -30,7 +39,7 @@
 - Not person-centric (GEDCOM-X style) — deferred to post-MVP consideration.
 - Closure table (`PersonAncestry`) for optimized ancestor/descendant traversal.
 
-For full entity definitions, see [Data Model](data-model.md).
+For full entity definitions, see [Data Model](/data-model.md).
 
 ---
 
@@ -52,10 +61,10 @@ For full entity definitions, see [Data Model](data-model.md).
 - SeaORM entities crate (`oxidgene-db`) with migrations.
 - API crate (`oxidgene-api`) with Axum handlers (REST) and async-graphql resolvers.
 - GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic.
-- Cache crate (`oxidgene-cache`) with dual-backend storage (Redis/in-memory), cache builders, and invalidation logic. See [Caching](caching.md).
+- Cache crate (`oxidgene-cache`) with dual-backend storage (Redis/in-memory), cache builders, and invalidation logic. See [Caching](/caching.md).
 - Separate binary crates for web server, desktop app, and CLI tool.
 
-API endpoints are documented in [API Contract](api.md).
+API endpoints are documented in [API Contract](/api.md).
 
 ---
 
@@ -67,10 +76,10 @@ API endpoints are documented in [API Contract](api.md).
 - On desktop: points to `http://127.0.0.1:<port>` served by the embedded Axum server.
 
 UI specifications:
-- [Homepage](ui-home.md) — tree dashboard
-- [Genealogy Tree](ui-genealogy-tree.md) — pedigree canvas
-- [Person Edit Modal](ui-person-edit-modal.md) — edit forms
-- [Settings](ui-settings.md) — tree configuration
+- [Homepage](/ui-home.md) — tree dashboard
+- [Genealogy Tree](/ui-genealogy-tree.md) — pedigree canvas
+- [Person Edit Modal](/ui-person-edit-modal.md) — edit forms
+- [Settings](/ui-settings.md) — tree configuration
 
 ---
 
@@ -97,7 +106,7 @@ UI specifications:
 ### 8.1 Web Deployment
 
 - Docker Compose for local development.
-- Redis container for server-side cache (shared across all users of a tree). See [Caching](caching.md).
+- Redis container for server-side cache (shared across all users of a tree). See [Caching](/caching.md).
 - Kubernetes deployment for production (dev & prod).
 - GitOps with FluxCD.
 - Liveness/readiness probes on the Axum server.
@@ -107,7 +116,7 @@ UI specifications:
 - Single binary per platform (Windows, Linux, macOS).
 - Built via `cargo build --release` with appropriate target.
 - No external runtime dependencies (SQLite embedded, WebView from system).
-- Offline place databases (SQLite files per country) stored in the app data directory; downloaded on demand from [Settings](ui-settings.md) §10. See [PlaceInput](ui-shared-components.md) §5.1.
+- Offline place databases (SQLite files per country) stored in the app data directory; downloaded on demand from [Settings](/ui-settings.md) §10. See [PlaceInput](/ui-shared-components.md) §5.1.
 
 ---
 

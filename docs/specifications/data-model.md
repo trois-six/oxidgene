@@ -1,7 +1,16 @@
+---
+type: "Data Model Specification"
+title: "Data Model"
+description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
+tags: [oxidgene, specification, data-model, domain]
+timestamp: 2026-06-17T00:00:00Z
+---
+
+
 # Data Model
 
-> Part of the [OxidGene Specifications](README.md).
-> See also: [Architecture](architecture.md) · [API Contract](api.md)
+> Part of the [OxidGene Specifications](/index.md).
+> See also: [Architecture](/architecture.md) · [API Contract](/api.md)
 
 ---
 
@@ -18,7 +27,7 @@
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
 
-Displayed in: [Homepage](ui-home.md) (tree cards) · [Settings](ui-settings.md) (tree & roots section)
+Displayed in: [Homepage](/ui-home.md) (tree cards) · [Settings](/ui-settings.md) (tree & roots section)
 
 ### Person
 
@@ -31,7 +40,7 @@ Displayed in: [Homepage](ui-home.md) (tree cards) · [Settings](ui-settings.md) 
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
 
-Displayed in: [Tree View](ui-genealogy-tree.md) (person cards) · [Person Edit Modal](ui-person-edit-modal.md) (edit form)
+Displayed in: [Tree View](/ui-genealogy-tree.md) (person cards) · [Person Edit Modal](/ui-person-edit-modal.md) (edit form)
 
 ### PersonName
 
@@ -59,7 +68,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (person cards) · [Person Edit M
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
 
-Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](ui-person-edit-modal.md) (couple edit)
+Displayed in: [Tree View](/ui-genealogy-tree.md) (connectors) · [Person Edit Modal](/ui-person-edit-modal.md) (couple edit)
 
 ### FamilySpouse
 
@@ -99,7 +108,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
 
-Displayed in: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](ui-person-edit-modal.md) (event blocks)
+Displayed in: [Tree View](/ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](/ui-person-edit-modal.md) (event blocks)
 
 ### Place
 
@@ -113,7 +122,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 
-The `name` is a single string. The recommended format is comma-separated from most specific to least specific (see [PlaceInput](ui-shared-components.md) §5), but any text is valid.
+The `name` is a single string. The recommended format is comma-separated from most specific to least specific (see [PlaceInput](/ui-shared-components.md) §5), but any text is valid.
 
 ### Source
 
@@ -163,7 +172,7 @@ The `name` is a single string. The recommended format is comma-separated from mo
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
 
-Displayed in: [Person Edit Modal](ui-person-edit-modal.md) (media section)
+Displayed in: [Person Edit Modal](/ui-person-edit-modal.md) (media section)
 
 ### MediaLink
 
@@ -202,7 +211,7 @@ Displayed in: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 | `descendant_id` | UUID v7 | FK → Person |
 | `depth` | i32 | Generation distance (0 = self) |
 
-Used by: ancestor/descendant [API endpoints](api.md) · [Settings](ui-settings.md) (missing ancestors tool)
+Used by: ancestor/descendant [API endpoints](/api.md) · [Settings](/ui-settings.md) (missing ancestors tool)
 
 ---
 
