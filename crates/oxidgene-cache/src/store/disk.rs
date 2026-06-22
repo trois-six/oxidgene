@@ -289,13 +289,14 @@ fn write_bincode_atomic<T: Serialize>(dir: &Path, filename: &str, value: &T) -> 
     let tmp_path = dir.join(format!("{filename}.tmp"));
 
     let file = fs::File::create(&tmp_path)?;
-    let writer = BufWriter::new(file);
-    bincode::serialize_into(writer, value).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Failed to serialize {filename}: {e}"),
-        )
-    })?;
+    let mut writer = BufWriter::new(file);
+    bincode::serde::encode_into_std_write(value, &mut writer, bincode::config::standard())
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to serialize {filename}: {e}"),
+            )
+        })?;
 
     fs::rename(&tmp_path, &final_path)?;
     debug!(file = %final_path.display(), "Wrote cache file");
@@ -312,8 +313,8 @@ fn read_bincode<T: for<'de> Deserialize<'de>>(dir: &Path, filename: &str) -> Opt
     let file = fs::File::open(&path)
         .map_err(|e| warn!(file = %path.display(), "Failed to open cache file: {e}"))
         .ok()?;
-    let reader = BufReader::new(file);
-    bincode::deserialize_from(reader)
+    let mut reader = BufReader::new(file);
+    bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard())
         .map_err(|e| warn!(file = %path.display(), "Failed to deserialize cache file: {e}"))
         .ok()
 }
