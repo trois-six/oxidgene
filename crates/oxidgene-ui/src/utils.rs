@@ -148,3 +148,72 @@ pub fn generation_label(depth: i32, is_ancestors: bool, i18n: &crate::i18n::I18n
         n => i18n.t_args(&format!("{prefix}.n"), &[("n", &n.to_string())]),
     }
 }
+
+/// ── Text truncation ─────────────────────────────────────────────────────
+///
+/// Estimate rendered text width in pixels for Lato-like sans fonts.
+fn estimate_char_width_px(ch: char, font_size_px: f32) -> f32 {
+    let ratio = match ch {
+        // Extra narrow glyphs
+        'i' | 'l' | 'I' | 'j' | 't' | 'f' | 'r' => 0.35,
+        // Narrow punctuation and symbols
+        '.' | ',' | ':' | ';' | '!' | '|' | '\'' => 0.25,
+        // Space-like characters
+        ' ' | '\t' => 0.30,
+        // Wide uppercase glyphs
+        'M' | 'W' => 0.92,
+        // Wide lowercase glyphs
+        'm' | 'w' => 0.80,
+        // Digits
+        '0'..='9' => 0.56,
+        // Generic uppercase letters
+        'A'..='Z' => 0.64,
+        // Generic lowercase letters
+        'a'..='z' => 0.54,
+        // Fallback for non-latin glyphs and symbols
+        _ => 0.62,
+    };
+    ratio * font_size_px
+}
+
+/// Estimate rendered text width in pixels for Lato-like sans fonts.
+fn estimate_text_width_px(text: &str, font_size_px: f32) -> f32 {
+    text.chars()
+        .map(|ch| estimate_char_width_px(ch, font_size_px))
+        .sum()
+}
+
+/// Truncate text so its rendered width fits in `max_width_px`, adding an ellipsis.
+pub fn truncate_text_to_fit(text: &str, max_width_px: f32, font_size_px: f32) -> String {
+    if text.is_empty() || max_width_px <= 0.0 || font_size_px <= 0.0 {
+        return String::new();
+    }
+
+    if estimate_text_width_px(text, font_size_px) <= max_width_px {
+        return text.to_string();
+    }
+
+    let ellipsis = '…';
+    let ellipsis_width = estimate_text_width_px("…", font_size_px);
+    if ellipsis_width >= max_width_px {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    let mut width = 0.0;
+    for ch in text.chars() {
+        let ch_width = estimate_char_width_px(ch, font_size_px);
+        if width + ch_width + ellipsis_width > max_width_px {
+            break;
+        }
+        out.push(ch);
+        width += ch_width;
+    }
+
+    if out.is_empty() {
+        String::new()
+    } else {
+        out.push(ellipsis);
+        out
+    }
+}

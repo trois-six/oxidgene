@@ -25,6 +25,8 @@ use oxidgene_core::{ChildType, EventType, Sex, SpouseRole};
 
 use crate::i18n::use_i18n;
 
+use crate::utils::truncate_text_to_fit;
+
 // ── Layout constants (matching the JS reference implementation) ──────────
 
 /// Standard card width in pixels.
@@ -57,6 +59,9 @@ const TEXT_X_FULL: f64 = 70.0;
 const TEXT_X_COMPACT: f64 = 10.0;
 const TEXT_Y_FULL: f64 = 21.0;
 const TEXT_Y_COMPACT: f64 = 81.0;
+const TEXT_MAX_WIDTH_FULL: f32 = 105.0;
+const SURNAME_FONT_SIZE_PX: f32 = 11.0;
+const GIVEN_FONT_SIZE_PX: f32 = 10.0;
 const SOSA_CX_FULL: f64 = 57.5;
 const SOSA_CX_COMPACT: f64 = 67.5;
 const SOSA_CY: f64 = 57.5;
@@ -1674,63 +1679,61 @@ fn second_walk(wrap: &mut [WrapNode], arena: &mut [TreeNode], root: usize) {
 }
 
 fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
-    let siblings = arena[node].siblings.clone();
     let children = arena[node].children.clone();
 
-    if !siblings.is_empty() && !children.is_empty() {
-        // Group children by parent2.
-        let mut groups: Vec<Vec<usize>> = Vec::new();
-        let mut current_p2: Option<usize> = Some(usize::MAX);
-        let mut current_group: Vec<usize> = Vec::new();
-
-        for &ci in &children {
-            if arena[ci].parent2 != current_p2 {
-                if !current_group.is_empty() {
-                    groups.push(std::mem::take(&mut current_group));
-                }
-                current_p2 = arena[ci].parent2;
-            }
-            current_group.push(ci);
-        }
-        if !current_group.is_empty() {
-            groups.push(current_group);
-        }
-
-        for g in 1..groups.len() {
-            let prev_group = groups[g - 1].clone();
-            let next_group = groups[g].clone();
-
-            let mut prev_max_x = f64::NEG_INFINITY;
-            for &ci in &prev_group {
-                collect_max_x(arena, ci, &mut prev_max_x);
-            }
-            let mut next_min_x = f64::INFINITY;
-            for &ci in &next_group {
-                collect_min_x(arena, ci, &mut next_min_x);
-            }
-
-            let gap = next_min_x - prev_max_x;
-            if gap < 1.0 {
-                let shift = 1.0 - gap;
-                for group in groups.iter().skip(g) {
-                    for &ci in group {
-                        shift_subtree(arena, ci, shift);
-                    }
-                }
-                // Shift spouse siblings too.
-                for si in g..siblings.len() {
-                    arena[siblings[si]].x += shift;
-                }
-            }
-        }
+    // Recurse into children FIRST (post-order). A shift applied while fixing
+    // a deeper level can widen this node's own subtree (e.g. pushing a leaf
+    // sibling's married-in spouse rightward), so the gap check below must see
+    // the final, already-corrected width of each child — not the
+    // RT-computed width from before any deeper fix-up ran. Checking gaps
+    // top-down (parent before children) let an inner shift silently eat into
+    // a buffer an outer check had already validated, re-introducing the
+    // exact overlap this pass exists to prevent.
+    for &ci in &children {
+        fix_spouse_group_overlaps(arena, ci);
     }
 
-    // Recurse iteratively.
-    let mut stack: Vec<usize> = children;
-    while let Some(ci) = stack.pop() {
-        let sub_children = arena[ci].children.clone();
-        fix_spouse_group_overlaps(arena, ci);
-        stack.extend(sub_children);
+    let siblings = arena[node].siblings.clone();
+
+    // This pass only ever matters for nodes that themselves have a recorded
+    // spouse (`siblings` non-empty) — that's how the descending tree marks a
+    // couple whose children may come from more than one spouse. Ascending
+    // trees never populate `siblings`, so this is a no-op there and the
+    // RT-computed father/mother spacing (including the compact 0.5-unit
+    // separation at the deepest level) is left untouched.
+    if !siblings.is_empty() && !children.is_empty() {
+        // Sweep every adjacent pair of children — full siblings as well as
+        // half-sibling group boundaries. This also covers the case where a
+        // child is itself a leaf with a married-in spouse card, which the
+        // Reingold-Tilford contour walk does not always widen for.
+        for i in 1..children.len() {
+            let prev = children[i - 1];
+            let curr = children[i];
+
+            let mut prev_max_x = f64::NEG_INFINITY;
+            collect_max_x(arena, prev, &mut prev_max_x);
+            let mut curr_min_x = f64::INFINITY;
+            collect_min_x(arena, curr, &mut curr_min_x);
+
+            let gap = curr_min_x - prev_max_x;
+            if gap < 1.0 {
+                let shift = 1.0 - gap;
+                for &ci in &children[i..] {
+                    shift_subtree(arena, ci, shift);
+                }
+                // If `curr` starts a new parent2 (half-sibling) group, shift
+                // the matching spouse sibling of `node` along with it.
+                if arena[curr].parent2 != arena[prev].parent2
+                    && let Some(pos) = siblings
+                        .iter()
+                        .position(|&s| Some(s) == arena[curr].parent2)
+                {
+                    for &si in &siblings[pos..] {
+                        arena[si].x += shift;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2581,23 +2584,30 @@ fn render_pedigree_card(
                 "var(--pn-text)"
             };
             let stroke = gender_stroke(node.sex);
-            let initials = make_initials(&node.label_given, &node.label_surname);
-            let surname_up = node.label_surname.to_uppercase();
+            let label_surname = node
+                .label_surname
+                .split(",")
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let initials = make_initials(&node.label_given, &label_surname);
+            let surname_up = label_surname.to_uppercase();
             let surname_disp = if is_compact {
                 surname_up
                     .chars()
                     .take(COMPACT_TEXT_TRUNCATE)
                     .collect::<String>()
             } else {
-                surname_up
+                truncate_text_to_fit(&surname_up, TEXT_MAX_WIDTH_FULL, SURNAME_FONT_SIZE_PX)
             };
+            let label_given = node.label_given.split(",").next().unwrap_or("").to_string();
             let given_disp = if is_compact {
-                node.label_given
+                label_given
                     .chars()
                     .take(COMPACT_TEXT_TRUNCATE)
                     .collect::<String>()
             } else {
-                node.label_given.clone()
+                truncate_text_to_fit(&label_given, TEXT_MAX_WIDTH_FULL, GIVEN_FONT_SIZE_PX)
             };
             let date_s = format_lifespan(node.birth_year, node.death_year);
             let has_surname = !surname_disp.is_empty();
@@ -2647,7 +2657,7 @@ fn render_pedigree_card(
                             tspan { x: "{tx}", dy: "{given_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
                         }
                         if has_date {
-                            tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:var(--pn-born)", "{date_s}" }
+                            tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{date_s}" }
                         }
                     }
                     if is_focus {
@@ -3433,6 +3443,280 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod layout_overlap_tests {
+    use super::*;
+
+    fn person(depth: i32, sex: Sex, parent2: Option<usize>) -> TreeNode {
+        let mut n = TreeNode::new_real(
+            Uuid::now_v7(),
+            depth,
+            sex,
+            "Given".to_string(),
+            "Surname".to_string(),
+            None,
+            None,
+            None,
+            SosaBadge::None,
+            if sex == Sex::Female { 1 } else { 0 },
+            false,
+            false,
+        );
+        n.parent2 = parent2;
+        n
+    }
+
+    /// Pushes `node` onto `arena` and returns its index.
+    fn push(arena: &mut Vec<TreeNode>, node: TreeNode) -> usize {
+        arena.push(node);
+        arena.len() - 1
+    }
+
+    /// Attaches `spouse_idx` as a sibling (spouse) of `node_idx`.
+    fn marry(arena: &mut [TreeNode], node_idx: usize, spouse_idx: usize) {
+        arena[node_idx].siblings.push(spouse_idx);
+        arena[spouse_idx].is_sibling = true;
+    }
+
+    /// Reproduces a cross-cousin overlap: depth-1 siblings A (with two
+    /// depth-2 children, the second one childless-but-married) and B (with
+    /// a single depth-2 child) must not have their depth-2 rows collide.
+    #[test]
+    fn cousin_branches_do_not_overlap_at_depth_two() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        // Root couple.
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        // Depth-1 children: a single childless sibling, then A (male) and B
+        // (female) adjacent, then two more single childless siblings —
+        // mirrors the real family shape (Brigitte, [Luc+spouse], [Daniel+
+        // Elisabeth], Marc, Jean-Michel).
+        let sib_before = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
+        let a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let b = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
+        let sib_after1 = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        arena[root].children = vec![sib_before, a, b, sib_after1];
+
+        let a_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, a, a_spouse);
+
+        let b_spouse = push(&mut arena, person(1, Sex::Male, None));
+        marry(&mut arena, b, b_spouse);
+
+        // A's children: first child has a spouse with no children of their
+        // own (the trailing, "childless spouse" case); second is the last
+        // child in A's branch.
+        let a_child1 = push(&mut arena, person(2, Sex::Male, Some(a_spouse)));
+        let a_child1_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, a_child1, a_child1_spouse);
+
+        let a_child2 = push(&mut arena, person(2, Sex::Male, Some(a_spouse)));
+        let a_child2_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, a_child2, a_child2_spouse);
+        arena[a].children = vec![a_child1, a_child2];
+
+        // B's single child (no spouse) — the cousin branch directly to the
+        // right of A's branch.
+        let b_child = push(&mut arena, person(2, Sex::Female, Some(b_spouse)));
+        arena[b].children = vec![b_child];
+
+        layout_tree(&mut arena, 0);
+
+        // Every pair of cards at the same depth must not horizontally
+        // overlap (allowing exact edge-touch).
+        let by_depth =
+            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
+
+        eprintln!(
+            "root={root} root_spouse={root_spouse} sib_before={sib_before} a={a} b={b} \
+             sib_after1={sib_after1} a_spouse={a_spouse} \
+             b_spouse={b_spouse} a_child1={a_child1} a_child1_spouse={a_child1_spouse} \
+             a_child2={a_child2} a_child2_spouse={a_child2_spouse} b_child={b_child}"
+        );
+        for (i, n) in arena.iter().enumerate() {
+            eprintln!(
+                "idx={i} depth={} x={} after={} sex={:?}",
+                n.depth, n.x, n.after, n.sex
+            );
+        }
+
+        for depth in [0, 1, 2] {
+            let mut xs = by_depth(depth);
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            for w in xs.windows(2) {
+                let gap = w[1] - w[0];
+                assert!(
+                    gap + 1e-6 >= CARD_W,
+                    "depth {depth}: cards overlap (gap={gap}, need >= {CARD_W})"
+                );
+            }
+        }
+    }
+
+    /// Reproduces a case one level shallower than the cousin-branch test: a
+    /// leaf sibling (Philippe) who has both a married-in spouse AND his own
+    /// children, sitting next to a childless full sibling (Anthony). The
+    /// spouse's extra width must still push the childless sibling (and
+    /// everything after it) over, even though Philippe's own subtree has
+    /// descendants of its own.
+    #[test]
+    fn leaf_with_spouse_and_children_does_not_overlap_childless_sibling() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        let philippe = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let anthony = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let remi = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        arena[root].children = vec![philippe, anthony, remi];
+
+        let marion = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, philippe, marion);
+
+        let lily = push(&mut arena, person(2, Sex::Female, Some(marion)));
+        let alban = push(&mut arena, person(2, Sex::Male, Some(marion)));
+        arena[philippe].children = vec![lily, alban];
+
+        layout_tree(&mut arena, 0);
+
+        let by_depth =
+            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
+
+        for depth in [1, 2] {
+            let mut xs = by_depth(depth);
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            for w in xs.windows(2) {
+                let gap = w[1] - w[0];
+                assert!(
+                    gap + 1e-6 >= CARD_W,
+                    "depth {depth}: cards overlap (gap={gap}, need >= {CARD_W})"
+                );
+            }
+        }
+    }
+
+    /// Reproduces the exact real-world family shape that still overlapped
+    /// after the first fix: depth-1 full siblings JMJA and Dominique (both
+    /// children of the root couple). JMJA's branch has two childless
+    /// children (Didier, Michel) before a third child (Philippe) who has
+    /// both a spouse (Marion) and two children of his own (Lily, Alban).
+    /// Dominique's branch immediately follows with two childless children
+    /// (Fanny, Rémi). Marion's card must not collide with Fanny's.
+    #[test]
+    fn cross_uncle_branch_with_grandchildren_does_not_overlap() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        let jmja = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let dominique = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        arena[root].children = vec![jmja, dominique];
+
+        let augusta = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, jmja, augusta);
+
+        let francine = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, dominique, francine);
+
+        let didier = push(&mut arena, person(2, Sex::Male, Some(augusta)));
+        let michel = push(&mut arena, person(2, Sex::Male, Some(augusta)));
+        let philippe = push(&mut arena, person(2, Sex::Male, Some(augusta)));
+        arena[jmja].children = vec![didier, michel, philippe];
+
+        // Didier also has his own spouse + 3 children (Clément, Auriane,
+        // Apolline) — omitting these in an earlier version of this test
+        // masked the real bug.
+        let anne_cecile = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, didier, anne_cecile);
+        let clement = push(&mut arena, person(3, Sex::Male, Some(anne_cecile)));
+        let auriane = push(&mut arena, person(3, Sex::Female, Some(anne_cecile)));
+        let apolline = push(&mut arena, person(3, Sex::Female, Some(anne_cecile)));
+        arena[didier].children = vec![clement, auriane, apolline];
+
+        // Michel also has his own spouse + 1 child (Maël).
+        let marie_charlotte = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, michel, marie_charlotte);
+        let mael = push(&mut arena, person(3, Sex::Male, Some(marie_charlotte)));
+        arena[michel].children = vec![mael];
+
+        let marion = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, philippe, marion);
+
+        let lily = push(&mut arena, person(3, Sex::Female, Some(marion)));
+        let alban = push(&mut arena, person(3, Sex::Male, Some(marion)));
+        arena[philippe].children = vec![lily, alban];
+
+        let fanny = push(&mut arena, person(2, Sex::Female, Some(francine)));
+        let remi = push(&mut arena, person(2, Sex::Male, Some(francine)));
+        arena[dominique].children = vec![fanny, remi];
+
+        layout_tree(&mut arena, 0);
+
+        let by_depth =
+            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
+
+        for depth in [1, 2, 3] {
+            let mut xs = by_depth(depth);
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            for w in xs.windows(2) {
+                let gap = w[1] - w[0];
+                assert!(
+                    gap + 1e-6 >= CARD_W,
+                    "depth {depth}: cards overlap (gap={gap}, need >= {CARD_W})"
+                );
+            }
+        }
+    }
+
+    /// Ascending trees never populate a node's own `siblings` (married-in
+    /// spouse) field, so `fix_spouse_group_overlaps` must stay a no-op there
+    /// and leave the RT-computed compact 0.5-unit separation at the deepest
+    /// (last_level) row untouched — i.e. grandparent pairs must stay packed
+    /// at half the normal card spacing, not be force-spread to a full
+    /// CARD_W gap.
+    #[test]
+    fn ascending_compact_row_keeps_half_width_separation() {
+        let last_level = -2;
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+
+        let father = push(&mut arena, person(-1, Sex::Male, None));
+        let mother = push(&mut arena, person(-1, Sex::Female, None));
+        arena[root].children = vec![father, mother];
+
+        let father_father = push(&mut arena, person(last_level, Sex::Male, None));
+        let father_mother = push(&mut arena, person(last_level, Sex::Female, None));
+        arena[father].children = vec![father_father, father_mother];
+
+        let mother_father = push(&mut arena, person(last_level, Sex::Male, None));
+        let mother_mother = push(&mut arena, person(last_level, Sex::Female, None));
+        arena[mother].children = vec![mother_father, mother_mother];
+
+        layout_tree(&mut arena, last_level);
+
+        let by_depth =
+            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
+
+        let mut compact_xs = by_depth(last_level);
+        compact_xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        for w in compact_xs.windows(2) {
+            let gap = w[1] - w[0];
+            assert!(
+                gap < CARD_W - 1e-6,
+                "compact row: gap widened to a full card width (gap={gap}, expected < {CARD_W})"
+            );
         }
     }
 }

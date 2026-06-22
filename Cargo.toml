@@ -34,7 +34,7 @@ tokio = { version = "1", features = ["full"] }
 # Web framework
 axum = "0.8"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 
 # GraphQL
 async-graphql = { version = "7.2", features = ["chrono"] }
@@ -74,7 +74,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # GEDCOM
-ged_io = { version = "0.12", features = ["json"] }
+ged_io = { version = "0.14", features = ["json"] }
 
 # Configuration
 config = "0.15"
@@ -83,7 +83,7 @@ config = "0.15"
 dioxus = "0.7"
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "query"] }
 
 # Platform directories
 dirs = "6"
@@ -96,6 +96,6 @@ clap = { version = "4", features = ["derive"] }
 
 # Cache
 dashmap = "6"
-redis = { version = "0.27", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"] }
 rmp-serde = "1"
-bincode = "1"
+bincode = { version = "2", features = ["serde"] }
