@@ -48,6 +48,10 @@ server:
 desktop:
     cargo run --package oxidgene-desktop
 
+# Build the desktop app in release mode (optimised, stripped, ~10-25 MB)
+build-desktop-release:
+    cargo build --release --package oxidgene-desktop
+
 # Run the CLI tool
 cli *ARGS:
     cargo run --package oxidgene-cli -- {{ARGS}}

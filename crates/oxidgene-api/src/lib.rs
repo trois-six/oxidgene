@@ -5,11 +5,13 @@
 //! - GraphQL schema and resolvers at `/graphql`
 //! - A router builder to wire up all routes
 
+#[cfg(feature = "graphql")]
 pub mod graphql;
 pub mod rest;
 pub mod router;
 pub mod service;
 
+#[cfg(feature = "graphql")]
 pub use graphql::{OxidGeneSchema, build_schema};
 pub use rest::state::AppState;
 pub use router::build_router;

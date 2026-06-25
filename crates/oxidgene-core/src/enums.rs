@@ -90,6 +90,90 @@ impl std::fmt::Display for ChildType {
     }
 }
 
+/// Per-person privacy override (§7 of the person edit modal spec).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Privacy {
+    /// Follows the tree-level privacy settings.
+    #[default]
+    Default,
+    /// Always visible regardless of tree settings.
+    Public,
+    /// Always hidden regardless of tree settings.
+    Private,
+}
+
+impl std::fmt::Display for Privacy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Default => write!(f, "default"),
+            Self::Public => write!(f, "public"),
+            Self::Private => write!(f, "private"),
+        }
+    }
+}
+
+/// Qualifier describing the precision/shape of a date entry (§5 of the
+/// person edit modal spec). `Or` and `Between` use two date values; the
+/// rest use a single one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DateQualifier {
+    #[default]
+    Exact,
+    About,
+    Perhaps,
+    Before,
+    After,
+    Or,
+    Between,
+    FromAge,
+}
+
+impl std::fmt::Display for DateQualifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exact => write!(f, "exact"),
+            Self::About => write!(f, "about"),
+            Self::Perhaps => write!(f, "perhaps"),
+            Self::Before => write!(f, "before"),
+            Self::After => write!(f, "after"),
+            Self::Or => write!(f, "or"),
+            Self::Between => write!(f, "between"),
+            Self::FromAge => write!(f, "from_age"),
+        }
+    }
+}
+
+impl DateQualifier {
+    /// Returns `true` if this qualifier requires two date fields (`Or`, `Between`).
+    pub fn needs_second_date(&self) -> bool {
+        matches!(self, Self::Or | Self::Between)
+    }
+}
+
+/// Calendar system used to record a date (§8 of the person edit modal spec).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Calendar {
+    #[default]
+    Gregorian,
+    Julian,
+    Hebrew,
+    FrenchRepublican,
+}
+
+impl std::fmt::Display for Calendar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Gregorian => write!(f, "gregorian"),
+            Self::Julian => write!(f, "julian"),
+            Self::Hebrew => write!(f, "hebrew"),
+            Self::FrenchRepublican => write!(f, "french_republican"),
+        }
+    }
+}
+
 /// Type of genealogical event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -98,6 +182,10 @@ pub enum EventType {
     Birth,
     Death,
     Baptism,
+    Confirmation,
+    FirstCommunion,
+    BarBatMitzvah,
+    MilitaryService,
     Burial,
     Cremation,
     Graduation,
@@ -119,6 +207,7 @@ pub enum EventType {
     MarriageContract,
     MarriageLicense,
     MarriageSettlement,
+    Adoption,
     // Generic
     Other,
 }
@@ -131,6 +220,10 @@ impl EventType {
             Self::Birth
                 | Self::Death
                 | Self::Baptism
+                | Self::Confirmation
+                | Self::FirstCommunion
+                | Self::BarBatMitzvah
+                | Self::MilitaryService
                 | Self::Burial
                 | Self::Cremation
                 | Self::Graduation
@@ -158,6 +251,7 @@ impl EventType {
                 | Self::MarriageContract
                 | Self::MarriageLicense
                 | Self::MarriageSettlement
+                | Self::Adoption
         )
     }
 }
@@ -168,6 +262,10 @@ impl std::fmt::Display for EventType {
             Self::Birth => write!(f, "birth"),
             Self::Death => write!(f, "death"),
             Self::Baptism => write!(f, "baptism"),
+            Self::Confirmation => write!(f, "confirmation"),
+            Self::FirstCommunion => write!(f, "first_communion"),
+            Self::BarBatMitzvah => write!(f, "bar_bat_mitzvah"),
+            Self::MilitaryService => write!(f, "military_service"),
             Self::Burial => write!(f, "burial"),
             Self::Cremation => write!(f, "cremation"),
             Self::Graduation => write!(f, "graduation"),
@@ -188,6 +286,7 @@ impl std::fmt::Display for EventType {
             Self::MarriageContract => write!(f, "marriage_contract"),
             Self::MarriageLicense => write!(f, "marriage_license"),
             Self::MarriageSettlement => write!(f, "marriage_settlement"),
+            Self::Adoption => write!(f, "adoption"),
             Self::Other => write!(f, "other"),
         }
     }

@@ -21,7 +21,7 @@ use oxidgene_cache::types::CachedPedigree;
 use oxidgene_core::types::{
     Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place,
 };
-use oxidgene_core::{ChildType, EventType, Sex, SpouseRole};
+use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
 
 use crate::i18n::use_i18n;
 
@@ -201,6 +201,11 @@ fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
         EventType::Will => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.will"),
         EventType::Probate => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.probate"),
         EventType::Other => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
+        EventType::Confirmation
+        | EventType::FirstCommunion
+        | EventType::BarBatMitzvah
+        | EventType::MilitaryService
+        | EventType::Adoption => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
     }
 }
 
@@ -323,6 +328,7 @@ impl PedigreeData {
                 id: node.person_id,
                 tree_id,
                 sex: node.sex,
+                privacy: Privacy::default(),
                 created_at: now,
                 updated_at: now,
                 deleted_at: None,
@@ -369,6 +375,11 @@ impl PedigreeData {
                     event_type: EventType::Birth,
                     date_value: Some(year_str.clone()),
                     date_sort,
+                    date_qualifier: DateQualifier::default(),
+                    date_value2: None,
+                    calendar: Calendar::default(),
+                    witnesses: vec![],
+                    cause: None,
                     place_id: None,
                     person_id: Some(node.person_id),
                     family_id: None,
@@ -396,6 +407,11 @@ impl PedigreeData {
                     event_type: EventType::Death,
                     date_value: Some(year_str.clone()),
                     date_sort,
+                    date_qualifier: DateQualifier::default(),
+                    date_value2: None,
+                    calendar: Calendar::default(),
+                    witnesses: vec![],
+                    cause: None,
                     place_id: None,
                     person_id: Some(node.person_id),
                     family_id: None,
@@ -503,6 +519,11 @@ impl PedigreeData {
                     event_type: ce.event_type,
                     date_value: ce.date_value.clone(),
                     date_sort: ce.date_sort,
+                    date_qualifier: DateQualifier::default(),
+                    date_value2: None,
+                    calendar: Calendar::default(),
+                    witnesses: vec![],
+                    cause: None,
                     place_id: ce.place_id,
                     person_id: None,
                     family_id: Some(*family_id),
@@ -531,6 +552,7 @@ impl PedigreeData {
                     id: member.person_id,
                     tree_id,
                     sex: member.sex,
+                    privacy: Privacy::default(),
                     created_at: now,
                     updated_at: now,
                     deleted_at: None,
@@ -564,6 +586,11 @@ impl PedigreeData {
                         event_type: EventType::Birth,
                         date_value: Some(year_str.clone()),
                         date_sort,
+                        date_qualifier: DateQualifier::default(),
+                        date_value2: None,
+                        calendar: Calendar::default(),
+                        witnesses: vec![],
+                        cause: None,
                         place_id: None,
                         person_id: Some(member.person_id),
                         family_id: None,
@@ -584,6 +611,11 @@ impl PedigreeData {
                         event_type: EventType::Death,
                         date_value: Some(year_str.clone()),
                         date_sort,
+                        date_qualifier: DateQualifier::default(),
+                        date_value2: None,
+                        calendar: Calendar::default(),
+                        witnesses: vec![],
+                        cause: None,
                         place_id: None,
                         person_id: Some(member.person_id),
                         family_id: None,
@@ -714,48 +746,6 @@ impl PedigreeData {
         None
     }
 
-    /// Returns the correct symbol for the birth/start date.
-    #[allow(dead_code)]
-    fn birth_symbol(&self, person_id: Uuid) -> &'static str {
-        let Some(events) = self.events_by_person.get(&person_id) else {
-            return "\u{2726}";
-        };
-        if events
-            .iter()
-            .any(|e| e.event_type == EventType::Birth && e.date_value.is_some())
-        {
-            return "\u{2726}"; // ✦
-        }
-        if events
-            .iter()
-            .any(|e| e.event_type == EventType::Baptism && e.date_value.is_some())
-        {
-            return "\u{271F}"; // ✟
-        }
-        "\u{2726}"
-    }
-
-    /// Returns the correct symbol for the death/end date.
-    #[allow(dead_code)]
-    fn death_symbol(&self, person_id: Uuid) -> &'static str {
-        let Some(events) = self.events_by_person.get(&person_id) else {
-            return "\u{271D}";
-        };
-        if events
-            .iter()
-            .any(|e| e.event_type == EventType::Death && e.date_value.is_some())
-        {
-            return "\u{271D}"; // ✝
-        }
-        if events
-            .iter()
-            .any(|e| e.event_type == EventType::Burial && e.date_value.is_some())
-        {
-            return "\u{26B0}"; // ⚰
-        }
-        "\u{271D}"
-    }
-
     fn death_date(&self, person_id: Uuid) -> Option<String> {
         let events = self.events_by_person.get(&person_id)?;
         if let Some(e) = events.iter().find(|e| e.event_type == EventType::Death) {
@@ -773,11 +763,6 @@ impl PedigreeData {
             .iter()
             .find(|e| e.event_type == EventType::Marriage)
             .and_then(|e| e.date_value.as_deref().map(fmt_year))
-    }
-
-    #[allow(dead_code)]
-    fn parent_family_of(&self, person_id: Uuid) -> Option<Uuid> {
-        self.families_as_child.get(&person_id)?.first().copied()
     }
 
     /// Resolve a place_id to its name.
@@ -857,8 +842,6 @@ struct TreeNode {
     after_sibling: bool,
     x: f64,
     y: f64,
-    #[allow(dead_code)]
-    show: bool,
     /// For empty ancestor slots: which child they belong to.
     child_of: Option<Uuid>,
     /// For empty ancestor slots: is this the father slot?
@@ -900,7 +883,6 @@ impl TreeNode {
             after_sibling,
             x: 0.0,
             y: 0.0,
-            show: true,
             child_of: None,
             is_father: false,
         }
@@ -926,7 +908,6 @@ impl TreeNode {
             after_sibling: false,
             x: 0.0,
             y: 0.0,
-            show: true,
             child_of,
             is_father,
         }
@@ -2177,8 +2158,6 @@ struct LayoutNode {
     id: Option<Uuid>,
     x: f64,
     y: f64,
-    #[allow(dead_code)]
-    depth: i32,
     sex: Sex,
     label_surname: String,
     label_given: String,
@@ -2190,7 +2169,6 @@ struct LayoutNode {
     /// For empty ancestor slots: which child they belong to.
     child_of: Option<Uuid>,
     is_father: bool,
-    #[allow(dead_code)]
     is_sibling: bool,
 }
 
@@ -2321,7 +2299,6 @@ fn compute_layout(
                     id: Some(sib_id),
                     x: sib_x,
                     y: sib_y,
-                    depth: 0,
                     sex: pn.sex,
                     label_surname: pn.surname,
                     label_given: pn.given,
@@ -2362,7 +2339,6 @@ fn compute_layout(
                     id: Some(sib_id),
                     x: sib_x,
                     y: sib_y,
-                    depth: 0,
                     sex: pn.sex,
                     label_surname: pn.surname,
                     label_given: pn.given,
@@ -2456,7 +2432,6 @@ fn compute_layout(
         id: arena[ni].id,
         x: arena[ni].x,
         y: arena[ni].y,
-        depth: arena[ni].depth,
         sex: arena[ni].sex,
         label_surname: arena[ni].label_surname.clone(),
         label_given: arena[ni].label_given.clone(),

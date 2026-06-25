@@ -104,6 +104,11 @@ pub async fn update_event(
         body.date_sort,
         body.place_id,
         body.description,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .map_err(ApiError::from)?;

@@ -69,7 +69,7 @@ pub async fn update_person(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdatePersonRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let person = PersonRepo::update(&state.db, person_id, body.sex)
+    let person = PersonRepo::update(&state.db, person_id, body.sex, body.privacy)
         .await
         .map_err(ApiError::from)?;
     let affected = invalidation::affected_persons(&state.db, person_id)

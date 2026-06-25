@@ -14,6 +14,9 @@ pub struct Model {
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub date_value: Option<String>,
+    pub date_sort: Option<Date>,
+    pub place_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,
@@ -27,6 +30,12 @@ pub enum Relation {
         to = "super::tree::Column::Id"
     )]
     Tree,
+    #[sea_orm(
+        belongs_to = "super::place::Entity",
+        from = "Column::PlaceId",
+        to = "super::place::Column::Id"
+    )]
+    Place,
     #[sea_orm(has_many = "super::media_link::Entity")]
     MediaLink,
 }
@@ -34,6 +43,12 @@ pub enum Relation {
 impl Related<super::tree::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Tree.def()
+    }
+}
+
+impl Related<super::place::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Place.def()
     }
 }
 

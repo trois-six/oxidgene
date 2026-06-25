@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::enums::{NameType, Sex};
+use crate::enums::{NameType, Privacy, Sex};
 
 /// A person in a genealogical tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +10,8 @@ pub struct Person {
     pub id: Uuid,
     pub tree_id: Uuid,
     pub sex: Sex,
+    /// Per-person privacy override (§7 of the person edit modal spec).
+    pub privacy: Privacy,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

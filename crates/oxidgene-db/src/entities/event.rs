@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use super::sea_enums::EventType;
+use super::sea_enums::{Calendar, DateQualifier, EventType};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "event")]
@@ -13,6 +13,12 @@ pub struct Model {
     pub event_type: EventType,
     pub date_value: Option<String>,
     pub date_sort: Option<Date>,
+    pub date_qualifier: DateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: Calendar,
+    /// Witness names, newline-separated.
+    pub witnesses: Option<String>,
+    pub cause: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,

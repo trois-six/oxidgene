@@ -2,7 +2,9 @@
 
 use async_graphql::InputObject;
 
-use super::types::{GqlChildType, GqlConfidence, GqlEventType, GqlNameType, GqlSex, GqlSpouseRole};
+use super::types::{
+    GqlChildType, GqlConfidence, GqlEventType, GqlNameType, GqlPrivacy, GqlSex, GqlSpouseRole,
+};
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
 
@@ -33,6 +35,7 @@ pub struct CreatePersonInput {
 #[derive(Debug, InputObject)]
 pub struct UpdatePersonInput {
     pub sex: Option<GqlSex>,
+    pub privacy: Option<GqlPrivacy>,
 }
 
 // ── PersonName Inputs ────────────────────────────────────────────────

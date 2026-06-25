@@ -1,6 +1,6 @@
 //! Request/response DTOs for REST endpoints.
 
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
 
 // ── Pagination query params ──────────────────────────────────────────
@@ -76,6 +76,7 @@ pub struct CreatePersonRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdatePersonRequest {
     pub sex: Option<Sex>,
+    pub privacy: Option<Privacy>,
 }
 
 // ── PersonName DTOs ──────────────────────────────────────────────────
