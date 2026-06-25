@@ -100,14 +100,6 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–E complete. EPIC E (Server-Side Caching) finished — all 5 sprints done. "Performance testing with 100K-person trees" remains deferred.
+EPICs A–E complete. Next: **EPIC F — Security & Deployment**.
 
-Active: `ui-person-edit-modal.md` spec implementation (Phases 1–5 complete):
-- **Phase 1**: Single-scroll body, section dividers (Civil Status, Birth, Death, Privacy, Additional Fields, Other Events, Notes).
-- **Phase 2**: Dead-code removal, cleanup.
-- **Phase 3**: Date qualifiers (qualifier selector + calendar + witnesses) for birth/death; Privacy field; Additional fields (cause of death, occupation, etc.).
-- **Phase 4a**: Delete person — inline destructive confirmation flow at bottom of edit body (`§11`).
-- **Phase 4b**: Create mode — `PersonFormCreateContext` enum drives relationship wiring on save (Standalone, AddParent); `on_empty_slot` + `on_add_person` in `tree_detail.rs` now open PersonForm in create mode.
-- **Phase 5**: Couple edit modal rewrite (`union_form.rs`) — Union block (events with add/delete), Children block (staged detach on Save, per-child inline confirm), Person 1 / Person 2 collapsible blocks (embedded `PersonForm`), Delete couple action. Media dropped from scope per user direction.
-
-Remaining: Phase 6 (keyboard shortcuts §14, responsive §15). Then EPIC F (Security & Deployment). See `docs/specifications/roadmap.md` for details. Update this file each time a new feature is developed.
+See [`docs/specifications/general.md` §8b](docs/specifications/general.md) for the EPIC status table and recently shipped work, and [`docs/specifications/roadmap.md`](docs/specifications/roadmap.md) for full sprint details. Update both files each time a new feature is developed.

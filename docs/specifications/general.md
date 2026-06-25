@@ -260,6 +260,29 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 
 ---
 
+## 8b. Development Status
+
+> For sprint details see [Roadmap](roadmap.md).
+
+| EPIC | Title | Status |
+|------|-------|--------|
+| A | Technical Foundation | ✅ Complete |
+| B | GEDCOM Engine | ✅ Complete |
+| C | Tree Editing (Frontend) | ✅ Complete |
+| D | UX, Languages, Performance | ✅ Complete |
+| E | Server-Side Caching | ✅ Complete |
+| F | Security & Deployment | ⏳ Next |
+| G | Asynchronous Pipeline | ⏳ Post-MVP |
+
+**Recently shipped (Jun 2026):**
+- `ui-person-edit-modal.md` spec fully implemented (Phases 1–6): date qualifiers, create mode, couple modal rewrite with embedded `PersonForm`, staged child detach, keyboard shortcuts, responsive drawer.
+- SQLite migration fix: single-column `ALTER TABLE` per statement.
+- Desktop binary size: 560 MB (debug) → 13.5 MB (release) via LTO, `graphql` + `postgres` feature flags.
+
+**Deferred:** Performance testing with 100K-person trees (EPIC E.5 last item).
+
+---
+
 ## 9. Respect of norms and standards
 
 The project must respect the norms and standards:
