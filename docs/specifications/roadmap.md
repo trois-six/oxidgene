@@ -120,7 +120,7 @@ timestamp: 2026-06-17T00:00:00Z
 
 ---
 
-## EPIC E — Server-Side Caching
+## EPIC E — Server-Side Caching ✅
 
 > See [Caching specification](caching.md) for the full architecture.
 
