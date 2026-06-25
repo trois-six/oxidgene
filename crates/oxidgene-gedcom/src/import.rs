@@ -15,7 +15,9 @@ use oxidgene_core::types::{
     Citation, Event, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person,
     PersonAncestry, PersonName, Place, Source,
 };
-use oxidgene_core::{Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole};
+use oxidgene_core::{
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
+};
 
 use crate::ImportResult;
 

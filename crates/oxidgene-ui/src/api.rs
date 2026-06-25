@@ -10,7 +10,9 @@ use oxidgene_core::types::{
     Citation, Connection, Event, Family, FamilyChild, FamilySpouse, Note, Person, PersonAncestry,
     PersonName, Place, Source, Tree,
 };
-use oxidgene_core::{Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole};
+use oxidgene_core::{
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
