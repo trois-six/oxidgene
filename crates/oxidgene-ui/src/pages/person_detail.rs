@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use oxidgene_core::{Calendar, DateQualifier, EventType};
 use oxidgene_core::types::Event as DomainEvent;
+use oxidgene_core::{Calendar, DateQualifier, EventType};
 use uuid::Uuid;
 
 use crate::api::{
@@ -507,7 +507,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let sex_str = edit_sex_val();
         spawn(async move {
             let sex = parse_sex(&sex_str);
-            let body = UpdatePersonBody { sex: Some(sex), privacy: None };
+            let body = UpdatePersonBody {
+                sex: Some(sex),
+                privacy: None,
+            };
             match api.update_person(tid, pid, &body).await {
                 Ok(_) => {
                     editing_sex.set(false);

@@ -18,8 +18,8 @@ use crate::utils::{
     opt_str, parse_calendar, parse_date_qualifier, parse_event_type, parse_name_type,
     parse_privacy, parse_sex,
 };
-use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, SpouseRole};
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
+use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, SpouseRole};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -147,7 +147,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let api = api_person.clone();
         let _tick = refresh();
         async move {
-            if is_create { return Err(crate::api::ApiError::Api { status: 0, body: String::new() }); }
+            if is_create {
+                return Err(crate::api::ApiError::Api {
+                    status: 0,
+                    body: String::new(),
+                });
+            }
             api.get_person(tid, pid).await
         }
     });
@@ -157,7 +162,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let api = api_names.clone();
         let _tick = refresh();
         async move {
-            if is_create { return Ok(vec![]); }
+            if is_create {
+                return Ok(vec![]);
+            }
             api.list_person_names(tid, pid).await
         }
     });
@@ -167,8 +174,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let api = api_events.clone();
         let _tick = refresh();
         async move {
-            if is_create { return Err(crate::api::ApiError::Api { status: 0, body: String::new() }); }
-            api.list_events(tid, Some(100), None, None, Some(pid), None).await
+            if is_create {
+                return Err(crate::api::ApiError::Api {
+                    status: 0,
+                    body: String::new(),
+                });
+            }
+            api.list_events(tid, Some(100), None, None, Some(pid), None)
+                .await
         }
     });
 
@@ -184,7 +197,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let api = api_notes.clone();
         let _tick = refresh();
         async move {
-            if is_create { return Err(crate::api::ApiError::Api { status: 0, body: String::new() }); }
+            if is_create {
+                return Err(crate::api::ApiError::Api {
+                    status: 0,
+                    body: String::new(),
+                });
+            }
             api.list_notes(tid, Some(pid), None, None, None).await
         }
     });
@@ -194,7 +212,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // Create mode: pre-fill sex from context (once).
     if is_create && !sex_loaded() {
         if let Some(PersonFormCreateContext::AddParent { is_father, .. }) = &props.create_context {
-            sex_val.set(if *is_father { "Male".to_string() } else { "Female".to_string() });
+            sex_val.set(if *is_father {
+                "Male".to_string()
+            } else {
+                "Female".to_string()
+            });
         }
         sex_loaded.set(true);
         privacy_loaded.set(true);
@@ -257,7 +279,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 match primary {
                     Some(n) => {
                         let dn = n.display_name();
-                        if dn.is_empty() { i18n.t("common.unnamed") } else { dn }
+                        if dn.is_empty() {
+                            i18n.t("common.unnamed")
+                        } else {
+                            dn
+                        }
                     }
                     None => i18n.t("common.unnamed"),
                 }
@@ -492,7 +518,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     // ── Create mode ──
 
                     // 1. Create person with sex.
-                    let Ok(new_person) = api.create_person(tid, &CreatePersonBody { sex: parse_sex(&sex_str) }).await else {
+                    let Ok(new_person) = api
+                        .create_person(
+                            tid,
+                            &CreatePersonBody {
+                                sex: parse_sex(&sex_str),
+                            },
+                        )
+                        .await
+                    else {
                         save_error.set(Some(i18n.t("person_form.create_failed")));
                         saving.set(false);
                         return;
@@ -518,7 +552,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     }
 
                     // 3. Birth event.
-                    let b_place_id = if b_place.is_empty() { None } else { b_place.parse::<Uuid>().ok() };
+                    let b_place_id = if b_place.is_empty() {
+                        None
+                    } else {
+                        b_place.parse::<Uuid>().ok()
+                    };
                     if !b_date.is_empty() || b_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Birth,
@@ -542,7 +580,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     }
 
                     // 4. Death event.
-                    let d_place_id = if d_place.is_empty() { None } else { d_place.parse::<Uuid>().ok() };
+                    let d_place_id = if d_place.is_empty() {
+                        None
+                    } else {
+                        d_place.parse::<Uuid>().ok()
+                    };
                     if !d_date.is_empty() || d_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Death,
@@ -567,7 +609,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
                     // 5. Wire relationship.
                     match context {
-                        PersonFormCreateContext::AddParent { child_id, family_id, is_father } => {
+                        PersonFormCreateContext::AddParent {
+                            child_id,
+                            family_id,
+                            is_father,
+                        } => {
                             let fid = if let Some(fid) = family_id {
                                 fid
                             } else {
@@ -584,8 +630,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 let _ = api.add_child(tid, family.id, &child_body).await;
                                 family.id
                             };
-                            let role = if is_father { SpouseRole::Husband } else { SpouseRole::Wife };
-                            let spouse_body = AddSpouseBody { person_id: new_pid, role, sort_order: 0 };
+                            let role = if is_father {
+                                SpouseRole::Husband
+                            } else {
+                                SpouseRole::Wife
+                            };
+                            let spouse_body = AddSpouseBody {
+                                person_id: new_pid,
+                                role,
+                                sort_order: 0,
+                            };
                             if let Err(e) = api.add_spouse(tid, fid, &spouse_body).await {
                                 save_error.set(Some(format!("{e}")));
                                 saving.set(false);
@@ -609,7 +663,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     }
 
                     // 2. Birth event.
-                    let b_place_id = if b_place.is_empty() { None } else { b_place.parse::<Uuid>().ok() };
+                    let b_place_id = if b_place.is_empty() {
+                        None
+                    } else {
+                        b_place.parse::<Uuid>().ok()
+                    };
                     let b_qualifier_enum = parse_date_qualifier(&b_qual);
                     let b_calendar_enum = parse_calendar(&b_cal);
                     if let Some(eid) = birth_eid {
@@ -653,7 +711,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     }
 
                     // 3. Death event.
-                    let d_place_id = if d_place.is_empty() { None } else { d_place.parse::<Uuid>().ok() };
+                    let d_place_id = if d_place.is_empty() {
+                        None
+                    } else {
+                        d_place.parse::<Uuid>().ok()
+                    };
                     let d_qualifier_enum = parse_date_qualifier(&d_qual);
                     let d_calendar_enum = parse_calendar(&d_cal);
                     if let Some(eid) = death_eid {
