@@ -240,7 +240,7 @@ pub fn build_router(state: AppState) -> Router {
         let graphql_routes = Router::new()
             .route("/graphql", post(graphql_handler).get(graphql_playground))
             .with_state(schema);
-        return rest_router.merge(graphql_routes);
+        rest_router.merge(graphql_routes)
     }
 
     #[cfg(not(feature = "graphql"))]

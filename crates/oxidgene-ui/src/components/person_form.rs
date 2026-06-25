@@ -99,7 +99,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut birth_place_id = use_signal(String::new);
     let mut birth_note = use_signal(String::new);
     let mut birth_calendar = use_signal(|| "Gregorian".to_string());
-    let mut birth_witnesses = use_signal(|| Vec::<String>::new());
+    let mut birth_witnesses = use_signal(Vec::<String>::new);
     let mut birth_event_id = use_signal(|| None::<Uuid>);
 
     // ── Death state ──
@@ -109,7 +109,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut death_place_id = use_signal(String::new);
     let mut death_note = use_signal(String::new);
     let mut death_calendar = use_signal(|| "Gregorian".to_string());
-    let mut death_witnesses = use_signal(|| Vec::<String>::new());
+    let mut death_witnesses = use_signal(Vec::<String>::new);
     let mut death_event_id = use_signal(|| None::<Uuid>);
 
     let mut birth_death_loaded = use_signal(|| false);
