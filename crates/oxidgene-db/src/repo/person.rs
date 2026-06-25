@@ -1,7 +1,7 @@
 //! Repository for `Person` entities (CRUD with soft delete, search filter).
 
 use chrono::Utc;
-use oxidgene_core::enums::Sex;
+use oxidgene_core::enums::{Privacy, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Person};
 use sea_orm::entity::prelude::*;
@@ -94,6 +94,7 @@ impl PersonRepo {
             id: Set(id),
             tree_id: Set(tree_id),
             sex: Set(sea_enums::Sex::from(sex)),
+            privacy: Set(sea_enums::Privacy::from(Privacy::default())),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -105,11 +106,12 @@ impl PersonRepo {
         Ok(into_domain(result))
     }
 
-    /// Update a person's sex.
+    /// Update a person's sex and/or privacy.
     pub async fn update(
         db: &DatabaseConnection,
         id: Uuid,
         sex: Option<Sex>,
+        privacy: Option<Privacy>,
     ) -> Result<Person, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
@@ -124,6 +126,9 @@ impl PersonRepo {
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(sex) = sex {
             active.sex = Set(sea_enums::Sex::from(sex));
+        }
+        if let Some(privacy) = privacy {
+            active.privacy = Set(sea_enums::Privacy::from(privacy));
         }
         active.updated_at = Set(Utc::now());
 
@@ -226,6 +231,7 @@ fn into_domain(m: person::Model) -> Person {
         id: m.id,
         tree_id: m.tree_id,
         sex: m.sex.into(),
+        privacy: m.privacy.into(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

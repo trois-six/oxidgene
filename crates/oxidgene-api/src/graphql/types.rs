@@ -45,6 +45,34 @@ impl From<GqlSex> for oxidgene_core::Sex {
     }
 }
 
+/// Per-person privacy override.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlPrivacy {
+    Default,
+    Public,
+    Private,
+}
+
+impl From<oxidgene_core::Privacy> for GqlPrivacy {
+    fn from(p: oxidgene_core::Privacy) -> Self {
+        match p {
+            oxidgene_core::Privacy::Default => Self::Default,
+            oxidgene_core::Privacy::Public => Self::Public,
+            oxidgene_core::Privacy::Private => Self::Private,
+        }
+    }
+}
+
+impl From<GqlPrivacy> for oxidgene_core::Privacy {
+    fn from(p: GqlPrivacy) -> Self {
+        match p {
+            GqlPrivacy::Default => Self::Default,
+            GqlPrivacy::Public => Self::Public,
+            GqlPrivacy::Private => Self::Private,
+        }
+    }
+}
+
 /// Name type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlNameType {
@@ -144,12 +172,90 @@ impl From<GqlChildType> for oxidgene_core::ChildType {
     }
 }
 
+/// Date qualifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlDateQualifier {
+    Exact,
+    About,
+    Perhaps,
+    Before,
+    After,
+    Or,
+    Between,
+    FromAge,
+}
+
+impl From<oxidgene_core::DateQualifier> for GqlDateQualifier {
+    fn from(d: oxidgene_core::DateQualifier) -> Self {
+        match d {
+            oxidgene_core::DateQualifier::Exact => Self::Exact,
+            oxidgene_core::DateQualifier::About => Self::About,
+            oxidgene_core::DateQualifier::Perhaps => Self::Perhaps,
+            oxidgene_core::DateQualifier::Before => Self::Before,
+            oxidgene_core::DateQualifier::After => Self::After,
+            oxidgene_core::DateQualifier::Or => Self::Or,
+            oxidgene_core::DateQualifier::Between => Self::Between,
+            oxidgene_core::DateQualifier::FromAge => Self::FromAge,
+        }
+    }
+}
+
+impl From<GqlDateQualifier> for oxidgene_core::DateQualifier {
+    fn from(d: GqlDateQualifier) -> Self {
+        match d {
+            GqlDateQualifier::Exact => Self::Exact,
+            GqlDateQualifier::About => Self::About,
+            GqlDateQualifier::Perhaps => Self::Perhaps,
+            GqlDateQualifier::Before => Self::Before,
+            GqlDateQualifier::After => Self::After,
+            GqlDateQualifier::Or => Self::Or,
+            GqlDateQualifier::Between => Self::Between,
+            GqlDateQualifier::FromAge => Self::FromAge,
+        }
+    }
+}
+
+/// Calendar system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlCalendar {
+    Gregorian,
+    Julian,
+    Hebrew,
+    FrenchRepublican,
+}
+
+impl From<oxidgene_core::Calendar> for GqlCalendar {
+    fn from(c: oxidgene_core::Calendar) -> Self {
+        match c {
+            oxidgene_core::Calendar::Gregorian => Self::Gregorian,
+            oxidgene_core::Calendar::Julian => Self::Julian,
+            oxidgene_core::Calendar::Hebrew => Self::Hebrew,
+            oxidgene_core::Calendar::FrenchRepublican => Self::FrenchRepublican,
+        }
+    }
+}
+
+impl From<GqlCalendar> for oxidgene_core::Calendar {
+    fn from(c: GqlCalendar) -> Self {
+        match c {
+            GqlCalendar::Gregorian => Self::Gregorian,
+            GqlCalendar::Julian => Self::Julian,
+            GqlCalendar::Hebrew => Self::Hebrew,
+            GqlCalendar::FrenchRepublican => Self::FrenchRepublican,
+        }
+    }
+}
+
 /// Event type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlEventType {
     Birth,
     Death,
     Baptism,
+    Confirmation,
+    FirstCommunion,
+    BarBatMitzvah,
+    MilitaryService,
     Burial,
     Cremation,
     Graduation,
@@ -170,6 +276,7 @@ pub enum GqlEventType {
     MarriageContract,
     MarriageLicense,
     MarriageSettlement,
+    Adoption,
     Other,
 }
 
@@ -179,6 +286,10 @@ impl From<oxidgene_core::EventType> for GqlEventType {
             oxidgene_core::EventType::Birth => Self::Birth,
             oxidgene_core::EventType::Death => Self::Death,
             oxidgene_core::EventType::Baptism => Self::Baptism,
+            oxidgene_core::EventType::Confirmation => Self::Confirmation,
+            oxidgene_core::EventType::FirstCommunion => Self::FirstCommunion,
+            oxidgene_core::EventType::BarBatMitzvah => Self::BarBatMitzvah,
+            oxidgene_core::EventType::MilitaryService => Self::MilitaryService,
             oxidgene_core::EventType::Burial => Self::Burial,
             oxidgene_core::EventType::Cremation => Self::Cremation,
             oxidgene_core::EventType::Graduation => Self::Graduation,
@@ -199,6 +310,7 @@ impl From<oxidgene_core::EventType> for GqlEventType {
             oxidgene_core::EventType::MarriageContract => Self::MarriageContract,
             oxidgene_core::EventType::MarriageLicense => Self::MarriageLicense,
             oxidgene_core::EventType::MarriageSettlement => Self::MarriageSettlement,
+            oxidgene_core::EventType::Adoption => Self::Adoption,
             oxidgene_core::EventType::Other => Self::Other,
         }
     }
@@ -210,6 +322,10 @@ impl From<GqlEventType> for oxidgene_core::EventType {
             GqlEventType::Birth => Self::Birth,
             GqlEventType::Death => Self::Death,
             GqlEventType::Baptism => Self::Baptism,
+            GqlEventType::Confirmation => Self::Confirmation,
+            GqlEventType::FirstCommunion => Self::FirstCommunion,
+            GqlEventType::BarBatMitzvah => Self::BarBatMitzvah,
+            GqlEventType::MilitaryService => Self::MilitaryService,
             GqlEventType::Burial => Self::Burial,
             GqlEventType::Cremation => Self::Cremation,
             GqlEventType::Graduation => Self::Graduation,
@@ -230,6 +346,7 @@ impl From<GqlEventType> for oxidgene_core::EventType {
             GqlEventType::MarriageContract => Self::MarriageContract,
             GqlEventType::MarriageLicense => Self::MarriageLicense,
             GqlEventType::MarriageSettlement => Self::MarriageSettlement,
+            GqlEventType::Adoption => Self::Adoption,
             GqlEventType::Other => Self::Other,
         }
     }
@@ -386,6 +503,7 @@ pub struct GqlPerson {
     pub id: ID,
     pub tree_id: ID,
     pub sex: GqlSex,
+    pub privacy: GqlPrivacy,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -515,6 +633,7 @@ impl From<oxidgene_core::types::Person> for GqlPerson {
             id: ID(p.id.to_string()),
             tree_id: ID(p.tree_id.to_string()),
             sex: p.sex.into(),
+            privacy: p.privacy.into(),
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -753,6 +872,11 @@ pub struct GqlEvent {
     pub event_type: GqlEventType,
     pub date_value: Option<String>,
     pub date_sort: Option<String>,
+    pub date_qualifier: GqlDateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: GqlCalendar,
+    pub witnesses: Vec<String>,
+    pub cause: Option<String>,
     pub place_id: Option<ID>,
     pub person_id: Option<ID>,
     pub family_id: Option<ID>,
@@ -862,6 +986,11 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             event_type: e.event_type.into(),
             date_value: e.date_value,
             date_sort: e.date_sort.map(|d| d.to_string()),
+            date_qualifier: e.date_qualifier.into(),
+            date_value2: e.date_value2,
+            calendar: e.calendar.into(),
+            witnesses: e.witnesses,
+            cause: e.cause,
             place_id: e.place_id.map(|id| ID(id.to_string())),
             person_id: e.person_id.map(|id| ID(id.to_string())),
             family_id: e.family_id.map(|id| ID(id.to_string())),
@@ -1096,6 +1225,9 @@ pub struct GqlMedia {
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub date_value: Option<String>,
+    pub date_sort: Option<String>,
+    pub place_id: Option<ID>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1111,6 +1243,9 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             file_size: m.file_size,
             title: m.title,
             description: m.description,
+            date_value: m.date_value,
+            date_sort: m.date_sort.map(|d| d.to_string()),
+            place_id: m.place_id.map(|id| ID(id.to_string())),
             created_at: m.created_at,
             updated_at: m.updated_at,
         }
@@ -1164,6 +1299,7 @@ pub struct GqlMediaLink {
     pub source_id: Option<ID>,
     pub family_id: Option<ID>,
     pub sort_order: i32,
+    pub is_profile: bool,
 }
 
 impl From<oxidgene_core::types::MediaLink> for GqlMediaLink {
@@ -1176,6 +1312,7 @@ impl From<oxidgene_core::types::MediaLink> for GqlMediaLink {
             source_id: l.source_id.map(|id| ID(id.to_string())),
             family_id: l.family_id.map(|id| ID(id.to_string())),
             sort_order: l.sort_order,
+            is_profile: l.is_profile,
         }
     }
 }

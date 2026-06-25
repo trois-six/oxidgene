@@ -139,6 +139,9 @@ pub async fn import_and_persist(
                 file_size: Set(m.file_size),
                 title: Set(m.title.clone()),
                 description: Set(m.description.clone()),
+                date_value: Set(m.date_value.clone()),
+                date_sort: Set(m.date_sort),
+                place_id: Set(m.place_id),
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
@@ -156,6 +159,7 @@ pub async fn import_and_persist(
                 id: Set(p.id),
                 tree_id: Set(p.tree_id),
                 sex: Set(sea_enums::Sex::from(p.sex)),
+                privacy: Set(sea_enums::Privacy::from(p.privacy)),
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
@@ -245,6 +249,15 @@ pub async fn import_and_persist(
                 event_type: Set(sea_enums::EventType::from(e.event_type)),
                 date_value: Set(e.date_value.clone()),
                 date_sort: Set(e.date_sort),
+                date_qualifier: Set(sea_enums::DateQualifier::from(e.date_qualifier)),
+                date_value2: Set(e.date_value2.clone()),
+                calendar: Set(sea_enums::Calendar::from(e.calendar)),
+                witnesses: Set(if e.witnesses.is_empty() {
+                    None
+                } else {
+                    Some(e.witnesses.join("\n"))
+                }),
+                cause: Set(e.cause.clone()),
                 place_id: Set(e.place_id),
                 person_id: Set(e.person_id),
                 family_id: Set(e.family_id),
@@ -291,6 +304,7 @@ pub async fn import_and_persist(
                 source_id: Set(ml.source_id),
                 family_id: Set(ml.family_id),
                 sort_order: Set(ml.sort_order),
+                is_profile: Set(ml.is_profile),
             })
             .collect();
         batch_insert::<media_link::Entity, _>(&txn, models).await?;

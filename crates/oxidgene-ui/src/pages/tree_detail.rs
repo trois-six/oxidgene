@@ -13,7 +13,7 @@ use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
-use crate::components::person_form::PersonForm;
+use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::search_person::SearchPerson;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache, use_view_state_cache};
 use crate::components::union_form::UnionForm;
@@ -174,6 +174,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // ── Person edit modal ──
     let mut editing_person_id = use_signal(|| None::<Uuid>);
+    let mut creating_person_ctx = use_signal(|| None::<PersonFormCreateContext>);
 
     // ── Union edit modal ──
     let mut editing_union_id = use_signal(|| None::<Uuid>);
@@ -442,60 +443,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         });
     };
 
-    // Empty slot handler — add a parent for a child.
-    let api_empty = api.clone();
     let pedigree_data_empty = pedigree_data.clone();
-    let on_empty_slot = move |(child_id, is_father): (Uuid, bool)| {
-        let api = api_empty.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-
-        let family_id = pedigree_data_empty
-            .as_ref()
-            .and_then(|data| data.families_as_child.get(&child_id))
-            .and_then(|fids| fids.first().copied());
-
-        spawn(async move {
-            let sex = if is_father {
-                oxidgene_core::Sex::Male
-            } else {
-                oxidgene_core::Sex::Female
-            };
-            let Ok(new_person) = api
-                .create_person(tid, &crate::api::CreatePersonBody { sex })
-                .await
-            else {
-                return;
-            };
-
-            let fid = if let Some(fid) = family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let child_body = crate::api::AddChildBody {
-                    person_id: child_id,
-                    child_type: oxidgene_core::ChildType::Biological,
-                    sort_order: 0,
-                };
-                let _ = api.add_child(tid, family.id, &child_body).await;
-                family.id
-            };
-
-            let role = if is_father {
-                oxidgene_core::SpouseRole::Husband
-            } else {
-                oxidgene_core::SpouseRole::Wife
-            };
-            let spouse_body = crate::api::AddSpouseBody {
-                person_id: new_person.id,
-                role,
-                sort_order: 0,
-            };
-            let _ = api.add_spouse(tid, fid, &spouse_body).await;
-            tree_cache.invalidate();
-        });
-    };
 
     // ── Linking mode handlers ──
 
@@ -943,8 +891,20 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             if let Some(tid) = tree_id_parsed() {
                 PersonForm {
                     tree_id: tid,
-                    person_id: edit_pid,
+                    person_id: Some(edit_pid),
                     on_close: move |_| editing_person_id.set(None),
+                    on_saved: move |_| tree_cache.invalidate(),
+                }
+            }
+        }
+
+        // Person create modal
+        if let Some(ctx) = creating_person_ctx() {
+            if let Some(tid) = tree_id_parsed() {
+                PersonForm {
+                    tree_id: tid,
+                    create_context: ctx,
+                    on_close: move |_| creating_person_ctx.set(None),
                     on_saved: move |_| tree_cache.invalidate(),
                 }
             }
@@ -993,18 +953,18 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         selected_root.set(Some(pid));
                     },
                     on_empty_slot: move |(child_id, is_father)| {
-                        on_empty_slot((child_id, is_father));
+                        let family_id = pedigree_data_empty
+                            .as_ref()
+                            .and_then(|data| data.families_as_child.get(&child_id))
+                            .and_then(|fids| fids.first().copied());
+                        creating_person_ctx.set(Some(PersonFormCreateContext::AddParent {
+                            child_id,
+                            family_id,
+                            is_father,
+                        }));
                     },
                     on_add_person: move |_| {
-                        // Create a new person and open edit form
-                        let api = api.clone();
-                        let Some(tid) = tree_id_parsed() else { return };
-                        spawn(async move {
-                            if let Ok(new_person) = api.create_person(tid, &crate::api::CreatePersonBody { sex: oxidgene_core::Sex::Unknown }).await {
-                                editing_person_id.set(Some(new_person.id));
-                                tree_cache.invalidate();
-                            }
-                        });
+                        creating_person_ctx.set(Some(PersonFormCreateContext::Standalone));
                     },
                     on_profile_view: {
                         let tree_id = tree_id.clone();

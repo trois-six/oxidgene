@@ -3,6 +3,7 @@
 pub mod m20250101_000001_initial;
 pub mod m20250307_000001_add_search_indexes;
 pub mod m20250307_000002_add_sosa_root_person;
+pub mod m20260622_000001_person_edit_modal_fields;
 
 use sea_orm_migration::prelude::*;
 
@@ -15,6 +16,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250101_000001_initial::Migration),
             Box::new(m20250307_000001_add_search_indexes::Migration),
             Box::new(m20250307_000002_add_sosa_root_person::Migration),
+            Box::new(m20260622_000001_person_edit_modal_fields::Migration),
         ]
     }
 }

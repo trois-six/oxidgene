@@ -146,7 +146,7 @@ async fn person_crud() {
     assert_eq!(fetched.sex, Sex::Female);
 
     // Update sex
-    let updated = PersonRepo::update(&db, id, Some(Sex::Male)).await.unwrap();
+    let updated = PersonRepo::update(&db, id, Some(Sex::Male), None).await.unwrap();
     assert_eq!(updated.sex, Sex::Male);
 
     // Soft-delete
@@ -381,6 +381,11 @@ async fn event_crud_and_filters() {
         None,
         None,
         Some(Some("Updated description".into())),
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();

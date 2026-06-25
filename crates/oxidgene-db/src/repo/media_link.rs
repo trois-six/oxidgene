@@ -140,6 +140,7 @@ impl MediaLinkRepo {
             source_id: Set(source_id),
             family_id: Set(family_id),
             sort_order: Set(sort_order),
+            is_profile: Set(false),
         };
         let result = model
             .insert(db)
@@ -173,5 +174,6 @@ fn into_domain(m: media_link::Model) -> MediaLink {
         source_id: m.source_id,
         family_id: m.family_id,
         sort_order: m.sort_order,
+        is_profile: m.is_profile,
     }
 }

@@ -1,19 +1,22 @@
-//! Modal-based union/family edit form.
+//! Modal-based couple/family edit form (spec §16).
 //!
-//! Allows editing a family's marriage event (date, place, description),
-//! managing spouse roles, viewing and removing children, and adding
-//! new children via search or creation.
+//! Body is divided into: Union (events, date/place/note shorthand),
+//! Children (with staged detach, applied on Save), Person 1 / Person 2
+//! (collapsible, embedding the full person edit fields). Footer holds
+//! Delete couple (removes the union only — persons remain in the tree)
+//! plus Cancel / Save.
+
+use std::collections::HashSet;
 
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{
-    AddChildBody, AddSpouseBody, ApiClient, CreateEventBody, CreatePersonBody, UpdateEventBody,
-};
+use crate::api::{AddChildBody, ApiClient, CreateEventBody, UpdateEventBody};
+use crate::components::person_form::PersonForm;
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
 use crate::utils::{opt_str, resolve_name};
-use oxidgene_core::{ChildType, EventType, Sex, SpouseRole};
+use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -31,7 +34,7 @@ pub struct UnionFormProps {
 
 // ── Component ────────────────────────────────────────────────────────────
 
-/// Modal union/family edit form.
+/// Modal couple/family edit form.
 #[component]
 pub fn UnionForm(props: UnionFormProps) -> Element {
     let i18n = use_i18n();
@@ -60,7 +63,20 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
     // Add child linking mode.
     let mut show_add_child = use_signal(|| false);
-    let mut show_add_spouse = use_signal(|| false);
+
+    // Person block expand/collapse (collapsed by default).
+    let mut show_person1 = use_signal(|| false);
+    let mut show_person2 = use_signal(|| false);
+
+    // Staged child detach (applied on Save).
+    let mut pending_detach = use_signal(HashSet::<Uuid>::new);
+    let mut confirm_detach_id = use_signal(|| None::<Uuid>);
+
+    // Delete couple state.
+    let mut show_delete_confirm = use_signal(|| false);
+    let mut delete_error = use_signal(|| None::<String>);
+    let mut deleting = use_signal(|| false);
+    let mut saving = use_signal(|| false);
 
     // ── Resources ──
 
@@ -169,6 +185,13 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             | EventType::MarriageContract
                             | EventType::MarriageLicense
                             | EventType::MarriageSettlement
+                            | EventType::Residence
+                            | EventType::Census
+                            | EventType::Emigration
+                            | EventType::Immigration
+                            | EventType::Will
+                            | EventType::Probate
+                            | EventType::Other
                     )
                 })
                 .map(|e| e.node.clone())
@@ -202,6 +225,31 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
         }
     };
 
+    // Spouses sorted by sort_order — drives the header title and Person 1/2 blocks.
+    let spouses_sorted: Vec<oxidgene_core::types::FamilySpouse> = {
+        let data = spouses_resource.read();
+        match &*data {
+            Some(Ok(spouses)) => {
+                let mut v = spouses.clone();
+                v.sort_by_key(|s| s.sort_order);
+                v
+            }
+            _ => vec![],
+        }
+    };
+    let spouse1 = spouses_sorted.first().cloned();
+    let spouse2 = spouses_sorted.get(1).cloned();
+
+    let couple_title: String = match (&spouse1, &spouse2) {
+        (Some(s1), Some(s2)) => format!(
+            "{} & {}",
+            resolve_name(s1.person_id, &name_map_for_display),
+            resolve_name(s2.person_id, &name_map_for_display)
+        ),
+        (Some(s1), None) => resolve_name(s1.person_id, &name_map_for_display),
+        _ => i18n.t("union_form.title"),
+    };
+
     // ── Handlers ──
 
     // Save marriage event.
@@ -224,6 +272,11 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     event_type: Some(EventType::Marriage),
                     date_value: Some(opt_str(&date)),
                     date_sort: None,
+                    date_qualifier: None,
+                    date_value2: None,
+                    calendar: None,
+                    witnesses: None,
+                    cause: None,
                     place_id: Some(place_id),
                     description: Some(opt_str(&desc)),
                 };
@@ -240,6 +293,11 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     event_type: EventType::Marriage,
                     date_value: opt_str(&date),
                     date_sort: None,
+                    date_qualifier: DateQualifier::default(),
+                    date_value2: None,
+                    calendar: Calendar::default(),
+                    witnesses: vec![],
+                    cause: None,
                     place_id,
                     person_id: None,
                     family_id: Some(fid),
@@ -278,6 +336,11 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 event_type,
                 date_value: opt_str(&date),
                 date_sort: None,
+                date_qualifier: DateQualifier::default(),
+                date_value2: None,
+                calendar: Calendar::default(),
+                witnesses: vec![],
+                cause: None,
                 place_id,
                 person_id: None,
                 family_id: Some(fid),
@@ -302,14 +365,6 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let api_del_union = api.clone();
     let on_saved_del_union = props.on_saved;
 
-    // Remove spouse handler — cloned per iteration in rsx.
-    let api_rm_spouse = api.clone();
-    let on_saved_rm_spouse = props.on_saved;
-
-    // Remove child handler — cloned per iteration in rsx.
-    let api_rm_child = api.clone();
-    let on_saved_rm_child = props.on_saved;
-
     // Add child by linking existing person.
     let api_add_child_link = api.clone();
     let on_saved_add_child = props.on_saved;
@@ -333,79 +388,51 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
         });
     };
 
-    // Add child by creating new person.
-    let api_add_child_new = api.clone();
-    let on_saved_add_child_new = props.on_saved;
-    let on_create_new_child = move |_| {
-        let api = api_add_child_new.clone();
+    // Apply staged child detachments, then close.
+    let api_save_footer = api.clone();
+    let on_saved_footer = props.on_saved;
+    let on_close_footer = props.on_close;
+    let on_footer_save = move |_| {
+        let api = api_save_footer.clone();
+        let to_detach: Vec<Uuid> = pending_detach().into_iter().collect();
         spawn(async move {
-            match api
-                .create_person(tid, &CreatePersonBody { sex: Sex::Unknown })
-                .await
-            {
-                Ok(new_person) => {
-                    let body = AddChildBody {
-                        person_id: new_person.id,
-                        child_type: ChildType::Biological,
-                        sort_order: 0,
-                    };
-                    let _ = api.add_child(tid, fid, &body).await;
-                    show_add_child.set(false);
-                    save_error.set(None);
-                    on_saved_add_child_new.call(());
-                    refresh += 1;
-                }
-                Err(e) => save_error.set(Some(format!("{e}"))),
+            if to_detach.is_empty() {
+                on_saved_footer.call(());
+                on_close_footer.call(());
+                return;
             }
+            saving.set(true);
+            for cid in to_detach {
+                if let Err(e) = api.remove_child(tid, fid, cid).await {
+                    save_error.set(Some(format!("{e}")));
+                    saving.set(false);
+                    return;
+                }
+            }
+            saving.set(false);
+            on_saved_footer.call(());
+            on_close_footer.call(());
         });
     };
 
-    // Add spouse by linking existing person.
-    let api_add_spouse_link = api.clone();
-    let on_saved_add_spouse = props.on_saved;
-    let on_select_spouse = move |person_id: Uuid| {
-        let api = api_add_spouse_link.clone();
+    // Delete couple (removes the union only — persons remain in the tree).
+    let api_delete_couple = api.clone();
+    let on_saved_delete_couple = props.on_saved;
+    let on_close_delete_couple = props.on_close;
+    let on_confirm_delete_couple = move |_| {
+        let api = api_delete_couple.clone();
         spawn(async move {
-            let body = AddSpouseBody {
-                person_id,
-                role: SpouseRole::Partner,
-                sort_order: 0,
-            };
-            match api.add_spouse(tid, fid, &body).await {
+            deleting.set(true);
+            delete_error.set(None);
+            match api.delete_family(tid, fid).await {
                 Ok(_) => {
-                    show_add_spouse.set(false);
-                    save_error.set(None);
-                    on_saved_add_spouse.call(());
-                    refresh += 1;
+                    on_saved_delete_couple.call(());
+                    on_close_delete_couple.call(());
                 }
-                Err(e) => save_error.set(Some(format!("{e}"))),
-            }
-        });
-    };
-
-    // Add spouse by creating new person.
-    let api_add_spouse_new = api.clone();
-    let on_saved_add_spouse_new = props.on_saved;
-    let on_create_new_spouse = move |_| {
-        let api = api_add_spouse_new.clone();
-        spawn(async move {
-            match api
-                .create_person(tid, &CreatePersonBody { sex: Sex::Unknown })
-                .await
-            {
-                Ok(new_person) => {
-                    let body = AddSpouseBody {
-                        person_id: new_person.id,
-                        role: SpouseRole::Partner,
-                        sort_order: 0,
-                    };
-                    let _ = api.add_spouse(tid, fid, &body).await;
-                    show_add_spouse.set(false);
-                    save_error.set(None);
-                    on_saved_add_spouse_new.call(());
-                    refresh += 1;
+                Err(e) => {
+                    delete_error.set(Some(format!("{e}")));
+                    deleting.set(false);
                 }
-                Err(e) => save_error.set(Some(format!("{e}"))),
             }
         });
     };
@@ -416,12 +443,34 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
         div { class: "modal-backdrop union-form-backdrop",
             onclick: move |_| props.on_close.call(()),
 
-            div { class: "union-form-modal",
+            div {
+                class: "union-form-modal",
                 onclick: move |evt| evt.stop_propagation(),
+                onkeydown: move |e: Event<KeyboardData>| {
+                    match e.key() {
+                        Key::Escape => props.on_close.call(()),
+                        Key::Enter => {
+                            document::eval(
+                                "var a=document.activeElement;\
+                                if(a&&a.tagName==='INPUT'&&a.type!=='button'&&a.type!=='submit'){\
+                                    var m=a.closest('.union-form-modal');\
+                                    if(!m)return;\
+                                    var fs=[...m.querySelectorAll('input:not([type=button]):not([type=submit]),select,textarea')];\
+                                    var i=fs.indexOf(a);\
+                                    if(i>=0&&i<fs.length-1)fs[i+1].focus();\
+                                }"
+                            );
+                        }
+                        _ => {}
+                    }
+                },
 
                 // Header
                 div { class: "union-form-header",
-                    h2 { {i18n.t("union_form.title")} }
+                    div {
+                        h2 { "{couple_title}" }
+                        span { class: "pf-subtitle", {i18n.t("union_form.subtitle_edit")} }
+                    }
                     button {
                         class: "person-form-close",
                         onclick: move |_| props.on_close.call(()),
@@ -434,93 +483,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 }
 
                 div { class: "union-form-body",
-                    // ── Spouses section ──
-                    div { class: "union-form-section",
-                        div { class: "section-header",
-                            h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.spouses")} }
-                            button {
-                                class: "btn btn-primary btn-sm",
-                                onclick: move |_| {
-                                    show_add_spouse.toggle();
-                                    show_add_child.set(false);
-                                },
-                                if show_add_spouse() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_spouse")} }
-                            }
-                        }
-
-                        if show_add_spouse() {
-                            div { class: "linking-panel",
-                                p { class: "linking-panel-title", {i18n.t("union_form.link_or_create")} }
-                                SearchPerson {
-                                    tree_id: tid,
-                                    placeholder: i18n.t("union_form.search_spouse"),
-                                    on_select: on_select_spouse,
-                                    on_cancel: move |_| show_add_spouse.set(false),
-                                }
-                                div { class: "linking-panel-or", "— or —" }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: on_create_new_spouse,
-                                    {i18n.t("union_form.create_person")}
-                                }
-                            }
-                        }
-
-                        match &*spouses_resource.read() {
-                            Some(Ok(spouses)) => rsx! {
-                                if spouses.is_empty() {
-                                    div { class: "empty-state",
-                                        p { {i18n.t("union_form.no_spouses")} }
-                                    }
-                                } else {
-                                    for spouse in spouses.iter() {
-                                        {
-                                            let sid = spouse.person_id;
-                                            let role = format!("{:?}", spouse.role);
-                                            let name = resolve_name(sid, &name_map_for_display);
-                                            rsx! {
-                                                div { class: "person-form-item",
-                                                    div { class: "person-form-item-info",
-                                                        span { class: "badge", "{role}" }
-                                                        strong { "{name}" }
-                                                    }
-                                                    div { class: "person-form-item-actions",
-                                                        button {
-                                                            class: "btn btn-danger btn-sm",
-                                                            onclick: {
-                                                                let api = api_rm_spouse.clone();
-                                                                move |_| {
-                                                                    let api = api.clone();
-                                                                    spawn(async move {
-                                                                        match api.remove_spouse(tid, fid, sid).await {
-                                                                            Ok(_) => {
-                                                                                on_saved_rm_spouse.call(());
-                                                                                refresh += 1;
-                                                                            }
-                                                                            Err(e) => save_error.set(Some(format!("{e}"))),
-                                                                        }
-                                                                    });
-                                                                }
-                                                            },
-                                                            {i18n.t("common.remove")}
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            Some(Err(e)) => rsx! {
-                                div { class: "error-msg", {i18n.t_args("union_form.load_spouses_error", &[("error", &e.to_string())])} }
-                            },
-                            None => rsx! {
-                                div { class: "loading", {i18n.t("union_form.loading_spouses")} }
-                            },
-                        }
-                    }
-
-                    // ── Union events section ──
+                    // ── Union block ──
                     div { class: "union-form-section",
                         div { class: "section-header",
                             h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.events")} }
@@ -538,7 +501,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             }
                         }
 
-                        // Show the primary marriage event form if it exists (backward compat)
+                        // Primary union date/place/note shorthand (mapped to the marriage event).
                         if marriage_event_id().is_some() || union_events.is_empty() {
                             div { style: "margin-bottom: 12px; padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border);",
                                 div { class: "form-group",
@@ -629,14 +592,25 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                         select {
                                             value: "{new_union_type}",
                                             oninput: move |e: Event<FormData>| new_union_type.set(e.value()),
-                                            option { value: "Marriage", {i18n.t("event.type.marriage")} }
-                                            option { value: "Divorce", {i18n.t("event.type.divorce")} }
-                                            option { value: "Annulment", {i18n.t("event.type.annulment")} }
-                                            option { value: "Engagement", {i18n.t("event.type.engagement")} }
-                                            option { value: "MarriageBann", {i18n.t("event.type.marriage_bann")} }
-                                            option { value: "MarriageContract", {i18n.t("event.type.marriage_contract")} }
-                                            option { value: "MarriageLicense", {i18n.t("event.type.marriage_license")} }
-                                            option { value: "MarriageSettlement", {i18n.t("event.type.marriage_settlement")} }
+                                            optgroup { label: "{i18n.t(\"union_form.core_events\")}",
+                                                option { value: "Marriage", {i18n.t("event.type.marriage")} }
+                                                option { value: "Divorce", {i18n.t("event.type.divorce")} }
+                                                option { value: "Annulment", {i18n.t("event.type.annulment")} }
+                                                option { value: "Engagement", {i18n.t("event.type.engagement")} }
+                                                option { value: "MarriageBann", {i18n.t("event.type.marriage_bann")} }
+                                                option { value: "MarriageContract", {i18n.t("event.type.marriage_contract")} }
+                                                option { value: "MarriageLicense", {i18n.t("event.type.marriage_license")} }
+                                                option { value: "MarriageSettlement", {i18n.t("event.type.marriage_settlement")} }
+                                            }
+                                            optgroup { label: "{i18n.t(\"union_form.optional_events\")}",
+                                                option { value: "Residence", {i18n.t("event.type.residence")} }
+                                                option { value: "Census", {i18n.t("event.type.census")} }
+                                                option { value: "Emigration", {i18n.t("event.type.emigration")} }
+                                                option { value: "Immigration", {i18n.t("event.type.immigration")} }
+                                                option { value: "Will", {i18n.t("event.type.will")} }
+                                                option { value: "Probate", {i18n.t("event.type.probate")} }
+                                                option { value: "Other", {i18n.t("event.type.other")} }
+                                            }
                                         }
                                     }
                                     div { class: "form-group",
@@ -679,16 +653,13 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         }
                     }
 
-                    // ── Children section ──
+                    // ── Children block ──
                     div { class: "union-form-section",
                         div { class: "section-header",
                             h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.children")} }
                             button {
                                 class: "btn btn-primary btn-sm",
-                                onclick: move |_| {
-                                    show_add_child.toggle();
-                                    show_add_spouse.set(false);
-                                },
+                                onclick: move |_| show_add_child.toggle(),
                                 if show_add_child() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_child")} }
                             }
                         }
@@ -701,12 +672,6 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     placeholder: i18n.t("union_form.search_child"),
                                     on_select: on_select_child,
                                     on_cancel: move |_| show_add_child.set(false),
-                                }
-                                div { class: "linking-panel-or", "— or —" }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: on_create_new_child,
-                                    {i18n.t("union_form.create_person")}
                                 }
                             }
                         }
@@ -723,31 +688,58 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                             let cid = child.person_id;
                                             let ct = format!("{:?}", child.child_type);
                                             let name = resolve_name(cid, &name_map_for_display);
+                                            let is_pending = pending_detach().contains(&cid);
+                                            let is_confirming = confirm_detach_id() == Some(cid);
                                             rsx! {
-                                                div { class: "person-form-item",
-                                                    div { class: "person-form-item-info",
-                                                        span { class: "badge", "{ct}" }
-                                                        strong { "{name}" }
+                                                if is_confirming {
+                                                    div { class: "uf-child-detach-confirm",
+                                                        p { {i18n.t_args("union_form.detach_confirm_title", &[("name", &name)])} }
+                                                        p { {i18n.t_args("union_form.detach_confirm_message", &[("name", &name)])} }
+                                                        div { class: "pf-delete-confirm-actions",
+                                                            button {
+                                                                class: "btn btn-outline btn-sm",
+                                                                r#type: "button",
+                                                                onclick: move |_| confirm_detach_id.set(None),
+                                                                {i18n.t("common.cancel")}
+                                                            }
+                                                            button {
+                                                                class: "btn btn-danger btn-sm",
+                                                                r#type: "button",
+                                                                onclick: move |_| {
+                                                                    let mut set = pending_detach();
+                                                                    set.insert(cid);
+                                                                    pending_detach.set(set);
+                                                                    confirm_detach_id.set(None);
+                                                                },
+                                                                {i18n.t("union_form.detach_confirm_button")}
+                                                            }
+                                                        }
                                                     }
-                                                    div { class: "person-form-item-actions",
-                                                        button {
-                                                            class: "btn btn-danger btn-sm",
-                                                            onclick: {
-                                                                let api = api_rm_child.clone();
-                                                                move |_| {
-                                                                    let api = api.clone();
-                                                                    spawn(async move {
-                                                                        match api.remove_child(tid, fid, cid).await {
-                                                                            Ok(_) => {
-                                                                                on_saved_rm_child.call(());
-                                                                                refresh += 1;
-                                                                            }
-                                                                            Err(e) => save_error.set(Some(format!("{e}"))),
-                                                                        }
-                                                                    });
-                                                                }
-                                                            },
-                                                            {i18n.t("common.remove")}
+                                                } else {
+                                                    div { class: if is_pending { "uf-child-row pending-detach" } else { "uf-child-row" },
+                                                        div { class: "uf-child-avatar", "\u{1F464}" }
+                                                        div { class: "uf-child-info",
+                                                            span { class: "badge", "{ct}" }
+                                                            strong { "{name}" }
+                                                        }
+                                                        if is_pending {
+                                                            button {
+                                                                class: "btn btn-outline btn-sm",
+                                                                r#type: "button",
+                                                                onclick: move |_| {
+                                                                    let mut set = pending_detach();
+                                                                    set.remove(&cid);
+                                                                    pending_detach.set(set);
+                                                                },
+                                                                {i18n.t("union_form.undo_detach")}
+                                                            }
+                                                        } else {
+                                                            button {
+                                                                class: "btn btn-danger btn-sm",
+                                                                r#type: "button",
+                                                                onclick: move |_| confirm_detach_id.set(Some(cid)),
+                                                                {i18n.t("union_form.detach_button")}
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -762,6 +754,116 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             None => rsx! {
                                 div { class: "loading", {i18n.t("union_form.loading_children")} }
                             },
+                        }
+                    }
+
+                    // ── Person 1 block ──
+                    if let Some(s1) = &spouse1 {
+                        {
+                            let pid1 = s1.person_id;
+                            let name1 = resolve_name(pid1, &name_map_for_display);
+                            rsx! {
+                                div { class: "uf-person-block",
+                                    button {
+                                        class: "uf-section-toggle",
+                                        r#type: "button",
+                                        onclick: move |_| show_person1.toggle(),
+                                        div { class: "pf-section-title", {i18n.t_args("union_form.person1", &[("name", &name1)])} }
+                                        span { class: if show_person1() { "uf-chevron open" } else { "uf-chevron" }, "\u{276F}" }
+                                    }
+                                    if show_person1() {
+                                        PersonForm {
+                                            tree_id: tid,
+                                            person_id: Some(pid1),
+                                            embedded: true,
+                                            on_close: move |_| {},
+                                            on_saved: move |_| refresh += 1,
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Person 2 block ──
+                    if let Some(s2) = &spouse2 {
+                        {
+                            let pid2 = s2.person_id;
+                            let name2 = resolve_name(pid2, &name_map_for_display);
+                            rsx! {
+                                div { class: "uf-person-block",
+                                    button {
+                                        class: "uf-section-toggle",
+                                        r#type: "button",
+                                        onclick: move |_| show_person2.toggle(),
+                                        div { class: "pf-section-title", {i18n.t_args("union_form.person2", &[("name", &name2)])} }
+                                        span { class: if show_person2() { "uf-chevron open" } else { "uf-chevron" }, "\u{276F}" }
+                                    }
+                                    if show_person2() {
+                                        PersonForm {
+                                            tree_id: tid,
+                                            person_id: Some(pid2),
+                                            embedded: true,
+                                            on_close: move |_| {},
+                                            on_saved: move |_| refresh += 1,
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Delete couple ──
+                    div { class: "pf-delete-section",
+                        if show_delete_confirm() {
+                            div { class: "pf-delete-confirm",
+                                p { class: "pf-delete-confirm-name", {i18n.t("union_form.delete_confirm_title")} }
+                                p { class: "pf-delete-confirm-message", {i18n.t("union_form.delete_confirm_message")} }
+                                if let Some(err) = delete_error() { div { class: "error-msg", "{err}" } }
+                                div { class: "pf-delete-confirm-actions",
+                                    button {
+                                        class: "btn btn-outline btn-sm",
+                                        r#type: "button",
+                                        disabled: deleting(),
+                                        onclick: move |_| { show_delete_confirm.set(false); delete_error.set(None); },
+                                        {i18n.t("common.cancel")}
+                                    }
+                                    button {
+                                        class: "btn btn-danger btn-sm",
+                                        r#type: "button",
+                                        disabled: deleting(),
+                                        onclick: on_confirm_delete_couple,
+                                        if deleting() { {i18n.t("union_form.deleting")} } else { {i18n.t("union_form.delete_confirm_button")} }
+                                    }
+                                }
+                            }
+                        } else {
+                            hr { class: "pf-delete-divider" }
+                            button {
+                                class: "pf-delete-person-btn",
+                                r#type: "button",
+                                onclick: move |_| show_delete_confirm.set(true),
+                                {i18n.t("union_form.delete_couple")}
+                            }
+                        }
+                    }
+                }
+
+                // ── Fixed footer ──
+                div { class: "uf-footer",
+                    div { class: "uf-footer-right",
+                        button {
+                            class: "btn btn-outline",
+                            r#type: "button",
+                            onclick: move |_| props.on_close.call(()),
+                            {i18n.t("common.cancel")}
+                        }
+                        button {
+                            class: "btn btn-primary",
+                            r#type: "button",
+                            disabled: saving(),
+                            onclick: on_footer_save,
+                            if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
                         }
                     }
                 }

@@ -13,6 +13,7 @@ pub struct Model {
     pub source_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub sort_order: i32,
+    pub is_profile: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

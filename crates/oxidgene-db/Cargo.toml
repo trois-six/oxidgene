@@ -7,6 +7,14 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Enable the PostgreSQL driver — opt in for the server binary; desktop uses SQLite only.
+postgres = [
+    "sea-orm/sqlx-postgres",
+    "sea-orm-migration/sqlx-postgres",
+]
+
 [dependencies]
 oxidgene-core = { workspace = true }
 sea-orm = { workspace = true }

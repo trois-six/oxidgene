@@ -469,6 +469,11 @@ fn convert_event_type(et: EventType) -> GedEvent {
         EventType::MarriageLicense => GedEvent::MarriageLicense,
         EventType::MarriageSettlement => GedEvent::MarriageSettlement,
         EventType::Other | EventType::Occupation => GedEvent::Other,
+        EventType::Confirmation
+        | EventType::FirstCommunion
+        | EventType::BarBatMitzvah
+        | EventType::MilitaryService
+        | EventType::Adoption => GedEvent::Other,
     }
 }
 
@@ -559,7 +564,7 @@ fn to_ged_detail(
         multimedia,
         sort_date: None,
         associations: Vec::new(),
-        cause: evt.description.clone(),
+        cause: evt.cause.clone(),
         restriction: None,
         age: None,
         agency: None,

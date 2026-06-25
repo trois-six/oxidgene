@@ -36,13 +36,12 @@ axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "trace"] }
 
-# GraphQL
+# GraphQL (optional — only server binary enables this)
 async-graphql = { version = "7.2", features = ["chrono"] }
 async-graphql-axum = "7.2"
 
-# ORM & database
+# ORM & database — base features only; postgres added per-crate via feature flag
 sea-orm = { version = "1.1", features = [
-    "sqlx-postgres",
     "sqlx-sqlite",
     "runtime-tokio-rustls",
     "macros",
@@ -50,7 +49,6 @@ sea-orm = { version = "1.1", features = [
     "with-chrono",
 ] }
 sea-orm-migration = { version = "1.1", features = [
-    "sqlx-postgres",
     "sqlx-sqlite",
     "runtime-tokio-rustls",
 ] }
@@ -99,3 +97,10 @@ dashmap = "6"
 redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"] }
 rmp-serde = "1"
 bincode = { version = "2", features = ["serde"] }
+
+[profile.release]
+opt-level = "z"      # optimise for size
+lto = true           # cross-crate dead-code elimination
+codegen-units = 1    # required for full LTO
+strip = true         # remove debug symbols
+panic = "abort"      # no unwinding machinery
