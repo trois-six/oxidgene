@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use oxidgene_core::{Confidence, EventType, NameType, Sex};
+use oxidgene_core::{Calendar, Confidence, DateQualifier, EventType, NameType, Privacy, Sex};
 
 // ── Enum parsers ────────────────────────────────────────────────────────
 
@@ -35,6 +35,9 @@ pub fn parse_event_type(s: &str) -> EventType {
         "Birth" => EventType::Birth,
         "Death" => EventType::Death,
         "Baptism" => EventType::Baptism,
+        "Confirmation" => EventType::Confirmation,
+        "FirstCommunion" => EventType::FirstCommunion,
+        "BarBatMitzvah" => EventType::BarBatMitzvah,
         "Burial" => EventType::Burial,
         "Cremation" => EventType::Cremation,
         "Graduation" => EventType::Graduation,
@@ -45,8 +48,10 @@ pub fn parse_event_type(s: &str) -> EventType {
         "Occupation" => EventType::Occupation,
         "Residence" => EventType::Residence,
         "Retirement" => EventType::Retirement,
+        "MilitaryService" => EventType::MilitaryService,
         "Will" => EventType::Will,
         "Probate" => EventType::Probate,
+        "Adoption" => EventType::Adoption,
         "Marriage" => EventType::Marriage,
         "Divorce" => EventType::Divorce,
         "Annulment" => EventType::Annulment,
@@ -56,6 +61,39 @@ pub fn parse_event_type(s: &str) -> EventType {
         "MarriageLicense" => EventType::MarriageLicense,
         "MarriageSettlement" => EventType::MarriageSettlement,
         _ => EventType::Other,
+    }
+}
+
+/// Parse a string value from a `<select>` into a [`DateQualifier`] enum.
+pub fn parse_date_qualifier(s: &str) -> DateQualifier {
+    match s {
+        "About" => DateQualifier::About,
+        "Perhaps" => DateQualifier::Perhaps,
+        "Before" => DateQualifier::Before,
+        "After" => DateQualifier::After,
+        "Or" => DateQualifier::Or,
+        "Between" => DateQualifier::Between,
+        "FromAge" => DateQualifier::FromAge,
+        _ => DateQualifier::Exact,
+    }
+}
+
+/// Parse a string value from a `<select>` into a [`Calendar`] enum.
+pub fn parse_calendar(s: &str) -> Calendar {
+    match s {
+        "Julian" => Calendar::Julian,
+        "Hebrew" => Calendar::Hebrew,
+        "FrenchRepublican" => Calendar::FrenchRepublican,
+        _ => Calendar::Gregorian,
+    }
+}
+
+/// Parse a string value from a `<select>` into a [`Privacy`] enum.
+pub fn parse_privacy(s: &str) -> Privacy {
+    match s {
+        "Public" => Privacy::Public,
+        "Private" => Privacy::Private,
+        _ => Privacy::Default,
     }
 }
 

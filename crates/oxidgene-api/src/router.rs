@@ -4,6 +4,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 
+#[cfg(feature = "graphql")]
 use crate::graphql::{build_schema, graphql_handler, graphql_playground};
 use crate::rest::cache;
 use crate::rest::citation;
@@ -210,15 +211,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)); // 10 MiB
 
-    // Build GraphQL schema
+    #[cfg(feature = "graphql")]
     let schema = build_schema(state.db.clone(), state.cache.clone());
 
-    let graphql_routes = Router::new()
-        .route("/graphql", post(graphql_handler).get(graphql_playground))
-        .with_state(schema);
-
-    // Nest REST under /api/v1/trees, GraphQL at /graphql
-    Router::new()
+    let rest_router = Router::new()
         .nest(
             "/api/v1/trees",
             tree_routes
@@ -237,6 +233,16 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(cache_routes)
                 .merge(gedcom_routes),
         )
-        .with_state(state)
-        .merge(graphql_routes)
+        .with_state(state);
+
+    #[cfg(feature = "graphql")]
+    {
+        let graphql_routes = Router::new()
+            .route("/graphql", post(graphql_handler).get(graphql_playground))
+            .with_state(schema);
+        return rest_router.merge(graphql_routes);
+    }
+
+    #[cfg(not(feature = "graphql"))]
+    rest_router
 }

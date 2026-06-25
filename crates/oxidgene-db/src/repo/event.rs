@@ -1,7 +1,7 @@
 //! Repository for `Event` entities (CRUD with soft delete, type/person/family filters).
 
 use chrono::{NaiveDate, Utc};
-use oxidgene_core::enums::EventType;
+use oxidgene_core::enums::{Calendar, DateQualifier, EventType};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Event};
 use sea_orm::entity::prelude::*;
@@ -97,6 +97,11 @@ impl EventRepo {
             event_type: Set(sea_enums::EventType::from(event_type)),
             date_value: Set(date_value),
             date_sort: Set(date_sort),
+            date_qualifier: Set(sea_enums::DateQualifier::from(DateQualifier::default())),
+            date_value2: Set(None),
+            calendar: Set(sea_enums::Calendar::from(Calendar::default())),
+            witnesses: Set(None),
+            cause: Set(None),
             place_id: Set(place_id),
             person_id: Set(person_id),
             family_id: Set(family_id),
@@ -122,6 +127,11 @@ impl EventRepo {
         date_sort: Option<Option<NaiveDate>>,
         place_id: Option<Option<Uuid>>,
         description: Option<Option<String>>,
+        date_qualifier: Option<DateQualifier>,
+        date_value2: Option<Option<String>>,
+        calendar: Option<Calendar>,
+        witnesses: Option<Option<String>>,
+        cause: Option<Option<String>>,
     ) -> Result<Event, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
@@ -148,6 +158,21 @@ impl EventRepo {
         }
         if let Some(description) = description {
             active.description = Set(description);
+        }
+        if let Some(dq) = date_qualifier {
+            active.date_qualifier = Set(sea_enums::DateQualifier::from(dq));
+        }
+        if let Some(dv2) = date_value2 {
+            active.date_value2 = Set(dv2);
+        }
+        if let Some(cal) = calendar {
+            active.calendar = Set(sea_enums::Calendar::from(cal));
+        }
+        if let Some(w) = witnesses {
+            active.witnesses = Set(w);
+        }
+        if let Some(c) = cause {
+            active.cause = Set(c);
         }
         active.updated_at = Set(Utc::now());
 
@@ -181,12 +206,28 @@ impl EventRepo {
 }
 
 fn into_domain(m: event::Model) -> Event {
+    let witnesses = m
+        .witnesses
+        .map(|w| {
+            w.lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
     Event {
         id: m.id,
         tree_id: m.tree_id,
         event_type: m.event_type.into(),
         date_value: m.date_value,
         date_sort: m.date_sort,
+        date_qualifier: m.date_qualifier.into(),
+        date_value2: m.date_value2,
+        calendar: m.calendar.into(),
+        witnesses,
+        cause: m.cause,
         place_id: m.place_id,
         person_id: m.person_id,
         family_id: m.family_id,

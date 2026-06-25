@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use super::sea_enums::Sex;
+use super::sea_enums::{Privacy, Sex};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "person")]
@@ -11,6 +11,7 @@ pub struct Model {
     pub id: Uuid,
     pub tree_id: Uuid,
     pub sex: Sex,
+    pub privacy: Privacy,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

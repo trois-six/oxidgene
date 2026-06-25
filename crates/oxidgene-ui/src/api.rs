@@ -10,7 +10,7 @@ use oxidgene_core::types::{
     Citation, Connection, Event, Family, FamilyChild, FamilySpouse, Note, Person, PersonAncestry,
     PersonName, Place, Source, Tree,
 };
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::{Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -55,6 +55,8 @@ pub struct CreatePersonBody {
 pub struct UpdatePersonBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sex: Option<Sex>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<Privacy>,
 }
 
 // ── PersonName request bodies ───────────────────────────────────────
@@ -113,6 +115,11 @@ pub struct CreateEventBody {
     pub event_type: EventType,
     pub date_value: Option<String>,
     pub date_sort: Option<chrono::NaiveDate>,
+    pub date_qualifier: DateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: Calendar,
+    pub witnesses: Vec<String>,
+    pub cause: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
@@ -127,6 +134,16 @@ pub struct UpdateEventBody {
     pub date_value: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_sort: Option<Option<chrono::NaiveDate>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_qualifier: Option<DateQualifier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_value2: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<Calendar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub witnesses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_id: Option<Option<Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -166,6 +166,14 @@ pub enum EventType {
     Death,
     #[sea_orm(string_value = "baptism")]
     Baptism,
+    #[sea_orm(string_value = "confirmation")]
+    Confirmation,
+    #[sea_orm(string_value = "first_communion")]
+    FirstCommunion,
+    #[sea_orm(string_value = "bar_bat_mitzvah")]
+    BarBatMitzvah,
+    #[sea_orm(string_value = "military_service")]
+    MilitaryService,
     #[sea_orm(string_value = "burial")]
     Burial,
     #[sea_orm(string_value = "cremation")]
@@ -207,6 +215,8 @@ pub enum EventType {
     MarriageLicense,
     #[sea_orm(string_value = "marriage_settlement")]
     MarriageSettlement,
+    #[sea_orm(string_value = "adoption")]
+    Adoption,
     // Generic
     #[sea_orm(string_value = "other")]
     Other,
@@ -218,6 +228,10 @@ impl From<enums::EventType> for EventType {
             enums::EventType::Birth => Self::Birth,
             enums::EventType::Death => Self::Death,
             enums::EventType::Baptism => Self::Baptism,
+            enums::EventType::Confirmation => Self::Confirmation,
+            enums::EventType::FirstCommunion => Self::FirstCommunion,
+            enums::EventType::BarBatMitzvah => Self::BarBatMitzvah,
+            enums::EventType::MilitaryService => Self::MilitaryService,
             enums::EventType::Burial => Self::Burial,
             enums::EventType::Cremation => Self::Cremation,
             enums::EventType::Graduation => Self::Graduation,
@@ -238,6 +252,7 @@ impl From<enums::EventType> for EventType {
             enums::EventType::MarriageContract => Self::MarriageContract,
             enums::EventType::MarriageLicense => Self::MarriageLicense,
             enums::EventType::MarriageSettlement => Self::MarriageSettlement,
+            enums::EventType::Adoption => Self::Adoption,
             enums::EventType::Other => Self::Other,
         }
     }
@@ -249,6 +264,10 @@ impl From<EventType> for enums::EventType {
             EventType::Birth => Self::Birth,
             EventType::Death => Self::Death,
             EventType::Baptism => Self::Baptism,
+            EventType::Confirmation => Self::Confirmation,
+            EventType::FirstCommunion => Self::FirstCommunion,
+            EventType::BarBatMitzvah => Self::BarBatMitzvah,
+            EventType::MilitaryService => Self::MilitaryService,
             EventType::Burial => Self::Burial,
             EventType::Cremation => Self::Cremation,
             EventType::Graduation => Self::Graduation,
@@ -269,7 +288,128 @@ impl From<EventType> for enums::EventType {
             EventType::MarriageContract => Self::MarriageContract,
             EventType::MarriageLicense => Self::MarriageLicense,
             EventType::MarriageSettlement => Self::MarriageSettlement,
+            EventType::Adoption => Self::Adoption,
             EventType::Other => Self::Other,
+        }
+    }
+}
+
+/// Per-person privacy override — stored as a string column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(10))")]
+pub enum Privacy {
+    #[sea_orm(string_value = "default")]
+    Default,
+    #[sea_orm(string_value = "public")]
+    Public,
+    #[sea_orm(string_value = "private")]
+    Private,
+}
+
+impl From<enums::Privacy> for Privacy {
+    fn from(v: enums::Privacy) -> Self {
+        match v {
+            enums::Privacy::Default => Self::Default,
+            enums::Privacy::Public => Self::Public,
+            enums::Privacy::Private => Self::Private,
+        }
+    }
+}
+
+impl From<Privacy> for enums::Privacy {
+    fn from(v: Privacy) -> Self {
+        match v {
+            Privacy::Default => Self::Default,
+            Privacy::Public => Self::Public,
+            Privacy::Private => Self::Private,
+        }
+    }
+}
+
+/// Date qualifier (precision/shape of a date entry) — stored as a string column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(10))")]
+pub enum DateQualifier {
+    #[sea_orm(string_value = "exact")]
+    Exact,
+    #[sea_orm(string_value = "about")]
+    About,
+    #[sea_orm(string_value = "perhaps")]
+    Perhaps,
+    #[sea_orm(string_value = "before")]
+    Before,
+    #[sea_orm(string_value = "after")]
+    After,
+    #[sea_orm(string_value = "or")]
+    Or,
+    #[sea_orm(string_value = "between")]
+    Between,
+    #[sea_orm(string_value = "from_age")]
+    FromAge,
+}
+
+impl From<enums::DateQualifier> for DateQualifier {
+    fn from(v: enums::DateQualifier) -> Self {
+        match v {
+            enums::DateQualifier::Exact => Self::Exact,
+            enums::DateQualifier::About => Self::About,
+            enums::DateQualifier::Perhaps => Self::Perhaps,
+            enums::DateQualifier::Before => Self::Before,
+            enums::DateQualifier::After => Self::After,
+            enums::DateQualifier::Or => Self::Or,
+            enums::DateQualifier::Between => Self::Between,
+            enums::DateQualifier::FromAge => Self::FromAge,
+        }
+    }
+}
+
+impl From<DateQualifier> for enums::DateQualifier {
+    fn from(v: DateQualifier) -> Self {
+        match v {
+            DateQualifier::Exact => Self::Exact,
+            DateQualifier::About => Self::About,
+            DateQualifier::Perhaps => Self::Perhaps,
+            DateQualifier::Before => Self::Before,
+            DateQualifier::After => Self::After,
+            DateQualifier::Or => Self::Or,
+            DateQualifier::Between => Self::Between,
+            DateQualifier::FromAge => Self::FromAge,
+        }
+    }
+}
+
+/// Calendar system used to record a date — stored as a string column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
+pub enum Calendar {
+    #[sea_orm(string_value = "gregorian")]
+    Gregorian,
+    #[sea_orm(string_value = "julian")]
+    Julian,
+    #[sea_orm(string_value = "hebrew")]
+    Hebrew,
+    #[sea_orm(string_value = "french_republican")]
+    FrenchRepublican,
+}
+
+impl From<enums::Calendar> for Calendar {
+    fn from(v: enums::Calendar) -> Self {
+        match v {
+            enums::Calendar::Gregorian => Self::Gregorian,
+            enums::Calendar::Julian => Self::Julian,
+            enums::Calendar::Hebrew => Self::Hebrew,
+            enums::Calendar::FrenchRepublican => Self::FrenchRepublican,
+        }
+    }
+}
+
+impl From<Calendar> for enums::Calendar {
+    fn from(v: Calendar) -> Self {
+        match v {
+            Calendar::Gregorian => Self::Gregorian,
+            Calendar::Julian => Self::Julian,
+            Calendar::Hebrew => Self::Hebrew,
+            Calendar::FrenchRepublican => Self::FrenchRepublican,
         }
     }
 }

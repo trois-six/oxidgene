@@ -1438,6 +1438,197 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-shrink: 0;
     }
 
+    /* ── Person form — section redesign ────────────────────────────── */
+
+    .pf-subtitle {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        display: block;
+        margin-top: 2px;
+    }
+
+    .pf-section-title {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--orange);
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .pf-section-title::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: rgba(255,255,255,0.07);
+    }
+
+    .pf-section-title.has-action::after { display: none; }
+
+    .pf-gender-group {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .pf-gender-btn {
+        padding: 7px 18px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-family: var(--font-sans);
+        transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+
+    .pf-gender-btn:hover:not(.active) {
+        border-color: rgba(255,255,255,0.25);
+        color: var(--text-primary);
+    }
+
+    .pf-gender-btn.active {
+        border-color: var(--orange);
+        color: var(--orange);
+        background: rgba(224,120,32,0.10);
+    }
+
+    .pf-footer {
+        padding: 14px 20px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
+    .pf-footer-right {
+        display: flex;
+        gap: 8px;
+        margin-left: auto;
+    }
+
+    .pf-footer .error-msg {
+        flex: 1;
+        margin: 0;
+        font-size: 0.8rem;
+    }
+
+    /* ── Date qualifier row ────────────────────────────────────────── */
+
+    .pf-date-row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+    .pf-date-qualifier-select { flex: 0 0 130px; }
+    .pf-date-input { flex: 1; min-width: 100px; }
+    .pf-date-separator {
+        line-height: 36px;
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        padding: 0 4px;
+        white-space: nowrap;
+        align-self: flex-start;
+        padding-top: 7px;
+    }
+
+    /* ── Witnesses list ────────────────────────────────────────────── */
+
+    .pf-witness-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .pf-witness-row input { flex: 1; }
+    .pf-witness-remove {
+        flex: 0 0 auto;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 2px 8px;
+        font-size: 0.82rem;
+        line-height: 1.6;
+        transition: border-color 0.15s, color 0.15s;
+    }
+    .pf-witness-remove:hover { border-color: #e05050; color: #e05050; }
+
+    /* ── Collapsible additional fields ─────────────────────────────── */
+
+    .pf-collapsible-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        user-select: none;
+    }
+    .pf-collapsible-toggle {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.75rem;
+        padding: 2px 10px;
+        line-height: 1.6;
+        transition: border-color 0.15s, color 0.15s;
+    }
+    .pf-collapsible-toggle:hover { border-color: var(--orange); color: var(--orange); }
+
+    .pf-additional-body { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
+    .pf-additional-group {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 14px;
+    }
+    .pf-additional-group-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 10px;
+    }
+
+    /* ── Delete person section ─────────────────────────────────────── */
+
+    .pf-delete-section { margin-top: 8px; }
+    .pf-delete-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+    .pf-delete-person-btn {
+        margin-top: 12px;
+        background: none;
+        border: 1px solid rgba(224, 80, 80, 0.35);
+        border-radius: 4px;
+        color: #e05050;
+        cursor: pointer;
+        font-size: 0.85rem;
+        padding: 6px 14px;
+        transition: border-color 0.15s, background 0.15s;
+        width: 100%;
+        text-align: center;
+    }
+    .pf-delete-person-btn:hover { border-color: #e05050; background: rgba(224, 80, 80, 0.08); }
+    .pf-delete-confirm {
+        background: rgba(224, 80, 80, 0.07);
+        border: 1px solid rgba(224, 80, 80, 0.3);
+        border-radius: 6px;
+        padding: 16px;
+        margin-top: 8px;
+    }
+    .pf-delete-confirm-name {
+        font-weight: 600;
+        font-size: 0.95rem;
+        margin: 0 0 8px;
+        color: var(--text-primary);
+    }
+    .pf-delete-confirm-message {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin: 0 0 14px;
+        line-height: 1.5;
+    }
+    .pf-delete-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
     /* ── Linking panel ─────────────────────────────────────────────── */
 
     .linking-card {
@@ -1474,9 +1665,9 @@ pub const LAYOUT_STYLES: &str = r#"
         border: 1px solid var(--border);
         border-radius: var(--radius);
         box-shadow: var(--shadow-md);
-        width: 600px;
+        width: 720px;
         max-width: 95vw;
-        max-height: 85vh;
+        max-height: 90vh;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -1508,6 +1699,155 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .union-form-section:last-child {
         margin-bottom: 0;
+    }
+
+    /* ── Couple modal — person blocks, children, footer ───────────── */
+
+    .uf-footer {
+        padding: 14px 20px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
+    .uf-footer-right {
+        display: flex;
+        gap: 8px;
+        margin-left: auto;
+    }
+
+    .uf-section-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        font-family: var(--font-sans);
+        text-align: left;
+    }
+
+    .uf-section-toggle .pf-section-title {
+        flex: 1;
+        margin-bottom: 0;
+    }
+
+    .uf-chevron {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        transition: transform 0.15s;
+        margin-left: 8px;
+    }
+
+    .uf-chevron.open {
+        transform: rotate(90deg);
+    }
+
+    .uf-person-block {
+        margin-bottom: 24px;
+        padding-bottom: 4px;
+    }
+
+    .uf-person-block .pf-embedded {
+        margin-top: 12px;
+        padding: 14px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+
+    .uf-child-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin-bottom: 6px;
+        background: var(--bg-card);
+        transition: opacity 0.15s;
+    }
+
+    .uf-child-row.pending-detach {
+        opacity: 0.45;
+    }
+
+    .uf-child-avatar {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--bg-card-hover);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+    }
+
+    .uf-child-info {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex-wrap: wrap;
+        font-size: 0.85rem;
+    }
+
+    .uf-child-years {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+    }
+
+    .uf-child-detach-confirm {
+        background: rgba(224, 80, 80, 0.07);
+        border: 1px solid rgba(224, 80, 80, 0.3);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+        margin-bottom: 6px;
+        font-size: 0.83rem;
+    }
+
+    .uf-child-detach-confirm p {
+        margin: 0 0 8px;
+        color: var(--text-secondary);
+    }
+
+    .uf-child-detach-confirm .pf-delete-confirm-actions {
+        margin: 0;
+    }
+
+    /* ── Responsive: modals become full-screen drawer below 600px ── */
+
+    @media (max-width: 600px) {
+        .person-form-modal, .union-form-modal {
+            width: 100vw;
+            max-width: 100vw;
+            max-height: 100dvh;
+            height: 100dvh;
+            border-radius: 0;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            top: 0;
+            animation: slideUpModal 0.22s ease-out;
+        }
+
+        .modal-backdrop {
+            align-items: flex-end;
+        }
+    }
+
+    @keyframes slideUpModal {
+        from { transform: translateY(60px); opacity: 0.6; }
+        to   { transform: translateY(0);    opacity: 1; }
     }
 
     /* ── Search results page ─────────────────────────────────────── */

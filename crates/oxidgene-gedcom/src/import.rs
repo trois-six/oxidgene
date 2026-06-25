@@ -15,7 +15,7 @@ use oxidgene_core::types::{
     Citation, Event, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person,
     PersonAncestry, PersonName, Place, Source,
 };
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::{Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole};
 
 use crate::ImportResult;
 
@@ -162,6 +162,9 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
             file_size: 0, // Unknown from GEDCOM
             title: mm.title.clone(),
             description: None,
+            date_value: None,
+            date_sort: None,
+            place_id: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -192,6 +195,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
             id: person_id,
             tree_id,
             sex,
+            privacy: Privacy::default(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -257,6 +261,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                     source_id: None,
                     family_id: None,
                     sort_order: 0,
+                    is_profile: false,
                 });
             }
         }
@@ -400,6 +405,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                     source_id: None,
                     family_id: Some(family_id),
                     sort_order: 0,
+                    is_profile: false,
                 });
             }
         }
@@ -706,7 +712,7 @@ fn import_event_detail(
         })
     });
 
-    let description = detail.cause.clone();
+    let cause = detail.cause.clone();
 
     let event_id = Uuid::now_v7();
     result.events.push(Event {
@@ -715,10 +721,15 @@ fn import_event_detail(
         event_type,
         date_value,
         date_sort,
+        date_qualifier: DateQualifier::default(),
+        date_value2: None,
+        calendar: Calendar::default(),
+        witnesses: vec![],
+        cause,
         place_id,
         person_id,
         family_id,
-        description,
+        description: None,
         created_at: now,
         updated_at: now,
         deleted_at: None,
@@ -749,6 +760,7 @@ fn import_event_detail(
                 source_id: None,
                 family_id: None,
                 sort_order: 0,
+                is_profile: false,
             });
         }
     }
@@ -892,6 +904,9 @@ fn resolve_or_create_media(
             file_size: 0,
             title: mm.title.clone(),
             description: None,
+            date_value: None,
+            date_sort: None,
+            place_id: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,

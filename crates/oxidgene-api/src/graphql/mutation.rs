@@ -96,7 +96,13 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let person = PersonRepo::update(db, uuid, input.sex.map(|s| s.into())).await?;
+        let person = PersonRepo::update(
+            db,
+            uuid,
+            input.sex.map(|s| s.into()),
+            input.privacy.map(|p| p.into()),
+        )
+        .await?;
         // Rebuild the affected set (person + spouses + children + parents).
         let affected = invalidation::affected_persons(db, uuid).await?;
         cache
@@ -416,6 +422,11 @@ impl MutationRoot {
             date_sort.map(Some),
             place_id.map(Some),
             input.description.map(Some),
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         .await?;
         // Invalidate based on event ownership.
