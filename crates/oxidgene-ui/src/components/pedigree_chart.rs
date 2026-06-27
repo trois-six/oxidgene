@@ -53,8 +53,7 @@ const PHOTO_H: f64 = 50.0;
 const PHOTO_Y: f64 = 10.0;
 const PHOTO_X_FULL: f64 = 10.0;
 const PHOTO_X_COMPACT: f64 = 20.0;
-const PHOTO_CY: f64 = 35.0;
-const PHOTO_CX_OFFSET: f64 = 25.0;
+
 const TEXT_X_FULL: f64 = 70.0;
 const TEXT_X_COMPACT: f64 = 10.0;
 const TEXT_Y_FULL: f64 = 21.0;
@@ -107,6 +106,29 @@ const FIT_ZOOM_FACTOR: f64 = 0.85;
 
 const YEAR_MIN: u32 = 1000;
 const YEAR_MAX: u32 = 2099;
+
+// ── Default portraits (embedded as data URIs) ────────────────────────────
+
+const PORTRAIT_MALE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/portrait_male.b64"
+));
+const PORTRAIT_FEMALE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/portrait_female.b64"
+));
+const PORTRAIT_UNKNOWN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/portrait_unknown.b64"
+));
+
+fn default_portrait(sex: Sex) -> &'static str {
+    match sex {
+        Sex::Male => PORTRAIT_MALE,
+        Sex::Female => PORTRAIT_FEMALE,
+        Sex::Unknown => PORTRAIT_UNKNOWN,
+    }
+}
 
 // ── Helper functions ─────────────────────────────────────────────────────
 
@@ -2542,8 +2564,6 @@ fn render_pedigree_card(
         SOSA_CX_FULL
     };
     let sosa_cy = SOSA_CY;
-    let ph_cx = ph_x + PHOTO_CX_OFFSET;
-    let ph_cy = PHOTO_CY;
     let key = format!("{key_prefix}-{ni}");
     let nx = node.x;
     let ny = node.y;
@@ -2565,7 +2585,6 @@ fn render_pedigree_card(
                 .next()
                 .unwrap_or("")
                 .to_string();
-            let initials = make_initials(&node.label_given, &label_surname);
             let surname_up = label_surname.to_uppercase();
             let surname_disp = if is_compact {
                 surname_up
@@ -2588,8 +2607,15 @@ fn render_pedigree_card(
             let has_surname = !surname_disp.is_empty();
             let has_given = !given_disp.is_empty();
             let has_date = !date_s.is_empty();
-            let given_dy = if has_surname { "14" } else { "0" };
-            let date_dy = if has_surname || has_given { "14" } else { "0" };
+            let given_y = ty;
+            let surname_y = if has_given { ty + 14.0 } else { ty };
+            let date_y = if has_surname {
+                surname_y + 14.0
+            } else if has_given {
+                given_y + 14.0
+            } else {
+                ty
+            };
             let photo_url = node.photo_url.clone();
             let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
@@ -2607,10 +2633,11 @@ fn render_pedigree_card(
                     }
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
                     rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:#ffffff" }
-                    if let Some(ref url) = photo_url {
-                        image { "href": "{url}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
-                    } else {
-                        text { x: "{ph_cx}", y: "{ph_cy}", style: "font-size:14px;font-family:'Lato',sans-serif;font-weight:600;fill:var(--pn-text-muted);text-anchor:middle;dominant-baseline:central", "{initials}" }
+                    {
+                        let portrait = photo_url.as_deref().unwrap_or_else(|| default_portrait(node.sex));
+                        rsx! {
+                            image { "href": "{portrait}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
+                        }
                     }
                     if is_sosa_root {
                         g {
@@ -2625,14 +2652,14 @@ fn render_pedigree_card(
                         }
                     }
                     text {
-                        if has_surname {
-                            tspan { x: "{tx}", y: "{ty}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_disp}" }
-                        }
                         if has_given {
-                            tspan { x: "{tx}", dy: "{given_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
+                            tspan { x: "{tx}", y: "{given_y}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
+                        }
+                        if has_surname {
+                            tspan { x: "{tx}", y: "{surname_y}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_disp}" }
                         }
                         if has_date {
-                            tspan { x: "{tx}", dy: "{date_dy}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{date_s}" }
+                            tspan { x: "{tx}", y: "{date_y}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{date_s}" }
                         }
                     }
                     if is_focus {
