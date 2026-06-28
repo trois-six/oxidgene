@@ -97,14 +97,14 @@ Horizontal arrangement: avatar on the left, text information on the right.
 ```
 
 **Avatar** (`.pc-ph`):
-- Circular, ~38px diameter, with gendered background color (blue male, pink female, grey unknown)
-- Displays the person's **initials** (first letter of surname + first letter of first name) in white text
-- When a profile photo is available (future), it replaces the initials circle with `object-fit: cover`
+- Square photo area, 50×50px
+- Displays a **default portrait silhouette** when no profile photo is available, chosen by gender: male (`portrait_male.png`), female (`portrait_female.png`), unknown (`portrait_unknown.png`) — embedded as data URIs in the binary
+- When a profile photo is available it replaces the default portrait with `object-fit: cover`
 - **SOSA badge**: when the person has a SOSA number (ancestor of SOSA 1), a small colored dot (12px, `var(--green)` for ancestors, `var(--orange)` for SOSA 1) is displayed at the **bottom-center of the avatar circle**, with a 2px card-background border
 
 **Text information** (`.pc-body`):
-- Family name in uppercase, bold (`.pc-last`)
 - First name(s) (`.pc-first`)
+- Family name in uppercase, bold (`.pc-last`)
 - Dates in priority order: Birth > Baptism for start date, Death > Burial for end date (`.pc-dates`)
 - Date format: `dd/mm/yyyy`, or year only if day/month is unknown
 
@@ -317,7 +317,7 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 
 ### Content
 
-Header with avatar (initials circle), full name and dates of the selected person. Then a chronological list of their events, grouped by year.
+Header with avatar (default portrait or profile photo), full name and dates of the selected person. Then a chronological list of their events, grouped by year.
 
 ```
 +------------------------------+

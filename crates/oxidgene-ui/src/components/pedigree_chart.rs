@@ -2617,6 +2617,10 @@ fn render_pedigree_card(
                 ty
             };
             let photo_url = node.photo_url.clone();
+            let portrait_src = photo_url
+                .as_deref()
+                .unwrap_or_else(|| default_portrait(node.sex))
+                .to_string();
             let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
             let fab_x = CARD_PADDING + rw / 2.0;
@@ -2633,12 +2637,7 @@ fn render_pedigree_card(
                     }
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
                     rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:#ffffff" }
-                    {
-                        let portrait = photo_url.as_deref().unwrap_or_else(|| default_portrait(node.sex));
-                        rsx! {
-                            image { "href": "{portrait}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
-                        }
-                    }
+                    image { "href": "{portrait_src}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
                     if is_sosa_root {
                         g {
                             circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:rgb(109,161,24)" }
