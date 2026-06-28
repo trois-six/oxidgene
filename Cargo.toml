@@ -28,8 +28,8 @@ oxidgene-api = { path = "crates/oxidgene-api" }
 oxidgene-gedcom = { path = "crates/oxidgene-gedcom" }
 oxidgene-ui = { path = "crates/oxidgene-ui" }
 
-# Async runtime
-tokio = { version = "1", features = ["full"] }
+# Async runtime — minimal base; each crate adds only what it needs
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 
 # Web framework
 axum = "0.8"
@@ -97,6 +97,9 @@ dashmap = "6"
 redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"] }
 rmp-serde = "1"
 bincode = { version = "2", features = ["serde"] }
+
+[profile.dev]
+debug = "line-tables-only"  # smaller debug info → faster incremental builds
 
 [profile.release]
 opt-level = "z"      # optimise for size
