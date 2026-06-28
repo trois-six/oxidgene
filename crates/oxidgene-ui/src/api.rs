@@ -16,6 +16,21 @@ use oxidgene_core::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// ── PersonDetail — person + server-computed SOSA number ──────────────
+
+/// Mirrors `PersonDetailResponse` from the API: all `Person` fields flat + SOSA.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PersonDetail {
+    pub id: Uuid,
+    pub tree_id: Uuid,
+    pub sex: Sex,
+    pub privacy: Privacy,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub sosa_number: Option<u64>,
+}
+
 // ── Re-usable request / response DTOs (client-side mirrors) ─────────
 
 /// Paginated response returned by list endpoints.
@@ -668,7 +683,7 @@ impl ApiClient {
         Ok(all)
     }
 
-    pub async fn get_person(&self, tree_id: Uuid, id: Uuid) -> Result<Person, ApiError> {
+    pub async fn get_person(&self, tree_id: Uuid, id: Uuid) -> Result<PersonDetail, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/persons/{id}"))
             .await
     }

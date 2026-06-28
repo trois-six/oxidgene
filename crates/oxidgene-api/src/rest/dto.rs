@@ -66,6 +66,15 @@ pub struct PersonSearchResultDto {
     pub given_names: Option<String>,
 }
 
+/// Response for GET /api/v1/trees/:tree_id/persons/:person_id.
+/// Wraps the core `Person` with the server-computed SOSA number.
+#[derive(Debug, Serialize)]
+pub struct PersonDetailResponse {
+    #[serde(flatten)]
+    pub person: oxidgene_core::types::Person,
+    pub sosa_number: Option<u64>,
+}
+
 /// Request body for creating a person.
 #[derive(Debug, Deserialize)]
 pub struct CreatePersonRequest {
