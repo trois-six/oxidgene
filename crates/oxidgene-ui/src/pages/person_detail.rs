@@ -211,7 +211,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: "Invalid IDs".to_string(),
                 });
             };
-            api.list_places(tid, Some(100), None, None).await
+            api.list_all_places(tid).await
         }
     });
 
@@ -463,11 +463,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let place_name = |place_id: Uuid| -> String {
         let places_data = places_resource.read();
         match &*places_data {
-            Some(Ok(conn)) => conn
-                .edges
+            Some(Ok(places)) => places
                 .iter()
-                .find(|e| e.node.id == place_id)
-                .map(|e| e.node.name.clone())
+                .find(|p| p.id == place_id)
+                .map(|p| p.name.clone())
                 .unwrap_or_else(|| place_id.to_string()[..8].to_string()),
             _ => place_id.to_string()[..8].to_string(),
         }
@@ -1288,10 +1287,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         {i18n.t("person.edit_sex")}
                                     }
                                 }
-                                span { class: "text-muted", style: "font-size: 0.85rem;",
-                                    "ID: "
-                                    {person.id.to_string().chars().take(8).collect::<String>()}
-                                    "..."
+                                if let Some(sosa) = person.sosa_number {
+                                    span { class: "badge", style: "background:var(--green);color:#fff;font-size:0.8rem;",
+                                        "SOSA {sosa}"
+                                    }
                                 }
                             }
                         }
@@ -2174,20 +2173,14 @@ fn event_type_select(
 
 /// Renders a place picker `<select>` widget.
 fn place_select_widget(
-    places_resource: &Resource<
-        Result<oxidgene_core::types::Connection<oxidgene_core::types::Place>, crate::api::ApiError>,
-    >,
+    places_resource: &Resource<Result<Vec<oxidgene_core::types::Place>, crate::api::ApiError>>,
     value: &str,
     oninput: impl FnMut(Event<FormData>) + 'static,
     i18n: &crate::i18n::I18n,
 ) -> Element {
     let places_data = places_resource.read();
     let places: Vec<_> = match &*places_data {
-        Some(Ok(conn)) => conn
-            .edges
-            .iter()
-            .map(|e| (e.node.id, e.node.name.clone()))
-            .collect(),
+        Some(Ok(list)) => list.iter().map(|p| (p.id, p.name.clone())).collect(),
         _ => vec![],
     };
     rsx! {
