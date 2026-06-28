@@ -20,7 +20,7 @@ serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 async-trait = "0.1"
 dashmap = { workspace = true }
 

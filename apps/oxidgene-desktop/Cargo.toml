@@ -14,7 +14,7 @@ oxidgene-cache = { workspace = true, features = ["disk"] }
 oxidgene-ui = { workspace = true }
 dioxus = { workspace = true, features = ["desktop", "router"] }
 axum = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net", "signal", "sync"] }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
