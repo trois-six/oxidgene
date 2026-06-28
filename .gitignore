@@ -33,3 +33,4 @@ samples
 lcov.info
 
 .claude
+.cargo/config.toml
