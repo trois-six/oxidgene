@@ -45,8 +45,10 @@ async fn compute_sosa_number(
     let spouses = FamilySpouseRepo::list_by_families(db, &family_ids).await?;
     let children = FamilyChildRepo::list_by_families(db, &family_ids).await?;
 
-    let child_to_family: HashMap<Uuid, Uuid> =
-        children.iter().map(|c| (c.person_id, c.family_id)).collect();
+    let child_to_family: HashMap<Uuid, Uuid> = children
+        .iter()
+        .map(|c| (c.person_id, c.family_id))
+        .collect();
     let mut family_parents: HashMap<Uuid, (Option<Uuid>, Option<Uuid>)> = HashMap::new();
     for s in &spouses {
         let e = family_parents.entry(s.family_id).or_default();
@@ -64,20 +66,20 @@ async fn compute_sosa_number(
         if !visited.insert(current) {
             continue;
         }
-        if let Some(&family_id) = child_to_family.get(&current) {
-            if let Some(&(father, mother)) = family_parents.get(&family_id) {
-                if let Some(fid) = father {
-                    if fid == person_id {
-                        return Ok(Some(sosa * 2));
-                    }
-                    queue.push_back((fid, sosa * 2));
+        if let Some(&family_id) = child_to_family.get(&current)
+            && let Some(&(father, mother)) = family_parents.get(&family_id)
+        {
+            if let Some(fid) = father {
+                if fid == person_id {
+                    return Ok(Some(sosa * 2));
                 }
-                if let Some(mid) = mother {
-                    if mid == person_id {
-                        return Ok(Some(sosa * 2 + 1));
-                    }
-                    queue.push_back((mid, sosa * 2 + 1));
+                queue.push_back((fid, sosa * 2));
+            }
+            if let Some(mid) = mother {
+                if mid == person_id {
+                    return Ok(Some(sosa * 2 + 1));
                 }
+                queue.push_back((mid, sosa * 2 + 1));
             }
         }
     }
@@ -134,7 +136,11 @@ pub async fn get_person(
         .await
         .map_err(ApiError::from)?;
     Ok(Json(
-        serde_json::to_value(PersonDetailResponse { person, sosa_number }).unwrap(),
+        serde_json::to_value(PersonDetailResponse {
+            person,
+            sosa_number,
+        })
+        .unwrap(),
     ))
 }
 

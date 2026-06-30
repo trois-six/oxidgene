@@ -270,7 +270,7 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 | B | GEDCOM Engine | ✅ Complete |
 | C | Tree Editing (Frontend) | ✅ Complete |
 | D | UX, Languages, Performance | ✅ Complete |
-| E | Server-Side Caching | ✅ Complete |
+| E | Server-Side Caching | 🔄 E.6 pending |
 | F | Security & Deployment | ⏳ Next |
 | G | Asynchronous Pipeline | ⏳ Post-MVP |
 
@@ -279,7 +279,9 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 - SQLite migration fix: single-column `ALTER TABLE` per statement.
 - Desktop binary size: 560 MB (debug) → 13.5 MB (release) via LTO, `graphql` + `postgres` feature flags.
 
-**Deferred:** Performance testing with 100K-person trees (EPIC E.5 last item).
+**Deferred:**
+- Performance testing with 100K-person trees (EPIC E.5 last item).
+- Desktop cache simplification: SQLite FTS5 for search, PersonCache evaluation (Sprint E.6).
 
 ---
 
