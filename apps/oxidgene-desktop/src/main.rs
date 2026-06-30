@@ -21,7 +21,8 @@ use axum::Router;
 use axum::routing::get;
 use clap::Parser;
 use dioxus::desktop::tao::event::Event;
-use dioxus::desktop::{Config, WindowBuilder};
+use dioxus::desktop::tao::window::Icon;
+use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_cache::store::disk;
 use oxidgene_cache::store::memory::MemoryCacheStore;
@@ -31,6 +32,8 @@ use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
 
 /// Default pedigree LRU budget in bytes (64 MB).
 const DEFAULT_PEDIGREE_BUDGET_BYTES: usize = 64 * 1024 * 1024;
@@ -198,33 +201,35 @@ fn main() {
     // Dioxus `launch()` returns `-> !` (never returns), so we use a
     // custom event handler to intercept `Event::LoopDestroyed` and
     // trigger cache persistence before the process exits.
+    let window_icon: Option<Icon> = icon_from_memory(ICON_PNG).ok();
     let shutdown_tx_for_handler = Arc::clone(&shutdown_tx);
+    let mut cfg = Config::new()
+        .with_menu(None::<dioxus::desktop::muda::Menu>)
+        .with_window(
+            WindowBuilder::new()
+                .with_title("OxidGene")
+                .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
+        );
+    if let Some(icon) = window_icon {
+        cfg = cfg.with_icon(icon);
+    }
     dioxus::LaunchBuilder::new()
         .with_context(api_client)
-        .with_cfg(
-            Config::new()
-                .with_menu(None::<dioxus::desktop::muda::Menu>)
-                .with_window(
-                    WindowBuilder::new()
-                        .with_title("OxidGene")
-                        .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
-                )
-                .with_custom_event_handler(move |event, _target| {
-                    if let Event::LoopDestroyed = event {
-                        info!("Window closing, signalling server to persist cache…");
-                        // Take the sender (only fires once).
-                        if let Some(sender) = shutdown_tx_for_handler.lock().unwrap().take() {
-                            let _ = sender.send(());
-                            // Wait for the server thread to finish persisting.
-                            // Timeout after 5 seconds to avoid hanging.
-                            match persist_done_rx.recv_timeout(std::time::Duration::from_secs(5)) {
-                                Ok(()) => info!("Cache persisted to disk successfully"),
-                                Err(_) => warn!("Timed out waiting for cache persistence"),
-                            }
-                        }
+        .with_cfg(cfg.with_custom_event_handler(move |event, _target| {
+            if let Event::LoopDestroyed = event {
+                info!("Window closing, signalling server to persist cache…");
+                // Take the sender (only fires once).
+                if let Some(sender) = shutdown_tx_for_handler.lock().unwrap().take() {
+                    let _ = sender.send(());
+                    // Wait for the server thread to finish persisting.
+                    // Timeout after 5 seconds to avoid hanging.
+                    match persist_done_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                        Ok(()) => info!("Cache persisted to disk successfully"),
+                        Err(_) => warn!("Timed out waiting for cache persistence"),
                     }
-                }),
-        )
+                }
+            }
+        }))
         .launch(oxidgene_ui::App);
 }
 

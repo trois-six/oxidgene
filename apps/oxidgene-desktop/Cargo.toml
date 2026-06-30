@@ -7,6 +7,11 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+# Embed the .ico as a Windows resource (IDI_APPLICATION / 32512) so that
+# Explorer shows the OxidGene icon and Dioxus's default_icon() picks it up.
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
 [dependencies]
 oxidgene-api = { workspace = true }
 oxidgene-db = { workspace = true }

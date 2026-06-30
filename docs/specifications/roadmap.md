@@ -78,7 +78,6 @@ timestamp: 2026-06-17T00:00:00Z
 - [x] Embed Axum server on localhost with SQLite.
 - [x] Open Dioxus WebView pointing to the local server.
 - [x] Verify all API endpoints work with SQLite backend.
-- [ ] Platform-specific build and smoke test (Linux, macOS, Windows).
 
 ---
 
@@ -91,7 +90,6 @@ timestamp: 2026-06-17T00:00:00Z
 - [x] Error and warning collection during import.
 - [x] Streaming import for large files.
 - [x] Wire up import/export REST and GraphQL endpoints. → see [API Contract](api.md) (GEDCOM)
-- [ ] Performance benchmarks on large GEDCOM files.
 
 ---
 
@@ -166,8 +164,30 @@ timestamp: 2026-06-17T00:00:00Z
 - [x] Add Redis container to Docker Compose for web deployment.
 - [x] Implement disk persistence for `MemoryCacheStore` (bincode, serialize on exit, load on startup).
 - [x] Auto-detect Redis (web) vs. memory (desktop) via configuration.
-- [ ] Performance testing with 100K-person trees.
 - [x] Cache staleness detection and recovery for desktop.
+
+### Sprint E.6 — Desktop Cache Simplification (SQLite-native)
+
+> Rationale: the in-memory PersonCache and SearchIndex are redundant on desktop where SQLite is local.
+> PedigreeCache stays (layout is parameter-dependent: root × depth × structure).
+
+- [ ] Replace `CachedSearchIndex` with a SQLite **FTS5 virtual table** (`person_search_fts`).
+  - Add FTS5 migration (name tokens, birth year, death year).
+  - Populate on GEDCOM import and person/name mutations.
+  - Remove `GET /cache/search`. This should be handled directly by the normal search path.
+- [ ] Evaluate and remove `PersonCache` from `MemoryCacheStore`.
+- [ ] Update `caching.md` to document the SQLite-native path vs. Redis path.
+- [ ] Performance regression test: verify search and person-load times are ≤ current with FTS5.
+- [ ] Performance benchmarks on large GEDCOM files.
+
+---
+
+### Sprint E.7 — Medias Management
+
+> Rationale: medias can be associated with events / people
+> We must ensure that the UXP is good.
+
+- [ ] Medias management
 
 ---
 
@@ -187,6 +207,8 @@ timestamp: 2026-06-17T00:00:00Z
 
 ## EPIC G — Asynchronous Pipeline (Post-MVP)
 
+- [ ] Platform-specific build and smoke test (Linux, macOS, Windows).
+- [ ] Performance testing with 100K-person trees.
 - [ ] Message queue integration (Redis/RabbitMQ/NATS).
 - [ ] `document-queue` orchestration service.
 - [ ] Chunked media uploads.
