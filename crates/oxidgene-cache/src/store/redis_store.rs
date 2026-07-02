@@ -3,8 +3,10 @@
 //! Key schema:
 //!   - Person:       `oxidgene:person:{tree_id}:{person_id}`
 //!   - Pedigree:     `oxidgene:pedigree:{tree_id}:{root_person_id}`
-//!   - SearchIndex:  `oxidgene:search:{tree_id}`
 //!   - Tree set:     `oxidgene:tree_keys:{tree_id}` (SET of all keys for bulk invalidation)
+//!
+//! Search is not cached in Redis: since Sprint E.6 it lives in the database
+//! (`person_search_fts` table), regardless of the cache backend.
 
 use async_trait::async_trait;
 use oxidgene_core::error::OxidGeneError;
@@ -61,10 +63,6 @@ impl RedisCacheStore {
 
     fn pedigree_key(tree_id: Uuid, root_id: Uuid) -> String {
         format!("{KEY_PREFIX}:pedigree:{tree_id}:{root_id}")
-    }
-
-    fn search_key(tree_id: Uuid) -> String {
-        format!("{KEY_PREFIX}:search:{tree_id}")
     }
 
     fn tree_set_key(tree_id: Uuid) -> String {
@@ -299,35 +297,6 @@ impl CacheStore for RedisCacheStore {
         Ok(())
     }
 
-    // ── SearchIndex ──────────────────────────────────────────────────
-
-    async fn get_search_index(
-        &self,
-        tree_id: Uuid,
-    ) -> Result<Option<CachedSearchIndex>, OxidGeneError> {
-        let key = Self::search_key(tree_id);
-        let mut conn = self.conn.clone();
-        let data: Option<Vec<u8>> = conn
-            .get(&key)
-            .await
-            .map_err(|e| OxidGeneError::Internal(format!("Redis GET error: {e}")))?;
-        match data {
-            Some(bytes) => Ok(Some(Self::deserialize(&bytes)?)),
-            None => Ok(None),
-        }
-    }
-
-    async fn set_search_index(&self, entry: &CachedSearchIndex) -> Result<(), OxidGeneError> {
-        let key = Self::search_key(entry.tree_id);
-        let bytes = Self::serialize(entry)?;
-        self.set_with_tracking(&key, &bytes, entry.tree_id).await
-    }
-
-    async fn delete_search_index(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        let key = Self::search_key(tree_id);
-        self.delete_with_tracking(&key, tree_id).await
-    }
-
     // ── Bulk ─────────────────────────────────────────────────────────
 
     async fn invalidate_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
@@ -376,10 +345,6 @@ mod tests {
         assert_eq!(
             RedisCacheStore::pedigree_key(tree_id, person_id),
             "oxidgene:pedigree:550e8400-e29b-41d4-a716-446655440000:6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        );
-        assert_eq!(
-            RedisCacheStore::search_key(tree_id),
-            "oxidgene:search:550e8400-e29b-41d4-a716-446655440000"
         );
         assert_eq!(
             RedisCacheStore::tree_set_key(tree_id),

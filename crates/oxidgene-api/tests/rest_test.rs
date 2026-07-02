@@ -374,6 +374,154 @@ async fn test_person_name_crud() {
     assert_eq!(body.as_array().unwrap().len(), 0);
 }
 
+/// Sprint E.6: free-text person search through the normal search path,
+/// backed by the `person_search_fts` FTS5 table, end-to-end over HTTP.
+#[tokio::test]
+async fn test_person_search_free_text() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Two persons with primary names created through the REST API
+    // (mutation handlers must keep person_search_fts in sync).
+    let p1 = create_person_via_api(&app, &tree_id).await;
+    send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{p1}/names"),
+        Some(serde_json::json!({
+            "name_type": "birth",
+            "given_names": "Jean",
+            "surname": "Dupont",
+            "is_primary": true
+        })),
+    )
+    .await;
+    let p2 = create_person_via_api(&app, &tree_id).await;
+    send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{p2}/names"),
+        Some(serde_json::json!({
+            "name_type": "birth",
+            "given_names": "Éloïse",
+            "surname": "Lefèvre",
+            "is_primary": true
+        })),
+    )
+    .await;
+
+    // Free-text mode returns a SearchResult with entries + total_count.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=dupont"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+    assert_eq!(body["entries"][0]["display_name"], "Jean Dupont");
+
+    // Accent-folded matching (query without accents finds Éloïse).
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=eloise%20lefevre"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 1);
+    assert_eq!(body["entries"][0]["display_name"], "Éloïse Lefèvre");
+
+    // Empty query = browse mode: everyone, sorted by surname.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q="),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total_count"], 2);
+    assert_eq!(body["entries"][0]["surname_normalized"], "dupont");
+
+    // Renaming through the REST API refreshes the search row.
+    let (_, names) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{p1}/names"),
+        None,
+    )
+    .await;
+    let name_id = names[0]["id"].as_str().unwrap().to_string();
+    let (status, put_body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/persons/{p1}/names/{name_id}"),
+        Some(serde_json::json!({ "surname": "Martin" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "PUT name failed: {put_body}");
+
+    let (_, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=dupont"),
+        None,
+    )
+    .await;
+    assert_eq!(body["total_count"], 0);
+    let (_, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=martin"),
+        None,
+    )
+    .await;
+    assert_eq!(body["total_count"], 1);
+
+    // Deleting a person removes their search row.
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/persons/{p1}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=martin"),
+        None,
+    )
+    .await;
+    assert_eq!(body["total_count"], 0);
+
+    // The old cache search endpoint is gone (Sprint E.6).
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/cache/search?q=martin"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Missing `q` behaves like browse mode (only Éloïse remains).
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "browse mode failed: {body}");
+    assert_eq!(body["total_count"], 1);
+    assert_eq!(body["entries"][0]["display_name"], "Éloïse Lefèvre");
+}
+
 // ───────────────────────── Family tests ─────────────────────────
 
 #[tokio::test]

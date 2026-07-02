@@ -120,6 +120,19 @@ impl MediaLinkRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List all media links attached to a person.
+    pub async fn list_by_person(
+        db: &DatabaseConnection,
+        person_id: Uuid,
+    ) -> Result<Vec<MediaLink>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::PersonId.eq(person_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Create a media link.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(

@@ -3,8 +3,10 @@
 //! These endpoints provide access to the server-side cache layer:
 //! - Cached person data (denormalised, ready-to-render)
 //! - Full tree cache rebuild (used after GEDCOM import)
-//! - Cached search (server-side, accent-folded)
 //! - Cache invalidation
+//!
+//! Search moved to the normal search path (`GET /persons/search?q=...`)
+//! in Sprint E.6 — it is backed by the `person_search_fts` DB table.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -12,8 +14,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::dto::{
-    CacheInvalidateResponse, CacheRebuildResponse, CacheSearchQuery, PedigreeExpandQuery,
-    PedigreeQuery,
+    CacheInvalidateResponse, CacheRebuildResponse, PedigreeExpandQuery, PedigreeQuery,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -37,35 +38,18 @@ pub async fn get_cached_person(
 
 /// `GET /api/v1/trees/{tree_id}/cache/persons`
 ///
-/// Returns all cached persons for a tree. If the tree cache is empty, triggers
-/// a full rebuild first.
+/// Returns all cached persons for a tree. On stores without a person cache
+/// (desktop) they are built directly from the database; otherwise a full
+/// rebuild is triggered if the cache is empty.
 pub async fn get_cached_persons(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    // Try to get from cache first
     let persons = state
         .cache
-        .store()
         .get_all_persons(tree_id)
         .await
         .map_err(ApiError)?;
-
-    if persons.is_empty() {
-        // Cache is cold — build it
-        state
-            .cache
-            .rebuild_tree_full(tree_id)
-            .await
-            .map_err(ApiError)?;
-        let persons = state
-            .cache
-            .store()
-            .get_all_persons(tree_id)
-            .await
-            .map_err(ApiError)?;
-        return Ok(Json(serde_json::to_value(persons).unwrap()));
-    }
 
     Ok(Json(serde_json::to_value(persons).unwrap()))
 }
@@ -106,27 +90,6 @@ pub async fn rebuild_person_cache(
         rebuilt: true,
         persons_count: 1,
     }))
-}
-
-/// `GET /api/v1/trees/{tree_id}/cache/search?q=...&limit=...&offset=...`
-///
-/// Server-side search across all persons in a tree. Uses the cached search
-/// index with accent-folding and normalised matching.
-pub async fn search_cached(
-    State(state): State<AppState>,
-    Path(tree_id): Path<Uuid>,
-    Query(params): Query<CacheSearchQuery>,
-) -> Result<Json<Value>, ApiError> {
-    let limit = params.limit.unwrap_or(25).min(100);
-    let offset = params.offset.unwrap_or(0);
-
-    let results = state
-        .cache
-        .search(tree_id, &params.q, limit, offset)
-        .await
-        .map_err(ApiError)?;
-
-    Ok(Json(serde_json::to_value(results).unwrap()))
 }
 
 /// `POST /api/v1/trees/{tree_id}/cache/invalidate`

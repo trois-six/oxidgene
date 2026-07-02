@@ -3,8 +3,9 @@
 //! Used in the Geneanet-style UI for "Add Spouse", "Add Parents", "Add Child"
 //! flows where the user can either create a new person or link to an existing one.
 //!
-//! Performance: uses the server-side `/cache/search` endpoint which queries the
-//! accent-folded, normalised search index instead of downloading the full tree.
+//! Performance: uses the server-side `/persons/search?q=...` endpoint, backed
+//! by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL) with
+//! accent-folded matching, instead of downloading the full tree.
 
 use dioxus::prelude::*;
 use oxidgene_cache::types::SearchEntry;
@@ -66,9 +67,9 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
         async move {
             if q.is_empty() {
                 // Empty query: return first 20 persons (no filter).
-                return api.cache_search(tree_id, "", 20, 0).await;
+                return api.search_persons(tree_id, "", 20, 0).await;
             }
-            api.cache_search(tree_id, &q, 20, 0).await
+            api.search_persons(tree_id, &q, 20, 0).await
         }
     });
 

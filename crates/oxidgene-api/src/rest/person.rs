@@ -10,14 +10,14 @@ use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PaginationParams, PersonAncestryRepo,
-    PersonRepo, PersonSearchParams, TreeRepo,
+    PersonRepo, TreeRepo,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use super::dto::{
     AncestryQuery, CreatePersonRequest, PaginationQuery, PersonDetailResponse, PersonSearchQuery,
-    PersonSearchResultDto, UpdatePersonRequest,
+    UpdatePersonRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -169,28 +169,16 @@ pub async fn delete_person(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    // Compute affected set BEFORE deletion.
-    let affected = invalidation::affected_persons(&state.db, person_id)
-        .await
-        .map_err(ApiError)?;
     PersonRepo::delete(&state.db, person_id)
         .await
         .map_err(ApiError::from)?;
-    // Remove this person from cache; rebuild affected relatives.
+    // Removes the person from cache + search table, rebuilds affected
+    // relatives, and drops pedigrees.
     state
         .cache
-        .store()
-        .delete_person(tree_id, person_id)
+        .invalidate_for_person_delete(tree_id, person_id)
         .await
         .map_err(ApiError)?;
-    let remaining: Vec<Uuid> = affected.into_iter().filter(|&id| id != person_id).collect();
-    if !remaining.is_empty() {
-        state
-            .cache
-            .invalidate_for_mutation(tree_id, &remaining)
-            .await
-            .map_err(ApiError)?;
-    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -218,37 +206,25 @@ pub async fn get_descendants(
     Ok(Json(serde_json::to_value(descendants).unwrap()))
 }
 
-/// GET /api/v1/trees/:tree_id/persons/search
+/// GET /api/v1/trees/:tree_id/persons/search?q=...&limit=...&offset=...
 ///
-/// Server-side person search by name. JOINs `person` with `person_name`
-/// and applies case-insensitive LIKE filters, returning paginated results
-/// with pre-resolved name data. Much more efficient than fetching all
-/// persons + N individual name lookups on the client.
+/// Server-side free-text person search (Sprint E.6): accent-folded
+/// multi-word matching against the `person_search_fts` table (SQLite FTS5
+/// virtual table / plain PostgreSQL table). Returns a `SearchResult` with
+/// display-ready entries and a total count. An empty or missing `q` lists
+/// all persons sorted by name (browse mode).
 pub async fn search_persons(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PersonSearchQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let after = query.after.as_ref().and_then(|s| s.parse::<Uuid>().ok());
-    let params = PersonSearchParams {
-        surname: query.surname,
-        given_names: query.given_names,
-        sex: query.sex,
-        limit: query.first.unwrap_or(25).min(100),
-        after,
-    };
-    let rows = PersonRepo::search(&state.db, tree_id, &params)
+    let q = query.q.unwrap_or_default();
+    let limit = query.limit.unwrap_or(25).min(100);
+    let offset = query.offset.unwrap_or(0);
+    let results = state
+        .cache
+        .search(tree_id, &q, limit, offset)
         .await
-        .map_err(ApiError::from)?;
-    let results: Vec<PersonSearchResultDto> = rows
-        .into_iter()
-        .map(|r| PersonSearchResultDto {
-            id: r.id,
-            tree_id: r.tree_id,
-            sex: r.sex,
-            surname: r.surname,
-            given_names: r.given_names,
-        })
-        .collect();
+        .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(results).unwrap()))
 }

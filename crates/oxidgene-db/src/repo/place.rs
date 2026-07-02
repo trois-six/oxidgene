@@ -43,6 +43,19 @@ impl PlaceRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// Get multiple places by ID.
+    pub async fn get_many(
+        db: &DatabaseConnection,
+        ids: &[Uuid],
+    ) -> Result<Vec<Place>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::Id.is_in(ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single place by ID.
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Place, OxidGeneError> {
         Entity::find_by_id(id)

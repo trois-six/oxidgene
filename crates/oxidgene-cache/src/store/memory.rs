@@ -1,7 +1,13 @@
 //! In-memory cache store backed by `DashMap`.
 //!
 //! Used for desktop deployments and as a fallback when Redis is unavailable.
-//! Disk persistence is available via the `disk` feature (see `store::disk`).
+//!
+//! Since Sprint E.6 this store only caches **pedigrees** (whose layout is
+//! parameter-dependent: root × depth × structure). Persons are *not* cached:
+//! the database is local (SQLite), so `CacheService` builds `CachedPerson`
+//! entries on demand with targeted queries, and search goes through the
+//! `person_search_fts` table. Disk persistence is available via the `disk`
+//! feature (see `store::disk`).
 
 use crate::store::CacheStore;
 use crate::types::*;
@@ -11,13 +17,6 @@ use oxidgene_core::error::OxidGeneError;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use uuid::Uuid;
-
-/// Composite key for person cache entries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct PersonKey {
-    tree_id: Uuid,
-    person_id: Uuid,
-}
 
 /// Composite key for pedigree cache entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,16 +45,17 @@ fn estimate_pedigree_bytes(p: &CachedPedigree) -> usize {
     node_bytes + edge_bytes + 128
 }
 
-/// In-memory cache store using `DashMap` for lock-free concurrent access.
+/// In-memory pedigree cache using `DashMap` for lock-free concurrent access.
 ///
 /// Pedigree entries are subject to an LRU eviction policy: when the total
 /// estimated byte size of all stored pedigrees exceeds `pedigree_budget_bytes`,
 /// the least-recently-used entries are evicted until the budget is satisfied.
+///
+/// Person cache operations are deliberate no-ops (`caches_persons()` returns
+/// `false`): on desktop, persons are rebuilt from local SQLite on demand.
 #[derive(Debug)]
 pub struct MemoryCacheStore {
-    persons: DashMap<PersonKey, CachedPerson>,
     pedigrees: DashMap<PedigreeKey, PedigreeEntry>,
-    search_indexes: DashMap<Uuid, CachedSearchIndex>,
     /// Current total estimated byte size of all pedigree entries.
     pedigree_total_bytes: AtomicUsize,
     /// Maximum byte budget for pedigree entries.
@@ -71,54 +71,26 @@ impl MemoryCacheStore {
     /// Create a new empty in-memory cache store with a custom pedigree byte budget.
     pub fn with_budget(pedigree_budget_bytes: usize) -> Self {
         Self {
-            persons: DashMap::new(),
             pedigrees: DashMap::new(),
-            search_indexes: DashMap::new(),
             pedigree_total_bytes: AtomicUsize::new(0),
             pedigree_budget_bytes,
         }
     }
 
-    /// Extract a snapshot of all cache contents for disk persistence.
-    ///
-    /// Returns `(persons, pedigrees, search_indexes)`.
-    pub fn snapshot_for_disk(
-        &self,
-    ) -> (
-        Vec<CachedPerson>,
-        Vec<CachedPedigree>,
-        Vec<CachedSearchIndex>,
-    ) {
-        let persons: Vec<CachedPerson> = self.persons.iter().map(|r| r.value().clone()).collect();
-        let pedigrees: Vec<CachedPedigree> = self
-            .pedigrees
+    /// Extract a snapshot of all cached pedigrees for disk persistence.
+    pub fn snapshot_for_disk(&self) -> Vec<CachedPedigree> {
+        self.pedigrees
             .iter()
             .map(|r| r.value().pedigree.clone())
-            .collect();
-        let search_indexes: Vec<CachedSearchIndex> = self
-            .search_indexes
-            .iter()
-            .map(|r| r.value().clone())
-            .collect();
-        (persons, pedigrees, search_indexes)
+            .collect()
     }
 
     /// Reconstruct a `MemoryCacheStore` from a disk snapshot.
     pub fn from_disk_snapshot(
-        persons: Vec<CachedPerson>,
         pedigrees: Vec<CachedPedigree>,
-        search_indexes: Vec<CachedSearchIndex>,
         pedigree_budget_bytes: usize,
     ) -> Self {
         let store = Self::with_budget(pedigree_budget_bytes);
-
-        for person in persons {
-            let key = PersonKey {
-                tree_id: person.tree_id,
-                person_id: person.person_id,
-            };
-            store.persons.insert(key, person);
-        }
 
         let mut total_bytes = 0usize;
         for pedigree in pedigrees {
@@ -140,10 +112,6 @@ impl MemoryCacheStore {
         store
             .pedigree_total_bytes
             .store(total_bytes, Ordering::Relaxed);
-
-        for index in search_indexes {
-            store.search_indexes.insert(index.tree_id, index);
-        }
 
         // Evict if loaded pedigrees exceed budget
         store.evict_pedigrees_if_needed();
@@ -185,67 +153,42 @@ impl CacheStore for MemoryCacheStore {
         self
     }
 
-    // ── PersonCache ──────────────────────────────────────────────────────
+    fn caches_persons(&self) -> bool {
+        false
+    }
+
+    // ── PersonCache (no-ops — persons are rebuilt from local SQLite) ─────
 
     async fn get_person(
         &self,
-        tree_id: Uuid,
-        person_id: Uuid,
+        _tree_id: Uuid,
+        _person_id: Uuid,
     ) -> Result<Option<CachedPerson>, OxidGeneError> {
-        let key = PersonKey { tree_id, person_id };
-        Ok(self.persons.get(&key).map(|entry| entry.value().clone()))
+        Ok(None)
     }
 
-    async fn set_person(&self, entry: &CachedPerson) -> Result<(), OxidGeneError> {
-        let key = PersonKey {
-            tree_id: entry.tree_id,
-            person_id: entry.person_id,
-        };
-        self.persons.insert(key, entry.clone());
+    async fn set_person(&self, _entry: &CachedPerson) -> Result<(), OxidGeneError> {
         Ok(())
     }
 
-    async fn set_persons_batch(&self, entries: &[CachedPerson]) -> Result<(), OxidGeneError> {
-        for entry in entries {
-            let key = PersonKey {
-                tree_id: entry.tree_id,
-                person_id: entry.person_id,
-            };
-            self.persons.insert(key, entry.clone());
-        }
+    async fn set_persons_batch(&self, _entries: &[CachedPerson]) -> Result<(), OxidGeneError> {
         Ok(())
     }
 
-    async fn delete_person(&self, tree_id: Uuid, person_id: Uuid) -> Result<(), OxidGeneError> {
-        let key = PersonKey { tree_id, person_id };
-        self.persons.remove(&key);
+    async fn delete_person(&self, _tree_id: Uuid, _person_id: Uuid) -> Result<(), OxidGeneError> {
         Ok(())
     }
 
     async fn get_persons_batch(
         &self,
-        tree_id: Uuid,
-        person_ids: &[Uuid],
+        _tree_id: Uuid,
+        _person_ids: &[Uuid],
     ) -> Result<Vec<CachedPerson>, OxidGeneError> {
-        Ok(person_ids
-            .iter()
-            .filter_map(|pid| {
-                let key = PersonKey {
-                    tree_id,
-                    person_id: *pid,
-                };
-                self.persons.get(&key).map(|entry| entry.value().clone())
-            })
-            .collect())
+        Ok(vec![])
     }
 
-    async fn get_all_persons(&self, tree_id: Uuid) -> Result<Vec<CachedPerson>, OxidGeneError> {
-        Ok(self
-            .persons
-            .iter()
-            .filter(|entry| entry.key().tree_id == tree_id)
-            .map(|entry| entry.value().clone())
-            .collect())
+    async fn get_all_persons(&self, _tree_id: Uuid) -> Result<Vec<CachedPerson>, OxidGeneError> {
+        Ok(vec![])
     }
 
     // ── PedigreeCache ────────────────────────────────────────────────────
@@ -325,49 +268,10 @@ impl CacheStore for MemoryCacheStore {
         Ok(())
     }
 
-    // ── SearchIndex ──────────────────────────────────────────────────────
-
-    async fn get_search_index(
-        &self,
-        tree_id: Uuid,
-    ) -> Result<Option<CachedSearchIndex>, OxidGeneError> {
-        Ok(self
-            .search_indexes
-            .get(&tree_id)
-            .map(|entry| entry.value().clone()))
-    }
-
-    async fn set_search_index(&self, entry: &CachedSearchIndex) -> Result<(), OxidGeneError> {
-        self.search_indexes.insert(entry.tree_id, entry.clone());
-        Ok(())
-    }
-
-    async fn delete_search_index(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        self.search_indexes.remove(&tree_id);
-        Ok(())
-    }
-
     // ── Bulk ─────────────────────────────────────────────────────────────
 
     async fn invalidate_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        // Remove all persons for this tree
-        self.persons.retain(|key, _| key.tree_id != tree_id);
-        // Remove all pedigrees for this tree (updating byte tracking)
-        let keys_to_remove: Vec<PedigreeKey> = self
-            .pedigrees
-            .iter()
-            .filter(|e| e.key().tree_id == tree_id)
-            .map(|e| *e.key())
-            .collect();
-        for key in keys_to_remove {
-            if let Some((_, old)) = self.pedigrees.remove(&key) {
-                self.pedigree_total_bytes
-                    .fetch_sub(old.estimated_bytes, Ordering::Relaxed);
-            }
-        }
-        // Remove search index for this tree
-        self.search_indexes.remove(&tree_id);
-        Ok(())
+        self.delete_all_pedigrees(tree_id).await
     }
 }
 
@@ -407,30 +311,50 @@ mod tests {
         }
     }
 
+    fn make_pedigree(tree_id: Uuid, root_id: Uuid) -> CachedPedigree {
+        let mut persons = std::collections::HashMap::new();
+        persons.insert(
+            root_id,
+            PedigreeNode {
+                person_id: root_id,
+                sex: Sex::Male,
+                display_name: "Test Person".to_string(),
+                given_names: None,
+                surname: None,
+                birth_year: None,
+                birth_place: None,
+                death_year: None,
+                death_place: None,
+                occupation: None,
+                primary_media_path: None,
+                generation: 0,
+                sosa_number: Some(1),
+            },
+        );
+        CachedPedigree {
+            tree_id,
+            root_person_id: root_id,
+            persons,
+            edges: vec![],
+            family_events: std::collections::HashMap::new(),
+            families: std::collections::HashMap::new(),
+            ancestor_depth_loaded: 3,
+            descendant_depth_loaded: 2,
+            cached_at: Utc::now(),
+        }
+    }
+
     #[tokio::test]
-    async fn test_person_crud() {
+    async fn person_ops_are_noops() {
         let store = MemoryCacheStore::new();
         let tree_id = Uuid::now_v7();
         let person_id = Uuid::now_v7();
 
-        // Initially empty
-        assert!(
-            store
-                .get_person(tree_id, person_id)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(!store.caches_persons());
 
-        // Store and retrieve
+        // set_person is accepted but not stored.
         let person = make_person(tree_id, person_id);
         store.set_person(&person).await.unwrap();
-        let retrieved = store.get_person(tree_id, person_id).await.unwrap().unwrap();
-        assert_eq!(retrieved.person_id, person_id);
-        assert_eq!(retrieved.tree_id, tree_id);
-
-        // Delete
-        store.delete_person(tree_id, person_id).await.unwrap();
         assert!(
             store
                 .get_person(tree_id, person_id)
@@ -438,69 +362,19 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-    }
 
-    #[tokio::test]
-    async fn test_batch_operations() {
-        let store = MemoryCacheStore::new();
-        let tree_id = Uuid::now_v7();
-        let ids: Vec<Uuid> = (0..5).map(|_| Uuid::now_v7()).collect();
-
-        let persons: Vec<CachedPerson> = ids.iter().map(|id| make_person(tree_id, *id)).collect();
-        store.set_persons_batch(&persons).await.unwrap();
-
-        // Batch get
-        let batch = store.get_persons_batch(tree_id, &ids).await.unwrap();
-        assert_eq!(batch.len(), 5);
-
-        // Get all
-        let all = store.get_all_persons(tree_id).await.unwrap();
-        assert_eq!(all.len(), 5);
-
-        // Partial batch
-        let partial = store.get_persons_batch(tree_id, &ids[0..2]).await.unwrap();
-        assert_eq!(partial.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_invalidate_tree() {
-        let store = MemoryCacheStore::new();
-        let tree_a = Uuid::now_v7();
-        let tree_b = Uuid::now_v7();
-
-        // Add persons to both trees
-        let pa = make_person(tree_a, Uuid::now_v7());
-        let pb = make_person(tree_b, Uuid::now_v7());
-        store.set_person(&pa).await.unwrap();
-        store.set_person(&pb).await.unwrap();
-
-        // Add search indexes
-        let si_a = CachedSearchIndex {
-            tree_id: tree_a,
-            entries: vec![],
-            cached_at: Utc::now(),
-        };
-        store.set_search_index(&si_a).await.unwrap();
-
-        // Invalidate tree A
-        store.invalidate_tree(tree_a).await.unwrap();
-
-        // Tree A gone, tree B still there
+        store.set_persons_batch(&[person]).await.unwrap();
         assert!(
             store
-                .get_person(tree_a, pa.person_id)
+                .get_persons_batch(tree_id, &[person_id])
                 .await
                 .unwrap()
-                .is_none()
+                .is_empty()
         );
-        assert!(
-            store
-                .get_person(tree_b, pb.person_id)
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(store.get_search_index(tree_a).await.unwrap().is_none());
+        assert!(store.get_all_persons(tree_id).await.unwrap().is_empty());
+
+        // delete_person is a no-op but must not fail.
+        store.delete_person(tree_id, person_id).await.unwrap();
     }
 
     #[tokio::test]
@@ -536,74 +410,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_invalidate_tree_drops_pedigrees() {
+        let store = MemoryCacheStore::new();
+        let tree_a = Uuid::now_v7();
+        let tree_b = Uuid::now_v7();
+        let root_a = Uuid::now_v7();
+        let root_b = Uuid::now_v7();
+
+        store
+            .set_pedigree(&make_pedigree(tree_a, root_a))
+            .await
+            .unwrap();
+        store
+            .set_pedigree(&make_pedigree(tree_b, root_b))
+            .await
+            .unwrap();
+
+        store.invalidate_tree(tree_a).await.unwrap();
+
+        assert!(store.get_pedigree(tree_a, root_a).await.unwrap().is_none());
+        assert!(store.get_pedigree(tree_b, root_b).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
     async fn test_delete_all_pedigrees() {
         let store = MemoryCacheStore::new();
         let tree_id = Uuid::now_v7();
 
-        for _ in 0..3 {
-            let pedigree = CachedPedigree {
-                tree_id,
-                root_person_id: Uuid::now_v7(),
-                persons: std::collections::HashMap::new(),
-                edges: vec![],
-                family_events: std::collections::HashMap::new(),
-                families: std::collections::HashMap::new(),
-                ancestor_depth_loaded: 5,
-                descendant_depth_loaded: 3,
-                cached_at: Utc::now(),
-            };
-            store.set_pedigree(&pedigree).await.unwrap();
+        let roots: Vec<Uuid> = (0..3).map(|_| Uuid::now_v7()).collect();
+        for root in &roots {
+            store
+                .set_pedigree(&make_pedigree(tree_id, *root))
+                .await
+                .unwrap();
         }
 
         store.delete_all_pedigrees(tree_id).await.unwrap();
-        // All should be gone — we can't enumerate easily, but invalidate_tree covers this
+        for root in &roots {
+            assert!(store.get_pedigree(tree_id, *root).await.unwrap().is_none());
+        }
+        assert_eq!(store.pedigree_total_bytes.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
     async fn test_lru_eviction() {
-        use oxidgene_core::Sex;
-
         // Budget of ~500 bytes — each pedigree with 1 node ≈ 300 + 128 = 428 bytes.
         // So we can fit exactly 1 entry before eviction triggers on the second.
         let store = MemoryCacheStore::with_budget(500);
         let tree_id = Uuid::now_v7();
 
-        let make_pedigree = |root_id: Uuid| {
-            let mut persons = std::collections::HashMap::new();
-            persons.insert(
-                root_id,
-                PedigreeNode {
-                    person_id: root_id,
-                    sex: Sex::Male,
-                    display_name: "Test Person".to_string(),
-                    given_names: None,
-                    surname: None,
-                    birth_year: None,
-                    birth_place: None,
-                    death_year: None,
-                    death_place: None,
-                    occupation: None,
-                    primary_media_path: None,
-                    generation: 0,
-                    sosa_number: Some(1),
-                },
-            );
-            CachedPedigree {
-                tree_id,
-                root_person_id: root_id,
-                persons,
-                edges: vec![],
-                family_events: std::collections::HashMap::new(),
-                families: std::collections::HashMap::new(),
-                ancestor_depth_loaded: 3,
-                descendant_depth_loaded: 2,
-                cached_at: Utc::now(),
-            }
-        };
-
         // Insert first pedigree — fits within budget.
         let root_a = Uuid::now_v7();
-        store.set_pedigree(&make_pedigree(root_a)).await.unwrap();
+        store
+            .set_pedigree(&make_pedigree(tree_id, root_a))
+            .await
+            .unwrap();
         assert!(
             store.get_pedigree(tree_id, root_a).await.unwrap().is_some(),
             "First pedigree should exist"
@@ -614,7 +475,10 @@ mod tests {
 
         // Insert second pedigree — should evict the first (LRU).
         let root_b = Uuid::now_v7();
-        store.set_pedigree(&make_pedigree(root_b)).await.unwrap();
+        store
+            .set_pedigree(&make_pedigree(tree_id, root_b))
+            .await
+            .unwrap();
         assert!(
             store.get_pedigree(tree_id, root_b).await.unwrap().is_some(),
             "Second pedigree should exist"
@@ -634,51 +498,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_lru_touch_on_read() {
-        use oxidgene_core::Sex;
-
         // Budget of ~900 bytes — fits 2 entries (each ~428 bytes).
         let store = MemoryCacheStore::with_budget(900);
         let tree_id = Uuid::now_v7();
 
-        let make_pedigree = |root_id: Uuid| {
-            let mut persons = std::collections::HashMap::new();
-            persons.insert(
-                root_id,
-                PedigreeNode {
-                    person_id: root_id,
-                    sex: Sex::Female,
-                    display_name: "Test".to_string(),
-                    given_names: None,
-                    surname: None,
-                    birth_year: None,
-                    birth_place: None,
-                    death_year: None,
-                    death_place: None,
-                    occupation: None,
-                    primary_media_path: None,
-                    generation: 0,
-                    sosa_number: None,
-                },
-            );
-            CachedPedigree {
-                tree_id,
-                root_person_id: root_id,
-                persons,
-                edges: vec![],
-                family_events: std::collections::HashMap::new(),
-                families: std::collections::HashMap::new(),
-                ancestor_depth_loaded: 3,
-                descendant_depth_loaded: 2,
-                cached_at: Utc::now(),
-            }
-        };
-
         let root_a = Uuid::now_v7();
-        store.set_pedigree(&make_pedigree(root_a)).await.unwrap();
+        store
+            .set_pedigree(&make_pedigree(tree_id, root_a))
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
         let root_b = Uuid::now_v7();
-        store.set_pedigree(&make_pedigree(root_b)).await.unwrap();
+        store
+            .set_pedigree(&make_pedigree(tree_id, root_b))
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
         // Touch A so it's no longer the LRU — B is now the oldest.
@@ -687,7 +522,10 @@ mod tests {
 
         // Insert C — should evict B (LRU), not A.
         let root_c = Uuid::now_v7();
-        store.set_pedigree(&make_pedigree(root_c)).await.unwrap();
+        store
+            .set_pedigree(&make_pedigree(tree_id, root_c))
+            .await
+            .unwrap();
 
         assert!(
             store.get_pedigree(tree_id, root_a).await.unwrap().is_some(),

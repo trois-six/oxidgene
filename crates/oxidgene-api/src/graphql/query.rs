@@ -351,10 +351,11 @@ impl QueryRoot {
         Ok(persons.into_iter().map(Into::into).collect())
     }
 
-    /// Server-side search across cached persons in a tree.
+    /// Server-side person search in a tree (spec name: `searchPersons`).
     ///
-    /// Uses accent-folded, normalised matching. Returns paginated results.
-    async fn cached_search(
+    /// Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL)
+    /// with accent-folded, normalised matching. Returns paginated results.
+    async fn search_persons(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,

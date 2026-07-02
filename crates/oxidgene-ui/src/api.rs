@@ -300,18 +300,6 @@ pub struct TreeSnapshot {
     pub children: Vec<oxidgene_core::types::FamilyChild>,
 }
 
-// ── Person Search ──────────────────────────────────────────────────
-
-/// A person search result row (returned by the server-side search endpoint).
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
-pub struct PersonSearchRow {
-    pub id: uuid::Uuid,
-    pub tree_id: uuid::Uuid,
-    pub sex: oxidgene_core::Sex,
-    pub surname: Option<String>,
-    pub given_names: Option<String>,
-}
-
 // ── Response Cache ───────────────────────────────────────────────────
 
 const CACHE_TTL_SECS: i64 = 30;
@@ -612,39 +600,23 @@ impl ApiClient {
 
     // ── Persons ─────────────────────────────────────────────────────
 
-    /// Search persons by name, server-side. Returns pre-resolved results
-    /// with surname + given names already joined, so no N+1.
+    /// Free-text person search, server-side (Sprint E.6).
+    ///
+    /// Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL):
+    /// accent-folded, every word of the query must match (prefix matching on
+    /// SQLite). An empty query lists persons sorted by name (browse mode).
     pub async fn search_persons(
         &self,
         tree_id: Uuid,
-        surname: Option<&str>,
-        given_names: Option<&str>,
-        sex: Option<&str>,
-        first: Option<u64>,
-        after: Option<&str>,
-    ) -> Result<Vec<PersonSearchRow>, ApiError> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(s) = surname
-            && !s.is_empty()
-        {
-            params.push(("surname", s.to_string()));
-        }
-        if let Some(g) = given_names
-            && !g.is_empty()
-        {
-            params.push(("given_names", g.to_string()));
-        }
-        if let Some(sx) = sex
-            && !sx.is_empty()
-        {
-            params.push(("sex", sx.to_string()));
-        }
-        if let Some(f) = first {
-            params.push(("first", f.to_string()));
-        }
-        if let Some(a) = after {
-            params.push(("after", a.to_string()));
-        }
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Result<SearchResult, ApiError> {
+        let params = [
+            ("q", query.to_string()),
+            ("limit", limit.to_string()),
+            ("offset", offset.to_string()),
+        ];
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/persons/search"), &params)
             .await
     }
@@ -1372,27 +1344,5 @@ impl ApiClient {
             &params,
         )
         .await
-    }
-
-    // ── Cache search ────────────────────────────────────────────────────
-
-    /// Search persons in a tree using the server-side search index.
-    ///
-    /// The `query` string is matched against normalized names with
-    /// accent-folding. Spaces are preserved so "jean dup" matches
-    /// given_names containing "jean" AND surname containing "dup".
-    pub async fn cache_search(
-        &self,
-        tree_id: Uuid,
-        query: &str,
-        limit: u32,
-        offset: u32,
-    ) -> Result<SearchResult, ApiError> {
-        // Minimal percent-encoding: replace spaces with %20.
-        let encoded_q = query.replace(' ', "%20");
-        let url = format!(
-            "/api/v1/trees/{tree_id}/cache/search?q={encoded_q}&limit={limit}&offset={offset}",
-        );
-        self.get(&url).await
     }
 }

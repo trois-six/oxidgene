@@ -270,9 +270,12 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 | B | GEDCOM Engine | ✅ Complete |
 | C | Tree Editing (Frontend) | ✅ Complete |
 | D | UX, Languages, Performance | ✅ Complete |
-| E | Server-Side Caching | 🔄 E.6 pending |
+| E | Server-Side Caching | 🔄 E.7 (medias) pending |
 | F | Security & Deployment | ⏳ Next |
 | G | Asynchronous Pipeline | ⏳ Post-MVP |
+
+**Recently shipped (Jul 2026):**
+- Sprint E.6 — Desktop cache simplification: search moved to a DB-native `person_search_fts` table (SQLite FTS5 virtual table on desktop, plain indexed table on PostgreSQL); `GET /cache/search` removed in favour of `GET /persons/search?q=...`; `PersonCache` and the in-memory search index removed from `MemoryCacheStore` (desktop keeps only the LRU pedigree cache — persons are rebuilt on demand with targeted SQLite queries); disk persistence reduced to pedigrees (schema v2). Benchmarks (release, synthetic 20K-person tree): person load ~9 ms, search ~10 ms, full rebuild ~0.7 s.
 
 **Recently shipped (Jun 2026):**
 - `ui-person-edit-modal.md` spec fully implemented (Phases 1–6): date qualifiers, create mode, couple modal rewrite with embedded `PersonForm`, staged child detach, keyboard shortcuts, responsive drawer.
@@ -280,8 +283,7 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 - Desktop binary size: 560 MB (debug) → 13.5 MB (release) via LTO, `graphql` + `postgres` feature flags.
 
 **Deferred:**
-- Performance testing with 100K-person trees (EPIC E.5 last item).
-- Desktop cache simplification: SQLite FTS5 for search, PersonCache evaluation (Sprint E.6).
+- Performance testing with 100K-person trees (EPIC E.5 last item; 20K-person synthetic benchmark added in E.6).
 
 ---
 
