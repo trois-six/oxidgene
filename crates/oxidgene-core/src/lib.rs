@@ -5,6 +5,7 @@
 
 pub mod enums;
 pub mod error;
+pub mod search;
 pub mod types;
 
 pub use enums::*;

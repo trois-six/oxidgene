@@ -211,6 +211,18 @@ pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<CachedPerson> {
         .collect()
 }
 
+/// Build a single `CachedPerson` from (possibly targeted) tree data.
+///
+/// `data` only needs to contain the person, their relatives (spouses, parents,
+/// children) and the entities attached to them — see
+/// `CacheService::fetch_person_data`. Returns `None` if the person is not in
+/// `data.persons`.
+pub fn build_person(tree_id: Uuid, person_id: Uuid, data: &TreeData) -> Option<CachedPerson> {
+    let person = data.persons.iter().find(|p| p.id == person_id)?;
+    let idx = IndexedData::new(data);
+    Some(build_one_person(person, tree_id, &idx, Utc::now()))
+}
+
 /// Build a single `CachedPerson` from indexed data.
 fn build_one_person(
     person: &Person,
@@ -473,21 +485,47 @@ pub fn build_search_entry(person: &CachedPerson) -> SearchEntry {
     }
 }
 
-/// Build the search index for a tree from cached persons.
-pub fn build_search_index(tree_id: Uuid, persons: &[CachedPerson]) -> CachedSearchIndex {
-    let mut entries: Vec<SearchEntry> = persons.iter().map(build_search_entry).collect();
+/// Build a `person_search_fts` row from a `CachedPerson` (Sprint E.6).
+///
+/// This is the write model for the DB-native search table which replaced the
+/// in-memory `CachedSearchIndex`.
+pub fn build_db_search_entry(person: &CachedPerson) -> oxidgene_db::repo::PersonSearchEntry {
+    let entry = build_search_entry(person);
+    oxidgene_db::repo::PersonSearchEntry {
+        person_id: entry.person_id,
+        tree_id: person.tree_id,
+        surname: entry.surname_normalized,
+        given_names: entry.given_names_normalized,
+        maiden_name: entry.maiden_name_normalized,
+        birth_year: entry.birth_year,
+        death_year: entry.death_year,
+        sex: entry.sex.to_string(),
+        display_name: entry.display_name,
+        birth_place: entry.birth_place,
+        date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
+    }
+}
 
-    // Sort by surname then given_names for efficient browsing
-    entries.sort_by(|a, b| {
-        a.surname_normalized
-            .cmp(&b.surname_normalized)
-            .then(a.given_names_normalized.cmp(&b.given_names_normalized))
-    });
-
-    CachedSearchIndex {
-        tree_id,
-        entries,
-        cached_at: Utc::now(),
+/// Convert a `person_search_fts` row back into the `SearchEntry` API shape.
+pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> SearchEntry {
+    let sex = match row.sex.as_str() {
+        "male" => Sex::Male,
+        "female" => Sex::Female,
+        _ => Sex::Unknown,
+    };
+    SearchEntry {
+        person_id: row.person_id,
+        sex,
+        surname_normalized: row.surname,
+        given_names_normalized: row.given_names,
+        maiden_name_normalized: row.maiden_name,
+        display_name: row.display_name,
+        birth_year: row.birth_year,
+        birth_place: row.birth_place,
+        death_year: row.death_year,
+        date_sort: row
+            .date_sort
+            .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
     }
 }
 
@@ -523,108 +561,13 @@ pub fn build_pedigree_node(
 
 /// Normalize a string for search: lowercase + accent folding.
 ///
-/// This is a simple implementation that handles common Latin diacritics.
-/// For more comprehensive accent folding, consider using the `deunicode` crate.
-pub fn normalize_for_search(s: &str) -> String {
-    s.to_lowercase().chars().map(fold_accent).collect()
-}
-
-/// Fold a single accented character to its ASCII equivalent.
-fn fold_accent(c: char) -> char {
-    match c {
-        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
-        'æ' => 'a', // simplified
-        'ç' => 'c',
-        'è' | 'é' | 'ê' | 'ë' => 'e',
-        'ì' | 'í' | 'î' | 'ï' => 'i',
-        'ñ' => 'n',
-        'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
-        'ù' | 'ú' | 'û' | 'ü' => 'u',
-        'ý' | 'ÿ' => 'y',
-        'ð' => 'd',
-        'ø' => 'o',
-        'ß' => 's',
-        _ => c,
-    }
-}
-
-/// Search the index for persons matching the query.
-///
-/// Performs case-insensitive, accent-folded matching with two strategies:
-/// 1. **Exact substring**: the full query matches any single field (handles
-///    compound names like "le cam").
-/// 2. **All-words**: every whitespace-delimited word in the query appears
-///    somewhere across all searchable fields (handles "erraud pierre"
-///    matching surname "ERRAUD" + given names containing "Pierre").
-pub fn search_index(
-    index: &CachedSearchIndex,
-    query: &str,
-    limit: usize,
-    offset: usize,
-) -> SearchResult {
-    let normalized_query = normalize_for_search(query);
-    let words: Vec<&str> = normalized_query.split_whitespace().collect();
-
-    let matching: Vec<&SearchEntry> = index
-        .entries
-        .iter()
-        .filter(|entry| {
-            let sn = &entry.surname_normalized;
-            let gn = &entry.given_names_normalized;
-            let mn = entry.maiden_name_normalized.as_deref().unwrap_or("");
-
-            // Strategy 1: full query as a substring of any single field.
-            if sn.contains(&normalized_query)
-                || gn.contains(&normalized_query)
-                || (!mn.is_empty() && mn.contains(&normalized_query))
-            {
-                return true;
-            }
-
-            // Strategy 2: every word must appear in at least one field.
-            if words.len() > 1 {
-                let all = format!("{sn} {gn} {mn}");
-                return words.iter().all(|w| all.contains(w));
-            }
-
-            false
-        })
-        .collect();
-
-    let total_count = matching.len();
-    let entries: Vec<SearchEntry> = matching
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .cloned()
-        .collect();
-
-    SearchResult {
-        entries,
-        total_count,
-    }
-}
+/// Re-exported from `oxidgene_core::search` so cache-crate callers keep
+/// their existing import path.
+pub use oxidgene_core::search::normalize_for_search;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_normalize_for_search() {
-        assert_eq!(normalize_for_search("Éloïse"), "eloise");
-        assert_eq!(normalize_for_search("François"), "francois");
-        assert_eq!(normalize_for_search("Müller"), "muller");
-        assert_eq!(normalize_for_search("Ñoño"), "nono");
-        assert_eq!(normalize_for_search("DUPONT"), "dupont");
-    }
-
-    #[test]
-    fn test_fold_accent() {
-        assert_eq!(fold_accent('é'), 'e');
-        assert_eq!(fold_accent('ü'), 'u');
-        assert_eq!(fold_accent('a'), 'a');
-        assert_eq!(fold_accent('Z'), 'Z'); // uppercase not folded here, normalize lowercases first
-    }
 
     #[test]
     fn test_extract_year() {
@@ -647,54 +590,41 @@ mod tests {
     }
 
     #[test]
-    fn test_search_index_matching() {
-        let index = CachedSearchIndex {
-            tree_id: Uuid::now_v7(),
-            entries: vec![
-                SearchEntry {
-                    person_id: Uuid::now_v7(),
-                    sex: Sex::Male,
-                    surname_normalized: "dupont".to_string(),
-                    given_names_normalized: "jean".to_string(),
-                    maiden_name_normalized: None,
-                    display_name: "Jean Dupont".to_string(),
-                    birth_year: Some("1842".to_string()),
-                    birth_place: Some("Paris".to_string()),
-                    death_year: Some("1910".to_string()),
-                    date_sort: None,
-                },
-                SearchEntry {
-                    person_id: Uuid::now_v7(),
-                    sex: Sex::Female,
-                    surname_normalized: "durand".to_string(),
-                    given_names_normalized: "marie".to_string(),
-                    maiden_name_normalized: Some("dupont".to_string()),
-                    display_name: "Marie Durand".to_string(),
-                    birth_year: Some("1850".to_string()),
-                    birth_place: None,
-                    death_year: None,
-                    date_sort: None,
-                },
-            ],
-            cached_at: Utc::now(),
+    fn test_search_entry_db_roundtrip() {
+        let entry = SearchEntry {
+            person_id: Uuid::now_v7(),
+            sex: Sex::Female,
+            surname_normalized: "durand".to_string(),
+            given_names_normalized: "marie".to_string(),
+            maiden_name_normalized: Some("dupont".to_string()),
+            display_name: "Marie Durand".to_string(),
+            birth_year: Some("1850".to_string()),
+            birth_place: Some("Paris".to_string()),
+            death_year: None,
+            date_sort: chrono::NaiveDate::from_ymd_opt(1850, 6, 1),
+        };
+        let tree_id = Uuid::now_v7();
+
+        let db_row = oxidgene_db::repo::PersonSearchEntry {
+            person_id: entry.person_id,
+            tree_id,
+            surname: entry.surname_normalized.clone(),
+            given_names: entry.given_names_normalized.clone(),
+            maiden_name: entry.maiden_name_normalized.clone(),
+            birth_year: entry.birth_year.clone(),
+            death_year: entry.death_year.clone(),
+            sex: entry.sex.to_string(),
+            display_name: entry.display_name.clone(),
+            birth_place: entry.birth_place.clone(),
+            date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
         };
 
-        // Search for "dupont" should match both (surname + maiden name)
-        let result = search_index(&index, "dupont", 10, 0);
-        assert_eq!(result.total_count, 2);
-
-        // Search for "duran" should match only Marie
-        let result = search_index(&index, "duran", 10, 0);
-        assert_eq!(result.total_count, 1);
-        assert_eq!(result.entries[0].display_name, "Marie Durand");
-
-        // Accent-folded search
-        let result = search_index(&index, "Dupönt", 10, 0);
-        assert_eq!(result.total_count, 2);
-
-        // Pagination
-        let result = search_index(&index, "dupont", 1, 0);
-        assert_eq!(result.entries.len(), 1);
-        assert_eq!(result.total_count, 2);
+        let back = search_entry_from_db(db_row);
+        assert_eq!(back.person_id, entry.person_id);
+        assert_eq!(back.sex, Sex::Female);
+        assert_eq!(back.surname_normalized, "durand");
+        assert_eq!(back.maiden_name_normalized.as_deref(), Some("dupont"));
+        assert_eq!(back.date_sort, entry.date_sort);
+        assert_eq!(back.display_name, "Marie Durand");
     }
 }

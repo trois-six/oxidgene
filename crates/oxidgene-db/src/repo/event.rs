@@ -62,6 +62,34 @@ impl EventRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List all events attached to a person (excludes soft-deleted).
+    pub async fn list_by_person(
+        db: &DatabaseConnection,
+        person_id: Uuid,
+    ) -> Result<Vec<Event>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::PersonId.eq(person_id))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
+    /// List all events attached to any of the given families (excludes soft-deleted).
+    pub async fn list_by_families(
+        db: &DatabaseConnection,
+        family_ids: &[Uuid],
+    ) -> Result<Vec<Event>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::FamilyId.is_in(family_ids.iter().copied()))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single event by ID (excludes soft-deleted).
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Event, OxidGeneError> {
         Entity::find_by_id(id)

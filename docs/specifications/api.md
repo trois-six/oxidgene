@@ -163,8 +163,9 @@ Server-side cache endpoints provide pre-built, denormalized data for instant pag
 | `GET` | `/trees/{tree_id}/cache/persons?ids=uuid1,uuid2,...` | Batch get cached persons |
 | `GET` | `/trees/{tree_id}/cache/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Get windowed pedigree for a root person |
 | `PATCH` | `/trees/{tree_id}/cache/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N` | Expand pedigree depth (returns only new nodes/edges) |
-| `GET` | `/trees/{tree_id}/cache/search?q=query&limit=20&offset=0` | Server-side person search (paginated) |
 | `POST` | `/trees/{tree_id}/cache/rebuild` | Force full cache rebuild for a tree |
+
+**Search (Sprint E.6):** person search moved to the normal search path — `GET /trees/{tree_id}/persons/search?q=query&limit=20&offset=0` (paginated `SearchResult`, backed by the `person_search_fts` DB table; empty or missing `q` = browse mode, sorted by name). The former `GET /cache/search` endpoint and the legacy `surname`/`given_names`/`sex` field filters were removed.
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
 

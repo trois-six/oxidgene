@@ -186,7 +186,6 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/cache/rebuild/{person_id}",
             post(cache::rebuild_person_cache),
         )
-        .route("/{tree_id}/cache/search", get(cache::search_cached))
         .route(
             "/{tree_id}/cache/invalidate",
             post(cache::invalidate_tree_cache),

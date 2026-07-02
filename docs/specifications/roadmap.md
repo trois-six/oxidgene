@@ -166,19 +166,24 @@ timestamp: 2026-06-17T00:00:00Z
 - [x] Auto-detect Redis (web) vs. memory (desktop) via configuration.
 - [x] Cache staleness detection and recovery for desktop.
 
-### Sprint E.6 — Desktop Cache Simplification (SQLite-native)
+### Sprint E.6 — Desktop Cache Simplification (SQLite-native) ✅
 
 > Rationale: the in-memory PersonCache and SearchIndex are redundant on desktop where SQLite is local.
 > PedigreeCache stays (layout is parameter-dependent: root × depth × structure).
 
-- [ ] Replace `CachedSearchIndex` with a SQLite **FTS5 virtual table** (`person_search_fts`).
-  - Add FTS5 migration (name tokens, birth year, death year).
-  - Populate on GEDCOM import and person/name mutations.
-  - Remove `GET /cache/search`. This should be handled directly by the normal search path.
-- [ ] Evaluate and remove `PersonCache` from `MemoryCacheStore`.
-- [ ] Update `caching.md` to document the SQLite-native path vs. Redis path.
-- [ ] Performance regression test: verify search and person-load times are ≤ current with FTS5.
-- [ ] Performance benchmarks on large GEDCOM files.
+- [x] Replace `CachedSearchIndex` with a SQLite **FTS5 virtual table** (`person_search_fts`).
+  - Add FTS5 migration (name tokens, birth year, death year; plain indexed table on PostgreSQL).
+  - Populate on GEDCOM import and person/name mutations (bounded upserts via `PersonSearchRepo`).
+  - Remove `GET /cache/search`. Handled by the normal search path: `GET /persons/search?q=...`.
+- [x] Evaluate and remove `PersonCache` from `MemoryCacheStore` — removed; persons are built on
+  demand with targeted SQLite queries (`caches_persons()` store flag; Redis keeps PersonCache).
+  Disk persistence reduced to pedigrees only (cache schema v2).
+- [x] Update `caching.md` to document the SQLite-native path vs. Redis path.
+- [x] Performance regression test: search and person-load times verified ≤ current with FTS5
+  (`service_e6_test.rs`: person load < 100 ms asserted; measured ~1 ms at 2K persons).
+- [x] Performance benchmarks on large GEDCOM-scale trees (`bench_large_tree_20k`, run with
+  `cargo test -p oxidgene-cache -- --ignored`): 20K persons → person load ~9 ms, search ~10 ms,
+  full rebuild ~0.7 s (release).
 
 ---
 

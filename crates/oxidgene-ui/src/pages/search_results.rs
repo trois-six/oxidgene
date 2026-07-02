@@ -111,7 +111,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     body: "Invalid tree ID".into(),
                 });
             };
-            api.cache_search(tid, &q, SERVER_LIMIT, 0).await
+            api.search_persons(tid, &q, SERVER_LIMIT, 0).await
         }
     });
 

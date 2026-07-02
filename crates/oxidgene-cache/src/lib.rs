@@ -1,9 +1,13 @@
 //! OxidGene server-side cache layer.
 //!
-//! Provides three caches for instant page rendering:
-//! - **PersonCache** — per-person denormalized profile
-//! - **PedigreeCache** — windowed tree display
-//! - **SearchIndex** — per-tree normalized search index
+//! Provides caches for instant page rendering:
+//! - **PersonCache** — per-person denormalized profile (Redis / web only;
+//!   on desktop persons are rebuilt on demand from local SQLite)
+//! - **PedigreeCache** — windowed tree display (all backends)
+//!
+//! Search is DB-native since Sprint E.6: it goes through the
+//! `person_search_fts` table (SQLite FTS5 virtual table / plain PostgreSQL
+//! table), maintained by `CacheService` on every mutation.
 //!
 //! See `docs/specifications/caching.md` for the full architecture.
 

@@ -184,19 +184,22 @@ struct PedigreeEdge {
 | User changes root person | Lookup or build a new PedigreeCache for the new root. If many persons overlap with the previous view, PersonCache already has them (instant node construction). |
 | A person is edited | The PedigreeNode for that person is rebuilt from the updated PersonCache entry. All pedigrees containing that person are patched. |
 
-### 2.3 SearchIndex — Per-Tree Search
+### 2.3 Search — DB-Native `person_search_fts` Table (Sprint E.6)
 
-**Purpose:** A pre-built index for instant person search within a tree. Avoids sending the full person list to the browser.
+**Purpose:** Instant person search within a tree, without sending the full person list to the browser.
 
-**Key:** `tree_id`
+Since Sprint E.6 the search index is **not a cache** anymore — it lives in the database itself, in a table named `person_search_fts`, and survives restarts with the data:
+
+| Backend | Implementation | Matching |
+|---|---|---|
+| **SQLite (desktop)** | FTS5 virtual table — indexed columns: `surname`, `given_names`, `maiden_name`, `birth_year`, `death_year`; display fields stored `UNINDEXED` | `MATCH` with per-word **prefix** queries (`"jean"* "dup"*`), all words must match |
+| **PostgreSQL (web)** | Plain table with the same columns + `tree_id` index | Per-word `LIKE '%word%'` (substring), all words must match |
+
+All searchable columns are pre-normalized in Rust (`oxidgene_core::search::normalize_for_search`: lowercase + accent folding) before insert, and queries are normalized the same way — so both backends match identically regardless of collation or missing DB extensions. A search like `"dupönt 1850"` matches a person with surname `DUPONT` born in 1850.
+
+The API still returns the `SearchEntry` wire shape (defined in `oxidgene-cache::types`):
 
 ```rust
-struct CachedSearchIndex {
-    tree_id: Uuid,
-    entries: Vec<SearchEntry>,      // Sorted by surname, given_names for efficient matching
-    cached_at: DateTime<Utc>,
-}
-
 struct SearchEntry {
     person_id: Uuid,
     sex: Sex,
@@ -215,7 +218,9 @@ struct SearchEntry {
 }
 ```
 
-The server performs the search (prefix match, trigram, or simple substring on normalized fields) and returns paginated results. The frontend never needs the full person list.
+`PersonSearchRepo` (in `oxidgene-db`) owns all reads/writes: `replace_tree` (full rebuild / GEDCOM import), `upsert` (bounded per-mutation refresh), `delete_person`, `delete_tree`, `search` (paginated, returns entries + total count). `CacheService::search` populates the table lazily on first use if it's empty (e.g. right after the migration), so no manual backfill is needed.
+
+An empty query is **browse mode**: all persons of the tree, sorted by surname then given names, paginated.
 
 ---
 
@@ -228,7 +233,12 @@ A trait abstracts over the two storage backends, allowing the same `CacheService
 ```rust
 #[async_trait]
 trait CacheStore: Send + Sync {
-    // --- PersonCache ---
+    // Whether this store persists CachedPerson entries.
+    // MemoryCacheStore (desktop) returns false: SQLite is local, persons are
+    // built on demand with targeted queries. RedisCacheStore returns true.
+    fn caches_persons(&self) -> bool { true }
+
+    // --- PersonCache (no-ops on stores where caches_persons() == false) ---
     async fn get_person(&self, tree_id: Uuid, person_id: Uuid) -> Option<CachedPerson>;
     async fn set_person(&self, entry: &CachedPerson);
     async fn set_persons_batch(&self, entries: &[CachedPerson]);
@@ -241,15 +251,12 @@ trait CacheStore: Send + Sync {
     async fn delete_pedigree(&self, tree_id: Uuid, root_id: Uuid);
     async fn delete_all_pedigrees(&self, tree_id: Uuid);
 
-    // --- SearchIndex ---
-    async fn get_search_index(&self, tree_id: Uuid) -> Option<CachedSearchIndex>;
-    async fn set_search_index(&self, entry: &CachedSearchIndex);
-    async fn delete_search_index(&self, tree_id: Uuid);
-
     // --- Bulk ---
     async fn invalidate_tree(&self, tree_id: Uuid);
 }
 ```
+
+Search is deliberately **absent** from the trait: it goes through the `person_search_fts` DB table on every backend (see §2.3).
 
 ### 3.2 Redis Backend (Web Deployment)
 
@@ -257,27 +264,33 @@ Used when the application runs as a web server behind Redis.
 
 | Aspect | Detail |
 |---|---|
-| **Key patterns** | `pc:{tree_id}:{person_id}` (PersonCache), `ped:{tree_id}:{root_id}` (PedigreeCache), `si:{tree_id}` (SearchIndex) |
+| **Key patterns** | `oxidgene:person:{tree_id}:{person_id}` (PersonCache), `oxidgene:pedigree:{tree_id}:{root_id}` (PedigreeCache), `oxidgene:tree_keys:{tree_id}` (key set for bulk invalidation) |
 | **Serialization** | MessagePack (compact, fast, schema-less) |
 | **Batch reads** | `MGET` for `get_persons_batch` |
-| **Pedigree nodes** | Stored as a Redis Hash (`HSET`/`HGET`) so individual nodes can be updated without rewriting the full pedigree |
-| **TTL** | None by default (explicit invalidation on mutations). Optional 24-hour safety TTL as a fallback. |
-| **Bulk invalidation** | `SCAN` + `DEL` with prefix patterns (e.g. `pc:{tree_id}:*`, `ped:{tree_id}:*`, `si:{tree_id}`) |
+| **TTL** | None by default (explicit invalidation on mutations). |
+| **Bulk invalidation** | Per-tree key set (`SADD` on write, `SMEMBERS` + pipelined `DEL` on invalidation) |
+| **Search** | Not in Redis — search hits the PostgreSQL `person_search_fts` table (§2.3) |
 
 Redis is added as a container in the Docker Compose stack for web deployment. See [Architecture](architecture.md) §8.1.
 
-### 3.3 In-Memory + Disk Backend (Desktop)
+### 3.3 In-Memory + Disk Backend (Desktop) — Pedigrees Only Since E.6
 
 Used when the application runs as a desktop app (single user, embedded SQLite).
 
+Since Sprint E.6 the desktop store caches **only pedigrees** (`caches_persons()` returns `false`):
+
+- **Persons are not cached.** SQLite is local, so `CacheService` builds each `CachedPerson` on demand with *targeted* queries (the person, their family memberships, all members of those families, their events/places/media/notes) — ~1 ms per person, no full-tree fetch. Person cache methods on the store are no-ops.
+- **Search is not cached.** It goes through the `person_search_fts` FTS5 table (§2.3).
+- **Pedigrees stay cached** because their layout is parameter-dependent (root × depth × structure) and expensive to recompute. When a pedigree *is* rebuilt, the tree data is fetched **once** and all nodes are built from that single pass.
+
 | Aspect | Detail |
 |---|---|
-| **Runtime** | `DashMap` (lock-free concurrent HashMap) for instant reads |
+| **Runtime** | `DashMap` (lock-free concurrent HashMap) of pedigrees, with a memory-budgeted LRU (§10) |
 | **Persistence directory** | Platform cache directory via `dirs::cache_dir()` — resolves to `~/.cache/oxidgene/` (Linux), `~/Library/Caches/oxidgene/` (macOS), `C:\Users\<user>\AppData\Local\oxidgene\` (Windows) |
-| **File layout** | `{tree_id}.persons.bin` (all CachedPerson), `{tree_id}.search.bin` (SearchIndex), `{tree_id}.pedigree.{root_id}.bin` (per-root PedigreeCache) |
-| **Serialization** | `bincode` (fast, compact binary encoding) |
-| **Lifecycle** | Load `.bin` files into DashMap on app startup. Reads/writes at runtime are in-memory. On graceful app exit, serialize DashMap contents back to `.bin` files. |
-| **Crash recovery** | Stale or missing cache is detected via a `cache_version` counter stored alongside the cache. If it doesn't match the DB state, the cache is rebuilt lazily on first access. |
+| **File layout** | `pedigrees.bin` (all cached pedigrees) + `cache_metadata.json` (schema version, DB path + mtime for staleness) |
+| **Serialization** | `bincode` (fast, compact binary encoding), atomic write (temp file → rename) |
+| **Lifecycle** | Load `pedigrees.bin` on app startup (discarded if stale). On graceful app exit, serialize back to disk. |
+| **Crash recovery / staleness** | `cache_metadata.json` stores the schema version and the SQLite file's path + modification time; any mismatch discards the cache, which is rebuilt lazily on first access. Legacy schema-v1 files (`persons.bin`, `search_indexes.bin`) are ignored and cleaned up. |
 
 ---
 
@@ -289,17 +302,19 @@ Used when the application runs as a desktop app (single user, embedded SQLite).
 
 ### 4.2 Mutation → Invalidation Map
 
-| Mutation | PersonCache | PedigreeCache | SearchIndex |
+| Mutation | PersonCache (Redis path) | PedigreeCache | `person_search_fts` |
 |---|---|---|---|
-| **Edit person** (sex change) | Rebuild `person_id` | Update node in all pedigrees containing it | Update entry |
-| **Edit person name** | Rebuild `person_id` + all persons referencing its display name (spouses, children, parents) | Update node display_name | Update entry |
-| **Add/edit/delete event** | Rebuild `person_id` (or both spouses if family event) | Update node if birth/death/occupation changed | Update entry if birth/death changed |
-| **Add/delete family spouse** | Rebuild both spouses + all children in the family | Rebuild affected edges | No impact |
-| **Add/delete family child** | Rebuild child + both parents | Rebuild affected edges; add PedigreeNode if within loaded depth | No impact |
-| **Delete person** | Remove entry | Remove node from all pedigrees containing it | Remove from index |
-| **Create person** | Build new entry | No impact (not linked to any family yet) | Add to index |
-| **GEDCOM import** | Build all entries (eager, batched) | Build pedigree for `sosa_root_person_id` if set | Build full index |
-| **Delete tree** | `invalidate_tree(tree_id)` | Drop all pedigrees | Drop index |
+| **Edit person** (sex change) | Rebuild `person_id` | Drop tree pedigrees (rebuilt on next access) | Upsert affected rows |
+| **Edit person name** | Rebuild `person_id` + all persons referencing its display name (spouses, children, parents) | Drop tree pedigrees | Upsert affected rows |
+| **Add/edit/delete event** | Rebuild `person_id` (or both spouses if family event) | Drop tree pedigrees | Upsert affected rows |
+| **Add/delete family spouse** | Rebuild both spouses + all children in the family | Drop tree pedigrees | Upsert affected rows |
+| **Add/delete family child** | Rebuild child + both parents | Drop tree pedigrees | Upsert affected rows |
+| **Delete person** | Remove entry | Drop tree pedigrees | `DELETE` the row, upsert affected relatives |
+| **Create person** | Build new entry | No impact (not linked to any family yet) | Insert row |
+| **GEDCOM import** | Build all entries (eager, batched) | Build pedigree for `sosa_root_person_id` if set | `replace_tree` (full rebuild) |
+| **Delete tree** | `invalidate_tree(tree_id)` | Drop all pedigrees | `delete_tree` |
+
+On the desktop path the PersonCache column is a no-op (persons aren't cached); only the pedigree drop and the `person_search_fts` upsert happen. Search rows are refreshed with **bounded upserts** (only the affected persons), not a full index rebuild.
 
 ### 4.3 Affected Set Algorithm
 
@@ -340,13 +355,13 @@ This set is **bounded** — typically 2–10 persons. Rebuilding each `CachedPer
 
 ```
 Mutation latency breakdown (typical):
-  DB write:              ~2-10ms
-  Compute affected set:  ~1ms  (query family memberships)
-  Rebuild PersonCache:   ~2-5ms (2-10 entries from DB)
-  Patch PedigreeCaches:  ~1ms  (update nodes in existing caches)
-  Update SearchIndex:    ~1ms  (update 1-10 entries)
+  DB write:                    ~2-10ms
+  Compute affected set:        ~1ms  (query family memberships)
+  Rebuild persons:             ~2-5ms (2-10 targeted builds / batch)
+  Drop pedigrees:              <1ms
+  Upsert person_search_fts:    ~1ms  (delete + insert 1-10 rows)
   ─────────────────────────────
-  Total overhead:        ~5-15ms (imperceptible to user)
+  Total overhead:              ~5-15ms (imperceptible to user)
 ```
 
 ---
@@ -360,10 +375,10 @@ Base path: `/api/v1`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/cache/persons/{person_id}` | Get a single cached person (full denormalized profile) |
-| `GET` | `/trees/{tree_id}/cache/persons?ids=uuid1,uuid2,...` | Batch get cached persons |
+| `GET` | `/trees/{tree_id}/cache/persons` | Get all cached persons for a tree |
 | `GET` | `/trees/{tree_id}/cache/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Get windowed pedigree for a root person |
 | `PATCH` | `/trees/{tree_id}/cache/pedigree/{root_person_id}/expand?direction=ancestors|descendants&from_depth=N&to_depth=N` | Expand pedigree depth (returns only the new nodes and edges as a `PedigreeDelta`) |
-| `GET` | `/trees/{tree_id}/cache/search?q=query&limit=20&offset=0` | Server-side person search (paginated) |
+| `GET` | `/trees/{tree_id}/persons/search?q=query&limit=20&offset=0` | Server-side person search (paginated, backed by `person_search_fts`; empty `q` = browse mode). **Replaced `GET /cache/search` in Sprint E.6.** |
 | `POST` | `/trees/{tree_id}/cache/rebuild` | Force full cache rebuild for a tree (admin/debug) |
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
@@ -526,7 +541,7 @@ enum PedigreeDirection {
 |---|---|
 | `ResponseCache` (30s TTL HTTP cache in `api.rs`) | Replaced by server-side cache — no more client-side response caching |
 | `TreeSnapshot` endpoint + `get_tree_snapshot()` | Replaced by windowed `PedigreeCache` + per-person `PersonCache` |
-| Client-side search filtering in `SearchResults`/`SearchPerson` | Replaced by server-side `GET /cache/search` endpoint |
+| Client-side search filtering in `SearchResults`/`SearchPerson` | Replaced by server-side `GET /persons/search?q=...` endpoint (was `GET /cache/search` until Sprint E.6) |
 
 ### 6.2 What Gets Simplified
 
@@ -552,7 +567,7 @@ Individual person lookups go through the API (which reads from server-side cache
 | **Person detail** | `get_person` + N+1 for names, events, families, spouses per family, children per family | `GET /cache/persons/{person_id}` — single request, everything pre-joined |
 | **Person edit modal** | Same N+1 as person detail | Same `GET /cache/persons/{person_id}` for read; mutations hit existing REST endpoints (which auto-update cache) |
 | **Union edit modal** | N+1 per person in family | `GET /cache/persons?ids=spouse1,spouse2,child1,...` — batch read |
-| **Search** | Load full `TreeSnapshot`, filter/score/sort in browser | `GET /cache/search?q=...&limit=20` — server-side, paginated, instant |
+| **Search** | Load full `TreeSnapshot`, filter/score/sort in browser | `GET /persons/search?q=...&limit=20` — server-side (FTS5 / PG table), paginated, instant |
 
 ---
 
@@ -625,8 +640,8 @@ async fn import_gedcom_handler(...) -> Result<Json<ImportResult>> {
 
 `rebuild_tree_full` does:
 1. Fetch all persons + names + events + places + family_members in parallel (via `tokio::try_join!`).
-2. Build all `CachedPerson` entries in batch (using `set_persons_batch`).
-3. Build the `CachedSearchIndex` for the tree.
+2. Build all `CachedPerson` entries in batch (using `set_persons_batch` — no-op on desktop).
+3. Rebuild the `person_search_fts` table for the tree (`PersonSearchRepo::replace_tree`).
 4. Build the `CachedPedigree` for the `sosa_root_person_id` (if set on the tree).
 
 For 100K persons, this takes approximately 2–5 seconds. The frontend can display a "Building cache..." progress indicator and poll for completion. Subsequent page interactions are instant.
@@ -635,28 +650,27 @@ For 100K persons, this takes approximately 2–5 seconds. The frontend can displ
 
 ## 9. Desktop Persistence
 
-### 9.1 File Layout
+### 9.1 File Layout (schema v2, Sprint E.6)
 
 ```
 <cache_dir>/oxidgene/          # dirs::cache_dir() + "oxidgene/"
                                # Linux:   ~/.cache/oxidgene/
                                # macOS:   ~/Library/Caches/oxidgene/
                                # Windows: C:\Users\<user>\AppData\Local\oxidgene\
-  {tree_id_1}.persons.bin         # All CachedPerson for tree 1
-  {tree_id_1}.search.bin          # SearchIndex for tree 1
-  {tree_id_1}.pedigree.{root_id}.bin   # PedigreeCache per root
-  {tree_id_2}.persons.bin
-  ...
+  pedigrees.bin                # All cached pedigrees (bincode)
+  cache_metadata.json          # Schema version + DB path/mtime for staleness
 ```
+
+Persons and the search index are no longer persisted: persons are rebuilt from local SQLite on demand, and search lives in the `person_search_fts` table inside the database file itself. Legacy schema-v1 files (`persons.bin`, `search_indexes.bin`) are ignored on load and removed on the next persist.
 
 ### 9.2 Lifecycle
 
 | Phase | Behavior |
 |---|---|
-| **App startup** | Load all `.bin` files from the cache directory into the in-memory `DashMap`. |
-| **Runtime** | All reads and writes operate on the `DashMap` (sub-microsecond). |
-| **Graceful shutdown** | Serialize all `DashMap` contents to `.bin` files using `bincode`. |
-| **Crash recovery** | On next startup, if cache files are stale or missing, the cache is rebuilt lazily on first access. Staleness is detected via a `cache_version` counter stored in the cache files and compared to a version counter in the database. |
+| **App startup** | Load `pedigrees.bin` into the in-memory `DashMap` (discarded if stale). |
+| **Runtime** | All pedigree reads and writes operate on the `DashMap` (sub-microsecond). |
+| **Graceful shutdown** | Serialize the `DashMap` contents back to `pedigrees.bin` using `bincode` (atomic write). |
+| **Crash recovery** | On next startup, if cache files are stale or missing, pedigrees are rebuilt lazily on first access. Staleness is detected via `cache_metadata.json` (schema version + SQLite file path and modification time). |
 
 ---
 
@@ -739,3 +753,15 @@ The budget is configurable via:
 - Auto-detect Redis (web) vs. memory (desktop) via configuration.
 - Performance testing with 100K-person trees.
 - Cache staleness detection and recovery for desktop.
+
+### Sprint E.6 — Desktop Cache Simplification (SQLite-native)
+
+> Supersedes parts of E.4/E.5: the in-memory `CachedSearchIndex` and the desktop `PersonCache` described above were removed in this sprint.
+
+- Replace `CachedSearchIndex` with the DB-native `person_search_fts` table (§2.3): SQLite FTS5 virtual table on desktop, plain indexed table on PostgreSQL, maintained by `PersonSearchRepo` with bounded per-mutation upserts.
+- Move search to the normal search path: `GET /trees/{tree_id}/persons/search?q=...` (the `GET /cache/search` endpoint is removed; the GraphQL query was renamed `cachedSearch` → `searchPersons`, matching §5.2).
+- Remove `PersonCache` from `MemoryCacheStore` (`caches_persons()` flag on the trait): on desktop, `CachedPerson` entries are built on demand with targeted SQLite queries (~1 ms); pedigree builds fetch tree data once per build. Redis keeps the shared PersonCache.
+- Reduce desktop disk persistence to pedigrees only (cache schema v2).
+- Performance regression tests + 20K-person benchmark (`crates/oxidgene-cache/tests/service_e6_test.rs`, `crates/oxidgene-db/tests/person_search_test.rs`). Measured (release): person load ~9 ms, search ~10 ms, full rebuild ~0.7 s at 20K persons.
+
+**Search semantics note:** FTS5 matches on **token prefixes** (`"perr"` matches `PERRAUD`, but `"erraud"` does not) instead of the previous arbitrary-substring matching; the PostgreSQL fallback keeps substring semantics. Prefix matching is the standard genealogy search UX and enables index-backed lookups.
