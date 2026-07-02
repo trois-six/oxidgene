@@ -22,6 +22,17 @@ pub trait CacheStore: Send + Sync {
     /// Downcast helper — required for disk persistence (downcasting `dyn CacheStore`
     /// back to `MemoryCacheStore` to call `snapshot_for_disk()`).
     fn as_any(&self) -> &dyn Any;
+
+    /// Whether this store actually persists `CachedPerson` entries.
+    ///
+    /// The desktop `MemoryCacheStore` returns `false` (Sprint E.6): SQLite is
+    /// local, so persons are built on demand with targeted queries instead of
+    /// being cached. `CacheService` uses this flag to skip pointless cache
+    /// round-trips and to fetch tree data once when building pedigrees.
+    fn caches_persons(&self) -> bool {
+        true
+    }
+
     // ── PersonCache ──────────────────────────────────────────────────────
 
     /// Get a single cached person.
@@ -68,22 +79,12 @@ pub trait CacheStore: Send + Sync {
     /// Remove all pedigree caches for a tree.
     async fn delete_all_pedigrees(&self, tree_id: Uuid) -> Result<(), OxidGeneError>;
 
-    // ── SearchIndex ──────────────────────────────────────────────────────
-
-    /// Get the search index for a tree.
-    async fn get_search_index(
-        &self,
-        tree_id: Uuid,
-    ) -> Result<Option<CachedSearchIndex>, OxidGeneError>;
-
-    /// Store the search index for a tree.
-    async fn set_search_index(&self, entry: &CachedSearchIndex) -> Result<(), OxidGeneError>;
-
-    /// Remove the search index for a tree.
-    async fn delete_search_index(&self, tree_id: Uuid) -> Result<(), OxidGeneError>;
-
     // ── Bulk ─────────────────────────────────────────────────────────────
 
-    /// Remove all caches (person, pedigree, search) for a tree.
+    /// Remove all caches (person, pedigree) for a tree.
+    ///
+    /// The search index is not handled here — it lives in the database
+    /// (`person_search_fts`) since Sprint E.6 and is invalidated by
+    /// `CacheService` via `PersonSearchRepo`.
     async fn invalidate_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError>;
 }

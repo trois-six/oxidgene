@@ -40,6 +40,19 @@ impl FamilySpouseRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List all family memberships where this person is a spouse.
+    pub async fn list_by_person(
+        db: &DatabaseConnection,
+        person_id: Uuid,
+    ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::PersonId.eq(person_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Create a family–spouse link.
     pub async fn create(
         db: &DatabaseConnection,

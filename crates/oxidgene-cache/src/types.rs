@@ -194,17 +194,13 @@ pub enum PedigreeDirection {
     Descendants,
 }
 
-// ─── SearchIndex ────────────────────────────────────────────────────────────
+// ─── Search ─────────────────────────────────────────────────────────────────
+//
+// Since Sprint E.6 the search index lives in the database itself (SQLite FTS5
+// virtual table / plain PostgreSQL table `person_search_fts`). These types
+// remain as the API wire shape for search results.
 
-/// A pre-built search index for a tree, enabling instant server-side search.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CachedSearchIndex {
-    pub tree_id: Uuid,
-    pub entries: Vec<SearchEntry>,
-    pub cached_at: DateTime<Utc>,
-}
-
-/// A single entry in the search index.
+/// A single search result entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchEntry {
     pub person_id: Uuid,

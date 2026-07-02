@@ -12,18 +12,21 @@ use std::sync::Arc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo,
-    PersonAncestryRepo, PersonNameRepo, PersonRepo, PlaceRepo, TreeRepo,
+    PersonAncestryRepo, PersonNameRepo, PersonRepo, PersonSearchRepo, PlaceRepo, TreeRepo,
 };
 use oxidgene_db::sea_orm::DatabaseConnection;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
-use crate::builder::{self, TreeData, build_all_persons, build_pedigree_node, build_search_index};
+use crate::builder::{
+    self, TreeData, build_all_persons, build_db_search_entry, build_pedigree_node,
+    search_entry_from_db,
+};
 use crate::invalidation;
 use crate::store::CacheStore;
 use crate::types::{
-    CachedPedigree, CachedPerson, CachedSearchIndex, PedigreeDelta, PedigreeDirection,
-    PedigreeEdge, PedigreeNode, SearchResult,
+    CachedPedigree, CachedPerson, PedigreeDelta, PedigreeDirection, PedigreeEdge, PedigreeNode,
+    SearchResult,
 };
 
 /// The cache service orchestrates all cache operations.
@@ -76,15 +79,15 @@ impl CacheService {
             tree_id
         );
 
-        // 3. Store persons in batch.
+        // 3. Store persons in batch (no-op on stores that don't cache persons).
         self.store.set_persons_batch(&cached_persons).await?;
 
-        // 4. Build and store the search index.
-        let search_index = build_search_index(tree_id, &cached_persons);
-        self.store.set_search_index(&search_index).await?;
+        // 4. Rebuild the DB-native search table (SQLite FTS5 / PG table).
+        let search_entries: Vec<_> = cached_persons.iter().map(build_db_search_entry).collect();
+        PersonSearchRepo::replace_tree(&self.db, tree_id, &search_entries).await?;
         debug!(
-            "Built search index with {} entries for tree {}",
-            search_index.entries.len(),
+            "Rebuilt person_search_fts with {} rows for tree {}",
+            search_entries.len(),
             tree_id
         );
 
@@ -119,7 +122,7 @@ impl CacheService {
         Ok(cached)
     }
 
-    /// Rebuild the cache for a single person.
+    /// Rebuild the cache for a single person (and refresh their search row).
     #[instrument(skip(self), fields(tree_id = %tree_id, person_id = %person_id))]
     pub async fn rebuild_person(
         &self,
@@ -128,10 +131,16 @@ impl CacheService {
     ) -> Result<CachedPerson, OxidGeneError> {
         let cached = self.build_single_person(tree_id, person_id).await?;
         self.store.set_person(&cached).await?;
+        PersonSearchRepo::upsert(&self.db, &[build_db_search_entry(&cached)]).await?;
         Ok(cached)
     }
 
     /// Rebuild the cache for multiple persons (used after invalidation).
+    ///
+    /// On stores that cache persons (Redis), all tree data is fetched once
+    /// and the requested entries are rebuilt from it and stored. On stores
+    /// that don't (desktop), each person is built with targeted queries
+    /// against local SQLite — affected sets are bounded (2–10 persons).
     #[instrument(skip(self, person_ids), fields(tree_id = %tree_id, count = person_ids.len()))]
     pub async fn rebuild_persons(
         &self,
@@ -142,15 +151,21 @@ impl CacheService {
             return Ok(vec![]);
         }
 
-        // For efficiency, fetch all tree data once and rebuild from it.
-        let tree_data = self.fetch_tree_data(tree_id).await?;
-        let all_cached = build_all_persons(tree_id, &tree_data);
-
-        // Filter to only the requested persons and store them.
-        let requested: Vec<CachedPerson> = all_cached
-            .into_iter()
-            .filter(|p| person_ids.contains(&p.person_id))
-            .collect();
+        let requested: Vec<CachedPerson> = if self.store.caches_persons() {
+            // Fetch all tree data once and rebuild from it.
+            let tree_data = self.fetch_tree_data(tree_id).await?;
+            let all_cached = build_all_persons(tree_id, &tree_data);
+            all_cached
+                .into_iter()
+                .filter(|p| person_ids.contains(&p.person_id))
+                .collect()
+        } else {
+            let mut built = Vec::with_capacity(person_ids.len());
+            for &pid in person_ids {
+                built.push(self.build_single_person(tree_id, pid).await?);
+            }
+            built
+        };
 
         self.store.set_persons_batch(&requested).await?;
 
@@ -163,9 +178,17 @@ impl CacheService {
         Ok(requested)
     }
 
-    /// Get all cached persons for a tree. Triggers a full rebuild if the cache
+    /// Get all cached persons for a tree.
+    ///
+    /// On stores that don't cache persons (desktop), they are built directly
+    /// from the database. Otherwise a full rebuild is triggered if the cache
     /// is empty.
     pub async fn get_all_persons(&self, tree_id: Uuid) -> Result<Vec<CachedPerson>, OxidGeneError> {
+        if !self.store.caches_persons() {
+            let tree_data = self.fetch_tree_data(tree_id).await?;
+            return Ok(build_all_persons(tree_id, &tree_data));
+        }
+
         let cached = self.store.get_all_persons(tree_id).await?;
         if !cached.is_empty() {
             return Ok(cached);
@@ -287,9 +310,11 @@ impl CacheService {
 
     // ── Search ───────────────────────────────────────────────────────────
 
-    /// Search persons in a tree using the cached search index.
+    /// Search persons in a tree via the DB-native `person_search_fts` table
+    /// (SQLite FTS5 / plain PostgreSQL table).
     ///
-    /// Falls back to building the index on-demand if not cached.
+    /// If the table has no rows for this tree (e.g. first run after the E.6
+    /// migration), it is populated from the database on demand.
     #[instrument(skip(self), fields(tree_id = %tree_id, query = %query))]
     pub async fn search(
         &self,
@@ -298,26 +323,38 @@ impl CacheService {
         limit: usize,
         offset: usize,
     ) -> Result<SearchResult, OxidGeneError> {
-        let index = self.get_or_build_search_index(tree_id).await?;
-        Ok(builder::search_index(&index, query, limit, offset))
+        self.ensure_search_index(tree_id).await?;
+        let page =
+            PersonSearchRepo::search(&self.db, tree_id, query, limit as u64, offset as u64).await?;
+        Ok(SearchResult {
+            entries: page.entries.into_iter().map(search_entry_from_db).collect(),
+            total_count: page.total_count as usize,
+        })
     }
 
-    /// Get the search index, building on-demand if not cached.
-    async fn get_or_build_search_index(
-        &self,
-        tree_id: Uuid,
-    ) -> Result<CachedSearchIndex, OxidGeneError> {
-        if let Some(index) = self.store.get_search_index(tree_id).await? {
-            return Ok(index);
+    /// Populate `person_search_fts` for a tree if it has no rows yet.
+    async fn ensure_search_index(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
+        if PersonSearchRepo::count_tree(&self.db, tree_id).await? > 0 {
+            return Ok(());
         }
 
-        debug!("No search index for tree {}, building from DB", tree_id);
+        debug!(
+            "person_search_fts empty for tree {}, populating from DB",
+            tree_id
+        );
+        let tree_data = self.fetch_tree_data(tree_id).await?;
+        if tree_data.persons.is_empty() {
+            return Ok(());
+        }
+        let persons = build_all_persons(tree_id, &tree_data);
+        let entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
+        PersonSearchRepo::replace_tree(&self.db, tree_id, &entries).await?;
 
-        // Need all persons to build the index.
-        let persons = self.get_all_persons(tree_id).await?;
-        let index = build_search_index(tree_id, &persons);
-        self.store.set_search_index(&index).await?;
-        Ok(index)
+        // Warm the person cache too while we have everything built (Redis path).
+        if self.store.caches_persons() {
+            self.store.set_persons_batch(&persons).await?;
+        }
+        Ok(())
     }
 
     // ── Invalidation ─────────────────────────────────────────────────────
@@ -419,17 +456,18 @@ impl CacheService {
         // since we need to know who references this person.
         let affected = invalidation::affected_persons(&self.db, person_id).await?;
 
-        // Remove the deleted person from cache.
+        // Remove the deleted person from the cache and the search table.
         self.store.delete_person(tree_id, person_id).await?;
+        PersonSearchRepo::delete_person(&self.db, person_id).await?;
 
-        // Rebuild remaining affected persons (excluding the deleted one).
+        // Rebuild remaining affected persons (excluding the deleted one)
+        // and refresh their search rows.
         let remaining: Vec<Uuid> = affected.into_iter().filter(|&id| id != person_id).collect();
         if !remaining.is_empty() {
-            self.rebuild_persons(tree_id, &remaining).await?;
+            let rebuilt = self.rebuild_persons(tree_id, &remaining).await?;
+            let entries: Vec<_> = rebuilt.iter().map(build_db_search_entry).collect();
+            PersonSearchRepo::upsert(&self.db, &entries).await?;
         }
-
-        // Update search index.
-        self.rebuild_search_index(tree_id).await?;
 
         // Delete pedigrees that contain this person — they need full rebuild.
         // For simplicity, delete all pedigrees for the tree; they'll be
@@ -449,6 +487,7 @@ impl CacheService {
     #[instrument(skip(self), fields(tree_id = %tree_id))]
     pub async fn invalidate_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
         info!("Invalidating all caches for tree {}", tree_id);
+        PersonSearchRepo::delete_tree(&self.db, tree_id).await?;
         self.store.invalidate_tree(tree_id).await
     }
 
@@ -471,18 +510,20 @@ impl CacheService {
 
     // ── Private helpers ──────────────────────────────────────────────────
 
-    /// Rebuild the affected persons' caches, search index, and pedigrees.
+    /// Rebuild the affected persons' caches, their search rows, and drop
+    /// the tree's pedigrees.
     async fn rebuild_affected(
         &self,
         tree_id: Uuid,
         affected: &[Uuid],
     ) -> Result<(), OxidGeneError> {
         // 1. Rebuild person caches.
-        self.rebuild_persons(tree_id, affected).await?;
+        let rebuilt = self.rebuild_persons(tree_id, affected).await?;
 
-        // 2. Rebuild the search index (relatively cheap for bounded sets,
-        //    but we rebuild the full index for correctness).
-        self.rebuild_search_index(tree_id).await?;
+        // 2. Refresh only the affected rows in person_search_fts (bounded
+        //    set — no full index rebuild needed).
+        let entries: Vec<_> = rebuilt.iter().map(build_db_search_entry).collect();
+        PersonSearchRepo::upsert(&self.db, &entries).await?;
 
         // 3. Patch pedigrees — for now, delete all pedigrees for the tree
         //    so they're rebuilt on next access. A more sophisticated approach
@@ -493,38 +534,85 @@ impl CacheService {
         Ok(())
     }
 
-    /// Rebuild the search index for a tree from all cached persons.
-    async fn rebuild_search_index(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        let all_persons = self.store.get_all_persons(tree_id).await?;
-        if all_persons.is_empty() {
-            // If cache is empty, skip — the index will be built on next access.
-            return Ok(());
-        }
-        let index = build_search_index(tree_id, &all_persons);
-        self.store.set_search_index(&index).await
-    }
-
-    /// Build a single person's cache entry from the database.
-    ///
-    /// This fetches the full tree data and extracts just the one person.
-    /// For single-person rebuilds this is slightly wasteful, but it reuses
-    /// the battle-tested `build_all_persons` pipeline. For bulk rebuilds,
-    /// `rebuild_persons` is more efficient.
+    /// Build a single person's cache entry from the database with targeted
+    /// queries (the person, their families, relatives' names, attached
+    /// events/places/media/notes) — no full-tree fetch.
     async fn build_single_person(
         &self,
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<CachedPerson, OxidGeneError> {
-        let tree_data = self.fetch_tree_data(tree_id).await?;
-        let all_cached = build_all_persons(tree_id, &tree_data);
+        let data = self.fetch_person_data(tree_id, person_id).await?;
+        builder::build_person(tree_id, person_id, &data).ok_or(OxidGeneError::NotFound {
+            entity: "Person",
+            id: person_id,
+        })
+    }
 
-        all_cached
-            .into_iter()
-            .find(|p| p.person_id == person_id)
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Person",
-                id: person_id,
-            })
+    /// Fetch only the data needed to build one `CachedPerson`: the person,
+    /// their family memberships, all members of those families (for spouse /
+    /// parent / child denormalization), their events + places, media and
+    /// notes.
+    async fn fetch_person_data(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<TreeData, OxidGeneError> {
+        // 1. Family memberships of the person.
+        let (as_spouse, as_child) = tokio::try_join!(
+            FamilySpouseRepo::list_by_person(&self.db, person_id),
+            FamilyChildRepo::list_by_person(&self.db, person_id),
+        )?;
+        let mut family_ids: Vec<Uuid> = as_spouse
+            .iter()
+            .map(|s| s.family_id)
+            .chain(as_child.iter().map(|c| c.family_id))
+            .collect();
+        family_ids.sort();
+        family_ids.dedup();
+
+        // 2. All members of those families, plus attached entities.
+        let (spouses, children, person_events, family_events, media_links, notes) = tokio::try_join!(
+            FamilySpouseRepo::list_by_families(&self.db, &family_ids),
+            FamilyChildRepo::list_by_families(&self.db, &family_ids),
+            EventRepo::list_by_person(&self.db, person_id),
+            EventRepo::list_by_families(&self.db, &family_ids),
+            MediaLinkRepo::list_by_person(&self.db, person_id),
+            NoteRepo::list_by_entity(&self.db, tree_id, Some(person_id), None, None, None),
+        )?;
+
+        // 3. Related person rows + names, places, media.
+        let mut person_ids: Vec<Uuid> = vec![person_id];
+        person_ids.extend(spouses.iter().map(|s| s.person_id));
+        person_ids.extend(children.iter().map(|c| c.person_id));
+        person_ids.sort();
+        person_ids.dedup();
+
+        let mut events = person_events;
+        events.extend(family_events);
+        let mut place_ids: Vec<Uuid> = events.iter().filter_map(|e| e.place_id).collect();
+        place_ids.sort();
+        place_ids.dedup();
+        let media_ids: Vec<Uuid> = media_links.iter().map(|l| l.media_id).collect();
+
+        let (persons, names, places, media) = tokio::try_join!(
+            PersonRepo::get_many(&self.db, &person_ids),
+            PersonNameRepo::list_by_persons(&self.db, &person_ids),
+            PlaceRepo::get_many(&self.db, &place_ids),
+            MediaRepo::get_many(&self.db, &media_ids),
+        )?;
+
+        Ok(TreeData {
+            persons,
+            names,
+            events,
+            places,
+            spouses,
+            children,
+            media,
+            media_links,
+            notes,
+        })
     }
 
     /// Fetch all data needed to build cache entries for a tree.
@@ -565,6 +653,47 @@ impl CacheService {
             media_links,
             notes,
         })
+    }
+
+    /// Resolve `CachedPerson` entries for a pedigree build.
+    ///
+    /// When the store doesn't cache persons (desktop), `local` holds all
+    /// persons of the tree, built once per pedigree build — lookups are pure
+    /// map reads. Otherwise (Redis), entries are batch-read from the store
+    /// and any missing ones are rebuilt from the database.
+    async fn persons_for_pedigree(
+        &self,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+        local: &Option<std::collections::HashMap<Uuid, CachedPerson>>,
+    ) -> Result<Vec<CachedPerson>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        if let Some(map) = local {
+            return Ok(person_ids
+                .iter()
+                .filter_map(|id| map.get(id).cloned())
+                .collect());
+        }
+
+        let mut found = self.store.get_persons_batch(tree_id, person_ids).await?;
+        let found_ids: std::collections::HashSet<Uuid> =
+            found.iter().map(|p| p.person_id).collect();
+        let missing: Vec<Uuid> = person_ids
+            .iter()
+            .filter(|id| !found_ids.contains(id))
+            .copied()
+            .collect();
+        if !missing.is_empty() {
+            debug!(
+                "Pedigree build: {} persons not in cache, building from DB",
+                missing.len()
+            );
+            found.extend(self.rebuild_persons(tree_id, &missing).await?);
+        }
+        Ok(found)
     }
 
     /// Build a pedigree for a root person with given ancestor and descendant
@@ -633,34 +762,31 @@ impl CacheService {
                 .or_insert(generation);
         }
 
-        // 4. Get cached persons (or build them if not cached).
-        let cached_persons = self.store.get_persons_batch(tree_id, &person_ids).await?;
+        // 4. Resolve the persons in the pedigree window.
+        //    On stores without a person cache (desktop), fetch the tree data
+        //    once and build every person from it — all subsequent lookups
+        //    (spouses, parents, outside members) are then free map reads
+        //    instead of repeated database round-trips.
+        let local_persons: Option<std::collections::HashMap<Uuid, CachedPerson>> =
+            if self.store.caches_persons() {
+                None
+            } else {
+                let tree_data = self.fetch_tree_data(tree_id).await?;
+                Some(
+                    build_all_persons(tree_id, &tree_data)
+                        .into_iter()
+                        .map(|p| (p.person_id, p))
+                        .collect(),
+                )
+            };
+
+        let cached_persons = self
+            .persons_for_pedigree(tree_id, &person_ids, &local_persons)
+            .await?;
 
         // Build a lookup map.
-        let person_map: std::collections::HashMap<Uuid, &CachedPerson> =
+        let mut all_person_map: std::collections::HashMap<Uuid, &CachedPerson> =
             cached_persons.iter().map(|p| (p.person_id, p)).collect();
-
-        // If some persons are not in cache, we need to build them.
-        let missing: Vec<Uuid> = person_ids
-            .iter()
-            .filter(|id| !person_map.contains_key(id))
-            .copied()
-            .collect();
-
-        let mut extra_persons = Vec::new();
-        if !missing.is_empty() {
-            warn!(
-                "Pedigree build: {} persons not in cache, building from DB",
-                missing.len()
-            );
-            extra_persons = self.rebuild_persons(tree_id, &missing).await?;
-        }
-
-        // Merge into a single lookup.
-        let mut all_person_map: std::collections::HashMap<Uuid, &CachedPerson> = person_map;
-        for p in &extra_persons {
-            all_person_map.insert(p.person_id, p);
-        }
 
         // 4b. Collect spouse IDs that are not already in the pedigree window.
         //     Spouses may not be ancestors/descendants but still need nodes for display.
@@ -675,27 +801,16 @@ impl CacheService {
                 }
             }
         }
-        let mut spouse_persons = Vec::new();
-        if !spouse_ids.is_empty() {
+        let spouse_persons = if spouse_ids.is_empty() {
+            Vec::new()
+        } else {
             debug!(
                 "Pedigree build: fetching {} spouses outside pedigree window",
                 spouse_ids.len()
             );
-            // Try cache first, then rebuild from DB.
-            let cached_spouses = self.store.get_persons_batch(tree_id, &spouse_ids).await?;
-            let cached_spouse_ids: std::collections::HashSet<Uuid> =
-                cached_spouses.iter().map(|p| p.person_id).collect();
-            let missing_spouses: Vec<Uuid> = spouse_ids
-                .iter()
-                .filter(|id| !cached_spouse_ids.contains(id))
-                .copied()
-                .collect();
-            spouse_persons.extend(cached_spouses);
-            if !missing_spouses.is_empty() {
-                let built = self.rebuild_persons(tree_id, &missing_spouses).await?;
-                spouse_persons.extend(built);
-            }
-        }
+            self.persons_for_pedigree(tree_id, &spouse_ids, &local_persons)
+                .await?
+        };
         for p in &spouse_persons {
             // Assign spouse the same generation as their partner.
             if !depth_map.contains_key(&p.person_id) {
@@ -853,22 +968,9 @@ impl CacheService {
                 "Pedigree build: fetching {} parents outside window for sibling data",
                 parent_ids_to_fetch.len()
             );
-            let cached = self
-                .store
-                .get_persons_batch(tree_id, &parent_ids_to_fetch)
+            let fetched_parents = self
+                .persons_for_pedigree(tree_id, &parent_ids_to_fetch, &local_persons)
                 .await?;
-            let cached_ids: std::collections::HashSet<Uuid> =
-                cached.iter().map(|p| p.person_id).collect();
-            let missing: Vec<Uuid> = parent_ids_to_fetch
-                .iter()
-                .filter(|id| !cached_ids.contains(id))
-                .copied()
-                .collect();
-            let mut fetched_parents = cached;
-            if !missing.is_empty() {
-                let built = self.rebuild_persons(tree_id, &missing).await?;
-                fetched_parents.extend(built);
-            }
             // Use the fetched parents' families_as_spouse to fill in missing children.
             let parent_map: std::collections::HashMap<Uuid, &CachedPerson> =
                 fetched_parents.iter().map(|p| (p.person_id, p)).collect();
@@ -905,22 +1007,9 @@ impl CacheService {
                 "Pedigree build: fetching {} family members outside pedigree window",
                 outside_member_ids.len()
             );
-            let cached_members = self
-                .store
-                .get_persons_batch(tree_id, &outside_member_ids)
+            let all_outside = self
+                .persons_for_pedigree(tree_id, &outside_member_ids, &local_persons)
                 .await?;
-            let cached_ids: std::collections::HashSet<Uuid> =
-                cached_members.iter().map(|p| p.person_id).collect();
-            let missing_member_ids: Vec<Uuid> = outside_member_ids
-                .iter()
-                .filter(|id| !cached_ids.contains(id))
-                .copied()
-                .collect();
-            let mut all_outside: Vec<CachedPerson> = cached_members;
-            if !missing_member_ids.is_empty() {
-                let built = self.rebuild_persons(tree_id, &missing_member_ids).await?;
-                all_outside.extend(built);
-            }
             // Build a lookup for outside members.
             let outside_map: std::collections::HashMap<Uuid, &CachedPerson> =
                 all_outside.iter().map(|p| (p.person_id, p)).collect();

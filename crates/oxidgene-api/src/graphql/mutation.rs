@@ -116,18 +116,13 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let cache = cache_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        // Compute affected set BEFORE delete (while relationships still exist).
         let person = PersonRepo::get(db, uuid).await?;
-        let affected = invalidation::affected_persons(db, uuid).await?;
         PersonRepo::delete(db, uuid).await?;
-        // Delete this person's cache entry and rebuild affected relatives.
-        cache.store().delete_person(person.tree_id, uuid).await?;
-        let remaining: Vec<Uuid> = affected.into_iter().filter(|&id| id != uuid).collect();
-        if !remaining.is_empty() {
-            cache
-                .invalidate_for_mutation(person.tree_id, &remaining)
-                .await?;
-        }
+        // Removes the person from cache + search table, rebuilds affected
+        // relatives, and drops pedigrees.
+        cache
+            .invalidate_for_person_delete(person.tree_id, uuid)
+            .await?;
         Ok(true)
     }
 

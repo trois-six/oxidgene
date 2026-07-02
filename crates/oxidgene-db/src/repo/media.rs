@@ -40,6 +40,20 @@ impl MediaRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// Get multiple media items by ID (excludes soft-deleted).
+    pub async fn get_many(
+        db: &DatabaseConnection,
+        ids: &[Uuid],
+    ) -> Result<Vec<Media>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::Id.is_in(ids.iter().copied()))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Get a single media by ID (excludes soft-deleted).
     pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Media, OxidGeneError> {
         Entity::find_by_id(id)

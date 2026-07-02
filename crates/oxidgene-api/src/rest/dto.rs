@@ -41,29 +41,19 @@ pub struct DuplicateTreeRequest {
 
 // ── Person DTOs ──────────────────────────────────────────────────────
 
-/// Query parameters for searching persons by name.
+/// Query parameters for free-text person search (Sprint E.6).
+///
+/// The search goes through the `person_search_fts` table (accent-folded,
+/// all words must match) and returns a paginated `SearchResult`. An empty
+/// or missing `q` lists all persons sorted by name (browse mode).
 #[derive(Debug, Deserialize)]
 pub struct PersonSearchQuery {
-    /// Surname fragment (case-insensitive contains).
-    pub surname: Option<String>,
-    /// Given names fragment (case-insensitive contains).
-    pub given_names: Option<String>,
-    /// Filter by sex.
-    pub sex: Option<Sex>,
-    /// Number of items to return (default: 25, max: 100).
-    pub first: Option<u64>,
-    /// Cursor to start after (UUID string).
-    pub after: Option<String>,
-}
-
-/// Response for a person search result row.
-#[derive(Debug, Serialize)]
-pub struct PersonSearchResultDto {
-    pub id: uuid::Uuid,
-    pub tree_id: uuid::Uuid,
-    pub sex: Sex,
-    pub surname: Option<String>,
-    pub given_names: Option<String>,
+    /// Free-text query.
+    pub q: Option<String>,
+    /// Maximum results to return (default: 25, max: 100).
+    pub limit: Option<usize>,
+    /// Offset for pagination (default: 0).
+    pub offset: Option<usize>,
 }
 
 /// Response for GET /api/v1/trees/:tree_id/persons/:person_id.
@@ -362,17 +352,6 @@ pub struct ExportGedcomResponse {
 }
 
 // ── Cache DTOs ──────────────────────────────────────────────────────
-
-/// Query parameters for cached search.
-#[derive(Debug, Deserialize)]
-pub struct CacheSearchQuery {
-    /// Free-text query (searched across all indexed fields).
-    pub q: String,
-    /// Maximum results to return (default: 25, max: 100).
-    pub limit: Option<usize>,
-    /// Offset for pagination (default: 0).
-    pub offset: Option<usize>,
-}
 
 /// Response body for cache rebuild operations.
 #[derive(Debug, Serialize)]
