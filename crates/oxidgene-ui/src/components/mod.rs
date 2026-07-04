@@ -8,4 +8,5 @@ pub mod person_form;
 pub mod person_node;
 pub mod search_person;
 pub mod tree_cache;
+pub mod tree_icon_sidebar;
 pub mod union_form;

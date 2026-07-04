@@ -277,6 +277,9 @@ pub enum GqlEventType {
     MarriageLicense,
     MarriageSettlement,
     Adoption,
+    CivilUnion,
+    Separation,
+    DivorceFiled,
     Other,
 }
 
@@ -311,6 +314,9 @@ impl From<oxidgene_core::EventType> for GqlEventType {
             oxidgene_core::EventType::MarriageLicense => Self::MarriageLicense,
             oxidgene_core::EventType::MarriageSettlement => Self::MarriageSettlement,
             oxidgene_core::EventType::Adoption => Self::Adoption,
+            oxidgene_core::EventType::CivilUnion => Self::CivilUnion,
+            oxidgene_core::EventType::Separation => Self::Separation,
+            oxidgene_core::EventType::DivorceFiled => Self::DivorceFiled,
             oxidgene_core::EventType::Other => Self::Other,
         }
     }
@@ -347,6 +353,9 @@ impl From<GqlEventType> for oxidgene_core::EventType {
             GqlEventType::MarriageLicense => Self::MarriageLicense,
             GqlEventType::MarriageSettlement => Self::MarriageSettlement,
             GqlEventType::Adoption => Self::Adoption,
+            GqlEventType::CivilUnion => Self::CivilUnion,
+            GqlEventType::Separation => Self::Separation,
+            GqlEventType::DivorceFiled => Self::DivorceFiled,
             GqlEventType::Other => Self::Other,
         }
     }

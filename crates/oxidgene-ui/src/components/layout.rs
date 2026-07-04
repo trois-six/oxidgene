@@ -357,8 +357,9 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .page-header {
         display: flex;
-        align-items: center;
+        align-items: stretch;
         justify-content: space-between;
+        gap: 18px;
         margin-bottom: 24px;
     }
 
@@ -367,6 +368,74 @@ pub const LAYOUT_STYLES: &str = r#"
         font-weight: 600;
         font-family: var(--font-heading);
         color: var(--text-primary);
+    }
+
+    .pd-avatar {
+        flex: none;
+        width: 76px;
+        height: 76px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 1px solid var(--border);
+    }
+
+    .pd-header-left {
+        display: flex;
+        gap: 18px;
+        align-items: flex-start;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .pd-header-main {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .pd-header-top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .pd-header-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+        flex-shrink: 0;
+    }
+
+    .pd-header-sosa {
+        min-height: 24px;
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .pd-header-buttons {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+    }
+
+    .badge.pd-sosa-badge {
+        background: var(--green);
+        color: #fff;
+        border-color: var(--green);
+        font-size: 0.8rem;
+    }
+
+    .pd-sex-mark {
+        color: var(--orange);
+        font-weight: 600;
+        margin-right: 4px;
+    }
+
+    .pd-vitals b {
+        color: var(--text-primary);
+        font-weight: 600;
     }
 
     .text-muted {
@@ -542,12 +611,26 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.8rem;
     }
 
-    /* ── Person detail action bar ────────────────────────────────── */
+    /* ── Person detail page shell ────────────────────────────────── */
 
-    .pd-action-bar {
+    .pd-page-shell {
+        flex: 1;
+        min-height: 0;
         display: flex;
-        gap: 8px;
-        margin-bottom: 20px;
+        overflow: hidden;
+    }
+
+    .tree-icon-sidebar {
+        align-self: stretch;
+    }
+
+    .tree-icon-sidebar .isb-btn {
+        text-decoration: none;
+        flex-shrink: 0;
+    }
+
+    .pd-content {
+        margin: 0 auto;
     }
 
     /* ── Family connections ──────────────────────────────────────── */
@@ -582,6 +665,150 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
         border-color: var(--orange);
         color: var(--text-primary);
+    }
+
+    /* ── Alternate names sub-line, under the header name ─────────── */
+
+    .pd-alt-names {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 10px;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin: 4px 0 0;
+    }
+
+    .pd-vitals {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin: 6px 0 0;
+    }
+
+    /* ── Family narrative (parents / unions / siblings) ──────────── */
+
+    .pd-family-prose {
+        font-size: 0.95rem;
+        margin-bottom: 14px;
+    }
+
+    .pd-family-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--orange);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+    }
+
+    .pd-person-link {
+        color: var(--text-primary);
+        font-weight: 600;
+        text-decoration: none;
+        border-bottom: 1px solid var(--orange-light);
+    }
+    .pd-person-link:hover {
+        color: var(--orange);
+    }
+
+    .pd-union {
+        margin-bottom: 14px;
+    }
+    .pd-union:last-child {
+        margin-bottom: 0;
+    }
+    .pd-union-line {
+        font-size: 0.95rem;
+    }
+
+    .pd-children {
+        list-style: none;
+        margin: 6px 0 0;
+        padding: 0 0 0 4px;
+    }
+    .pd-children li {
+        font-size: 0.92rem;
+        padding: 3px 0 3px 14px;
+        position: relative;
+    }
+    .pd-children li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 12px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--border);
+    }
+
+    .pd-sib-group {
+        margin-bottom: 12px;
+    }
+    .pd-sib-group:last-child {
+        margin-bottom: 0;
+    }
+    .pd-sib-group-head {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin-bottom: 2px;
+    }
+
+    /* ── Events timeline (replaces the events table) ──────────────── */
+
+    .pd-timeline {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .pd-timeline li {
+        display: flex;
+        gap: 14px;
+        padding: 9px 0;
+        border-top: 1px solid var(--border);
+        font-size: 0.9rem;
+    }
+    .pd-timeline li:first-child {
+        border-top: none;
+        padding-top: 2px;
+    }
+    .pd-ev-date {
+        flex: none;
+        width: 108px;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+        padding-top: 1px;
+    }
+    .pd-ev-body {
+        flex: 1;
+        min-width: 0;
+    }
+    .pd-ev-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .pd-ev-origin {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-style: italic;
+    }
+    .pd-ev-actions {
+        flex: none;
+        display: flex;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 0.12s;
+    }
+    .pd-timeline li:hover .pd-ev-actions {
+        opacity: 1;
+    }
+    .pd-ev-edit-row {
+        padding: 8px;
+        background: var(--color-bg);
+        border-radius: var(--radius);
+        width: 100%;
     }
 
     /* ── Modal / confirmation dialog ─────────────────────────────── */
@@ -841,6 +1068,12 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .isb-btn:hover { background: var(--bg-card-hover); color: var(--orange); }
     .isb-btn:active { background: rgba(224,120,32,0.12); }
+    .isb-btn:disabled {
+        color: var(--text-muted);
+        cursor: default;
+        opacity: 0.45;
+    }
+    .isb-btn:disabled:hover { background: none; color: var(--text-muted); }
 
     .isb-hr { width: 28px; height: 1px; background: var(--border); margin: 4px 0; }
 
@@ -874,10 +1107,7 @@ pub const LAYOUT_STYLES: &str = r#"
         left: 0;
         width: 100%;
         height: 100%;
-        transform-origin: center center;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        transform-origin: 0 0;
     }
 
     .pedigree-tree {
@@ -885,7 +1115,7 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-direction: column;
         align-items: stretch;
         min-width: 320px;
-        padding: 24px 32px;
+        padding: 0;
     }
 
     /* ── Depth popover (from isb) ────────────────────────────────── */
@@ -951,7 +1181,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .evp-toggle {
         position: absolute;
-        top: 8px;
+        top: 19px;
         left: 4px;
         width: 20px;
         height: 28px;
@@ -965,7 +1195,9 @@ pub const LAYOUT_STYLES: &str = r#"
         align-items: center;
         justify-content: center;
         padding: 0;
+        line-height: 1;
         z-index: 10;
+        transform: translateY(-50%);
         transition: background 0.15s, color 0.15s;
     }
 
@@ -976,12 +1208,15 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .ev-panel:not(.ev-panel-collapsed) .evp-toggle {
         left: -1px;
-        top: 8px;
+        top: 19px;
     }
 
     .evp-hd {
-        padding: 10px 14px;
+        min-height: 38px;
+        padding: 0 14px 0 34px;
         border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
         font-size: 0.72rem;
         font-weight: 700;
         color: var(--text-secondary);

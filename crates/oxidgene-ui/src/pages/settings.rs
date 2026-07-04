@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::api::{ApiClient, UpdateTreeBody};
 use crate::components::search_person::SearchPerson;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
+use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::resolve_name;
@@ -21,6 +22,7 @@ use crate::utils::resolve_name;
 pub fn Settings(tree_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let nav = use_navigator();
     let refresh = use_signal(|| 0u32);
     let mut active_section = use_signal(|| "tree-roots".to_string());
     let mut export_loading = use_signal(|| false);
@@ -50,6 +52,12 @@ pub fn Settings(tree_id: String) -> Element {
             .and_then(|tid| tree_cache.tree(tid))
             .map(|t| t.name)
             .unwrap_or_default(),
+    };
+    let selected_person_id = match &*tree_resource.read() {
+        Some(Some(Ok(tree))) => tree.sosa_root_person_id,
+        _ => tree_id_parsed
+            .and_then(|tid| tree_cache.tree(tid))
+            .and_then(|tree| tree.sosa_root_person_id),
     };
 
     // Export handler
@@ -119,7 +127,38 @@ pub fn Settings(tree_id: String) -> Element {
                 }
             }
 
-            div { class: "sub-page-content",
+            div { class: "pd-page-shell",
+            TreeIconSidebar {
+                active_view: TreeSidebarView::None,
+                selected_person_id: selected_person_id,
+                show_middle_separator: false,
+                show_add_person: false,
+                show_settings: false,
+                on_profile_view: {
+                    let tree_id = tree_id.clone();
+                    move |pid: Option<Uuid>| {
+                        if let Some(pid) = pid {
+                            nav.push(Route::PersonDetail {
+                                tree_id: tree_id.clone(),
+                                person_id: pid.to_string(),
+                            });
+                        }
+                    }
+                },
+                on_pedigree_view: {
+                    let tree_id = tree_id.clone();
+                    move |pid: Option<Uuid>| {
+                        nav.push(Route::TreeDetail {
+                            tree_id: tree_id.clone(),
+                            person: pid.map(|pid| pid.to_string()),
+                        });
+                    }
+                },
+                on_add_person: move |_| {},
+                on_settings: move |_| {},
+            }
+
+            div { class: "sub-page-content pd-content",
             div { class: "settings-layout",
                 // Left navigation
                 nav { class: "settings-nav",
@@ -192,6 +231,7 @@ pub fn Settings(tree_id: String) -> Element {
                         PlaceholderSection { section_name: sec.clone() }
                     }
                 }
+            }
             }
             }
         }

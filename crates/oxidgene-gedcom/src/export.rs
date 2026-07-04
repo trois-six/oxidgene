@@ -468,6 +468,12 @@ fn convert_event_type(et: EventType) -> GedEvent {
         EventType::MarriageContract => GedEvent::MarriageContract,
         EventType::MarriageLicense => GedEvent::MarriageLicense,
         EventType::MarriageSettlement => GedEvent::MarriageSettlement,
+        EventType::Separation => GedEvent::Separated,
+        EventType::DivorceFiled => GedEvent::DivorceFiled,
+        // No dedicated GEDCOM tag exists for civil unions/PACS/cohabitation —
+        // written back as a generic EVEN with the TYPE sub-tag set from
+        // `description` (see `to_ged_detail`).
+        EventType::CivilUnion => GedEvent::Event,
         EventType::Other | EventType::Occupation => GedEvent::Other,
         EventType::Confirmation
         | EventType::FirstCommunion
@@ -559,7 +565,9 @@ fn to_ged_detail(
         note,
         family_link: None,
         family_event_details: Vec::new(),
-        event_type: None,
+        // Round-trips the free-text classification (e.g. "PACS") back into
+        // the GEDCOM TYPE sub-tag it was read from on import.
+        event_type: evt.description.clone(),
         citations,
         multimedia,
         sort_date: None,

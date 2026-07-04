@@ -547,7 +547,7 @@ fn convert_name_type(nt: &ged_io::types::individual::name::NameType) -> NameType
     }
 }
 
-fn convert_event_type(evt: &GedEvent) -> EventType {
+fn convert_event_type(evt: &GedEvent, type_text: Option<&str>) -> EventType {
     match evt {
         GedEvent::Birth => EventType::Birth,
         GedEvent::Death => EventType::Death,
@@ -571,8 +571,35 @@ fn convert_event_type(evt: &GedEvent) -> EventType {
         GedEvent::MarriageContract => EventType::MarriageContract,
         GedEvent::MarriageLicense => EventType::MarriageLicense,
         GedEvent::MarriageSettlement => EventType::MarriageSettlement,
+        GedEvent::Separated => EventType::Separation,
+        GedEvent::DivorceFiled => EventType::DivorceFiled,
+        GedEvent::Event if is_civil_union_type(type_text) => EventType::CivilUnion,
         _ => EventType::Other,
     }
+}
+
+/// Recognizes free-text GEDCOM `TYPE` values describing an unmarried
+/// partnership. GEDCOM has no dedicated tag for civil unions, PACS, or
+/// cohabitation — genealogy software records them as a generic `EVEN`
+/// family event with a descriptive `TYPE` sub-tag.
+fn is_civil_union_type(type_text: Option<&str>) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "civil union",
+        "civil partnership",
+        "domestic partnership",
+        "registered partnership",
+        "cohabitation",
+        "common-law",
+        "common law",
+        "pacs",
+        "union libre",
+        "concubinage",
+    ];
+    let Some(t) = type_text else {
+        return false;
+    };
+    let t = t.to_lowercase();
+    KEYWORDS.iter().any(|k| t.contains(k))
 }
 
 fn convert_pedigree(
@@ -690,7 +717,7 @@ fn import_event_detail(
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
 ) {
-    let event_type = convert_event_type(&detail.event);
+    let event_type = convert_event_type(&detail.event, detail.event_type.as_deref());
 
     // Date
     let date_value = detail.date.as_ref().and_then(|d| d.value.clone());
@@ -716,6 +743,12 @@ fn import_event_detail(
 
     let cause = detail.cause.clone();
 
+    // The GEDCOM `TYPE` sub-tag classifies a generic `EVEN`/`FACT` event
+    // (e.g. "PACS", "Concubinage") — preserve it as the description so the
+    // original wording survives even when several TYPE values map to the
+    // same EventType (see `is_civil_union_type`).
+    let description = detail.event_type.clone();
+
     let event_id = Uuid::now_v7();
     result.events.push(Event {
         id: event_id,
@@ -731,7 +764,7 @@ fn import_event_detail(
         place_id,
         person_id,
         family_id,
-        description: None,
+        description,
         created_at: now,
         updated_at: now,
         deleted_at: None,
