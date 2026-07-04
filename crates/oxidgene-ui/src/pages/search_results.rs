@@ -234,7 +234,6 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                             class: "td-bc-logo-img",
                         }
                     }
-                    span { class: "td-bc-sep", "/" }
                     Link {
                         to: Route::TreeDetail { tree_id: props.tree_id.clone(), person: None },
                         class: "td-bc-link",

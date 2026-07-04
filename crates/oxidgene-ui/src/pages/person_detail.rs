@@ -53,8 +53,20 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let tree_cache = use_tree_cache();
     let mut refresh = use_signal(|| 0u32);
 
-    let tree_id_parsed = tree_id.parse::<Uuid>().ok();
-    let person_id_parsed = person_id.parse::<Uuid>().ok();
+    // Reactive IDs: signals kept in sync with the props so resources re-run
+    // when navigating to a different person (the router reuses this component
+    // instance instead of remounting it, e.g. clicking through to a parent).
+    let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
+    let new_tid = tree_id.parse::<Uuid>().ok();
+    if new_tid != *tree_id_parsed.peek() {
+        *tree_id_parsed.write() = new_tid;
+    }
+
+    let mut person_id_parsed = use_signal(|| person_id.parse::<Uuid>().ok());
+    let new_pid = person_id.parse::<Uuid>().ok();
+    if new_pid != *person_id_parsed.peek() {
+        *person_id_parsed.write() = new_pid;
+    }
 
     // Delete confirmation state.
     let mut confirm_delete = use_signal(|| false);
@@ -148,8 +160,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let person_resource = use_resource(move || {
         let api = api_person.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
-        let pid = person_id_parsed;
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
                 return Err(crate::api::ApiError::Api {
@@ -166,8 +178,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let names_resource = use_resource(move || {
         let api = api_names.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
-        let pid = person_id_parsed;
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
                 return Err(crate::api::ApiError::Api {
@@ -184,8 +196,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let events_resource = use_resource(move || {
         let api = api_events.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
-        let pid = person_id_parsed;
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
                 return Err(crate::api::ApiError::Api {
@@ -203,7 +215,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let places_resource = use_resource(move || {
         let api = api_places.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -220,8 +232,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let notes_resource = use_resource(move || {
         let api = api_notes.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
-        let pid = person_id_parsed;
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
                 return Err(crate::api::ApiError::Api {
@@ -238,7 +250,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let sources_resource = use_resource(move || {
         let api = api_sources.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -255,8 +267,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let ancestors_resource = use_resource(move || {
         let api = api_ancestors.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
-        let pid = person_id_parsed;
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
         let active = show_ancestors();
         async move {
             if !active {
@@ -277,8 +289,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let descendants_resource = use_resource(move || {
         let api = api_descendants.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
-        let pid = person_id_parsed;
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
         let active = show_descendants();
         async move {
             if !active {
@@ -299,7 +311,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let all_persons_resource = use_resource(move || {
         let api = api_all_persons.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         let need = show_ancestors() || show_descendants();
         async move {
             if !need {
@@ -324,7 +336,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let api = api_all_names.clone();
         let _tick = refresh();
         let _gen = tree_cache.generation();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -347,7 +359,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let api = api_snap.clone();
         let _tick = refresh();
         let _gen = tree_cache.generation();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -378,7 +390,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let api = api_tree.clone();
         let _tick = refresh();
         let _gen = tree_cache.generation();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
@@ -395,7 +407,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let families_resource = use_resource(move || {
         let api = api_families.clone();
         let _tick = refresh();
-        let tid = tree_id_parsed;
+        let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
                 return Ok::<_, crate::api::ApiError>((
@@ -435,9 +447,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
+    // Resolve the name synchronously from the cache while the resource is
+    // pending, so the breadcrumb never flashes a loading label.
     let tree_name_str = match &*tree_resource.read() {
         Some(Ok(tree)) => tree.name.clone(),
-        _ => i18n.t("common.loading"),
+        _ => tree_id_parsed()
+            .and_then(|tid| tree_cache.tree(tid))
+            .map(|t| t.name)
+            .unwrap_or_default(),
     };
 
     // Derive display name from loaded names.
@@ -456,7 +473,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 None => i18n.t("common.unnamed"),
             }
         }
-        _ => i18n.t("common.loading"),
+        // Blank while loading — better than flashing a loading label
+        // in the breadcrumb and page header.
+        _ => String::new(),
     };
 
     // Helper: resolve place_id to place name.
@@ -479,8 +498,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_del = api.clone();
     let on_confirm_delete = move |_| {
         let api = api_del.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let tree_id_nav = tree_id_nav.clone();
         spawn(async move {
             match api.delete_person(tid, pid).await {
@@ -501,8 +522,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_sex = api.clone();
     let on_save_sex = move |_| {
         let api = api_sex.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let sex_str = edit_sex_val();
         spawn(async move {
             let sex = parse_sex(&sex_str);
@@ -527,8 +550,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_create_name = api.clone();
     let on_create_name = move |_| {
         let api = api_create_name.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let given = name_form_given().trim().to_string();
         let surname = name_form_surname().trim().to_string();
         let prefix = name_form_prefix().trim().to_string();
@@ -574,8 +599,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_edit_name = api.clone();
     let on_save_name_edit = move |_| {
         let api = api_edit_name.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let Some(nid) = editing_name_id() else { return };
         let given = edit_name_given().trim().to_string();
         let surname = edit_name_surname().trim().to_string();
@@ -611,8 +638,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_del_name = api.clone();
     let on_confirm_delete_name = move |_| {
         let api = api_del_name.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let Some(nid) = confirm_delete_name_id() else {
             return;
         };
@@ -634,8 +663,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_create_event = api.clone();
     let on_create_event = move |_| {
         let api = api_create_event.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let event_type_str = event_form_type();
         let date = event_form_date().trim().to_string();
         let place_id_str = event_form_place_id();
@@ -681,7 +712,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_edit_event = api.clone();
     let on_save_event_edit = move |_| {
         let api = api_edit_event.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(eid) = editing_event_id() else {
             return;
         };
@@ -724,7 +755,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_del_event = api.clone();
     let on_confirm_delete_event = move |_| {
         let api = api_del_event.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(eid) = confirm_delete_event_id() else {
             return;
         };
@@ -746,8 +777,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_create_note = api.clone();
     let on_create_note = move |_| {
         let api = api_create_note.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let text = note_form_text().trim().to_string();
         spawn(async move {
             if text.is_empty() {
@@ -779,7 +812,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_edit_note = api.clone();
     let on_save_note_edit = move |_| {
         let api = api_edit_note.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(nid) = editing_note_id() else {
             return;
         };
@@ -807,7 +840,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_del_note = api.clone();
     let on_confirm_delete_note = move |_| {
         let api = api_del_note.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(nid) = confirm_delete_note_id() else {
             return;
         };
@@ -829,8 +862,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_create_citation = api.clone();
     let on_create_citation = move |_| {
         let api = api_create_citation.clone();
-        let Some(tid) = tree_id_parsed else { return };
-        let Some(pid) = person_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
+        let Some(pid) = person_id_parsed() else {
+            return;
+        };
         let source_id_str = citation_form_source_id();
         let page = citation_form_page().trim().to_string();
         let confidence_str = citation_form_confidence();
@@ -869,7 +904,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Delete citation handler.
     let on_confirm_delete_citation = move |_| {
         let api = api.clone();
-        let Some(tid) = tree_id_parsed else { return };
+        let Some(tid) = tree_id_parsed() else { return };
         let Some(cid) = confirm_delete_citation_id() else {
             return;
         };
@@ -891,7 +926,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Build family connections for the current person.
     let family_connections = {
-        let pid = person_id_parsed;
+        let pid = person_id_parsed();
         match (&*families_resource.read(), pid) {
             (Some(Ok((_families, all_spouses, all_children))), Some(pid)) => {
                 // Families where this person is a spouse
@@ -963,7 +998,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let enriched_events: Vec<EnrichedEvent> = {
         let snap_data = snapshot_resource.read();
         let fam_data = families_resource.read();
-        let pid = person_id_parsed;
+        let pid = person_id_parsed();
 
         match (&*snap_data, &*fam_data, pid) {
             (Some(Ok(snapshot)), Some(Ok((_families, all_spouses, all_children))), Some(pid)) => {
@@ -1138,11 +1173,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         class: "td-bc-logo-img",
                     }
                 }
-                Link {
-                    to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                    "{tree_name_str}"
+                if !tree_name_str.is_empty() {
+                    Link {
+                        to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
+                        class: "td-bc-link",
+                        "{tree_name_str}"
+                    }
+                    span { class: "td-bc-sep", "/" }
                 }
-                span { class: "td-bc-sep", "/" }
                 span { class: "td-bc-current", "{display_name}" }
             }
         }
@@ -2095,7 +2133,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     &ancestors_resource,
                     &all_persons_resource,
                     &all_names_resource,
-                    person_id_parsed,
+                    person_id_parsed(),
                     &tree_id,
                     true,
                     &i18n,
@@ -2119,7 +2157,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     &descendants_resource,
                     &all_persons_resource,
                     &all_names_resource,
-                    person_id_parsed,
+                    person_id_parsed(),
                     &tree_id,
                     false,
                     &i18n,

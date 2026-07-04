@@ -831,8 +831,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 let guard = tree_resource.read();
                 match &*guard {
                     Some(Ok(t)) => t.name.clone(),
-                    Some(Err(_)) => "Error".to_string(),
-                    None => "Loading…".to_string(),
+                    _ => tree_id_parsed()
+                        .and_then(|tid| tree_cache.tree(tid))
+                        .map(|t| t.name)
+                        .unwrap_or_default(),
                 }
             };
 
@@ -846,8 +848,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                                 class: "td-bc-logo-img",
                             }
                         }
-                        span { class: "td-bc-link", "{tree_name_str}" }
-                        span { class: "td-bc-sep", "/" }
+                        if !tree_name_str.is_empty() {
+                            span { class: "td-bc-link", "{tree_name_str}" }
+                            span { class: "td-bc-sep", "/" }
+                        }
                         span { class: "td-bc-current", {i18n.t("pedigree.breadcrumb")} }
                     }
                     if root_person_id.is_some() {
