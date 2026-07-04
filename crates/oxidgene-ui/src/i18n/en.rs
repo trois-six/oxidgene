@@ -414,6 +414,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("settings.gedcom_desc", "Standard genealogy exchange format (.ged). Compatible with most genealogy software."),
         ("settings.download_ged", "Download .ged"),
         ("settings.export_success", "Export completed successfully."),
+        ("settings.export_saved_to", "Export saved to {path}."),
+        ("settings.export_write_error", "Failed to save GEDCOM file: {error}"),
         ("settings.coming_soon", "Coming soon"),
         ("settings.coming_soon_desc", "This section is under development."),
         // ── 404 page ────────────────────────────────────────────────

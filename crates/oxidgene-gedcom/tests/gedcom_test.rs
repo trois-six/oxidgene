@@ -1,7 +1,10 @@
 //! Integration tests for GEDCOM import and export.
 
+use chrono::Utc;
 use uuid::Uuid;
 
+use oxidgene_core::types::{Note, Person, PersonName};
+use oxidgene_core::{NameType, Privacy, Sex};
 use oxidgene_gedcom::export::export_gedcom;
 use oxidgene_gedcom::import::import_gedcom;
 
@@ -407,6 +410,67 @@ fn test_export_empty() {
     assert!(export.gedcom.contains("HEAD"));
     assert!(export.gedcom.contains("TRLR"));
     assert!(export.warnings.is_empty());
+}
+
+#[test]
+fn test_export_long_utf8_note_does_not_panic() {
+    let tree_id = Uuid::now_v7();
+    let person_id = Uuid::now_v7();
+    let now = Utc::now();
+    let person = Person {
+        id: person_id,
+        tree_id,
+        sex: Sex::Unknown,
+        privacy: Privacy::Default,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+    let name = PersonName {
+        id: Uuid::now_v7(),
+        person_id,
+        name_type: NameType::Birth,
+        given_names: Some("Maya".to_string()),
+        surname: Some("Erraud".to_string()),
+        prefix: None,
+        suffix: None,
+        nickname: None,
+        is_primary: true,
+        created_at: now,
+        updated_at: now,
+    };
+    let note = Note {
+        id: Uuid::now_v7(),
+        tree_id,
+        text: format!("{}é suite de la note", "a".repeat(254)),
+        person_id: Some(person_id),
+        event_id: None,
+        family_id: None,
+        source_id: None,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    };
+
+    let export = export_gedcom(
+        &[person],
+        &[name],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[note],
+    )
+    .unwrap();
+
+    assert!(export.gedcom.contains("1 NOTE"));
+    assert!(export.gedcom.contains("2 CONC"));
+    assert!(export.gedcom.contains('é'));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
