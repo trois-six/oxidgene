@@ -60,6 +60,9 @@ pub fn parse_event_type(s: &str) -> EventType {
         "MarriageContract" => EventType::MarriageContract,
         "MarriageLicense" => EventType::MarriageLicense,
         "MarriageSettlement" => EventType::MarriageSettlement,
+        "CivilUnion" => EventType::CivilUnion,
+        "Separation" => EventType::Separation,
+        "DivorceFiled" => EventType::DivorceFiled,
         _ => EventType::Other,
     }
 }

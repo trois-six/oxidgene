@@ -16,6 +16,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
+use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
 use oxidgene_cache::types::CachedPedigree;
 use oxidgene_core::types::{
@@ -100,8 +101,6 @@ const VIEWPORT_DEFAULT_H: f64 = 600.0;
 const ZOOM_FACTOR: f64 = 1.2;
 const ZOOM_MIN: f64 = 0.3;
 const ZOOM_MAX: f64 = 2.0;
-const FIT_ZOOM_FACTOR: f64 = 0.85;
-
 // ── Year extraction ──────────────────────────────────────────────────────
 
 const YEAR_MIN: u32 = 1000;
@@ -122,7 +121,7 @@ const PORTRAIT_UNKNOWN: &str = include_str!(concat!(
     "/assets/portrait_unknown.b64"
 ));
 
-fn default_portrait(sex: Sex) -> &'static str {
+pub(crate) fn default_portrait(sex: Sex) -> &'static str {
     match sex {
         Sex::Male => PORTRAIT_MALE,
         Sex::Female => PORTRAIT_FEMALE,
@@ -212,6 +211,9 @@ fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
         }
         EventType::Divorce => ("\u{2696}", "ev-ic ev-ic-other", "event.type.divorce"),
         EventType::Annulment => ("\u{2696}", "ev-ic ev-ic-other", "event.type.annulment"),
+        EventType::CivilUnion => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.type.civil_union"),
+        EventType::Separation => ("\u{2696}", "ev-ic ev-ic-other", "event.type.separation"),
+        EventType::DivorceFiled => ("\u{2696}", "ev-ic ev-ic-other", "event.type.divorce_filed"),
         EventType::Graduation => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.graduation"),
         EventType::Immigration => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.immigration"),
         EventType::Emigration => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.emigration"),
@@ -2220,6 +2222,14 @@ struct PedigreeLayout {
     total_w: f64,
     /// Total SVG viewport height.
     total_h: f64,
+    /// Real graph content centre x in final SVG coordinates, excluding margins.
+    content_cx: f64,
+    /// Real graph content centre y in final SVG coordinates, excluding margins.
+    content_cy: f64,
+    /// Real graph content width, excluding margins.
+    content_w: f64,
+    /// Real graph content height, excluding margins.
+    content_h: f64,
     /// Root card centre x in final SVG coordinates (for auto-centering).
     root_cx: f64,
     /// Root card centre y in final SVG coordinates (for auto-centering).
@@ -2444,6 +2454,10 @@ fn compute_layout(
     let main_ty = (-gmin_y + margin).max(margin);
     let total_w = (gmax_x - gmin_x + 2.0 * margin).max(CARD_W);
     let total_h = (gmax_y - gmin_y + 2.0 * margin).max(CARD_H);
+    let content_cx = (gmin_x + gmax_x) / 2.0 + main_tx;
+    let content_cy = (gmin_y + gmax_y) / 2.0 + main_ty;
+    let content_w = (gmax_x - gmin_x).max(CARD_W);
+    let content_h = (gmax_y - gmin_y).max(CARD_H);
 
     // Root card centre in final SVG coordinates (used for auto-centering).
     let root_cx = asc_root_x + main_tx + CARD_W / 2.0;
@@ -2488,6 +2502,10 @@ fn compute_layout(
         desc_ty,
         total_w,
         total_h,
+        content_cx,
+        content_cy,
+        content_w,
+        content_h,
         root_cx,
         root_cy,
     }
@@ -2994,8 +3012,10 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     }
 
     // ── Fit-to-content zoom calculation ──
-    let fit_total_w = layout.total_w;
-    let fit_total_h = layout.total_h;
+    let fit_content_cx = layout.content_cx;
+    let fit_content_cy = layout.content_cy;
+    let fit_content_w = layout.content_w;
+    let fit_content_h = layout.content_h;
 
     rsx! {
         div { class: "pedigree-outer",
@@ -3003,55 +3023,17 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             // ══════════════════════════════════
             // ICON SIDEBAR
             // ══════════════════════════════════
-            div { class: "isb",
-                // Tree view (active)
-                button {
-                    class: "isb-btn isb-btn-active",
-                    title: "{i18n.t(\"pedigree.tree_view\")}",
-                    svg {
-                        width: "16",
-                        height: "16",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        // Tree/sitemap icon
-                        line { x1: "12", y1: "2", x2: "12", y2: "8" }
-                        rect { x: "8", y: "8", width: "8", height: "4", rx: "1" }
-                        line { x1: "12", y1: "12", x2: "12", y2: "15" }
-                        line { x1: "6", y1: "15", x2: "18", y2: "15" }
-                        line { x1: "6", y1: "15", x2: "6", y2: "18" }
-                        line { x1: "18", y1: "15", x2: "18", y2: "18" }
-                        rect { x: "2", y: "18", width: "8", height: "4", rx: "1" }
-                        rect { x: "14", y: "18", width: "8", height: "4", rx: "1" }
+            TreeIconSidebar {
+                active_view: TreeSidebarView::Pedigree,
+                selected_person_id: Some(selected_person_id()),
+                on_profile_view: move |pid| {
+                    if let Some(pid) = pid {
+                        props.on_profile_view.call(pid);
                     }
-                }
-
-                // Profile view
-                {
-                    let sel = selected_person_id();
-                    let on_profile = props.on_profile_view;
-                    rsx! {
-                        button {
-                            class: "isb-btn",
-                            title: "{i18n.t(\"pedigree.profile_view\")}",
-                            onclick: move |_| on_profile.call(sel),
-                            svg {
-                                width: "16",
-                                height: "16",
-                                fill: "none",
-                                "viewBox": "0 0 24 24",
-                                stroke: "currentColor",
-                                "strokeWidth": "2",
-                                // Person icon
-                                circle { cx: "12", cy: "8", r: "4" }
-                                path { d: "M4 21v-1a6 6 0 0 1 12 0v1" }
-                            }
-                        }
-                    }
-                }
-
-                div { class: "isb-hr" }
+                },
+                on_pedigree_view: move |_| {},
+                on_add_person: props.on_add_person,
+                on_settings: props.on_settings,
 
                 // Depth selector (hover popover)
                 div {
@@ -3163,15 +3145,30 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     onclick: move |_| {
                         spawn(async move {
                             if let Ok(val) = document::eval(
-                                "var el = document.querySelector('.pedigree-viewport'); return el ? [el.clientWidth, el.clientHeight] : [800, 600]"
+                                r#"
+                                const viewport = document.querySelector('.pedigree-viewport');
+                                if (!viewport) return [800, 600, 0];
+                                const rect = viewport.getBoundingClientRect();
+                                const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
+                                let availableLeft = 0;
+                                let availableRight = rect.width;
+                                if (panel) {
+                                    const panelRect = panel.getBoundingClientRect();
+                                    const overlapsX = panelRect.left < rect.right && panelRect.right > rect.left;
+                                    if (overlapsX) {
+                                        availableRight = Math.min(availableRight, panelRect.left - rect.left);
+                                    }
+                                }
+                                return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft];
+                                "#
                             ).await {
                                 let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_W);
                                 let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_H);
-                                let fit_scale = (vw / fit_total_w).min(vh / fit_total_h).clamp(ZOOM_MIN, ZOOM_MAX) * FIT_ZOOM_FACTOR;
+                                let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let fit_scale = (vw / fit_content_w).min(vh / fit_content_h).clamp(ZOOM_MIN, ZOOM_MAX);
                                 scale.set(fit_scale);
-                                // Center the content in the viewport.
-                                offset_x.set((vw - fit_total_w * fit_scale) / 2.0);
-                                offset_y.set((vh - fit_total_h * fit_scale) / 2.0);
+                                offset_x.set(vx + vw / 2.0 - fit_content_cx * fit_scale);
+                                offset_y.set(vh / 2.0 - fit_content_cy * fit_scale);
                             }
                         });
                     },
@@ -3191,56 +3188,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 }
 
                 div { class: "isb-hr" }
-
-                // Add person
-                {
-                    let on_add = props.on_add_person;
-                    rsx! {
-                        button {
-                            class: "isb-btn",
-                            title: "{i18n.t(\"pedigree.add_person\")}",
-                            onclick: move |_| on_add.call(()),
-                            svg {
-                                width: "16",
-                                height: "16",
-                                fill: "none",
-                                "viewBox": "0 0 24 24",
-                                stroke: "currentColor",
-                                "strokeWidth": "2",
-                                // Person + plus icon
-                                circle { cx: "10", cy: "8", r: "4" }
-                                path { d: "M2 21v-1a6 6 0 0 1 12 0v1" }
-                                line { x1: "20", y1: "8", x2: "20", y2: "14" }
-                                line { x1: "17", y1: "11", x2: "23", y2: "11" }
-                            }
-                        }
-                    }
-                }
-
-                div { class: "isb-hr" }
-
-                // Settings
-                {
-                    let on_settings = props.on_settings;
-                    rsx! {
-                        button {
-                            class: "isb-btn",
-                            title: "{i18n.t(\"settings.breadcrumb\")}",
-                            onclick: move |_| on_settings.call(()),
-                            svg {
-                                width: "16",
-                                height: "16",
-                                fill: "none",
-                                "viewBox": "0 0 24 24",
-                                stroke: "currentColor",
-                                "strokeWidth": "2",
-                                // Gear icon
-                                circle { cx: "12", cy: "12", r: "3" }
-                                path { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" }
-                            }
-                        }
-                    }
-                }
             }
 
             // ══════════════════════════════════
@@ -3273,7 +3220,33 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         WheelDelta::Pages(p) => p.y * 400.0,
                     };
                     let factor = if delta_y > 0.0 { 0.9 } else { 1.0 / 0.9 };
-                    scale.set((scale() * factor).clamp(ZOOM_MIN, ZOOM_MAX));
+                    let old_scale = scale();
+                    let new_scale = (old_scale * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+                    if (new_scale - old_scale).abs() > f64::EPSILON {
+                        let coords = evt.client_coordinates();
+                        let old_offset_x = offset_x();
+                        let old_offset_y = offset_y();
+                        spawn(async move {
+                            if let Ok(val) = document::eval(
+                                r#"
+                                const viewport = document.querySelector('.pedigree-viewport');
+                                if (!viewport) return [0, 0];
+                                const rect = viewport.getBoundingClientRect();
+                                return [rect.left, rect.top];
+                                "#
+                            ).await {
+                                let vx = val.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let vy = val.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let mouse_x = coords.x - vx;
+                                let mouse_y = coords.y - vy;
+                                let world_x = (mouse_x - old_offset_x) / old_scale;
+                                let world_y = (mouse_y - old_offset_y) / old_scale;
+                                scale.set(new_scale);
+                                offset_x.set(mouse_x - world_x * new_scale);
+                                offset_y.set(mouse_y - world_y * new_scale);
+                            }
+                        });
+                    }
                 },
 
                 div {
