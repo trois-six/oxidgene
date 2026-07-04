@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, UpdateTreeBody};
 use crate::components::search_person::SearchPerson;
-use crate::components::tree_cache::use_tree_cache;
+use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::resolve_name;
@@ -30,19 +30,26 @@ pub fn Settings(tree_id: String) -> Element {
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
     // Fetch tree info
+    let tree_cache = use_tree_cache();
     let api_tree = api.clone();
     let tree_resource = use_resource(move || {
         let api = api_tree.clone();
         let _tick = refresh();
+        let _gen = tree_cache.generation();
         async move {
             let tid = tree_id_parsed?;
-            Some(api.get_tree(tid).await)
+            Some(fetch_tree_cached(&api, &tree_cache, tid).await)
         }
     });
 
+    // Resolve the name synchronously from the cache while the resource is
+    // pending, so the breadcrumb never flashes a loading label.
     let tree_name = match &*tree_resource.read() {
         Some(Some(Ok(tree))) => tree.name.clone(),
-        _ => i18n.t("common.loading"),
+        _ => tree_id_parsed
+            .and_then(|tid| tree_cache.tree(tid))
+            .map(|t| t.name)
+            .unwrap_or_default(),
     };
 
     // Export handler
@@ -100,11 +107,14 @@ pub fn Settings(tree_id: String) -> Element {
                             class: "td-bc-logo-img",
                         }
                     }
-                    Link {
-                        to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                        "{tree_name}"
+                    if !tree_name.is_empty() {
+                        Link {
+                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
+                            class: "td-bc-link",
+                            "{tree_name}"
+                        }
+                        span { class: "td-bc-sep", "/" }
                     }
-                    span { class: "td-bc-sep", "/" }
                     span { class: "td-bc-current", {i18n.t("settings.breadcrumb")} }
                 }
             }
