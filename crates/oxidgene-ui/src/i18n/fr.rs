@@ -414,6 +414,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("settings.gedcom_desc", "Format d\u{2019}\u{00E9}change g\u{00E9}n\u{00E9}alogique standard (.ged). Compatible avec la plupart des logiciels de g\u{00E9}n\u{00E9}alogie."),
         ("settings.download_ged", "T\u{00E9}l\u{00E9}charger .ged"),
         ("settings.export_success", "Export termin\u{00E9} avec succ\u{00E8}s."),
+        ("settings.export_saved_to", "Export enregistr\u{00E9} dans {path}."),
+        ("settings.export_write_error", "Impossible d\u{2019}enregistrer le fichier GEDCOM\u{00A0}: {error}"),
         ("settings.coming_soon", "Bient\u{00F4}t disponible"),
         ("settings.coming_soon_desc", "Cette section est en cours de d\u{00E9}veloppement."),
         // ── 404 page ────────────────────────────────────────────────

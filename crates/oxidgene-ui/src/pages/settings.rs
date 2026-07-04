@@ -27,7 +27,7 @@ pub fn Settings(tree_id: String) -> Element {
     let mut active_section = use_signal(|| "tree-roots".to_string());
     let mut export_loading = use_signal(|| false);
     let mut export_error = use_signal(|| None::<String>);
-    let mut export_success = use_signal(|| false);
+    let mut export_success = use_signal(|| None::<String>);
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
@@ -62,33 +62,71 @@ pub fn Settings(tree_id: String) -> Element {
 
     // Export handler
     let api_export = api.clone();
+    let export_file_name = format!("{}.ged", safe_export_file_name(&tree_name));
     let on_export = move |_| {
         let api = api_export.clone();
+        let file_name = export_file_name.clone();
         export_loading.set(true);
         export_error.set(None);
-        export_success.set(false);
+        export_success.set(None);
         spawn(async move {
             if let Some(tid) = tree_id_parsed {
                 match api.export_gedcom(tid).await {
                     Ok(result) => {
-                        // Trigger download via JS
-                        let gedcom = result.gedcom.replace('\\', "\\\\").replace('`', "\\`");
-                        let js = format!(
-                            r#"
-                            const blob = new Blob([`{gedcom}`], {{ type: 'text/plain' }});
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = 'export.ged';
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                            "#
-                        );
-                        document::eval(&js);
-                        export_success.set(true);
-                        export_loading.set(false);
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let gedcom = serde_json::to_string(&result.gedcom)
+                                .unwrap_or_else(|_| "\"\"".to_string());
+                            let download_name = serde_json::to_string(&file_name)
+                                .unwrap_or_else(|_| "\"export.ged\"".to_string());
+                            let js = format!(
+                                r#"
+                                const blob = new Blob([{gedcom}], {{ type: 'text/plain' }});
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = {download_name};
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                                "#
+                            );
+                            document::eval(&js);
+                            export_success.set(Some(i18n.t("settings.export_success")));
+                            export_loading.set(false);
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let file = rfd::AsyncFileDialog::new()
+                                .add_filter("GEDCOM", &["ged"])
+                                .add_filter("All files", &["*"])
+                                .set_title(i18n.t("gedcom.save_file"))
+                                .set_file_name(&file_name)
+                                .save_file()
+                                .await;
+                            let Some(file) = file else {
+                                export_loading.set(false);
+                                return;
+                            };
+                            let path = file.path().to_path_buf();
+                            match tokio::fs::write(&path, result.gedcom).await {
+                                Ok(()) => {
+                                    let path_display = path.display().to_string();
+                                    export_success.set(Some(i18n.t_args(
+                                        "settings.export_saved_to",
+                                        &[("path", &path_display)],
+                                    )));
+                                }
+                                Err(e) => {
+                                    export_error.set(Some(i18n.t_args(
+                                        "settings.export_write_error",
+                                        &[("error", &e.to_string())],
+                                    )));
+                                }
+                            }
+                            export_loading.set(false);
+                        }
                     }
                     Err(e) => {
                         export_error.set(Some(format!("{e}")));
@@ -455,7 +493,7 @@ fn ExportSection(
     on_export: EventHandler<MouseEvent>,
     loading: bool,
     error: Option<String>,
-    success: bool,
+    success: Option<String>,
 ) -> Element {
     let i18n = use_i18n();
     rsx! {
@@ -486,13 +524,33 @@ fn ExportSection(
                 if let Some(err) = &error {
                     div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
                 }
-                if success {
+                if let Some(message) = &success {
                     div { class: "success-msg", style: "margin-top: 12px;",
-                        {i18n.t("settings.export_success")}
+                        "{message}"
                     }
                 }
             }
         }
+    }
+}
+
+fn safe_export_file_name(tree_name: &str) -> String {
+    let safe = tree_name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+
+    if safe.is_empty() {
+        "export".to_string()
+    } else {
+        safe
     }
 }
 
