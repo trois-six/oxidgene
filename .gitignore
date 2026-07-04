@@ -34,3 +34,4 @@ lcov.info
 
 .claude
 .cargo/config.toml
+.codegraph

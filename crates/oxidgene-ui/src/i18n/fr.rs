@@ -41,7 +41,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("nav.theme_dark", "Passer au th\u{00E8}me sombre"),
         // ── App settings page ────────────────────────────────────────
         ("app_settings.title", "Param\u{00E8}tres"),
-        ("app_settings.breadcrumb_home", "Accueil"),
         ("app_settings.preferences", "Pr\u{00E9}f\u{00E9}rences"),
         ("app_settings.appearance", "Apparence"),
         ("app_settings.appearance_title", "Apparence"),

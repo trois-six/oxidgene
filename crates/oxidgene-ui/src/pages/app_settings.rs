@@ -28,8 +28,13 @@ pub fn AppSettings() -> Element {
             // ── Topbar breadcrumb ──────────────────────────────────
             div { class: "td-topbar",
                 nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-link", {i18n.t("app_settings.breadcrumb_home")} }
-                    span { class: "td-bc-sep", "/" }
+                    Link { to: Route::Home {}, class: "td-bc-logo",
+                        img {
+                            src: crate::components::layout::LOGO_PNG_B64,
+                            alt: "OxidGene",
+                            class: "td-bc-logo-img",
+                        }
+                    }
                     span { class: "td-bc-current", {i18n.t("app_settings.title")} }
                 }
             }
