@@ -208,6 +208,13 @@ pub enum EventType {
     MarriageLicense,
     MarriageSettlement,
     Adoption,
+    /// Civil union / PACS / cohabitation — an unmarried partnership recorded
+    /// via GEDCOM's generic `EVEN` family tag (no dedicated tag exists).
+    CivilUnion,
+    /// Legal separation, not yet a divorce (GEDCOM 7.0 `SEP` tag).
+    Separation,
+    /// Divorce petition filed but not finalized (GEDCOM `DIVF` tag).
+    DivorceFiled,
     // Generic
     Other,
 }
@@ -252,6 +259,9 @@ impl EventType {
                 | Self::MarriageLicense
                 | Self::MarriageSettlement
                 | Self::Adoption
+                | Self::CivilUnion
+                | Self::Separation
+                | Self::DivorceFiled
         )
     }
 }
@@ -287,6 +297,9 @@ impl std::fmt::Display for EventType {
             Self::MarriageLicense => write!(f, "marriage_license"),
             Self::MarriageSettlement => write!(f, "marriage_settlement"),
             Self::Adoption => write!(f, "adoption"),
+            Self::CivilUnion => write!(f, "civil_union"),
+            Self::Separation => write!(f, "separation"),
+            Self::DivorceFiled => write!(f, "divorce_filed"),
             Self::Other => write!(f, "other"),
         }
     }

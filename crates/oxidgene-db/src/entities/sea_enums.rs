@@ -217,6 +217,12 @@ pub enum EventType {
     MarriageSettlement,
     #[sea_orm(string_value = "adoption")]
     Adoption,
+    #[sea_orm(string_value = "civil_union")]
+    CivilUnion,
+    #[sea_orm(string_value = "separation")]
+    Separation,
+    #[sea_orm(string_value = "divorce_filed")]
+    DivorceFiled,
     // Generic
     #[sea_orm(string_value = "other")]
     Other,
@@ -253,6 +259,9 @@ impl From<enums::EventType> for EventType {
             enums::EventType::MarriageLicense => Self::MarriageLicense,
             enums::EventType::MarriageSettlement => Self::MarriageSettlement,
             enums::EventType::Adoption => Self::Adoption,
+            enums::EventType::CivilUnion => Self::CivilUnion,
+            enums::EventType::Separation => Self::Separation,
+            enums::EventType::DivorceFiled => Self::DivorceFiled,
             enums::EventType::Other => Self::Other,
         }
     }
@@ -289,6 +298,9 @@ impl From<EventType> for enums::EventType {
             EventType::MarriageLicense => Self::MarriageLicense,
             EventType::MarriageSettlement => Self::MarriageSettlement,
             EventType::Adoption => Self::Adoption,
+            EventType::CivilUnion => Self::CivilUnion,
+            EventType::Separation => Self::Separation,
+            EventType::DivorceFiled => Self::DivorceFiled,
             EventType::Other => Self::Other,
         }
     }

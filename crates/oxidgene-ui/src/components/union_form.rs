@@ -185,6 +185,9 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             | EventType::MarriageContract
                             | EventType::MarriageLicense
                             | EventType::MarriageSettlement
+                            | EventType::CivilUnion
+                            | EventType::Separation
+                            | EventType::DivorceFiled
                             | EventType::Residence
                             | EventType::Census
                             | EventType::Emigration
@@ -601,6 +604,9 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                 option { value: "MarriageContract", {i18n.t("event.type.marriage_contract")} }
                                                 option { value: "MarriageLicense", {i18n.t("event.type.marriage_license")} }
                                                 option { value: "MarriageSettlement", {i18n.t("event.type.marriage_settlement")} }
+                                                option { value: "CivilUnion", {i18n.t("event.type.civil_union")} }
+                                                option { value: "Separation", {i18n.t("event.type.separation")} }
+                                                option { value: "DivorceFiled", {i18n.t("event.type.divorce_filed")} }
                                             }
                                             optgroup { label: "{i18n.t(\"union_form.optional_events\")}",
                                                 option { value: "Residence", {i18n.t("event.type.residence")} }
