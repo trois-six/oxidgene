@@ -1,8 +1,9 @@
 //! Person detail page — shows names, events, notes, citations, and ancestry charts with full CRUD.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use dioxus::prelude::*;
+use oxidgene_cache::types::CachedPedigree;
 use oxidgene_core::EventType;
 use oxidgene_core::types::Event as DomainEvent;
 use uuid::Uuid;
@@ -10,12 +11,11 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
-use crate::components::person_node::PersonNode;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::utils::{generation_label, resolve_name};
+use crate::utils::resolve_name;
 use oxidgene_core::Sex;
 
 const SHOW_MANUAL_REFRESH: bool = cfg!(target_arch = "wasm32");
@@ -73,10 +73,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Person edit modal (names are managed there — see PersonForm).
     let mut show_edit_person = use_signal(|| false);
     let mut show_create_person = use_signal(|| false);
-
-    // Ancestry chart toggle signals.
-    let mut show_ancestors = use_signal(|| false);
-    let mut show_descendants = use_signal(|| false);
 
     // ── Resources ────────────────────────────────────────────────────
 
@@ -170,68 +166,21 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch ancestors (lazy: only when toggled on).
-    let api_ancestors = api.clone();
-    let ancestors_resource = use_resource(move || {
-        let api = api_ancestors.clone();
+    // Fetch citations for this person.
+    let api_citations = api.clone();
+    let citations_resource = use_resource(move || {
+        let api = api_citations.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
         let pid = person_id_parsed();
-        let active = show_ancestors();
         async move {
-            if !active {
-                return Ok(vec![]);
-            }
             let (Some(tid), Some(pid)) = (tid, pid) else {
                 return Err(crate::api::ApiError::Api {
                     status: 400,
                     body: i18n.t("common.invalid_ids"),
                 });
             };
-            api.get_ancestors(tid, pid, Some(3)).await
-        }
-    });
-
-    // Fetch descendants (lazy: only when toggled on).
-    let api_descendants = api.clone();
-    let descendants_resource = use_resource(move || {
-        let api = api_descendants.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed();
-        let pid = person_id_parsed();
-        let active = show_descendants();
-        async move {
-            if !active {
-                return Ok(vec![]);
-            }
-            let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.get_descendants(tid, pid, Some(3)).await
-        }
-    });
-
-    // Fetch all persons in tree (for resolving IDs in ancestry charts).
-    let api_all_persons = api.clone();
-    let all_persons_resource = use_resource(move || {
-        let api = api_all_persons.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed();
-        let need = show_ancestors() || show_descendants();
-        async move {
-            if !need {
-                return Ok(oxidgene_core::types::Connection::empty());
-            }
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.list_persons(tid, Some(500), None).await
+            api.list_citations(tid, Some(pid), None, None, None).await
         }
     });
 
@@ -279,19 +228,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch citations for this person.
-    // Citations don't have a list-by-person endpoint, so we fetch all sources
-    // and then list citations by source filtered to this person.
-    // For now, we use a workaround: create citations with person_id set and
-    // load them via the notes-style query pattern. But the REST API for citations
-    // doesn't have a list endpoint. We'll track citations that were created
-    // for this person by loading them via a helper resource.
-    //
-    // Since there's no list endpoint for citations, we'll handle citations
-    // display through a dedicated resource that creates/deletes in-memory.
-    // For the MVP, we show a create form and a list of person citations
-    // stored in local state after creation.
-
     // Fetch tree info (for breadcrumb, cache-backed).
     let api_tree = api.clone();
     let tree_resource = use_resource(move || {
@@ -310,48 +246,25 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch families for family connections card.
-    let api_families = api.clone();
-    let families_resource = use_resource(move || {
-        let api = api_families.clone();
-        let _tick = refresh();
+    // Fetch SOSA ancestor IDs from the closure table (same query as the tree
+    // view) — used to show the green SOSA badge in the family narrative.
+    let api_sosa = api.clone();
+    let sosa_ancestors_resource = use_resource(move || {
+        let api = api_sosa.clone();
         let tid = tree_id_parsed();
+        let _gen = tree_cache.generation();
+        let sosa_root = match &*tree_resource.read() {
+            Some(Ok(tree)) => tree.sosa_root_person_id,
+            _ => None,
+        };
         async move {
-            let Some(tid) = tid else {
-                return Ok::<_, crate::api::ApiError>((
-                    Vec::<oxidgene_core::types::Family>::new(),
-                    Vec::<(Uuid, oxidgene_core::types::FamilySpouse)>::new(),
-                    Vec::<(Uuid, oxidgene_core::types::FamilyChild)>::new(),
-                ));
+            let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
+                return HashSet::new();
             };
-            let families = api
-                .list_families(tid, Some(500), None)
-                .await
-                .unwrap_or_else(|_| oxidgene_core::types::Connection::empty());
-            let mut all_spouses = Vec::new();
-            let mut all_children = Vec::new();
-            for edge in &families.edges {
-                let fid = edge.node.id;
-                if let Ok(spouses) = api.list_family_spouses(tid, fid).await {
-                    for s in &spouses {
-                        all_spouses.push((fid, s.clone()));
-                    }
-                }
-                if let Ok(children) = api.list_family_children(tid, fid).await {
-                    for c in &children {
-                        all_children.push((fid, c.clone()));
-                    }
-                }
+            match api.get_ancestors(tid, sosa_id, None).await {
+                Ok(entries) => entries.into_iter().map(|a| a.ancestor_id).collect(),
+                Err(_) => HashSet::new(),
             }
-            Ok((
-                families
-                    .edges
-                    .into_iter()
-                    .map(|e| e.node)
-                    .collect::<Vec<_>>(),
-                all_spouses,
-                all_children,
-            ))
         }
     });
 
@@ -372,6 +285,46 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 .into_iter()
                 .find(|r| r.entity_type == "person" && r.entity_id == pid)
                 .map(|r| r.file_path)
+        }
+    });
+
+    // Small static pedigree window (self + parents + grandparents), lazy:
+    // only fetched once the Ancestors section is expanded.
+    let api_anc_ped = api.clone();
+    let ancestor_pedigree_resource = use_resource(move || {
+        let api = api_anc_ped.clone();
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
+        async move {
+            let (Some(tid), Some(pid)) = (tid, pid) else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: i18n.t("common.invalid_ids"),
+                });
+            };
+            api.get_pedigree(tid, pid, 2, 0).await.map(Some)
+        }
+    });
+
+    // Tree-wide photo map for the mini pedigrees above, lazy (same source as
+    // the header avatar, but unfiltered — the chart shows several people).
+    let api_photos_map = api.clone();
+    let photos_map_resource = use_resource(move || {
+        let api = api_photos_map.clone();
+        let tid = tree_id_parsed();
+        async move {
+            let Some(tid) = tid else {
+                return HashMap::new();
+            };
+            api.list_media_links_for_tree(tid)
+                .await
+                .map(|rows| {
+                    rows.into_iter()
+                        .filter(|r| r.entity_type == "person")
+                        .map(|r| (r.entity_id, r.file_path))
+                        .collect()
+                })
+                .unwrap_or_default()
         }
     });
 
@@ -601,8 +554,19 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // half-siblings (grouped by which parent they share).
     let family_data = {
         let pid = person_id_parsed();
-        match (&*families_resource.read(), pid) {
-            (Some(Ok((_families, all_spouses, all_children))), Some(pid)) => {
+        match (&*snapshot_resource.read(), pid) {
+            (Some(Ok(snapshot)), Some(pid)) => {
+                let all_spouses = snapshot
+                    .spouses
+                    .iter()
+                    .map(|s| (s.family_id, s.clone()))
+                    .collect::<Vec<_>>();
+                let all_children = snapshot
+                    .children
+                    .iter()
+                    .map(|c| (c.family_id, c.clone()))
+                    .collect::<Vec<_>>();
+
                 // ── This person's own unions ──
                 let spouse_family_ids: Vec<Uuid> = all_spouses
                     .iter()
@@ -662,10 +626,33 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         }
                     }
                 }
+                if parent_ids.is_empty()
+                    && let Some(Ok(Some(pedigree))) = &*ancestor_pedigree_resource.read()
+                {
+                    let mut pedigree_parent_ids = pedigree
+                        .edges
+                        .iter()
+                        .filter(|edge| edge.child_id == pid)
+                        .map(|edge| edge.parent_id)
+                        .collect::<Vec<_>>();
+                    pedigree_parent_ids.sort_by_key(|parent_id| {
+                        pedigree
+                            .persons
+                            .get(parent_id)
+                            .map(|person| match person.sex {
+                                Sex::Male => 0,
+                                Sex::Female => 1,
+                                Sex::Unknown => 2,
+                            })
+                            .unwrap_or(2)
+                    });
+                    pedigree_parent_ids.dedup();
+                    parent_ids = pedigree_parent_ids;
+                }
 
                 // ── Half-siblings: each parent's *other* unions ──
                 let mut half_sibling_groups: Vec<SiblingGroup> = Vec::new();
-                for parent_id in &parent_ids {
+                for parent_id in parent_ids.iter().filter(|_| !child_family_ids.is_empty()) {
                     let other_family_ids: Vec<Uuid> = all_spouses
                         .iter()
                         .filter(|(fid, s)| {
@@ -708,6 +695,93 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         i18n.t("common.unknown")
     };
 
+    // Tree-wide sex + lifespan lookups, used to decorate every person
+    // mentioned in the family narrative (sex glyph + "birth-death" suffix,
+    // matching the format shown on the pedigree cards).
+    let (person_sex_map, person_lifespan_map): (HashMap<Uuid, Sex>, HashMap<Uuid, String>) =
+        match &*snapshot_resource.read() {
+            Some(Ok(snapshot)) => {
+                let sex_map: HashMap<Uuid, Sex> =
+                    snapshot.persons.iter().map(|p| (p.id, p.sex)).collect();
+
+                let mut birth_years: HashMap<Uuid, i32> = HashMap::new();
+                let mut death_years: HashMap<Uuid, i32> = HashMap::new();
+                for e in &snapshot.events {
+                    let Some(pid) = e.person_id else { continue };
+                    let Some(year) = e
+                        .date_value
+                        .as_deref()
+                        .and_then(crate::components::pedigree_chart::extract_year)
+                    else {
+                        continue;
+                    };
+                    match e.event_type {
+                        EventType::Birth => {
+                            birth_years.entry(pid).or_insert(year);
+                        }
+                        EventType::Death => {
+                            death_years.entry(pid).or_insert(year);
+                        }
+                        _ => {}
+                    }
+                }
+                let lifespan_map: HashMap<Uuid, String> = sex_map
+                    .keys()
+                    .filter_map(|pid| {
+                        let lifespan = crate::components::pedigree_chart::format_lifespan(
+                            birth_years.get(pid).copied(),
+                            death_years.get(pid).copied(),
+                        );
+                        (!lifespan.is_empty()).then_some((*pid, lifespan))
+                    })
+                    .collect();
+                (sex_map, lifespan_map)
+            }
+            _ => (HashMap::new(), HashMap::new()),
+        };
+
+    let sosa_ancestors: HashSet<Uuid> = sosa_ancestors_resource.read().clone().unwrap_or_default();
+
+    // Renders "[SOSA mark] [sex glyph] Name [years]", linked to the
+    // person's own page — used throughout the family narrative below.
+    let person_chip = |pid: Uuid| -> Element {
+        let name = resolve_person_name(pid);
+        let sex = person_sex_map.get(&pid).copied().unwrap_or(Sex::Unknown);
+        let sex_glyph = match sex {
+            Sex::Male => "\u{2642}",
+            Sex::Female => "\u{2640}",
+            Sex::Unknown => "?",
+        };
+        let sex_class = match sex {
+            Sex::Male => "pd-sex-glyph male",
+            Sex::Female => "pd-sex-glyph female",
+            Sex::Unknown => "pd-sex-glyph",
+        };
+        let lifespan = person_lifespan_map.get(&pid).cloned().unwrap_or_default();
+        let is_sosa = sosa_ancestors.contains(&pid);
+        let tid = tree_id.clone();
+        rsx! {
+            span { class: "pd-person-chip",
+                if is_sosa {
+                    svg { class: "pd-sosa-mark", "viewBox": "0 0 10 10", width: "10", height: "10",
+                        circle { cx: "5", cy: "5", r: "5", fill: "rgb(149,196,23)" }
+                        circle { cx: "5", cy: "5", r: "3", fill: "#fff" }
+                        circle { cx: "5", cy: "5", r: "1.8", fill: "rgb(149,196,23)" }
+                    }
+                }
+                span { class: sex_class, "{sex_glyph}" }
+                Link {
+                    to: Route::PersonDetail { tree_id: tid, person_id: pid.to_string() },
+                    class: "pd-person-link",
+                    "{name}"
+                }
+                if !lifespan.is_empty() {
+                    span { class: "pd-person-years", "{lifespan}" }
+                }
+            }
+        }
+    };
+
     // ── Build enriched event list ───────────────────────────────────
     //
     // Combines three sources:
@@ -716,11 +790,21 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     //   3. Parental family events (parent death, sibling birth…)
     let enriched_events: Vec<EnrichedEvent> = {
         let snap_data = snapshot_resource.read();
-        let fam_data = families_resource.read();
         let pid = person_id_parsed();
 
-        match (&*snap_data, &*fam_data, pid) {
-            (Some(Ok(snapshot)), Some(Ok((_families, all_spouses, all_children))), Some(pid)) => {
+        match (&*snap_data, pid) {
+            (Some(Ok(snapshot)), Some(pid)) => {
+                let all_spouses = snapshot
+                    .spouses
+                    .iter()
+                    .map(|s| (s.family_id, s.clone()))
+                    .collect::<Vec<_>>();
+                let all_children = snapshot
+                    .children
+                    .iter()
+                    .map(|c| (c.family_id, c.clone()))
+                    .collect::<Vec<_>>();
+
                 // Index events by person_id and family_id.
                 let mut events_by_person: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
                 let mut events_by_family: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
@@ -1007,7 +1091,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         span { class: "pd-sex-mark", "{sex_symbol}" }
                                         for (i, clause) in vital_clauses.iter().enumerate() {
                                             if i > 0 {
-                                                " \u{2014} "
+                                                match clause {
+                                                    VitalClause::Died { .. } => rsx! { br {} },
+                                                    _ => rsx! { " \u{2014} " },
+                                                }
                                             }
                                             {
                                                 match clause {
@@ -1089,6 +1176,28 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             },
         }
 
+        // ── Notes section ────────────────────────────────────────────
+        match &*notes_resource.read() {
+            Some(Ok(notes)) if !notes.is_empty() => rsx! {
+                div { class: "card", style: "margin-bottom: 24px;",
+                    h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t("person.notes_section")} }
+
+                    div {
+                        for note in notes.iter() {
+                            div {
+                                style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius);",
+                                p { style: "margin: 0; white-space: pre-wrap;", "{note.text}" }
+                            }
+                        }
+                    }
+                }
+            },
+            Some(Err(e)) => rsx! {
+                div { class: "error-msg", {i18n.t_args("person.load_notes_error", &[("error", &e.to_string())])} }
+            },
+            _ => rsx! {},
+        }
+
         // ── Family section (narrative) ────────────────────────────────
         if let Some((parent_ids, unions, full_sibling_ids, half_sibling_groups)) = &family_data {
             div { class: "card", style: "margin-bottom: 24px;",
@@ -1106,7 +1215,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                 (false, _) => "person.family.child_of_one",
                             };
                             let template = i18n.t(key);
-                            let tid = tree_id.clone();
                             if parent_ids.len() >= 2 {
                                 let p1 = parent_ids[0];
                                 let p2 = parent_ids[1];
@@ -1117,17 +1225,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                     (pre.to_string(), mid.to_string(), post.to_string());
                                 rsx! {
                                     "{pre}"
-                                    Link {
-                                        to: Route::PersonDetail { tree_id: tid.clone(), person_id: p1.to_string() },
-                                        class: "pd-person-link",
-                                        "{resolve_person_name(p1)}"
-                                    }
+                                    {person_chip(p1)}
                                     "{mid}"
-                                    Link {
-                                        to: Route::PersonDetail { tree_id: tid, person_id: p2.to_string() },
-                                        class: "pd-person-link",
-                                        "{resolve_person_name(p2)}"
-                                    }
+                                    {person_chip(p2)}
                                     "{post}"
                                 }
                             } else {
@@ -1137,11 +1237,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                 let (pre, post) = (pre.to_string(), post.to_string());
                                 rsx! {
                                     "{pre}"
-                                    Link {
-                                        to: Route::PersonDetail { tree_id: tid, person_id: p1.to_string() },
-                                        class: "pd-person-link",
-                                        "{resolve_person_name(p1)}"
-                                    }
+                                    {person_chip(p1)}
                                     "{post}"
                                 }
                             }
@@ -1192,18 +1288,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
                                 let and_word = i18n.t("common.and");
                                 let partner_ids = union.partner_ids.clone();
-                                let tid = tree_id.clone();
                                 rsx! {
                                     "{prefix}"
                                     for (i, pid) in partner_ids.iter().enumerate() {
                                         if i > 0 {
                                             " {and_word} "
                                         }
-                                        Link {
-                                            to: Route::PersonDetail { tree_id: tid.clone(), person_id: pid.to_string() },
-                                            class: "pd-person-link",
-                                            "{resolve_person_name(*pid)}"
-                                        }
+                                        {person_chip(*pid)}
                                     }
                                     "{suffix}"
                                 }
@@ -1212,14 +1303,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         if !union.child_ids.is_empty() {
                             ul { class: "pd-children",
                                 for cid in union.child_ids.iter() {
-                                    { let cid = *cid; let tid = tree_id.clone(); rsx! {
-                                        li {
-                                            Link {
-                                                to: Route::PersonDetail { tree_id: tid, person_id: cid.to_string() },
-                                                class: "pd-person-link",
-                                                "{resolve_person_name(cid)}"
-                                            }
-                                        }
+                                    { let cid = *cid; rsx! {
+                                        li { {person_chip(cid)} }
                                     }}
                                 }
                             }
@@ -1232,14 +1317,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         h3 { class: "pd-fc-label", {i18n.t("person.siblings")} }
                         ul { class: "pd-children",
                             for sid in full_sibling_ids.iter() {
-                                { let sid = *sid; let tid = tree_id.clone(); rsx! {
-                                    li {
-                                        Link {
-                                            to: Route::PersonDetail { tree_id: tid, person_id: sid.to_string() },
-                                            class: "pd-person-link",
-                                            "{resolve_person_name(sid)}"
-                                        }
-                                    }
+                                { let sid = *sid; rsx! {
+                                    li { {person_chip(sid)} }
                                 }}
                             }
                         }
@@ -1264,22 +1343,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         let unknown_label = i18n.t("person.family.unknown_person");
                                         let common_parent = group.common_parent_id;
                                         let other_parent = group.other_parent_id;
-                                        let tid = tree_id.clone();
-                                        let tid2 = tree_id.clone();
                                         rsx! {
                                             "{side_pre}"
-                                            Link {
-                                                to: Route::PersonDetail { tree_id: tid, person_id: common_parent.to_string() },
-                                                class: "pd-person-link",
-                                                "{resolve_person_name(common_parent)}"
-                                            }
+                                            {person_chip(common_parent)}
                                             "{side_post}, {with_pre}"
                                             if let Some(pid) = other_parent {
-                                                Link {
-                                                    to: Route::PersonDetail { tree_id: tid2, person_id: pid.to_string() },
-                                                    class: "pd-person-link",
-                                                    "{resolve_person_name(pid)}"
-                                                }
+                                                {person_chip(pid)}
                                             } else {
                                                 "{unknown_label}"
                                             }
@@ -1289,14 +1358,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                 }
                                 ul { class: "pd-children",
                                     for cid in group.child_ids.iter() {
-                                        { let cid = *cid; let tid = tree_id.clone(); rsx! {
-                                            li {
-                                                Link {
-                                                    to: Route::PersonDetail { tree_id: tid, person_id: cid.to_string() },
-                                                    class: "pd-person-link",
-                                                    "{resolve_person_name(cid)}"
-                                                }
-                                            }
+                                        { let cid = *cid; rsx! {
+                                            li { {person_chip(cid)} }
                                         }}
                                     }
                                 }
@@ -1384,96 +1447,49 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
         }
 
-        // ── Notes section ────────────────────────────────────────────
-        div { class: "card", style: "margin-bottom: 24px;",
-            div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", {i18n.t("person.notes_section")} }
-            }
+        // ── Citations section ────────────────────────────────────────
+        match &*citations_resource.read() {
+            Some(Ok(citations)) if !citations.is_empty() => rsx! {
+                div { class: "card", style: "margin-bottom: 24px;",
+                    div { class: "section-header",
+                        h2 { style: "font-size: 1.1rem;", {i18n.t("person.citations_section")} }
+                    }
 
-            match &*notes_resource.read() {
-                Some(Ok(notes)) => rsx! {
-                    if notes.is_empty() {
-                        div { class: "empty-state",
-                            p { {i18n.t("person.no_notes")} }
-                        }
-                    } else {
-                        for note in notes.iter() {
-                            div {
-                                style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius);",
-                                p { style: "margin: 0; white-space: pre-wrap;", "{note.text}" }
+                    for citation in citations.iter() {
+                        div {
+                            style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius);",
+                            if let Some(page) = &citation.page {
+                                p { style: "margin: 0 0 6px; font-weight: 600;", "{page}" }
+                            }
+                            if let Some(text) = &citation.text {
+                                p { style: "margin: 0; white-space: pre-wrap;", "{text}" }
                             }
                         }
                     }
-                },
-                Some(Err(e)) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("person.load_notes_error", &[("error", &e.to_string())])} }
-                },
-                None => rsx! {
-                    div { class: "loading", {i18n.t("person.loading_notes")} }
-                },
-            }
-        }
-
-        // ── Citations section ────────────────────────────────────────
-        div { class: "card",
-            div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", {i18n.t("person.citations_section")} }
-            }
-
-            // Citation list note: citations are created with person_id
-            // but there's no list-by-person endpoint for citations in the REST API.
-            // Users can manage citations after creation; a full list endpoint would
-            // require backend changes. For now, we show a helpful message.
-            div { class: "empty-state",
-                p { class: "text-muted", {i18n.t("person.citation_hint")} }
-            }
+                }
+            },
+            _ => rsx! {},
         }
 
         // ── Ancestors section ─────────────────────────────────────────
-        div { class: "card", style: "margin-bottom: 24px;",
-            div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", {i18n.t("person.ancestors")} }
-                button {
-                    class: "btn btn-primary btn-sm",
-                    onclick: move |_| show_ancestors.toggle(),
-                    if show_ancestors() { {i18n.t("person.hide")} } else { {i18n.t("person.show_ancestors")} }
-                }
-            }
-
-            if show_ancestors() {
-                {render_ancestry_chart(
-                    &ancestors_resource,
-                    &all_persons_resource,
-                    &all_names_resource,
-                    person_id_parsed(),
-                    &tree_id,
-                    true,
-                    &i18n,
-                )}
-            }
-        }
-
-        // ── Descendants section ───────────────────────────────────────
         div { class: "card",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", {i18n.t("person.descendants")} }
-                button {
-                    class: "btn btn-primary btn-sm",
-                    onclick: move |_| show_descendants.toggle(),
-                    if show_descendants() { {i18n.t("person.hide")} } else { {i18n.t("person.show_descendants")} }
-                }
+                h2 { style: "font-size: 1.1rem;", {i18n.t("person.ancestors")} }
             }
 
-            if show_descendants() {
-                {render_ancestry_chart(
-                    &descendants_resource,
-                    &all_persons_resource,
-                    &all_names_resource,
-                    person_id_parsed(),
-                    &tree_id,
-                    false,
+            {
+                let tid = tree_id.clone();
+                let on_navigate = EventHandler::new(move |pid: Uuid| {
+                    nav.push(Route::PersonDetail { tree_id: tid.clone(), person_id: pid.to_string() });
+                });
+                render_mini_pedigree(
+                    &ancestor_pedigree_resource,
+                    &photos_map_resource,
+                    2,
+                    0,
+                    on_navigate,
                     &i18n,
-                )}
+                )
             }
         }
         } // close sub-page-content
@@ -1493,121 +1509,45 @@ fn age_in_years(birth: chrono::NaiveDate, end: chrono::NaiveDate) -> i32 {
     age.max(0)
 }
 
-// ── Helper: ancestry chart rendering using PersonNode ─────────────────
+// ── Helper: static mini-pedigree rendering ────────────────────────────
 
-/// Renders the ancestry/descendant chart using [`PersonNode`] components.
-fn render_ancestry_chart(
-    edges_resource: &Resource<
-        Result<Vec<oxidgene_core::types::PersonAncestry>, crate::api::ApiError>,
-    >,
-    all_persons_resource: &Resource<
-        Result<
-            oxidgene_core::types::Connection<oxidgene_core::types::Person>,
-            crate::api::ApiError,
-        >,
-    >,
-    all_names_resource: &Resource<
-        Result<HashMap<Uuid, Vec<oxidgene_core::types::PersonName>>, crate::api::ApiError>,
-    >,
-    current_person_id: Option<Uuid>,
-    tree_id: &str,
-    is_ancestors: bool,
+/// Renders a small static (no pan/zoom/drag) pedigree fragment — used for
+/// both the Ancestors (parents + grandparents) and Descendants (children +
+/// grandchildren) sections, depending on the levels passed in.
+fn render_mini_pedigree(
+    pedigree_resource: &Resource<Result<Option<CachedPedigree>, crate::api::ApiError>>,
+    photos_resource: &Resource<HashMap<Uuid, String>>,
+    ancestor_levels: usize,
+    descendant_levels: usize,
+    on_navigate: EventHandler<Uuid>,
     i18n: &crate::i18n::I18n,
 ) -> Element {
-    let edges_data = edges_resource.read();
-    let persons_data = all_persons_resource.read();
-    let names_data = all_names_resource.read();
-
-    if edges_data.is_none() || persons_data.is_none() || names_data.is_none() {
-        return rsx! {
-            div { class: "loading", {i18n.t("person.loading_ancestry")} }
-        };
-    }
-
-    let edges = match &*edges_data {
-        Some(Ok(e)) => e,
+    let ped_data = pedigree_resource.read();
+    let cached = match &*ped_data {
+        Some(Ok(Some(c))) => c,
+        Some(Ok(None)) | None => {
+            return rsx! {
+                div { class: "loading", {i18n.t("person.loading_ancestry")} }
+            };
+        }
         Some(Err(e)) => {
             return rsx! {
                 div { class: "error-msg", {i18n.t_args("person.load_ancestry_error", &[("error", &e.to_string())])} }
             };
         }
-        None => unreachable!(),
     };
 
-    if edges.is_empty() {
-        let label = if is_ancestors {
-            i18n.t("person.no_ancestors_label")
-        } else {
-            i18n.t("person.no_descendants_label")
-        };
-        return rsx! {
-            div { class: "empty-state",
-                p { {i18n.t_args("person.no_ancestry_data", &[("label", &label)])} }
-                p { class: "text-muted",
-                    {i18n.t("person.ancestry_hint")}
-                }
-            }
-        };
-    }
-
-    let person_sex: HashMap<Uuid, Sex> = match &*persons_data {
-        Some(Ok(conn)) => conn.edges.iter().map(|e| (e.node.id, e.node.sex)).collect(),
-        _ => HashMap::new(),
-    };
-
-    let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = match &*names_data {
-        Some(Ok(m)) => m.clone(),
-        _ => HashMap::new(),
-    };
-
-    let mut by_depth: std::collections::BTreeMap<i32, Vec<Uuid>> =
-        std::collections::BTreeMap::new();
-    for edge in edges.iter() {
-        let person_id = if is_ancestors {
-            edge.ancestor_id
-        } else {
-            edge.descendant_id
-        };
-        by_depth.entry(edge.depth).or_default().push(person_id);
-    }
-
-    for persons in by_depth.values_mut() {
-        persons.sort();
-        persons.dedup();
-    }
-
-    let tree_id_owned = tree_id.to_string();
+    let mut data = crate::components::pedigree_chart::PedigreeData::from_cached_pedigree(cached);
+    data.photos = photos_resource.read().clone().unwrap_or_default();
+    let root_person_id = cached.root_person_id;
 
     rsx! {
-        div { class: "chart-container",
-            for (depth, person_ids) in by_depth.iter() {
-                div { class: "depth-group",
-                    div { class: "gen-label",
-                        {generation_label(*depth, is_ancestors, i18n)}
-                        " ({person_ids.len()})"
-                    }
-                    div { class: "depth-group-nodes",
-                        for pid in person_ids.iter() {
-                            {
-                                let pid = *pid;
-                                let name = resolve_name(pid, &name_map);
-                                let sex = person_sex.get(&pid).cloned().unwrap_or(Sex::Unknown);
-                                let is_current = current_person_id == Some(pid);
-                                let tree_id_link = tree_id_owned.clone();
-                                rsx! {
-                                    PersonNode {
-                                        name: name,
-                                        sex: sex,
-                                        is_current: is_current,
-                                        tree_id: tree_id_link,
-                                        person_id: pid.to_string(),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        crate::components::pedigree_chart::MiniPedigree {
+            root_person_id: root_person_id,
+            data: data,
+            ancestor_levels: ancestor_levels,
+            descendant_levels: descendant_levels,
+            on_person_navigate: on_navigate,
         }
     }
 }

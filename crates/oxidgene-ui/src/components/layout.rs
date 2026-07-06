@@ -517,33 +517,6 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 140px;
     }
 
-    .table-wrapper {
-        overflow-x: auto;
-    }
-
-    table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    th, td {
-        text-align: left;
-        padding: 10px 14px;
-        border-bottom: 1px solid var(--border);
-    }
-
-    th {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    tr:hover td {
-        background: var(--bg-card-hover);
-    }
-
     .empty-state {
         text-align: center;
         padding: 48px 24px;
@@ -649,24 +622,6 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 6px;
     }
 
-    .pd-fc-link {
-        display: inline-block;
-        padding: 4px 10px;
-        margin: 2px 4px 2px 0;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        font-size: 0.82rem;
-        color: var(--text-secondary);
-        text-decoration: none;
-        transition: background 0.15s, border-color 0.15s, color 0.15s;
-    }
-    .pd-fc-link:hover {
-        background: var(--bg-card-hover);
-        border-color: var(--orange);
-        color: var(--text-primary);
-    }
-
     /* ── Alternate names sub-line, under the header name ─────────── */
 
     .pd-alt-names {
@@ -691,13 +646,27 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 14px;
     }
 
-    .pd-family-label {
-        font-size: 0.72rem;
-        font-weight: 700;
-        color: var(--orange);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 6px;
+    .pd-person-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        white-space: nowrap;
+    }
+
+    .pd-sosa-mark {
+        flex: none;
+    }
+
+    .pd-sex-glyph {
+        flex: none;
+        font-size: 0.85em;
+        color: var(--text-muted);
+    }
+    .pd-sex-glyph.male {
+        color: var(--pn-male-line);
+    }
+    .pd-sex-glyph.female {
+        color: var(--pn-female-line);
     }
 
     .pd-person-link {
@@ -708,6 +677,11 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     .pd-person-link:hover {
         color: var(--orange);
+    }
+
+    .pd-person-years {
+        font-size: 0.85em;
+        color: var(--text-muted);
     }
 
     .pd-union {
@@ -794,23 +768,6 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-muted);
         font-style: italic;
     }
-    .pd-ev-actions {
-        flex: none;
-        display: flex;
-        gap: 4px;
-        opacity: 0;
-        transition: opacity 0.12s;
-    }
-    .pd-timeline li:hover .pd-ev-actions {
-        opacity: 1;
-    }
-    .pd-ev-edit-row {
-        padding: 8px;
-        background: var(--color-bg);
-        border-radius: var(--radius);
-        width: 100%;
-    }
-
     /* ── Modal / confirmation dialog ─────────────────────────────── */
 
     .modal-backdrop {
@@ -848,69 +805,6 @@ pub const LAYOUT_STYLES: &str = r#"
         justify-content: flex-end;
         gap: 8px;
         margin-top: 16px;
-    }
-
-    /* ── Ancestry / descendant chart ──────────────────────────────── */
-
-    .chart-container {
-        overflow-x: auto;
-        padding: 16px 0;
-    }
-
-    /* Shared person node card */
-    .tree-node {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        font-size: 0.85rem;
-        white-space: nowrap;
-        cursor: pointer;
-        transition: border-color 0.15s, box-shadow 0.15s;
-        text-decoration: none;
-        color: var(--text-primary);
-    }
-
-    .tree-node:hover {
-        border-color: var(--orange);
-        box-shadow: 0 0 0 2px rgba(224, 120, 32, 0.12);
-    }
-
-    .tree-node.current {
-        border-color: var(--orange);
-        background: rgba(224, 120, 32, 0.08);
-        font-weight: 600;
-    }
-
-    .tree-node .sex-icon {
-        font-size: 0.75rem;
-        opacity: 0.7;
-    }
-
-    .tree-node .sex-icon.male   { color: #60a5fa; }
-    .tree-node .sex-icon.female { color: #f472b6; }
-
-    .gen-label {
-        font-size: 0.7rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        text-align: center;
-        margin-bottom: 4px;
-    }
-
-    .depth-group {
-        margin-bottom: 16px;
-    }
-
-    .depth-group-nodes {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
     }
 
     /* ── Tree detail topbar ──────────────────────────────────────── */
@@ -1376,6 +1270,27 @@ pub const LAYOUT_STYLES: &str = r#"
         stroke-width: 1;
     }
 
+    /* ── Mini pedigree (person detail: ancestors/descendants) ────────
+       Pannable but not zoomable — fixed scale, drag to move. ────────── */
+
+    .mini-pedigree {
+        position: relative;
+        overflow: hidden;
+        height: 280px;
+        border-radius: var(--radius);
+        cursor: grab;
+        background: var(--bg-deep);
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    .mini-pedigree-inner {
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-origin: 0 0;
+    }
+
     /* ── SVG person group hover ──────────────────────────────────────*/
 
     .pedigree-tree {
@@ -1599,37 +1514,6 @@ pub const LAYOUT_STYLES: &str = r#"
     .person-form-close:hover {
         background: var(--bg-card-hover);
         color: var(--text-primary);
-    }
-
-    .person-form-tabs {
-        display: flex;
-        border-bottom: 1px solid var(--border);
-        padding: 0 16px;
-        gap: 0;
-        overflow-x: auto;
-    }
-
-    .person-form-tab {
-        background: none;
-        border: none;
-        border-bottom: 2px solid transparent;
-        padding: 10px 14px;
-        font-size: 0.85rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-        cursor: pointer;
-        white-space: nowrap;
-        transition: color 0.15s, border-color 0.15s;
-        font-family: var(--font-sans);
-    }
-
-    .person-form-tab:hover {
-        color: var(--text-primary);
-    }
-
-    .person-form-tab.active {
-        color: var(--orange);
-        border-bottom-color: var(--orange);
     }
 
     .person-form-body {
@@ -2033,11 +1917,6 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 0;
         flex-wrap: wrap;
         font-size: 0.85rem;
-    }
-
-    .uf-child-years {
-        color: var(--text-secondary);
-        font-size: 0.78rem;
     }
 
     .uf-child-detach-confirm {

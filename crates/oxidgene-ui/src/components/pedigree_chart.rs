@@ -162,13 +162,22 @@ fn make_initials(given: &str, surname: &str) -> String {
 }
 
 /// Format a "birth-death" lifespan string from optional years.
-fn format_lifespan(birth: Option<i32>, death: Option<i32>) -> String {
+pub(crate) fn format_lifespan(birth: Option<i32>, death: Option<i32>) -> String {
     match (birth, death) {
         (Some(b), Some(d)) => format!("{b}-{d}"),
         (Some(b), None) => format!("{b}-"),
         (None, Some(d)) => format!("-{d}"),
         _ => String::new(),
     }
+}
+
+/// Extract a 4-digit year from a free-text GEDCOM-style date value
+/// (e.g. "ABT 1796" -> `Some(1796)`).
+pub(crate) fn extract_year(date_value: &str) -> Option<i32> {
+    date_value
+        .split_whitespace()
+        .find(|w| w.len() == 4 && w.parse::<u32>().is_ok())
+        .and_then(|w| w.parse::<i32>().ok())
 }
 
 /// CSS variable for the gender-coded card border stroke.
@@ -262,76 +271,6 @@ impl PartialEq for PedigreeData {
 }
 
 impl PedigreeData {
-    pub fn build(
-        persons: &[Person],
-        names: HashMap<Uuid, Vec<PersonName>>,
-        all_spouses: &[FamilySpouse],
-        all_children: &[FamilyChild],
-        events: Vec<DomainEvent>,
-        places: HashMap<Uuid, Place>,
-    ) -> Self {
-        let persons_map: HashMap<Uuid, Person> =
-            persons.iter().map(|p| (p.id, p.clone())).collect();
-
-        let mut spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>> = HashMap::new();
-        for s in all_spouses {
-            spouses_by_family
-                .entry(s.family_id)
-                .or_default()
-                .push(s.clone());
-        }
-
-        let mut children_by_family: HashMap<Uuid, Vec<FamilyChild>> = HashMap::new();
-        for c in all_children {
-            children_by_family
-                .entry(c.family_id)
-                .or_default()
-                .push(c.clone());
-        }
-
-        let mut families_as_child: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-        for c in all_children {
-            families_as_child
-                .entry(c.person_id)
-                .or_default()
-                .push(c.family_id);
-        }
-
-        let mut families_as_spouse: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-        for s in all_spouses {
-            families_as_spouse
-                .entry(s.person_id)
-                .or_default()
-                .push(s.family_id);
-        }
-
-        let mut events_by_person: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
-        let mut events_by_family: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
-        for e in events {
-            if let Some(pid) = e.person_id {
-                events_by_person.entry(pid).or_default().push(e.clone());
-            }
-            if let Some(fid) = e.family_id {
-                events_by_family.entry(fid).or_default().push(e);
-            }
-        }
-
-        Self {
-            persons: persons_map,
-            names,
-            spouses_by_family,
-            children_by_family,
-            families_as_child,
-            families_as_spouse,
-            events_by_person,
-            events_by_family,
-            places,
-            photos: HashMap::new(),
-            sosa_ancestors: HashSet::new(),
-            sosa_root_id: None,
-        }
-    }
-
     /// Build `PedigreeData` from a [`CachedPedigree`] returned by the cache API.
     ///
     /// Creates synthetic domain objects (Person, PersonName, Event) from the
@@ -984,22 +923,14 @@ impl PersonNode {
             .get(&id)
             .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Birth))
             .and_then(|e| e.date_value.as_deref())
-            .and_then(|d| {
-                d.split_whitespace()
-                    .find(|w| w.len() == 4 && w.parse::<u32>().is_ok())
-                    .and_then(|w| w.parse::<i32>().ok())
-            });
+            .and_then(extract_year);
 
         let death_year = data
             .events_by_person
             .get(&id)
             .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Death))
             .and_then(|e| e.date_value.as_deref())
-            .and_then(|d| {
-                d.split_whitespace()
-                    .find(|w| w.len() == 4 && w.parse::<u32>().is_ok())
-                    .and_then(|w| w.parse::<i32>().ok())
-            });
+            .and_then(extract_year);
 
         let photo_url = data.photos.get(&id).cloned();
 
@@ -2512,6 +2443,176 @@ fn compute_layout(
 }
 
 // ── Component ────────────────────────────────────────────────────────────
+
+/// Fixed zoom level for [`MiniPedigree`] — not user-adjustable. 66% of the
+/// 1.4 baseline that matched the "Family" narrative section's font size.
+const MINI_PEDIGREE_SCALE: f64 = 0.8;
+
+/// Default viewport size for [`MiniPedigree`] before the actual DOM element
+/// has been measured (see `needs_center` below).
+const MINI_PEDIGREE_VIEWPORT_W: f64 = 400.0;
+const MINI_PEDIGREE_VIEWPORT_H: f64 = 280.0;
+
+/// Bottom padding (viewport px) kept below the root card when it's anchored
+/// near the bottom of the canvas (no descendants to show underneath it).
+const MINI_PEDIGREE_BOTTOM_MARGIN: f64 = 60.0;
+
+/// Props for [`MiniPedigree`] — a small pedigree fragment, focused and
+/// centered on `root_person_id`, for embedding outside the main tree canvas
+/// (e.g. on the person detail page). Panning is enabled but the zoom level
+/// is fixed (see [`MINI_PEDIGREE_SCALE`]) — there is no zoom control.
+#[derive(Props, Clone, PartialEq)]
+pub struct MiniPedigreeProps {
+    pub root_person_id: Uuid,
+    pub data: PedigreeData,
+    pub ancestor_levels: usize,
+    pub descendant_levels: usize,
+    /// Called when the user clicks a person card (navigate to their page).
+    /// Empty ancestor/descendant slots are not clickable.
+    pub on_person_navigate: EventHandler<Uuid>,
+}
+
+/// A small, pannable (but not zoomable) pedigree fragment (e.g. "parents &
+/// grandparents"), always centered on `root_person_id` at a fixed zoom
+/// level. Reuses the same layout engine and card renderer as the full
+/// interactive [`PedigreeChart`].
+#[component]
+pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
+    let selected_person_id = use_signal(|| props.root_person_id);
+    let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
+    let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
+
+    // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
+    let mut offset_x = use_signal(|| 0.0f64);
+    let mut offset_y = use_signal(|| 0.0f64);
+    let mut dragging = use_signal(|| false);
+    let mut drag_start_x = use_signal(|| 0.0f64);
+    let mut drag_start_y = use_signal(|| 0.0f64);
+    let mut drag_origin_x = use_signal(|| 0.0f64);
+    let mut drag_origin_y = use_signal(|| 0.0f64);
+
+    let layout = compute_layout(
+        props.root_person_id,
+        &props.data,
+        props.ancestor_levels,
+        props.descendant_levels,
+    );
+
+    // ── Center the root person in the viewport on first render and root change ──
+    let mut prev_root = use_signal(|| props.root_person_id);
+    let mut needs_center = use_signal(|| true);
+    if prev_root() != props.root_person_id {
+        prev_root.set(props.root_person_id);
+        needs_center.set(true);
+    }
+    if needs_center() {
+        needs_center.set(false);
+        let root_cx = layout.root_cx;
+        let root_cy = layout.root_cy;
+        // When there are no descendants to show below the root, anchor it
+        // near the bottom of the viewport instead of the vertical middle —
+        // otherwise the ancestor rows above waste half the canvas.
+        // (`desc_nodes` always contains at least the root card itself, even
+        // at descendant_levels == 0, so check the prop directly instead.)
+        let anchor_bottom = props.descendant_levels == 0;
+        spawn(async move {
+            // Small delay so the DOM has rendered the viewport element.
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            if let Ok(val) = document::eval(
+                "var el = document.querySelector('.mini-pedigree'); return el ? [el.clientWidth, el.clientHeight] : [400, 280]"
+            ).await {
+                let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_W);
+                let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_H);
+                offset_x.set(vw / 2.0 - root_cx * MINI_PEDIGREE_SCALE);
+                let target_y = if anchor_bottom {
+                    vh - MINI_PEDIGREE_BOTTOM_MARGIN
+                } else {
+                    vh / 2.0
+                };
+                offset_y.set(target_y - root_cy * MINI_PEDIGREE_SCALE);
+            }
+        });
+    }
+
+    let transform = format!(
+        "translate({}px, {}px) scale({MINI_PEDIGREE_SCALE})",
+        offset_x(),
+        offset_y(),
+    );
+
+    rsx! {
+        div {
+            class: "mini-pedigree",
+            onpointerdown: move |evt| {
+                let coords = evt.client_coordinates();
+                drag_start_x.set(coords.x);
+                drag_start_y.set(coords.y);
+                drag_origin_x.set(offset_x());
+                drag_origin_y.set(offset_y());
+                dragging.set(true);
+            },
+            onpointermove: move |evt| {
+                if dragging() {
+                    let coords = evt.client_coordinates();
+                    offset_x.set(drag_origin_x() + coords.x - drag_start_x());
+                    offset_y.set(drag_origin_y() + coords.y - drag_start_y());
+                }
+            },
+            onpointerup: move |_| dragging.set(false),
+            onpointerleave: move |_| dragging.set(false),
+
+            div {
+                class: "mini-pedigree-inner",
+                style: "transform: {transform};",
+                svg {
+                    width: "{layout.total_w}",
+                    height: "{layout.total_h}",
+                    "viewBox": "0 0 {layout.total_w} {layout.total_h}",
+                    style: "display: block; overflow: visible;",
+                    g { transform: "translate({layout.main_tx},{layout.main_ty})",
+                        g {
+                            for (si, path) in layout.asc_links.iter().enumerate() {
+                                path { key: "al-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                            }
+                            for (ni, node) in layout.asc_nodes.iter().enumerate() {
+                                {render_pedigree_card(
+                                    node,
+                                    ni,
+                                    "an",
+                                    props.root_person_id,
+                                    selected_person_id,
+                                    props.on_person_navigate,
+                                    noop_click,
+                                    noop_empty_slot,
+                                    false,
+                                )}
+                            }
+                        }
+                        g {
+                            transform: "translate({layout.desc_tx},{layout.desc_ty})",
+                            for (si, path) in layout.desc_links.iter().enumerate() {
+                                path { key: "dl-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                            }
+                            for (ni, node) in layout.desc_nodes.iter().enumerate() {
+                                {render_pedigree_card(
+                                    node,
+                                    ni,
+                                    "dn",
+                                    props.root_person_id,
+                                    selected_person_id,
+                                    props.on_person_navigate,
+                                    noop_click,
+                                    noop_empty_slot,
+                                    false,
+                                )}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[derive(Props, Clone, PartialEq)]
 pub struct PedigreeChartProps {

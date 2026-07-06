@@ -1192,6 +1192,31 @@ impl ApiClient {
         Ok(())
     }
 
+    pub async fn list_citations(
+        &self,
+        tree_id: Uuid,
+        person_id: Option<Uuid>,
+        event_id: Option<Uuid>,
+        family_id: Option<Uuid>,
+        source_id: Option<Uuid>,
+    ) -> Result<Vec<Citation>, ApiError> {
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(pid) = person_id {
+            params.push(("person_id", pid.to_string()));
+        }
+        if let Some(eid) = event_id {
+            params.push(("event_id", eid.to_string()));
+        }
+        if let Some(fid) = family_id {
+            params.push(("family_id", fid.to_string()));
+        }
+        if let Some(sid) = source_id {
+            params.push(("source_id", sid.to_string()));
+        }
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/citations"), &params)
+            .await
+    }
+
     // ── Notes ─────────────────────────────────────────────────────────
 
     pub async fn list_notes(
