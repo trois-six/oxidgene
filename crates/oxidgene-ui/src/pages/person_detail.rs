@@ -184,32 +184,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch all person names in tree (for resolving names in ancestry charts).
-    // Build a name lookup for *all* persons in the tree — used by
-    // family connections (parents, spouses, children, siblings) and
-    // ancestry charts. Uses the tree snapshot endpoint directly.
-    let api_all_names = api.clone();
-    let all_names_resource = use_resource(move || {
-        let api = api_all_names.clone();
-        let _tick = refresh();
-        let _gen = tree_cache.generation();
-        let tid = tree_id_parsed();
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            let snapshot = api.get_tree_snapshot(tid).await?;
-            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
-            for pn in snapshot.names {
-                name_map.entry(pn.person_id).or_default().push(pn);
-            }
-            Ok(name_map)
-        }
-    });
-
     // Fetch tree snapshot for enriched events (direct API call).
     let api_snap = api.clone();
     let snapshot_resource = use_resource(move || {
@@ -226,6 +200,21 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             };
             api.get_tree_snapshot(tid).await
         }
+    });
+
+    // Name lookup for *all* persons in the tree — used by family connections
+    // (parents, spouses, children, siblings) and ancestry charts. Derived
+    // from `snapshot_resource` rather than issuing a second, duplicate
+    // `get_tree_snapshot` call.
+    let all_names = use_memo(move || match &*snapshot_resource.read() {
+        Some(Ok(snapshot)) => {
+            let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
+            for pn in &snapshot.names {
+                name_map.entry(pn.person_id).or_default().push(pn.clone());
+            }
+            Some(name_map)
+        }
+        _ => None,
     });
 
     // Fetch tree info (for breadcrumb, cache-backed).
@@ -268,46 +257,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch this person's portrait photo, if any (same tree-wide media-link
-    // lookup used by the pedigree chart).
-    let api_photo = api.clone();
-    let photo_resource = use_resource(move || {
-        let api = api_photo.clone();
-        let tid = tree_id_parsed();
-        let pid = person_id_parsed();
-        async move {
-            let (Some(tid), Some(pid)) = (tid, pid) else {
-                return None;
-            };
-            api.list_media_links_for_tree(tid)
-                .await
-                .ok()?
-                .into_iter()
-                .find(|r| r.entity_type == "person" && r.entity_id == pid)
-                .map(|r| r.file_path)
-        }
-    });
-
-    // Small static pedigree window (self + parents + grandparents), lazy:
-    // only fetched once the Ancestors section is expanded.
-    let api_anc_ped = api.clone();
-    let ancestor_pedigree_resource = use_resource(move || {
-        let api = api_anc_ped.clone();
-        let tid = tree_id_parsed();
-        let pid = person_id_parsed();
-        async move {
-            let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.get_pedigree(tid, pid, 2, 0).await.map(Some)
-        }
-    });
-
-    // Tree-wide photo map for the mini pedigrees above, lazy (same source as
-    // the header avatar, but unfiltered — the chart shows several people).
+    // Tree-wide photo map (person_id -> file_path), used both for this
+    // person's header avatar and for the mini pedigrees below — a single
+    // `list_media_links_for_tree` call instead of two duplicate ones.
     let api_photos_map = api.clone();
     let photos_map_resource = use_resource(move || {
         let api = api_photos_map.clone();
@@ -325,6 +277,31 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         .collect()
                 })
                 .unwrap_or_default()
+        }
+    });
+
+    // This person's portrait photo, derived from `photos_map_resource`
+    // rather than issuing a second `list_media_links_for_tree` call.
+    let photo = use_memo(move || {
+        let pid = person_id_parsed()?;
+        photos_map_resource.read().as_ref()?.get(&pid).cloned()
+    });
+
+    // Small static pedigree window (self + parents + grandparents), for the
+    // Ancestors section.
+    let api_anc_ped = api.clone();
+    let ancestor_pedigree_resource = use_resource(move || {
+        let api = api_anc_ped.clone();
+        let tid = tree_id_parsed();
+        let pid = person_id_parsed();
+        async move {
+            let (Some(tid), Some(pid)) = (tid, pid) else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: i18n.t("common.invalid_ids"),
+                });
+            };
+            api.get_pedigree(tid, pid, 2, 0).await.map(Some)
         }
     });
 
@@ -688,8 +665,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Helper to resolve person name from all_names or names_resource
     let resolve_person_name = |pid: Uuid| -> String {
-        let names_data = all_names_resource.read();
-        if let Some(Ok(name_map)) = &*names_data {
+        if let Some(name_map) = &*all_names.read() {
             return resolve_name(pid, name_map);
         }
         i18n.t("common.unknown")
@@ -1067,9 +1043,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     Sex::Female => "\u{2640}",
                     Sex::Unknown => "?",
                 };
-                let avatar_src = match &*photo_resource.read() {
-                    Some(Some(url)) => url.clone(),
-                    _ => crate::components::pedigree_chart::default_portrait(person_sex).to_string(),
+                let avatar_src = match &*photo.read() {
+                    Some(url) => url.clone(),
+                    None => crate::components::pedigree_chart::default_portrait(person_sex).to_string(),
                 };
                 rsx! {
                     div { class: "card page-header",

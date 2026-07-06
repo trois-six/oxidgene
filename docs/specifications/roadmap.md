@@ -208,6 +208,7 @@ timestamp: 2026-06-17T00:00:00Z
 - [ ] FluxCD GitOps configuration.
 - [ ] Liveness/readiness probes.
 - [ ] Production PostgreSQL configuration (connection pooling, backups).
+- [ ] TLS termination + HTTP/2 for the web server (ingress or reverse proxy). `axum::serve` currently serves plain HTTP/1.1, so browsers cap concurrent requests per origin (~6) instead of multiplexing over one connection — pages like person detail that fire many parallel API calls would benefit from h2.
 
 ---
 
