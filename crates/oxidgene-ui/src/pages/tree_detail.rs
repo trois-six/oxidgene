@@ -252,8 +252,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             let root_id = if let Some(sel) = sel_root {
                 Some(sel)
             } else {
-                // Try sosa_root from tree settings.
-                let tree_root = match api.get_tree(tid).await {
+                // Try sosa_root from tree settings — goes through the same
+                // TreeCache as `tree_resource` instead of a raw `get_tree`
+                // call, avoiding a duplicate `GET /trees/:id` request.
+                let tree_root = match fetch_tree_cached(&api, &tree_cache, tid).await {
                     Ok(tree) => tree.sosa_root_person_id,
                     Err(_) => None,
                 };
