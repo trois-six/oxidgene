@@ -122,26 +122,6 @@ pub fn opt_str(s: &str) -> Option<String> {
     }
 }
 
-// ── Sex display helpers ─────────────────────────────────────────────────
-
-/// Returns a short CSS class suffix for the sex icon (e.g. `"male"`, `"female"`, `""`).
-pub fn sex_icon_class(sex: &Sex) -> &'static str {
-    match sex {
-        Sex::Male => "male",
-        Sex::Female => "female",
-        Sex::Unknown => "",
-    }
-}
-
-/// Returns a single-character symbol for the sex (M / F / ?).
-pub fn sex_symbol(sex: &Sex) -> &'static str {
-    match sex {
-        Sex::Male => "M",
-        Sex::Female => "F",
-        Sex::Unknown => "?",
-    }
-}
-
 // ── Name resolution ─────────────────────────────────────────────────────
 
 /// Resolve a display name for a person from a name map.
@@ -168,25 +148,6 @@ pub fn resolve_name(
             }
         }
         None => "Unnamed".to_string(),
-    }
-}
-
-// ── Generation labels ───────────────────────────────────────────────────
-
-/// Returns a human-readable generation label for ancestry/descendant charts.
-///
-/// Uses i18n keys `gen.ancestors.{1,2,3,n}` and `gen.descendants.{1,2,3,n}`.
-pub fn generation_label(depth: i32, is_ancestors: bool, i18n: &crate::i18n::I18n) -> String {
-    let prefix = if is_ancestors {
-        "gen.ancestors"
-    } else {
-        "gen.descendants"
-    };
-    match depth {
-        1 => i18n.t(&format!("{prefix}.1")),
-        2 => i18n.t(&format!("{prefix}.2")),
-        3 => i18n.t(&format!("{prefix}.3")),
-        n => i18n.t_args(&format!("{prefix}.n"), &[("n", &n.to_string())]),
     }
 }
 

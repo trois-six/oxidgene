@@ -1,14 +1,49 @@
 //! REST handlers for Citation CRUD operations.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::CitationRepo;
+use oxidgene_db::repo::{CitationRepo, SourceRepo};
 use uuid::Uuid;
 
-use super::dto::{CreateCitationRequest, UpdateCitationRequest};
+use super::dto::{CitationListQuery, CreateCitationRequest, UpdateCitationRequest};
 use super::error::ApiError;
 use super::state::AppState;
+
+/// GET /api/v1/trees/:tree_id/citations
+pub async fn list_citations(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Query(query): Query<CitationListQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let source_ids = if let Some(source_id) = query.source_id {
+        vec![source_id]
+    } else {
+        SourceRepo::list_all(&state.db, tree_id)
+            .await
+            .map_err(ApiError::from)?
+            .into_iter()
+            .map(|source| source.id)
+            .collect()
+    };
+    let citations = CitationRepo::list_by_sources(&state.db, &source_ids)
+        .await
+        .map_err(ApiError::from)?
+        .into_iter()
+        .filter(|citation| {
+            query
+                .person_id
+                .is_none_or(|pid| citation.person_id == Some(pid))
+                && query
+                    .event_id
+                    .is_none_or(|eid| citation.event_id == Some(eid))
+                && query
+                    .family_id
+                    .is_none_or(|fid| citation.family_id == Some(fid))
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(serde_json::to_value(citations).unwrap()))
+}
 
 /// POST /api/v1/trees/:tree_id/citations
 pub async fn create_citation(
