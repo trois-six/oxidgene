@@ -133,7 +133,10 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let citation_routes = Router::new()
-        .route("/{tree_id}/citations", post(citation::create_citation))
+        .route(
+            "/{tree_id}/citations",
+            get(citation::list_citations).post(citation::create_citation),
+        )
         .route(
             "/{tree_id}/citations/{citation_id}",
             put(citation::update_citation).delete(citation::delete_citation),

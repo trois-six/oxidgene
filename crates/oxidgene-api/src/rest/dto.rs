@@ -252,6 +252,15 @@ pub struct UpdateCitationRequest {
     pub text: Option<Option<String>>,
 }
 
+/// Query parameters for listing citations by entity.
+#[derive(Debug, Deserialize)]
+pub struct CitationListQuery {
+    pub person_id: Option<uuid::Uuid>,
+    pub event_id: Option<uuid::Uuid>,
+    pub family_id: Option<uuid::Uuid>,
+    pub source_id: Option<uuid::Uuid>,
+}
+
 // ── Media DTOs ──────────────────────────────────────────────────────
 
 /// Request body for creating a media record (metadata only).
