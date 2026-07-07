@@ -92,8 +92,8 @@ pub fn Settings(tree_id: String) -> Element {
                             } else {
                                 "text/plain"
                             };
-                            let byte_array = serde_json::to_string(&bytes)
-                                .unwrap_or_else(|_| "[]".to_string());
+                            let byte_array =
+                                serde_json::to_string(&bytes).unwrap_or_else(|_| "[]".to_string());
                             let download_name = serde_json::to_string(&file_name)
                                 .unwrap_or_else(|_| "\"export\"".to_string());
                             let js = format!(

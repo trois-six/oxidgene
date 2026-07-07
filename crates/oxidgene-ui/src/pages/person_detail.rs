@@ -388,7 +388,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     enum VitalClause {
         Born { date: String, place: Option<String> },
         Died { date: String, place: Option<String> },
-        Age(i32),
+        Age(AgeSpan),
+        Occupation(String),
     }
 
     // Birth/death vitals clauses shown under the header name, e.g.
@@ -429,9 +430,23 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     None => Some(chrono::Local::now().date_naive()),
                 };
                 if let Some(end_date) = end_date {
-                    clauses.push(VitalClause::Age(age_in_years(birth_date, end_date)));
+                    clauses.push(VitalClause::Age(age_span(birth_date, end_date)));
                 }
             }
+
+            // Occupation, shown on its own line below the birth/death vitals
+            // (mirrors the "Profession" line on Geneanet person pages).
+            let occupation = conn
+                .edges
+                .iter()
+                .map(|e| &e.node)
+                .find(|e| e.event_type == EventType::Occupation)
+                .and_then(|e| e.description.clone())
+                .filter(|title| !title.is_empty());
+            if let Some(title) = occupation {
+                clauses.push(VitalClause::Occupation(title));
+            }
+
             clauses
         }
         _ => Vec::new(),
@@ -1075,7 +1090,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         for (i, clause) in vital_clauses.iter().enumerate() {
                                             if i > 0 {
                                                 match clause {
-                                                    VitalClause::Died { .. } => rsx! { br {} },
+                                                    VitalClause::Died { .. }
+                                                    | VitalClause::Occupation(_) => rsx! { br {} },
                                                     _ => rsx! { " \u{2014} " },
                                                 }
                                             }
@@ -1111,15 +1127,22 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                         }
                                                     }
                                                     VitalClause::Age(age) => {
+                                                        let (key, n) = match age {
+                                                            AgeSpan::Days(n) => ("person.vitals.age_days", *n),
+                                                            AgeSpan::Months(n) => ("person.vitals.age_months", *n),
+                                                            AgeSpan::Years(n) => ("person.vitals.age", *n),
+                                                        };
                                                         let label = i18n
-                                                            .t_plural("person.vitals.age", *age as usize)
-                                                            .replace("{n}", &age.to_string());
+                                                            .t_plural(key, n as usize)
+                                                            .replace("{n}", &n.to_string());
                                                         rsx! { b { "{label}" } }
+                                                    }
+                                                    VitalClause::Occupation(title) => {
+                                                        rsx! { "{title}" }
                                                     }
                                                 }
                                             }
                                         }
-                                        "."
                                     }
                                 }
                             }
@@ -1497,6 +1520,37 @@ fn age_in_years(birth: chrono::NaiveDate, end: chrono::NaiveDate) -> i32 {
         age -= 1;
     }
     age.max(0)
+}
+
+/// Whole months between two dates (doesn't count the current month until the
+/// day-of-month has passed) — used by `age_span` to pick a display unit.
+fn months_between(birth: chrono::NaiveDate, end: chrono::NaiveDate) -> i32 {
+    use chrono::Datelike;
+    let mut months = (end.year() - birth.year()) * 12 + end.month() as i32 - birth.month() as i32;
+    if end.day() < birth.day() {
+        months -= 1;
+    }
+    months.max(0)
+}
+
+/// A person's age at `end`, expressed in the coarsest unit that keeps it
+/// meaningful: days for infants under one month old, months for children
+/// under one year old, years otherwise.
+enum AgeSpan {
+    Days(i32),
+    Months(i32),
+    Years(i32),
+}
+
+fn age_span(birth: chrono::NaiveDate, end: chrono::NaiveDate) -> AgeSpan {
+    let months = months_between(birth, end);
+    if months < 1 {
+        AgeSpan::Days((end - birth).num_days().max(0) as i32)
+    } else if months < 12 {
+        AgeSpan::Months(months)
+    } else {
+        AgeSpan::Years(age_in_years(birth, end))
+    }
 }
 
 // ── Helper: static mini-pedigree rendering ────────────────────────────

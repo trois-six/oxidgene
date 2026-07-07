@@ -224,6 +224,21 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
             );
         }
 
+        // Attributes (GEDCOM's INDIVIDUAL_ATTRIBUTE_STRUCTURE: OCCU, RESI,
+        // TITL, ... — distinct from INDIVIDUAL_EVENT_STRUCTURE in both the
+        // 5.5.1 and 7.0 specs, but modeled as `Event`s in our domain).
+        for attr_detail in &indi.attributes {
+            import_attribute_detail(
+                attr_detail,
+                tree_id,
+                person_id,
+                now,
+                &source_map,
+                &mut get_or_create_place,
+                &mut result,
+            );
+        }
+
         // Source citations on the individual
         for cite in &indi.source {
             import_citation(
@@ -602,6 +617,32 @@ fn is_civil_union_type(type_text: Option<&str>) -> bool {
     KEYWORDS.iter().any(|k| t.contains(k))
 }
 
+/// Maps a GEDCOM `INDIVIDUAL_ATTRIBUTE_STRUCTURE` tag (OCCU, RESI, TITL, ...)
+/// to our domain `EventType`. Only Occupation and Residence have dedicated
+/// variants; the rest collapse to `Other` with the tag's value/TYPE preserved
+/// as the event's description.
+fn convert_individual_attribute(
+    attr: &ged_io::types::individual::attribute::IndividualAttribute,
+) -> EventType {
+    use ged_io::types::individual::attribute::IndividualAttribute;
+    match attr {
+        IndividualAttribute::Occupation => EventType::Occupation,
+        IndividualAttribute::ResidesAt => EventType::Residence,
+        IndividualAttribute::CastName
+        | IndividualAttribute::PhysicalDescription
+        | IndividualAttribute::ScholasticAchievement
+        | IndividualAttribute::NationalIDNumber
+        | IndividualAttribute::NationalOrTribalOrigin
+        | IndividualAttribute::CountOfChildren
+        | IndividualAttribute::CountOfMarriages
+        | IndividualAttribute::Possessions
+        | IndividualAttribute::ReligiousAffiliation
+        | IndividualAttribute::SocialSecurityNumber
+        | IndividualAttribute::NobilityTypeTitle
+        | IndividualAttribute::Fact => EventType::Other,
+    }
+}
+
 fn convert_pedigree(
     pedi: &ged_io::types::individual::family_link::pedigree::Pedigree,
 ) -> ChildType {
@@ -801,6 +842,101 @@ fn import_event_detail(
     }
 
     // Note on the event
+    if let Some(ref note) = detail.note {
+        import_note(
+            &note.value,
+            tree_id,
+            now,
+            None,
+            Some(event_id),
+            None,
+            None,
+            result,
+        );
+    }
+}
+
+/// Imports a GEDCOM individual attribute (OCCU, RESI, TITL, ...) as an
+/// `Event`. Mirrors `import_event_detail`, adapted to `AttributeDetail`'s
+/// shape: the tag's own value (e.g. "Commercial" for OCCU) or its TYPE
+/// sub-tag is preserved as the description, and there is no multimedia
+/// sub-structure on attributes.
+fn import_attribute_detail(
+    detail: &ged_io::types::individual::attribute::detail::AttributeDetail,
+    tree_id: Uuid,
+    person_id: Uuid,
+    now: chrono::DateTime<Utc>,
+    source_map: &HashMap<String, Uuid>,
+    get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    result: &mut ImportResult,
+) {
+    let event_type = convert_individual_attribute(&detail.attribute);
+
+    // Date
+    let date_value = detail.date.as_ref().and_then(|d| d.value.clone());
+    let date_sort = date_value.as_deref().and_then(parse_gedcom_date);
+
+    // Place
+    let place_id = detail.place.as_ref().and_then(|p| {
+        p.value.as_ref().map(|name| {
+            let pid = get_or_create_place(name, result);
+            if let Some(ref map) = p.map
+                && let (Some(lat_str), Some(lon_str)) = (&map.latitude, &map.longitude)
+                && let (Ok(lat), Ok(lon)) =
+                    (parse_gedcom_coord(lat_str), parse_gedcom_coord(lon_str))
+                && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
+            {
+                place.latitude = Some(lat);
+                place.longitude = Some(lon);
+            }
+            pid
+        })
+    });
+
+    let cause = detail.cause.clone();
+
+    // Preserve the tag's own value (e.g. "Commercial", "Meunier, Cultivateur"
+    // for OCCU) or, failing that, its TYPE sub-tag.
+    let description = detail
+        .value
+        .clone()
+        .or_else(|| detail.attribute_type.clone());
+
+    let event_id = Uuid::now_v7();
+    result.events.push(Event {
+        id: event_id,
+        tree_id,
+        event_type,
+        date_value,
+        date_sort,
+        date_qualifier: DateQualifier::default(),
+        date_value2: None,
+        calendar: Calendar::default(),
+        witnesses: vec![],
+        cause,
+        place_id,
+        person_id: Some(person_id),
+        family_id: None,
+        description,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    });
+
+    // Source citations on the attribute
+    for cite in &detail.sources {
+        import_citation(
+            cite,
+            tree_id,
+            None,
+            Some(event_id),
+            None,
+            source_map,
+            result,
+        );
+    }
+
+    // Note on the attribute
     if let Some(ref note) = detail.note {
         import_note(
             &note.value,
