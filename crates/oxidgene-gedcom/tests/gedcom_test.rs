@@ -581,6 +581,8 @@ const GENEANET_GEDCOM: &str = "\
 2 DATE 15 MAR 1952
 2 PLAC Bordeaux, France
 2 SOUR Registre civil
+1 RESI
+2 PLAC Bordeaux, France
 1 OCCU Architecte
 1 FAMC @F58@
 1 FAMS @F60@
@@ -712,6 +714,100 @@ fn test_import_geneanet_birth_events() {
         .find(|e| e.person_id == Some(claire_id))
         .expect("Claire birth event missing");
     assert_eq!(claire_birth.date_value.as_deref(), Some("18 APR 1980"));
+}
+
+#[test]
+fn test_import_geneanet_individual_attributes() {
+    // OCCU and RESI are GEDCOM `INDIVIDUAL_ATTRIBUTE_STRUCTURE` tags, parsed
+    // by ged_io into `Individual.attributes` (separate from `.events`) —
+    // make sure we still pick them up as `Event`s.
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+
+    let henri_id = result
+        .person_names
+        .iter()
+        .find(|n| n.given_names.as_deref() == Some("Henri Jean-Marc"))
+        .map(|n| n.person_id)
+        .expect("Henri not found");
+
+    let occupations: Vec<_> = result
+        .events
+        .iter()
+        .filter(|e| e.event_type == oxidgene_core::EventType::Occupation)
+        .collect();
+    assert_eq!(occupations.len(), 4, "expected 4 OCCU attributes imported");
+
+    let henri_occu = occupations
+        .iter()
+        .find(|e| e.person_id == Some(henri_id))
+        .expect("Henri's occupation missing");
+    assert_eq!(henri_occu.description.as_deref(), Some("Architecte"));
+
+    let henri_resi = result
+        .events
+        .iter()
+        .find(|e| {
+            e.event_type == oxidgene_core::EventType::Residence && e.person_id == Some(henri_id)
+        })
+        .expect("Henri's residence missing");
+    let place = result
+        .places
+        .iter()
+        .find(|p| Some(p.id) == henri_resi.place_id)
+        .expect("residence place missing");
+    assert_eq!(place.name, "Bordeaux, France");
+}
+
+#[test]
+fn test_roundtrip_occupation_exports_as_occu_tag() {
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+
+    let exported = export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &imported.family_children,
+        &imported.events,
+        &imported.places,
+        &imported.sources,
+        &imported.citations,
+        &imported.media,
+        &imported.media_links,
+        &imported.notes,
+    )
+    .unwrap();
+
+    // OCCU must round-trip to its own tag, not a generic EVEN.
+    assert!(
+        exported.gedcom.contains("1 OCCU Architecte"),
+        "expected '1 OCCU Architecte' in exported GEDCOM:\n{}",
+        exported.gedcom
+    );
+    assert!(
+        !exported.gedcom.contains("2 TYPE Architecte"),
+        "occupation should not be exported as a generic EVEN/TYPE"
+    );
+
+    // RESI must still round-trip too.
+    assert!(
+        exported.gedcom.contains("1 RESI"),
+        "expected '1 RESI' in exported GEDCOM:\n{}",
+        exported.gedcom
+    );
+
+    // Re-importing should preserve the same counts.
+    let tree_id2 = Uuid::now_v7();
+    let reimported = import_gedcom(&exported.gedcom, tree_id2).unwrap();
+    let occu_count = |events: &[oxidgene_core::types::Event]| {
+        events
+            .iter()
+            .filter(|e| e.event_type == oxidgene_core::EventType::Occupation)
+            .count()
+    };
+    assert_eq!(occu_count(&reimported.events), occu_count(&imported.events));
 }
 
 #[test]

@@ -14,6 +14,8 @@ use ged_io::types::header::Header;
 use ged_io::types::header::meta::HeadMeta;
 use ged_io::types::header::source::HeadSour;
 use ged_io::types::individual::Individual;
+use ged_io::types::individual::attribute::IndividualAttribute as GedIndividualAttribute;
+use ged_io::types::individual::attribute::detail::AttributeDetail as GedAttributeDetail;
 use ged_io::types::individual::gender::{Gender, GenderType};
 use ged_io::types::individual::name::{Name as GedName, NameType as GedNameType};
 use ged_io::types::multimedia::Multimedia as GedMultimedia;
@@ -242,27 +244,35 @@ pub fn export_gedcom(
                 .map(|pn| to_ged_name(pn))
         });
 
-        // Events
-        let indi_events: Vec<GedDetail> = events_by_person
-            .get(&person.id)
-            .map(|evts| {
-                evts.iter()
-                    .map(|evt| {
-                        to_ged_detail(
-                            evt,
-                            &place_map,
-                            &cites_by_event,
-                            &notes_by_event,
-                            &mlinks_by_event,
-                            &media_by_id,
-                            &source_xref,
-                            &media_xref,
-                            &mut warnings,
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Events (GEDCOM INDIVIDUAL_EVENT_STRUCTURE) and attributes
+        // (INDIVIDUAL_ATTRIBUTE_STRUCTURE, e.g. OCCU) — split so each
+        // round-trips to its own tag rather than a generic EVEN.
+        let mut indi_events: Vec<GedDetail> = Vec::new();
+        let mut indi_attributes: Vec<GedAttributeDetail> = Vec::new();
+        for evt in events_by_person.get(&person.id).into_iter().flatten() {
+            match evt.event_type {
+                EventType::Occupation => indi_attributes.push(to_ged_attribute_detail(
+                    evt,
+                    GedIndividualAttribute::Occupation,
+                    &place_map,
+                    &cites_by_event,
+                    &notes_by_event,
+                    &source_xref,
+                    &mut warnings,
+                )),
+                _ => indi_events.push(to_ged_detail(
+                    evt,
+                    &place_map,
+                    &cites_by_event,
+                    &notes_by_event,
+                    &mlinks_by_event,
+                    &media_by_id,
+                    &source_xref,
+                    &media_xref,
+                    &mut warnings,
+                )),
+            }
+        }
 
         // Source citations on the individual
         let source_cites: Vec<GedCitation> = cites_by_person
@@ -295,6 +305,7 @@ pub fn export_gedcom(
             name,
             sex,
             events: indi_events,
+            attributes: indi_attributes,
             source: source_cites,
             note,
             multimedia,
@@ -666,6 +677,73 @@ fn to_ged_detail(
         age: None,
         agency: None,
         religion: None,
+    }
+}
+
+/// Exports an individual attribute (currently only `EventType::Occupation`,
+/// GEDCOM `OCCU`) as an `AttributeDetail` under `Individual.attributes`, so
+/// it round-trips to its original tag instead of a generic `EVEN`.
+fn to_ged_attribute_detail(
+    evt: &Event,
+    attribute: GedIndividualAttribute,
+    place_map: &HashMap<Uuid, &Place>,
+    cites_by_event: &HashMap<Uuid, Vec<&Citation>>,
+    notes_by_event: &HashMap<Uuid, Vec<&Note>>,
+    source_xref: &HashMap<Uuid, String>,
+    warnings: &mut Vec<String>,
+) -> GedAttributeDetail {
+    let date = evt.date_value.as_ref().map(|dv| Date {
+        value: Some(dv.clone()),
+        ..Default::default()
+    });
+
+    let place = evt.place_id.and_then(|pid| {
+        place_map.get(&pid).map(|p| {
+            let map = match (p.latitude, p.longitude) {
+                (Some(lat), Some(lon)) => Some(MapCoordinates {
+                    latitude: Some(format_coord(lat, true)),
+                    longitude: Some(format_coord(lon, false)),
+                }),
+                _ => None,
+            };
+            GedPlace {
+                value: Some(p.name.clone()),
+                map,
+                ..Default::default()
+            }
+        })
+    });
+
+    let sources: Vec<GedCitation> = cites_by_event
+        .get(&evt.id)
+        .map(|cs| {
+            cs.iter()
+                .filter_map(|c| to_ged_citation(c, source_xref, warnings))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let note = notes_by_event
+        .get(&evt.id)
+        .and_then(|ns| ns.first())
+        .map(|n| to_ged_note(&n.text));
+
+    GedAttributeDetail {
+        attribute,
+        // The attribute's own line value (e.g. "Commercial" for OCCU) —
+        // mirrors the import side, which reads this same field back from
+        // `detail.value` first (falling back to the TYPE sub-tag).
+        value: evt.description.clone(),
+        place,
+        date,
+        sources,
+        note,
+        attribute_type: None,
+        restriction: None,
+        age: None,
+        address: None,
+        cause: evt.cause.clone(),
+        agency: None,
     }
 }
 
