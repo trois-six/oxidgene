@@ -969,6 +969,9 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                             is_father,
                         }));
                     },
+                    on_add_spouse_slot: move |person_id| {
+                        linking_mode.set(Some(LinkingMode::Spouse(person_id)));
+                    },
                     on_add_person: move |_| {
                         creating_person_ctx.set(Some(PersonFormCreateContext::Standalone));
                     },

@@ -1,11 +1,15 @@
 //! REST handlers for GEDCOM import and export.
 
 use axum::Json;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use oxidgene_core::OxidGeneError;
 use uuid::Uuid;
 
-use super::dto::{ExportGedcomResponse, ImportGedcomRequest, ImportGedcomResponse};
+use super::dto::{
+    ExportGedcomQuery, ExportGedcomResponse, ImportGedcomRequest, ImportGedcomResponse,
+};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::gedcom;
@@ -45,17 +49,39 @@ pub async fn import_gedcom_handler(
 
 /// GET /api/v1/trees/:tree_id/export
 ///
-/// Export all entities in a tree as a GEDCOM 5.5.1 string.
+/// Export all entities in a tree as a GEDCOM 5.5.1 string. Pass
+/// `?format=gedzip` to instead receive a GEDZIP archive (`application/zip`)
+/// wrapping the same GEDCOM data.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-) -> Result<Json<ExportGedcomResponse>, ApiError> {
+    Query(query): Query<ExportGedcomQuery>,
+) -> Result<Response, ApiError> {
     let data = gedcom::load_and_export(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
 
+    if query.format.as_deref() == Some("gedzip") {
+        let bytes = oxidgene_gedcom::export::export_gedzip(&data.gedcom)
+            .map_err(OxidGeneError::Gedcom)
+            .map_err(ApiError::from)?;
+
+        return Ok((
+            [
+                (header::CONTENT_TYPE, "application/zip"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"export.gdz\"",
+                ),
+            ],
+            bytes,
+        )
+            .into_response());
+    }
+
     Ok(Json(ExportGedcomResponse {
         gedcom: data.gedcom,
         warnings: data.warnings,
-    }))
+    })
+    .into_response())
 }

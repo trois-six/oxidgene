@@ -360,6 +360,13 @@ pub struct ExportGedcomResponse {
     pub warnings: Vec<String>,
 }
 
+/// Query parameters for GET /api/v1/trees/:tree_id/gedcom/export.
+#[derive(Debug, Deserialize)]
+pub struct ExportGedcomQuery {
+    /// Export format: `gedcom` (default) or `gedzip`.
+    pub format: Option<String>,
+}
+
 // ── Cache DTOs ──────────────────────────────────────────────────────
 
 /// Response body for cache rebuild operations.

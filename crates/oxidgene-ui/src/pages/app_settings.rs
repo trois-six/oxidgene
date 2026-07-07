@@ -80,7 +80,7 @@ pub fn AppSettings() -> Element {
 // ── Appearance section ──────────────────────────────────────────────────────
 
 #[component]
-fn AppearanceSection(is_dark: Signal<bool>) -> Element {
+pub fn AppearanceSection(is_dark: Signal<bool>) -> Element {
     let i18n = use_i18n();
     let dark = *is_dark.read();
 
@@ -149,7 +149,7 @@ fn AppearanceSection(is_dark: Signal<bool>) -> Element {
 // ── Language section ────────────────────────────────────────────────────────
 
 #[component]
-fn LanguageSection(lang_signal: Signal<Language>) -> Element {
+pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
     let i18n = use_i18n();
     let current = *lang_signal.read();
 
@@ -185,6 +185,132 @@ fn LanguageSection(lang_signal: Signal<Language>) -> Element {
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────────
+
+/// Styles for the [`AppearanceSection`] / [`LanguageSection`] widgets only
+/// (no layout/nav rules) — shared with the tree [`crate::pages::settings`]
+/// page, which embeds these same sections under its own "Global
+/// preferences" nav group.
+pub(crate) const APP_SETTINGS_WIDGET_STYLES: &str = r#"
+    .app-settings-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem;
+    }
+
+    .app-settings-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .app-settings-option-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .app-settings-option-label {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .app-settings-option-hint {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .theme-toggle-group {
+        display: flex;
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .theme-toggle-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.45rem 0.85rem;
+        border: none;
+        background: none;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+    }
+
+    .theme-toggle-btn:first-child {
+        border-right: 1px solid var(--border);
+    }
+
+    .theme-toggle-btn:hover {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
+    }
+
+    .theme-toggle-btn.active {
+        background: var(--orange);
+        color: #fff;
+    }
+
+    .lang-options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .lang-option {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: none;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+        width: 100%;
+        text-align: left;
+        font-size: 0.95rem;
+        color: var(--text-primary);
+    }
+
+    .lang-option:hover {
+        border-color: var(--orange);
+        background: var(--bg-card-hover);
+    }
+
+    .lang-option.active {
+        border-color: var(--orange);
+        background: color-mix(in srgb, var(--orange) 8%, transparent);
+    }
+
+    .lang-option-flag {
+        font-size: 1.3rem;
+    }
+
+    .lang-option-label {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .lang-option-check {
+        color: var(--orange);
+        font-weight: 700;
+        font-size: 1rem;
+    }
+
+    @media (max-width: 640px) {
+        .app-settings-option {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+"#;
 
 const APP_SETTINGS_STYLES: &str = r#"
     .settings-layout {

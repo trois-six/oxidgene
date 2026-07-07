@@ -392,7 +392,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     }
 
     // Birth/death vitals clauses shown under the header name, e.g.
-    // "Born on **30 December 1982** in Cormeilles-en-Parisis — **43 years old**."
+    // "Born on **10 December 1700** in Paris — **43 years old**."
     let vital_clauses: Vec<VitalClause> = match &*events_resource.read() {
         Some(Ok(conn)) => {
             let birth = conn
@@ -420,10 +420,17 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 });
             }
             if let Some(birth_date) = birth.and_then(|e| e.date_sort) {
-                let end_date = death
-                    .and_then(|e| e.date_sort)
-                    .unwrap_or_else(|| chrono::Local::now().date_naive());
-                clauses.push(VitalClause::Age(age_in_years(birth_date, end_date)));
+                // Only fall back to "today" when the person has no death event at
+                // all (still alive). If a death event exists but its date is
+                // unrecorded, the age at death is unknown — don't guess it as the
+                // current date, which would wildly inflate the age shown.
+                let end_date = match death {
+                    Some(d) => d.date_sort,
+                    None => Some(chrono::Local::now().date_naive()),
+                };
+                if let Some(end_date) = end_date {
+                    clauses.push(VitalClause::Age(age_in_years(birth_date, end_date)));
+                }
             }
             clauses
         }
@@ -1090,10 +1097,17 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                             .as_ref()
                                                             .map(|p| format!(" {}", i18n.t_args("person.vitals.in_place", &[("place", p)])))
                                                             .unwrap_or_default();
-                                                        rsx! {
-                                                            "{i18n.t(\"person.vitals.died_prefix\")} "
-                                                            b { "{date}" }
-                                                            "{place_clause}"
+                                                        if date.is_empty() {
+                                                            rsx! {
+                                                                b { "{i18n.t(\"person.vitals.died_no_date\")}" }
+                                                                "{place_clause}"
+                                                            }
+                                                        } else {
+                                                            rsx! {
+                                                                "{i18n.t(\"person.vitals.died_prefix\")} "
+                                                                b { "{date}" }
+                                                                "{place_clause}"
+                                                            }
                                                         }
                                                     }
                                                     VitalClause::Age(age) => {
