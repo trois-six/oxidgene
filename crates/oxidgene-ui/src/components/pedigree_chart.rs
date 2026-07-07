@@ -1532,8 +1532,7 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
                 let first_child_p2 = wrap[orig_children_clone[0]].parent2;
                 for (index, &sib_wi) in node_siblings_clone.iter().enumerate() {
                     let sib_is_empty = arena[wrap[sib_wi].orig].id.is_none();
-                    if first_child_p2 == Some(sib_wi)
-                        || (first_child_p2.is_none() && sib_is_empty)
+                    if first_child_p2 == Some(sib_wi) || (first_child_p2.is_none() && sib_is_empty)
                     {
                         first_sib_with_child = index as i32 - 1;
                     }
