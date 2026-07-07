@@ -149,18 +149,6 @@ fn fmt_year(date: &str) -> String {
     }
 }
 
-/// Build two-letter initials from given name + surname.
-fn make_initials(given: &str, surname: &str) -> String {
-    let first = given.chars().next().map(|c| c.to_ascii_uppercase());
-    let last = surname.chars().next().map(|c| c.to_ascii_uppercase());
-    match (first, last) {
-        (Some(f), Some(l)) => format!("{f}{l}"),
-        (Some(f), None) => f.to_string(),
-        (None, Some(l)) => l.to_string(),
-        _ => "?".to_string(),
-    }
-}
-
 /// Format a "birth-death" lifespan string from optional years.
 pub(crate) fn format_lifespan(birth: Option<i32>, death: Option<i32>) -> String {
     match (birth, death) {
@@ -1146,32 +1134,44 @@ fn build_descending_tree(
                 .and_then(|sps| sps.iter().find(|s| s.person_id != pid))
                 .map(|s| s.person_id);
 
-            let Some(sid) = spouse_id else { continue };
-
-            if visited.contains(&sid) {
-                continue;
-            }
-
-            let spn = PersonNode::from_data(sid, data, sosa_root_id, sosa_ancestors);
-            let spouse_after = if spn.sex == Sex::Female { 1 } else { 0 };
-            let spouse_arena_idx = arena.len();
-            let mut spouse_node = TreeNode::new_real(
-                sid,
-                depth,
-                spn.sex,
-                spn.given,
-                spn.surname,
-                spn.birth_year,
-                spn.death_year,
-                spn.photo_url,
-                spn.sosa_badge,
-                spouse_after,
-                false,
-                false,
-            );
-            spouse_node.is_sibling = true;
-            arena.push(spouse_node);
-            arena[node_idx].siblings.push(spouse_arena_idx);
+            // Attach point for children: the newly created spouse node, if
+            // any. An unrecorded/unknown co-parent must not hide the
+            // children — many older records name only one parent. In that
+            // case we still render an empty "+" placeholder for the missing
+            // spouse, mirroring the always-shown empty parent slots on the
+            // ascending side.
+            let spouse_arena_idx = match spouse_id {
+                Some(sid) if visited.contains(&sid) => continue,
+                Some(sid) => {
+                    let spn = PersonNode::from_data(sid, data, sosa_root_id, sosa_ancestors);
+                    let spouse_after = if spn.sex == Sex::Female { 1 } else { 0 };
+                    let spouse_arena_idx = arena.len();
+                    let mut spouse_node = TreeNode::new_real(
+                        sid,
+                        depth,
+                        spn.sex,
+                        spn.given,
+                        spn.surname,
+                        spn.birth_year,
+                        spn.death_year,
+                        spn.photo_url,
+                        spn.sosa_badge,
+                        spouse_after,
+                        false,
+                        false,
+                    );
+                    spouse_node.is_sibling = true;
+                    arena.push(spouse_node);
+                    arena[node_idx].siblings.push(spouse_arena_idx);
+                    Some(spouse_arena_idx)
+                }
+                None => {
+                    let empty_arena_idx = arena.len();
+                    arena.push(TreeNode::new_empty(depth, Some(pid), false));
+                    arena[node_idx].siblings.push(empty_arena_idx);
+                    None
+                }
+            };
 
             if depth < max_descendants as i32 {
                 let children: Vec<Uuid> = data
@@ -1201,7 +1201,7 @@ fn build_descending_tree(
                         false,
                         false,
                     );
-                    child_node.parent2 = Some(spouse_arena_idx);
+                    child_node.parent2 = spouse_arena_idx;
                     arena.push(child_node);
                     arena[node_idx].children.push(child_arena_idx);
                     work.push((child_arena_idx, depth + 1));
@@ -1429,12 +1429,22 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
         let effective_children: Vec<usize> = if node_siblings.is_empty() {
             orig_children.clone()
         } else {
-            // Filter children belonging to first sibling (spouse).
-            let first_sib_orig = node_siblings.first().map(|&si| wrap[si].orig);
+            // Filter children belonging to first sibling (spouse). A child
+            // with no recorded second parent (`parent2 == None`) belongs to
+            // an empty/unknown first-sibling placeholder — without this, such
+            // children match neither branch, `effective_children` comes back
+            // empty, and the centering/shift logic below is skipped entirely
+            // for this node, leaving its subtree adrift.
+            let first_sib = node_siblings[0];
+            let first_sib_orig = wrap[first_sib].orig;
+            let first_sib_is_empty = arena[first_sib_orig].id.is_none();
             orig_children
                 .iter()
                 .copied()
-                .filter(|&ci| wrap[ci].parent2.map(|p2| wrap[p2].orig) == first_sib_orig)
+                .filter(|&ci| {
+                    wrap[ci].parent2.map(|p2| wrap[p2].orig) == Some(first_sib_orig)
+                        || (first_sib_is_empty && wrap[ci].parent2.is_none())
+                })
                 .collect()
         };
 
@@ -1521,7 +1531,10 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             if !orig_children_clone.is_empty() {
                 let first_child_p2 = wrap[orig_children_clone[0]].parent2;
                 for (index, &sib_wi) in node_siblings_clone.iter().enumerate() {
-                    if first_child_p2 == Some(sib_wi) {
+                    let sib_is_empty = arena[wrap[sib_wi].orig].id.is_none();
+                    if first_child_p2 == Some(sib_wi)
+                        || (first_child_p2.is_none() && sib_is_empty)
+                    {
                         first_sib_with_child = index as i32 - 1;
                     }
                 }
@@ -2041,13 +2054,18 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
                     d: diagonal_spouse_link(node.x, node.y, arena[sib_ni].x, arena[sib_ni].y, y),
                 });
 
-                // Children of this spouse.
+                // Children of this spouse. A child with no recorded second
+                // parent (`parent2 == None`) is attributed to the empty
+                // spouse placeholder (`id.is_none()`), if one is present.
                 let sib_node = &arena[sib_ni];
                 let children_of_sib: Vec<usize> = node
                     .children
                     .iter()
                     .copied()
-                    .filter(|&ci| arena[ci].parent2 == Some(sib_ni))
+                    .filter(|&ci| {
+                        arena[ci].parent2 == Some(sib_ni)
+                            || (arena[ci].parent2.is_none() && sib_node.id.is_none())
+                    })
                     .collect();
 
                 for (ci, &child_ni) in children_of_sib.iter().enumerate() {
@@ -2636,6 +2654,9 @@ pub struct PedigreeChartProps {
     pub on_person_click: EventHandler<(Uuid, f64, f64)>,
     pub on_person_navigate: EventHandler<Uuid>,
     pub on_empty_slot: EventHandler<(Uuid, bool)>,
+    /// Called when the user clicks the empty "+" placeholder for a missing
+    /// spouse on the descending side (the person needing a spouse).
+    pub on_add_spouse_slot: EventHandler<Uuid>,
     #[props(default)]
     pub on_add_person: EventHandler<()>,
     #[props(default)]
@@ -2646,9 +2667,10 @@ pub struct PedigreeChartProps {
 
 /// Render one card (person or empty slot) of the pedigree as an SVG `<g>`.
 ///
-/// Used for both ascending and descending trees — pass the matching key prefix
-/// (`"an"` / `"dn"`) and `allow_empty_click=true` only on the asc side, where
-/// missing parents can be added inline.
+/// Used for both ascending and descending trees — pass the matching key
+/// prefix (`"an"` / `"dn"`) and `allow_empty_click=true` on both sides, so
+/// missing parents (ascending) and missing spouses (descending) can be
+/// added inline.
 #[allow(clippy::too_many_arguments)]
 fn render_pedigree_card(
     node: &LayoutNode,
@@ -3005,13 +3027,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         (true, false) => sel_surname_s.clone(),
         _ => format!("{} {}", sel_given_s, sel_surname_s),
     };
-    let sel_initials = make_initials(&sel_given_s, &sel_surname_s);
+    let sel_portrait_src = props
+        .data
+        .photos
+        .get(&sel_pid)
+        .map(|url| url.as_str())
+        .unwrap_or_else(|| default_portrait(props.data.sex_of(sel_pid)))
+        .to_string();
     let sel_birth = props.data.birth_date(sel_pid).unwrap_or_default();
     let sel_death = props.data.death_date(sel_pid).unwrap_or_default();
     let sel_dates = match (sel_birth.is_empty(), sel_death.is_empty()) {
         (true, true) => String::new(),
-        (false, true) => format!("b. {sel_birth}"),
-        (true, false) => format!("d. {sel_death}"),
+        (false, true) => i18n.t_args("pedigree.birth_year_abbr", &[("year", &sel_birth)]),
+        (true, false) => i18n.t_args("pedigree.death_year_abbr", &[("year", &sel_death)]),
         _ => format!("{sel_birth} \u{2013} {sel_death}"),
     };
 
@@ -3117,6 +3145,13 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let fit_content_cy = layout.content_cy;
     let fit_content_w = layout.content_w;
     let fit_content_h = layout.content_h;
+
+    // Adapt the descending side's empty "+" slot (missing spouse) onto the
+    // dedicated add-spouse callback — the `bool` (father/mother) from
+    // `on_empty_slot` doesn't apply here, only the person needing a spouse.
+    let on_add_spouse_slot = props.on_add_spouse_slot;
+    let desc_empty_slot_adapter =
+        EventHandler::new(move |(pid, _): (Uuid, bool)| on_add_spouse_slot.call(pid));
 
     rsx! {
         div { class: "pedigree-outer",
@@ -3401,8 +3436,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             selected_person_id,
                                             props.on_person_navigate,
                                             props.on_person_click,
-                                            props.on_empty_slot,
-                                            false,
+                                            desc_empty_slot_adapter,
+                                            true,
                                         )}
                                     }
                                 }
@@ -3434,7 +3469,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 if !panel_collapsed() {
                     div { class: "evp-hd", {i18n.t("pedigree.events")} }
                     div { class: "evp-person",
-                        div { class: "evp-av", "{sel_initials}" }
+                        div { class: "evp-av",
+                            img { src: "{sel_portrait_src}", alt: "" }
+                        }
                         div { class: "evp-name",
                             strong { "{sel_full_name}" }
                             if !sel_dates.is_empty() {
