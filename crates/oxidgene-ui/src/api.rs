@@ -472,6 +472,33 @@ impl ApiClient {
         Ok(val)
     }
 
+    /// Helper: send a GET request with query parameters, returning the raw
+    /// response body bytes (not cached, not JSON-decoded).
+    async fn get_bytes_with_query<Q: Serialize>(
+        &self,
+        path: &str,
+        query: &Q,
+    ) -> Result<Vec<u8>, ApiError> {
+        let url = self.url(path);
+        tracing::debug!(
+            "GET {url} query={}",
+            serde_json::to_string(query).unwrap_or_default()
+        );
+        let resp = self.client.get(&url).query(query).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            tracing::debug!("GET {url} -> {status} {body}");
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        let bytes = resp.bytes().await?;
+        tracing::debug!("GET {url} -> {status} ({} bytes)", bytes.len());
+        Ok(bytes.to_vec())
+    }
+
     /// Helper: send a POST request with a JSON body.
     async fn post<T: serde::de::DeserializeOwned, B: Serialize>(
         &self,
@@ -1309,6 +1336,16 @@ impl ApiClient {
     pub async fn export_gedcom(&self, tree_id: Uuid) -> Result<ExportGedcomResult, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/gedcom/export"))
             .await
+    }
+
+    /// Export a tree as a GEDZIP archive (`.gdz`) — a ZIP file wrapping the
+    /// same GEDCOM data. Returns the raw archive bytes.
+    pub async fn export_gedzip(&self, tree_id: Uuid) -> Result<Vec<u8>, ApiError> {
+        self.get_bytes_with_query(
+            &format!("/api/v1/trees/{tree_id}/gedcom/export"),
+            &[("format", "gedzip")],
+        )
+        .await
     }
 
     // ── Pedigree Cache ──────────────────────────────────────────────

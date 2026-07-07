@@ -1137,11 +1137,14 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: var(--text-secondary);
+        overflow: hidden;
         flex-shrink: 0;
-        text-transform: uppercase;
+    }
+
+    .evp-av img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
     }
 
     .evp-name { display: flex; flex-direction: column; min-width: 0; }

@@ -13,7 +13,8 @@ use crate::api::{ApiClient, UpdateTreeBody};
 use crate::components::search_person::SearchPerson;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
-use crate::i18n::use_i18n;
+use crate::i18n::{Language, use_i18n};
+use crate::pages::app_settings::{APP_SETTINGS_WIDGET_STYLES, AppearanceSection, LanguageSection};
 use crate::router::Route;
 use crate::utils::resolve_name;
 
@@ -23,11 +24,14 @@ pub fn Settings(tree_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
+    let is_dark = use_context::<Signal<bool>>();
+    let lang_signal = use_context::<Signal<Language>>();
     let refresh = use_signal(|| 0u32);
     let mut active_section = use_signal(|| "tree-roots".to_string());
     let mut export_loading = use_signal(|| false);
     let mut export_error = use_signal(|| None::<String>);
     let mut export_success = use_signal(|| None::<String>);
+    let export_format = use_signal(|| "gedcom".to_string());
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
@@ -62,26 +66,40 @@ pub fn Settings(tree_id: String) -> Element {
 
     // Export handler
     let api_export = api.clone();
-    let export_file_name = format!("{}.ged", safe_export_file_name(&tree_name));
+    let export_base_name = safe_export_file_name(&tree_name);
     let on_export = move |_| {
         let api = api_export.clone();
-        let file_name = export_file_name.clone();
+        let base_name = export_base_name.clone();
+        let is_gedzip = export_format() == "gedzip";
         export_loading.set(true);
         export_error.set(None);
         export_success.set(None);
         spawn(async move {
             if let Some(tid) = tree_id_parsed {
-                match api.export_gedcom(tid).await {
-                    Ok(result) => {
+                let extension = if is_gedzip { "gdz" } else { "ged" };
+                let file_name = format!("{base_name}.{extension}");
+                let bytes_result = if is_gedzip {
+                    api.export_gedzip(tid).await
+                } else {
+                    api.export_gedcom(tid).await.map(|r| r.gedcom.into_bytes())
+                };
+                match bytes_result {
+                    Ok(bytes) => {
                         #[cfg(target_arch = "wasm32")]
                         {
-                            let gedcom = serde_json::to_string(&result.gedcom)
-                                .unwrap_or_else(|_| "\"\"".to_string());
+                            let mime = if is_gedzip {
+                                "application/zip"
+                            } else {
+                                "text/plain"
+                            };
+                            let byte_array = serde_json::to_string(&bytes)
+                                .unwrap_or_else(|_| "[]".to_string());
                             let download_name = serde_json::to_string(&file_name)
-                                .unwrap_or_else(|_| "\"export.ged\"".to_string());
+                                .unwrap_or_else(|_| "\"export\"".to_string());
                             let js = format!(
                                 r#"
-                                const blob = new Blob([{gedcom}], {{ type: 'text/plain' }});
+                                const bytes = new Uint8Array({byte_array});
+                                const blob = new Blob([bytes], {{ type: '{mime}' }});
                                 const url = URL.createObjectURL(blob);
                                 const a = document.createElement('a');
                                 a.href = url;
@@ -98,19 +116,21 @@ pub fn Settings(tree_id: String) -> Element {
                         }
                         #[cfg(not(target_arch = "wasm32"))]
                         {
-                            let file = rfd::AsyncFileDialog::new()
-                                .add_filter("GEDCOM", &["ged"])
-                                .add_filter("All files", &["*"])
+                            let mut dialog = rfd::AsyncFileDialog::new()
                                 .set_title(i18n.t("gedcom.save_file"))
-                                .set_file_name(&file_name)
-                                .save_file()
-                                .await;
+                                .set_file_name(&file_name);
+                            dialog = if is_gedzip {
+                                dialog.add_filter("GEDZIP", &["gdz"])
+                            } else {
+                                dialog.add_filter("GEDCOM", &["ged"])
+                            };
+                            let file = dialog.add_filter("All files", &["*"]).save_file().await;
                             let Some(file) = file else {
                                 export_loading.set(false);
                                 return;
                             };
                             let path = file.path().to_path_buf();
-                            match tokio::fs::write(&path, result.gedcom).await {
+                            match tokio::fs::write(&path, bytes).await {
                                 Ok(()) => {
                                     let path_display = path.display().to_string();
                                     export_success.set(Some(i18n.t_args(
@@ -141,6 +161,7 @@ pub fn Settings(tree_id: String) -> Element {
 
     rsx! {
         style { {SETTINGS_STYLES} }
+        style { {APP_SETTINGS_WIDGET_STYLES} }
 
         div { class: "sub-page",
             // Breadcrumb
@@ -249,6 +270,19 @@ pub fn Settings(tree_id: String) -> Element {
                             {i18n.t("settings.export_tree")}
                         }
                     }
+                    div { class: "settings-nav-group",
+                        div { class: "settings-nav-group-label", {i18n.t("settings.global_preferences")} }
+                        button {
+                            class: if sec == "appearance" { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set("appearance".to_string()),
+                            {i18n.t("app_settings.appearance")}
+                        }
+                        button {
+                            class: if sec == "language" { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set("language".to_string()),
+                            {i18n.t("app_settings.language")}
+                        }
+                    }
                 }
 
                 // Content area
@@ -264,7 +298,12 @@ pub fn Settings(tree_id: String) -> Element {
                             loading: export_loading(),
                             error: export_error(),
                             success: export_success(),
+                            format: export_format,
                         }
+                    } else if sec == "appearance" {
+                        AppearanceSection { is_dark }
+                    } else if sec == "language" {
+                        LanguageSection { lang_signal }
                     } else {
                         PlaceholderSection { section_name: sec.clone() }
                     }
@@ -494,8 +533,14 @@ fn ExportSection(
     loading: bool,
     error: Option<String>,
     success: Option<String>,
+    format: Signal<String>,
 ) -> Element {
     let i18n = use_i18n();
+    let download_label = if format() == "gedzip" {
+        i18n.t("settings.download_gedzip")
+    } else {
+        i18n.t("settings.download_ged")
+    };
     rsx! {
         div { class: "settings-section",
             div { class: "settings-section-eyebrow", {i18n.t("common.export")} }
@@ -514,11 +559,18 @@ fn ExportSection(
                             {i18n.t("settings.gedcom_desc")}
                         }
                     }
+                    select {
+                        style: "width: auto; flex-shrink: 0;",
+                        value: "{format}",
+                        oninput: move |e: Event<FormData>| format.set(e.value()),
+                        option { value: "gedcom", {i18n.t("settings.export_format_gedcom")} }
+                        option { value: "gedzip", {i18n.t("settings.export_format_gedzip")} }
+                    }
                     button {
                         class: "btn btn-primary",
                         disabled: loading,
                         onclick: on_export,
-                        if loading { {i18n.t("common.exporting")} } else { {i18n.t("settings.download_ged")} }
+                        if loading { {i18n.t("common.exporting")} } else { {download_label} }
                     }
                 }
                 if let Some(err) = &error {

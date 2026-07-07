@@ -401,6 +401,23 @@ pub fn export_gedcom(
     Ok(ExportResult { gedcom, warnings })
 }
 
+/// Wrap a GEDCOM string into a GEDZIP archive (a ZIP file containing
+/// `gedcom.ged`), per the GEDCOM 7.0 GEDZIP format.
+///
+/// # Errors
+///
+/// Returns `Err` if the ZIP archive cannot be written.
+pub fn export_gedzip(gedcom: &str) -> Result<Vec<u8>, String> {
+    let cursor = std::io::Cursor::new(Vec::new());
+    let mut writer =
+        ged_io::gedzip::GedzipWriter::new(cursor).map_err(|e| format!("GEDZIP error: {e}"))?;
+    writer
+        .write_gedcom_bytes(gedcom.as_bytes())
+        .map_err(|e| format!("GEDZIP error: {e}"))?;
+    let cursor = writer.finish().map_err(|e| format!("GEDZIP error: {e}"))?;
+    Ok(cursor.into_inner())
+}
+
 fn fold_gedcom_lines_utf8_safe(gedcom: &str, max_value_bytes: usize) -> String {
     gedcom
         .split('\n')
