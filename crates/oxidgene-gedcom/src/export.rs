@@ -16,6 +16,8 @@ use ged_io::types::header::source::HeadSour;
 use ged_io::types::individual::Individual;
 use ged_io::types::individual::attribute::IndividualAttribute as GedIndividualAttribute;
 use ged_io::types::individual::attribute::detail::AttributeDetail as GedAttributeDetail;
+use ged_io::types::individual::family_link::pedigree::Pedigree as GedPedigree;
+use ged_io::types::individual::family_link::{FamilyLink, FamilyLinkType};
 use ged_io::types::individual::gender::{Gender, GenderType};
 use ged_io::types::individual::name::{Name as GedName, NameType as GedNameType};
 use ged_io::types::multimedia::Multimedia as GedMultimedia;
@@ -33,7 +35,7 @@ use oxidgene_core::types::{
     Citation, Event, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName,
     Place, Source,
 };
-use oxidgene_core::{Confidence, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 
 use crate::ExportResult;
 
@@ -160,6 +162,25 @@ pub fn export_gedcom(
     let mut children_by_family: HashMap<Uuid, Vec<&FamilyChild>> = HashMap::new();
     for fc in family_children {
         children_by_family.entry(fc.family_id).or_default().push(fc);
+    }
+
+    // person_id → families (for INDI-level FAMS/FAMC back-links, without
+    // which the exported file has no individual↔family linkage at all —
+    // most GEDCOM readers rely on FAMS/FAMC rather than cross-referencing
+    // FAM's own HUSB/WIFE/CHIL back to individuals).
+    let mut fams_by_person: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for fs in family_spouses {
+        fams_by_person
+            .entry(fs.person_id)
+            .or_default()
+            .push(fs.family_id);
+    }
+    let mut famc_by_person: HashMap<Uuid, Vec<(Uuid, ChildType)>> = HashMap::new();
+    for fc in family_children {
+        famc_by_person
+            .entry(fc.person_id)
+            .or_default()
+            .push((fc.family_id, fc.child_type));
     }
 
     // ── Build GEDCOM Header ──────────────────────────────────────────
@@ -299,10 +320,20 @@ pub fn export_gedcom(
             })
             .unwrap_or_default();
 
+        // FAMS/FAMC back-links to the families this person belongs to.
+        let family_links = to_ged_family_links(
+            person.id,
+            &fams_by_person,
+            &famc_by_person,
+            &family_xref,
+            &mut warnings,
+        );
+
         data.individuals.push(Individual {
             xref,
             name,
             sex,
+            families: family_links,
             events: indi_events,
             attributes: indi_attributes,
             source: source_cites,
@@ -435,6 +466,72 @@ fn convert_sex(sex: Sex) -> GenderType {
         Sex::Male => GenderType::Male,
         Sex::Female => GenderType::Female,
         Sex::Unknown => GenderType::Unknown,
+    }
+}
+
+/// Builds a person's INDI-level `FAMS`/`FAMC` back-links: one `FamilyLink`
+/// per family they're a spouse in, then one per family they're a child in.
+/// Without these, the exported file only encodes family membership on the
+/// `FAM` record's own `HUSB`/`WIFE`/`CHIL` — most GEDCOM readers instead (or
+/// additionally) expect the reverse links on `INDI`, so omitting them makes
+/// the file read as a set of disconnected individuals in other software.
+fn to_ged_family_links(
+    person_id: Uuid,
+    fams_by_person: &HashMap<Uuid, Vec<Uuid>>,
+    famc_by_person: &HashMap<Uuid, Vec<(Uuid, ChildType)>>,
+    family_xref: &HashMap<Uuid, String>,
+    warnings: &mut Vec<String>,
+) -> Vec<FamilyLink> {
+    let mut links = Vec::new();
+
+    for &family_id in fams_by_person.get(&person_id).into_iter().flatten() {
+        let Some(xref) = family_xref.get(&family_id) else {
+            warnings.push(format!(
+                "Person {person_id}: spouse family {family_id} not found"
+            ));
+            continue;
+        };
+        links.push(FamilyLink {
+            xref: xref.clone(),
+            family_link_type: FamilyLinkType::Spouse,
+            pedigree_linkage_type: None,
+            child_linkage_status: None,
+            adopted_by: None,
+            note: None,
+            custom_data: Vec::new(),
+        });
+    }
+
+    for &(family_id, child_type) in famc_by_person.get(&person_id).into_iter().flatten() {
+        let Some(xref) = family_xref.get(&family_id) else {
+            warnings.push(format!(
+                "Person {person_id}: parental family {family_id} not found"
+            ));
+            continue;
+        };
+        links.push(FamilyLink {
+            xref: xref.clone(),
+            family_link_type: FamilyLinkType::Child,
+            pedigree_linkage_type: convert_child_type_to_pedigree(child_type),
+            child_linkage_status: None,
+            adopted_by: None,
+            note: None,
+            custom_data: Vec::new(),
+        });
+    }
+
+    links
+}
+
+/// The inverse of `import`'s `convert_pedigree`. `ChildType::Step` and
+/// `::Unknown` have no GEDCOM 5.5.1 `PEDI` equivalent, so `PEDI` is simply
+/// omitted for those (a valid, optional tag).
+fn convert_child_type_to_pedigree(child_type: ChildType) -> Option<GedPedigree> {
+    match child_type {
+        ChildType::Biological => Some(GedPedigree::Birth),
+        ChildType::Adopted => Some(GedPedigree::Adopted),
+        ChildType::Foster => Some(GedPedigree::Foster),
+        ChildType::Step | ChildType::Unknown => None,
     }
 }
 

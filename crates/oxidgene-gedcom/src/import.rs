@@ -44,6 +44,9 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
     let mut media_map: HashMap<String, Uuid> = HashMap::new();
     // Place name → UUID (dedup by exact name match)
     let mut place_map: HashMap<String, Uuid> = HashMap::new();
+    // Free-text SOUR description → UUID of a synthesized Source (dedup by
+    // exact text match) — see `get_or_create_text_source` below.
+    let mut text_source_map: HashMap<String, Uuid> = HashMap::new();
 
     // ── Pass 1: Allocate UUIDs for all top-level records ────────────
     for indi in &data.individuals {
@@ -82,6 +85,36 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
             longitude: None,
             created_at: now,
             updated_at: now,
+        });
+        id
+    };
+
+    // ── Helper: get or create a Source from a free-text SOUR description ──
+    //
+    // Some exporters (e.g. Geneanet/GeneWeb) write a free-text description
+    // (an archive reference, a URL...) instead of a pointer to a structured
+    // SOUR record — valid per the GEDCOM 5.5.1 SOURCE_CITATION grammar. We
+    // synthesize a `Source` from that text so the citation survives import
+    // instead of being dropped, deduplicating by exact text so citations
+    // that repeat the same reference (e.g. several people in the same
+    // parish register) share one `Source`.
+    let mut get_or_create_text_source = |text: &str, result: &mut ImportResult| -> Uuid {
+        if let Some(&id) = text_source_map.get(text) {
+            return id;
+        }
+        let id = Uuid::now_v7();
+        text_source_map.insert(text.to_string(), id);
+        result.sources.push(Source {
+            id,
+            tree_id,
+            title: text.to_string(),
+            author: None,
+            publisher: None,
+            abbreviation: None,
+            repository_name: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
         });
         id
     };
@@ -221,6 +254,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 &source_map,
                 &media_map,
                 &mut get_or_create_place,
+                &mut get_or_create_text_source,
                 &mut result,
             );
         }
@@ -236,6 +270,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &mut get_or_create_place,
+                &mut get_or_create_text_source,
                 &mut result,
             );
         }
@@ -244,11 +279,11 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         for cite in &indi.source {
             import_citation(
                 cite,
-                tree_id,
                 Some(person_id),
                 None,
                 None,
                 &source_map,
+                &mut get_or_create_text_source,
                 &mut result,
             );
         }
@@ -366,6 +401,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 &source_map,
                 &media_map,
                 &mut get_or_create_place,
+                &mut get_or_create_text_source,
                 &mut result,
             );
         }
@@ -380,6 +416,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 &source_map,
                 &media_map,
                 &mut get_or_create_place,
+                &mut get_or_create_text_source,
                 &mut result,
             );
         }
@@ -388,11 +425,11 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         for cite in &fam.sources {
             import_citation(
                 cite,
-                tree_id,
                 None,
                 None,
                 Some(family_id),
                 &source_map,
+                &mut get_or_create_text_source,
                 &mut result,
             );
         }
@@ -757,6 +794,7 @@ fn import_event_detail(
     source_map: &HashMap<String, Uuid>,
     media_map: &HashMap<String, Uuid>,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
 ) {
     let event_type = convert_event_type(&detail.event, detail.event_type.as_deref());
@@ -816,11 +854,11 @@ fn import_event_detail(
     for cite in &detail.citations {
         import_citation(
             cite,
-            tree_id,
             None,
             Some(event_id),
             family_id,
             source_map,
+            get_or_create_text_source,
             result,
         );
     }
@@ -862,6 +900,7 @@ fn import_event_detail(
 /// shape: the tag's own value (e.g. "Commercial" for OCCU) or its TYPE
 /// sub-tag is preserved as the description, and there is no multimedia
 /// sub-structure on attributes.
+#[allow(clippy::too_many_arguments)]
 fn import_attribute_detail(
     detail: &ged_io::types::individual::attribute::detail::AttributeDetail,
     tree_id: Uuid,
@@ -869,6 +908,7 @@ fn import_attribute_detail(
     now: chrono::DateTime<Utc>,
     source_map: &HashMap<String, Uuid>,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
 ) {
     let event_type = convert_individual_attribute(&detail.attribute);
@@ -928,11 +968,11 @@ fn import_attribute_detail(
     for cite in &detail.sources {
         import_citation(
             cite,
-            tree_id,
             None,
             Some(event_id),
             None,
             source_map,
+            get_or_create_text_source,
             result,
         );
     }
@@ -954,11 +994,11 @@ fn import_attribute_detail(
 
 fn import_citation(
     cite: &ged_io::types::source::citation::Citation,
-    _tree_id: Uuid,
     person_id: Option<Uuid>,
     event_id: Option<Uuid>,
     family_id: Option<Uuid>,
     source_map: &HashMap<String, Uuid>,
+    get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
 ) {
     let source_id = match &cite.source {
@@ -977,12 +1017,13 @@ fn import_citation(
                 return;
             }
         },
-        CitationSource::Description(text) => {
-            result.warnings.push(format!(
-                "Skipping citation with free-text source description (not yet imported): {text}"
-            ));
+        CitationSource::Description(text) if text.is_empty() => {
+            result
+                .warnings
+                .push("Skipping citation without source xref".into());
             return;
         }
+        CitationSource::Description(text) => get_or_create_text_source(text, result),
     };
 
     let confidence = convert_quay(cite.certainty_assessment.as_ref());
