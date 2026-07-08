@@ -87,6 +87,34 @@ const SOURCE_GEDCOM: &str = "\
 0 TRLR
 ";
 
+/// GEDCOM with free-text SOUR citations (Geneanet/GeneWeb-style: an archive
+/// reference or URL instead of a pointer to a structured SOUR record). The
+/// second individual repeats the exact same free-text description as the
+/// first, to exercise dedup into a single synthesized `Source`.
+const FREE_TEXT_SOURCE_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME John /Doe/
+2 GIVN John
+2 SURN Doe
+1 SEX M
+1 BIRT
+2 DATE 15 JAN 1842
+2 SOUR AD64 - Lée - N - 1833-1842 - 5MI329 - vue 19d/23
+3 PAGE p. 3
+0 @I2@ INDI
+1 NAME Jane /Doe/
+2 GIVN Jane
+2 SURN Doe
+1 SEX F
+1 BIRT
+2 DATE 20 MAR 1844
+2 SOUR AD64 - Lée - N - 1833-1842 - 5MI329 - vue 19d/23
+0 TRLR
+";
+
 /// GEDCOM with multimedia.
 const MULTIMEDIA_GEDCOM: &str = "\
 0 HEAD
@@ -226,6 +254,31 @@ fn test_import_source_and_citation() {
     assert_eq!(cite.source_id, src.id);
     assert_eq!(cite.page.as_deref(), Some("p. 42"));
     assert_eq!(cite.confidence, oxidgene_core::Confidence::High);
+}
+
+#[test]
+fn test_import_free_text_source_citation_deduplicates() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(FREE_TEXT_SOURCE_GEDCOM, tree_id).unwrap();
+
+    // Both individuals cite the same free-text description — deduplicated
+    // into a single synthesized Source instead of being dropped.
+    assert_eq!(result.sources.len(), 1);
+    let src = &result.sources[0];
+    assert_eq!(
+        src.title,
+        "AD64 - Lée - N - 1833-1842 - 5MI329 - vue 19d/23"
+    );
+
+    assert_eq!(result.citations.len(), 2);
+    assert!(result.citations.iter().all(|c| c.source_id == src.id));
+    assert!(
+        result
+            .citations
+            .iter()
+            .any(|c| c.page.as_deref() == Some("p. 3"))
+    );
+    assert!(result.warnings.is_empty());
 }
 
 #[test]
@@ -374,6 +427,12 @@ fn test_export_family() {
     assert!(export.gedcom.contains("WIFE"));
     assert!(export.gedcom.contains("CHIL"));
     assert!(export.gedcom.contains("MARR"));
+
+    // INDI-level back-links: without these, other GEDCOM readers see a set
+    // of disconnected individuals since most rely on FAMS/FAMC rather than
+    // cross-referencing the FAM record's own HUSB/WIFE/CHIL.
+    assert!(export.gedcom.contains("1 FAMS"));
+    assert!(export.gedcom.contains("1 FAMC"));
 }
 
 #[test]
