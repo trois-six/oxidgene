@@ -6,6 +6,24 @@
 
 A modern, high-performance genealogy platform built entirely in Rust.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td rowspan="2" width="68%">
+      <img src="docs/assets/screenshot2.png" alt="OxidGene interactive genealogy tree">
+    </td>
+    <td width="32%">
+      <img src="docs/assets/screenshot1.png" alt="OxidGene tree dashboard">
+    </td>
+  </tr>
+  <tr>
+    <td width="32%">
+      <img src="docs/assets/screenshot3.png" alt="OxidGene person detail page">
+    </td>
+  </tr>
+</table>
+
 ## Overview
 
 OxidGene is a multiplatform genealogy application featuring:
