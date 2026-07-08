@@ -1145,6 +1145,23 @@ impl ApiClient {
             .await
     }
 
+    /// Fetch all sources by paginating through all pages.
+    pub async fn list_all_sources(&self, tree_id: Uuid) -> Result<Vec<Source>, ApiError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = self
+                .list_sources(tree_id, Some(500), cursor.as_deref())
+                .await?;
+            all.extend(page.edges.into_iter().map(|e| e.node));
+            if !page.page_info.has_next_page {
+                break;
+            }
+            cursor = page.page_info.end_cursor;
+        }
+        Ok(all)
+    }
+
     pub async fn get_source(&self, tree_id: Uuid, id: Uuid) -> Result<Source, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/sources/{id}"))
             .await
