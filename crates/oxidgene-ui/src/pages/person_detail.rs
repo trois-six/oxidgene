@@ -166,21 +166,40 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch citations for this person.
+    // Fetch all citations in the tree (unfiltered): the backend already
+    // builds the full source/citation set internally regardless of filters,
+    // so fetching once and filtering client-side (by person_id and by the
+    // relevant event ids) avoids issuing one request per event.
     let api_citations = api.clone();
     let citations_resource = use_resource(move || {
         let api = api_citations.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
-        let pid = person_id_parsed();
         async move {
-            let (Some(tid), Some(pid)) = (tid, pid) else {
+            let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
                     status: 400,
                     body: i18n.t("common.invalid_ids"),
                 });
             };
-            api.list_citations(tid, Some(pid), None, None, None).await
+            api.list_citations(tid, None, None, None, None).await
+        }
+    });
+
+    // Fetch all sources in the tree, for rendering citation source text.
+    let api_sources = api.clone();
+    let sources_resource = use_resource(move || {
+        let api = api_sources.clone();
+        let _tick = refresh();
+        let tid = tree_id_parsed();
+        async move {
+            let Some(tid) = tid else {
+                return Err(crate::api::ApiError::Api {
+                    status: 400,
+                    body: i18n.t("common.invalid_ids"),
+                });
+            };
+            api.list_all_sources(tid).await
         }
     });
 
@@ -962,6 +981,62 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     };
 
+    // ── Build "Sources" list ────────────────────────────────────────────
+    //
+    // One line per citation, scoped to facts about this specific person:
+    // citations attached directly to the person, plus citations on this
+    // person's own individual events (birth, baptism, occupation…) and
+    // their own conjugal-family events (marriage, divorce…). Citations on
+    // events shown only for narrative context (children, parents, siblings)
+    // are intentionally excluded — those are facts about other people.
+    let person_sources: Vec<(String, String)> = {
+        let pid = person_id_parsed();
+        match (&*citations_resource.read(), &*sources_resource.read(), pid) {
+            (Some(Ok(citations)), Some(Ok(sources)), Some(pid)) => {
+                let source_by_id: HashMap<Uuid, &oxidgene_core::types::Source> =
+                    sources.iter().map(|s| (s.id, s)).collect();
+
+                let event_nature: HashMap<Uuid, String> = enriched_events
+                    .iter()
+                    .filter(|ee| {
+                        matches!(
+                            ee.origin,
+                            EventOrigin::Individual | EventOrigin::ConjugalFamily
+                        )
+                    })
+                    .map(|ee| {
+                        let key = format!("event.type.{}", ee.event.event_type);
+                        (ee.event.id, i18n.t(&key))
+                    })
+                    .collect();
+
+                let mut result: Vec<(String, String)> = Vec::new();
+                for citation in citations {
+                    let nature = if citation.person_id == Some(pid) {
+                        Some(i18n.t("person.source_nature_general"))
+                    } else if let Some(eid) = citation.event_id {
+                        event_nature.get(&eid).cloned()
+                    } else {
+                        None
+                    };
+                    let Some(nature) = nature else { continue };
+                    let Some(source) = source_by_id.get(&citation.source_id) else {
+                        continue;
+                    };
+                    let text = match &citation.page {
+                        Some(page) if !page.is_empty() => {
+                            format!("{} \u{2014} {page}", source.title)
+                        }
+                        _ => source.title.clone(),
+                    };
+                    result.push((nature, text));
+                }
+                result
+            }
+            _ => Vec::new(),
+        }
+    };
+
     rsx! {
         div { class: "sub-page",
         // Breadcrumb
@@ -1460,28 +1535,20 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
         }
 
-        // ── Citations section ────────────────────────────────────────
-        match &*citations_resource.read() {
-            Some(Ok(citations)) if !citations.is_empty() => rsx! {
-                div { class: "card", style: "margin-bottom: 24px;",
-                    div { class: "section-header",
-                        h2 { style: "font-size: 1.1rem;", {i18n.t("person.citations_section")} }
-                    }
+        // ── Sources section ───────────────────────────────────────────
+        if !person_sources.is_empty() {
+            div { class: "card", style: "margin-bottom: 24px;",
+                div { class: "section-header",
+                    h2 { style: "font-size: 1.1rem;", {i18n.t("person.sources_section")} }
+                }
 
-                    for citation in citations.iter() {
-                        div {
-                            style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius);",
-                            if let Some(page) = &citation.page {
-                                p { style: "margin: 0 0 6px; font-weight: 600;", "{page}" }
-                            }
-                            if let Some(text) = &citation.text {
-                                p { style: "margin: 0; white-space: pre-wrap;", "{text}" }
-                            }
-                        }
+                for (nature, text) in person_sources.iter() {
+                    p { style: "margin: 0 0 6px;",
+                        strong { "{nature}" }
+                        ": {text}"
                     }
                 }
-            },
-            _ => rsx! {},
+            }
         }
 
         // ── Ancestors section ─────────────────────────────────────────
