@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use chrono::{NaiveDate, Utc};
 use ged_io::GedcomBuilder;
 use ged_io::types::event::Event as GedEvent;
+use ged_io::types::source::citation::CitationSource;
 use uuid::Uuid;
 
 use oxidgene_core::types::{
@@ -960,20 +961,27 @@ fn import_citation(
     source_map: &HashMap<String, Uuid>,
     result: &mut ImportResult,
 ) {
-    let source_id = if cite.xref.is_empty() {
-        result
-            .warnings
-            .push("Skipping citation without source xref".into());
-        return;
-    } else {
-        match source_map.get(&cite.xref) {
+    let source_id = match &cite.source {
+        CitationSource::Xref(xref) if xref.is_empty() => {
+            result
+                .warnings
+                .push("Skipping citation without source xref".into());
+            return;
+        }
+        CitationSource::Xref(xref) => match source_map.get(xref) {
             Some(&id) => id,
             None => {
                 result
                     .warnings
-                    .push(format!("Citation references unknown source {}", cite.xref));
+                    .push(format!("Citation references unknown source {xref}"));
                 return;
             }
+        },
+        CitationSource::Description(text) => {
+            result.warnings.push(format!(
+                "Skipping citation with free-text source description (not yet imported): {text}"
+            ));
+            return;
         }
     };
 

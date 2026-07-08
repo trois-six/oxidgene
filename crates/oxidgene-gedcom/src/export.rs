@@ -25,6 +25,7 @@ use ged_io::types::note::Note as GedNote;
 use ged_io::types::place::{MapCoordinates, Place as GedPlace};
 use ged_io::types::source::Source as GedSource;
 use ged_io::types::source::citation::Citation as GedCitation;
+use ged_io::types::source::citation::CitationSource;
 use ged_io::types::source::quay::CertaintyAssessment;
 use uuid::Uuid;
 
@@ -35,8 +36,6 @@ use oxidgene_core::types::{
 use oxidgene_core::{Confidence, EventType, NameType, Sex, SpouseRole};
 
 use crate::ExportResult;
-
-const GEDCOM_MAX_VALUE_BYTES: usize = 255;
 
 /// Export domain model entities to a GEDCOM 5.5.1 string.
 ///
@@ -404,10 +403,8 @@ pub fn export_gedcom(
 
     // ── Serialize ────────────────────────────────────────────────────
     let gedcom = GedcomWriter::new()
-        .max_line_length(usize::MAX)
         .write_to_string(&data)
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
-    let gedcom = fold_gedcom_lines_utf8_safe(&gedcom, GEDCOM_MAX_VALUE_BYTES);
 
     Ok(ExportResult { gedcom, warnings })
 }
@@ -427,74 +424,6 @@ pub fn export_gedzip(gedcom: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("GEDZIP error: {e}"))?;
     let cursor = writer.finish().map_err(|e| format!("GEDZIP error: {e}"))?;
     Ok(cursor.into_inner())
-}
-
-fn fold_gedcom_lines_utf8_safe(gedcom: &str, max_value_bytes: usize) -> String {
-    gedcom
-        .split('\n')
-        .map(|line| fold_gedcom_line_utf8_safe(line, max_value_bytes))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn fold_gedcom_line_utf8_safe(line: &str, max_value_bytes: usize) -> String {
-    let Some((level, prefix, value)) = split_gedcom_value(line) else {
-        return line.to_string();
-    };
-    if value.len() <= max_value_bytes {
-        return line.to_string();
-    }
-
-    let mut chunks = utf8_chunks(value, max_value_bytes);
-    let Some(first) = chunks.next() else {
-        return line.to_string();
-    };
-
-    let mut folded = format!("{prefix} {first}");
-    for chunk in chunks {
-        folded.push('\n');
-        folded.push_str(&format!("{} CONC {chunk}", level + 1));
-    }
-    folded
-}
-
-fn split_gedcom_value(line: &str) -> Option<(u8, String, &str)> {
-    let mut parts = line.splitn(3, ' ');
-    let level = parts.next()?.parse::<u8>().ok()?;
-    let second = parts.next()?;
-    let third = parts.next()?;
-
-    if second.starts_with('@') && second.ends_with('@') {
-        let (tag, value) = third.split_once(' ')?;
-        Some((level, format!("{level} {second} {tag}"), value))
-    } else {
-        Some((level, format!("{level} {second}"), third))
-    }
-}
-
-fn utf8_chunks(value: &str, max_bytes: usize) -> impl Iterator<Item = &str> {
-    let mut start = 0;
-    std::iter::from_fn(move || {
-        if start >= value.len() {
-            return None;
-        }
-
-        let mut end = (start + max_bytes).min(value.len());
-        while end > start && !value.is_char_boundary(end) {
-            end -= 1;
-        }
-        if end == start {
-            end = value[start..]
-                .chars()
-                .next()
-                .map(|c| start + c.len_utf8())
-                .unwrap_or(value.len());
-        }
-
-        let chunk = &value[start..end];
-        start = end;
-        Some(chunk)
-    })
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -764,7 +693,7 @@ fn to_ged_citation(
     };
 
     Some(GedCitation {
-        xref,
+        source: CitationSource::Xref(xref),
         page: cite.page.clone(),
         data: None,
         note: None,
