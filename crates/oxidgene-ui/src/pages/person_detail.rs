@@ -453,17 +453,20 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 }
             }
 
-            // Occupation, shown on its own line below the birth/death vitals
-            // (mirrors the "Profession" line on Geneanet person pages).
-            let occupation = conn
+            // Occupation(s), shown on its own line below the birth/death
+            // vitals (mirrors the "Profession" line on Geneanet person
+            // pages). A person can have several OCCU events (career
+            // changes) — list them all rather than picking just one.
+            let occupations: Vec<String> = conn
                 .edges
                 .iter()
                 .map(|e| &e.node)
-                .find(|e| e.event_type == EventType::Occupation)
-                .and_then(|e| e.description.clone())
-                .filter(|title| !title.is_empty());
-            if let Some(title) = occupation {
-                clauses.push(VitalClause::Occupation(title));
+                .filter(|e| e.event_type == EventType::Occupation)
+                .filter_map(|e| e.description.clone())
+                .filter(|title| !title.is_empty())
+                .collect();
+            if !occupations.is_empty() {
+                clauses.push(VitalClause::Occupation(occupations.join(", ")));
             }
 
             clauses
