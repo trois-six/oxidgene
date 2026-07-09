@@ -317,14 +317,14 @@ async fn test_person_name_crud() {
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         Some(serde_json::json!({
             "name_type": "birth",
-            "given_names": "Pierre",
+            "given_names": "John",
             "surname": "Doe",
             "is_primary": true
         })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["given_names"], "Pierre");
+    assert_eq!(body["given_names"], "John");
     assert_eq!(body["surname"], "Doe");
     let name_id = body["id"].as_str().unwrap().to_string();
 
@@ -345,12 +345,12 @@ async fn test_person_name_crud() {
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
         Some(serde_json::json!({
-            "surname": "Pdoe"
+            "surname": "Jdoe"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["surname"], "Pdoe");
+    assert_eq!(body["surname"], "Jdoe");
 
     // Delete name
     let (status, _) = send_request(
@@ -403,8 +403,8 @@ async fn test_person_search_free_text() {
         &format!("/api/v1/trees/{tree_id}/persons/{p2}/names"),
         Some(serde_json::json!({
             "name_type": "birth",
-            "given_names": "Éloïse",
-            "surname": "Lefèvre",
+            "given_names": "Jane",
+            "surname": "Smith",
             "is_primary": true
         })),
     )
@@ -422,17 +422,17 @@ async fn test_person_search_free_text() {
     assert_eq!(body["total_count"], 1);
     assert_eq!(body["entries"][0]["display_name"], "Jean Dupont");
 
-    // Accent-folded matching (query without accents finds Éloïse).
+    // Accent-folded matching (query without accents finds Jane Smith).
     let (status, body) = send_request(
         app.clone(),
         Method::GET,
-        &format!("/api/v1/trees/{tree_id}/persons/search?q=eloise%20lefevre"),
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=jane%20smith"),
         None,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["total_count"], 1);
-    assert_eq!(body["entries"][0]["display_name"], "Éloïse Lefèvre");
+    assert_eq!(body["entries"][0]["display_name"], "Jane Smith");
 
     // Empty query = browse mode: everyone, sorted by surname.
     let (status, body) = send_request(
@@ -519,7 +519,7 @@ async fn test_person_search_free_text() {
     .await;
     assert_eq!(status, StatusCode::OK, "browse mode failed: {body}");
     assert_eq!(body["total_count"], 1);
-    assert_eq!(body["entries"][0]["display_name"], "Éloïse Lefèvre");
+    assert_eq!(body["entries"][0]["display_name"], "Jane Smith");
 }
 
 // ───────────────────────── Family tests ─────────────────────────
@@ -764,13 +764,13 @@ async fn test_event_crud() {
             "date_value": "1 JAN 1990",
             "date_sort": "1990-01-01",
             "person_id": person_id,
-            "description": "Born in Paris"
+            "description": "Born in London"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["event_type"], "birth");
-    assert_eq!(body["description"], "Born in Paris");
+    assert_eq!(body["description"], "Born in London");
     let event_id = body["id"].as_str().unwrap().to_string();
 
     // Get the event
@@ -790,12 +790,12 @@ async fn test_event_crud() {
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
         Some(serde_json::json!({
-            "description": "Born in Lyon"
+            "description": "Born in London"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["description"], "Born in Lyon");
+    assert_eq!(body["description"], "Born in London");
 
     // List events (no filter)
     let (status, body) = send_request(

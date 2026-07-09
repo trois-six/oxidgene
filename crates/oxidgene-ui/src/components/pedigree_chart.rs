@@ -221,12 +221,40 @@ fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
         EventType::Retirement => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.retirement"),
         EventType::Will => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.will"),
         EventType::Probate => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.probate"),
+        EventType::Adoption => ("\u{1FAC2}", "ev-ic ev-ic-other", "event.type.adoption"),
+        EventType::CasteName => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.caste_name"),
+        EventType::PhysicalDescription => (
+            "\u{25C6}",
+            "ev-ic ev-ic-other",
+            "event.type.physical_description",
+        ),
+        EventType::Education => ("\u{1F393}", "ev-ic ev-ic-other", "event.type.education"),
+        EventType::NationalId => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.national_id"),
+        EventType::NationalOrigin => (
+            "\u{25C6}",
+            "ev-ic ev-ic-other",
+            "event.type.national_origin",
+        ),
+        EventType::ChildrenCount => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.children_count"),
+        EventType::MarriagesCount => (
+            "\u{1F48D}",
+            "ev-ic ev-ic-other",
+            "event.type.marriages_count",
+        ),
+        EventType::Property => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.property"),
+        EventType::Religion => ("\u{271F}", "ev-ic ev-ic-other", "event.type.religion"),
+        EventType::SocialSecurityNumber => (
+            "\u{25C6}",
+            "ev-ic ev-ic-other",
+            "event.type.social_security_number",
+        ),
+        EventType::NobilityTitle => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.nobility_title"),
+        EventType::Fact => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.fact"),
         EventType::Other => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
         EventType::Confirmation
         | EventType::FirstCommunion
         | EventType::BarBatMitzvah
-        | EventType::MilitaryService
-        | EventType::Adoption => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
+        | EventType::MilitaryService => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
     }
 }
 
@@ -757,8 +785,7 @@ impl PedigreeData {
 
 // ── RT Layout Engine ─────────────────────────────────────────────────────
 //
-// Port of the Reingold-Tilford (Buchheim variant) algorithm from the
-// JavaScript reference at test-tree-algo/layout.js + tree-builder.js.
+// Reingold-Tilford (Buchheim variant) algorithm.
 // All traversals use explicit stacks to avoid stack overflows on deep trees.
 
 /// SOSA badge type for a node.
@@ -1304,12 +1331,6 @@ fn tree_shift(wrap: &mut [WrapNode], node: usize) {
     }
 }
 
-/// Port of JS `treeSeparation(a, b)`.
-///
-/// In the reference, tree nodes have no `parent` property, so
-/// `a.parent == b.parent` is always `undefined == undefined` = true.
-/// The function therefore NEVER returns 2 — it returns 0.5 when the
-/// left node is at the deepest (compact) level, and 1.0 otherwise.
 fn tree_separation(
     wrap: &[WrapNode],
     arena: &[TreeNode],
@@ -1939,7 +1960,6 @@ fn diagonal_parent(
 }
 
 /// Path from a parent node up to a root biological sibling.
-/// Port of `diagonalSibling` from layout.js.
 #[allow(clippy::too_many_arguments)]
 fn diagonal_sibling(
     n1_x: f64,
@@ -2147,8 +2167,7 @@ struct LayoutNode {
 /// Result of the pedigree layout computation.
 ///
 /// The ascending and descending trees are kept in their own coordinate spaces so
-/// that their SVG groups can each receive the correct `translate()` transform —
-/// mirroring how `generate.js` + `renderSVG` work in the reference project.
+/// that their SVG groups can each receive the correct `translate()` transform.
 struct PedigreeLayout {
     /// Ascending tree nodes in ascending-tree coordinate space.
     asc_nodes: Vec<LayoutNode>,
@@ -2188,8 +2207,7 @@ struct PedigreeLayout {
 ///
 /// Uses two independent `LayoutTreeService`-equivalent passes (one per tree) and
 /// computes the SVG group transforms needed to make the root card appear at the
-/// same canvas position in both trees — exactly as `generate.js` / `renderSVG`
-/// do in the JS reference implementation.
+/// same canvas position in both trees.
 fn compute_layout(
     root_id: Uuid,
     data: &PedigreeData,
@@ -2230,8 +2248,7 @@ fn compute_layout(
     let desc_tx = asc_root_x - desc_root_x;
     let desc_ty = asc_root_y - desc_root_y; // desc_root_y is 0 after layout_tree
 
-    // ── Root biological siblings (placed outside RT layout, same row as root) ──
-    // Port of the siblingsBefore/siblingsAfter logic from generate.js.
+    // ── Root biological siblings (placed outside RT layout, same row as root).
     let mut extra_asc_nodes: Vec<LayoutNode> = Vec::new();
     {
         let all_siblings = get_siblings(root_id, data);
@@ -2240,7 +2257,7 @@ fn compute_layout(
             let sibs_before = &all_siblings[..root_sib_idx];
             let sibs_after = &all_siblings[root_sib_idx + 1..];
 
-            // Extend minX/maxX based on desc root's spouses (mirrors generate.js).
+            // Extend minX/maxX based on desc root's spouses.
             let mut sib_min_x = asc_root_x;
             let mut sib_max_x = asc_root_x;
             if desc_arena[0].after == 0 && !desc_arena[0].siblings.is_empty() {
@@ -2461,8 +2478,7 @@ fn compute_layout(
 
 // ── Component ────────────────────────────────────────────────────────────
 
-/// Fixed zoom level for [`MiniPedigree`] — not user-adjustable. 66% of the
-/// 1.4 baseline that matched the "Family" narrative section's font size.
+/// Fixed zoom level for [`MiniPedigree`] — not user-adjustable.
 const MINI_PEDIGREE_SCALE: f64 = 0.8;
 
 /// Default viewport size for [`MiniPedigree`] before the actual DOM element
@@ -3606,9 +3622,9 @@ mod layout_overlap_tests {
         marry(&mut arena, root, root_spouse);
 
         // Depth-1 children: a single childless sibling, then A (male) and B
-        // (female) adjacent, then two more single childless siblings —
-        // mirrors the real family shape (Brigitte, [Luc+spouse], [Daniel+
-        // Elisabeth], Marc, Jean-Michel).
+        // (female) adjacent, then another single childless sibling —
+        // mirrors the real family shape (Sibling 1, [Branch A + spouse],
+        // [Branch B + spouse], Sibling 4).
         let sib_before = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
         let a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
         let b = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
@@ -3672,10 +3688,10 @@ mod layout_overlap_tests {
     }
 
     /// Reproduces a case one level shallower than the cousin-branch test: a
-    /// leaf sibling (Philippe) who has both a married-in spouse AND his own
-    /// children, sitting next to a childless full sibling (Anthony). The
+    /// leaf sibling (Branch A) who has both a married-in spouse AND his own
+    /// children, sitting next to a childless full sibling (Branch B). The
     /// spouse's extra width must still push the childless sibling (and
-    /// everything after it) over, even though Philippe's own subtree has
+    /// everything after it) over, even though Branch A's own subtree has
     /// descendants of its own.
     #[test]
     fn leaf_with_spouse_and_children_does_not_overlap_childless_sibling() {
@@ -3685,17 +3701,17 @@ mod layout_overlap_tests {
         let root_spouse = push(&mut arena, person(0, Sex::Female, None));
         marry(&mut arena, root, root_spouse);
 
-        let philippe = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
-        let anthony = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
-        let remi = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
-        arena[root].children = vec![philippe, anthony, remi];
+        let branch_a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_b = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_c = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        arena[root].children = vec![branch_a, branch_b, branch_c];
 
-        let marion = push(&mut arena, person(1, Sex::Female, None));
-        marry(&mut arena, philippe, marion);
+        let branch_a_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_a, branch_a_spouse);
 
-        let lily = push(&mut arena, person(2, Sex::Female, Some(marion)));
-        let alban = push(&mut arena, person(2, Sex::Male, Some(marion)));
-        arena[philippe].children = vec![lily, alban];
+        let child_a = push(&mut arena, person(2, Sex::Female, Some(branch_a_spouse)));
+        let child_b = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        arena[branch_a].children = vec![child_a, child_b];
 
         layout_tree(&mut arena, 0);
 
@@ -3716,12 +3732,12 @@ mod layout_overlap_tests {
     }
 
     /// Reproduces the exact real-world family shape that still overlapped
-    /// after the first fix: depth-1 full siblings JMJA and Dominique (both
-    /// children of the root couple). JMJA's branch has two childless
-    /// children (Didier, Michel) before a third child (Philippe) who has
-    /// both a spouse (Marion) and two children of his own (Lily, Alban).
-    /// Dominique's branch immediately follows with two childless children
-    /// (Fanny, Rémi). Marion's card must not collide with Fanny's.
+    /// after the first fix: two depth-1 full siblings (both children of the
+    /// root couple). The first branch has two childless children before a
+    /// third child who has both a spouse and two children of his own. The
+    /// second branch immediately follows with two childless children. The
+    /// married-in spouse card from the first branch must not collide with the
+    /// first child card from the second branch.
     #[test]
     fn cross_uncle_branch_with_grandchildren_does_not_overlap() {
         let mut arena: Vec<TreeNode> = Vec::new();
@@ -3730,47 +3746,47 @@ mod layout_overlap_tests {
         let root_spouse = push(&mut arena, person(0, Sex::Female, None));
         marry(&mut arena, root, root_spouse);
 
-        let jmja = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
-        let dominique = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
-        arena[root].children = vec![jmja, dominique];
+        let branch_a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_b = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        arena[root].children = vec![branch_a, branch_b];
 
-        let augusta = push(&mut arena, person(1, Sex::Female, None));
-        marry(&mut arena, jmja, augusta);
+        let branch_a_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_a, branch_a_spouse);
 
-        let francine = push(&mut arena, person(1, Sex::Female, None));
-        marry(&mut arena, dominique, francine);
+        let branch_b_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_b, branch_b_spouse);
 
-        let didier = push(&mut arena, person(2, Sex::Male, Some(augusta)));
-        let michel = push(&mut arena, person(2, Sex::Male, Some(augusta)));
-        let philippe = push(&mut arena, person(2, Sex::Male, Some(augusta)));
-        arena[jmja].children = vec![didier, michel, philippe];
+        let child_a = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        let child_b = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        let child_c = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        arena[branch_a].children = vec![child_a, child_b, child_c];
 
-        // Didier also has his own spouse + 3 children (Clément, Auriane,
-        // Apolline) — omitting these in an earlier version of this test
+        // Child A also has his own spouse + 3 children. Omitting these in an
+        // earlier version of this test
         // masked the real bug.
-        let anne_cecile = push(&mut arena, person(2, Sex::Female, None));
-        marry(&mut arena, didier, anne_cecile);
-        let clement = push(&mut arena, person(3, Sex::Male, Some(anne_cecile)));
-        let auriane = push(&mut arena, person(3, Sex::Female, Some(anne_cecile)));
-        let apolline = push(&mut arena, person(3, Sex::Female, Some(anne_cecile)));
-        arena[didier].children = vec![clement, auriane, apolline];
+        let child_a_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, child_a, child_a_spouse);
+        let grandchild_a = push(&mut arena, person(3, Sex::Male, Some(child_a_spouse)));
+        let grandchild_b = push(&mut arena, person(3, Sex::Female, Some(child_a_spouse)));
+        let grandchild_c = push(&mut arena, person(3, Sex::Female, Some(child_a_spouse)));
+        arena[child_a].children = vec![grandchild_a, grandchild_b, grandchild_c];
 
-        // Michel also has his own spouse + 1 child (Maël).
-        let marie_charlotte = push(&mut arena, person(2, Sex::Female, None));
-        marry(&mut arena, michel, marie_charlotte);
-        let mael = push(&mut arena, person(3, Sex::Male, Some(marie_charlotte)));
-        arena[michel].children = vec![mael];
+        // Child B also has his own spouse + 1 child.
+        let child_b_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, child_b, child_b_spouse);
+        let grandchild_d = push(&mut arena, person(3, Sex::Male, Some(child_b_spouse)));
+        arena[child_b].children = vec![grandchild_d];
 
-        let marion = push(&mut arena, person(2, Sex::Female, None));
-        marry(&mut arena, philippe, marion);
+        let child_c_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, child_c, child_c_spouse);
 
-        let lily = push(&mut arena, person(3, Sex::Female, Some(marion)));
-        let alban = push(&mut arena, person(3, Sex::Male, Some(marion)));
-        arena[philippe].children = vec![lily, alban];
+        let grandchild_e = push(&mut arena, person(3, Sex::Female, Some(child_c_spouse)));
+        let grandchild_f = push(&mut arena, person(3, Sex::Male, Some(child_c_spouse)));
+        arena[child_c].children = vec![grandchild_e, grandchild_f];
 
-        let fanny = push(&mut arena, person(2, Sex::Female, Some(francine)));
-        let remi = push(&mut arena, person(2, Sex::Male, Some(francine)));
-        arena[dominique].children = vec![fanny, remi];
+        let child_d = push(&mut arena, person(2, Sex::Female, Some(branch_b_spouse)));
+        let child_e = push(&mut arena, person(2, Sex::Male, Some(branch_b_spouse)));
+        arena[branch_b].children = vec![child_d, child_e];
 
         layout_tree(&mut arena, 0);
 

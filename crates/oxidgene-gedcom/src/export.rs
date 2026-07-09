@@ -11,6 +11,7 @@ use ged_io::types::event::Event as GedEvent;
 use ged_io::types::event::detail::Detail as GedDetail;
 use ged_io::types::family::Family as GedFamily;
 use ged_io::types::header::Header;
+use ged_io::types::header::encoding::Encoding;
 use ged_io::types::header::meta::HeadMeta;
 use ged_io::types::header::source::HeadSour;
 use ged_io::types::individual::Individual;
@@ -195,7 +196,10 @@ pub fn export_gedcom(
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             ..Default::default()
         }),
-        encoding: None,
+        encoding: Some(Encoding {
+            value: Some("UTF-8".to_string()),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -270,17 +274,17 @@ pub fn export_gedcom(
         let mut indi_events: Vec<GedDetail> = Vec::new();
         let mut indi_attributes: Vec<GedAttributeDetail> = Vec::new();
         for evt in events_by_person.get(&person.id).into_iter().flatten() {
-            match evt.event_type {
-                EventType::Occupation => indi_attributes.push(to_ged_attribute_detail(
+            match event_type_to_attribute(evt.event_type) {
+                Some(attribute) => indi_attributes.push(to_ged_attribute_detail(
                     evt,
-                    GedIndividualAttribute::Occupation,
+                    attribute,
                     &place_map,
                     &cites_by_event,
                     &notes_by_event,
                     &source_xref,
                     &mut warnings,
                 )),
-                _ => indi_events.push(to_ged_detail(
+                None => indi_events.push(to_ged_detail(
                     evt,
                     &place_map,
                     &cites_by_event,
@@ -289,6 +293,7 @@ pub fn export_gedcom(
                     &media_by_id,
                     &source_xref,
                     &media_xref,
+                    &family_xref,
                     &mut warnings,
                 )),
             }
@@ -388,6 +393,7 @@ pub fn export_gedcom(
                             &media_by_id,
                             &source_xref,
                             &media_xref,
+                            &family_xref,
                             &mut warnings,
                         )
                     })
@@ -600,12 +606,28 @@ fn convert_event_type(et: EventType) -> GedEvent {
         // written back as a generic EVEN with the TYPE sub-tag set from
         // `description` (see `to_ged_detail`).
         EventType::CivilUnion => GedEvent::Event,
+        EventType::Adoption => GedEvent::Adoption,
         EventType::Other | EventType::Occupation => GedEvent::Other,
+        // The individual-attribute variants (CasteName, PhysicalDescription,
+        // Education, ...) always round-trip through `to_ged_attribute_detail`
+        // instead (see the per-person event/attribute split in
+        // `export_gedcom`) — this arm only exists for exhaustiveness.
         EventType::Confirmation
         | EventType::FirstCommunion
         | EventType::BarBatMitzvah
         | EventType::MilitaryService
-        | EventType::Adoption => GedEvent::Other,
+        | EventType::CasteName
+        | EventType::PhysicalDescription
+        | EventType::Education
+        | EventType::NationalId
+        | EventType::NationalOrigin
+        | EventType::ChildrenCount
+        | EventType::MarriagesCount
+        | EventType::Property
+        | EventType::Religion
+        | EventType::SocialSecurityNumber
+        | EventType::NobilityTitle
+        | EventType::Fact => GedEvent::Other,
     }
 }
 
@@ -635,6 +657,7 @@ fn to_ged_detail(
     media_by_id: &HashMap<Uuid, &Media>,
     source_xref: &HashMap<Uuid, String>,
     media_xref: &HashMap<Uuid, String>,
+    family_xref: &HashMap<Uuid, String>,
     warnings: &mut Vec<String>,
 ) -> GedDetail {
     let event = convert_event_type(evt.event_type);
@@ -683,13 +706,34 @@ fn to_ged_detail(
         })
         .unwrap_or_default();
 
+    // An adoption event's adoptive family (distinct from the person's own
+    // FAMC back-link, which may point at the birth family) — round-trips
+    // via `Event.family_id` (see `import_event_detail`'s comment for why
+    // there's no dedicated field for it). Which parent adopted is not
+    // captured on import, so `adopted_by` can't be reconstructed here.
+    let family_link = if evt.event_type == EventType::Adoption {
+        evt.family_id
+            .and_then(|fid| family_xref.get(&fid))
+            .map(|xref| FamilyLink {
+                xref: xref.clone(),
+                family_link_type: FamilyLinkType::Child,
+                pedigree_linkage_type: Some(GedPedigree::Adopted),
+                child_linkage_status: None,
+                adopted_by: None,
+                note: None,
+                custom_data: Vec::new(),
+            })
+    } else {
+        None
+    };
+
     GedDetail {
         event,
         value: None,
         date,
         place,
         note,
-        family_link: None,
+        family_link,
         family_event_details: Vec::new(),
         // Round-trips the free-text classification (e.g. "PACS") back into
         // the GEDCOM TYPE sub-tag it was read from on import.
@@ -706,9 +750,33 @@ fn to_ged_detail(
     }
 }
 
-/// Exports an individual attribute (currently only `EventType::Occupation`,
-/// GEDCOM `OCCU`) as an `AttributeDetail` under `Individual.attributes`, so
-/// it round-trips to its original tag instead of a generic `EVEN`.
+/// Maps the `EventType` variants that represent a GEDCOM
+/// `INDIVIDUAL_ATTRIBUTE_STRUCTURE` (OCCU, RESI, TITL, ...) to their
+/// `ged_io` attribute tag, so they round-trip to their original tag
+/// instead of a generic `EVEN`. `None` for event-shaped types, which are
+/// exported via `to_ged_detail` instead.
+fn event_type_to_attribute(et: EventType) -> Option<GedIndividualAttribute> {
+    match et {
+        EventType::Occupation => Some(GedIndividualAttribute::Occupation),
+        EventType::CasteName => Some(GedIndividualAttribute::CastName),
+        EventType::PhysicalDescription => Some(GedIndividualAttribute::PhysicalDescription),
+        EventType::Education => Some(GedIndividualAttribute::ScholasticAchievement),
+        EventType::NationalId => Some(GedIndividualAttribute::NationalIDNumber),
+        EventType::NationalOrigin => Some(GedIndividualAttribute::NationalOrTribalOrigin),
+        EventType::ChildrenCount => Some(GedIndividualAttribute::CountOfChildren),
+        EventType::MarriagesCount => Some(GedIndividualAttribute::CountOfMarriages),
+        EventType::Property => Some(GedIndividualAttribute::Possessions),
+        EventType::Religion => Some(GedIndividualAttribute::ReligiousAffiliation),
+        EventType::SocialSecurityNumber => Some(GedIndividualAttribute::SocialSecurityNumber),
+        EventType::NobilityTitle => Some(GedIndividualAttribute::NobilityTypeTitle),
+        EventType::Fact => Some(GedIndividualAttribute::Fact),
+        _ => None,
+    }
+}
+
+/// Exports an individual attribute (e.g. `EventType::Occupation`, GEDCOM
+/// `OCCU`) as an `AttributeDetail` under `Individual.attributes`, so it
+/// round-trips to its original tag instead of a generic `EVEN`.
 fn to_ged_attribute_detail(
     evt: &Event,
     attribute: GedIndividualAttribute,
@@ -756,7 +824,7 @@ fn to_ged_attribute_detail(
 
     GedAttributeDetail {
         attribute,
-        // The attribute's own line value (e.g. "Commercial" for OCCU) —
+        // The attribute's own line value (e.g. "Account Manager" for OCCU) —
         // mirrors the import side, which reads this same field back from
         // `detail.value` first (falling back to the TYPE sub-tag).
         value: evt.description.clone(),
