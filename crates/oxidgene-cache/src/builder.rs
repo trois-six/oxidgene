@@ -594,12 +594,12 @@ mod tests {
         let entry = SearchEntry {
             person_id: Uuid::now_v7(),
             sex: Sex::Female,
-            surname_normalized: "durand".to_string(),
-            given_names_normalized: "marie".to_string(),
+            surname_normalized: "smith".to_string(),
+            given_names_normalized: "jeanne".to_string(),
             maiden_name_normalized: Some("dupont".to_string()),
-            display_name: "Marie Durand".to_string(),
+            display_name: "Jane Smith".to_string(),
             birth_year: Some("1850".to_string()),
-            birth_place: Some("Paris".to_string()),
+            birth_place: Some("Berlin".to_string()),
             death_year: None,
             date_sort: chrono::NaiveDate::from_ymd_opt(1850, 6, 1),
         };
@@ -622,9 +622,9 @@ mod tests {
         let back = search_entry_from_db(db_row);
         assert_eq!(back.person_id, entry.person_id);
         assert_eq!(back.sex, Sex::Female);
-        assert_eq!(back.surname_normalized, "durand");
+        assert_eq!(back.surname_normalized, "smith");
         assert_eq!(back.maiden_name_normalized.as_deref(), Some("dupont"));
         assert_eq!(back.date_sort, entry.date_sort);
-        assert_eq!(back.display_name, "Marie Durand");
+        assert_eq!(back.display_name, "Jane Smith");
     }
 }

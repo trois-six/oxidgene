@@ -98,9 +98,9 @@ redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"
 rmp-serde = "1"
 bincode = { version = "2", features = ["serde"] }
 
-# TODO: remove once https://github.com/ge3224/ged_io/pull/69 is merged and released
+# TODO: remove once https://github.com/ge3224/ged_io/pull/69 and 70 are merged and released
 [patch.crates-io]
-ged_io = { git = "https://github.com/trois-six/ged_io.git", branch = "fix/citation-source-xref-or-text" }
+ged_io = { git = "https://github.com/trois-six/ged_io.git", branch = "fix/for-oxidgene" }
 
 [profile.dev]
 debug = "line-tables-only"  # smaller debug info → faster incremental builds

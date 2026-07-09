@@ -198,6 +198,33 @@ pub enum EventType {
     Retirement,
     Will,
     Probate,
+    /// Adoption (GEDCOM `ADOP`) — an individual-level event, not a family
+    /// event: it may reference the adoptive family via a nested `FAMC`.
+    Adoption,
+    /// Caste name (GEDCOM `CAST`).
+    CasteName,
+    /// Physical description (GEDCOM `DSCR`).
+    PhysicalDescription,
+    /// Education / scholastic achievement (GEDCOM `EDUC`).
+    Education,
+    /// National ID number (GEDCOM `IDNO`).
+    NationalId,
+    /// National or tribal origin (GEDCOM `NATI`).
+    NationalOrigin,
+    /// Count of children (GEDCOM `NCHI`).
+    ChildrenCount,
+    /// Count of marriages (GEDCOM `NMR`).
+    MarriagesCount,
+    /// Possessions / property (GEDCOM `PROP`).
+    Property,
+    /// Religious affiliation (GEDCOM `RELI`).
+    Religion,
+    /// Social security number (GEDCOM `SSN`).
+    SocialSecurityNumber,
+    /// Title of nobility (GEDCOM `TITL` as an individual attribute).
+    NobilityTitle,
+    /// Generic fact (GEDCOM `FACT`).
+    Fact,
     // Family events
     Marriage,
     Divorce,
@@ -207,7 +234,6 @@ pub enum EventType {
     MarriageContract,
     MarriageLicense,
     MarriageSettlement,
-    Adoption,
     /// Civil union / PACS / cohabitation — an unmarried partnership recorded
     /// via GEDCOM's generic `EVEN` family tag (no dedicated tag exists).
     CivilUnion,
@@ -243,6 +269,19 @@ impl EventType {
                 | Self::Retirement
                 | Self::Will
                 | Self::Probate
+                | Self::Adoption
+                | Self::CasteName
+                | Self::PhysicalDescription
+                | Self::Education
+                | Self::NationalId
+                | Self::NationalOrigin
+                | Self::ChildrenCount
+                | Self::MarriagesCount
+                | Self::Property
+                | Self::Religion
+                | Self::SocialSecurityNumber
+                | Self::NobilityTitle
+                | Self::Fact
         )
     }
 
@@ -258,7 +297,6 @@ impl EventType {
                 | Self::MarriageContract
                 | Self::MarriageLicense
                 | Self::MarriageSettlement
-                | Self::Adoption
                 | Self::CivilUnion
                 | Self::Separation
                 | Self::DivorceFiled
@@ -288,6 +326,19 @@ impl std::fmt::Display for EventType {
             Self::Retirement => write!(f, "retirement"),
             Self::Will => write!(f, "will"),
             Self::Probate => write!(f, "probate"),
+            Self::Adoption => write!(f, "adoption"),
+            Self::CasteName => write!(f, "caste_name"),
+            Self::PhysicalDescription => write!(f, "physical_description"),
+            Self::Education => write!(f, "education"),
+            Self::NationalId => write!(f, "national_id"),
+            Self::NationalOrigin => write!(f, "national_origin"),
+            Self::ChildrenCount => write!(f, "children_count"),
+            Self::MarriagesCount => write!(f, "marriages_count"),
+            Self::Property => write!(f, "property"),
+            Self::Religion => write!(f, "religion"),
+            Self::SocialSecurityNumber => write!(f, "social_security_number"),
+            Self::NobilityTitle => write!(f, "nobility_title"),
+            Self::Fact => write!(f, "fact"),
             Self::Marriage => write!(f, "marriage"),
             Self::Divorce => write!(f, "divorce"),
             Self::Annulment => write!(f, "annulment"),
@@ -296,7 +347,6 @@ impl std::fmt::Display for EventType {
             Self::MarriageContract => write!(f, "marriage_contract"),
             Self::MarriageLicense => write!(f, "marriage_license"),
             Self::MarriageSettlement => write!(f, "marriage_settlement"),
-            Self::Adoption => write!(f, "adoption"),
             Self::CivilUnion => write!(f, "civil_union"),
             Self::Separation => write!(f, "separation"),
             Self::DivorceFiled => write!(f, "divorce_filed"),
@@ -346,6 +396,14 @@ mod tests {
         assert!(EventType::Divorce.is_family());
         assert!(!EventType::Birth.is_family());
         assert!(!EventType::Other.is_family());
+    }
+
+    #[test]
+    fn test_adoption_is_individual_not_family() {
+        // GEDCOM 5.5.1 `ADOP` is an individual-level event that may
+        // reference the adoptive family via a nested `FAMC`.
+        assert!(EventType::Adoption.is_individual());
+        assert!(!EventType::Adoption.is_family());
     }
 
     #[test]

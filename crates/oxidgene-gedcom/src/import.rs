@@ -47,11 +47,19 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
     // Free-text SOUR description → UUID of a synthesized Source (dedup by
     // exact text match) — see `get_or_create_text_source` below.
     let mut text_source_map: HashMap<String, Uuid> = HashMap::new();
+    // Individual xref → display name, used to resolve `ASSO` (witness/
+    // godparent) associations on events into `Event.witnesses` text.
+    let mut indi_name_map: HashMap<String, String> = HashMap::new();
 
     // ── Pass 1: Allocate UUIDs for all top-level records ────────────
     for indi in &data.individuals {
         if let Some(xref) = &indi.xref {
             indi_map.insert(xref.clone(), Uuid::now_v7());
+        }
+        if let (Some(xref), Some(display_name)) =
+            (&indi.xref, indi.name.as_ref().and_then(format_display_name))
+        {
+            indi_name_map.insert(xref.clone(), display_name);
         }
     }
     for fam in &data.families {
@@ -253,6 +261,8 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
+                &fam_map,
+                &indi_name_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
                 &mut result,
@@ -400,6 +410,8 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
+                &fam_map,
+                &indi_name_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
                 &mut result,
@@ -415,6 +427,8 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
+                &fam_map,
+                &indi_name_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
                 &mut result,
@@ -539,7 +553,7 @@ fn convert_name(
 
     // ged_io populates name.given / name.surname only when GIVN/SURN sub-tags
     // exist. Most GEDCOM files only have the full name on the NAME line
-    // (e.g. "Florence /ALFONSI/"), stored in name.value. Fall back to parsing it.
+    // (e.g. "John /DOE/"), stored in name.value. Fall back to parsing it.
     let (parsed_given, parsed_surname) = parse_name_value(name.value.as_deref());
 
     PersonName {
@@ -557,7 +571,26 @@ fn convert_name(
     }
 }
 
-/// Parse given name and surname from a GEDCOM NAME value (e.g. "Florence /ALFONSI/").
+/// Builds a plain display name (e.g. "John DOE") from a GEDCOM
+/// `Name`, for use in free-text contexts like `Event.witnesses` that have
+/// no `PersonName` record of their own to point to.
+fn format_display_name(name: &ged_io::types::individual::name::Name) -> Option<String> {
+    let (parsed_given, parsed_surname) = parse_name_value(name.value.as_deref());
+    let given = name.given.clone().or(parsed_given);
+    let surname = name.surname.clone().or(parsed_surname);
+    let display = [given, surname]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if display.is_empty() {
+        None
+    } else {
+        Some(display)
+    }
+}
+
+/// Parse given name and surname from a GEDCOM NAME value (e.g. "John /DOE/").
 /// Surname is the text between `/` delimiters; given names are everything before the first `/`.
 fn parse_name_value(value: Option<&str>) -> (Option<String>, Option<String>) {
     let Some(val) = value else {
@@ -626,6 +659,7 @@ fn convert_event_type(evt: &GedEvent, type_text: Option<&str>) -> EventType {
         GedEvent::MarriageSettlement => EventType::MarriageSettlement,
         GedEvent::Separated => EventType::Separation,
         GedEvent::DivorceFiled => EventType::DivorceFiled,
+        GedEvent::Adoption => EventType::Adoption,
         GedEvent::Event if is_civil_union_type(type_text) => EventType::CivilUnion,
         _ => EventType::Other,
     }
@@ -656,9 +690,7 @@ fn is_civil_union_type(type_text: Option<&str>) -> bool {
 }
 
 /// Maps a GEDCOM `INDIVIDUAL_ATTRIBUTE_STRUCTURE` tag (OCCU, RESI, TITL, ...)
-/// to our domain `EventType`. Only Occupation and Residence have dedicated
-/// variants; the rest collapse to `Other` with the tag's value/TYPE preserved
-/// as the event's description.
+/// to our domain `EventType`.
 fn convert_individual_attribute(
     attr: &ged_io::types::individual::attribute::IndividualAttribute,
 ) -> EventType {
@@ -666,18 +698,18 @@ fn convert_individual_attribute(
     match attr {
         IndividualAttribute::Occupation => EventType::Occupation,
         IndividualAttribute::ResidesAt => EventType::Residence,
-        IndividualAttribute::CastName
-        | IndividualAttribute::PhysicalDescription
-        | IndividualAttribute::ScholasticAchievement
-        | IndividualAttribute::NationalIDNumber
-        | IndividualAttribute::NationalOrTribalOrigin
-        | IndividualAttribute::CountOfChildren
-        | IndividualAttribute::CountOfMarriages
-        | IndividualAttribute::Possessions
-        | IndividualAttribute::ReligiousAffiliation
-        | IndividualAttribute::SocialSecurityNumber
-        | IndividualAttribute::NobilityTypeTitle
-        | IndividualAttribute::Fact => EventType::Other,
+        IndividualAttribute::CastName => EventType::CasteName,
+        IndividualAttribute::PhysicalDescription => EventType::PhysicalDescription,
+        IndividualAttribute::ScholasticAchievement => EventType::Education,
+        IndividualAttribute::NationalIDNumber => EventType::NationalId,
+        IndividualAttribute::NationalOrTribalOrigin => EventType::NationalOrigin,
+        IndividualAttribute::CountOfChildren => EventType::ChildrenCount,
+        IndividualAttribute::CountOfMarriages => EventType::MarriagesCount,
+        IndividualAttribute::Possessions => EventType::Property,
+        IndividualAttribute::ReligiousAffiliation => EventType::Religion,
+        IndividualAttribute::SocialSecurityNumber => EventType::SocialSecurityNumber,
+        IndividualAttribute::NobilityTypeTitle => EventType::NobilityTitle,
+        IndividualAttribute::Fact => EventType::Fact,
     }
 }
 
@@ -793,6 +825,8 @@ fn import_event_detail(
     now: chrono::DateTime<Utc>,
     source_map: &HashMap<String, Uuid>,
     media_map: &HashMap<String, Uuid>,
+    fam_map: &HashMap<String, Uuid>,
+    indi_name_map: &HashMap<String, String>,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
@@ -829,6 +863,35 @@ fn import_event_detail(
     // same EventType (see `is_civil_union_type`).
     let description = detail.event_type.clone();
 
+    // An individual `ADOP` event may carry its own nested `FAMC`, pointing
+    // at the adoptive family (distinct from the person's `FAMC` back-link,
+    // which may point at the birth family). Surface it via `family_id`
+    // since `Event` has no dedicated field for it. Which parent adopted
+    // (`ADOP HUSB`/`WIFE`/`BOTH`) has no home in the domain model and is
+    // not captured.
+    let family_id = family_id.or_else(|| {
+        detail
+            .family_link
+            .as_ref()
+            .and_then(|fl| fam_map.get(&fl.xref).copied())
+    });
+
+    // Associations (witnesses, godparents, ...) attached to this event.
+    let witnesses: Vec<String> = detail
+        .associations
+        .iter()
+        .map(|assoc| {
+            let name = indi_name_map
+                .get(&assoc.xref)
+                .cloned()
+                .unwrap_or_else(|| assoc.xref.clone());
+            match &assoc.relationship {
+                Some(rel) => format!("{name} ({rel})"),
+                None => name,
+            }
+        })
+        .collect();
+
     let event_id = Uuid::now_v7();
     result.events.push(Event {
         id: event_id,
@@ -839,7 +902,7 @@ fn import_event_detail(
         date_qualifier: DateQualifier::default(),
         date_value2: None,
         calendar: Calendar::default(),
-        witnesses: vec![],
+        witnesses,
         cause,
         place_id,
         person_id,
@@ -897,7 +960,7 @@ fn import_event_detail(
 
 /// Imports a GEDCOM individual attribute (OCCU, RESI, TITL, ...) as an
 /// `Event`. Mirrors `import_event_detail`, adapted to `AttributeDetail`'s
-/// shape: the tag's own value (e.g. "Commercial" for OCCU) or its TYPE
+/// shape: the tag's own value (e.g. "Presales" for OCCU) or its TYPE
 /// sub-tag is preserved as the description, and there is no multimedia
 /// sub-structure on attributes.
 #[allow(clippy::too_many_arguments)]
@@ -936,7 +999,7 @@ fn import_attribute_detail(
 
     let cause = detail.cause.clone();
 
-    // Preserve the tag's own value (e.g. "Commercial", "Meunier, Cultivateur"
+    // Preserve the tag's own value (e.g. "Acccount Manager", "Presales, Trainer"
     // for OCCU) or, failing that, its TYPE sub-tag.
     let description = detail
         .value
@@ -1137,7 +1200,7 @@ fn resolve_or_create_media(
     None
 }
 
-/// Parse a GEDCOM coordinate string (e.g. `"N50.8333"` or `"W1.5833"`).
+/// Parse a GEDCOM coordinate string (e.g. `"N01.4242"` or `"W1.4242"`).
 fn parse_gedcom_coord(s: &str) -> Result<f64, std::num::ParseFloatError> {
     let s = s.trim();
     if let Some(rest) = s.strip_prefix('N').or_else(|| s.strip_prefix('E')) {
@@ -1233,16 +1296,16 @@ mod tests {
 
     #[test]
     fn test_parse_name_value_full() {
-        let (g, s) = parse_name_value(Some("Florence /ALFONSI/"));
-        assert_eq!(g, Some("Florence".to_string()));
-        assert_eq!(s, Some("ALFONSI".to_string()));
+        let (g, s) = parse_name_value(Some("John /DOE/"));
+        assert_eq!(g, Some("John".to_string()));
+        assert_eq!(s, Some("DOE".to_string()));
     }
 
     #[test]
     fn test_parse_name_value_multiple_given() {
-        let (g, s) = parse_name_value(Some("Gilles Armand Joseph /ALFONSI/"));
-        assert_eq!(g, Some("Gilles Armand Joseph".to_string()));
-        assert_eq!(s, Some("ALFONSI".to_string()));
+        let (g, s) = parse_name_value(Some("John Mickael Louis /DOE/"));
+        assert_eq!(g, Some("John Mickael Louis".to_string()));
+        assert_eq!(s, Some("DOE".to_string()));
     }
 
     #[test]

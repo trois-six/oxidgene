@@ -102,7 +102,7 @@ const FREE_TEXT_SOURCE_GEDCOM: &str = "\
 1 SEX M
 1 BIRT
 2 DATE 15 JAN 1842
-2 SOUR AD64 - Lée - N - 1833-1842 - 5MI329 - vue 19d/23
+2 SOUR AD33 - Plop - N - 1833-1842 - 5MI42 - vue 10d/23
 3 PAGE p. 3
 0 @I2@ INDI
 1 NAME Jane /Doe/
@@ -111,7 +111,7 @@ const FREE_TEXT_SOURCE_GEDCOM: &str = "\
 1 SEX F
 1 BIRT
 2 DATE 20 MAR 1844
-2 SOUR AD64 - Lée - N - 1833-1842 - 5MI329 - vue 19d/23
+2 SOUR AD33 - Plop - N - 1833-1842 - 5MI42 - vue 10d/23
 0 TRLR
 ";
 
@@ -267,7 +267,7 @@ fn test_import_free_text_source_citation_deduplicates() {
     let src = &result.sources[0];
     assert_eq!(
         src.title,
-        "AD64 - Lée - N - 1833-1842 - 5MI329 - vue 19d/23"
+        "AD33 - Plop - N - 1833-1842 - 5MI42 - vue 10d/23"
     );
 
     assert_eq!(result.citations.len(), 2);

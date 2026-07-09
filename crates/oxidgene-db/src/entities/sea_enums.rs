@@ -198,6 +198,32 @@ pub enum EventType {
     Will,
     #[sea_orm(string_value = "probate")]
     Probate,
+    #[sea_orm(string_value = "adoption")]
+    Adoption,
+    #[sea_orm(string_value = "caste_name")]
+    CasteName,
+    #[sea_orm(string_value = "physical_description")]
+    PhysicalDescription,
+    #[sea_orm(string_value = "education")]
+    Education,
+    #[sea_orm(string_value = "national_id")]
+    NationalId,
+    #[sea_orm(string_value = "national_origin")]
+    NationalOrigin,
+    #[sea_orm(string_value = "children_count")]
+    ChildrenCount,
+    #[sea_orm(string_value = "marriages_count")]
+    MarriagesCount,
+    #[sea_orm(string_value = "property")]
+    Property,
+    #[sea_orm(string_value = "religion")]
+    Religion,
+    #[sea_orm(string_value = "social_security_number")]
+    SocialSecurityNumber,
+    #[sea_orm(string_value = "nobility_title")]
+    NobilityTitle,
+    #[sea_orm(string_value = "fact")]
+    Fact,
     // Family events
     #[sea_orm(string_value = "marriage")]
     Marriage,
@@ -215,8 +241,6 @@ pub enum EventType {
     MarriageLicense,
     #[sea_orm(string_value = "marriage_settlement")]
     MarriageSettlement,
-    #[sea_orm(string_value = "adoption")]
-    Adoption,
     #[sea_orm(string_value = "civil_union")]
     CivilUnion,
     #[sea_orm(string_value = "separation")]
@@ -250,6 +274,19 @@ impl From<enums::EventType> for EventType {
             enums::EventType::Retirement => Self::Retirement,
             enums::EventType::Will => Self::Will,
             enums::EventType::Probate => Self::Probate,
+            enums::EventType::Adoption => Self::Adoption,
+            enums::EventType::CasteName => Self::CasteName,
+            enums::EventType::PhysicalDescription => Self::PhysicalDescription,
+            enums::EventType::Education => Self::Education,
+            enums::EventType::NationalId => Self::NationalId,
+            enums::EventType::NationalOrigin => Self::NationalOrigin,
+            enums::EventType::ChildrenCount => Self::ChildrenCount,
+            enums::EventType::MarriagesCount => Self::MarriagesCount,
+            enums::EventType::Property => Self::Property,
+            enums::EventType::Religion => Self::Religion,
+            enums::EventType::SocialSecurityNumber => Self::SocialSecurityNumber,
+            enums::EventType::NobilityTitle => Self::NobilityTitle,
+            enums::EventType::Fact => Self::Fact,
             enums::EventType::Marriage => Self::Marriage,
             enums::EventType::Divorce => Self::Divorce,
             enums::EventType::Annulment => Self::Annulment,
@@ -258,7 +295,6 @@ impl From<enums::EventType> for EventType {
             enums::EventType::MarriageContract => Self::MarriageContract,
             enums::EventType::MarriageLicense => Self::MarriageLicense,
             enums::EventType::MarriageSettlement => Self::MarriageSettlement,
-            enums::EventType::Adoption => Self::Adoption,
             enums::EventType::CivilUnion => Self::CivilUnion,
             enums::EventType::Separation => Self::Separation,
             enums::EventType::DivorceFiled => Self::DivorceFiled,
@@ -289,6 +325,19 @@ impl From<EventType> for enums::EventType {
             EventType::Retirement => Self::Retirement,
             EventType::Will => Self::Will,
             EventType::Probate => Self::Probate,
+            EventType::Adoption => Self::Adoption,
+            EventType::CasteName => Self::CasteName,
+            EventType::PhysicalDescription => Self::PhysicalDescription,
+            EventType::Education => Self::Education,
+            EventType::NationalId => Self::NationalId,
+            EventType::NationalOrigin => Self::NationalOrigin,
+            EventType::ChildrenCount => Self::ChildrenCount,
+            EventType::MarriagesCount => Self::MarriagesCount,
+            EventType::Property => Self::Property,
+            EventType::Religion => Self::Religion,
+            EventType::SocialSecurityNumber => Self::SocialSecurityNumber,
+            EventType::NobilityTitle => Self::NobilityTitle,
+            EventType::Fact => Self::Fact,
             EventType::Marriage => Self::Marriage,
             EventType::Divorce => Self::Divorce,
             EventType::Annulment => Self::Annulment,
@@ -297,7 +346,6 @@ impl From<EventType> for enums::EventType {
             EventType::MarriageContract => Self::MarriageContract,
             EventType::MarriageLicense => Self::MarriageLicense,
             EventType::MarriageSettlement => Self::MarriageSettlement,
-            EventType::Adoption => Self::Adoption,
             EventType::CivilUnion => Self::CivilUnion,
             EventType::Separation => Self::Separation,
             EventType::DivorceFiled => Self::DivorceFiled,
