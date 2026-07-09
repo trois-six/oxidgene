@@ -61,7 +61,7 @@ async fn search_prefix_and_accent_folding() {
     let entries = vec![
         entry(
             tree_id,
-            "PERRAUD",
+            "RICHARD",
             "Pierre Marie",
             Some("1842"),
             Some("1901"),
@@ -88,26 +88,26 @@ async fn search_prefix_and_accent_folding() {
     assert_eq!(page.total_count, 1);
 
     // Prefix matching.
-    let page = PersonSearchRepo::search(&db, tree_id, "perr", 10, 0)
+    let page = PersonSearchRepo::search(&db, tree_id, "rich", 10, 0)
         .await
         .unwrap();
     assert_eq!(page.total_count, 1);
-    assert_eq!(page.entries[0].surname, "perraud");
+    assert_eq!(page.entries[0].surname, "richard");
 
     // Multi-word: all words must match (surname + given names).
-    let page = PersonSearchRepo::search(&db, tree_id, "perraud pierre", 10, 0)
+    let page = PersonSearchRepo::search(&db, tree_id, "richard pierre", 10, 0)
         .await
         .unwrap();
     assert_eq!(page.total_count, 1);
 
     // Word order doesn't matter.
-    let page = PersonSearchRepo::search(&db, tree_id, "pierre perraud", 10, 0)
+    let page = PersonSearchRepo::search(&db, tree_id, "pierre richard", 10, 0)
         .await
         .unwrap();
     assert_eq!(page.total_count, 1);
 
     // Non-matching word combination.
-    let page = PersonSearchRepo::search(&db, tree_id, "perraud jean", 10, 0)
+    let page = PersonSearchRepo::search(&db, tree_id, "richard jean", 10, 0)
         .await
         .unwrap();
     assert_eq!(page.total_count, 0);
@@ -218,7 +218,7 @@ async fn search_performance_10k() {
     let tree_id = Uuid::now_v7();
 
     let surnames = [
-        "Perraud", "Dupont", "Lefèvre", "Martin", "Bernard", "Moreau",
+        "Richard", "Dupont", "Lefèvre", "Martin", "Bernard", "Moreau",
     ];
     let givens = ["Jean", "Pierre", "Marie", "Éloïse", "Luc", "Anne"];
     let entries: Vec<PersonSearchEntry> = (0..10_000)
@@ -240,7 +240,7 @@ async fn search_performance_10k() {
     let build = t0.elapsed();
 
     let t1 = std::time::Instant::now();
-    let page = PersonSearchRepo::search(&db, tree_id, "perraud 17", 20, 0)
+    let page = PersonSearchRepo::search(&db, tree_id, "richard 17", 20, 0)
         .await
         .unwrap();
     let search = t1.elapsed();

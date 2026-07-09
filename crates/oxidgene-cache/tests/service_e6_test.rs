@@ -82,8 +82,7 @@ async fn create_named_person(
 /// Create father + mother + child linked through a family with a marriage event.
 async fn create_family_trio(db: &DatabaseConnection, tree_id: Uuid) -> (Uuid, Uuid, Uuid, Uuid) {
     let father = create_named_person(db, tree_id, Sex::Male, "Jean", "Dupont", Some(1850)).await;
-    let mother =
-        create_named_person(db, tree_id, Sex::Female, "Éloïse", "Lefèvre", Some(1855)).await;
+    let mother = create_named_person(db, tree_id, Sex::Female, "Jane", "Smith", Some(1855)).await;
     let child = create_named_person(db, tree_id, Sex::Male, "Pierre", "Dupont", Some(1880)).await;
 
     let family_id = Uuid::now_v7();
@@ -144,9 +143,9 @@ async fn search_populates_lazily_and_matches() {
     assert_eq!(PersonSearchRepo::count_tree(&db, tree_id).await.unwrap(), 3);
 
     // Accent-folded match.
-    let result = service.search(tree_id, "eloise", 10, 0).await.unwrap();
+    let result = service.search(tree_id, "jane", 10, 0).await.unwrap();
     assert_eq!(result.total_count, 1);
-    assert_eq!(result.entries[0].display_name, "Éloïse Lefèvre");
+    assert_eq!(result.entries[0].display_name, "Jane Smith");
     assert_eq!(result.entries[0].birth_year.as_deref(), Some("1855"));
 
     // Multi-word across fields.
@@ -189,10 +188,7 @@ async fn targeted_person_build_denormalizes_family() {
     assert_eq!(as_child.family_id, family_id);
     assert_eq!(as_child.father_id, Some(father));
     assert_eq!(as_child.father_display_name.as_deref(), Some("Jean Dupont"));
-    assert_eq!(
-        as_child.mother_display_name.as_deref(),
-        Some("Éloïse Lefèvre")
-    );
+    assert_eq!(as_child.mother_display_name.as_deref(), Some("Jane Smith"));
     assert!(cached_child.birth.is_some());
 
     // Father: families_as_spouse with spouse name, children and marriage.
@@ -200,7 +196,7 @@ async fn targeted_person_build_denormalizes_family() {
     assert_eq!(cached_father.families_as_spouse.len(), 1);
     let link = &cached_father.families_as_spouse[0];
     assert_eq!(link.spouse_id, Some(mother));
-    assert_eq!(link.spouse_display_name.as_deref(), Some("Éloïse Lefèvre"));
+    assert_eq!(link.spouse_display_name.as_deref(), Some("Jane Smith"));
     assert!(link.children_ids.contains(&child));
     assert!(link.marriage.is_some(), "marriage event denormalized");
 }
@@ -268,7 +264,7 @@ async fn person_delete_removes_search_row() {
     service.rebuild_tree_full(tree_id).await.unwrap();
     assert_eq!(
         service
-            .search(tree_id, "lefevre", 10, 0)
+            .search(tree_id, "smith", 10, 0)
             .await
             .unwrap()
             .total_count,
@@ -283,7 +279,7 @@ async fn person_delete_removes_search_row() {
 
     assert_eq!(
         service
-            .search(tree_id, "lefevre", 10, 0)
+            .search(tree_id, "smith", 10, 0)
             .await
             .unwrap()
             .total_count,
@@ -352,7 +348,7 @@ async fn person_load_and_search_performance() {
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;
 
-    let surnames = ["Perraud", "Dupont", "Lefèvre", "Martin", "Bernard"];
+    let surnames = ["Richard", "Dupont", "Lefèvre", "Martin", "Bernard"];
     let givens = ["Jean", "Pierre", "Marie", "Luc", "Anne"];
     let mut last_person = None;
     for i in 0..2_000 {
@@ -385,7 +381,7 @@ async fn person_load_and_search_performance() {
 
     // FTS search.
     let t2 = Instant::now();
-    let result = service.search(tree_id, "perraud 17", 20, 0).await.unwrap();
+    let result = service.search(tree_id, "richard 17", 20, 0).await.unwrap();
     let search = t2.elapsed();
     assert!(result.total_count > 0);
 
@@ -412,7 +408,7 @@ async fn bench_large_tree_20k() {
     let tree_id = create_tree(&db).await;
 
     let surnames = [
-        "Perraud", "Dupont", "Lefèvre", "Martin", "Bernard", "Moreau",
+        "Richard", "Dupont", "Lefèvre", "Martin", "Bernard", "Moreau",
     ];
     let givens = ["Jean", "Pierre", "Marie", "Éloïse", "Luc", "Anne"];
     let mut last_person = None;

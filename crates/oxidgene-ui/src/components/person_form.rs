@@ -1615,6 +1615,20 @@ fn event_type_options(i18n: &crate::i18n::I18n) -> Element {
             option { value: "Will",    {i18n.t("event.type.will")} }
             option { value: "Probate", {i18n.t("event.type.probate")} }
         }
+        optgroup { label: "{i18n.t(\"person_form.attributes\")}",
+            option { value: "CasteName",            {i18n.t("event.type.caste_name")} }
+            option { value: "PhysicalDescription",  {i18n.t("event.type.physical_description")} }
+            option { value: "Education",            {i18n.t("event.type.education")} }
+            option { value: "NationalId",           {i18n.t("event.type.national_id")} }
+            option { value: "NationalOrigin",       {i18n.t("event.type.national_origin")} }
+            option { value: "ChildrenCount",        {i18n.t("event.type.children_count")} }
+            option { value: "MarriagesCount",       {i18n.t("event.type.marriages_count")} }
+            option { value: "Property",             {i18n.t("event.type.property")} }
+            option { value: "Religion",             {i18n.t("event.type.religion")} }
+            option { value: "SocialSecurityNumber", {i18n.t("event.type.social_security_number")} }
+            option { value: "NobilityTitle",        {i18n.t("event.type.nobility_title")} }
+            option { value: "Fact",                 {i18n.t("event.type.fact")} }
+        }
         optgroup { label: "{i18n.t(\"person_form.other_events\")}",
             option { value: "Adoption", {i18n.t("event.type.adoption")} }
             option { value: "Other",    {i18n.t("event.type.other")} }

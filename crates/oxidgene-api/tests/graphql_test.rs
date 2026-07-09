@@ -406,7 +406,7 @@ async fn test_event_with_place() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ createPlace(treeId: "{tree_id}", input: {{ name: "Paris", latitude: 48.8566, longitude: 2.3522 }}) {{ id name latitude longitude }} }}"#
+            r#"mutation {{ createPlace(treeId: "{tree_id}", input: {{ name: "Paris", latitude: 42.4242, longitude: 2.4242 }}) {{ id name latitude longitude }} }}"#
         ),
         None,
     )

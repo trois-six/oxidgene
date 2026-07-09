@@ -187,13 +187,19 @@ timestamp: 2026-06-17T00:00:00Z
 
 ---
 
-### Sprint E.7 — Medias Management
+### Sprint E.7 — Refinement
 
-> Rationale: medias can be associated with events / people
+> Rationale: improve the UX to the definitive form
 > We must ensure that the UXP is good.
 
 - [ ] Medias management
 - [ ] Remove the hack (https://github.com/trois-six/oxidgene/commit/6364b23338b67743805b884e690e8e62e2010e53) for UTF-8 strings once ged_io will be patched (https://github.com/ge3224/ged_io/pull/68)
+- [ ] Create a CLI
+- [ ] Research by SOSA ID
+- [ ] Create a page to manage locations, sources, occupations
+- [ ] Create a page with statistics about the tree
+- [ ] Create a page to render the tree differently for printing
+- [ ] Reconsolidate DB migrations into initial migration
 
 ---
 
@@ -223,3 +229,4 @@ timestamp: 2026-06-17T00:00:00Z
 - [ ] Rust worker pool for background tasks.
 - [ ] Notification system (processing status).
 - [ ] Temporary and persistent object storage.
+
