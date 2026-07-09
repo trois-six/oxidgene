@@ -261,7 +261,6 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
-                &fam_map,
                 &indi_name_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
@@ -410,7 +409,6 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
-                &fam_map,
                 &indi_name_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
@@ -427,7 +425,6 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
-                &fam_map,
                 &indi_name_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
@@ -825,7 +822,6 @@ fn import_event_detail(
     now: chrono::DateTime<Utc>,
     source_map: &HashMap<String, Uuid>,
     media_map: &HashMap<String, Uuid>,
-    fam_map: &HashMap<String, Uuid>,
     indi_name_map: &HashMap<String, String>,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
@@ -864,17 +860,13 @@ fn import_event_detail(
     let description = detail.event_type.clone();
 
     // An individual `ADOP` event may carry its own nested `FAMC`, pointing
-    // at the adoptive family (distinct from the person's `FAMC` back-link,
-    // which may point at the birth family). Surface it via `family_id`
-    // since `Event` has no dedicated field for it. Which parent adopted
-    // (`ADOP HUSB`/`WIFE`/`BOTH`) has no home in the domain model and is
-    // not captured.
-    let family_id = family_id.or_else(|| {
-        detail
-            .family_link
-            .as_ref()
-            .and_then(|fl| fam_map.get(&fl.xref).copied())
-    });
+    // at the adoptive family. It is NOT captured: `Event.family_id` is used
+    // throughout the codebase (cache builder, REST, GraphQL, export) as the
+    // discriminant for "this is a family-level event" whenever it's set,
+    // regardless of `person_id` — reusing it here would make this
+    // individual event masquerade as belonging to the adoptive family
+    // everywhere. Capturing the adoptive family properly would need a
+    // dedicated field (or a join table), not `family_id`.
 
     // Associations (witnesses, godparents, ...) attached to this event.
     let witnesses: Vec<String> = detail

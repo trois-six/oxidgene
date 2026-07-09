@@ -293,7 +293,6 @@ pub fn export_gedcom(
                     &media_by_id,
                     &source_xref,
                     &media_xref,
-                    &family_xref,
                     &mut warnings,
                 )),
             }
@@ -393,7 +392,6 @@ pub fn export_gedcom(
                             &media_by_id,
                             &source_xref,
                             &media_xref,
-                            &family_xref,
                             &mut warnings,
                         )
                     })
@@ -657,7 +655,6 @@ fn to_ged_detail(
     media_by_id: &HashMap<Uuid, &Media>,
     source_xref: &HashMap<Uuid, String>,
     media_xref: &HashMap<Uuid, String>,
-    family_xref: &HashMap<Uuid, String>,
     warnings: &mut Vec<String>,
 ) -> GedDetail {
     let event = convert_event_type(evt.event_type);
@@ -706,34 +703,17 @@ fn to_ged_detail(
         })
         .unwrap_or_default();
 
-    // An adoption event's adoptive family (distinct from the person's own
-    // FAMC back-link, which may point at the birth family) — round-trips
-    // via `Event.family_id` (see `import_event_detail`'s comment for why
-    // there's no dedicated field for it). Which parent adopted is not
-    // captured on import, so `adopted_by` can't be reconstructed here.
-    let family_link = if evt.event_type == EventType::Adoption {
-        evt.family_id
-            .and_then(|fid| family_xref.get(&fid))
-            .map(|xref| FamilyLink {
-                xref: xref.clone(),
-                family_link_type: FamilyLinkType::Child,
-                pedigree_linkage_type: Some(GedPedigree::Adopted),
-                child_linkage_status: None,
-                adopted_by: None,
-                note: None,
-                custom_data: Vec::new(),
-            })
-    } else {
-        None
-    };
-
+    // An adoption event's adoptive family is not captured on import (see
+    // `import_event_detail`'s comment: `Event.family_id` can't be reused
+    // for it without the event masquerading as a family-level event
+    // elsewhere), so there's nothing to round-trip into `family_link` here.
     GedDetail {
         event,
         value: None,
         date,
         place,
         note,
-        family_link,
+        family_link: None,
         family_event_details: Vec::new(),
         // Round-trips the free-text classification (e.g. "PACS") back into
         // the GEDCOM TYPE sub-tag it was read from on import.
