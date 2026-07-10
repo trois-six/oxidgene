@@ -106,6 +106,14 @@ pub fn build_router(state: AppState) -> Router {
             get(event::get_event)
                 .put(event::update_event)
                 .delete(event::delete_event),
+        )
+        .route(
+            "/{tree_id}/events/{event_id}/witnesses",
+            get(event::list_witnesses).post(event::add_witness),
+        )
+        .route(
+            "/{tree_id}/events/{event_id}/witnesses/{witness_id}",
+            delete(event::remove_witness),
         );
 
     let place_routes = Router::new()

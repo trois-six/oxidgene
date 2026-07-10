@@ -128,7 +128,6 @@ impl EventRepo {
             date_qualifier: Set(sea_enums::DateQualifier::from(DateQualifier::default())),
             date_value2: Set(None),
             calendar: Set(sea_enums::Calendar::from(Calendar::default())),
-            witnesses: Set(None),
             cause: Set(None),
             place_id: Set(place_id),
             person_id: Set(person_id),
@@ -158,7 +157,6 @@ impl EventRepo {
         date_qualifier: Option<DateQualifier>,
         date_value2: Option<Option<String>>,
         calendar: Option<Calendar>,
-        witnesses: Option<Option<String>>,
         cause: Option<Option<String>>,
     ) -> Result<Event, OxidGeneError> {
         let existing = Entity::find_by_id(id)
@@ -196,9 +194,6 @@ impl EventRepo {
         if let Some(cal) = calendar {
             active.calendar = Set(sea_enums::Calendar::from(cal));
         }
-        if let Some(w) = witnesses {
-            active.witnesses = Set(w);
-        }
         if let Some(c) = cause {
             active.cause = Set(c);
         }
@@ -234,17 +229,6 @@ impl EventRepo {
 }
 
 fn into_domain(m: event::Model) -> Event {
-    let witnesses = m
-        .witnesses
-        .map(|w| {
-            w.lines()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
     Event {
         id: m.id,
         tree_id: m.tree_id,
@@ -254,7 +238,6 @@ fn into_domain(m: event::Model) -> Event {
         date_qualifier: m.date_qualifier.into(),
         date_value2: m.date_value2,
         calendar: m.calendar.into(),
-        witnesses,
         cause: m.cause,
         place_id: m.place_id,
         person_id: m.person_id,

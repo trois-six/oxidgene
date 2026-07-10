@@ -13,6 +13,11 @@
 //! - Linux:   `~/.cache/oxidgene/`
 //! - macOS:   `~/Library/Caches/oxidgene/`
 //! - Windows: `C:\Users\<user>\AppData\Local\oxidgene\`
+//!
+//! The WebView (cookies, HSTS, DOM storage, media keys, HTTP cache) stores
+//! its own data under `<data_dir>/webview/`, keeping everything under the
+//! same `oxidgene` namespace instead of WebKit's default (which derives a
+//! separate `oxidgene-desktop` directory from the binary name).
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -204,6 +209,7 @@ fn main() {
     let window_icon: Option<Icon> = icon_from_memory(ICON_PNG).ok();
     let shutdown_tx_for_handler = Arc::clone(&shutdown_tx);
     let mut cfg = Config::new()
+        .with_data_directory(data_dir.join("webview"))
         .with_menu(None::<dioxus::desktop::muda::Menu>)
         .with_window(
             WindowBuilder::new()

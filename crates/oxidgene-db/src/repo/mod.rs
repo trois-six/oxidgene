@@ -8,6 +8,7 @@
 mod citation;
 mod connection;
 mod event;
+mod event_witness;
 mod family;
 mod family_child;
 mod family_spouse;
@@ -26,6 +27,7 @@ mod tree;
 pub use citation::CitationRepo;
 pub use connection::{connect, rollback_migrations, run_migrations};
 pub use event::{EventFilter, EventRepo};
+pub use event_witness::EventWitnessRepo;
 pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;
 pub use family_spouse::FamilySpouseRepo;

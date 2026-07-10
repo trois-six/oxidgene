@@ -9,8 +9,8 @@ pub mod import;
 use serde::{Deserialize, Serialize};
 
 use oxidgene_core::types::{
-    Citation, Event, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person,
-    PersonAncestry, PersonName, Place, Source,
+    Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
+    Person, PersonAncestry, PersonName, Place, Source,
 };
 
 /// The result of importing a GEDCOM file — all domain model entities extracted
@@ -23,6 +23,7 @@ pub struct ImportResult {
     pub family_spouses: Vec<FamilySpouse>,
     pub family_children: Vec<FamilyChild>,
     pub events: Vec<Event>,
+    pub event_witnesses: Vec<EventWitness>,
     pub places: Vec<Place>,
     pub sources: Vec<Source>,
     pub citations: Vec<Citation>,

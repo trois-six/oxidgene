@@ -182,6 +182,17 @@ pub struct UpdateEventRequest {
     pub description: Option<Option<String>>,
 }
 
+// ── EventWitness DTOs ────────────────────────────────────────────────
+
+/// Request body for adding a witness to an event.
+#[derive(Debug, Deserialize)]
+pub struct AddEventWitnessRequest {
+    pub person_id: uuid::Uuid,
+    pub relation: Option<String>,
+    #[serde(default)]
+    pub sort_order: i32,
+}
+
 // ── Place DTOs ───────────────────────────────────────────────────────
 
 /// Query parameters for listing places (search + pagination).

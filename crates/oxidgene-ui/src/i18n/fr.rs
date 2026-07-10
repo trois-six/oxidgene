@@ -307,6 +307,12 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person_form.calendar", "Calendrier"),
         ("person_form.witnesses", "T\u{00E9}moins"),
         ("person_form.add_witness", "+ Ajouter un t\u{00E9}moin"),
+        (
+            "person_form.witnesses_save_first",
+            "Enregistrez d'abord cet \u{00E9}v\u{00E9}nement pour ajouter des t\u{00E9}moins.",
+        ),
+        ("person_form.witness_relation_placeholder", "Relation (ex. Marraine)"),
+        ("person_form.search_witness", "Rechercher une personne\u{2026}"),
         ("person_form.date2_label_or", "ou"),
         ("person_form.date2_label_between", "et"),
         ("person_form.additional_fields_show", "Champs suppl\u{00E9}mentaires"),

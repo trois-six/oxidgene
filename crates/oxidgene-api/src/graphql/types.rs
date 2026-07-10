@@ -11,8 +11,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    CitationRepo, EventFilter, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaRepo, NoteRepo, PaginationParams, PersonNameRepo, PersonRepo, PlaceRepo,
+    CitationRepo, EventFilter, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilySpouseRepo,
+    MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams, PersonNameRepo, PersonRepo, PlaceRepo,
 };
 
 // ── GraphQL Enums ────────────────────────────────────────────────────
@@ -920,7 +920,6 @@ pub struct GqlEvent {
     pub date_qualifier: GqlDateQualifier,
     pub date_value2: Option<String>,
     pub calendar: GqlCalendar,
-    pub witnesses: Vec<String>,
     pub cause: Option<String>,
     pub place_id: Option<ID>,
     pub person_id: Option<ID>,
@@ -1021,6 +1020,14 @@ impl GqlEvent {
         let notes = NoteRepo::list_by_entity(db, tree_id, None, Some(event_id), None, None).await?;
         Ok(notes.into_iter().map(GqlNote::from).collect())
     }
+
+    /// Witnesses (godparents, etc.) linked to this event.
+    async fn witnesses(&self, ctx: &Context<'_>) -> Result<Vec<GqlEventWitness>> {
+        let db = db_from_ctx(ctx);
+        let event_id = Uuid::parse_str(self.id.as_str())?;
+        let witnesses = EventWitnessRepo::list_by_event(db, event_id).await?;
+        Ok(witnesses.into_iter().map(GqlEventWitness::from).collect())
+    }
 }
 
 impl From<oxidgene_core::types::Event> for GqlEvent {
@@ -1034,7 +1041,6 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             date_qualifier: e.date_qualifier.into(),
             date_value2: e.date_value2,
             calendar: e.calendar.into(),
-            witnesses: e.witnesses,
             cause: e.cause,
             place_id: e.place_id.map(|id| ID(id.to_string())),
             person_id: e.person_id.map(|id| ID(id.to_string())),
@@ -1042,6 +1048,45 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             description: e.description,
             created_at: e.created_at,
             updated_at: e.updated_at,
+        }
+    }
+}
+
+// ── Event Witness ────────────────────────────────────────────────────
+
+/// A witness (or godparent, etc.) linked to an event — a pointer to another
+/// person in the tree, mirroring GEDCOM's `ASSO`/`RELA` association.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(complex)]
+pub struct GqlEventWitness {
+    pub id: ID,
+    pub event_id: ID,
+    pub person_id: ID,
+    pub relation: Option<String>,
+    pub sort_order: i32,
+}
+
+#[ComplexObject]
+impl GqlEventWitness {
+    /// Resolved person for this witness.
+    async fn person(&self, ctx: &Context<'_>) -> Result<Option<GqlPerson>> {
+        let db = db_from_ctx(ctx);
+        let id = Uuid::parse_str(self.person_id.as_str())?;
+        match PersonRepo::get(db, id).await {
+            Ok(p) => Ok(Some(GqlPerson::from(p))),
+            Err(_) => Ok(None),
+        }
+    }
+}
+
+impl From<oxidgene_core::types::EventWitness> for GqlEventWitness {
+    fn from(w: oxidgene_core::types::EventWitness) -> Self {
+        Self {
+            id: ID(w.id.to_string()),
+            event_id: ID(w.event_id.to_string()),
+            person_id: ID(w.person_id.to_string()),
+            relation: w.relation,
+            sort_order: w.sort_order,
         }
     }
 }

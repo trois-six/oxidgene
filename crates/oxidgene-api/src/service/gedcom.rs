@@ -6,12 +6,13 @@
 use chrono::Utc;
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::entities::{
-    citation, event, family, family_child, family_spouse, media, media_link, note, person,
-    person_ancestry, person_name, place, sea_enums, source,
+    citation, event, event_witness, family, family_child, family_spouse, media, media_link, note,
+    person, person_ancestry, person_name, place, sea_enums, source,
 };
 use oxidgene_db::repo::{
-    CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
+    CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
+    MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
+    TreeRepo,
 };
 use oxidgene_gedcom::import::import_gedcom;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
@@ -252,11 +253,6 @@ pub async fn import_and_persist(
                 date_qualifier: Set(sea_enums::DateQualifier::from(e.date_qualifier)),
                 date_value2: Set(e.date_value2.clone()),
                 calendar: Set(sea_enums::Calendar::from(e.calendar)),
-                witnesses: Set(if e.witnesses.is_empty() {
-                    None
-                } else {
-                    Some(e.witnesses.join("\n"))
-                }),
                 cause: Set(e.cause.clone()),
                 place_id: Set(e.place_id),
                 person_id: Set(e.person_id),
@@ -268,6 +264,22 @@ pub async fn import_and_persist(
             })
             .collect();
         batch_insert::<event::Entity, _>(&txn, models).await?;
+    }
+
+    // 9b. Event witnesses (FK → event, person)
+    if !result.event_witnesses.is_empty() {
+        let models: Vec<event_witness::ActiveModel> = result
+            .event_witnesses
+            .iter()
+            .map(|w| event_witness::ActiveModel {
+                id: Set(w.id),
+                event_id: Set(w.event_id),
+                person_id: Set(w.person_id),
+                relation: Set(w.relation.clone()),
+                sort_order: Set(w.sort_order),
+            })
+            .collect();
+        batch_insert::<event_witness::Entity, _>(&txn, models).await?;
     }
 
     // 10. Citations (FK → source, person?, event?, family?)
@@ -388,6 +400,8 @@ pub async fn load_and_export(
     let family_children = FamilyChildRepo::list_by_families(db, &family_ids).await?;
 
     let events = EventRepo::list_all(db, tree_id).await?;
+    let event_ids: Vec<_> = events.iter().map(|e| e.id).collect();
+    let event_witnesses = EventWitnessRepo::list_by_events(db, &event_ids).await?;
     let places = PlaceRepo::list_all(db, tree_id).await?;
 
     let sources = SourceRepo::list_all(db, tree_id).await?;
@@ -408,6 +422,7 @@ pub async fn load_and_export(
         &family_spouses,
         &family_children,
         &events,
+        &event_witnesses,
         &places,
         &sources,
         &citations,
