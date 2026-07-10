@@ -115,6 +115,15 @@ pub struct UpdateEventInput {
     pub description: Option<String>,
 }
 
+/// Input for adding a witness to an event.
+#[derive(Debug, InputObject)]
+pub struct AddEventWitnessInput {
+    pub person_id: String,
+    pub relation: Option<String>,
+    #[graphql(default)]
+    pub sort_order: i32,
+}
+
 // ── Place Inputs ─────────────────────────────────────────────────────
 
 /// Input for creating a place.

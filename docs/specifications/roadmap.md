@@ -199,7 +199,7 @@ timestamp: 2026-06-17T00:00:00Z
 - [ ] Create a page to manage locations, sources, occupations
 - [ ] Create a page with statistics about the tree
 - [ ] Create a page to render the tree differently for printing
-- [ ] Reconsolidate DB migrations into initial migration
+- [x] Reconsolidate DB migrations into initial migration
 
 ---
 

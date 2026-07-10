@@ -2542,7 +2542,7 @@ dependencies = [
 [[package]]
 name = "ged_io"
 version = "0.14.5"
-source = "git+https://github.com/trois-six/ged_io.git?branch=fix%2Ffor-oxidgene#70e758b6f8851f88d24eee12f1b7f0f45cf43880"
+source = "git+https://github.com/trois-six/ged_io.git?branch=fix%2Ffor-oxidgene#5ba2cbb25a1aa070b1c9e5f0e13dda9fc87d25cc"
 dependencies = [
  "encoding_rs",
  "serde",

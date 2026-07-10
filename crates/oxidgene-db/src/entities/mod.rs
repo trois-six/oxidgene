@@ -2,6 +2,7 @@
 
 pub mod citation;
 pub mod event;
+pub mod event_witness;
 pub mod family;
 pub mod family_child;
 pub mod family_spouse;

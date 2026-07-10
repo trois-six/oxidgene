@@ -4,10 +4,10 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_cache::invalidation;
-use oxidgene_db::repo::{EventFilter, EventRepo, PaginationParams};
+use oxidgene_db::repo::{EventFilter, EventRepo, EventWitnessRepo, PaginationParams};
 use uuid::Uuid;
 
-use super::dto::{CreateEventRequest, EventListQuery, UpdateEventRequest};
+use super::dto::{AddEventWitnessRequest, CreateEventRequest, EventListQuery, UpdateEventRequest};
 use super::error::ApiError;
 use super::state::AppState;
 
@@ -108,7 +108,6 @@ pub async fn update_event(
         None,
         None,
         None,
-        None,
     )
     .await
     .map_err(ApiError::from)?;
@@ -165,5 +164,50 @@ pub async fn delete_event(
             .await
             .map_err(ApiError)?;
     }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// GET /api/v1/trees/:tree_id/events/:event_id/witnesses
+pub async fn list_witnesses(
+    State(state): State<AppState>,
+    Path((_tree_id, event_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let witnesses = EventWitnessRepo::list_by_event(&state.db, event_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(witnesses).unwrap()))
+}
+
+/// POST /api/v1/trees/:tree_id/events/:event_id/witnesses
+pub async fn add_witness(
+    State(state): State<AppState>,
+    Path((_tree_id, event_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<AddEventWitnessRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let id = Uuid::now_v7();
+    let witness = EventWitnessRepo::create(
+        &state.db,
+        id,
+        event_id,
+        body.person_id,
+        body.relation,
+        body.sort_order,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(witness).unwrap()),
+    ))
+}
+
+/// DELETE /api/v1/trees/:tree_id/events/:event_id/witnesses/:witness_id
+pub async fn remove_witness(
+    State(state): State<AppState>,
+    Path((_tree_id, _event_id, witness_id)): Path<(Uuid, Uuid, Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    EventWitnessRepo::delete(&state.db, witness_id)
+        .await
+        .map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
 }

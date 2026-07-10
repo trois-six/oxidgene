@@ -15,7 +15,7 @@ mod source;
 mod tree;
 
 pub use citation::Citation;
-pub use event::Event;
+pub use event::{Event, EventWitness};
 pub use family::{Family, FamilyChild, FamilySpouse};
 pub use media::{Media, MediaLink};
 pub use note::Note;

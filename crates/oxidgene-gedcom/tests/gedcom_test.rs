@@ -132,6 +132,81 @@ const MULTIMEDIA_GEDCOM: &str = "\
 0 TRLR
 ";
 
+/// GEDCOM with two `ASSO` associations in Gramps' own convention: a
+/// level-1 `ASSO` directly under the witness's INDI record, pointing at
+/// either a FAM (witness of that family's marriage) or an INDI (a role —
+/// e.g. godparent — at the owner's own event).
+const ASSOCIATION_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Guillaume /Doe/
+1 SEX M
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Jeanne /Roe/
+1 SEX F
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Pierre /Witness/
+1 SEX M
+1 ASSO @F1@
+2 TYPE FAM
+2 RELA witness
+0 @I4@ INDI
+1 NAME Baby /Doe/
+1 SEX M
+1 BAPM
+2 DATE 1 JAN 1800
+1 ASSO @I5@
+2 TYPE INDI
+2 RELA Godmother
+0 @I5@ INDI
+1 NAME God /Mother/
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 5 JUN 1865
+0 TRLR
+";
+
+/// Same as `ASSOCIATION_GEDCOM`'s family witness, but Gramps-style
+/// redundantly encoded twice: once nested inside the `MARR` event detail
+/// (`2 ASSO`, the non-standard form some exporters also emit) and once as
+/// the standard level-1 `ASSO` on the witness's own INDI record — both
+/// describing the same fact.
+const ASSOCIATION_DUPLICATE_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Guillaume /Doe/
+1 SEX M
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Jeanne /Roe/
+1 SEX F
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Pierre /Witness/
+1 SEX M
+1 ASSO @F1@
+2 TYPE FAM
+2 RELA witness
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 5 JUN 1865
+2 ASSO @I3@
+3 TYPE INDI
+3 RELA Witness
+0 TRLR
+";
+
 // ═══════════════════════════════════════════════════════════════════════
 // Import tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -365,6 +440,55 @@ fn test_import_various_date_formats() {
     );
 }
 
+#[test]
+fn test_import_asso_witness_and_godparent() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(ASSOCIATION_GEDCOM, tree_id).unwrap();
+
+    assert_eq!(result.persons.len(), 5); // I1 Guillaume, I2 Jeanne, I3 witness, I4 baby, I5 godmother
+    assert_eq!(result.event_witnesses.len(), 2);
+
+    let witness_person_id = result.persons[2].id; // I3
+    let marriage = result
+        .events
+        .iter()
+        .find(|e| e.event_type == oxidgene_core::EventType::Marriage)
+        .expect("marriage event missing");
+    let marriage_witness = result
+        .event_witnesses
+        .iter()
+        .find(|w| w.event_id == marriage.id)
+        .expect("marriage witness missing");
+    assert_eq!(marriage_witness.person_id, witness_person_id);
+    assert_eq!(marriage_witness.relation.as_deref(), Some("witness"));
+
+    let godmother_person_id = result.persons[4].id; // I5
+    let baptism = result
+        .events
+        .iter()
+        .find(|e| e.event_type == oxidgene_core::EventType::Baptism)
+        .expect("baptism event missing");
+    let baptism_witness = result
+        .event_witnesses
+        .iter()
+        .find(|w| w.event_id == baptism.id)
+        .expect("baptism association missing");
+    assert_eq!(baptism_witness.person_id, godmother_person_id);
+    assert_eq!(baptism_witness.relation.as_deref(), Some("Godmother"));
+}
+
+#[test]
+fn test_import_asso_dedups_against_nested_event_association() {
+    // Gramps sometimes writes the same witness fact twice: once as a
+    // non-standard `ASSO` nested inside the event, once as the standard
+    // level-1 `ASSO` on the witness's own record. Both must collapse into
+    // a single EventWitness, not two.
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(ASSOCIATION_DUPLICATE_GEDCOM, tree_id).unwrap();
+
+    assert_eq!(result.event_witnesses.len(), 1);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Export tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -381,6 +505,7 @@ fn test_export_produces_valid_gedcom() {
         &result.family_spouses,
         &result.family_children,
         &result.events,
+        &result.event_witnesses,
         &result.places,
         &result.sources,
         &result.citations,
@@ -413,6 +538,7 @@ fn test_export_family() {
         &result.family_spouses,
         &result.family_children,
         &result.events,
+        &result.event_witnesses,
         &result.places,
         &result.sources,
         &result.citations,
@@ -447,6 +573,7 @@ fn test_export_source() {
         &result.family_spouses,
         &result.family_children,
         &result.events,
+        &result.event_witnesses,
         &result.places,
         &result.sources,
         &result.citations,
@@ -463,7 +590,22 @@ fn test_export_source() {
 
 #[test]
 fn test_export_empty() {
-    let export = export_gedcom(&[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[]).unwrap();
+    let export = export_gedcom(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+    )
+    .unwrap();
 
     // Should still produce a valid GEDCOM with header/trailer
     assert!(export.gedcom.contains("HEAD"));
@@ -523,6 +665,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         &[],
         &[],
         &[],
+        &[],
         &[note],
     )
     .unwrap();
@@ -530,6 +673,45 @@ fn test_export_long_utf8_note_does_not_panic() {
     assert!(export.gedcom.contains("1 NOTE"));
     assert!(export.gedcom.contains("2 CONC"));
     assert!(export.gedcom.contains('é'));
+}
+
+#[test]
+fn test_export_association_is_level_one_not_nested_in_event() {
+    // GEDCOM 5.5.1 only allows `ASSO` as a direct child of an INDI record;
+    // Gramps (and other readers) reject it nested inside an event detail.
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(ASSOCIATION_GEDCOM, tree_id).unwrap();
+
+    let export = export_gedcom(
+        &result.persons,
+        &result.person_names,
+        &result.families,
+        &result.family_spouses,
+        &result.family_children,
+        &result.events,
+        &result.event_witnesses,
+        &result.places,
+        &result.sources,
+        &result.citations,
+        &result.media,
+        &result.media_links,
+        &result.notes,
+    )
+    .unwrap();
+
+    // Never nested inside an event detail.
+    assert!(!export.gedcom.contains("\n2 ASSO "));
+    assert!(!export.gedcom.contains("\n3 ASSO "));
+
+    // The family witness's ASSO is on their own INDI record (@I3@, the
+    // third person exported), pointing at the family (@F1@).
+    assert!(export.gedcom.contains("0 @I3@ INDI"));
+    assert!(export.gedcom.contains("1 ASSO @F1@"));
+
+    // The godmother association is on the baby's own INDI record (@I4@),
+    // pointing at the godmother (@I5@).
+    assert!(export.gedcom.contains("0 @I4@ INDI"));
+    assert!(export.gedcom.contains("1 ASSO @I5@"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -548,6 +730,7 @@ fn test_roundtrip_preserves_individuals() {
         &imported.family_spouses,
         &imported.family_children,
         &imported.events,
+        &imported.event_witnesses,
         &imported.places,
         &imported.sources,
         &imported.citations,
@@ -596,6 +779,7 @@ fn test_roundtrip_preserves_names() {
         &imported.family_spouses,
         &imported.family_children,
         &imported.events,
+        &imported.event_witnesses,
         &imported.places,
         &imported.sources,
         &imported.citations,
@@ -830,6 +1014,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
         &imported.family_spouses,
         &imported.family_children,
         &imported.events,
+        &imported.event_witnesses,
         &imported.places,
         &imported.sources,
         &imported.citations,
@@ -978,7 +1163,22 @@ fn test_import_result_serialization() {
 
 #[test]
 fn test_export_result_serialization() {
-    let export = export_gedcom(&[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[]).unwrap();
+    let export = export_gedcom(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+    )
+    .unwrap();
 
     let json = serde_json::to_string(&export).unwrap();
     let deserialized: oxidgene_gedcom::ExportResult = serde_json::from_str(&json).unwrap();
