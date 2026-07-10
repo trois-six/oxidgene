@@ -15,6 +15,7 @@ use ged_io::types::header::encoding::Encoding;
 use ged_io::types::header::meta::HeadMeta;
 use ged_io::types::header::source::HeadSour;
 use ged_io::types::individual::Individual;
+use ged_io::types::individual::association::Association as GedAssociation;
 use ged_io::types::individual::attribute::IndividualAttribute as GedIndividualAttribute;
 use ged_io::types::individual::attribute::detail::AttributeDetail as GedAttributeDetail;
 use ged_io::types::individual::family_link::pedigree::Pedigree as GedPedigree;
@@ -33,8 +34,8 @@ use ged_io::types::source::quay::CertaintyAssessment;
 use uuid::Uuid;
 
 use oxidgene_core::types::{
-    Citation, Event, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName,
-    Place, Source,
+    Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
+    Person, PersonName, Place, Source,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 
@@ -55,6 +56,7 @@ pub fn export_gedcom(
     family_spouses: &[FamilySpouse],
     family_children: &[FamilyChild],
     events: &[Event],
+    event_witnesses: &[EventWitness],
     places: &[Place],
     sources: &[Source],
     citations: &[Citation],
@@ -103,6 +105,59 @@ pub fn export_gedcom(
         }
         if let Some(fid) = evt.family_id {
             events_by_family.entry(fid).or_default().push(evt);
+        }
+    }
+
+    // event_id → witnesses
+    let mut witnesses_by_event: HashMap<Uuid, Vec<&EventWitness>> = HashMap::new();
+    for w in event_witnesses {
+        witnesses_by_event.entry(w.event_id).or_default().push(w);
+    }
+
+    // GEDCOM only allows `ASSO` as a level-1 substructure of an INDI record
+    // (GEDCOM 5.5.1 grammar; confirmed against real-world Gramps output and
+    // rejected by Gramps as an unsupported tag when nested inside an event
+    // detail). Which INDI record it's attached to, and what it points at,
+    // depends on whether the witnessed event belongs to a person or a family:
+    //   - family event (e.g. a marriage): attached to the *witness's* own
+    //     INDI record, pointing at the family — mirrors how Gramps itself
+    //     writes it (`1 ASSO @F1@` / `2 RELA witness`).
+    //   - individual event (e.g. a burial): attached to the *event owner's*
+    //     own INDI record, pointing at the witness
+    //     (`1 ASSO @I2@` / `2 RELA witness`).
+    // A person with several individual events sharing a witness can't
+    // disambiguate which event on GEDCOM re-import (the format has no way
+    // to nest ASSO under a specific event and still be portable) — this is
+    // an inherent GEDCOM/Gramps limitation, not something round-tripped.
+    let mut assoc_by_person: HashMap<Uuid, Vec<GedAssociation>> = HashMap::new();
+    for evt in events {
+        let Some(witnesses) = witnesses_by_event.get(&evt.id) else {
+            continue;
+        };
+        for w in witnesses {
+            let Some(witness_xref) = person_xref.get(&w.person_id) else {
+                continue;
+            };
+            let (owner, target_xref) = if let Some(family_id) = evt.family_id {
+                let Some(fam_xref) = family_xref.get(&family_id) else {
+                    continue;
+                };
+                (w.person_id, fam_xref.clone())
+            } else if let Some(person_id) = evt.person_id {
+                (person_id, witness_xref.clone())
+            } else {
+                continue;
+            };
+            assoc_by_person
+                .entry(owner)
+                .or_default()
+                .push(GedAssociation {
+                    xref: target_xref,
+                    relationship: w.relation.clone(),
+                    association_type: None,
+                    note: None,
+                    custom_data: Vec::new(),
+                });
         }
     }
 
@@ -343,6 +398,7 @@ pub fn export_gedcom(
             source: source_cites,
             note,
             multimedia,
+            associations: assoc_by_person.get(&person.id).cloned().unwrap_or_default(),
             ..Default::default()
         });
     }
@@ -703,6 +759,13 @@ fn to_ged_detail(
         })
         .unwrap_or_default();
 
+    // Witnesses/godparents are exported separately as a level-1 `ASSO` on
+    // the relevant INDI record (see `assoc_by_person` in `export_gedcom`),
+    // not nested here — GEDCOM 5.5.1 only allows `ASSO` directly under an
+    // INDIVIDUAL_RECORD, and readers (Gramps included) reject it as a
+    // substructure of an event.
+    let associations: Vec<GedAssociation> = Vec::new();
+
     // An adoption event's adoptive family is not captured on import (see
     // `import_event_detail`'s comment: `Event.family_id` can't be reused
     // for it without the event masquerading as a family-level event
@@ -721,7 +784,7 @@ fn to_ged_detail(
         citations,
         multimedia,
         sort_date: None,
-        associations: Vec::new(),
+        associations,
         cause: evt.cause.clone(),
         restriction: None,
         age: None,

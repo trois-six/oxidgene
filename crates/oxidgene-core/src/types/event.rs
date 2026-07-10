@@ -20,8 +20,6 @@ pub struct Event {
     pub date_value2: Option<String>,
     /// Calendar system the date was recorded in.
     pub calendar: Calendar,
-    /// Witness names, one per entry.
-    pub witnesses: Vec<String>,
     /// Cause of death/burial/etc. Maps to GEDCOM `CAUS`.
     pub cause: Option<String>,
     pub place_id: Option<Uuid>,
@@ -33,4 +31,17 @@ pub struct Event {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
+}
+
+/// A witness (or godparent, etc.) linked to an [`Event`] — a pointer to
+/// another [`Person`](crate::types::Person) in the tree, mirroring GEDCOM's
+/// `ASSO`/`RELA` association structure. `relation` is free text (e.g.
+/// "Godmother", "Witness").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventWitness {
+    pub id: Uuid,
+    pub event_id: Uuid,
+    pub person_id: Uuid,
+    pub relation: Option<String>,
+    pub sort_order: i32,
 }

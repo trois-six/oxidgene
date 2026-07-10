@@ -6,21 +6,23 @@ use oxidgene_cache::invalidation;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
+    CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
+    MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
+    TreeRepo,
 };
 
 use super::inputs::{
-    AddChildInput, AddSpouseInput, CreateCitationInput, CreateEventInput, CreateMediaLinkInput,
-    CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput, CreateTreeInput,
-    ImportGedcomInput, PersonNameInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput,
-    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput,
-    UpdateTreeInput, UploadMediaInput,
+    AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
+    CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
+    CreateTreeInput, ImportGedcomInput, PersonNameInput, UpdateCitationInput, UpdateEventInput,
+    UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
+    UpdateSourceInput, UpdateTreeInput, UploadMediaInput,
 };
 use super::types::{
-    GqlCacheRebuildResult, GqlCitation, GqlEvent, GqlFamily, GqlFamilyChild, GqlFamilySpouse,
-    GqlImportGedcomResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta, GqlPedigreeDirection,
-    GqlPerson, GqlPersonName, GqlPlace, GqlSource, GqlTree, cache_from_ctx, db_from_ctx,
+    GqlCacheRebuildResult, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
+    GqlFamilySpouse, GqlImportGedcomResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta,
+    GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace, GqlSource, GqlTree, cache_from_ctx,
+    db_from_ctx,
 };
 
 /// The root mutation type.
@@ -421,7 +423,6 @@ impl MutationRoot {
             None,
             None,
             None,
-            None,
         )
         .await?;
         // Invalidate based on event ownership.
@@ -457,6 +458,30 @@ impl MutationRoot {
                 .invalidate_for_mutation(event.tree_id, &affected)
                 .await?;
         }
+        Ok(true)
+    }
+
+    /// Add a witness to an event.
+    async fn add_event_witness(
+        &self,
+        ctx: &Context<'_>,
+        event_id: ID,
+        input: AddEventWitnessInput,
+    ) -> Result<GqlEventWitness> {
+        let db = db_from_ctx(ctx);
+        let eid = Uuid::parse_str(event_id.as_str())?;
+        let pid = Uuid::parse_str(&input.person_id)?;
+        let id = Uuid::now_v7();
+        let witness =
+            EventWitnessRepo::create(db, id, eid, pid, input.relation, input.sort_order).await?;
+        Ok(witness.into())
+    }
+
+    /// Remove a witness from an event (hard delete).
+    async fn remove_event_witness(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+        let db = db_from_ctx(ctx);
+        let uuid = Uuid::parse_str(id.as_str())?;
+        EventWitnessRepo::delete(db, uuid).await?;
         Ok(true)
     }
 

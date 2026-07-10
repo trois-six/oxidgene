@@ -99,8 +99,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut birth_place_id = use_signal(String::new);
     let mut birth_note = use_signal(String::new);
     let mut birth_calendar = use_signal(|| "Gregorian".to_string());
-    let mut birth_witnesses = use_signal(Vec::<String>::new);
     let mut birth_event_id = use_signal(|| None::<Uuid>);
+    let birth_witnesses_tick = use_signal(|| 0u32);
 
     // ── Death state ──
     let mut death_date = use_signal(String::new);
@@ -109,8 +109,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut death_place_id = use_signal(String::new);
     let mut death_note = use_signal(String::new);
     let mut death_calendar = use_signal(|| "Gregorian".to_string());
-    let mut death_witnesses = use_signal(Vec::<String>::new);
     let mut death_event_id = use_signal(|| None::<Uuid>);
+    let death_witnesses_tick = use_signal(|| 0u32);
 
     let mut birth_death_loaded = use_signal(|| false);
 
@@ -250,7 +250,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     birth_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
                     birth_note.set(ev.description.clone().unwrap_or_default());
                     birth_calendar.set(format!("{:?}", ev.calendar));
-                    birth_witnesses.set(ev.witnesses.clone());
                 }
                 EventType::Death => {
                     death_event_id.set(Some(ev.id));
@@ -260,7 +259,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     death_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
                     death_note.set(ev.description.clone().unwrap_or_default());
                     death_calendar.set(format!("{:?}", ev.calendar));
-                    death_witnesses.set(ev.witnesses.clone());
                 }
                 _ => {}
             }
@@ -415,7 +413,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 date_qualifier: DateQualifier::default(),
                 date_value2: None,
                 calendar: Calendar::default(),
-                witnesses: vec![],
                 cause: opt_str(&cause),
                 place_id,
                 person_id: Some(pid),
@@ -502,14 +499,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             let b_place = birth_place_id();
             let b_note = birth_note().trim().to_string();
             let b_cal = birth_calendar();
-            let b_witnesses = birth_witnesses();
             let d_date = death_date().trim().to_string();
             let d_qual = death_qualifier();
             let d_date2 = death_date2().trim().to_string();
             let d_place = death_place_id();
             let d_note = death_note().trim().to_string();
             let d_cal = death_calendar();
-            let d_witnesses = death_witnesses();
             spawn(async move {
                 saving.set(true);
                 save_error.set(None);
@@ -565,7 +560,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             date_qualifier: parse_date_qualifier(&b_qual),
                             date_value2: opt_str(&b_date2),
                             calendar: parse_calendar(&b_cal),
-                            witnesses: b_witnesses,
                             cause: None,
                             place_id: b_place_id,
                             person_id: Some(new_pid),
@@ -593,7 +587,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             date_qualifier: parse_date_qualifier(&d_qual),
                             date_value2: opt_str(&d_date2),
                             calendar: parse_calendar(&d_cal),
-                            witnesses: d_witnesses,
                             cause: None,
                             place_id: d_place_id,
                             person_id: Some(new_pid),
@@ -678,7 +671,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             date_qualifier: Some(b_qualifier_enum),
                             date_value2: Some(opt_str(&b_date2)),
                             calendar: Some(b_calendar_enum),
-                            witnesses: Some(b_witnesses),
                             cause: None,
                             place_id: Some(b_place_id),
                             description: Some(opt_str(&b_note)),
@@ -696,7 +688,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             date_qualifier: b_qualifier_enum,
                             date_value2: opt_str(&b_date2),
                             calendar: b_calendar_enum,
-                            witnesses: b_witnesses,
                             cause: None,
                             place_id: b_place_id,
                             person_id: Some(pid),
@@ -726,7 +717,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             date_qualifier: Some(d_qualifier_enum),
                             date_value2: Some(opt_str(&d_date2)),
                             calendar: Some(d_calendar_enum),
-                            witnesses: Some(d_witnesses),
                             cause: None,
                             place_id: Some(d_place_id),
                             description: Some(opt_str(&d_note)),
@@ -744,7 +734,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             date_qualifier: d_qualifier_enum,
                             date_value2: opt_str(&d_date2),
                             calendar: d_calendar_enum,
-                            witnesses: d_witnesses,
                             cause: None,
                             place_id: d_place_id,
                             person_id: Some(pid),
@@ -1202,18 +1191,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.witnesses")} }
-                                        {render_witnesses(&i18n, &birth_witnesses, &mut has_changes)}
-                                        button {
-                                            class: "btn btn-outline btn-sm",
-                                            r#type: "button",
-                                            onclick: move |_| {
-                                                let mut ws = birth_witnesses();
-                                                ws.push(String::new());
-                                                birth_witnesses.set(ws);
-                                                has_changes.set(true);
-                                            },
-                                            {i18n.t("person_form.add_witness")}
-                                        }
+                                        {render_event_witnesses(&i18n, &api, tid, birth_event_id(), birth_witnesses_tick)}
                                     }
                                 }
 
@@ -1229,18 +1207,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.witnesses")} }
-                                        {render_witnesses(&i18n, &death_witnesses, &mut has_changes)}
-                                        button {
-                                            class: "btn btn-outline btn-sm",
-                                            r#type: "button",
-                                            onclick: move |_| {
-                                                let mut ws = death_witnesses();
-                                                ws.push(String::new());
-                                                death_witnesses.set(ws);
-                                                has_changes.set(true);
-                                            },
-                                            {i18n.t("person_form.add_witness")}
-                                        }
+                                        {render_event_witnesses(&i18n, &api, tid, death_event_id(), death_witnesses_tick)}
                                     }
                                 }
                             }
@@ -1638,41 +1605,139 @@ fn event_type_options(i18n: &crate::i18n::I18n) -> Element {
 
 // ── Witnesses widget ──────────────────────────────────────────────────────
 
-fn render_witnesses(
+/// Resolves each witness's display name via its primary `PersonName`.
+async fn resolve_witness_names(
+    api: &ApiClient,
+    tree_id: Uuid,
+    witnesses: Vec<oxidgene_core::types::EventWitness>,
+) -> Vec<(oxidgene_core::types::EventWitness, String)> {
+    let mut out = Vec::with_capacity(witnesses.len());
+    for w in witnesses {
+        let name = match api.list_person_names(tree_id, w.person_id).await {
+            Ok(names) => names
+                .iter()
+                .find(|n| n.is_primary)
+                .or(names.first())
+                .map(|n| {
+                    format!(
+                        "{} {}",
+                        n.given_names.as_deref().unwrap_or(""),
+                        n.surname.as_deref().unwrap_or("")
+                    )
+                    .trim()
+                    .to_string()
+                })
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "?".to_string()),
+            Err(_) => "?".to_string(),
+        };
+        out.push((w, name));
+    }
+    out
+}
+
+/// Witness list + add/remove editor for an event. Each add/remove is
+/// persisted immediately via the API (mirrors the inline per-item saves
+/// used elsewhere in this form), so it's only usable once the event has
+/// been saved (`event_id.is_some()`).
+fn render_event_witnesses(
     i18n: &crate::i18n::I18n,
-    witnesses: &Signal<Vec<String>>,
-    has_changes: &mut Signal<bool>,
+    api: &ApiClient,
+    tree_id: Uuid,
+    event_id: Option<Uuid>,
+    mut refresh_tick: Signal<u32>,
 ) -> Element {
-    let _i18n = *i18n;
-    let mut witnesses_sig = *witnesses;
-    let mut changes_sig = *has_changes;
-    let count = witnesses_sig().len();
+    let i18n = *i18n;
+    let api = api.clone();
+
+    let Some(event_id) = event_id else {
+        return rsx! {
+            p { class: "text-muted", {i18n.t("person_form.witnesses_save_first")} }
+        };
+    };
+
+    let mut adding = use_signal(|| false);
+    let mut relation_input = use_signal(String::new);
+
+    let api_list = api.clone();
+    let witnesses_resource = use_resource(move || {
+        let api = api_list.clone();
+        let _tick = refresh_tick();
+        async move {
+            let witnesses = api
+                .list_event_witnesses(tree_id, event_id)
+                .await
+                .unwrap_or_default();
+            resolve_witness_names(&api, tree_id, witnesses).await
+        }
+    });
+    let entries = witnesses_resource.read().clone().unwrap_or_default();
 
     rsx! {
-        for i in 0..count {
-            div { class: "pf-witness-row",
+        div { class: "pf-witness-list",
+            for (w , name) in entries {
+                div { class: "pf-witness-row",
+                    span { class: "pf-witness-name", "{name}" }
+                    if let Some(rel) = &w.relation {
+                        span { class: "pf-witness-relation", " ({rel})" }
+                    }
+                    button {
+                        class: "pf-witness-remove",
+                        r#type: "button",
+                        onclick: {
+                            let api = api.clone();
+                            let witness_id = w.id;
+                            move |_| {
+                                let api = api.clone();
+                                spawn(async move {
+                                    let _ = api.remove_event_witness(tree_id, event_id, witness_id).await;
+                                    refresh_tick.set(refresh_tick() + 1);
+                                });
+                            }
+                        },
+                        "\u{00D7}"
+                    }
+                }
+            }
+        }
+        if adding() {
+            div { class: "pf-witness-add",
                 input {
                     r#type: "text",
-                    placeholder: "Witness name",
-                    value: "{witnesses_sig()[i]}",
-                    oninput: move |e: Event<FormData>| {
-                        let mut ws = witnesses_sig();
-                        ws[i] = e.value();
-                        witnesses_sig.set(ws);
-                        changes_sig.set(true);
-                    },
+                    placeholder: i18n.t("person_form.witness_relation_placeholder"),
+                    value: "{relation_input}",
+                    oninput: move |e: Event<FormData>| relation_input.set(e.value()),
                 }
-                button {
-                    class: "pf-witness-remove",
-                    r#type: "button",
-                    onclick: move |_| {
-                        let mut ws = witnesses_sig();
-                        ws.remove(i);
-                        witnesses_sig.set(ws);
-                        changes_sig.set(true);
+                crate::components::search_person::SearchPerson {
+                    tree_id,
+                    placeholder: i18n.t("person_form.search_witness"),
+                    on_select: {
+                        let api = api.clone();
+                        move |person_id: Uuid| {
+                            let api = api.clone();
+                            let relation = opt_str(&relation_input());
+                            spawn(async move {
+                                let body = crate::api::AddEventWitnessBody {
+                                    person_id,
+                                    relation,
+                                    sort_order: 0,
+                                };
+                                let _ = api.add_event_witness(tree_id, event_id, &body).await;
+                                refresh_tick.set(refresh_tick() + 1);
+                            });
+                            adding.set(false);
+                            relation_input.set(String::new());
+                        }
                     },
-                    "\u{00D7}"
+                    on_cancel: move |_| adding.set(false),
                 }
+            }
+        } else {
+            button {
+                class: "btn btn-outline btn-sm",
+                r#type: "button",
+                onclick: move |_| adding.set(true),
+                {i18n.t("person_form.add_witness")}
             }
         }
     }

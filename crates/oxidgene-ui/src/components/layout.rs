@@ -1658,8 +1658,12 @@ pub const LAYOUT_STYLES: &str = r#"
 
     /* ── Witnesses list ────────────────────────────────────────────── */
 
+    .pf-witness-list { margin-bottom: 6px; }
     .pf-witness-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
     .pf-witness-row input { flex: 1; }
+    .pf-witness-name { font-weight: 500; }
+    .pf-witness-relation { color: var(--text-secondary); font-size: 0.88rem; }
+    .pf-witness-add { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
     .pf-witness-remove {
         flex: 0 0 auto;
         background: none;

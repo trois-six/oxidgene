@@ -16,8 +16,6 @@ pub struct Model {
     pub date_qualifier: DateQualifier,
     pub date_value2: Option<String>,
     pub calendar: Calendar,
-    /// Witness names, newline-separated.
-    pub witnesses: Option<String>,
     pub cause: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
@@ -60,6 +58,8 @@ pub enum Relation {
     MediaLink,
     #[sea_orm(has_many = "super::note::Entity")]
     Note,
+    #[sea_orm(has_many = "super::event_witness::Entity")]
+    EventWitness,
 }
 
 impl Related<super::tree::Entity> for Entity {
@@ -101,6 +101,12 @@ impl Related<super::media_link::Entity> for Entity {
 impl Related<super::note::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Note.def()
+    }
+}
+
+impl Related<super::event_witness::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::EventWitness.def()
     }
 }
 

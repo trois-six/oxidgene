@@ -1,5 +1,14 @@
-//! Initial migration: create all 14 tables for OxidGene.
+//! Initial migration: create the full OxidGene schema in one shot.
+//!
+//! This is a reconsolidation of what was originally five migrations
+//! (initial tables, search indexes, SOSA root person, person-edit-modal
+//! fields, and person search FTS) plus the `event_witness` table, folded
+//! back into a single migration now that no deployment has legacy data to
+//! migrate incrementally. `event.witnesses` (added by the person-edit-modal
+//! migration) was later replaced by the `event_witness` join table and so
+//! does not appear here at all — it was never part of any released schema.
 
+use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, Statement};
 use sea_orm_migration::{prelude::*, schema::*};
 
 #[derive(DeriveMigrationName)]
@@ -17,6 +26,10 @@ impl MigrationTrait for Migration {
                     .col(uuid(Tree::Id).primary_key())
                     .col(string(Tree::Name))
                     .col(string_null(Tree::Description))
+                    // No FK: person is created after tree, and SQLite can't
+                    // add a FK via ALTER TABLE either way — enforced at the
+                    // ORM layer only, same as before reconsolidation.
+                    .col(uuid_null(Tree::SosaRootPersonId))
                     .col(timestamp_with_time_zone(Tree::CreatedAt))
                     .col(timestamp_with_time_zone(Tree::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Tree::DeletedAt))
@@ -33,6 +46,12 @@ impl MigrationTrait for Migration {
                     .col(uuid(Person::Id).primary_key())
                     .col(uuid(Person::TreeId))
                     .col(string_len(Person::Sex, 10))
+                    .col(
+                        ColumnDef::new(Person::Privacy)
+                            .string_len(10)
+                            .not_null()
+                            .default("default"),
+                    )
                     .col(timestamp_with_time_zone(Person::CreatedAt))
                     .col(timestamp_with_time_zone(Person::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Person::DeletedAt))
@@ -89,6 +108,24 @@ impl MigrationTrait for Migration {
                     .name("idx_person_name_person_id")
                     .table(PersonName::Table)
                     .col(PersonName::PersonId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_person_name_surname")
+                    .table(PersonName::Table)
+                    .col(PersonName::Surname)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_person_name_given_names")
+                    .table(PersonName::Table)
+                    .col(PersonName::GivenNames)
                     .to_owned(),
             )
             .await?;
@@ -262,6 +299,20 @@ impl MigrationTrait for Migration {
                     .col(string_len(Event::EventType, 25))
                     .col(string_null(Event::DateValue))
                     .col(date_null(Event::DateSort))
+                    .col(
+                        ColumnDef::new(Event::DateQualifier)
+                            .string_len(10)
+                            .not_null()
+                            .default("exact"),
+                    )
+                    .col(string_null(Event::DateValue2))
+                    .col(
+                        ColumnDef::new(Event::Calendar)
+                            .string_len(20)
+                            .not_null()
+                            .default("gregorian"),
+                    )
+                    .col(string_null(Event::Cause))
                     .col(uuid_null(Event::PlaceId))
                     .col(uuid_null(Event::PersonId))
                     .col(uuid_null(Event::FamilyId))
@@ -337,7 +388,54 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 9. source (FK → tree)
+        // 9. event_witness (FK → event, person)
+        manager
+            .create_table(
+                Table::create()
+                    .table(EventWitness::Table)
+                    .if_not_exists()
+                    .col(uuid(EventWitness::Id).primary_key())
+                    .col(uuid(EventWitness::EventId))
+                    .col(uuid(EventWitness::PersonId))
+                    .col(string_null(EventWitness::Relation))
+                    .col(integer(EventWitness::SortOrder))
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_event_witness_event")
+                            .from(EventWitness::Table, EventWitness::EventId)
+                            .to(Event::Table, Event::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_event_witness_person")
+                            .from(EventWitness::Table, EventWitness::PersonId)
+                            .to(Person::Table, Person::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_event_witness_event_id")
+                    .table(EventWitness::Table)
+                    .col(EventWitness::EventId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_event_witness_person_id")
+                    .table(EventWitness::Table)
+                    .col(EventWitness::PersonId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // 10. source (FK → tree)
         manager
             .create_table(
                 Table::create()
@@ -373,7 +471,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 10. citation (FK → source, person?, event?, family?)
+        // 11. citation (FK → source, person?, event?, family?)
         manager
             .create_table(
                 Table::create()
@@ -430,7 +528,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 11. media (FK → tree)
+        // 12. media (FK → tree; place? enforced at ORM layer only, see note below)
         manager
             .create_table(
                 Table::create()
@@ -444,6 +542,11 @@ impl MigrationTrait for Migration {
                     .col(big_integer(Media::FileSize))
                     .col(string_null(Media::Title))
                     .col(string_null(Media::Description))
+                    .col(string_null(Media::DateValue))
+                    .col(date_null(Media::DateSort))
+                    // No FK: kept consistent with the original ALTER TABLE
+                    // ADD COLUMN, which SQLite can't attach a FK to either.
+                    .col(uuid_null(Media::PlaceId))
                     .col(timestamp_with_time_zone(Media::CreatedAt))
                     .col(timestamp_with_time_zone(Media::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Media::DeletedAt))
@@ -467,7 +570,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 12. media_link (FK → media, person?, event?, source?, family?)
+        // 13. media_link (FK → media, person?, event?, source?, family?)
         manager
             .create_table(
                 Table::create()
@@ -480,6 +583,12 @@ impl MigrationTrait for Migration {
                     .col(uuid_null(MediaLink::SourceId))
                     .col(uuid_null(MediaLink::FamilyId))
                     .col(integer(MediaLink::SortOrder))
+                    .col(
+                        ColumnDef::new(MediaLink::IsProfile)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_media_link_media")
@@ -528,7 +637,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 13. note (FK → tree, person?, event?, family?, source?)
+        // 14. note (FK → tree, person?, event?, family?, source?)
         manager
             .create_table(
                 Table::create()
@@ -592,7 +701,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 14. person_ancestry (closure table, FK → tree, person x2)
+        // 15. person_ancestry (closure table, FK → tree, person x2)
         manager
             .create_table(
                 Table::create()
@@ -657,10 +766,76 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // 16. person_search_fts (Sprint E.6): a real FTS5 virtual table on
+        // SQLite (desktop), or a plain table + index on PostgreSQL (web,
+        // where FTS5 isn't available — matching falls back to LIKE on
+        // pre-normalized token columns computed in Rust before insert).
+        let conn = manager.get_connection();
+        match manager.get_database_backend() {
+            DbBackend::Sqlite => {
+                conn.execute(Statement::from_string(
+                    DbBackend::Sqlite,
+                    r#"
+                    CREATE VIRTUAL TABLE IF NOT EXISTS person_search_fts USING fts5(
+                        surname,
+                        given_names,
+                        maiden_name,
+                        birth_year,
+                        death_year,
+                        person_id UNINDEXED,
+                        tree_id UNINDEXED,
+                        sex UNINDEXED,
+                        display_name UNINDEXED,
+                        birth_place UNINDEXED,
+                        date_sort UNINDEXED
+                    )
+                    "#
+                    .to_owned(),
+                ))
+                .await?;
+            }
+            backend => {
+                conn.execute(Statement::from_string(
+                    backend,
+                    r#"
+                    CREATE TABLE IF NOT EXISTS person_search_fts (
+                        person_id TEXT NOT NULL PRIMARY KEY,
+                        tree_id TEXT NOT NULL,
+                        surname TEXT NOT NULL DEFAULT '',
+                        given_names TEXT NOT NULL DEFAULT '',
+                        maiden_name TEXT,
+                        birth_year TEXT,
+                        death_year TEXT,
+                        sex TEXT NOT NULL DEFAULT 'unknown',
+                        display_name TEXT NOT NULL DEFAULT '',
+                        birth_place TEXT,
+                        date_sort TEXT
+                    )
+                    "#
+                    .to_owned(),
+                ))
+                .await?;
+                conn.execute(Statement::from_string(
+                    backend,
+                    "CREATE INDEX IF NOT EXISTS idx_person_search_fts_tree_id \
+                     ON person_search_fts (tree_id)"
+                        .to_owned(),
+                ))
+                .await?;
+            }
+        }
+
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        let conn = manager.get_connection();
+        conn.execute(Statement::from_string(
+            manager.get_database_backend(),
+            "DROP TABLE IF EXISTS person_search_fts".to_owned(),
+        ))
+        .await?;
+
         // Drop in reverse dependency order.
         let tables = [
             PersonAncestry::Table.into_table_ref(),
@@ -669,6 +844,7 @@ impl MigrationTrait for Migration {
             Media::Table.into_table_ref(),
             Citation::Table.into_table_ref(),
             Source::Table.into_table_ref(),
+            EventWitness::Table.into_table_ref(),
             Event::Table.into_table_ref(),
             Place::Table.into_table_ref(),
             FamilyChild::Table.into_table_ref(),
@@ -697,6 +873,7 @@ enum Tree {
     Id,
     Name,
     Description,
+    SosaRootPersonId,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -708,6 +885,7 @@ enum Person {
     Id,
     TreeId,
     Sex,
+    Privacy,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -780,6 +958,10 @@ enum Event {
     EventType,
     DateValue,
     DateSort,
+    DateQualifier,
+    DateValue2,
+    Calendar,
+    Cause,
     PlaceId,
     PersonId,
     FamilyId,
@@ -787,6 +969,16 @@ enum Event {
     CreatedAt,
     UpdatedAt,
     DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum EventWitness {
+    Table,
+    Id,
+    EventId,
+    PersonId,
+    Relation,
+    SortOrder,
 }
 
 #[derive(DeriveIden)]
@@ -830,6 +1022,9 @@ enum Media {
     FileSize,
     Title,
     Description,
+    DateValue,
+    DateSort,
+    PlaceId,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -845,6 +1040,7 @@ enum MediaLink {
     SourceId,
     FamilyId,
     SortOrder,
+    IsProfile,
 }
 
 #[derive(DeriveIden)]

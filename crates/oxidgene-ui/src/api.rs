@@ -7,8 +7,8 @@
 
 use oxidgene_cache::types::{CachedPedigree, PedigreeDelta, SearchResult};
 use oxidgene_core::types::{
-    Citation, Connection, Event, Family, FamilyChild, FamilySpouse, Note, Person, PersonAncestry,
-    PersonName, Place, Source, Tree,
+    Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse, Note, Person,
+    PersonAncestry, PersonName, Place, Source, Tree,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
@@ -135,7 +135,6 @@ pub struct CreateEventBody {
     pub date_qualifier: DateQualifier,
     pub date_value2: Option<String>,
     pub calendar: Calendar,
-    pub witnesses: Vec<String>,
     pub cause: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
@@ -158,13 +157,20 @@ pub struct UpdateEventBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub calendar: Option<Calendar>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub witnesses: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_id: Option<Option<Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<Option<String>>,
+}
+
+/// Request body for adding a witness to an event.
+#[derive(Debug, Serialize)]
+pub struct AddEventWitnessBody {
+    pub person_id: Uuid,
+    pub relation: Option<String>,
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 // ── Place request bodies ────────────────────────────────────────────
@@ -1045,6 +1051,49 @@ impl ApiClient {
     pub async fn delete_event(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/events/{id}"))
             .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
+    }
+
+    // ── Event Witnesses ────────────────────────────────────────────────
+
+    pub async fn list_event_witnesses(
+        &self,
+        tree_id: Uuid,
+        event_id: Uuid,
+    ) -> Result<Vec<EventWitness>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/events/{event_id}/witnesses"
+        ))
+        .await
+    }
+
+    pub async fn add_event_witness(
+        &self,
+        tree_id: Uuid,
+        event_id: Uuid,
+        body: &AddEventWitnessBody,
+    ) -> Result<EventWitness, ApiError> {
+        let result = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/events/{event_id}/witnesses"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
+    }
+
+    pub async fn remove_event_witness(
+        &self,
+        tree_id: Uuid,
+        event_id: Uuid,
+        witness_id: Uuid,
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
+            "/api/v1/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}"
+        ))
+        .await?;
         self.invalidate_tree(tree_id);
         Ok(())
     }

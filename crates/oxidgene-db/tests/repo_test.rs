@@ -387,7 +387,6 @@ async fn event_crud_and_filters() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();

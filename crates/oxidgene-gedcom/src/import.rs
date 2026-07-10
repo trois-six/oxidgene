@@ -13,8 +13,8 @@ use ged_io::types::source::citation::CitationSource;
 use uuid::Uuid;
 
 use oxidgene_core::types::{
-    Citation, Event, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person,
-    PersonAncestry, PersonName, Place, Source,
+    Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
+    Person, PersonAncestry, PersonName, Place, Source,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
@@ -47,19 +47,11 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
     // Free-text SOUR description → UUID of a synthesized Source (dedup by
     // exact text match) — see `get_or_create_text_source` below.
     let mut text_source_map: HashMap<String, Uuid> = HashMap::new();
-    // Individual xref → display name, used to resolve `ASSO` (witness/
-    // godparent) associations on events into `Event.witnesses` text.
-    let mut indi_name_map: HashMap<String, String> = HashMap::new();
 
     // ── Pass 1: Allocate UUIDs for all top-level records ────────────
     for indi in &data.individuals {
         if let Some(xref) = &indi.xref {
             indi_map.insert(xref.clone(), Uuid::now_v7());
-        }
-        if let (Some(xref), Some(display_name)) =
-            (&indi.xref, indi.name.as_ref().and_then(format_display_name))
-        {
-            indi_name_map.insert(xref.clone(), display_name);
         }
     }
     for fam in &data.families {
@@ -261,7 +253,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
-                &indi_name_map,
+                &indi_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
                 &mut result,
@@ -409,7 +401,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
-                &indi_name_map,
+                &indi_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
                 &mut result,
@@ -425,7 +417,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                 now,
                 &source_map,
                 &media_map,
-                &indi_name_map,
+                &indi_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
                 &mut result,
@@ -516,6 +508,119 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         }
     }
 
+    // ── Associations (top-level `1 ASSO` — Gramps' witness/godparent
+    // convention) ─────────────────────────────────────────────────────
+    // Gramps (and the GEDCOM 5.5.1 grammar) places `ASSO` as a direct
+    // child of the INDI record that "owns" the relationship, never nested
+    // inside a specific event. Which direction it describes depends on
+    // what the xref resolves to:
+    //   - target is a FAM: the owner witnessed that family's marriage
+    //     (`1 ASSO @F1@` / `2 RELA witness` on the witness's own record).
+    //   - target is an INDI: the target holds a role (godparent, ...) at
+    //     the owner's own birth/baptism (`1 ASSO @I2@` / `2 RELA GODM` on
+    //     the godchild's own record).
+    // GEDCOM's ASSO has no way to name which specific event it applies to
+    // when the owner has several candidate events, so that case is a
+    // best-effort guess (flagged with a warning), not a guarantee.
+    //
+    // Some exporters (Gramps included) redundantly *also* nest an ASSO
+    // inside the witnessed event's own detail (caught above by
+    // `import_event_detail`'s `detail.associations` loop) for the same
+    // fact this pass would otherwise reconstruct — skip any (event,
+    // person) pair already present in `result.event_witnesses` so the
+    // same witness isn't recorded twice.
+    let mut seen_witnesses: std::collections::HashSet<(Uuid, Uuid)> = result
+        .event_witnesses
+        .iter()
+        .map(|w| (w.event_id, w.person_id))
+        .collect();
+    let mut event_witness_sort: HashMap<Uuid, i32> = HashMap::new();
+    for indi in &data.individuals {
+        let owner_xref = match &indi.xref {
+            Some(x) => x,
+            None => continue,
+        };
+        let Some(&owner_person_id) = indi_map.get(owner_xref) else {
+            continue;
+        };
+
+        for assoc in &indi.associations {
+            if let Some(&family_id) = fam_map.get(&assoc.xref) {
+                let target_event = result
+                    .events
+                    .iter()
+                    .filter(|e| e.family_id == Some(family_id))
+                    .find(|e| e.event_type == EventType::Marriage)
+                    .or_else(|| result.events.iter().find(|e| e.family_id == Some(family_id)));
+
+                match target_event {
+                    Some(evt) if seen_witnesses.contains(&(evt.id, owner_person_id)) => {}
+                    Some(evt) => {
+                        let event_id = evt.id;
+                        seen_witnesses.insert((event_id, owner_person_id));
+                        let sort_order = event_witness_sort.entry(event_id).or_insert(0);
+                        result.event_witnesses.push(EventWitness {
+                            id: Uuid::now_v7(),
+                            event_id,
+                            person_id: owner_person_id,
+                            relation: assoc.relationship.clone(),
+                            sort_order: *sort_order,
+                        });
+                        *sort_order += 1;
+                    }
+                    None => result.warnings.push(format!(
+                        "Individual {owner_xref}: ASSO {} (family) has no event to attach the witness to — skipped",
+                        assoc.xref
+                    )),
+                }
+            } else if let Some(&role_holder_id) = indi_map.get(&assoc.xref) {
+                let candidates: Vec<&Event> = result
+                    .events
+                    .iter()
+                    .filter(|e| e.person_id == Some(owner_person_id))
+                    .collect();
+                let target_event = candidates
+                    .iter()
+                    .find(|e| e.event_type == EventType::Baptism)
+                    .or_else(|| candidates.iter().find(|e| e.event_type == EventType::Birth))
+                    .or_else(|| candidates.first())
+                    .copied();
+
+                match target_event {
+                    Some(evt) if seen_witnesses.contains(&(evt.id, role_holder_id)) => {}
+                    Some(evt) => {
+                        if candidates.len() > 1 {
+                            result.warnings.push(format!(
+                                "Individual {owner_xref}: ASSO {} attached to its {:?} event — {owner_xref} has several events, guessed the most likely one",
+                                assoc.xref, evt.event_type
+                            ));
+                        }
+                        let event_id = evt.id;
+                        seen_witnesses.insert((event_id, role_holder_id));
+                        let sort_order = event_witness_sort.entry(event_id).or_insert(0);
+                        result.event_witnesses.push(EventWitness {
+                            id: Uuid::now_v7(),
+                            event_id,
+                            person_id: role_holder_id,
+                            relation: assoc.relationship.clone(),
+                            sort_order: *sort_order,
+                        });
+                        *sort_order += 1;
+                    }
+                    None => result.warnings.push(format!(
+                        "Individual {owner_xref}: ASSO {} has no individual event to attach to — skipped",
+                        assoc.xref
+                    )),
+                }
+            } else {
+                result.warnings.push(format!(
+                    "Individual {owner_xref}: ASSO {} target not found in file — skipped",
+                    assoc.xref
+                ));
+            }
+        }
+    }
+
     // ── Build PersonAncestry closure table ───────────────────────────
     result.person_ancestry =
         build_ancestry_closure(&result.family_spouses, &result.family_children, tree_id);
@@ -565,25 +670,6 @@ fn convert_name(
         is_primary,
         created_at: now,
         updated_at: now,
-    }
-}
-
-/// Builds a plain display name (e.g. "John DOE") from a GEDCOM
-/// `Name`, for use in free-text contexts like `Event.witnesses` that have
-/// no `PersonName` record of their own to point to.
-fn format_display_name(name: &ged_io::types::individual::name::Name) -> Option<String> {
-    let (parsed_given, parsed_surname) = parse_name_value(name.value.as_deref());
-    let given = name.given.clone().or(parsed_given);
-    let surname = name.surname.clone().or(parsed_surname);
-    let display = [given, surname]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ");
-    if display.is_empty() {
-        None
-    } else {
-        Some(display)
     }
 }
 
@@ -822,7 +908,7 @@ fn import_event_detail(
     now: chrono::DateTime<Utc>,
     source_map: &HashMap<String, Uuid>,
     media_map: &HashMap<String, Uuid>,
-    indi_name_map: &HashMap<String, String>,
+    indi_map: &HashMap<String, Uuid>,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
@@ -868,22 +954,6 @@ fn import_event_detail(
     // everywhere. Capturing the adoptive family properly would need a
     // dedicated field (or a join table), not `family_id`.
 
-    // Associations (witnesses, godparents, ...) attached to this event.
-    let witnesses: Vec<String> = detail
-        .associations
-        .iter()
-        .map(|assoc| {
-            let name = indi_name_map
-                .get(&assoc.xref)
-                .cloned()
-                .unwrap_or_else(|| assoc.xref.clone());
-            match &assoc.relationship {
-                Some(rel) => format!("{name} ({rel})"),
-                None => name,
-            }
-        })
-        .collect();
-
     let event_id = Uuid::now_v7();
     result.events.push(Event {
         id: event_id,
@@ -894,7 +964,6 @@ fn import_event_detail(
         date_qualifier: DateQualifier::default(),
         date_value2: None,
         calendar: Calendar::default(),
-        witnesses,
         cause,
         place_id,
         person_id,
@@ -904,6 +973,22 @@ fn import_event_detail(
         updated_at: now,
         deleted_at: None,
     });
+
+    // Associations (witnesses, godparents, ...) attached to this event —
+    // only associations pointing at a known INDI xref can be captured
+    // (an `ASSO` may point at a FAM record per the GEDCOM grammar, which
+    // has no home in `EventWitness`).
+    for (idx, assoc) in detail.associations.iter().enumerate() {
+        if let Some(&witness_person_id) = indi_map.get(&assoc.xref) {
+            result.event_witnesses.push(EventWitness {
+                id: Uuid::now_v7(),
+                event_id,
+                person_id: witness_person_id,
+                relation: assoc.relationship.clone(),
+                sort_order: idx as i32,
+            });
+        }
+    }
 
     // Source citations on the event
     for cite in &detail.citations {
@@ -1008,7 +1093,6 @@ fn import_attribute_detail(
         date_qualifier: DateQualifier::default(),
         date_value2: None,
         calendar: Calendar::default(),
-        witnesses: vec![],
         cause,
         place_id,
         person_id: Some(person_id),
