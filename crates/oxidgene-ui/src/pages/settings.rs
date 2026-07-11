@@ -748,7 +748,7 @@ const SETTINGS_STYLES: &str = r#"
         height: 32px;
         border-radius: 50%;
         background: var(--orange);
-        color: #fff;
+        color: var(--white);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -777,11 +777,11 @@ const SETTINGS_STYLES: &str = r#"
         border-radius: 6px;
     }
     .btn-danger-outline {
-        color: var(--red, #e05555) !important;
-        border-color: var(--red, #e05555) !important;
+        color: var(--red) !important;
+        border-color: var(--red) !important;
     }
     .btn-danger-outline:hover {
-        background: rgba(224, 85, 85, 0.1) !important;
+        background: color-mix(in srgb, var(--red) 10%, transparent) !important;
     }
 
     @media (max-width: 768px) {

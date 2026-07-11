@@ -6,8 +6,7 @@
 //!   -> `.ev-panel` (selected-person event list)
 //!
 //! Cards are positioned using the Reingold-Tilford (Buchheim variant) algorithm,
-//! the same algorithm used by Geneanet's tree view.
-//! Connectors are drawn via SVG overlay with Bézier curves.
+//! connectors are drawn via SVG overlay with Bézier curves.
 
 use std::collections::{HashMap, HashSet};
 
@@ -173,7 +172,7 @@ fn gender_stroke(sex: Sex) -> &'static str {
     match sex {
         Sex::Male => "var(--pn-male-line)",
         Sex::Female => "var(--pn-female-line)",
-        _ => "#888888",
+        _ => "var(--pn-border)",
     }
 }
 
@@ -2157,6 +2156,11 @@ struct LayoutNode {
     child_of: Option<Uuid>,
     is_father: bool,
     is_sibling: bool,
+    /// True when this person has parents, spouses, or children recorded in
+    /// the tree that are not rendered anywhere in the current layout (cut
+    /// off by depth limits, or simply not part of the direct ascending/
+    /// descending line). Drives the small "+" badge on the card.
+    has_more_relations: bool,
 }
 
 /// Result of the pedigree layout computation.
@@ -2196,6 +2200,47 @@ struct PedigreeLayout {
     root_cx: f64,
     /// Root card centre y in final SVG coordinates (for auto-centering).
     root_cy: f64,
+}
+
+/// True when `pid` has a recorded parent, spouse, or child that is not part
+/// of `rendered_ids` — i.e. a relation the current ascending/descending
+/// layout doesn't show (cut off by depth limits, or simply off the direct
+/// line, e.g. an ancestor's other children or an extra marriage).
+fn person_has_hidden_relations(
+    pid: Uuid,
+    data: &PedigreeData,
+    rendered_ids: &HashSet<Uuid>,
+) -> bool {
+    if let Some(fam_ids) = data.families_as_child.get(&pid) {
+        for fid in fam_ids {
+            if let Some(spouses) = data.spouses_by_family.get(fid)
+                && spouses
+                    .iter()
+                    .any(|sp| !rendered_ids.contains(&sp.person_id))
+            {
+                return true;
+            }
+        }
+    }
+    if let Some(fam_ids) = data.families_as_spouse.get(&pid) {
+        for fid in fam_ids {
+            if let Some(spouses) = data.spouses_by_family.get(fid)
+                && spouses
+                    .iter()
+                    .any(|sp| sp.person_id != pid && !rendered_ids.contains(&sp.person_id))
+            {
+                return true;
+            }
+            if let Some(children) = data.children_by_family.get(fid)
+                && children
+                    .iter()
+                    .any(|c| !rendered_ids.contains(&c.person_id))
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Compute the RT layout for both ascending and descending trees.
@@ -2302,6 +2347,7 @@ fn compute_layout(
                     child_of: None,
                     is_father: false,
                     is_sibling: false,
+                    has_more_relations: false,
                 });
                 // Link from father node (index reversed so furthest sibling is "last").
                 if let Some((fx, fy, fd)) = father_data {
@@ -2342,6 +2388,7 @@ fn compute_layout(
                     child_of: None,
                     is_father: false,
                     is_sibling: false,
+                    has_more_relations: false,
                 });
                 // Link from mother (or father if no mother).
                 if let Some((px, py, pd)) = mother_data {
@@ -2439,6 +2486,7 @@ fn compute_layout(
         child_of: arena[ni].child_of,
         is_father: arena[ni].is_father,
         is_sibling: arena[ni].is_sibling,
+        has_more_relations: false,
     };
 
     let mut asc_nodes: Vec<LayoutNode> = asc_all
@@ -2446,10 +2494,22 @@ fn compute_layout(
         .map(|&ni| make_node(ni, &asc_arena, asc_arena[ni].depth == last_asc_level))
         .collect();
     asc_nodes.extend(extra_asc_nodes);
-    let desc_nodes: Vec<LayoutNode> = desc_all
+    let mut desc_nodes: Vec<LayoutNode> = desc_all
         .iter()
         .map(|&ni| make_node(ni, &desc_arena, false))
         .collect();
+
+    // ── Flag cards with relations not shown anywhere in this layout ──
+    let rendered_ids: HashSet<Uuid> = asc_nodes
+        .iter()
+        .chain(desc_nodes.iter())
+        .filter_map(|n| n.id)
+        .collect();
+    for node in asc_nodes.iter_mut().chain(desc_nodes.iter_mut()) {
+        if let Some(pid) = node.id {
+            node.has_more_relations = person_has_hidden_relations(pid, data, &rendered_ids);
+        }
+    }
 
     PedigreeLayout {
         asc_nodes,
@@ -2722,10 +2782,10 @@ fn render_pedigree_card(
     match node.id {
         Some(pid) => {
             let is_focus = pid == root_person_id;
-            let is_selected = selected_person_id() == pid;
+            // let is_selected = selected_person_id() == pid;
             let bg = card_bg(is_focus, node.is_sibling);
             let text_fill = if is_focus {
-                "#ffffff"
+                "var(--white)"
             } else {
                 "var(--pn-text)"
             };
@@ -2782,23 +2842,23 @@ fn render_pedigree_card(
                     transform: "translate({nx},{ny})",
                     style: "cursor:pointer",
                     onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
-                    rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:#888888;stroke-width:1" }
-                    if is_selected || is_focus {
-                        rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
-                    }
+                    rect { class: "ped-card-rect", x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
+                    // if is_selected || is_focus {
+                    //     rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
+                    //}
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
-                    rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:#ffffff" }
+                    rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:var(--white)" }
                     image { "href": "{portrait_src}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
                     if is_sosa_root {
                         g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:rgb(109,161,24)" }
-                            text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:#fff;font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-sosa-root)" }
+                            text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:var(--white);font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
                         }
                     } else if is_sosa_direct {
                         g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:rgb(149,196,23)" }
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:#fff" }
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:rgb(149,196,23)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-sosa)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:var(--white)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--pn-sosa)" }
                         }
                     }
                     text {
@@ -2821,8 +2881,20 @@ fn render_pedigree_card(
                                 let coords = evt.client_coordinates();
                                 on_person_click.call((pid, coords.x, coords.y));
                             },
-                            circle { r: "{EDIT_FAB_R}", style: "fill:var(--pn-root-bg);stroke:#fff;stroke-width:2" }
-                            text { x: "0", y: "6", style: "fill:#fff;font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
+                            circle { r: "{EDIT_FAB_R}", style: "fill:var(--pn-root-bg);stroke:var(--white);stroke-width:2" }
+                            text { x: "0", y: "6", style: "fill:var(--white);font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
+                        }
+                    }
+                    if node.has_more_relations {
+                        g {
+                            transform: "translate({CARD_PADDING},{CARD_PADDING})",
+                            style: "cursor:pointer",
+                            onclick: move |evt: Event<MouseData>| {
+                                evt.stop_propagation();
+                                selected_person_id.set(pid);
+                                on_person_navigate.call(pid);
+                            },
+                            text { x: "5", y: "-2", style: "fill:var(--blue);font-size:13px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                         }
                     }
                 }
@@ -2839,11 +2911,11 @@ fn render_pedigree_card(
                         g {
                             style: "cursor:pointer",
                             onclick: move |_| on_empty_slot.call((cid, is_father)),
-                            rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4" }
+                            rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
                             text { x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                         }
                     } else {
-                        rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:#888;stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
+                        rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
                     }
                 }
             }

@@ -254,7 +254,7 @@ pub(crate) const APP_SETTINGS_WIDGET_STYLES: &str = r#"
 
     .theme-toggle-btn.active {
         background: var(--orange);
-        color: #fff;
+        color: var(--white);
     }
 
     .lang-options {
@@ -463,7 +463,7 @@ const APP_SETTINGS_STYLES: &str = r#"
 
     .theme-toggle-btn.active {
         background: var(--orange);
-        color: #fff;
+        color: var(--white);
     }
 
     /* ── Language options ─────────────────── */

@@ -1,4 +1,4 @@
-//! Tree detail page — Geneanet-style pedigree chart view.
+//! Tree detail page — Pedigree chart view.
 //!
 //! Shows the tree breadcrumb, search fields, the [`PedigreeChart`] as the
 //! main view, a context menu for person actions (including search-or-create
