@@ -313,15 +313,16 @@ pub fn export_gedcom(
             custom_data: Vec::new(),
         });
 
-        // Primary name
-        let name = names_by_person.get(&person.id).and_then(|names| {
-            // Prefer primary name
-            names
-                .iter()
-                .find(|n| n.is_primary)
-                .or(names.first())
-                .map(|pn| to_ged_name(pn))
-        });
+        // Names (GEDCOM allows {0:M} NAME structures; primary goes first
+        // so `names.first()` on the way back in matches what we exported).
+        let names: Vec<GedName> = names_by_person
+            .get(&person.id)
+            .map(|names| {
+                let mut ordered: Vec<_> = names.iter().collect();
+                ordered.sort_by_key(|n| !n.is_primary);
+                ordered.into_iter().map(|pn| to_ged_name(pn)).collect()
+            })
+            .unwrap_or_default();
 
         // Events (GEDCOM INDIVIDUAL_EVENT_STRUCTURE) and attributes
         // (INDIVIDUAL_ATTRIBUTE_STRUCTURE, e.g. OCCU) — split so each
@@ -390,7 +391,7 @@ pub fn export_gedcom(
 
         data.individuals.push(Individual {
             xref,
-            name,
+            names,
             sex,
             families: family_links,
             events: indi_events,

@@ -237,9 +237,10 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
             deleted_at: None,
         });
 
-        // Names
-        if let Some(ref name) = indi.name {
-            let person_name = convert_name(name, person_id, true, now);
+        // Names (GEDCOM allows {0:M} NAME structures per individual; the
+        // first is primary, the rest import as additional PersonNames).
+        for (i, name) in indi.names.iter().enumerate() {
+            let person_name = convert_name(name, person_id, i == 0, now);
             result.person_names.push(person_name);
         }
 
@@ -551,7 +552,12 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
                     .iter()
                     .filter(|e| e.family_id == Some(family_id))
                     .find(|e| e.event_type == EventType::Marriage)
-                    .or_else(|| result.events.iter().find(|e| e.family_id == Some(family_id)));
+                    .or_else(|| {
+                        result
+                            .events
+                            .iter()
+                            .find(|e| e.family_id == Some(family_id))
+                    });
 
                 match target_event {
                     Some(evt) if seen_witnesses.contains(&(evt.id, owner_person_id)) => {}
