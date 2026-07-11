@@ -611,7 +611,7 @@ fn TreeCard(
                     rect { class: "tv-bg", width: "300", height: "140" }
                     rect {
                         x: "90", y: "10", width: "120", height: "120", rx: "60",
-                        fill: "#e07820", "fillOpacity": "0.07"
+                        fill: "var(--orange)", "fillOpacity": "0.07"
                     }
                     rect { class: "tv-branch", x: "147", y: "90", width: "6", height: "35", rx: "3" }
                     line { class: "tv-branch-line", x1: "150", y1: "90", x2: "100", y2: "60", "strokeWidth": "2.5" }
@@ -620,13 +620,13 @@ fn TreeCard(
                     line { class: "tv-branch-line", x1: "100", y1: "60", x2: "120", y2: "38", "strokeWidth": "1.5" }
                     line { class: "tv-branch-line", x1: "200", y1: "60", x2: "225", y2: "40", "strokeWidth": "1.5" }
                     line { class: "tv-branch-line", x1: "200", y1: "60", x2: "180", y2: "38", "strokeWidth": "1.5" }
-                    circle { cx: "150", cy: "93", r: "7",  fill: "#e07820", "fillOpacity": "0.9" }
-                    circle { cx: "100", cy: "60", r: "6",  fill: "#e07820", "fillOpacity": "0.8" }
-                    circle { cx: "200", cy: "60", r: "6",  fill: "#e07820", "fillOpacity": "0.8" }
-                    circle { cx: "75",  cy: "40", r: "5",  fill: "#5aab3c", "fillOpacity": "0.9" }
-                    circle { cx: "120", cy: "38", r: "5",  fill: "#5aab3c", "fillOpacity": "0.9" }
-                    circle { cx: "225", cy: "40", r: "5",  fill: "#5aab3c", "fillOpacity": "0.9" }
-                    circle { cx: "180", cy: "38", r: "5",  fill: "#5aab3c", "fillOpacity": "0.9" }
+                    circle { cx: "150", cy: "93", r: "7",  fill: "var(--orange)", "fillOpacity": "0.9" }
+                    circle { cx: "100", cy: "60", r: "6",  fill: "var(--orange)", "fillOpacity": "0.8" }
+                    circle { cx: "200", cy: "60", r: "6",  fill: "var(--orange)", "fillOpacity": "0.8" }
+                    circle { cx: "75",  cy: "40", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
+                    circle { cx: "120", cy: "38", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
+                    circle { cx: "225", cy: "40", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
+                    circle { cx: "180", cy: "38", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
                 }
             }
 
@@ -918,14 +918,14 @@ const HOME_STYLES: &str = r#"
         border: none;
         border-radius: 8px;
         padding: 0.5rem 1.1rem;
-        color: #fff;
+        color: var(--white);
         font-family: var(--font-heading);
         font-size: 0.8rem;
         font-weight: 600;
         letter-spacing: 0.05em;
         cursor: pointer;
         transition: opacity 0.2s, transform 0.15s;
-        box-shadow: 0 2px 12px rgba(224, 120, 32, 0.35);
+        box-shadow: 0 2px 12px color-mix(in srgb, var(--orange) 35%, transparent);
         text-decoration: none;
         white-space: nowrap;
         flex-shrink: 0;
@@ -959,7 +959,7 @@ const HOME_STYLES: &str = r#"
     .tree-card:hover {
         transform: translateY(-4px);
         border-color: var(--orange);
-        box-shadow: 0 8px 40px rgba(224, 120, 32, 0.18), 0 2px 12px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 8px 40px color-mix(in srgb, var(--orange) 18%, transparent), 0 2px 12px color-mix(in srgb, var(--shadow-black) 50%, transparent);
         background: var(--bg-card-hover);
     }
 
@@ -1035,7 +1035,7 @@ const HOME_STYLES: &str = r#"
         background: var(--bg-panel);
         border: 1px solid var(--border);
         border-radius: 8px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow-black) 40%, transparent);
         padding: 4px;
         margin-top: 4px;
     }
@@ -1062,7 +1062,7 @@ const HOME_STYLES: &str = r#"
     }
 
     .tree-card-dropdown-danger:hover {
-        background: rgba(224, 82, 82, 0.1);
+        background: color-mix(in srgb, var(--color-danger) 10%, transparent);
         color: var(--color-danger);
     }
 
@@ -1105,8 +1105,8 @@ const HOME_STYLES: &str = r#"
         font-size: 0.65rem;
         font-weight: 600;
         color: var(--green-light);
-        background: rgba(90, 171, 60, 0.12);
-        border: 1px solid rgba(90, 171, 60, 0.3);
+        background: color-mix(in srgb, var(--green-accent) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--green-accent) 30%, transparent);
         border-radius: 10px;
         padding: 2px 8px;
         text-transform: uppercase;
@@ -1118,7 +1118,7 @@ const HOME_STYLES: &str = r#"
         border: none;
         border-radius: 7px;
         padding: 0.4rem 1rem;
-        color: #fff;
+        color: var(--white);
         font-family: var(--font-heading);
         font-size: 0.72rem;
         font-weight: 600;
@@ -1149,8 +1149,8 @@ const HOME_STYLES: &str = r#"
 
     .tree-card-add:hover {
         border-color: var(--green);
-        background: rgba(90, 171, 60, 0.04);
-        box-shadow: 0 0 30px rgba(90, 171, 60, 0.08);
+        background: color-mix(in srgb, var(--green-accent) 4%, transparent);
+        box-shadow: 0 0 30px color-mix(in srgb, var(--green-accent) 8%, transparent);
         transform: translateY(-2px);
     }
 
@@ -1158,7 +1158,7 @@ const HOME_STYLES: &str = r#"
         width: 56px;
         height: 56px;
         border-radius: 50%;
-        background: rgba(90, 171, 60, 0.1);
+        background: color-mix(in srgb, var(--green-accent) 10%, transparent);
         border: 1px solid var(--green);
         display: flex;
         align-items: center;
@@ -1169,7 +1169,7 @@ const HOME_STYLES: &str = r#"
     }
 
     .tree-card-add:hover .tree-card-add-icon {
-        background: rgba(90, 171, 60, 0.2);
+        background: color-mix(in srgb, var(--green-accent) 20%, transparent);
     }
 
     .tree-card-add-text {
@@ -1221,7 +1221,7 @@ const HOME_STYLES: &str = r#"
         min-width: 360px;
         max-width: 480px;
         width: 95vw;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+        box-shadow: 0 20px 60px color-mix(in srgb, var(--shadow-black) 80%, transparent);
     }
 
     .home-create-modal-header {
@@ -1263,7 +1263,7 @@ const HOME_STYLES: &str = r#"
         border-radius: 8px;
         font-size: 0.85rem;
         max-width: 600px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        box-shadow: 0 4px 20px color-mix(in srgb, var(--shadow-black) 40%, transparent);
     }
 
     /* ── Responsive ──────────────────────────────────────────────── */

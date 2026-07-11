@@ -473,7 +473,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 // SearchPerson typeahead component (used in SOSA root selector, etc.)
 // so that person rows look identical everywhere.
 
-fn render_result_item(entry: &SearchEntry, tree_id: &str, origin: &str, _view: ViewMode) -> Element {
+fn render_result_item(
+    entry: &SearchEntry,
+    tree_id: &str,
+    origin: &str,
+    _view: ViewMode,
+) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
         Sex::Female => "female",

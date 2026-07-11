@@ -109,6 +109,7 @@ pub const LAYOUT_STYLES: &str = r#"
         --orange-light:   #f5a03a;
         --green:          #4ea832;
         --green-light:    #7ec45f;
+        --green-accent:   #5aab3c;
         --blue:           #4a90d9;
         --pink:           #c4587a;
         --sel-bg:         #e8e0d4;
@@ -120,6 +121,9 @@ pub const LAYOUT_STYLES: &str = r#"
         --tree-visual-bg:     #e8e0d4;
         --tree-visual-branch: #b0a898;
         --color-danger-text:  #dc2626;
+        --white:          #ffffff;
+        --red:            #e05555;
+        --shadow-black:   #000000;
 
         /* ── Component dimensions ──────────────────────────────────── */
         --sb:   46px;   /* icon sidebar width */
@@ -150,8 +154,10 @@ pub const LAYOUT_STYLES: &str = r#"
         --pn-born:        #4ea832;
         --pn-died:        #4a90d9;
         --pn-sosa:        #95C417;
+        --pn-sosa-root:   #6da118;
         --pn-text:        #111111;
         --pn-text-muted:  #555555;
+        --pn-hover-bg:    #cfe3fa;
     }
 
     :root.dark {
@@ -160,6 +166,7 @@ pub const LAYOUT_STYLES: &str = r#"
         --pn-spouse-bg:  #252d3d;
         --pn-text:       #e8dfc8;
         --pn-text-muted: #7a8da8;
+        --pn-hover-bg:   #2b4364;
         /* ── Dark palette ─────────────────────────────────────────── */
         --bg-deep:        #0d0f14;
         --bg-panel:       #111318;
@@ -1009,6 +1016,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .pedigree-viewport:active { cursor: grabbing; }
+
+    .ped-card-rect:hover { fill: var(--pn-hover-bg) !important; }
 
     .pedigree-inner {
         position: absolute;

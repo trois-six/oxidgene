@@ -29,7 +29,11 @@ pub fn TopbarSearch(
                     tree_id: tree_id.clone(),
                     last: search_last(),
                     first: search_first(),
-                    origin: if from_person { "person".to_string() } else { String::new() },
+                    origin: if from_person {
+                        "person".to_string()
+                    } else {
+                        String::new()
+                    },
                 });
             }
         }
