@@ -2836,9 +2836,11 @@ fn render_pedigree_card(
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
             let fab_x = CARD_PADDING + rw / 2.0;
             let fab_y = CARD_PADDING + rh + EDIT_FAB_GAP;
+            let card_class = if is_focus { "ped-card ped-card-focus" } else { "ped-card" };
             rsx! {
                 g {
                     key: "{key}",
+                    class: "{card_class}",
                     transform: "translate({nx},{ny})",
                     style: "cursor:pointer",
                     onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
@@ -2862,6 +2864,7 @@ fn render_pedigree_card(
                         }
                     }
                     text {
+                        class: "ped-card-name-text",
                         if has_given {
                             tspan { x: "{tx}", y: "{given_y}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
                         }
