@@ -745,6 +745,15 @@ pub const LAYOUT_STYLES: &str = r#"
         border-top: none;
         padding-top: 2px;
     }
+    /* Events directly on the individual or their conjugal family stand out
+       from narrative-context events (children, parents, siblings). */
+    .pd-timeline li.pd-ev-direct {
+        background: rgba(224, 120, 32, 0.08);
+        margin: 0 -14px;
+        padding-left: 14px;
+        padding-right: 14px;
+        border-radius: 4px;
+    }
     .pd-ev-date {
         flex: none;
         width: 108px;
@@ -767,6 +776,12 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.75rem;
         color: var(--text-muted);
         font-style: italic;
+    }
+    .pd-ev-sources {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-style: italic;
+        margin-top: 2px;
     }
     /* ── Modal / confirmation dialog ─────────────────────────────── */
 
@@ -1174,6 +1189,11 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .ev-item:last-child { border-bottom: none; }
     .ev-item:hover { background: var(--bg-card-hover); }
+
+    /* Events directly on the selected person or their conjugal family stand
+       out from narrative-context events (children, parents, siblings). */
+    .ev-item.ev-item-direct { background: rgba(224, 120, 32, 0.08); }
+    .ev-item.ev-item-direct:hover { background: rgba(224, 120, 32, 0.14); }
 
     .ev-ic {
         width: 24px;

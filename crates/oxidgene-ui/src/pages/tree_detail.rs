@@ -15,86 +15,12 @@ use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::search_person::SearchPerson;
+use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache, use_view_state_cache};
 use crate::components::union_form::UnionForm;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::utils::resolve_name;
-
-/// Isolated search bar — lives in its own component so signal updates on
-/// each keystroke only re-render this small widget, not the entire TreeDetail.
-#[component]
-fn TopbarSearch(tree_id: String) -> Element {
-    let i18n = use_i18n();
-    let nav = use_navigator();
-    let mut search_last = use_signal(String::new);
-    let mut search_first = use_signal(String::new);
-
-    let do_search = {
-        let tree_id = tree_id.clone();
-        move || {
-            if !search_last().trim().is_empty() || !search_first().trim().is_empty() {
-                nav.push(Route::SearchResults {
-                    tree_id: tree_id.clone(),
-                    last: search_last(),
-                    first: search_first(),
-                });
-            }
-        }
-    };
-
-    let do_search2 = do_search.clone();
-    let do_search3 = do_search.clone();
-    let on_search_enter = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter {
-            do_search();
-        }
-    };
-    let on_search_enter2 = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter {
-            do_search2();
-        }
-    };
-    let on_search_btn = move |_| {
-        do_search3();
-    };
-
-    rsx! {
-        div { class: "td-search-group",
-            input {
-                r#type: "text",
-                class: "td-search-input",
-                placeholder: "{i18n.t(\"tree.search_last\")}",
-                value: "{search_last}",
-                oninput: move |e: Event<FormData>| search_last.set(e.value()),
-                onkeydown: on_search_enter,
-            }
-            input {
-                r#type: "text",
-                class: "td-search-input",
-                placeholder: "{i18n.t(\"tree.search_first\")}",
-                value: "{search_first}",
-                oninput: move |e: Event<FormData>| search_first.set(e.value()),
-                onkeydown: on_search_enter2,
-            }
-            button {
-                class: "td-search-btn",
-                title: "{i18n.t(\"tree.search\")}",
-                onclick: on_search_btn,
-                svg {
-                    width: "14",
-                    height: "14",
-                    fill: "none",
-                    "viewBox": "0 0 24 24",
-                    stroke: "currentColor",
-                    "strokeWidth": "2.5",
-                    circle { cx: "11", cy: "11", r: "8" }
-                    line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
-                }
-            }
-        }
-    }
-}
 
 /// Describes which linking flow is active.
 #[derive(Debug, Clone, PartialEq)]

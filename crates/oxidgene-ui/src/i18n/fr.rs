@@ -219,7 +219,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person.no_notes", "Aucune note enregistr\u{00E9}e."),
         ("person.loading_notes", "Chargement des notes\u{2026}"),
         ("person.sources_section", "Sources"),
-        ("person.source_nature_general", "G\u{00E9}n\u{00E9}ral"),
         ("person.add_citation", "Ajouter une citation"),
         ("person.new_citation", "Nouvelle citation"),
         ("person.source", "Source"),
