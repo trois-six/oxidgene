@@ -91,7 +91,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
 
     // ── Helper: get or create a Source from a free-text SOUR description ──
     //
-    // Some exporters (e.g. Geneanet/GeneWeb) write a free-text description
+    // Some exporters write a free-text description
     // (an archive reference, a URL...) instead of a pointer to a structured
     // SOUR record — valid per the GEDCOM 5.5.1 SOURCE_CITATION grammar. We
     // synthesize a `Source` from that text so the citation survives import

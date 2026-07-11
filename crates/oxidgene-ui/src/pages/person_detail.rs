@@ -356,9 +356,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         _ => String::new(),
     };
 
-    // Alternate names shown under the header name (Geneanet-style), e.g.
-    // "(Given Surname)". Excludes whichever name was picked as display_name
-    // above, and de-duplicates identical given/surname combinations.
+    // Alternate names shown under the header name, e.g."(Given Surname)".
+    // Excludes whichever name was picked as display_name above,
+    // and de-duplicates identical given/surname combinations.
     let alt_names: Vec<String> = match &*names_resource.read() {
         Some(Ok(names)) => {
             let primary = names.iter().find(|n| n.is_primary).or(names.first());
@@ -455,9 +455,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
 
             // Occupation(s), shown on its own line below the birth/death
-            // vitals (mirrors the "Profession" line on Geneanet person
-            // pages). A person can have several OCCU events (career
-            // changes) — list them all rather than picking just one.
+            // vitals (mirrors the "Profession" line on person pages).
+            // A person can have several OCCU events (career changes).
+            // List them all rather than picking just one.
             let occupations: Vec<String> = conn
                 .edges
                 .iter()
@@ -785,9 +785,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             span { class: "pd-person-chip",
                 if is_sosa {
                     svg { class: "pd-sosa-mark", "viewBox": "0 0 10 10", width: "10", height: "10",
-                        circle { cx: "5", cy: "5", r: "5", fill: "rgb(149,196,23)" }
-                        circle { cx: "5", cy: "5", r: "3", fill: "#fff" }
-                        circle { cx: "5", cy: "5", r: "1.8", fill: "rgb(149,196,23)" }
+                        circle { cx: "5", cy: "5", r: "5", fill: "var(--pn-sosa)" }
+                        circle { cx: "5", cy: "5", r: "3", fill: "var(--white)" }
+                        circle { cx: "5", cy: "5", r: "1.8", fill: "var(--pn-sosa)" }
                     }
                 }
                 span { class: sex_class, "{sex_glyph}" }

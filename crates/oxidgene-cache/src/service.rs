@@ -1034,6 +1034,62 @@ impl CacheService {
                     }
                 }
             }
+
+            // 8c. Merge family membership (spouse + children linkage) for the
+            //     members fetched above purely for display (e.g. a sibling
+            //     shown next to the root, or a boundary descendant) — not
+            //     full nodes, just enough spouse/children IDs so the "+"
+            //     hidden-relations indicator on their card is accurate. We
+            //     don't recurse further: newly-referenced spouses/children
+            //     are linked by ID only, not fetched themselves.
+            for person in outside_map.values() {
+                for family_link in &person.families_as_spouse {
+                    let fam = families.entry(family_link.family_id).or_insert_with(|| {
+                        crate::types::CachedFamily {
+                            family_id: family_link.family_id,
+                            spouse_ids: Vec::new(),
+                            children_ids: Vec::new(),
+                            members: Vec::new(),
+                        }
+                    });
+                    if !fam.spouse_ids.contains(&person.person_id) {
+                        fam.spouse_ids.push(person.person_id);
+                    }
+                    if let Some(sid) = family_link.spouse_id
+                        && !fam.spouse_ids.contains(&sid)
+                    {
+                        fam.spouse_ids.push(sid);
+                    }
+                    for &child_id in &family_link.children_ids {
+                        if !fam.children_ids.contains(&child_id) {
+                            fam.children_ids.push(child_id);
+                        }
+                    }
+                }
+                if let Some(child_link) = &person.family_as_child {
+                    let fam = families.entry(child_link.family_id).or_insert_with(|| {
+                        crate::types::CachedFamily {
+                            family_id: child_link.family_id,
+                            spouse_ids: Vec::new(),
+                            children_ids: Vec::new(),
+                            members: Vec::new(),
+                        }
+                    });
+                    if !fam.children_ids.contains(&person.person_id) {
+                        fam.children_ids.push(person.person_id);
+                    }
+                    if let Some(father_id) = child_link.father_id
+                        && !fam.spouse_ids.contains(&father_id)
+                    {
+                        fam.spouse_ids.push(father_id);
+                    }
+                    if let Some(mother_id) = child_link.mother_id
+                        && !fam.spouse_ids.contains(&mother_id)
+                    {
+                        fam.spouse_ids.push(mother_id);
+                    }
+                }
+            }
         }
 
         // 9. Build and store the pedigree.

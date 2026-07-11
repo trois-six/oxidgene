@@ -1,6 +1,6 @@
 //! Typeahead search component for finding and linking existing persons.
 //!
-//! Used in the Geneanet-style UI for "Add Spouse", "Add Parents", "Add Child"
+//! Used in the UI for "Add Spouse", "Add Parents", "Add Child"
 //! flows where the user can either create a new person or link to an existing one.
 //!
 //! Performance: uses the server-side `/persons/search?q=...` endpoint, backed
