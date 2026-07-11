@@ -51,6 +51,9 @@ pub struct SearchResultsProps {
     pub last: String,
     #[props(default = String::new())]
     pub first: String,
+    /// Which view the search was launched from — see [`Route::SearchResults`].
+    #[props(default = String::new())]
+    pub origin: String,
 }
 
 // ── SearchResults Component ──────────────────────────────────────────────
@@ -426,7 +429,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     div {
                         class: "search-person-results sr-results-page",
                         for entry in page_results.iter() {
-                            {render_result_item(entry, &props.tree_id, view_mode())}
+                            {render_result_item(entry, &props.tree_id, &props.origin, view_mode())}
                         }
                     }
                 }
@@ -470,7 +473,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 // SearchPerson typeahead component (used in SOSA root selector, etc.)
 // so that person rows look identical everywhere.
 
-fn render_result_item(entry: &SearchEntry, tree_id: &str, _view: ViewMode) -> Element {
+fn render_result_item(entry: &SearchEntry, tree_id: &str, origin: &str, _view: ViewMode) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
         Sex::Female => "female",
@@ -496,12 +499,21 @@ fn render_result_item(entry: &SearchEntry, tree_id: &str, _view: ViewMode) -> El
     let tree_id_str = tree_id.to_string();
     let person_id_str = entry.person_id.to_string();
 
+    let target = if origin == "person" {
+        Route::PersonDetail {
+            tree_id: tree_id_str,
+            person_id: person_id_str,
+        }
+    } else {
+        Route::TreeDetail {
+            tree_id: tree_id_str,
+            person: Some(person_id_str),
+        }
+    };
+
     rsx! {
         Link {
-            to: Route::TreeDetail {
-                tree_id: tree_id_str,
-                person: Some(person_id_str),
-            },
+            to: target,
             class: "search-person-result {sex_class}",
             div { class: "sp-result-photo",
                 span { class: "sp-result-initials {sex_class}", "{initials}" }

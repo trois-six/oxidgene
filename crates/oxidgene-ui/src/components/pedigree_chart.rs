@@ -3053,6 +3053,17 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         _ => format!("{sel_birth} \u{2013} {sel_death}"),
     };
 
+    // Family IDs where the selected person is a spouse — used both to pull in
+    // conjugal-family events below and to flag which rendered events are
+    // "direct" (on the person or their own conjugal family) vs. narrative
+    // context (children, parents, siblings).
+    let spouse_family_ids: Vec<Uuid> = props
+        .data
+        .families_as_spouse
+        .get(&sel_pid)
+        .cloned()
+        .unwrap_or_default();
+
     // Collect all events relevant to this person:
     // 1. Individual events (birth, death, occupation, etc.)
     let mut sel_events: Vec<DomainEvent> = props
@@ -3530,13 +3541,20 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                     } else {
                                                         label
                                                     };
+                                                    let is_direct = evt.person_id == Some(sel_pid)
+                                                        || evt.family_id.is_some_and(|fid| spouse_family_ids.contains(&fid));
+                                                    let item_class = if is_direct {
+                                                        "ev-item ev-item-clickable ev-item-direct"
+                                                    } else {
+                                                        "ev-item ev-item-clickable"
+                                                    };
                                                     let sel = sel_pid;
                                                     let tid = tree_id.clone();
                                                     let nav = use_navigator();
                                                     rsx! {
                                                         div {
                                                             key: "ev-{gi}-{ei}",
-                                                            class: "ev-item ev-item-clickable",
+                                                            class: "{item_class}",
                                                             onclick: move |_| {
                                                                 nav.push(crate::router::Route::PersonDetail {
                                                                     tree_id: tid.clone(),

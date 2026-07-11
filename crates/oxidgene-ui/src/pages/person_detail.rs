@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
+use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
@@ -984,45 +985,22 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     };
 
-    // ── Build "Sources" list ────────────────────────────────────────────
+    // ── Build per-event source citations ──────────────────────────────
     //
-    // One line per citation, scoped to facts about this specific person:
-    // citations attached directly to the person, plus citations on this
-    // person's own individual events (birth, baptism, occupation…) and
-    // their own conjugal-family events (marriage, divorce…). Citations on
-    // events shown only for narrative context (children, parents, siblings)
-    // are intentionally excluded — those are facts about other people.
-    let person_sources: Vec<(String, String)> = {
-        let pid = person_id_parsed();
-        match (&*citations_resource.read(), &*sources_resource.read(), pid) {
-            (Some(Ok(citations)), Some(Ok(sources)), Some(pid)) => {
+    // One entry per event, listing its citations ("Source title — page"),
+    // rendered directly under that event in the timeline instead of a
+    // separate "Sources" section.
+    let citations_by_event: HashMap<Uuid, Vec<String>> = {
+        match (&*citations_resource.read(), &*sources_resource.read()) {
+            (Some(Ok(citations)), Some(Ok(sources))) => {
                 let source_by_id: HashMap<Uuid, &oxidgene_core::types::Source> =
                     sources.iter().map(|s| (s.id, s)).collect();
 
-                let event_nature: HashMap<Uuid, String> = enriched_events
-                    .iter()
-                    .filter(|ee| {
-                        matches!(
-                            ee.origin,
-                            EventOrigin::Individual | EventOrigin::ConjugalFamily
-                        )
-                    })
-                    .map(|ee| {
-                        let key = format!("event.type.{}", ee.event.event_type);
-                        (ee.event.id, i18n.t(&key))
-                    })
-                    .collect();
-
-                let mut result: Vec<(String, String)> = Vec::new();
+                let mut result: HashMap<Uuid, Vec<String>> = HashMap::new();
                 for citation in citations {
-                    let nature = if citation.person_id == Some(pid) {
-                        Some(i18n.t("person.source_nature_general"))
-                    } else if let Some(eid) = citation.event_id {
-                        event_nature.get(&eid).cloned()
-                    } else {
-                        None
+                    let Some(eid) = citation.event_id else {
+                        continue;
                     };
-                    let Some(nature) = nature else { continue };
                     let Some(source) = source_by_id.get(&citation.source_id) else {
                         continue;
                     };
@@ -1032,11 +1010,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         }
                         _ => source.title.clone(),
                     };
-                    result.push((nature, text));
+                    result.entry(eid).or_default().push(text);
                 }
                 result
             }
-            _ => Vec::new(),
+            _ => HashMap::new(),
         }
     };
 
@@ -1062,6 +1040,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 }
                 span { class: "td-bc-current", "{display_name}" }
             }
+            TopbarSearch { tree_id: tree_id.clone(), from_person: true }
         }
 
         div { class: "pd-page-shell",
@@ -1503,8 +1482,15 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         origin_label
                                     };
 
+                                    let is_direct = matches!(
+                                        ee.origin,
+                                        EventOrigin::Individual | EventOrigin::ConjugalFamily
+                                    );
+                                    let li_class = if is_direct { "pd-ev-direct" } else { "" };
+                                    let event_sources = citations_by_event.get(&eid);
+
                                     rsx! {
-                                        li { key: "{eid}",
+                                        li { key: "{eid}", class: "{li_class}",
                                             span { class: "pd-ev-date",
                                                 {event.date_value.as_deref().unwrap_or("--")}
                                             }
@@ -1521,6 +1507,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                     }
                                                 }
                                                 div { class: "pd-ev-origin", "{origin_display}" }
+                                                if let Some(sources) = event_sources {
+                                                    div { class: "pd-ev-sources",
+                                                        {i18n.t("person.sources_section")}
+                                                        ": {sources.join(\"; \")}"
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1535,22 +1527,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 None => rsx! {
                     div { class: "loading", {i18n.t("person.loading_events")} }
                 },
-            }
-        }
-
-        // ── Sources section ───────────────────────────────────────────
-        if !person_sources.is_empty() {
-            div { class: "card", style: "margin-bottom: 24px;",
-                div { class: "section-header",
-                    h2 { style: "font-size: 1.1rem;", {i18n.t("person.sources_section")} }
-                }
-
-                for (nature, text) in person_sources.iter() {
-                    p { style: "margin: 0 0 6px;",
-                        strong { "{nature}" }
-                        ": {text}"
-                    }
-                }
             }
         }
 
