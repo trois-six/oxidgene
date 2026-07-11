@@ -1017,7 +1017,8 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .pedigree-viewport:active { cursor: grabbing; }
 
-    .ped-card-rect:hover { fill: var(--pn-hover-bg) !important; }
+    .ped-card:hover .ped-card-rect { fill: var(--pn-hover-bg) !important; stroke: var(--pn-root-bg) !important; }
+    .ped-card-focus:hover .ped-card-name-text, .ped-card-focus:hover .ped-card-name-text tspan { fill: var(--pn-text) !important; }
 
     .pedigree-inner {
         position: absolute;
