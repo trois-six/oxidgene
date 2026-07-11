@@ -909,11 +909,13 @@ impl CacheService {
                 if !fam.spouse_ids.contains(&person.person_id) {
                     fam.spouse_ids.push(person.person_id);
                 }
-                for &child_id in &family_link.children_ids {
-                    if !fam.children_ids.contains(&child_id) {
-                        fam.children_ids.push(child_id);
-                    }
-                }
+                // Authoritative, birth-order-sorted list for the family. Replace
+                // rather than append: `all_person_map` is a HashMap, so iteration
+                // order is unpredictable — if this family's `family_as_child`
+                // branch below already ran for a different person and seeded
+                // just their own ID, appending would leave that person stuck
+                // ahead of siblings who actually precede them.
+                fam.children_ids = family_link.children_ids.clone();
             }
             // Family where this person is a child.
             if let Some(child_link) = &person.family_as_child {
@@ -972,6 +974,10 @@ impl CacheService {
                 .persons_for_pedigree(tree_id, &parent_ids_to_fetch, &local_persons)
                 .await?;
             // Use the fetched parents' families_as_spouse to fill in missing children.
+            // A parent's children_ids is the authoritative, birth-order-sorted list
+            // for the family, so replace rather than append: appending would leave
+            // whichever child was pre-seeded first (the pedigree root) stuck at
+            // index 0, scrambling sibling order for anyone but the eldest.
             let parent_map: std::collections::HashMap<Uuid, &CachedPerson> =
                 fetched_parents.iter().map(|p| (p.person_id, p)).collect();
             for fam in families.values_mut() {
@@ -982,11 +988,7 @@ impl CacheService {
                             .iter()
                             .find(|fl| fl.family_id == fam.family_id)
                     {
-                        for &child_id in &fl.children_ids {
-                            if !fam.children_ids.contains(&child_id) {
-                                fam.children_ids.push(child_id);
-                            }
-                        }
+                        fam.children_ids = fl.children_ids.clone();
                     }
                 }
             }
@@ -1060,11 +1062,9 @@ impl CacheService {
                     {
                         fam.spouse_ids.push(sid);
                     }
-                    for &child_id in &family_link.children_ids {
-                        if !fam.children_ids.contains(&child_id) {
-                            fam.children_ids.push(child_id);
-                        }
-                    }
+                    // Authoritative, birth-order-sorted list for the family — replace
+                    // rather than append (see 8a for why appending scrambles order).
+                    fam.children_ids = family_link.children_ids.clone();
                 }
                 if let Some(child_link) = &person.family_as_child {
                     let fam = families.entry(child_link.family_id).or_insert_with(|| {
