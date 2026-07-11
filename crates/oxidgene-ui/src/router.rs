@@ -33,11 +33,16 @@ pub enum Route {
     },
 
     /// Search results page for a tree.
-    #[route("/trees/:tree_id/search?:last&:first")]
+    ///
+    /// `origin` records which view the search was launched from ("person" for
+    /// the person-detail page, empty/anything else for the pedigree view), so
+    /// clicking a result returns to that same view.
+    #[route("/trees/:tree_id/search?:last&:first&:origin")]
     SearchResults {
         tree_id: String,
         last: String,
         first: String,
+        origin: String,
     },
 
     /// Detail view for a person within a tree.
