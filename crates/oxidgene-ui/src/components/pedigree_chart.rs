@@ -1685,22 +1685,45 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
         // from its neighbor just because a LATER sibling's subtree is wide
         // — e.g. a childless first child ends up many card-widths from its
         // very next sibling, even though neither of their own subtrees
-        // needed that room. `collect_min_x`/`collect_max_x` already report
-        // each subtree's true occupied extent, so any gap wider than 1.0
-        // unit here is unused slack from that redistribution, not real
-        // content — compact it away symmetrically with the widen case
-        // below by allowing `shift` to go negative.
+        // needed that room. Any gap wider than 1.0 unit here is unused
+        // slack from that redistribution, not real content — compact it
+        // away symmetrically with the widen case by allowing `shift` to go
+        // negative.
+        //
+        // Gaps are measured PER DEPTH LEVEL against the running contour of
+        // everything already placed in this row, not against each subtree's
+        // whole bounding box. A bounding-box check forces a childless
+        // sibling a full card away from a neighbor's *deepest* descendant
+        // row even though the two never share a row — per-level contours
+        // let shallow cards tuck in right next to their direct neighbor
+        // (the classic RT contour behaviour) while still guaranteeing the
+        // 1.0-unit separation on every row the two sides actually share.
+        let mut contour_max: HashMap<i32, f64> = HashMap::new();
+        {
+            let mut first_min = HashMap::new();
+            collect_depth_extents(arena, children[0], &mut first_min, &mut contour_max);
+        }
         for i in 1..children.len() {
             let prev = children[i - 1];
             let curr = children[i];
 
-            let mut prev_max_x = f64::NEG_INFINITY;
-            collect_max_x(arena, prev, &mut prev_max_x);
-            let mut curr_min_x = f64::INFINITY;
-            collect_min_x(arena, curr, &mut curr_min_x);
+            let mut curr_min: HashMap<i32, f64> = HashMap::new();
+            let mut curr_max: HashMap<i32, f64> = HashMap::new();
+            collect_depth_extents(arena, curr, &mut curr_min, &mut curr_max);
 
-            let gap = curr_min_x - prev_max_x;
-            let shift = 1.0 - gap;
+            // Tightest depth wins: after shifting, every depth the two sides
+            // share must keep a 1.0-unit gap; depths only one side occupies
+            // are unconstrained.
+            let mut shift = f64::NEG_INFINITY;
+            for (d, cmin) in &curr_min {
+                if let Some(pmax) = contour_max.get(d) {
+                    shift = shift.max(1.0 - (cmin - pmax));
+                }
+            }
+            if !shift.is_finite() {
+                shift = 0.0;
+            }
+
             if shift.abs() > 1e-9 {
                 for &ci in &children[i..] {
                     shift_subtree(arena, ci, shift);
@@ -1717,11 +1740,23 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
                     }
                 }
             }
+
+            // Fold `curr`'s (post-shift) extents into the row contour so the
+            // NEXT sibling is checked against everything placed so far — a
+            // subtree two positions back can still be the rightmost content
+            // on a deep row when the in-between sibling is shallow.
+            for (d, cmax) in curr_max {
+                let v = cmax + shift;
+                contour_max
+                    .entry(d)
+                    .and_modify(|m| *m = m.max(v))
+                    .or_insert(v);
+            }
         }
 
-        // Re-center `node` (and its own spouse card(s)) over the true
-        // horizontal midpoint of ALL its children's subtrees — not just the
-        // first and last child's own row.
+        // Re-center the COUPLE GROUP — `node` together with its spouse
+        // card(s) — over the true horizontal midpoint of ALL its children's
+        // subtrees, not just the first and last child's own row.
         //
         // `first_walk`'s midpoint formula (the ported RT algorithm) only
         // centers a parent between its FIRST and LAST child's z, a classic
@@ -1736,6 +1771,13 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
         // recenter unconditionally — this also subsumes the narrower
         // "only recenter after a gap-fix shift" case, since a shift only
         // ever changes what this bounding box already captures.
+        //
+        // Centering the couple's own bounding box (rather than the primary
+        // card alone) is what keeps the visual convention intact: the
+        // couple pair sits symmetrically over its children row. Centering
+        // just the primary card left every children row half a card
+        // off-center from the couple (a full card and more when the node
+        // has several spouse cards trailing to one side).
         let mut row_min = f64::INFINITY;
         let mut row_max = f64::NEG_INFINITY;
         for &ci in &children {
@@ -1743,7 +1785,14 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
             collect_max_x(arena, ci, &mut row_max);
         }
 
-        let delta = (row_min + row_max) / 2.0 - arena[node].x;
+        let mut group_min = arena[node].x;
+        let mut group_max = arena[node].x;
+        for &si in &siblings {
+            group_min = group_min.min(arena[si].x);
+            group_max = group_max.max(arena[si].x);
+        }
+
+        let delta = (row_min + row_max) / 2.0 - (group_min + group_max) / 2.0;
         if delta.abs() > 1e-9 {
             arena[node].x += delta;
             for &si in &siblings {
@@ -1778,6 +1827,42 @@ fn collect_min_x(arena: &[TreeNode], node: usize, min_x: &mut f64) {
     }
     for &ci in &arena[node].children.clone() {
         collect_min_x(arena, ci, min_x);
+    }
+}
+
+/// Per-depth horizontal extents of a subtree (node + spouse cards +
+/// descendants), keyed by tree depth. Unlike the flat
+/// [`collect_min_x`]/[`collect_max_x`] bounding box, this keeps each row's
+/// extent separate, so two subtrees may interleave horizontally on rows
+/// where only one of them has content.
+fn collect_depth_extents(
+    arena: &[TreeNode],
+    node: usize,
+    min_by_depth: &mut HashMap<i32, f64>,
+    max_by_depth: &mut HashMap<i32, f64>,
+) {
+    fn record(
+        depth: i32,
+        x: f64,
+        min_by_depth: &mut HashMap<i32, f64>,
+        max_by_depth: &mut HashMap<i32, f64>,
+    ) {
+        min_by_depth
+            .entry(depth)
+            .and_modify(|m| *m = m.min(x))
+            .or_insert(x);
+        max_by_depth
+            .entry(depth)
+            .and_modify(|m| *m = m.max(x))
+            .or_insert(x);
+    }
+
+    record(arena[node].depth, arena[node].x, min_by_depth, max_by_depth);
+    for &si in &arena[node].siblings {
+        record(arena[si].depth, arena[si].x, min_by_depth, max_by_depth);
+    }
+    for &ci in &arena[node].children {
+        collect_depth_extents(arena, ci, min_by_depth, max_by_depth);
     }
 }
 
@@ -4131,12 +4216,14 @@ mod layout_overlap_tests {
 
         layout_tree(&mut arena, 0);
 
-        // `branch_a` should sit centered over the TRUE bounding box of all
-        // its children's subtrees (child_a/b/c *and* their own grandchildren
-        // rows) — not just wherever it landed before its children got
-        // shifted, and not just the first/last child's own row (that
-        // narrower approximation misses cases where a middle child's own
-        // subtree is the widest).
+        // `branch_a`'s COUPLE (him + his spouse card) should sit centered
+        // over the TRUE bounding box of all its children's subtrees
+        // (child_a/b/c *and* their own grandchildren rows) — not just
+        // wherever it landed before its children got shifted, and not just
+        // the first/last child's own row (that narrower approximation
+        // misses cases where a middle child's own subtree is the widest).
+        // Centering the primary card alone would leave the couple half a
+        // card off-center from the row.
         let mut row_min = f64::INFINITY;
         let mut row_max = f64::NEG_INFINITY;
         for &ci in &arena[branch_a].children.clone() {
@@ -4144,10 +4231,123 @@ mod layout_overlap_tests {
             collect_max_x(&arena, ci, &mut row_max);
         }
         let expected_center = (row_min + row_max) / 2.0;
-        let actual = arena[branch_a].x;
+        let actual = (arena[branch_a].x + arena[branch_a_spouse].x) / 2.0;
         assert!(
             (actual - expected_center).abs() < 1e-6,
-            "branch_a not centered over its children row: x={actual} expected={expected_center}"
+            "branch_a couple not centered over its children row: couple center={actual} expected={expected_center}"
+        );
+    }
+
+    /// The unconditional recenter must center the COUPLE (primary card +
+    /// spouse card) over the children row — centering the primary card
+    /// alone shifts every children row half a card off the couple's visual
+    /// midpoint.
+    #[test]
+    fn couple_group_centers_over_children_row() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        let child_a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let child_b = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
+        arena[root].children = vec![child_a, child_b];
+
+        layout_tree(&mut arena, 0);
+
+        let row_center = (arena[child_a].x + arena[child_b].x) / 2.0;
+        let couple_center = (arena[root].x + arena[root_spouse].x) / 2.0;
+        assert!(
+            (couple_center - row_center).abs() < 1e-6,
+            "root couple not centered over children row: couple={couple_center} row={row_center}"
+        );
+    }
+
+    /// A node with SEVERAL spouse cards must have the whole card group
+    /// (node + every spouse) centered over the combined children row, not
+    /// the primary card alone — with two spouses trailing to one side,
+    /// card-alone centering leaves the visual group more than a full card
+    /// off-center.
+    #[test]
+    fn multi_spouse_group_centers_over_combined_children() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Female, None));
+        let husband_1 = push(&mut arena, person(0, Sex::Male, None));
+        marry(&mut arena, root, husband_1);
+        let husband_2 = push(&mut arena, person(0, Sex::Male, None));
+        marry(&mut arena, root, husband_2);
+
+        let child_a = push(&mut arena, person(1, Sex::Male, Some(husband_1)));
+        let child_b = push(&mut arena, person(1, Sex::Female, Some(husband_1)));
+        let child_c = push(&mut arena, person(1, Sex::Male, Some(husband_2)));
+        arena[root].children = vec![child_a, child_b, child_c];
+
+        layout_tree(&mut arena, 0);
+
+        let row_min = arena[child_a].x.min(arena[child_b].x).min(arena[child_c].x);
+        let row_max = arena[child_a].x.max(arena[child_b].x).max(arena[child_c].x);
+        let group_min = arena[root]
+            .x
+            .min(arena[husband_1].x)
+            .min(arena[husband_2].x);
+        let group_max = arena[root]
+            .x
+            .max(arena[husband_1].x)
+            .max(arena[husband_2].x);
+        let row_center = (row_min + row_max) / 2.0;
+        let group_center = (group_min + group_max) / 2.0;
+        assert!(
+            (group_center - row_center).abs() < 1e-6,
+            "multi-spouse group not centered over combined children row: \
+             group={group_center} row={row_center}"
+        );
+    }
+
+    /// A childless sibling only ever conflicts with its neighbor on its OWN
+    /// row, so it must sit exactly one card from the neighbor couple's
+    /// rightmost card — not one card past the neighbor's deepest descendant
+    /// row's extent, which the old whole-bounding-box gap check enforced
+    /// and which pushed childless siblings several card-widths away from a
+    /// neighbor whose grandchildren row is wide.
+    #[test]
+    fn childless_sibling_tucks_in_next_to_wide_branch() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        let branch_a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_b = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        arena[root].children = vec![branch_a, branch_b];
+
+        let branch_a_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_a, branch_a_spouse);
+
+        // branch_a has 4 children, each married with 2 children of their
+        // own — a descendant subtree far wider than the branch_a couple
+        // itself.
+        let mut a_children = Vec::new();
+        for _ in 0..4 {
+            let c = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+            let c_spouse = push(&mut arena, person(2, Sex::Female, None));
+            marry(&mut arena, c, c_spouse);
+            let g_1 = push(&mut arena, person(3, Sex::Male, Some(c_spouse)));
+            let g_2 = push(&mut arena, person(3, Sex::Female, Some(c_spouse)));
+            arena[c].children = vec![g_1, g_2];
+            a_children.push(c);
+        }
+        arena[branch_a].children = a_children;
+
+        layout_tree(&mut arena, 0);
+
+        let right_of_couple = arena[branch_a].x.max(arena[branch_a_spouse].x);
+        let gap = arena[branch_b].x - right_of_couple;
+        assert!(
+            (gap - CARD_W).abs() < 1e-6,
+            "childless sibling pushed away from neighbor couple: gap={gap}, expected {CARD_W}"
         );
     }
 
