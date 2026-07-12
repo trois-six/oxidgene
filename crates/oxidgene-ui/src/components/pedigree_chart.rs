@@ -1669,7 +1669,27 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
         // half-sibling group boundaries. This also covers the case where a
         // child is itself a leaf with a married-in spouse card, which the
         // Reingold-Tilford contour walk does not always widen for.
-        let mut shifted = false;
+        //
+        // The gap can drift in EITHER direction from the ideal 1.0-unit
+        // separation, not just too tight:
+        //
+        // `first_walk`'s `apportion`/`tree_move`/`tree_shift` is a direct
+        // port of the classic Buchheim linear-time RT algorithm, which
+        // deliberately distributes the extra width a wide subtree needs
+        // *backward* across its earlier siblings (walking `node`'s children
+        // right-to-left and accumulating `.s`/`.c`) rather than confining
+        // that slack to the wide branch alone. That's correct/intentional
+        // for the classic algorithm's "no kinks" guarantee on deep contour
+        // conflicts between distant cousins, but for direct siblings it
+        // means a sibling with a small subtree (or none) gets dragged away
+        // from its neighbor just because a LATER sibling's subtree is wide
+        // — e.g. a childless first child ends up many card-widths from its
+        // very next sibling, even though neither of their own subtrees
+        // needed that room. `collect_min_x`/`collect_max_x` already report
+        // each subtree's true occupied extent, so any gap wider than 1.0
+        // unit here is unused slack from that redistribution, not real
+        // content — compact it away symmetrically with the widen case
+        // below by allowing `shift` to go negative.
         for i in 1..children.len() {
             let prev = children[i - 1];
             let curr = children[i];
@@ -1680,12 +1700,11 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
             collect_min_x(arena, curr, &mut curr_min_x);
 
             let gap = curr_min_x - prev_max_x;
-            if gap < 1.0 {
-                let shift = 1.0 - gap;
+            let shift = 1.0 - gap;
+            if shift.abs() > 1e-9 {
                 for &ci in &children[i..] {
                     shift_subtree(arena, ci, shift);
                 }
-                shifted = true;
                 // If `curr` starts a new parent2 (half-sibling) group, shift
                 // the matching spouse sibling of `node` along with it.
                 if arena[curr].parent2 != arena[prev].parent2
@@ -1700,34 +1719,35 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
             }
         }
 
-        // A shift above moved this row's children (and possibly `node`'s own
-        // later spouse) without moving `node` itself, so `node` (the couple
-        // this row belongs to) is no longer centered over its own children —
-        // it just sits wherever the original RT pass put it, off-center from
-        // the now-widened row below. Re-center `node` and its spouse card(s)
-        // over the post-shift first/last child couple, same as the original
-        // RT midpoint math (first_walk's `midpoint`) intended. This must
-        // happen before returning so the parent's own gap check one level up
-        // sees `node`'s corrected position.
-        if shifted {
-            let first_child = children[0];
-            let last_child = *children.last().unwrap();
+        // Re-center `node` (and its own spouse card(s)) over the true
+        // horizontal midpoint of ALL its children's subtrees — not just the
+        // first and last child's own row.
+        //
+        // `first_walk`'s midpoint formula (the ported RT algorithm) only
+        // centers a parent between its FIRST and LAST child's z, a classic
+        // RT simplification that implicitly assumes subtree widths are
+        // roughly symmetric across the row. When a MIDDLE child's subtree
+        // is far wider than its neighbors (e.g. one branch has 10 recorded
+        // descendants and the branches on either side of it have 1-3), that
+        // assumption breaks down: the parent ends up visibly off-center
+        // relative to the full row even though no individual gap overlaps
+        // or looks unreasonably wide on its own. Recompute the row's true
+        // bounding box across every child (not just the two ends) and
+        // recenter unconditionally — this also subsumes the narrower
+        // "only recenter after a gap-fix shift" case, since a shift only
+        // ever changes what this bounding box already captures.
+        let mut row_min = f64::INFINITY;
+        let mut row_max = f64::NEG_INFINITY;
+        for &ci in &children {
+            collect_min_x(arena, ci, &mut row_min);
+            collect_max_x(arena, ci, &mut row_max);
+        }
 
-            let mut row_min = arena[first_child].x;
-            for &si in &arena[first_child].siblings.clone() {
-                row_min = row_min.min(arena[si].x);
-            }
-            let mut row_max = arena[last_child].x;
-            for &si in &arena[last_child].siblings.clone() {
-                row_max = row_max.max(arena[si].x);
-            }
-
-            let delta = (row_min + row_max) / 2.0 - arena[node].x;
-            if delta.abs() > 1e-9 {
-                arena[node].x += delta;
-                for &si in &siblings {
-                    arena[si].x += delta;
-                }
+        let delta = (row_min + row_max) / 2.0 - arena[node].x;
+        if delta.abs() > 1e-9 {
+            arena[node].x += delta;
+            for &si in &siblings {
+                arena[si].x += delta;
             }
         }
     }
@@ -2869,7 +2889,11 @@ fn render_pedigree_card(
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
             let fab_x = CARD_PADDING + rw / 2.0;
             let fab_y = CARD_PADDING + rh + EDIT_FAB_GAP;
-            let card_class = if is_focus { "ped-card ped-card-focus" } else { "ped-card" };
+            let card_class = if is_focus {
+                "ped-card ped-card-focus"
+            } else {
+                "ped-card"
+            };
             rsx! {
                 g {
                     key: "{key}",
@@ -3927,6 +3951,132 @@ mod layout_overlap_tests {
         }
     }
 
+    /// Reproduces a real family shape: the FIRST child of the root couple
+    /// (`branch_a`) is married with 6 children of his own (some of those in
+    /// turn married), followed by a childless second child (`branch_b`) and
+    /// a female third child (`branch_c`, `after == 1`) married-in.
+    /// `branch_a`'s own spouse card must stay exactly one card-width from
+    /// him regardless of how wide his own descendant subtree grows or how
+    /// the later `after == 1` sibling is positioned.
+    #[test]
+    fn first_child_spouse_gap_stays_one_card_width_with_wide_subtree() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        let branch_a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_b = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_c = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
+        arena[root].children = vec![branch_a, branch_b, branch_c];
+
+        let branch_a_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_a, branch_a_spouse);
+
+        let branch_b_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_b, branch_b_spouse);
+
+        let branch_c_spouse = push(&mut arena, person(1, Sex::Male, None));
+        marry(&mut arena, branch_c, branch_c_spouse);
+
+        // branch_a's 6 children, two of them married in turn.
+        let child_1 = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        let child_2 = push(&mut arena, person(2, Sex::Female, Some(branch_a_spouse)));
+        let child_3 = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        let child_4 = push(&mut arena, person(2, Sex::Female, Some(branch_a_spouse)));
+        let child_5 = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        let child_6 = push(&mut arena, person(2, Sex::Female, Some(branch_a_spouse)));
+        arena[branch_a].children = vec![child_1, child_2, child_3, child_4, child_5, child_6];
+
+        let child_2_spouse = push(&mut arena, person(2, Sex::Male, None));
+        marry(&mut arena, child_2, child_2_spouse);
+        let child_3_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, child_3, child_3_spouse);
+        // child_6 (last, female) has an unknown ("+") spouse — an empty
+        // placeholder card rather than a real person.
+        let child_6_spouse = push(&mut arena, TreeNode::new_empty(2, None, false));
+        marry(&mut arena, child_6, child_6_spouse);
+
+        layout_tree(&mut arena, 0);
+
+        let gap = arena[branch_a_spouse].x - arena[branch_a].x;
+        assert!(
+            (gap - CARD_W).abs() < 1e-6,
+            "branch_a spouse gap drifted: gap={gap}, expected exactly {CARD_W}"
+        );
+    }
+
+    /// Builds: root couple → 3 children — `branch_a` (childless), `branch_b`
+    /// (a couple of modest size, 2 children), and optionally `branch_c` (a
+    /// couple with a much wider subtree: 5 children, several married in
+    /// turn). Returns the gap between `branch_a` and `branch_b`.
+    fn branch_a_to_branch_b_gap(with_wide_third_branch: bool) -> f64 {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        let branch_a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_b = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let mut root_children = vec![branch_a, branch_b];
+
+        let branch_b_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_b, branch_b_spouse);
+        let bc_1 = push(&mut arena, person(2, Sex::Male, Some(branch_b_spouse)));
+        let bc_2 = push(&mut arena, person(2, Sex::Female, Some(branch_b_spouse)));
+        arena[branch_b].children = vec![bc_1, bc_2];
+
+        if with_wide_third_branch {
+            let branch_c = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
+            root_children.push(branch_c);
+            let branch_c_spouse = push(&mut arena, person(1, Sex::Male, None));
+            marry(&mut arena, branch_c, branch_c_spouse);
+
+            let cc_1 = push(&mut arena, person(2, Sex::Male, Some(branch_c_spouse)));
+            let cc_2 = push(&mut arena, person(2, Sex::Female, Some(branch_c_spouse)));
+            let cc_3 = push(&mut arena, person(2, Sex::Male, Some(branch_c_spouse)));
+            let cc_4 = push(&mut arena, person(2, Sex::Female, Some(branch_c_spouse)));
+            let cc_5 = push(&mut arena, person(2, Sex::Male, Some(branch_c_spouse)));
+            arena[branch_c].children = vec![cc_1, cc_2, cc_3, cc_4, cc_5];
+
+            let cc_2_spouse = push(&mut arena, person(2, Sex::Male, None));
+            marry(&mut arena, cc_2, cc_2_spouse);
+            let cc_4_spouse = push(&mut arena, person(2, Sex::Male, None));
+            marry(&mut arena, cc_4, cc_4_spouse);
+        }
+
+        arena[root].children = root_children;
+
+        layout_tree(&mut arena, 0);
+
+        arena[branch_b].x - arena[branch_a].x
+    }
+
+    /// Reproduces the real-world bug: `apportion`/`tree_move`/`tree_shift`
+    /// (a direct port of the classic Buchheim linear-time RT algorithm)
+    /// deliberately distributes the extra width a wide subtree needs
+    /// *backward* across its earlier siblings. That's intentional for the
+    /// algorithm's "no kinks" guarantee on deep contour conflicts, but for
+    /// direct siblings it means a sibling with a small/no subtree gets
+    /// dragged away from its immediate neighbor just because a LATER
+    /// sibling's subtree is wide — even though neither of their own
+    /// subtrees needed that room. The gap between `branch_a` and `branch_b`
+    /// must stay (approximately) the same whether or not a much wider third
+    /// sibling exists further down the row.
+    #[test]
+    fn wide_later_sibling_does_not_inflate_earlier_sibling_gap() {
+        let baseline_gap = branch_a_to_branch_b_gap(false);
+        let gap_with_wide_sibling = branch_a_to_branch_b_gap(true);
+
+        assert!(
+            (gap_with_wide_sibling - baseline_gap).abs() < 1e-6,
+            "adding a wide third sibling changed the branch_a-branch_b gap: \
+             baseline={baseline_gap}, with_wide_sibling={gap_with_wide_sibling}"
+        );
+    }
+
     /// `fix_spouse_group_overlaps` shifts a child subtree rightward to kill
     /// an overlap, but if it doesn't also re-center the parent couple over
     /// the now-shifted children row, the parent drifts off-center relative
@@ -3981,18 +4131,18 @@ mod layout_overlap_tests {
 
         layout_tree(&mut arena, 0);
 
-        // `branch_a` should sit centered over the row spanned by its first
-        // child's couple (child_a + child_a_spouse) and its last child's
-        // couple (child_c + child_c_spouse), exactly as the RT pass intends
-        // — not wherever it landed before its children got shifted.
-        let row_min = [child_a, child_a_spouse]
-            .iter()
-            .map(|&i| arena[i].x)
-            .fold(f64::INFINITY, f64::min);
-        let row_max = [child_c, child_c_spouse]
-            .iter()
-            .map(|&i| arena[i].x)
-            .fold(f64::NEG_INFINITY, f64::max);
+        // `branch_a` should sit centered over the TRUE bounding box of all
+        // its children's subtrees (child_a/b/c *and* their own grandchildren
+        // rows) — not just wherever it landed before its children got
+        // shifted, and not just the first/last child's own row (that
+        // narrower approximation misses cases where a middle child's own
+        // subtree is the widest).
+        let mut row_min = f64::INFINITY;
+        let mut row_max = f64::NEG_INFINITY;
+        for &ci in &arena[branch_a].children.clone() {
+            collect_min_x(&arena, ci, &mut row_min);
+            collect_max_x(&arena, ci, &mut row_max);
+        }
         let expected_center = (row_min + row_max) / 2.0;
         let actual = arena[branch_a].x;
         assert!(
