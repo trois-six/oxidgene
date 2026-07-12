@@ -1669,6 +1669,7 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
         // half-sibling group boundaries. This also covers the case where a
         // child is itself a leaf with a married-in spouse card, which the
         // Reingold-Tilford contour walk does not always widen for.
+        let mut shifted = false;
         for i in 1..children.len() {
             let prev = children[i - 1];
             let curr = children[i];
@@ -1684,6 +1685,7 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
                 for &ci in &children[i..] {
                     shift_subtree(arena, ci, shift);
                 }
+                shifted = true;
                 // If `curr` starts a new parent2 (half-sibling) group, shift
                 // the matching spouse sibling of `node` along with it.
                 if arena[curr].parent2 != arena[prev].parent2
@@ -1694,6 +1696,37 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
                     for &si in &siblings[pos..] {
                         arena[si].x += shift;
                     }
+                }
+            }
+        }
+
+        // A shift above moved this row's children (and possibly `node`'s own
+        // later spouse) without moving `node` itself, so `node` (the couple
+        // this row belongs to) is no longer centered over its own children —
+        // it just sits wherever the original RT pass put it, off-center from
+        // the now-widened row below. Re-center `node` and its spouse card(s)
+        // over the post-shift first/last child couple, same as the original
+        // RT midpoint math (first_walk's `midpoint`) intended. This must
+        // happen before returning so the parent's own gap check one level up
+        // sees `node`'s corrected position.
+        if shifted {
+            let first_child = children[0];
+            let last_child = *children.last().unwrap();
+
+            let mut row_min = arena[first_child].x;
+            for &si in &arena[first_child].siblings.clone() {
+                row_min = row_min.min(arena[si].x);
+            }
+            let mut row_max = arena[last_child].x;
+            for &si in &arena[last_child].siblings.clone() {
+                row_max = row_max.max(arena[si].x);
+            }
+
+            let delta = (row_min + row_max) / 2.0 - arena[node].x;
+            if delta.abs() > 1e-9 {
+                arena[node].x += delta;
+                for &si in &siblings {
+                    arena[si].x += delta;
                 }
             }
         }
@@ -3892,6 +3925,80 @@ mod layout_overlap_tests {
                 );
             }
         }
+    }
+
+    /// `fix_spouse_group_overlaps` shifts a child subtree rightward to kill
+    /// an overlap, but if it doesn't also re-center the parent couple over
+    /// the now-shifted children row, the parent drifts off-center relative
+    /// to its own children — no cards overlap, but the row no longer lines
+    /// up under its parent the way the Reingold-Tilford pass originally
+    /// placed it. Same family shape as `cross_uncle_branch_with_grandchildren_does_not_overlap`,
+    /// which is known to trigger a shift.
+    #[test]
+    fn parent_recenters_over_children_after_overlap_shift() {
+        let mut arena: Vec<TreeNode> = Vec::new();
+
+        let root = push(&mut arena, person(0, Sex::Male, None));
+        let root_spouse = push(&mut arena, person(0, Sex::Female, None));
+        marry(&mut arena, root, root_spouse);
+
+        let branch_a = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        let branch_b = push(&mut arena, person(1, Sex::Male, Some(root_spouse)));
+        arena[root].children = vec![branch_a, branch_b];
+
+        let branch_a_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_a, branch_a_spouse);
+
+        let branch_b_spouse = push(&mut arena, person(1, Sex::Female, None));
+        marry(&mut arena, branch_b, branch_b_spouse);
+
+        let child_a = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        let child_b = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        let child_c = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
+        arena[branch_a].children = vec![child_a, child_b, child_c];
+
+        let child_a_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, child_a, child_a_spouse);
+        let grandchild_a = push(&mut arena, person(3, Sex::Male, Some(child_a_spouse)));
+        let grandchild_b = push(&mut arena, person(3, Sex::Female, Some(child_a_spouse)));
+        let grandchild_c = push(&mut arena, person(3, Sex::Female, Some(child_a_spouse)));
+        arena[child_a].children = vec![grandchild_a, grandchild_b, grandchild_c];
+
+        let child_b_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, child_b, child_b_spouse);
+        let grandchild_d = push(&mut arena, person(3, Sex::Male, Some(child_b_spouse)));
+        arena[child_b].children = vec![grandchild_d];
+
+        let child_c_spouse = push(&mut arena, person(2, Sex::Female, None));
+        marry(&mut arena, child_c, child_c_spouse);
+        let grandchild_e = push(&mut arena, person(3, Sex::Female, Some(child_c_spouse)));
+        let grandchild_f = push(&mut arena, person(3, Sex::Male, Some(child_c_spouse)));
+        arena[child_c].children = vec![grandchild_e, grandchild_f];
+
+        let child_d = push(&mut arena, person(2, Sex::Female, Some(branch_b_spouse)));
+        let child_e = push(&mut arena, person(2, Sex::Male, Some(branch_b_spouse)));
+        arena[branch_b].children = vec![child_d, child_e];
+
+        layout_tree(&mut arena, 0);
+
+        // `branch_a` should sit centered over the row spanned by its first
+        // child's couple (child_a + child_a_spouse) and its last child's
+        // couple (child_c + child_c_spouse), exactly as the RT pass intends
+        // — not wherever it landed before its children got shifted.
+        let row_min = [child_a, child_a_spouse]
+            .iter()
+            .map(|&i| arena[i].x)
+            .fold(f64::INFINITY, f64::min);
+        let row_max = [child_c, child_c_spouse]
+            .iter()
+            .map(|&i| arena[i].x)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let expected_center = (row_min + row_max) / 2.0;
+        let actual = arena[branch_a].x;
+        assert!(
+            (actual - expected_center).abs() < 1e-6,
+            "branch_a not centered over its children row: x={actual} expected={expected_center}"
+        );
     }
 
     /// Ascending trees never populate a node's own `siblings` (married-in
