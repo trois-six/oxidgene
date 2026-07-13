@@ -2696,6 +2696,11 @@ pub struct MiniPedigreeProps {
     /// Called when the user clicks a person card (navigate to their page).
     /// Empty ancestor/descendant slots are not clickable.
     pub on_person_navigate: EventHandler<Uuid>,
+    /// Fixed zoom level; defaults to [`MINI_PEDIGREE_SCALE`]. Still not
+    /// user-adjustable — this only lets embedders pick a denser scale
+    /// (e.g. search-result grid cells).
+    #[props(default = MINI_PEDIGREE_SCALE)]
+    pub scale: f64,
 }
 
 /// A small, pannable (but not zoomable) pedigree fragment (e.g. "parents &
@@ -2707,6 +2712,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let selected_person_id = use_signal(|| props.root_person_id);
     let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
+    let scale = props.scale;
 
     // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
     let mut offset_x = use_signal(|| 0.0f64);
@@ -2749,19 +2755,19 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
             ).await {
                 let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_W);
                 let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_H);
-                offset_x.set(vw / 2.0 - root_cx * MINI_PEDIGREE_SCALE);
+                offset_x.set(vw / 2.0 - root_cx * scale);
                 let target_y = if anchor_bottom {
                     vh - MINI_PEDIGREE_BOTTOM_MARGIN
                 } else {
                     vh / 2.0
                 };
-                offset_y.set(target_y - root_cy * MINI_PEDIGREE_SCALE);
+                offset_y.set(target_y - root_cy * scale);
             }
         });
     }
 
     let transform = format!(
-        "translate({}px, {}px) scale({MINI_PEDIGREE_SCALE})",
+        "translate({}px, {}px) scale({scale})",
         offset_x(),
         offset_y(),
     );

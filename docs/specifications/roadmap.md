@@ -200,6 +200,7 @@ timestamp: 2026-06-17T00:00:00Z
 - [ ] Create a page with statistics about the tree
 - [ ] Create a page to render the tree differently for printing
 - [x] Reconsolidate DB migrations into initial migration
+- [x] Search results grid view: one mini-pedigree card per result (self + parents + grandparents), 20 results/page → see [Search Results spec §7](ui-search-results.md)
 
 ---
 
