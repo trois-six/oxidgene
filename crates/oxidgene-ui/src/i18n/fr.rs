@@ -401,6 +401,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("search.sort_birth_desc", "Date de naissance \u{2193}"),
         ("search.no_results", "Aucune personne trouv\u{00E9}e. Essayez de modifier vos termes de recherche."),
         ("search.error", "Une erreur est survenue lors de la recherche."),
+        ("search.view_list", "Vue liste"),
+        ("search.view_grid", "Vue grille d'ascendances"),
         // ── Settings page ───────────────────────────────────────────
         ("settings.breadcrumb", "Param\u{00E8}tres"),
         ("settings.tree_roots", "Arbre et racines"),

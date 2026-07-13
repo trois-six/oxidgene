@@ -132,9 +132,15 @@ Each row shows:
 - **Family summary** (one line): spouse name + child count
 - **Sex indicator**: colored left border (blue/pink/grey)
 
-### Card View
+### Card View (pedigree grid)
 
-Results displayed as a responsive grid of cards (same `minmax(280px, 1fr)` pattern as the [Homepage](ui-home.md) tree cards). Each card contains the same information as a list row, with a larger avatar area.
+Results displayed as a responsive grid of cards (`minmax(340px, 1fr)`). Each card contains:
+
+- **Header** (clickable, same navigation target as a list row): full name (surname + first name) and birth/death years
+- **Mini-pedigree**: a small pannable pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section, at a denser fixed scale (0.5). Clicking any person card inside the fragment navigates to that person
+- **Sex indicator**: colored top border (blue/pink)
+
+Pedigrees are fetched lazily per card from the server-side pedigree cache; loading cells show a placeholder message.
 
 ---
 
@@ -149,7 +155,7 @@ Results displayed as a responsive grid of cards (same `minmax(280px, 1fr)` patte
 
 ## 9. Pagination
 
-Results are paginated with 25 results per page (matching the API default).
+Results are paginated with 25 results per page in list view (matching the API default) and 20 per page in card view — each card embeds a mini-pedigree, so a larger page would overload the layout and fire as many pedigree fetches. Switching view mode resets to page 1.
 
 Pagination controls at the bottom of the results:
 - Previous / Next arrow buttons
