@@ -398,6 +398,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("search.sort_birth_desc", "Birth date \u{2193}"),
         ("search.no_results", "No person found. Try adjusting your search terms."),
         ("search.error", "An error occurred while searching."),
+        ("search.view_list", "List view"),
+        ("search.view_grid", "Pedigree grid view"),
         // ── Settings page ───────────────────────────────────────────
         ("settings.breadcrumb", "Settings"),
         ("settings.tree_roots", "Tree & Roots"),

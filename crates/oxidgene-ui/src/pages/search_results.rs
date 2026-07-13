@@ -14,6 +14,10 @@ use crate::i18n::use_i18n;
 use crate::router::Route;
 
 const RESULTS_PER_PAGE: usize = 25;
+/// Card (grid) view shows fewer results per page — each cell embeds a
+/// mini-pedigree, so a full list-sized page would overload the layout
+/// (and fire as many pedigree fetches).
+const GRID_RESULTS_PER_PAGE: usize = 20;
 /// How many results to request from the server (enough for client-side filtering).
 const SERVER_LIMIT: u32 = 500;
 
@@ -210,16 +214,16 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
         SortOrder::BirthDesc => sorted.sort_by_key(|b| std::cmp::Reverse(b.date_sort)),
     }
 
-    // 4) Paginate
+    // 4) Paginate (the grid view holds fewer results per page)
+    let per_page = match view_mode() {
+        ViewMode::List => RESULTS_PER_PAGE,
+        ViewMode::Card => GRID_RESULTS_PER_PAGE,
+    };
     let total_filtered = sorted.len();
     let page = current_page();
-    let total_pages = (total_filtered + RESULTS_PER_PAGE - 1).max(1) / RESULTS_PER_PAGE.max(1);
-    let start = (page - 1) * RESULTS_PER_PAGE;
-    let page_results: Vec<&SearchEntry> = sorted
-        .into_iter()
-        .skip(start)
-        .take(RESULTS_PER_PAGE)
-        .collect();
+    let total_pages = (total_filtered + per_page - 1).max(1) / per_page;
+    let start = (page - 1) * per_page;
+    let page_results: Vec<&SearchEntry> = sorted.into_iter().skip(start).take(per_page).collect();
 
     let is_loading = search_resource.read().is_none();
     let is_error = matches!(&*search_resource.read(), Some(Err(_)));
@@ -405,12 +409,24 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     div { class: "sr-view-modes",
                         button {
                             class: if view_mode() == ViewMode::List { "sr-view-btn active" } else { "sr-view-btn" },
-                            onclick: move |_| view_mode.set(ViewMode::List),
+                            title: "{i18n.t(\"search.view_list\")}",
+                            onclick: move |_| {
+                                if view_mode() != ViewMode::List {
+                                    view_mode.set(ViewMode::List);
+                                    current_page.set(1);
+                                }
+                            },
                             "\u{2630}"
                         }
                         button {
                             class: if view_mode() == ViewMode::Card { "sr-view-btn active" } else { "sr-view-btn" },
-                            onclick: move |_| view_mode.set(ViewMode::Card),
+                            title: "{i18n.t(\"search.view_grid\")}",
+                            onclick: move |_| {
+                                if view_mode() != ViewMode::Card {
+                                    view_mode.set(ViewMode::Card);
+                                    current_page.set(1);
+                                }
+                            },
                             "\u{25A6}"
                         }
                     }
@@ -425,11 +441,27 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     div { class: "sr-empty",
                         p { {i18n.t("search.no_results")} }
                     }
+                } else if view_mode() == ViewMode::Card {
+                    div { class: "sr-grid",
+                        for entry in page_results.iter() {
+                            SearchPedigreeCard {
+                                key: "{entry.person_id}",
+                                tree_id: tree_id.unwrap_or_default(),
+                                tree_id_str: props.tree_id.clone(),
+                                person_id: entry.person_id,
+                                display_name: entry.display_name.clone(),
+                                sex: entry.sex,
+                                birth_year: entry.birth_year.clone(),
+                                death_year: entry.death_year.clone(),
+                                origin: props.origin.clone(),
+                            }
+                        }
+                    }
                 } else {
                     div {
                         class: "search-person-results sr-results-page",
                         for entry in page_results.iter() {
-                            {render_result_item(entry, &props.tree_id, &props.origin, view_mode())}
+                            {render_result_item(entry, &props.tree_id, &props.origin)}
                         }
                     }
                 }
@@ -473,12 +505,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 // SearchPerson typeahead component (used in SOSA root selector, etc.)
 // so that person rows look identical everywhere.
 
-fn render_result_item(
-    entry: &SearchEntry,
-    tree_id: &str,
-    origin: &str,
-    _view: ViewMode,
-) -> Element {
+fn render_result_item(entry: &SearchEntry, tree_id: &str, origin: &str) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
         Sex::Female => "female",
@@ -547,6 +574,120 @@ fn render_result_item(
                     }
                 }
             }
+        }
+    }
+}
+
+// ── Grid (Card) view ─────────────────────────────────────────────────────
+
+/// Mini-pedigree zoom inside a grid cell — denser than the person-detail
+/// embed (0.8) so three generations fit a card-sized viewport.
+const GRID_PEDIGREE_SCALE: f64 = 0.5;
+
+/// One cell of the grid ("Card") view: a clickable header with the person's
+/// name and dates above a mini-pedigree (self + parents + grandparents)
+/// served by the pedigree cache.
+#[component]
+fn SearchPedigreeCard(
+    tree_id: Uuid,
+    tree_id_str: String,
+    person_id: Uuid,
+    display_name: String,
+    sex: Sex,
+    birth_year: Option<String>,
+    death_year: Option<String>,
+    origin: String,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let nav = navigator();
+
+    let pedigree_resource = use_resource(move || {
+        let api = api.clone();
+        async move { api.get_pedigree(tree_id, person_id, 2, 0).await }
+    });
+
+    // Same navigation target rule as the list view: search launched from a
+    // person page opens profiles, otherwise the tree centered on the person.
+    let route_for = {
+        let origin = origin.clone();
+        let tree_id_str = tree_id_str.clone();
+        move |pid: Uuid| -> Route {
+            if origin == "person" {
+                Route::PersonDetail {
+                    tree_id: tree_id_str.clone(),
+                    person_id: pid.to_string(),
+                }
+            } else {
+                Route::TreeDetail {
+                    tree_id: tree_id_str.clone(),
+                    person: Some(pid.to_string()),
+                }
+            }
+        }
+    };
+    let header_target = route_for(person_id);
+    let route_for_nav = route_for.clone();
+    let on_navigate = move |pid: Uuid| {
+        nav.push(route_for_nav(pid));
+    };
+
+    let sex_class = match sex {
+        Sex::Male => "male",
+        Sex::Female => "female",
+        Sex::Unknown => "",
+    };
+    let (given, surname) = match display_name.rsplit_once(' ') {
+        Some((g, s)) => (g.to_string(), s.to_string()),
+        None => (display_name.clone(), String::new()),
+    };
+
+    let ped = pedigree_resource.read();
+    let body = match &*ped {
+        Some(Ok(cached)) => {
+            let data =
+                crate::components::pedigree_chart::PedigreeData::from_cached_pedigree(cached);
+            rsx! {
+                crate::components::pedigree_chart::MiniPedigree {
+                    root_person_id: person_id,
+                    data: data,
+                    ancestor_levels: 2,
+                    descendant_levels: 0,
+                    on_person_navigate: on_navigate,
+                    scale: GRID_PEDIGREE_SCALE,
+                }
+            }
+        }
+        Some(Err(_)) => rsx! {
+            div { class: "sr-grid-ped-msg", {i18n.t("search.error")} }
+        },
+        None => rsx! {
+            div { class: "sr-grid-ped-msg", {i18n.t("search.loading")} }
+        },
+    };
+
+    rsx! {
+        div { class: "sr-grid-card {sex_class}",
+            Link { to: header_target, class: "sr-grid-card-hd",
+                div { class: "sp-result-name",
+                    if !surname.is_empty() {
+                        span { class: "sp-surname", "{surname}" }
+                    }
+                    span { class: "sp-given", " {given}" }
+                    if surname.is_empty() && given.is_empty() {
+                        span { class: "sp-given", "?" }
+                    }
+                }
+                div { class: "sp-result-dates",
+                    if let Some(ref by) = birth_year {
+                        span { class: "sp-birth", "\u{2726} {by}" }
+                    }
+                    if let Some(ref dy) = death_year {
+                        span { class: "sp-death", "\u{271D} {dy}" }
+                    }
+                }
+            }
+            div { class: "sr-grid-ped", {body} }
         }
     }
 }

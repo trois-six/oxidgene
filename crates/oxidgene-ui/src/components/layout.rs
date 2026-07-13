@@ -2229,6 +2229,56 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
+    /* Grid (card) view: one mini-pedigree per result */
+    .sr-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 14px;
+    }
+
+    .sr-grid-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    .sr-grid-card.male   { border-top: 3px solid rgba(74,144,217,0.4); }
+    .sr-grid-card.female { border-top: 3px solid rgba(196,88,122,0.4); }
+
+    a.sr-grid-card-hd {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 14px;
+        text-decoration: none;
+        color: inherit;
+        border-bottom: 1px solid var(--border);
+    }
+    a.sr-grid-card-hd:hover .sp-surname,
+    a.sr-grid-card-hd:hover .sp-given {
+        color: var(--orange);
+    }
+
+    .sr-grid-ped {
+        flex: 1;
+    }
+    .sr-grid-ped .mini-pedigree {
+        height: 210px;
+        border-radius: 0;
+    }
+
+    .sr-grid-ped-msg {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 210px;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+    }
+
     /* Empty state */
     .sr-empty {
         text-align: center;
