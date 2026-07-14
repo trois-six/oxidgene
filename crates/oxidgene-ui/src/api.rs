@@ -693,6 +693,18 @@ impl ApiClient {
             .await
     }
 
+    /// Resolve a SOSA-Stradonitz number to a person, relative to the tree's
+    /// configured SOSA root. Errors (including "not found") should be
+    /// treated as a cue to fall back to a normal name search.
+    pub async fn get_person_by_sosa(
+        &self,
+        tree_id: Uuid,
+        number: u64,
+    ) -> Result<PersonDetail, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/persons/sosa/{number}"))
+            .await
+    }
+
     pub async fn create_person(
         &self,
         tree_id: Uuid,
