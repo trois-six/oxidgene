@@ -244,6 +244,36 @@ impl DictionaryRepo {
             events.into_iter().filter_map(|e| e.person_id).collect(),
         ))
     }
+
+    /// Distinct persons carrying a given surname in a tree.
+    pub async fn family_name_usage_person_ids(
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+        value: &str,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let person_ids: Vec<Uuid> = person::Entity::find()
+            .filter(person::Column::TreeId.eq(tree_id))
+            .filter(person::Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let names = person_name::Entity::find()
+            .filter(person_name::Column::PersonId.is_in(person_ids))
+            .filter(person_name::Column::Surname.eq(value))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        Ok(dedup(names.into_iter().map(|n| n.person_id).collect()))
+    }
 }
 
 fn trimmed(value: Option<&str>) -> Option<String> {

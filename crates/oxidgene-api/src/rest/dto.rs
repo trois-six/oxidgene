@@ -448,8 +448,8 @@ pub struct PlaceDictionaryEntry {
     pub count: i64,
 }
 
-/// Query parameters for the occupation usage drill-down.
+/// Query parameters for value-based dictionary usage drill-downs.
 #[derive(Debug, Deserialize)]
-pub struct OccupationUsageQuery {
+pub struct DictionaryUsageQuery {
     pub value: String,
 }
