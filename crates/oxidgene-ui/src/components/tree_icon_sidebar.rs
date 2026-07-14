@@ -19,9 +19,11 @@ pub fn TreeIconSidebar(
     on_profile_view: EventHandler<Option<Uuid>>,
     on_pedigree_view: EventHandler<Option<Uuid>>,
     on_add_person: EventHandler<()>,
+    on_dictionary: EventHandler<()>,
     on_settings: EventHandler<()>,
     #[props(default = true)] show_middle_separator: bool,
     #[props(default = true)] show_add_person: bool,
+    #[props(default = true)] show_dictionary: bool,
     #[props(default = true)] show_settings: bool,
     #[props(default)] children: Element,
 ) -> Element {
@@ -105,9 +107,29 @@ pub fn TreeIconSidebar(
                 }
             }
 
-            if show_settings {
+            if show_dictionary || show_settings {
                 div { class: "isb-hr" }
+            }
 
+            if show_dictionary {
+                button {
+                    class: "isb-btn",
+                    title: "{i18n.t(\"dictionary.breadcrumb\")}",
+                    onclick: move |_| on_dictionary.call(()),
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        path { d: "M12 7v14" }
+                        path { d: "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" }
+                    }
+                }
+            }
+
+            if show_settings {
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"settings.breadcrumb\")}",

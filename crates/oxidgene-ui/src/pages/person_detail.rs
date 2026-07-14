@@ -1067,6 +1067,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     });
                 }
             },
+            on_dictionary: {
+                let tree_id = tree_id.clone();
+                move |_| {
+                    nav.push(Route::Dictionary {
+                        tree_id: tree_id.clone(),
+                    });
+                }
+            },
         }
 
         div { class: "sub-page-content pd-content",

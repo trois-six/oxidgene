@@ -10,7 +10,7 @@ timestamp: 2026-06-17T00:00:00Z
 # Visual & Functional Specifications — Tree Settings Page
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Homepage](ui-home.md) (settings button on cards) · [Tree View](ui-genealogy-tree.md) · [Person Edit Modal](ui-person-edit-modal.md) (privacy per person) · [Data Model](data-model.md) · [API Contract](api.md) (GEDCOM export)
+> See also: [Homepage](ui-home.md) (settings button on cards) · [Tree View](ui-genealogy-tree.md) · [Person Edit Modal](ui-person-edit-modal.md) (privacy per person) · [Dictionary](ui-dictionary.md) (family names / sources / places / occupations index, moved out of this page) · [Data Model](data-model.md) · [API Contract](api.md) (GEDCOM export)
 
 ---
 
@@ -95,7 +95,6 @@ Each group has an uppercase orange label. Each item is a text button. The active
 | Research Tracking | `recherches` |
 | Missing Ancestors | `ancetres` |
 | Potential Duplicates | `doublons` |
-| Dictionary | `dictionnaire` |
 | Date Conversion | `conversion` |
 
 ### Group 3 — Export
@@ -331,20 +330,7 @@ Actions per pair:
 
 ---
 
-## 16. Section: Dictionary
-
-A vocabulary index of all values entered in specific fields across the tree. Displayed in three tabs: **Places**, **Sources**, **Occupations**.
-
-Each entry shows:
-- Value as entered
-- Usage count (how many persons or events reference it)
-- Validation status: (check) normalized / (warning) too vague / (warning) format to normalize
-
-Clicking an entry allows batch-editing or normalizing all occurrences.
-
----
-
-## 17. Section: Date Conversion
+## 16. Section: Date Conversion
 
 An interactive converter between calendar systems.
 

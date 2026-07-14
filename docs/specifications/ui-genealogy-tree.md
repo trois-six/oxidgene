@@ -10,7 +10,7 @@ timestamp: 2026-06-17T00:00:00Z
 # Visual & Functional Specifications — Genealogy Tree
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [GEDCOM Import](ui-gedcom-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
+> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Dictionary](ui-dictionary.md) · [GEDCOM Import](ui-gedcom-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
 
 ---
 
@@ -266,7 +266,10 @@ Fixed vertical bar (`var(--sb)` = 46px wide). SVG stroke icon buttons stacked ve
 | Magnifying glass - | Magnifying glass with minus sign | Zoom out |
 | Person + plus | Person silhouette with a small plus | Add a person |
 | **separator** | Thin horizontal line | Visual divider |
+| Book/index | Open book (two overlapping page shapes) | Opens [Dictionary](ui-dictionary.md) for this tree |
 | Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](ui-settings.md) for this tree |
+
+This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) page, so the **Book/index** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view.
 
 **Depth selector — hover panel**:
 

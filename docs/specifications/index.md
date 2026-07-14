@@ -46,6 +46,7 @@ This directory contains all functional, technical, and visual specifications for
 | [Genealogy Tree](ui-genealogy-tree.md) | Pedigree canvas, person cards, connectors, navigation, events sidebar | -> [Person Edit Modal](ui-person-edit-modal.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) |
 | [Person Profile](ui-person-profile.md) | Full person detail view: identity, timeline, family connections, media, notes | -> [Tree View](ui-genealogy-tree.md) · [Person Edit Modal](ui-person-edit-modal.md) |
 | [Search Results](ui-search-results.md) | Filterable person search results page | -> [Tree View](ui-genealogy-tree.md) · [Person Profile](ui-person-profile.md) |
+| [Dictionary](ui-dictionary.md) | Read-only index of family names, sources, places, occupations with usage counts | -> [Tree View](ui-genealogy-tree.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) |
 | [Settings](ui-settings.md) | Tree & roots, privacy, date display, entry options, tools, export | -> [Homepage](ui-home.md) · [Data Model](data-model.md) |
 | [App Settings](ui-app-settings.md) | Application-level preferences: appearance (theme), language | -> [Homepage](ui-home.md) · [Design Tokens](ui-design-tokens.md) |
 
@@ -87,6 +88,7 @@ index.md  <- you are here
 	|  |- ui-genealogy-tree.md    Tree view / pedigree canvas
 	|  |- ui-person-profile.md    Person detail view
 	|  |- ui-search-results.md    Search results page
+	|  |- ui-dictionary.md        Family names / sources / places / occupations index
 	|  |- ui-settings.md          Tree settings & tools
 	|  '- ui-app-settings.md      App-level settings (theme, language)
 	|
