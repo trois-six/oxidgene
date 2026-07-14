@@ -1,5 +1,6 @@
 //! Request/response DTOs for REST endpoints.
 
+use oxidgene_core::types::{Place, Source};
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
 
@@ -411,4 +412,44 @@ pub struct PedigreeExpandQuery {
     pub from_depth: u32,
     /// Target depth after expansion.
     pub to_depth: u32,
+}
+
+// ── Dictionary DTOs ───────────────────────────────────────────────────
+
+/// A distinct value (surname, occupation label) plus its usage count.
+#[derive(Debug, Serialize)]
+pub struct DictionaryEntryDto {
+    pub value: String,
+    pub count: i64,
+}
+
+impl From<oxidgene_db::repo::DictionaryValueEntry> for DictionaryEntryDto {
+    fn from(e: oxidgene_db::repo::DictionaryValueEntry) -> Self {
+        Self {
+            value: e.value,
+            count: e.count,
+        }
+    }
+}
+
+/// A source paired with its citation count.
+#[derive(Debug, Serialize)]
+pub struct SourceDictionaryEntry {
+    #[serde(flatten)]
+    pub source: Source,
+    pub count: i64,
+}
+
+/// A place paired with its usage count (events + media referencing it).
+#[derive(Debug, Serialize)]
+pub struct PlaceDictionaryEntry {
+    #[serde(flatten)]
+    pub place: Place,
+    pub count: i64,
+}
+
+/// Query parameters for the occupation usage drill-down.
+#[derive(Debug, Deserialize)]
+pub struct OccupationUsageQuery {
+    pub value: String,
 }

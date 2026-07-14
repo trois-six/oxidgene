@@ -4,6 +4,7 @@
 
 pub mod cache;
 pub mod citation;
+pub mod dictionary;
 pub mod dto;
 pub mod error;
 pub mod event;

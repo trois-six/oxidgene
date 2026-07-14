@@ -841,6 +841,8 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-panel);
         border-bottom: 1px solid var(--border);
         flex-shrink: 0;
+        min-width: 0;
+        overflow: hidden;
     }
 
     .td-bc {
@@ -849,31 +851,44 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 6px;
         font-size: 0.88rem;
         min-width: 0;
-        flex-shrink: 1;
+        flex: 1 1 auto;
+        overflow: hidden;
+        white-space: nowrap;
     }
 
     .td-bc a {
         color: var(--text-secondary);
         text-decoration: none;
         transition: color 0.15s;
+        min-width: 0;
     }
 
     .td-bc a:hover { color: var(--orange); }
 
-    .td-bc-sep { color: var(--text-muted); margin: 0 2px; }
+    .td-bc-sep {
+        color: var(--text-muted);
+        margin: 0 2px;
+        flex: 0 0 auto;
+    }
 
     .td-bc-link {
         color: var(--text-secondary);
         font-size: 0.88rem;
+        min-width: 0;
+        max-width: clamp(48px, 34vw, 420px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .td-bc-current {
         color: var(--text-primary);
         font-weight: 600;
+        min-width: 0;
+        max-width: clamp(42px, 24vw, 260px);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 220px;
     }
 
     .td-bc-logo {
@@ -916,6 +931,8 @@ pub const LAYOUT_STYLES: &str = r#"
         align-items: center;
         gap: 6px;
         margin-left: auto;
+        flex: 0 0 auto;
+        min-width: 0;
     }
 
     .td-search-input {
@@ -942,6 +959,7 @@ pub const LAYOUT_STYLES: &str = r#"
     /* ── Pedigree outer container ────────────────────────────────── */
 
     .pedigree-outer {
+        position: relative;
         flex: 1;
         min-height: 0;
         display: flex;
@@ -1000,6 +1018,10 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1;
         width: 100%;
         padding: 0 2px;
+    }
+
+    .pedigree-resize-fit-trigger {
+        display: none;
     }
 
     /* ── Pedigree canvas viewport ────────────────────────────────── */
@@ -1390,9 +1412,8 @@ pub const LAYOUT_STYLES: &str = r#"
             box-shadow: var(--shadow-md);
         }
         .ev-panel-collapsed {
-            width: 0;
-            min-width: 0;
-            border-left: none;
+            width: 28px;
+            min-width: 28px;
         }
     }
 
@@ -2286,6 +2307,224 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-muted);
     }
 
+    /* ── Dictionary page ──────────────────────────────────────────── */
+
+    .dict-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .dict-tab {
+        background: none;
+        border: none;
+        padding: 8px 14px;
+        font-size: 0.88rem;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+    }
+
+    .dict-tab.active {
+        color: var(--orange);
+        border-bottom-color: var(--orange);
+        font-weight: 600;
+    }
+
+    .dict-tab:hover:not(.active) {
+        color: var(--text-primary);
+    }
+
+    .dict-alphabet {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+
+    .dict-letter-btn {
+        min-width: 26px;
+        padding: 4px 6px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text-primary);
+        font-size: 0.78rem;
+        cursor: pointer;
+    }
+
+    .dict-letter-btn.active {
+        background: var(--orange);
+        color: #fff;
+        border-color: var(--orange);
+    }
+
+    .dict-letter-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+
+    .dict-letter-btn:hover:not(.active):not(:disabled) {
+        background: var(--bg-card-hover);
+    }
+
+    .dict-filter-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+    }
+
+    .dict-filter-input {
+        flex: 1;
+        min-width: 160px;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--bg-deep);
+        color: var(--text-primary);
+    }
+
+    .dict-page-size {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+    }
+
+    .dict-page-size select {
+        padding: 4px 8px;
+        font-size: 0.82rem;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--bg-deep);
+        color: var(--text-primary);
+    }
+
+    .dict-warning {
+        background: rgba(224, 120, 32, 0.12);
+        border: 1px solid var(--orange);
+        color: var(--orange);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 0.82rem;
+        margin-bottom: 12px;
+    }
+
+    .dict-group-header {
+        font-family: var(--font-heading);
+        font-size: 0.8rem;
+        letter-spacing: 0.05em;
+        color: var(--orange);
+        padding: 10px 4px 4px;
+    }
+
+    .dict-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .dict-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-card);
+    }
+
+    a.dict-row {
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    a.dict-row:hover .dict-row-value {
+        color: var(--orange);
+    }
+
+    .dict-row-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .dict-row-value {
+        font-size: 0.9rem;
+        color: var(--text-primary);
+    }
+
+    .dict-row-meta {
+        font-size: 0.76rem;
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .dict-row-count {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+
+    .dict-row-action {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 0.9rem;
+        padding: 4px;
+    }
+
+    .dict-row-action:hover {
+        color: var(--orange);
+    }
+
+    .dict-pin {
+        color: var(--green);
+    }
+
+    .dict-pin-outline {
+        color: var(--text-muted);
+        opacity: 0.5;
+    }
+
+    .dict-accordion {
+        border: 1px solid var(--border);
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        background: var(--bg-deep);
+        padding: 10px 14px;
+        margin-top: -6px;
+    }
+
+    a.dict-accordion-item {
+        display: block;
+        padding: 4px 0;
+        color: var(--text-primary);
+        text-decoration: none;
+        font-size: 0.85rem;
+    }
+
+    a.dict-accordion-item:hover {
+        color: var(--orange);
+    }
+
+    .dict-accordion-empty {
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        padding: 4px 0;
+    }
+
     /* ── Import overlay (blocking spinner) ───────────────────────── */
 
     .import-overlay {
@@ -2334,5 +2573,15 @@ pub const LAYOUT_STYLES: &str = r#"
         .app-nav { padding: 0 1rem; }
         .sub-page-content { padding: 16px 12px; }
         .td-topbar { padding: 10px 12px; }
+        .td-bc { gap: 4px; }
+        .td-bc-link { max-width: clamp(36px, 22vw, 140px); }
+        .td-bc-current { max-width: clamp(32px, 16vw, 96px); }
+        .td-search-input { width: clamp(72px, 22vw, 110px); }
+        .dict-alphabet {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+        .dict-letter-btn { flex: 0 0 auto; }
     }
 "#;

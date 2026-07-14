@@ -8,6 +8,7 @@ use axum::routing::{delete, get, patch, post, put};
 use crate::graphql::{build_schema, graphql_handler, graphql_playground};
 use crate::rest::cache;
 use crate::rest::citation;
+use crate::rest::dictionary;
 use crate::rest::event;
 use crate::rest::family;
 use crate::rest::family_member;
@@ -190,6 +191,30 @@ pub fn build_router(state: AppState) -> Router {
 
     let snapshot_routes = Router::new().route("/{tree_id}/snapshot", get(snapshot::tree_snapshot));
 
+    let dictionary_routes = Router::new()
+        .route(
+            "/{tree_id}/dictionary/family-names",
+            get(dictionary::family_names),
+        )
+        .route(
+            "/{tree_id}/dictionary/occupations",
+            get(dictionary::occupations),
+        )
+        .route(
+            "/{tree_id}/dictionary/occupations/usage",
+            get(dictionary::occupation_usage),
+        )
+        .route("/{tree_id}/dictionary/sources", get(dictionary::sources))
+        .route(
+            "/{tree_id}/dictionary/sources/{source_id}/usage",
+            get(dictionary::source_usage),
+        )
+        .route("/{tree_id}/dictionary/places", get(dictionary::places))
+        .route(
+            "/{tree_id}/dictionary/places/{place_id}/usage",
+            get(dictionary::place_usage),
+        );
+
     let cache_routes = Router::new()
         .route(
             "/{tree_id}/cache/persons/{person_id}",
@@ -244,6 +269,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(media_link_routes)
                 .merge(note_routes)
                 .merge(snapshot_routes)
+                .merge(dictionary_routes)
                 .merge(cache_routes)
                 .merge(gedcom_routes),
         )
