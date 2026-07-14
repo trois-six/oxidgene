@@ -408,7 +408,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("dictionary.tab.occupations", "Occupations"),
         ("dictionary.letter_all", "All"),
         ("dictionary.filter_placeholder", "Filter..."),
-        ("dictionary.page_size", "Per page"),
         ("dictionary.page_size_all", "All"),
         ("dictionary.count_one", "{count} entry"),
         ("dictionary.count_other", "{count} entries"),

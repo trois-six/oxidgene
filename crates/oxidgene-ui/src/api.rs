@@ -1297,6 +1297,19 @@ impl ApiClient {
             .await
     }
 
+    /// Persons carrying a given family name.
+    pub async fn dictionary_family_name_usage(
+        &self,
+        tree_id: Uuid,
+        value: &str,
+    ) -> Result<Vec<Uuid>, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/dictionary/family-names/usage"),
+            &[("value", value)],
+        )
+        .await
+    }
+
     /// Distinct occupation labels in the tree, with the number of persons holding each.
     pub async fn dictionary_occupations(
         &self,

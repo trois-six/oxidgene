@@ -7,7 +7,7 @@ use oxidgene_db::repo::DictionaryRepo;
 use uuid::Uuid;
 
 use super::dto::{
-    DictionaryEntryDto, OccupationUsageQuery, PlaceDictionaryEntry, SourceDictionaryEntry,
+    DictionaryEntryDto, DictionaryUsageQuery, PlaceDictionaryEntry, SourceDictionaryEntry,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -92,9 +92,21 @@ pub async fn place_usage(
 pub async fn occupation_usage(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Query(query): Query<OccupationUsageQuery>,
+    Query(query): Query<DictionaryUsageQuery>,
 ) -> Result<Json<Vec<Uuid>>, ApiError> {
     let ids = DictionaryRepo::occupation_usage_person_ids(&state.db, tree_id, &query.value)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(ids))
+}
+
+/// GET /api/v1/trees/:tree_id/dictionary/family-names/usage?value=...
+pub async fn family_name_usage(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Query(query): Query<DictionaryUsageQuery>,
+) -> Result<Json<Vec<Uuid>>, ApiError> {
+    let ids = DictionaryRepo::family_name_usage_person_ids(&state.db, tree_id, &query.value)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(ids))
