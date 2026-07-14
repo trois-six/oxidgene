@@ -86,6 +86,69 @@ async fn compute_sosa_number(
     Ok(None)
 }
 
+/// Walks down from the tree's SOSA root to find the person at SOSA number
+/// `number` (root = 1, father = 2n, mother = 2n+1). Returns `Ok(None)` if
+/// the tree has no SOSA root configured, `number` is 0, or the chain breaks
+/// before reaching `number` (a missing parent along the path).
+async fn resolve_sosa_number(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    number: u64,
+) -> Result<Option<oxidgene_core::types::Person>, OxidGeneError> {
+    if number == 0 {
+        return Ok(None);
+    }
+    let tree = TreeRepo::get(db, tree_id).await?;
+    let Some(root) = tree.sosa_root_person_id else {
+        return Ok(None);
+    };
+    if number == 1 {
+        return PersonRepo::get(db, root).await.map(Some);
+    }
+
+    let families = FamilyRepo::list_all(db, tree_id).await?;
+    if families.is_empty() {
+        return Ok(None);
+    }
+    let family_ids: Vec<Uuid> = families.iter().map(|f| f.id).collect();
+    let spouses = FamilySpouseRepo::list_by_families(db, &family_ids).await?;
+    let children = FamilyChildRepo::list_by_families(db, &family_ids).await?;
+
+    let child_to_family: HashMap<Uuid, Uuid> = children
+        .iter()
+        .map(|c| (c.person_id, c.family_id))
+        .collect();
+    let mut family_parents: HashMap<Uuid, (Option<Uuid>, Option<Uuid>)> = HashMap::new();
+    for s in &spouses {
+        let e = family_parents.entry(s.family_id).or_default();
+        match s.role {
+            SpouseRole::Husband => e.0 = Some(s.person_id),
+            SpouseRole::Wife => e.1 = Some(s.person_id),
+            SpouseRole::Partner => {}
+        }
+    }
+
+    // Bits of `number` after the leading 1, MSB-first: each one selects the
+    // father (0) or mother (1) edge for the next step down from `root`.
+    let msb = 63 - number.leading_zeros();
+    let mut current = root;
+    for i in (0..msb).rev() {
+        let bit = (number >> i) & 1;
+        let Some(&family_id) = child_to_family.get(&current) else {
+            return Ok(None);
+        };
+        let Some(&(father, mother)) = family_parents.get(&family_id) else {
+            return Ok(None);
+        };
+        current = match (bit, father, mother) {
+            (0, Some(f), _) => f,
+            (1, _, Some(m)) => m,
+            _ => return Ok(None),
+        };
+    }
+    PersonRepo::get(db, current).await.map(Some)
+}
+
 /// GET /api/v1/trees/:tree_id/persons
 pub async fn list_persons(
     State(state): State<AppState>,
@@ -227,4 +290,27 @@ pub async fn search_persons(
         .await
         .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(results).unwrap()))
+}
+
+/// GET /api/v1/trees/:tree_id/persons/sosa/:number
+///
+/// Resolves a SOSA-Stradonitz number to a person, walking down from the
+/// tree's configured SOSA root. 404 if the tree has no SOSA root configured
+/// or no person exists at that number.
+pub async fn get_person_by_sosa(
+    State(state): State<AppState>,
+    Path((tree_id, number)): Path<(Uuid, u64)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let person = resolve_sosa_number(&state.db, tree_id, number)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or(ApiError(OxidGeneError::NotFound {
+            entity: "Person (by SOSA number)",
+            id: tree_id,
+        }))?;
+    Ok(Json(serde_json::to_value(PersonDetailResponse {
+        person,
+        sosa_number: Some(number),
+    })
+    .unwrap()))
 }

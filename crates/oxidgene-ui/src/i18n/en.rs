@@ -87,7 +87,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("tree.no_persons", "No persons yet"),
         ("tree.no_persons_hint", "Import a GEDCOM file or use the person detail page to add people."),
         ("tree.add_first_person", "Add first person"),
-        ("tree.search_last", "Last name"),
+        ("tree.search_last", "Last name / # SOSA"),
         ("tree.search_first", "First name"),
         ("tree.search", "Search"),
         // ── Tree create / edit form ─────────────────────────────────

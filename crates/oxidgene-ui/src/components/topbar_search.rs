@@ -4,7 +4,9 @@
 //! re-render this small widget, not the whole page.
 
 use dioxus::prelude::*;
+use uuid::Uuid;
 
+use crate::api::ApiClient;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 
@@ -18,24 +20,70 @@ pub fn TopbarSearch(
 ) -> Element {
     let i18n = use_i18n();
     let nav = use_navigator();
+    let api = use_context::<ApiClient>();
     let mut search_last = use_signal(String::new);
     let mut search_first = use_signal(String::new);
 
     let do_search = {
         let tree_id = tree_id.clone();
+        let api = api.clone();
         move || {
-            if !search_last().trim().is_empty() || !search_first().trim().is_empty() {
-                nav.push(Route::SearchResults {
-                    tree_id: tree_id.clone(),
-                    last: search_last(),
-                    first: search_first(),
-                    origin: if from_person {
-                        "person".to_string()
-                    } else {
-                        String::new()
-                    },
-                });
+            let last = search_last();
+            let first = search_first();
+            let last_trim = last.trim();
+            let first_trim = first.trim();
+            if last_trim.is_empty() && first_trim.is_empty() {
+                return;
             }
+            let origin = if from_person {
+                "person".to_string()
+            } else {
+                String::new()
+            };
+
+            // If a SOSA root is set for the tree and the search is
+            // family-name-only *and* numeric, try it as a SOSA-Stradonitz
+            // number first — jump straight to the matching person, falling
+            // back to a normal name search if no person exists at that
+            // number (or the tree has no SOSA root).
+            if first_trim.is_empty()
+                && let Ok(number) = last_trim.parse::<u64>()
+                && let Ok(tid) = Uuid::parse_str(&tree_id)
+            {
+                let api = api.clone();
+                let tree_id = tree_id.clone();
+                spawn(async move {
+                    match api.get_person_by_sosa(tid, number).await {
+                        Ok(person) => {
+                            let person_id = person.id.to_string();
+                            if from_person {
+                                nav.push(Route::PersonDetail { tree_id, person_id });
+                            } else {
+                                nav.push(Route::TreeDetail {
+                                    tree_id,
+                                    person: Some(person_id),
+                                });
+                            }
+                        }
+                        Err(_) => {
+                            nav.push(Route::SearchResults {
+                                tree_id,
+                                last,
+                                first,
+                                origin,
+                            });
+                        }
+                    }
+                });
+                return;
+            }
+
+            nav.push(Route::SearchResults {
+                tree_id: tree_id.clone(),
+                last,
+                first,
+                origin,
+            });
         }
     };
 
