@@ -45,6 +45,7 @@ impl PageSize {
 /// Identifies which row's usage accordion is currently expanded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum UsageKey {
+    FamilyName(String),
     Source(Uuid),
     Place(Uuid),
     Occupation(String),
@@ -172,6 +173,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                 return Vec::new();
             };
             let ids = match &key {
+                UsageKey::FamilyName(value) => api.dictionary_family_name_usage(tid, value).await,
                 UsageKey::Source(id) => api.dictionary_source_usage(tid, *id).await,
                 UsageKey::Place(id) => api.dictionary_place_usage(tid, *id).await,
                 UsageKey::Occupation(value) => api.dictionary_occupation_usage(tid, value).await,
@@ -450,26 +452,29 @@ fn render_toolbar(
     let mut letter_filter = letter_filter;
     rsx! {
         div { class: "dict-alphabet",
-            button {
-                class: if letter_filter().is_none() { "dict-letter-btn active" } else { "dict-letter-btn" },
-                onclick: move |_| {
-                    letter_filter.set(None);
-                    current_page.set(1);
-                },
-                {i18n.t("dictionary.letter_all")}
-            }
-            for c in ('A'..='Z') {
+            div { class: "dict-letter-strip",
                 button {
-                    key: "{c}",
-                    class: if letter_filter() == Some(c) { "dict-letter-btn active" } else { "dict-letter-btn" },
-                    disabled: !letters.contains(&c),
+                    class: if letter_filter().is_none() { "dict-letter-btn active" } else { "dict-letter-btn" },
                     onclick: move |_| {
-                        letter_filter.set(Some(c));
+                        letter_filter.set(None);
                         current_page.set(1);
                     },
-                    "{c}"
+                    {i18n.t("dictionary.letter_all")}
+                }
+                for c in ('A'..='Z') {
+                    button {
+                        key: "{c}",
+                        class: if letter_filter() == Some(c) { "dict-letter-btn active" } else { "dict-letter-btn" },
+                        disabled: !letters.contains(&c),
+                        onclick: move |_| {
+                            letter_filter.set(Some(c));
+                            current_page.set(1);
+                        },
+                        "{c}"
+                    }
                 }
             }
+            span { class: "sr-count dict-total-count", {i18n.t_plural("dictionary.count", total_filtered)} }
         }
         div { class: "dict-filter-row",
             input {
@@ -482,9 +487,7 @@ fn render_toolbar(
                     current_page.set(1);
                 },
             }
-            span { class: "sr-count", {i18n.t_plural("dictionary.count", total_filtered)} }
             div { class: "dict-page-size",
-                label { {i18n.t("dictionary.page_size")} }
                 select {
                     value: match page_size() {
                         PageSize::Fixed(n) => n.to_string(),
@@ -580,7 +583,7 @@ fn render_usage_accordion(
                 for (pid , name) in list.iter() {
                     Link {
                         key: "{pid}",
-                        to: Route::PersonDetail { tree_id: tree_id.to_string(), person_id: pid.to_string() },
+                        to: Route::TreeDetail { tree_id: tree_id.to_string(), person: Some(pid.to_string()) },
                         class: "dict-accordion-item",
                         {name.clone().unwrap_or_else(|| i18n.t("common.unnamed"))}
                     }
@@ -612,7 +615,7 @@ fn render_value_tab(
     page_size: Signal<PageSize>,
     current_page: Signal<usize>,
     empty_key: &'static str,
-    // Family names link out to search; occupations expand an inline usage list.
+    // Family names and occupations expand an inline usage list.
     navigable: bool,
     mut expanded: Signal<Option<UsageKey>>,
     usage_people: Resource<Vec<(Uuid, Option<String>)>>,
@@ -655,53 +658,39 @@ fn render_value_tab(
                     if let Some(c) = header {
                         div { key: "hdr-{c}", class: "dict-group-header", "{c}" }
                     }
-                    if navigable {
-                        Link {
-                            key: "{entry.value}",
-                            to: Route::SearchResults {
-                                tree_id: tree_id.to_string(),
-                                last: entry.value.clone(),
-                                first: String::new(),
-                                origin: String::new(),
-                            },
-                            class: "dict-row",
-                            title: "{i18n.t(\"dictionary.view_in_search\")}",
-                            div { class: "dict-row-main",
-                                span { class: "dict-row-value", "{entry.value}" }
-                            }
-                            span { class: "dict-row-count", {i18n.t_plural("dictionary.person_count", entry.count as usize)} }
-                        }
-                    } else {
-                        {
-                            let key = UsageKey::Occupation(entry.value.clone());
-                            let is_open = expanded() == Some(key.clone());
-                            rsx! {
-                                div { key: "{entry.value}",
-                                    div {
-                                        class: "dict-row",
-                                        onclick: {
-                                            let key = key.clone();
-                                            move |_| {
-                                                if expanded() == Some(key.clone()) {
-                                                    expanded.set(None);
-                                                } else {
-                                                    expanded.set(Some(key.clone()));
-                                                }
+                    {
+                        let key = if navigable {
+                            UsageKey::FamilyName(entry.value.clone())
+                        } else {
+                            UsageKey::Occupation(entry.value.clone())
+                        };
+                        let is_open = expanded() == Some(key.clone());
+                        rsx! {
+                            div { key: "{entry.value}",
+                                div {
+                                    class: "dict-row",
+                                    onclick: {
+                                        let key = key.clone();
+                                        move |_| {
+                                            if expanded() == Some(key.clone()) {
+                                                expanded.set(None);
+                                            } else {
+                                                expanded.set(Some(key.clone()));
                                             }
-                                        },
-                                        div { class: "dict-row-main",
-                                            span { class: "dict-row-value", "{entry.value}" }
                                         }
-                                        span { class: "dict-row-count", {i18n.t_plural("dictionary.person_count", entry.count as usize)} }
-                                        button {
-                                            class: "dict-row-action",
-                                            title: "{i18n.t(\"dictionary.view_usage\")}",
-                                            if is_open { "\u{25B2}" } else { "\u{25BC}" }
-                                        }
+                                    },
+                                    div { class: "dict-row-main",
+                                        span { class: "dict-row-value", "{entry.value}" }
                                     }
-                                    if is_open {
-                                        {render_usage_accordion(i18n, tree_id, usage_people)}
+                                    span { class: "dict-row-count", {i18n.t_plural("dictionary.person_count", entry.count as usize)} }
+                                    button {
+                                        class: "dict-row-action",
+                                        title: "{i18n.t(\"dictionary.view_usage\")}",
+                                        if is_open { "\u{25B2}" } else { "\u{25BC}" }
                                     }
+                                }
+                                if is_open {
+                                    {render_usage_accordion(i18n, tree_id, usage_people)}
                                 }
                             }
                         }

@@ -197,6 +197,10 @@ pub fn build_router(state: AppState) -> Router {
             get(dictionary::family_names),
         )
         .route(
+            "/{tree_id}/dictionary/family-names/usage",
+            get(dictionary::family_name_usage),
+        )
+        .route(
             "/{tree_id}/dictionary/occupations",
             get(dictionary::occupations),
         )

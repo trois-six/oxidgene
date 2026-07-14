@@ -36,8 +36,9 @@ This page uses the standard `sub-page` layout pattern (see [General](general.md)
 +----------------------------------------------------------------------+
 |  [Family Names]   Sources   Places   Occupations                     |  <- dict-tabs
 +----------------------------------------------------------------------+
-|  A B C D E F G H I J K L M N O P Q R S T U V W X Y Z   [All]         |  <- alphabet index
-|  [ filter... ]                    142 entries   [25 v] per page      |  <- toolbar
+|  A B C D E F G H I J K L M N O P Q R S T U V W X Y Z   142 entries  |  <- alphabet index
+|  [ filter... ]                                           per page     |  <- toolbar
+|                                                         [25 v]        |
 +----------------------------------------------------------------------+
 |  A ───────────────────────────────────────────────────────────       |
 |   Aubert                                              12 persons  →  |
@@ -96,9 +97,9 @@ The letter filter combines with the quick filter (section 6) using AND logic.
 
 A single instant-filter text input (not a submit form, unlike the two-field last/first name search on [Search Results](ui-search-results.md)) narrows the current tab's list as-you-type (client-side, ~200ms debounce), matched against the already-loaded page of values. Clearing the input restores the letter-filtered list.
 
-The toolbar also shows:
-- **Count**: total entries matching the current letter + quick filter (e.g. "142 entries")
-- **Page size selector**: `25 / 50 / 100 / All` — "All" disables pagination and renders every matching entry. When the tab has more than 500 entries and "All" is selected, a small warning banner is shown above the list ("Showing all N entries may be slow") since large trees could otherwise render thousands of DOM rows at once.
+The alphabet row also shows the **Count** aligned to the right: total entries matching the current letter + quick filter (e.g. "142 entries").
+
+The toolbar shows the **Page size selector** with the "Per page" label above the select: `25 / 50 / 100 / All` — "All" disables pagination and renders every matching entry. When the tab has more than 500 entries and "All" is selected, a small warning banner is shown above the list ("Showing all N entries may be slow") since large trees could otherwise render thousands of DOM rows at once.
 
 ---
 
@@ -108,7 +109,7 @@ Grouped by first letter of the normalized surname, with a sticky letter header (
 
 - Surname, in its most common original casing
 - Usage count badge: number of persons carrying that surname (as primary or any `PersonName`)
-- A chevron (`→`) — clicking the row navigates to [Search Results](ui-search-results.md) (`Route::SearchResults { last: surname, .. }`), reusing the existing search rather than duplicating a person list here
+- A chevron — clicking the row expands it inline, listing the persons carrying that surname in a smaller nested list. Each person is clickable and opens the [Genealogy Tree](ui-genealogy-tree.md) focused on that person.
 
 ---
 

@@ -2338,9 +2338,22 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .dict-alphabet {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
         gap: 4px;
         margin-bottom: 8px;
+    }
+
+    .dict-letter-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .dict-total-count {
+        margin-left: auto;
+        text-align: right;
+        white-space: nowrap;
     }
 
     .dict-letter-btn {
@@ -2397,7 +2410,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .dict-page-size select {
-        padding: 4px 8px;
+        height: 32px;
+        padding: 0 8px;
         font-size: 0.82rem;
         border: 1px solid var(--border);
         border-radius: 4px;
@@ -2440,12 +2454,11 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card);
     }
 
-    a.dict-row {
-        text-decoration: none;
+    .dict-row {
         cursor: pointer;
     }
 
-    a.dict-row:hover .dict-row-value {
+    .dict-row:hover .dict-row-value {
         color: var(--orange);
     }
 
