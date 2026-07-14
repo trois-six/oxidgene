@@ -308,9 +308,11 @@ pub async fn get_person_by_sosa(
             entity: "Person (by SOSA number)",
             id: tree_id,
         }))?;
-    Ok(Json(serde_json::to_value(PersonDetailResponse {
-        person,
-        sosa_number: Some(number),
-    })
-    .unwrap()))
+    Ok(Json(
+        serde_json::to_value(PersonDetailResponse {
+            person,
+            sosa_number: Some(number),
+        })
+        .unwrap(),
+    ))
 }
