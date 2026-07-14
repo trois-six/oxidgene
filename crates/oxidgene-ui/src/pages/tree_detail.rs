@@ -918,6 +918,14 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                             });
                         }
                     },
+                    on_dictionary: {
+                        let tree_id = tree_id.clone();
+                        move |_| {
+                            nav.push(Route::Dictionary {
+                                tree_id: tree_id.clone(),
+                            });
+                        }
+                    },
                 }
             } else {
                 // Loading or empty state

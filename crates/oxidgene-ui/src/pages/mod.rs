@@ -1,6 +1,7 @@
 //! Page components (one per route).
 
 pub mod app_settings;
+pub mod dictionary;
 pub mod home;
 pub mod not_found;
 pub mod person_detail;

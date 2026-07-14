@@ -37,6 +37,32 @@ pub struct PersonDetail {
 /// Re-uses the same shape as `oxidgene_core::types::Connection<T>`.
 type PaginatedResponse<T> = Connection<T>;
 
+// ── Dictionary — distinct-value aggregations with usage counts ──────
+
+/// A distinct free-text value (surname, occupation label) plus how many
+/// persons carry it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DictionaryEntry {
+    pub value: String,
+    pub count: i64,
+}
+
+/// A source paired with its citation count.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SourceDictionaryEntry {
+    #[serde(flatten)]
+    pub source: Source,
+    pub count: i64,
+}
+
+/// A place paired with its usage count (events + media referencing it).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PlaceDictionaryEntry {
+    #[serde(flatten)]
+    pub place: Place,
+    pub count: i64,
+}
+
 // ── Tree request bodies ─────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -1258,6 +1284,81 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(())
+    }
+
+    // ── Dictionary ───────────────────────────────────────────────────
+
+    /// Distinct surnames in the tree, with the number of persons carrying each.
+    pub async fn dictionary_family_names(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Vec<DictionaryEntry>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/dictionary/family-names"))
+            .await
+    }
+
+    /// Distinct occupation labels in the tree, with the number of persons holding each.
+    pub async fn dictionary_occupations(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Vec<DictionaryEntry>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/dictionary/occupations"))
+            .await
+    }
+
+    /// All sources in the tree, each paired with its citation count.
+    pub async fn dictionary_sources(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Vec<SourceDictionaryEntry>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/dictionary/sources"))
+            .await
+    }
+
+    /// All places in the tree, each paired with its usage count.
+    pub async fn dictionary_places(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Vec<PlaceDictionaryEntry>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/dictionary/places"))
+            .await
+    }
+
+    /// Persons citing a given source.
+    pub async fn dictionary_source_usage(
+        &self,
+        tree_id: Uuid,
+        source_id: Uuid,
+    ) -> Result<Vec<Uuid>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/dictionary/sources/{source_id}/usage"
+        ))
+        .await
+    }
+
+    /// Persons with an event at a given place.
+    pub async fn dictionary_place_usage(
+        &self,
+        tree_id: Uuid,
+        place_id: Uuid,
+    ) -> Result<Vec<Uuid>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/dictionary/places/{place_id}/usage"
+        ))
+        .await
+    }
+
+    /// Persons holding a given occupation label.
+    pub async fn dictionary_occupation_usage(
+        &self,
+        tree_id: Uuid,
+        value: &str,
+    ) -> Result<Vec<Uuid>, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/dictionary/occupations/usage"),
+            &[("value", value)],
+        )
+        .await
     }
 
     // ── Citations ────────────────────────────────────────────────────

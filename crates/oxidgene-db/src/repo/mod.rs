@@ -7,6 +7,7 @@
 
 mod citation;
 mod connection;
+mod dictionary;
 mod event;
 mod event_witness;
 mod family;
@@ -26,6 +27,7 @@ mod tree;
 
 pub use citation::CitationRepo;
 pub use connection::{connect, rollback_migrations, run_migrations};
+pub use dictionary::{DictionaryRepo, DictionaryValueEntry};
 pub use event::{EventFilter, EventRepo};
 pub use event_witness::EventWitnessRepo;
 pub use family::FamilyRepo;

@@ -5,9 +5,9 @@
 use oxidgene_core::enums::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
-    CitationRepo, EventFilter, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams, PersonAncestryRepo, PersonNameRepo,
-    PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
+    CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo, FamilyRepo,
+    FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams, PersonAncestryRepo,
+    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -850,4 +850,398 @@ async fn delete_nonexistent_returns_not_found() {
 
     let err = NoteRepo::delete(&db, fake).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
+}
+
+// ───────────────────────── Dictionary aggregation tests ─────────────────────────
+
+#[tokio::test]
+async fn dictionary_family_names_groups_by_person_not_by_row() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    let p1 = create_person(&db, tree_id).await;
+    let p2 = create_person(&db, tree_id).await;
+    let p3 = create_person(&db, tree_id).await;
+
+    // p1 has two names sharing the same surname (birth + nickname) — must
+    // count as one person, not two rows.
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        p1,
+        NameType::Birth,
+        Some("Jean".into()),
+        Some("Dupont".into()),
+        None,
+        None,
+        None,
+        true,
+    )
+    .await
+    .unwrap();
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        p1,
+        NameType::AlsoKnownAs,
+        Some("Jeannot".into()),
+        Some("Dupont".into()),
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        p2,
+        NameType::Birth,
+        Some("Marie".into()),
+        Some("Dupont".into()),
+        None,
+        None,
+        None,
+        true,
+    )
+    .await
+    .unwrap();
+
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        p3,
+        NameType::Birth,
+        Some("Paul".into()),
+        Some("Martin".into()),
+        None,
+        None,
+        None,
+        true,
+    )
+    .await
+    .unwrap();
+
+    // Soft-deleted person must be excluded entirely.
+    let p4 = create_person(&db, tree_id).await;
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        p4,
+        NameType::Birth,
+        None,
+        Some("Ghost".into()),
+        None,
+        None,
+        None,
+        true,
+    )
+    .await
+    .unwrap();
+    PersonRepo::delete(&db, p4).await.unwrap();
+
+    // Blank surname must be excluded.
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        p3,
+        NameType::AlsoKnownAs,
+        Some("X".into()),
+        Some("   ".into()),
+        None,
+        None,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let entries = DictionaryRepo::family_names(&db, tree_id).await.unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].value, "Dupont");
+    assert_eq!(entries[0].count, 2); // p1 (2 rows) + p2 — not 3
+    assert_eq!(entries[1].value, "Martin");
+    assert_eq!(entries[1].count, 1);
+}
+
+#[tokio::test]
+async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let p1 = create_person(&db, tree_id).await;
+    let p2 = create_person(&db, tree_id).await;
+
+    // p1 has two "Farmer" occupation events (e.g. recorded at two censuses)
+    // — must count as one person.
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Occupation,
+        None,
+        None,
+        None,
+        Some(p1),
+        None,
+        Some("Farmer".into()),
+    )
+    .await
+    .unwrap();
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Occupation,
+        None,
+        None,
+        None,
+        Some(p1),
+        None,
+        Some("Farmer".into()),
+    )
+    .await
+    .unwrap();
+
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Occupation,
+        None,
+        None,
+        None,
+        Some(p2),
+        None,
+        Some("Baker".into()),
+    )
+    .await
+    .unwrap();
+
+    // Non-occupation event with a description must be ignored.
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Birth,
+        None,
+        None,
+        None,
+        Some(p2),
+        None,
+        Some("Farmer".into()),
+    )
+    .await
+    .unwrap();
+
+    // Blank-description occupation event must be ignored.
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Occupation,
+        None,
+        None,
+        None,
+        Some(p2),
+        None,
+        Some("  ".into()),
+    )
+    .await
+    .unwrap();
+
+    // Soft-deleted occupation event must be ignored.
+    let deleted_ev = Uuid::now_v7();
+    EventRepo::create(
+        &db,
+        deleted_ev,
+        tree_id,
+        EventType::Occupation,
+        None,
+        None,
+        None,
+        Some(p2),
+        None,
+        Some("Blacksmith".into()),
+    )
+    .await
+    .unwrap();
+    EventRepo::delete(&db, deleted_ev).await.unwrap();
+
+    let entries = DictionaryRepo::occupations(&db, tree_id).await.unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].value, "Baker");
+    assert_eq!(entries[0].count, 1);
+    assert_eq!(entries[1].value, "Farmer");
+    assert_eq!(entries[1].count, 1); // p1 counted once despite 2 events
+
+    let usage = DictionaryRepo::occupation_usage_person_ids(&db, tree_id, "Farmer")
+        .await
+        .unwrap();
+    assert_eq!(usage, vec![p1]);
+}
+
+#[tokio::test]
+async fn dictionary_sources_with_usage_counts_citations() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let person_id = create_person(&db, tree_id).await;
+
+    let cited_id = Uuid::now_v7();
+    SourceRepo::create(
+        &db,
+        cited_id,
+        tree_id,
+        "Parish Register".into(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let uncited_id = Uuid::now_v7();
+    SourceRepo::create(
+        &db,
+        uncited_id,
+        tree_id,
+        "Census".into(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    CitationRepo::create(
+        &db,
+        Uuid::now_v7(),
+        cited_id,
+        Some(person_id),
+        None,
+        None,
+        None,
+        Confidence::High,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let event_id = Uuid::now_v7();
+    EventRepo::create(
+        &db,
+        event_id,
+        tree_id,
+        EventType::Birth,
+        None,
+        None,
+        None,
+        Some(person_id),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    CitationRepo::create(
+        &db,
+        Uuid::now_v7(),
+        cited_id,
+        None,
+        Some(event_id),
+        None,
+        None,
+        Confidence::Medium,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let entries = DictionaryRepo::sources_with_usage(&db, tree_id)
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    let (census, cens_count) = entries.iter().find(|(s, _)| s.id == uncited_id).unwrap();
+    assert_eq!(census.title, "Census");
+    assert_eq!(*cens_count, 0);
+    let (register, reg_count) = entries.iter().find(|(s, _)| s.id == cited_id).unwrap();
+    assert_eq!(register.title, "Parish Register");
+    assert_eq!(*reg_count, 2);
+
+    // Usage drill-down resolves both the direct-person citation and the
+    // event-linked citation back to the same person, deduplicated.
+    let usage = DictionaryRepo::source_usage_person_ids(&db, cited_id)
+        .await
+        .unwrap();
+    assert_eq!(usage, vec![person_id]);
+}
+
+#[tokio::test]
+async fn dictionary_places_with_usage_counts_events() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let person_id = create_person(&db, tree_id).await;
+
+    let used_place = Uuid::now_v7();
+    PlaceRepo::create(&db, used_place, tree_id, "Paris, France".into(), None, None)
+        .await
+        .unwrap();
+    let unused_place = Uuid::now_v7();
+    PlaceRepo::create(
+        &db,
+        unused_place,
+        tree_id,
+        "Lyon, France".into(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Birth,
+        None,
+        None,
+        Some(used_place),
+        Some(person_id),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Death,
+        None,
+        None,
+        Some(used_place),
+        Some(person_id),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let entries = DictionaryRepo::places_with_usage(&db, tree_id)
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    let (paris, paris_count) = entries.iter().find(|(p, _)| p.id == used_place).unwrap();
+    assert_eq!(paris.name, "Paris, France");
+    assert_eq!(*paris_count, 2);
+    let (lyon, lyon_count) = entries.iter().find(|(p, _)| p.id == unused_place).unwrap();
+    assert_eq!(lyon.name, "Lyon, France");
+    assert_eq!(*lyon_count, 0);
+
+    let usage = DictionaryRepo::place_usage_person_ids(&db, used_place)
+        .await
+        .unwrap();
+    assert_eq!(usage, vec![person_id]);
 }

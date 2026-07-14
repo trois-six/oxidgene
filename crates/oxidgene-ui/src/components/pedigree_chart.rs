@@ -97,6 +97,9 @@ const SIBLING_MIN_OFFSET: f64 = 6.0;
 
 const VIEWPORT_DEFAULT_W: f64 = 800.0;
 const VIEWPORT_DEFAULT_H: f64 = 600.0;
+const FIT_SIDE_PADDING_RATIO: f64 = 0.05;
+const EVENT_PANEL_AUTO_COLLAPSE_WIDTH: f64 = 900.0;
+const EVENT_PANEL_MANUAL_STORAGE_KEY: &str = "oxidgene-ev-panel-manual";
 const ZOOM_FACTOR: f64 = 1.2;
 const ZOOM_MIN: f64 = 0.3;
 const ZOOM_MAX: f64 = 2.0;
@@ -2877,6 +2880,8 @@ pub struct PedigreeChartProps {
     pub on_profile_view: EventHandler<Uuid>,
     #[props(default)]
     pub on_settings: EventHandler<()>,
+    #[props(default)]
+    pub on_dictionary: EventHandler<()>,
 }
 
 /// Render one card (person or empty slot) of the pedigree as an SVG `<g>`.
@@ -3087,7 +3092,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let init_ox = saved.as_ref().map_or(0.0, |s| s.offset_x);
     let init_oy = saved.as_ref().map_or(0.0, |s| s.offset_y);
     let init_sc = saved.as_ref().map_or(1.0, |s| s.scale);
-    let has_saved_state = saved.is_some();
 
     // ── Depth controls (max 10) ──
     let mut ancestor_levels = use_signal(move || init_anc);
@@ -3110,29 +3114,73 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Selected person (drives event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
 
+    let mut last_viewport_width = use_signal(|| VIEWPORT_DEFAULT_W);
+    let mut viewport_width_init = use_signal(|| false);
+    if !viewport_width_init() {
+        viewport_width_init.set(true);
+        spawn(async move {
+            if let Ok(val) = document::eval(
+                "return window.innerWidth || document.documentElement.clientWidth || 1024",
+            )
+            .await
+            {
+                last_viewport_width.set(val.as_f64().unwrap_or(VIEWPORT_DEFAULT_W));
+            }
+        });
+    }
+
     // ── Event panel collapse (persisted via localStorage) ──
     let mut panel_collapsed = use_signal(|| false);
     let mut panel_init = use_signal(|| false);
     if !panel_init() {
         panel_init.set(true);
         spawn(async move {
-            if let Ok(val) =
-                document::eval("return localStorage.getItem('oxidgene-ev-panel') === 'collapsed'")
-                    .await
-                && let Some(b) = val.as_bool()
+            if let Ok(val) = document::eval(&format!(
+                r#"
+                localStorage.removeItem('oxidgene-ev-panel');
+                const width = window.innerWidth || document.documentElement.clientWidth || 1024;
+                return [localStorage.getItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}') === 'collapsed', width];
+                "#,
+            ))
+            .await
             {
-                panel_collapsed.set(b);
+                let manual_collapsed = val.get(0).and_then(|v| v.as_bool()).unwrap_or(false);
+                let width = val
+                    .get(1)
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(VIEWPORT_DEFAULT_W);
+                last_viewport_width.set(width);
+                panel_collapsed.set(manual_collapsed || width <= EVENT_PANEL_AUTO_COLLAPSE_WIDTH);
             }
         });
     }
 
+    use_effect(move || {
+        document::eval(
+            r#"
+            if (!window.__oxidgenePedigreeResizeFit) {
+                window.__oxidgenePedigreeResizeFit = {
+                    timer: null,
+                    handler: function () {
+                        clearTimeout(window.__oxidgenePedigreeResizeFit.timer);
+                        window.__oxidgenePedigreeResizeFit.timer = setTimeout(function () {
+                            document.querySelector('.pedigree-resize-fit-trigger')?.click();
+                        }, 120);
+                    }
+                };
+                window.addEventListener('resize', window.__oxidgenePedigreeResizeFit.handler);
+            }
+            "#,
+        );
+    });
+
     // ── Disable transition when root changes (avoid flying animation) ──
     let mut animating = use_signal(|| false);
 
-    // ── Center the root in the viewport on first load and root change ──
-    // Also center when explicitly requested via center_gen > 0 (e.g. navigation
+    // ── Fit the graph in the viewport on first load and root/depth changes ──
+    // Also fit when explicitly requested via center_gen > 0 (e.g. navigation
     // from search results), even when there is saved pan/zoom state.
-    let mut needs_center = use_signal(move || !has_saved_state || props.center_gen > 0);
+    let mut needs_fit = use_signal(|| true);
 
     // ── Reset pan/zoom/selection when the root person changes ──
     let mut prev_root = use_signal(|| props.root_person_id);
@@ -3141,7 +3189,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         animating.set(false);
         scale.set(1.0);
         selected_person_id.set(props.root_person_id);
-        needs_center.set(true);
+        needs_fit.set(true);
     }
 
     // ── Force re-centering when parent increments center_gen ──
@@ -3150,7 +3198,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         prev_center_gen.set(props.center_gen);
         animating.set(false);
         scale.set(1.0);
-        needs_center.set(true);
+        needs_fit.set(true);
     }
 
     // ── Force re-centering when depth levels change ──
@@ -3162,7 +3210,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         prev_anc.set(anc_now);
         prev_desc.set(desc_now);
         animating.set(false);
-        needs_center.set(true);
+        needs_fit.set(true);
     }
 
     // ── Compute SOSA ancestor set (persons who are ancestors of the SOSA root) ──
@@ -3191,27 +3239,59 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         descendant_levels(),
     );
 
-    // ── Center root card in viewport when needed ──
-    if needs_center() {
-        let root_center = Some((layout.root_cx, layout.root_cy));
-        if let Some((rcx, rcy)) = root_center {
-            needs_center.set(false);
-            spawn(async move {
-                // Small delay so the DOM has rendered the viewport element.
-                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-                if let Ok(val) = document::eval(
-                    "var el = document.querySelector('.pedigree-viewport'); return el ? [el.clientWidth, el.clientHeight] : [800, 600]"
-                ).await {
-                    let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_W);
-                    let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_H);
-                    offset_x.set(vw / 2.0 - rcx);
-                    offset_y.set(vh / 2.0 - rcy);
+    // ── Fit graph in viewport when needed ──
+    if needs_fit() {
+        let fit_content_cx = layout.content_cx;
+        let fit_content_cy = layout.content_cy;
+        let fit_content_w = layout.content_w;
+        let fit_content_h = layout.content_h;
+        needs_fit.set(false);
+        spawn(async move {
+            // Small delay so the DOM has rendered the viewport element.
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            if let Ok(val) = document::eval(
+                r#"
+                const viewport = document.querySelector('.pedigree-viewport');
+                if (!viewport) return [800, 600, 0];
+                const rect = viewport.getBoundingClientRect();
+                const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
+                const isNarrow = window.innerWidth <= 900;
+                let availableLeft = 0;
+                let availableRight = rect.width;
+                if (panel && !isNarrow) {
+                    const panelRect = panel.getBoundingClientRect();
+                    const overlapsX = panelRect.left < rect.right && panelRect.right > rect.left;
+                    if (overlapsX) {
+                        availableRight = Math.min(availableRight, panelRect.left - rect.left);
+                    }
                 }
-                // Re-enable animation after centering.
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                animating.set(true);
-            });
-        }
+                return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft];
+                "#,
+            )
+            .await
+            {
+                let vw = val
+                    .get(0)
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(VIEWPORT_DEFAULT_W);
+                let vh = val
+                    .get(1)
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(VIEWPORT_DEFAULT_H);
+                let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let side_padding = vw * FIT_SIDE_PADDING_RATIO;
+                let fit_w = (vw - 2.0 * side_padding).max(1.0);
+                let fit_scale = (fit_w / fit_content_w)
+                    .min(vh / fit_content_h)
+                    .clamp(ZOOM_MIN, ZOOM_MAX);
+                scale.set(fit_scale);
+                offset_x.set(vx + vw / 2.0 - fit_content_cx * fit_scale);
+                offset_y.set(vh / 2.0 - fit_content_cy * fit_scale);
+            }
+            // Re-enable animation after fitting.
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            animating.set(true);
+        });
     }
 
     // ── Persist view state into global cache so it survives navigation ──
@@ -3414,6 +3494,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 on_pedigree_view: move |_| {},
                 on_add_person: props.on_add_person,
                 on_settings: props.on_settings,
+                on_dictionary: props.on_dictionary,
 
                 // Depth selector (hover popover)
                 div {
@@ -3530,9 +3611,10 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                 if (!viewport) return [800, 600, 0];
                                 const rect = viewport.getBoundingClientRect();
                                 const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
+                                const isNarrow = window.innerWidth <= 900;
                                 let availableLeft = 0;
                                 let availableRight = rect.width;
-                                if (panel) {
+                                if (panel && !isNarrow) {
                                     const panelRect = panel.getBoundingClientRect();
                                     const overlapsX = panelRect.left < rect.right && panelRect.right > rect.left;
                                     if (overlapsX) {
@@ -3545,7 +3627,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                 let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_W);
                                 let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_H);
                                 let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                let fit_scale = (vw / fit_content_w).min(vh / fit_content_h).clamp(ZOOM_MIN, ZOOM_MAX);
+                                let side_padding = vw * FIT_SIDE_PADDING_RATIO;
+                                let fit_w = (vw - 2.0 * side_padding).max(1.0);
+                                let fit_scale = (fit_w / fit_content_w).min(vh / fit_content_h).clamp(ZOOM_MIN, ZOOM_MAX);
                                 scale.set(fit_scale);
                                 offset_x.set(vx + vw / 2.0 - fit_content_cx * fit_scale);
                                 offset_y.set(vh / 2.0 - fit_content_cy * fit_scale);
@@ -3568,6 +3652,27 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 }
 
                 div { class: "isb-hr" }
+            }
+
+            button {
+                class: "pedigree-resize-fit-trigger",
+                tabindex: "-1",
+                onclick: move |_| {
+                    spawn(async move {
+                        if let Ok(val) = document::eval("return window.innerWidth || document.documentElement.clientWidth || 1024").await {
+                            let width = val.as_f64().unwrap_or(VIEWPORT_DEFAULT_W);
+                            let previous_width = last_viewport_width();
+                            if previous_width > EVENT_PANEL_AUTO_COLLAPSE_WIDTH
+                                && width <= EVENT_PANEL_AUTO_COLLAPSE_WIDTH
+                                && !panel_collapsed()
+                            {
+                                panel_collapsed.set(true);
+                            }
+                            last_viewport_width.set(width);
+                        }
+                        needs_fit.set(true);
+                    });
+                },
             }
 
             // ══════════════════════════════════
@@ -3704,8 +3809,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         panel_collapsed.set(new_val);
                         let val = if new_val { "collapsed" } else { "open" };
                         document::eval(&format!(
-                            "localStorage.setItem('oxidgene-ev-panel', '{}')",
-                            val
+                            "localStorage.setItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}', '{}')",
+                            val,
                         ));
                     },
                     if panel_collapsed() { "\u{203A}" } else { "\u{2039}" }

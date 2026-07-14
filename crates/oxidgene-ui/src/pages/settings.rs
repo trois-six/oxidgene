@@ -192,6 +192,7 @@ pub fn Settings(tree_id: String) -> Element {
                 selected_person_id: selected_person_id,
                 show_middle_separator: false,
                 show_add_person: false,
+                show_dictionary: true,
                 show_settings: false,
                 on_profile_view: {
                     let tree_id = tree_id.clone();
@@ -214,6 +215,14 @@ pub fn Settings(tree_id: String) -> Element {
                     }
                 },
                 on_add_person: move |_| {},
+                on_dictionary: {
+                    let tree_id = tree_id.clone();
+                    move |_| {
+                        nav.push(Route::Dictionary {
+                            tree_id: tree_id.clone(),
+                        });
+                    }
+                },
                 on_settings: move |_| {},
             }
 
