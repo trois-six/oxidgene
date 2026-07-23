@@ -270,25 +270,31 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 | B | GEDCOM Engine | ✅ Complete |
 | C | Tree Editing (Frontend) | ✅ Complete |
 | D | UX, Languages, Performance | ✅ Complete |
-| E | Server-Side Caching | 🔄 E.7 (medias) pending |
-| F | Security & Deployment | ⏳ Next |
-| G | Asynchronous Pipeline | ⏳ Post-MVP |
+| E | Server-Side Caching & Search | ✅ E.7 Complete; 🔄 E.8 (dictionary descent view) planned |
+| F | Media Management | ⏳ Next (Sprints F.1–F.4, 8–12 days) |
+| G | Security & Deployment | ⏳ Post-Media |
+| H | Asynchronous Pipeline | ⏳ Post-MVP |
 
-**Recently shipped (Jul 2026):**
-- Search results grid view implemented: the toolbar's grid toggle (previously a dead button) now renders each result as a card embedding a pannable mini-pedigree (self + parents + grandparents, served by the pedigree cache), with 20 results per page in grid mode vs 25 in list mode. See [`ui-search-results.md` §7](ui-search-results.md).
-- GEDCOM round-trip fidelity fixes: `ADOP` recognized as an individual event (was silently dropped), 12 new `EventType` variants so individual attributes (education, property, nobility title, religion, SSN, etc.) round-trip to their own GEDCOM tag instead of collapsing into a generic event, export header now declares `CHAR UTF-8`.
-- Event witnesses (GEDCOM `ASSO`/`RELA`) reworked from a free-text `event.witnesses` column (never actually wired through the REST API) into a proper `event_witness` join table linking an event to a real `Person`, with an optional free-text relation (e.g. "Godmother"). Round-trips through GEDCOM import/export, exposed via REST (`/events/:id/witnesses`) and GraphQL, with a person-picker UI in the person edit modal.
-- GEDCOM `ASSO` now imports/exports at the correct GEDCOM 5.5.1 nesting level (a direct child of the INDI record, never nested inside an event) after real-world testing against Gramps showed it rejects the nested form outright. Import also captures both directions Gramps itself writes (witness-of-a-family and role-holder-of-a-person, e.g. godparent), deduplicating against the same fact when Gramps encodes it redundantly (both nested-in-event and top-level).
-- DB migrations reconsolidated: the five incremental migrations plus `event_witness` were squashed back into a single initial migration (no released deployment had legacy data to preserve).
-- Sprint E.6 — Desktop cache simplification: search moved to a DB-native `person_search_fts` table (SQLite FTS5 virtual table on desktop, plain indexed table on PostgreSQL); `GET /cache/search` removed in favour of `GET /persons/search?q=...`; `PersonCache` and the in-memory search index removed from `MemoryCacheStore` (desktop keeps only the LRU pedigree cache — persons are rebuilt on demand with targeted SQLite queries); disk persistence reduced to pedigrees (schema v2). Benchmarks (release, synthetic 20K-person tree): person load ~9 ms, search ~10 ms, full rebuild ~0.7 s.
+**Recently shipped (Jul 2026 — Sprint E.7 partial):**
+- Dictionary page launched ([`ui-dictionary.md`](ui-dictionary.md)): read-only V1 index of family names, sources, places, occupations with usage counts (person/citation/reference drill-down via aggregation endpoints). Search results grid view also shipped: each result is a card embedding a pannable mini-pedigree (self + parents + grandparents, server-side), 20 per page vs 25 list mode. See [`ui-search-results.md` §7](ui-search-results.md).
+- SOSA number search: numeric-only family-name queries resolve as SOSA numbers with direct tree navigation (e.g. `search("2")` → `GET /persons/sosa/2`).
+- GEDCOM round-trip fidelity: `ADOP` (adoption) now recognized as individual event with nested adoptive-family `FAMC`; 12 new individual-attribute `EventType` variants (education, property, religion, SSN, etc.) map to native GEDCOM tags instead of generic `EVEN`. Event witnesses (`ASSO`/`RELA`) moved from free-text to proper `event_witness` join table (real `Person` references + optional relation text). Exports declare `CHAR UTF-8` in header. Imports capture both Gramps encodings (`ASSO` nested in event AND top-level) and deduplicate.
+- DB migrations reconsolidated: all schema in `m20250101_000001_initial.rs`, future changes add new files (no squashing). **Note:** ged_io upstream `main` pinned (breaking change in `Individual.name` → `names`); see [Architecture](architecture.md) §1.
 
-**Recently shipped (Jun 2026):**
-- `ui-person-edit-modal.md` spec fully implemented (Phases 1–6): date qualifiers, create mode, couple modal rewrite with embedded `PersonForm`, staged child detach, keyboard shortcuts, responsive drawer.
-- SQLite migration fix: single-column `ALTER TABLE` per statement.
-- Desktop binary size: 560 MB (debug) → 13.5 MB (release) via LTO, `graphql` + `postgres` feature flags.
+**Sprint E.6 (desktop cache simplification) — earlier in Jul:**
+- Search moved to DB-native `person_search_fts` (SQLite FTS5 on desktop, plain indexed table on PostgreSQL). `GET /cache/search` removed in favour of `GET /persons/search?q=...`.
+- `PersonCache` removed from `MemoryCacheStore`: desktop now builds persons on demand with targeted queries (~1–9 ms per person). Redis keeps shared `PersonCache`.
+- Disk persistence reduced to pedigrees only (schema v2).
+- Benchmarks (20K-person release tree): person load ~9 ms, search ~10 ms, full rebuild ~0.7 s.
+
+**Earlier (Jun 2026):**
+- Person edit modal fully implemented (date qualifiers, create mode, couple modal, staged child detach, keyboard shortcuts).
+- Desktop binary size: 560 MB (debug) → 13.5 MB (release, via LTO + feature flags).
 
 **Deferred:**
-- Performance testing with 100K-person trees (EPIC E.5 last item; 20K-person synthetic benchmark added in E.6).
+- E.7 media management (binary upload/download endpoints) — not yet implemented.
+- E.8 dictionary descent view (nested genealogical list for family names, with SOSA badges) — planned but not started.
+- Performance testing with 100K-person trees.
 
 ---
 

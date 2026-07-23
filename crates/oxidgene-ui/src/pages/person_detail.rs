@@ -729,13 +729,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 let mut death_years: HashMap<Uuid, i32> = HashMap::new();
                 for e in &snapshot.events {
                     let Some(pid) = e.person_id else { continue };
-                    let Some(year) = e
-                        .date_value
-                        .as_deref()
-                        .and_then(crate::components::pedigree_chart::extract_year)
-                    else {
-                        continue;
-                    };
+                    let Some(year) = e.year() else { continue };
                     match e.event_type {
                         EventType::Birth => {
                             birth_years.entry(pid).or_insert(year);
