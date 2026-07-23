@@ -9,23 +9,25 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CI_IMAGE: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+
+permissions:
+  contents: read
+  packages: read
 
 jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.CI_IMAGE }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
-
-      - name: Install system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-          version: 1.0-${{ github.job }}
 
       - name: Check
         run: cargo check --workspace --all-targets
@@ -33,12 +35,13 @@ jobs:
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.CI_IMAGE }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -46,20 +49,15 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.CI_IMAGE }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
       - uses: Swatinem/rust-cache@v2
-
-      - name: Install system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-          version: 1.0-${{ github.job }}
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -67,22 +65,15 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.CI_IMAGE }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-
-      - name: Install system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-          version: 1.0-${{ github.job }}
 
       - name: Run tests
         run: cargo nextest run --workspace

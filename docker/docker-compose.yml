@@ -8,7 +8,7 @@
 services:
   # ── PostgreSQL ────────────────────────────────────────────────────────
   postgres:
-    image: postgres:17-bookworm
+    image: postgres:18-trixie
     restart: unless-stopped
     environment:
       POSTGRES_USER: oxidgene
@@ -26,7 +26,7 @@ services:
 
   # ── Redis (cache backend) ───────────────────────────────────────────
   redis:
-    image: redis:7-bookworm
+    image: redis:8-trixie
     restart: unless-stopped
     ports:
       - "6379:6379"

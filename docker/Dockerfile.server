@@ -1,5 +1,5 @@
 # ── Builder stage ──────────────────────────────────────────────────────
-FROM rust:1.86-bookworm AS builder
+FROM rust:1-slim-trixie AS builder
 
 WORKDIR /app
 
@@ -40,7 +40,7 @@ RUN touch apps/oxidgene-server/src/main.rs
 RUN cargo build --release --bin oxidgene-server
 
 # ── Runtime stage ─────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
