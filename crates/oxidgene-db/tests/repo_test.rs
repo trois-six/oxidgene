@@ -1179,6 +1179,177 @@ async fn dictionary_sources_with_usage_counts_citations() {
 }
 
 #[tokio::test]
+async fn dictionary_source_group_counts_drives_smart_drill_down() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    for title in [
+        "AD44 - Actes d'\u{00e9}tat civil",
+        "AD44 - Cadastre",
+        "AD41 - Registres paroissiaux",
+        "AN - Archives Nationales",
+        "Biblioth\u{00e8}que municipale",
+    ] {
+        SourceRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            title.into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    // Top level: only the single-character letters that actually occur
+    // ("A" covers AD44/AD44/AD41/AN, "B" covers the library entry) — never
+    // the unused 24 other letters.
+    let top = DictionaryRepo::source_group_counts(&db, tree_id, "")
+        .await
+        .unwrap();
+    let top: std::collections::HashMap<String, i64> = top.into_iter().collect();
+    assert_eq!(top.get("A").copied(), Some(4));
+    assert_eq!(top.get("B").copied(), Some(1));
+    assert_eq!(top.len(), 2);
+
+    // Drilling into "A" splits further by the next character.
+    let under_a = DictionaryRepo::source_group_counts(&db, tree_id, "A")
+        .await
+        .unwrap();
+    let under_a: std::collections::HashMap<String, i64> = under_a.into_iter().collect();
+    assert_eq!(under_a.get("AD").copied(), Some(3));
+    assert_eq!(under_a.get("AN").copied(), Some(1));
+    assert_eq!(under_a.len(), 2);
+
+    // Drilling into "AD" (AD4 is shared by all three "AD..." titles, so the
+    // group is 3 chars here).
+    let under_ad = DictionaryRepo::source_group_counts(&db, tree_id, "AD")
+        .await
+        .unwrap();
+    let under_ad: std::collections::HashMap<String, i64> = under_ad.into_iter().collect();
+    assert_eq!(under_ad.get("AD4").copied(), Some(3));
+    assert_eq!(under_ad.len(), 1);
+
+    let under_ad4 = DictionaryRepo::source_group_counts(&db, tree_id, "AD4")
+        .await
+        .unwrap();
+    let under_ad4: std::collections::HashMap<String, i64> = under_ad4.into_iter().collect();
+    assert_eq!(under_ad4.get("AD44").copied(), Some(2));
+    assert_eq!(under_ad4.get("AD41").copied(), Some(1));
+
+    // The final flat-list step: filtering by a fully-drilled prefix returns
+    // exactly the matching sources, case-insensitively.
+    let ad44_sources = DictionaryRepo::sources_with_usage_by_prefix(&db, tree_id, "ad44")
+        .await
+        .unwrap();
+    assert_eq!(ad44_sources.len(), 2);
+    assert!(
+        ad44_sources
+            .iter()
+            .all(|(s, _)| s.title.to_uppercase().starts_with("AD44"))
+    );
+
+    // Empty prefix returns every source, same as `sources_with_usage`.
+    let all = DictionaryRepo::sources_with_usage_by_prefix(&db, tree_id, "")
+        .await
+        .unwrap();
+    assert_eq!(all.len(), 5);
+}
+
+#[tokio::test]
+async fn dictionary_resolve_source_drill_down_skips_forced_single_choice_levels() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    // Two fictional towns with one record each ("ALPHA", "BETA"), plus a
+    // third ("HOTEL") with six records split across two record types.
+    // Every character shared by *all* currently-matching titles is a
+    // forced, single-choice step; `resolve_source_drill_down` must skip
+    // all of them and only stop where a real (multi-way) choice exists.
+    for title in [
+        "AD44 - ALPHA - A",
+        "AD44 - BETA - A",
+        "AD44 - HOTEL - (N) 1",
+        "AD44 - HOTEL - (N) 2",
+        "AD44 - HOTEL - (N) 3",
+        "AD44 - HOTEL - (M) 1",
+        "AD44 - HOTEL - (M) 2",
+        "AD44 - HOTEL - (M) 3",
+    ] {
+        SourceRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            title.into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    // A tiny threshold (5) keeps the fixture small while exercising the
+    // same shape as ui-dictionary.md §8.10's example: a long run of
+    // single-choice characters ("AD44" -> " " -> "-" -> " ") is skipped in
+    // one resolve, landing directly on the next genuine branch point
+    // ("AD44 - ", where town names A/B/H diverge) — not one click per
+    // character.
+    let (prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(&db, tree_id, "", 5)
+        .await
+        .unwrap();
+    assert_eq!(prefix, "AD44 - ");
+    assert_eq!(total, 8);
+    let labels: std::collections::HashSet<String> = groups.iter().map(|(l, _)| l.clone()).collect();
+    assert_eq!(
+        labels,
+        std::collections::HashSet::from([
+            "AD44 - A".to_string(),
+            "AD44 - B".to_string(),
+            "AD44 - H".to_string(),
+        ])
+    );
+
+    // Drilling into the "H" branch (6 "HOTEL" sources, still above the
+    // threshold) auto-skips every forced single-choice character in
+    // "OTEL - (" and lands directly on the next real branch: record type N
+    // vs M — not one click per letter.
+    let (prefix, total, groups) =
+        DictionaryRepo::resolve_source_drill_down(&db, tree_id, "AD44 - H", 5)
+            .await
+            .unwrap();
+    assert_eq!(prefix, "AD44 - HOTEL - (");
+    assert_eq!(total, 6);
+    let labels: std::collections::HashSet<String> = groups.iter().map(|(l, _)| l.clone()).collect();
+    assert_eq!(
+        labels,
+        std::collections::HashSet::from([
+            "AD44 - HOTEL - (M".to_string(),
+            "AD44 - HOTEL - (N".to_string(),
+        ])
+    );
+
+    // Drilling into a branch whose count is already <= threshold resolves
+    // immediately — no further groups, ready for the final flat list.
+    let (prefix, total, groups) =
+        DictionaryRepo::resolve_source_drill_down(&db, tree_id, "AD44 - A", 5)
+            .await
+            .unwrap();
+    assert_eq!(prefix, "AD44 - A");
+    assert_eq!(total, 1);
+    assert!(groups.is_empty());
+    let final_list = DictionaryRepo::sources_with_usage_by_prefix(&db, tree_id, &prefix)
+        .await
+        .unwrap();
+    assert_eq!(final_list.len(), 1);
+    assert_eq!(final_list[0].0.title, "AD44 - ALPHA - A");
+}
+
+#[tokio::test]
 async fn dictionary_places_with_usage_counts_events() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;

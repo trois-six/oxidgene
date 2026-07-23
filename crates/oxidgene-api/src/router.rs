@@ -210,6 +210,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/{tree_id}/dictionary/sources", get(dictionary::sources))
         .route(
+            "/{tree_id}/dictionary/sources/groups",
+            get(dictionary::source_groups),
+        )
+        .route(
             "/{tree_id}/dictionary/sources/{source_id}/usage",
             get(dictionary::source_usage),
         )
