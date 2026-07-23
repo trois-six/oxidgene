@@ -1,0 +1,15 @@
+FROM rust:1-slim-trixie
+
+RUN apt-get update && apt-get install -y \
+    libgtk-3-dev \
+    libwebkit2gtk-4.1-dev \
+    libxdo-dev \
+    libsoup-3.0-dev \
+    libjavascriptcoregtk-4.1-dev \
+    pkg-config \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rustup component add rustfmt clippy \
+    && curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin
