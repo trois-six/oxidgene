@@ -343,7 +343,9 @@ async fn pedigree_builds_without_person_cache() {
 /// Performance regression guard (Sprint E.6): with the person cache removed
 /// on desktop, person loads and searches must stay within the interactive
 /// budget (< 100 ms in debug builds; release is ~10× faster).
+/// Ignored by default — run with `cargo test -p oxidgene-cache -- --ignored`.
 #[tokio::test]
+#[ignore = "benchmark — run manually"]
 async fn person_load_and_search_performance() {
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;

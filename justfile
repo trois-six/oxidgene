@@ -13,13 +13,15 @@ build:
 build-release:
     cargo build --release
 
-# Run all tests
+# Run all tests (requires cargo-nextest: cargo install cargo-nextest --locked)
 test:
-    cargo test --workspace
+    cargo nextest run --workspace
+    cargo test --doc --workspace
 
 # Run tests with output
 test-verbose:
-    cargo test --workspace -- --nocapture
+    cargo nextest run --workspace --no-capture
+    cargo test --doc --workspace -- --nocapture
 
 # Run clippy linter
 clippy:
