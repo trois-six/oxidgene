@@ -108,6 +108,19 @@ pub fn Dictionary(tree_id: String) -> Element {
         source_history.set(Vec::new());
     }
 
+    // Scroll back to the top of the scrollable content area whenever the
+    // page changes (pagination, or a filter/tab switch resetting to page
+    // 1). Without this, a scroll position picked up while browsing a long
+    // list (e.g. to reach the pagination controls at the bottom) persists
+    // onto the next, possibly much shorter, result set — leaving the tabs
+    // and filter toolbar scrolled out of view above the visible area.
+    use_effect(move || {
+        current_page();
+        document::eval(
+            "document.querySelector('.sub-page-content')?.scrollTo({ top: 0, behavior: 'instant' });",
+        );
+    });
+
     // ── Data fetching (one aggregation call per tab) ──
     let api_tree = api.clone();
     let mut tree_resource = use_resource(move || {
