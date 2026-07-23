@@ -26,7 +26,7 @@ timestamp: 2026-06-17T00:00:00Z
 | ORM | SeaORM | 1.1+ | Async, supports PostgreSQL + SQLite |
 | Web database | PostgreSQL | 16+ | Production web deployment |
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
-| GEDCOM | ged_io | 0.12+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
+| GEDCOM | ged_io | 0.16+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
 | Cache (web) | Redis | 7+ | Server-side cache backend for web deployment. See [Caching](caching.md) |
 | Cache (desktop) | DashMap + bincode | — | In-memory cache with disk persistence. See [Caching](caching.md) |
 | Build orchestration | just | latest | Unified justfile for all tasks |
@@ -164,3 +164,5 @@ oxidgene-cli (depends on: oxidgene-db, oxidgene-gedcom)
 
 oxidgene-ui (depends on: oxidgene-core)
 ```
+
+**Current layout:** All 7 crates are co-located in `crates/`. The single migration file `m20250101_000001_initial.rs` holds all schema (13 tables + `person_search_fts` FTS5 index); future changes add new files (e.g. `m20260801_000002_feature.rs`). No incremental migration squashing.

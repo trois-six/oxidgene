@@ -161,15 +161,6 @@ pub(crate) fn format_lifespan(birth: Option<i32>, death: Option<i32>) -> String 
     }
 }
 
-/// Extract a 4-digit year from a free-text GEDCOM-style date value
-/// (e.g. "ABT 1796" -> `Some(1796)`).
-pub(crate) fn extract_year(date_value: &str) -> Option<i32> {
-    date_value
-        .split_whitespace()
-        .find(|w| w.len() == 4 && w.parse::<u32>().is_ok())
-        .and_then(|w| w.parse::<i32>().ok())
-}
-
 /// CSS variable for the gender-coded card border stroke.
 fn gender_stroke(sex: Sex) -> &'static str {
     match sex {
@@ -934,15 +925,13 @@ impl PersonNode {
             .events_by_person
             .get(&id)
             .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Birth))
-            .and_then(|e| e.date_value.as_deref())
-            .and_then(extract_year);
+            .and_then(|e| e.year());
 
         let death_year = data
             .events_by_person
             .get(&id)
             .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Death))
-            .and_then(|e| e.date_value.as_deref())
-            .and_then(extract_year);
+            .and_then(|e| e.year());
 
         let photo_url = data.photos.get(&id).cloned();
 

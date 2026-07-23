@@ -17,7 +17,7 @@ timestamp: 2026-06-17T00:00:00Z
 ## 1. REST API
 
 Base path: `/api/v1`
-The API must expose an OpenAPI description in YAML under the path: `/api/swagger.yaml`
+The API should eventually expose an OpenAPI description in YAML under the path: `/api/swagger.yaml` — **not implemented yet**.
 
 ### Trees
 
@@ -26,10 +26,11 @@ The API must expose an OpenAPI description in YAML under the path: `/api/swagger
 | `GET` | `/trees` | List trees (cursor-paginated) |
 | `POST` | `/trees` | Create a tree |
 | `GET` | `/trees/{tree_id}` | Get a tree |
-| `PUT` | `/trees/{tree_id}` | Update a tree |
+| `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id`) |
 | `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
+| `POST` | `/trees/{tree_id}/duplicate` | Duplicate a tree (deep copy) |
 
-Used by: [Homepage](ui-home.md) (tree list, create, delete)
+Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 
 ### Persons
 
@@ -37,6 +38,8 @@ Used by: [Homepage](ui-home.md) (tree list, create, delete)
 |---|---|---|
 | `GET` | `/trees/{tree_id}/persons` | List persons (cursor-paginated, filterable) |
 | `POST` | `/trees/{tree_id}/persons` | Create a person |
+| `GET` | `/trees/{tree_id}/persons/search?q=...&limit=N&offset=N` | Server-side person search (paginated `SearchResult`, backed by `person_search_fts`; empty `q` = browse mode) |
+| `GET` | `/trees/{tree_id}/persons/sosa/{number}` | Resolve a SOSA number to a person (relative to `Tree.sosa_root_person_id`) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}` | Get a person (with names, events, families) |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}` | Update a person |
 | `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Soft-delete a person |
@@ -70,8 +73,10 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/trees/{tree_id}/families/{family_id}/spouses` | List spouses |
 | `POST` | `/trees/{tree_id}/families/{family_id}/spouses` | Add a spouse |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}` | Remove a spouse |
+| `GET` | `/trees/{tree_id}/families/{family_id}/children` | List children |
 | `POST` | `/trees/{tree_id}/families/{family_id}/children` | Add a child |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}/children/{child_id}` | Remove a child |
 
@@ -84,6 +89,9 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 | `GET` | `/trees/{tree_id}/events/{event_id}` | Get an event |
 | `PUT` | `/trees/{tree_id}/events/{event_id}` | Update an event |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}` | Soft-delete an event |
+| `GET` | `/trees/{tree_id}/events/{event_id}/witnesses` | List event witnesses (GEDCOM `ASSO`) |
+| `POST` | `/trees/{tree_id}/events/{event_id}/witnesses` | Add a witness (person + optional relation text) |
+| `DELETE` | `/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}` | Remove a witness |
 
 Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](ui-person-edit-modal.md) (event blocks)
 
@@ -111,6 +119,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/trees/{tree_id}/citations` | List citations (filterable by person/event/family) |
 | `POST` | `/trees/{tree_id}/citations` | Create a citation |
 | `PUT` | `/trees/{tree_id}/citations/{citation_id}` | Update a citation |
 | `DELETE` | `/trees/{tree_id}/citations/{citation_id}` | Delete a citation |
@@ -120,11 +129,12 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media` | List media (cursor-paginated) |
-| `POST` | `/trees/{tree_id}/media` | Upload media (multipart) |
+| `POST` | `/trees/{tree_id}/media` | Create a media record (JSON metadata) |
 | `GET` | `/trees/{tree_id}/media/{media_id}` | Get media metadata |
-| `GET` | `/trees/{tree_id}/media/{media_id}/file` | Download media file |
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Soft-delete media |
+
+> **Planned (E.7 media management):** binary upload (`POST` multipart) and file download (`GET .../file`) endpoints are not implemented yet — today only metadata records exist; media binaries referenced by GEDZIP export must already be on disk at `file_path`.
 
 Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
@@ -132,6 +142,7 @@ Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/trees/{tree_id}/media-links` | List media links (filterable by target) |
 | `POST` | `/trees/{tree_id}/media-links` | Create a media link |
 | `DELETE` | `/trees/{tree_id}/media-links/{link_id}` | Delete a media link |
 
@@ -139,19 +150,43 @@ Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/trees/{tree_id}/notes` | List notes (filterable by target) |
 | `POST` | `/trees/{tree_id}/notes` | Create a note |
 | `GET` | `/trees/{tree_id}/notes/{note_id}` | Get a note |
 | `PUT` | `/trees/{tree_id}/notes/{note_id}` | Update a note |
 | `DELETE` | `/trees/{tree_id}/notes/{note_id}` | Soft-delete a note |
 
+### Snapshot
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/snapshot` | Full tree snapshot (persons, names, events, places, spouses, children) in one response |
+
+> Legacy endpoint predating the server-side cache. Still used by the person profile page to enrich events (witness/family context). Candidate for removal once the cached-person payload covers those needs — see [Caching](caching.md) §6.1.
+
+### Dictionary
+
+Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints return distinct values + usage counts; usage endpoints return the persons behind one value, resolved server-side into `PersonUsageEntry` (id, name parts, birth/death years) in one bulk query.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/dictionary/family-names` | Distinct surnames + person counts |
+| `GET` | `/trees/{tree_id}/dictionary/family-names/usage?value=...` | Persons carrying a surname |
+| `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
+| `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
+| `GET` | `/trees/{tree_id}/dictionary/sources` | Sources + citation counts |
+| `GET` | `/trees/{tree_id}/dictionary/sources/{source_id}/usage` | Persons citing a source |
+| `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
+| `GET` | `/trees/{tree_id}/dictionary/places/{place_id}/usage` | Persons referencing a place |
+
 ### GEDCOM
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/trees/{tree_id}/gedcom/import` | Import GEDCOM file (multipart) |
-| `GET` | `/trees/{tree_id}/gedcom/export` | Export tree as GEDCOM file |
+| `POST` | `/trees/{tree_id}/gedcom/import` | Import GEDCOM file (multipart, 10 MiB body limit) |
+| `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files) |
 
-Used by: [Tree View](ui-genealogy-tree.md) (topbar import/export buttons) · [Settings](ui-settings.md) (export section)
+Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
 ### Cache
 
@@ -164,6 +199,8 @@ Server-side cache endpoints provide pre-built, denormalized data for instant pag
 | `GET` | `/trees/{tree_id}/cache/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Get windowed pedigree for a root person |
 | `PATCH` | `/trees/{tree_id}/cache/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N` | Expand pedigree depth (returns only new nodes/edges) |
 | `POST` | `/trees/{tree_id}/cache/rebuild` | Force full cache rebuild for a tree |
+| `POST` | `/trees/{tree_id}/cache/rebuild/{person_id}` | Rebuild a single person's cache entry |
+| `POST` | `/trees/{tree_id}/cache/invalidate` | Invalidate all cache entries for a tree |
 
 **Search (Sprint E.6):** person search moved to the normal search path — `GET /trees/{tree_id}/persons/search?q=query&limit=20&offset=0` (paginated `SearchResult`, backed by the `person_search_fts` DB table; empty or missing `q` = browse mode, sorted by name). The former `GET /cache/search` endpoint and the legacy `surname`/`given_names`/`sex` field filters were removed.
 
@@ -232,6 +269,9 @@ type Query {
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
   media(treeId: ID!, id: ID!): Media
 
+  # GEDCOM (export is a read — it lives on Query, not Mutation)
+  exportGedcom(treeId: ID!): ExportGedcomResult!
+
   # Cache (see Caching spec)
   cachedPerson(treeId: ID!, personId: ID!): CachedPerson!
   cachedPersons(treeId: ID!, personIds: [ID!]!): [CachedPerson!]!
@@ -272,6 +312,8 @@ type Mutation {
   createEvent(treeId: ID!, input: CreateEventInput!): Event!
   updateEvent(treeId: ID!, id: ID!, input: UpdateEventInput!): Event!
   deleteEvent(treeId: ID!, id: ID!): Boolean!
+  addEventWitness(treeId: ID!, eventId: ID!, input: AddEventWitnessInput!): EventWitness!
+  removeEventWitness(treeId: ID!, id: ID!): Boolean!
 
   # Places
   createPlace(treeId: ID!, input: CreatePlaceInput!): Place!
@@ -300,13 +342,14 @@ type Mutation {
   updateNote(treeId: ID!, id: ID!, input: UpdateNoteInput!): Note!
   deleteNote(treeId: ID!, id: ID!): Boolean!
 
-  # GEDCOM
-  importGedcom(treeId: ID!, file: Upload!): GedcomImportResult!
-  exportGedcom(treeId: ID!): String!
+  # GEDCOM (content passed as a string — no Upload scalar)
+  importGedcom(treeId: ID!, input: ImportGedcomInput!): ImportGedcomResult!
 
   # Cache management (see Caching spec)
   expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!): PedigreeDelta!
   rebuildTreeCache(treeId: ID!): Boolean!
+  rebuildPersonCache(treeId: ID!, personId: ID!): Boolean!
+  invalidateTreeCache(treeId: ID!): Boolean!
 }
 ```
 
@@ -370,11 +413,15 @@ type Event {
   eventType: EventType!
   dateValue: String
   dateSort: Date
+  dateQualifier: DateQualifier!
+  dateValue2: String
+  calendar: Calendar!
   place: Place
   person: Person
   family: Family
   description: String
   cause: String            # GEDCOM CAUS tag (e.g. cause of death)
+  witnesses: [EventWitness!]!
   citations: [Citation!]!
   media: [Media!]!
   notes: [Note!]!
@@ -382,14 +429,23 @@ type Event {
   updatedAt: DateTime!
 }
 
-type GedcomImportResult {
-  personsImported: Int!
-  familiesImported: Int!
-  eventsImported: Int!
-  sourcesImported: Int!
-  mediaImported: Int!
+type EventWitness {
+  id: ID!
+  eventId: ID!
+  personId: ID!
+  relation: String         # free text, e.g. "Godmother"
+  sortOrder: Int!
+}
+
+type ImportGedcomResult {
+  personsCount: Int!
+  familiesCount: Int!
+  eventsCount: Int!
+  sourcesCount: Int!
+  mediaCount: Int!
+  placesCount: Int!
+  notesCount: Int!
   warnings: [String!]!
-  errors: [String!]!
 }
 
 # Connection types (Relay-style pagination)
@@ -542,23 +598,27 @@ enum PedigreeDirection {
 
 ## 3. GEDCOM Compatibility Reference
 
-The API handles GEDCOM import/export via the `ged_io` 0.12 crate. See [Data Model](data-model.md) for the full enum-to-GEDCOM-tag mapping.
+The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Architecture](architecture.md) §1). See [Data Model](data-model.md) for the full enum-to-GEDCOM-tag mapping.
 
 ### Round-trip fidelity
 
 | Data | Import | Export | Notes |
 |------|--------|--------|-------|
-| Persons (INDI) | Full | Full | All names, sex, events |
-| Families (FAM) | Full | Full | Spouses, children, events |
+| Persons (INDI) | Full | Full | All names (multiple `NAME` records), sex, events |
+| Families (FAM) | Full | Full | Spouses, children, events, `FAMS`/`FAMC` back-links |
 | Events with native tags | Lossless | Lossless | See EventType enum for tag list |
-| App-specific event types | N/A | As `EVEN` + `TYPE` | Confirmation, Military service, etc. |
-| Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation |
+| Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType |
+| Adoption (`ADOP`) | Full | Full | Individual-level event; adoptive family via nested `FAMC` |
+| App-specific event types | N/A | As `EVEN` + `TYPE` | Confirmation, Military service, Civil union, etc. |
+| Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import |
+| Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Full | Page, text, confidence level |
-| Media (OBJE) | Metadata only | Metadata only | File path, MIME type, title |
+| Media (OBJE) | Metadata only | Metadata only | File path, MIME type, title. GEDZIP export bundles the referenced files |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes |
 | Cause (CAUS) | Full | Full | On any event |
-| Child pedigree (PEDI) | Full | Full | Birth, Adopted, Foster |
+| Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster |
+| Header charset | — | `CHAR UTF-8` | Export declares UTF-8 explicitly |
 | GEDCOM version | 5.5.1 + 7.0 | 5.5.1 only | ged_io auto-detects on import |
 
 ### Not currently imported (silently skipped)
@@ -566,7 +626,5 @@ The API handles GEDCOM import/export via the `ged_io` 0.12 crate. See [Data Mode
 - Repository records (`REPO`)
 - Submitter records (`SUBM`)
 - Age at event (`AGE`)
-- Religion (`RELI`)
 - Agency (`AGNC`)
-- Associations (`ASSO`)
 - Custom/vendor tags (`_CUSTOM`)

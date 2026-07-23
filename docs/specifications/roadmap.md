@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — EPICs, Sprints & Milestones"
 description: "Delivery roadmap with EPICs, sprint milestones, and completion status for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-timestamp: 2026-06-17T00:00:00Z
+timestamp: 2026-07-19T00:00:00Z
 ---
 
 
@@ -179,7 +179,7 @@ timestamp: 2026-06-17T00:00:00Z
   demand with targeted SQLite queries (`caches_persons()` store flag; Redis keeps PersonCache).
   Disk persistence reduced to pedigrees only (cache schema v2).
 - [x] Update `caching.md` to document the SQLite-native path vs. Redis path.
-- [x] Performance regression test: search and person-load times verified ≤ current with FTS5
+- [x] Performance regression test: search and person-load times verified <= current with FTS5
   (`service_e6_test.rs`: person load < 100 ms asserted; measured ~1 ms at 2K persons).
 - [x] Performance benchmarks on large GEDCOM-scale trees (`bench_large_tree_20k`, run with
   `cargo test -p oxidgene-cache -- --ignored`): 20K persons → person load ~9 ms, search ~10 ms,
@@ -187,39 +187,97 @@ timestamp: 2026-06-17T00:00:00Z
 
 ---
 
-### Sprint E.7 — Refinement
+### Sprint E.7 — Refinement & Search Completion (✅ Jul 2026)
 
-> Rationale: improve the UX to the definitive form
-> We must ensure that the UXP is good.
+> Rationale: improve the UX to the definitive form. All items now completed.
 
-- [ ] Medias management
-- [ ] Remove the hack (https://github.com/trois-six/oxidgene/commit/6364b23338b67743805b884e690e8e62e2010e53) for UTF-8 strings once ged_io will be patched (https://github.com/ge3224/ged_io/pull/68)
-- [ ] Create a CLI
-- [ ] Research by SOSA ID
-- [ ] Create a page to manage locations, sources, occupations
-- [ ] Create a page with statistics about the tree
-- [ ] Create a page to render the tree differently for printing
-- [x] Reconsolidate DB migrations into initial migration
-- [x] Search results grid view: one mini-pedigree card per result (self + parents + grandparents), 20 results/page → see [Search Results spec §7](ui-search-results.md)
+**Completed:**
+- [x] Reconsolidate DB migrations into initial migration — all schema in `m20250101_000001_initial.rs`; future changes add separate files (no squashing).
+- [x] Search results grid view: one mini-pedigree card per result (self + parents + grandparents), 20 results/page.
+- [x] Dictionary page (V1): read-only index of family names, sources, places, occupations with usage counts.
+- [x] SOSA number search: numeric-only family-name queries resolve via `GET /persons/sosa/{number}`.
+- [x] GEDCOM round-trip fidelity: EventType extended with 12 individual-attribute variants, ADOP as individual event, EventWitness join table, UTF-8 export.
+
+**Deferred to Sprint F.1 (Media Management):**
+- Media management (binary upload/download, thumbnails, multi-page docs, vignettes)
+
+**Post-livraison (E.7 improvements):**
+- [x] Sources smart drill-down: intelligent letter/prefix navigation (> 250 results → drill-down; <= 250 → display all), with server-side compression that auto-skips forced single-choice levels (see [ui-dictionary.md §8.10](ui-dictionary.md)) — a branch is only ever shown to the user when there is a genuine choice.
+
+**Future (lower priority):**
+- Remove the UTF-8 hack once ged_io upstream tags a release
+- Create a CLI tool for import/export
+- Settings completion: manage locations, sources, occupations
+- Statistics page (Post-MVP)
+- Print layout (Post-MVP)
 
 ---
 
-## EPIC F — Security & Deployment
+### Sprint E.8 — Dictionary V2: Genealogical Descent View (Planned)
+
+Rationale: enhance the flat dictionary index with nested descent trees showing surname relationships.
+
+- [ ] Database layer: group surname carriers into disjoint descent trees
+- [ ] API: `GET /dictionary/family-names/{value}/tree` endpoint
+- [ ] UI: recursive descent-tree component with generation indentation and SOSA badges
+- [ ] Resolve design questions: non-surname-carrying children handling, toggle vs. replacement
+
+---
+
+## EPIC F — Media Management (New, Sprints F.1–F.4)
+
+Comprehensive media workflow: upload, storage, thumbnails, multi-page documents, image cropping (vignettes), event linking.
+
+### Sprint F.1 — Media Storage & Serving
+
+- [ ] Media storage architecture (filesystem vs. S3 decision + implementation)
+- [ ] `POST /media/upload` endpoint (multipart form, file validation, size limits)
+- [ ] `GET /media/{id}` download endpoint (binary, caching headers)
+- [ ] Thumbnail generation on upload
+- [ ] Multi-page document parsing (PDF, TIFF)
+- [ ] Database schema: Media, MediaLink, Vignette entities
+- [ ] Test against both PostgreSQL and SQLite
+
+### Sprint F.2 — Media UI & Image Cropper
+
+- [ ] MediaInput component (file picker, preview)
+- [ ] ImageCropper component (interactive crop, save vignette)
+- [ ] MediaGallery component (thumbnail grid, multi-page carousel)
+- [ ] VignetteLinker (bind cropped region to event)
+- [ ] Integration with Person Edit Modal (V2 from Sprint 1)
+
+### Sprint F.3 — Event Linking & Desktop Support
+
+- [ ] Event evidence linking (show media supporting event)
+- [ ] Vignette assignment (use cropped image as event illustration)
+- [ ] Desktop file picker (native dialog)
+- [ ] SQLite blob vs. filesystem decision for desktop
+
+### Sprint F.4 — Performance & Polish
+
+- [ ] Thumbnail caching
+- [ ] Performance testing (large media libraries)
+- [ ] Error handling (format validation, upload limits)
+- [ ] Full test coverage
+
+---
+
+## EPIC G — Security & Deployment (formerly EPIC F)
 
 - [ ] Authentication system (JWT or session-based).
 - [ ] User registration and login.
-- [ ] Per-tree access control (guest, read-only, editor). → see [General](general.md) (user roles)
-- [ ] Contemporary individual masking for guests. → see [Settings spec](ui-settings.md) (privacy section)
+- [ ] Per-tree access control (guest, read-only, editor).
+- [ ] Contemporary individual masking for guests.
 - [ ] Audit logging.
 - [ ] Kubernetes manifests (deployment, service, ingress).
 - [ ] FluxCD GitOps configuration.
 - [ ] Liveness/readiness probes.
-- [ ] Production PostgreSQL configuration (connection pooling, backups).
-- [ ] TLS termination + HTTP/2 for the web server (ingress or reverse proxy). `axum::serve` currently serves plain HTTP/1.1, so browsers cap concurrent requests per origin (~6) instead of multiplexing over one connection — pages like person detail that fire many parallel API calls would benefit from h2.
+- [ ] Production PostgreSQL configuration.
+- [ ] TLS termination + HTTP/2 for the web server.
 
 ---
 
-## EPIC G — Asynchronous Pipeline (Post-MVP)
+## EPIC H — Asynchronous Pipeline (Post-MVP, formerly EPIC G)
 
 - [ ] Platform-specific build and smoke test (Linux, macOS, Windows).
 - [ ] Performance testing with 100K-person trees.
@@ -229,5 +287,4 @@ timestamp: 2026-06-17T00:00:00Z
 - [ ] Async GEDCOM processing for large files.
 - [ ] Rust worker pool for background tasks.
 - [ ] Notification system (processing status).
-- [ ] Temporary and persistent object storage.
-
+- [ ] Object storage (temporary and persistent).

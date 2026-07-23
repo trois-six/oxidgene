@@ -28,39 +28,35 @@ All REST endpoints return errors in a consistent JSON envelope:
 
 ```json
 {
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Person not found",
-    "details": null
-  }
+  "error": "not_found",
+  "message": "Person with id ... not found"
 }
 ```
 
-### Error codes
+**Actual error codes** (mapped from `OxidGeneError` variants):
 
 | HTTP Status | Code | When |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | Invalid input (missing required field, wrong format) |
-| 400 | `INVALID_DATE` | Unparseable date value |
-| 400 | `INVALID_GEDCOM` | GEDCOM file is malformed or unsupported |
-| 404 | `NOT_FOUND` | Resource does not exist or is soft-deleted |
-| 409 | `CONFLICT` | Duplicate entry, circular reference, or merge conflict |
-| 413 | `FILE_TOO_LARGE` | Upload exceeds size limit |
-| 415 | `UNSUPPORTED_FORMAT` | Unsupported file type for upload |
-| 422 | `BUSINESS_RULE` | Domain logic violation (e.g. person cannot be their own parent) |
-| 500 | `INTERNAL_ERROR` | Unexpected server error |
+| 400 | `validation_error` | Invalid input (missing required field, wrong format) |
+| 400 | `gedcom_error` | GEDCOM parsing error (malformed or unsupported syntax) |
+| 404 | `not_found` | Resource does not exist or is soft-deleted |
+| 500 | `database_error` | Database operation failed |
+| 500 | `io_error` | File system or I/O operation failed |
+| 500 | `internal_error` | Unexpected server error |
+
+**Future enhancement (EPIC F)**: error codes could be expanded to include more specific variants (e.g. `FILE_TOO_LARGE`, `BUSINESS_RULE`, `CONFLICT`) with detailed `details` payload, but today the implementation uses a simpler six-variant enum.
 
 ### GraphQL errors
 
-GraphQL errors follow the standard `errors` array in the response, with the `code` in the `extensions` field:
+GraphQL errors follow the standard `errors` array in the response (async-graphql conventions):
 
 ```json
 {
   "data": null,
   "errors": [{
-    "message": "Person not found",
+    "message": "Person with id ... not found",
     "extensions": {
-      "code": "NOT_FOUND"
+      "code": "NOT_FOUND"  // maps to HTTP status code shown above
     }
   }]
 }
@@ -68,22 +64,7 @@ GraphQL errors follow the standard `errors` array in the response, with the `cod
 
 ### Validation errors
 
-For `VALIDATION_ERROR`, the `details` field contains field-level errors:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Validation failed",
-    "details": {
-      "fields": {
-        "name": "Name is required",
-        "date_value": "Invalid date format"
-      }
-    }
-  }
-}
-```
+For `validation_error`, the error message includes the specific validation failure (e.g. "name is required"). Field-level error details are not yet separated into a structured `details` payload — **future enhancement** to support richer validation feedback.
 
 ---
 
