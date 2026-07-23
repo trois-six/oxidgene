@@ -2986,6 +2986,13 @@ fn render_pedigree_card(
                     transform: "translate({nx},{ny})",
                     style: "cursor:pointer",
                     onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
+                    oncontextmenu: move |evt: Event<MouseData>| {
+                        evt.prevent_default();
+                        evt.stop_propagation();
+                        selected_person_id.set(pid);
+                        let coords = evt.client_coordinates();
+                        on_person_click.call((pid, coords.x, coords.y));
+                    },
                     rect { class: "ped-card-rect", x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
                     // if is_selected || is_focus {
                     //     rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
