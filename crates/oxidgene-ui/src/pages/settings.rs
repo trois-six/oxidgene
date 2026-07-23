@@ -589,10 +589,10 @@ fn ExportSection(
                     }
                 }
                 label {
-                    style: "display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); cursor: pointer;",
+                    style: "display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); cursor: pointer;",
                     input {
                         r#type: "checkbox",
-                        style: "margin-top: 3px; flex-shrink: 0;",
+                        style: "margin: 3px 0 0 0;",
                         checked: merge_occupations(),
                         onchange: move |e: Event<FormData>| merge_occupations.set(e.checked()),
                     }
