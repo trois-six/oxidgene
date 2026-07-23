@@ -55,12 +55,45 @@ pub struct SourceDictionaryEntry {
     pub count: i64,
 }
 
+/// A prefix group for the Sources tab's smart drill-down (see
+/// ui-dictionary.md §8): `label` is the resolved prefix (see
+/// `SourceDrillResponse`) extended by exactly one more character, paired
+/// with how many sources fall under it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SourceGroupEntry {
+    pub label: String,
+    pub count: i64,
+}
+
+/// Response for the Sources tab's smart drill-down (ui-dictionary.md
+/// §8.10): the backend auto-skips forced single-choice levels, so `prefix`
+/// may be longer than the prefix that was requested. `groups` is empty
+/// once `total` has dropped to <= the drill threshold — fetch the final
+/// flat list via `dictionary_sources(tree_id, &prefix)` instead.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SourceDrillResponse {
+    pub prefix: String,
+    pub total: i64,
+    pub groups: Vec<SourceGroupEntry>,
+}
+
 /// A place paired with its usage count (events + media referencing it).
 #[derive(Debug, Clone, Deserialize)]
 pub struct PlaceDictionaryEntry {
     #[serde(flatten)]
     pub place: Place,
     pub count: i64,
+}
+
+/// A person resolved for a dictionary usage drill-down list: name parts +
+/// birth/death years, computed server-side in one bulk query.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PersonUsageEntry {
+    pub person_id: Uuid,
+    pub given_names: Option<String>,
+    pub surname: Option<String>,
+    pub birth_year: Option<i32>,
+    pub death_year: Option<i32>,
 }
 
 // ── Tree request bodies ─────────────────────────────────────────────
@@ -1302,7 +1335,7 @@ impl ApiClient {
         &self,
         tree_id: Uuid,
         value: &str,
-    ) -> Result<Vec<Uuid>, ApiError> {
+    ) -> Result<Vec<PersonUsageEntry>, ApiError> {
         self.get_with_query(
             &format!("/api/v1/trees/{tree_id}/dictionary/family-names/usage"),
             &[("value", value)],
@@ -1319,13 +1352,38 @@ impl ApiClient {
             .await
     }
 
-    /// All sources in the tree, each paired with its citation count.
+    /// Sources in the tree whose title starts with `prefix` (empty = all),
+    /// each paired with its citation count. Used as the final flat-list step
+    /// of the Sources tab's smart drill-down once a prefix's count is small
+    /// enough to display directly (see ui-dictionary.md §8).
     pub async fn dictionary_sources(
         &self,
         tree_id: Uuid,
+        prefix: &str,
     ) -> Result<Vec<SourceDictionaryEntry>, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/dictionary/sources"))
-            .await
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/dictionary/sources"),
+            &[("prefix", prefix)],
+        )
+        .await
+    }
+
+    /// Resolves the Sources tab's smart drill-down starting from `prefix`
+    /// (empty = start from the top): the backend auto-skips forced
+    /// single-choice levels and returns either the real next branch
+    /// choices, or an empty `groups` list once the count is small enough to
+    /// fetch the final flat list (via `dictionary_sources`, passing back
+    /// the response's `prefix`). See ui-dictionary.md §8.10.
+    pub async fn dictionary_source_groups(
+        &self,
+        tree_id: Uuid,
+        prefix: &str,
+    ) -> Result<SourceDrillResponse, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/dictionary/sources/groups"),
+            &[("prefix", prefix)],
+        )
+        .await
     }
 
     /// All places in the tree, each paired with its usage count.
@@ -1342,7 +1400,7 @@ impl ApiClient {
         &self,
         tree_id: Uuid,
         source_id: Uuid,
-    ) -> Result<Vec<Uuid>, ApiError> {
+    ) -> Result<Vec<PersonUsageEntry>, ApiError> {
         self.get(&format!(
             "/api/v1/trees/{tree_id}/dictionary/sources/{source_id}/usage"
         ))
@@ -1354,7 +1412,7 @@ impl ApiClient {
         &self,
         tree_id: Uuid,
         place_id: Uuid,
-    ) -> Result<Vec<Uuid>, ApiError> {
+    ) -> Result<Vec<PersonUsageEntry>, ApiError> {
         self.get(&format!(
             "/api/v1/trees/{tree_id}/dictionary/places/{place_id}/usage"
         ))
@@ -1366,7 +1424,7 @@ impl ApiClient {
         &self,
         tree_id: Uuid,
         value: &str,
-    ) -> Result<Vec<Uuid>, ApiError> {
+    ) -> Result<Vec<PersonUsageEntry>, ApiError> {
         self.get_with_query(
             &format!("/api/v1/trees/{tree_id}/dictionary/occupations/usage"),
             &[("value", value)],

@@ -453,3 +453,59 @@ pub struct PlaceDictionaryEntry {
 pub struct DictionaryUsageQuery {
     pub value: String,
 }
+
+/// Query parameters for the Sources tab's smart drill-down (section 8 of
+/// ui-dictionary.md). Both the group listing and the final filtered source
+/// list share the same `prefix` parameter — empty/absent means "top level"
+/// (no filtering).
+#[derive(Debug, Deserialize)]
+pub struct SourcePrefixQuery {
+    pub prefix: Option<String>,
+}
+
+/// A prefix group (Sources tab smart drill-down) plus how many sources fall
+/// under it. `label` is always `prefix` (see `SourceDrillResponse`) extended
+/// by exactly one more character.
+#[derive(Debug, Serialize)]
+pub struct SourceGroupDto {
+    pub label: String,
+    pub count: i64,
+}
+
+/// Response for the Sources tab's smart drill-down (ui-dictionary.md §8.10):
+/// the backend auto-skips forced single-choice levels — e.g. a single
+/// town's records nested under a department that otherwise branches many
+/// ways — so `prefix` may be longer than the request's `prefix` query
+/// parameter. `groups` is empty once `total` has dropped to <= the drill
+/// threshold; the caller should then fetch the final flat list via
+/// `GET .../dictionary/sources?prefix={prefix}` instead of rendering
+/// another drill-down level.
+#[derive(Debug, Serialize)]
+pub struct SourceDrillResponse {
+    pub prefix: String,
+    pub total: i64,
+    pub groups: Vec<SourceGroupDto>,
+}
+
+/// A person resolved for a dictionary usage drill-down list: name parts +
+/// birth/death years, computed server-side to avoid one request per person.
+#[derive(Debug, Serialize)]
+pub struct PersonUsageEntryDto {
+    pub person_id: uuid::Uuid,
+    pub given_names: Option<String>,
+    pub surname: Option<String>,
+    pub birth_year: Option<i32>,
+    pub death_year: Option<i32>,
+}
+
+impl From<oxidgene_db::repo::PersonUsageEntry> for PersonUsageEntryDto {
+    fn from(e: oxidgene_db::repo::PersonUsageEntry) -> Self {
+        Self {
+            person_id: e.person_id,
+            given_names: e.given_names,
+            surname: e.surname,
+            birth_year: e.birth_year,
+            death_year: e.death_year,
+        }
+    }
+}

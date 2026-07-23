@@ -8,16 +8,38 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ApiError, DictionaryEntry, PlaceDictionaryEntry, SourceDictionaryEntry,
+    ApiClient, ApiError, DictionaryEntry, PersonUsageEntry, PlaceDictionaryEntry,
+    SourceDictionaryEntry, SourceGroupEntry,
 };
+use crate::components::pedigree_chart::format_lifespan;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
-use crate::i18n::{I18n, use_i18n};
+use crate::i18n::{I18n, Language, use_i18n};
 use crate::router::Route;
 
 /// Above this many filtered entries, selecting the "All" page size shows a
 /// perf warning instead of silently rendering everything.
 const LARGE_LIST_THRESHOLD: usize = 500;
+
+/// The Sources tab's smart drill-down is either showing the next level of
+/// prefix groups, or — once a prefix's count is small enough — the final
+/// flat list of matching sources. Both variants carry the *resolved*
+/// prefix (the backend auto-skips forced single-choice levels, so this may
+/// be longer than the last prefix the user actually clicked — see
+/// ui-dictionary.md §8.10). Whichever mode is active is decided entirely by
+/// the backend (`groups` empty means "fetch the list").
+#[derive(Debug, Clone)]
+enum SourcesView {
+    Groups {
+        prefix: String,
+        total: i64,
+        groups: Vec<SourceGroupEntry>,
+    },
+    List {
+        prefix: String,
+        sources: Vec<SourceDictionaryEntry>,
+    },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DictTab {
@@ -71,6 +93,9 @@ pub fn Dictionary(tree_id: String) -> Element {
     let page_size = use_signal(|| PageSize::Fixed(25));
     let mut current_page = use_signal(|| 1_usize);
     let mut expanded = use_signal(|| None::<UsageKey>);
+    // Sources tab drill-down history: each entry is a branch label the user
+    // clicked (see ui-dictionary.md §8.10). Empty = "All sources" root.
+    let mut source_history = use_signal(Vec::<String>::new);
 
     // Reset filters/pagination/expansion when switching tabs.
     let mut prev_tab = use_signal(|| DictTab::FamilyNames);
@@ -80,6 +105,7 @@ pub fn Dictionary(tree_id: String) -> Element {
         letter_filter.clone().set(None);
         current_page.set(1);
         expanded.set(None);
+        source_history.set(Vec::new());
     }
 
     // ── Data fetching (one aggregation call per tab) ──
@@ -125,9 +151,10 @@ pub fn Dictionary(tree_id: String) -> Element {
     });
 
     let api_src = api.clone();
-    let mut sources_resource = use_resource(move || {
+    let mut sources_view_resource = use_resource(move || {
         let api = api_src.clone();
         let tid = tree_id_parsed();
+        let query_prefix = source_history().last().cloned().unwrap_or_default();
         async move {
             let Some(tid) = tid else {
                 return Err(ApiError::Api {
@@ -135,7 +162,23 @@ pub fn Dictionary(tree_id: String) -> Element {
                     body: "Invalid tree ID".to_string(),
                 });
             };
-            api.dictionary_sources(tid).await
+            // The backend resolves the drill-down itself, auto-skipping
+            // any forced single-choice levels — `resolved.prefix` may be
+            // longer than `query_prefix`. See ui-dictionary.md §8.10.
+            let resolved = api.dictionary_source_groups(tid, &query_prefix).await?;
+            if resolved.groups.is_empty() {
+                let sources = api.dictionary_sources(tid, &resolved.prefix).await?;
+                Ok(SourcesView::List {
+                    prefix: resolved.prefix,
+                    sources,
+                })
+            } else {
+                Ok(SourcesView::Groups {
+                    prefix: resolved.prefix,
+                    total: resolved.total,
+                    groups: resolved.groups,
+                })
+            }
         }
     });
 
@@ -158,7 +201,8 @@ pub fn Dictionary(tree_id: String) -> Element {
         tree_resource.restart();
         family_names_resource.restart();
         occupations_resource.restart();
-        sources_resource.restart();
+        source_history.set(Vec::new());
+        sources_view_resource.restart();
         places_resource.restart();
     }
 
@@ -172,23 +216,13 @@ pub fn Dictionary(tree_id: String) -> Element {
             let (Some(key), Some(tid)) = (key, tid) else {
                 return Vec::new();
             };
-            let ids = match &key {
+            match &key {
                 UsageKey::FamilyName(value) => api.dictionary_family_name_usage(tid, value).await,
                 UsageKey::Source(id) => api.dictionary_source_usage(tid, *id).await,
                 UsageKey::Place(id) => api.dictionary_place_usage(tid, *id).await,
                 UsageKey::Occupation(value) => api.dictionary_occupation_usage(tid, value).await,
             }
-            .unwrap_or_default();
-
-            let mut people: Vec<(Uuid, Option<String>)> = Vec::with_capacity(ids.len());
-            for pid in ids {
-                let names = api.list_person_names(tid, pid).await.unwrap_or_default();
-                let primary = names.iter().find(|n| n.is_primary).or(names.first());
-                let name = primary.map(|n| n.display_name()).filter(|s| !s.is_empty());
-                people.push((pid, name));
-            }
-            people.sort_by(|a, b| a.1.cmp(&b.1));
-            people
+            .unwrap_or_default()
         }
     });
 
@@ -326,11 +360,9 @@ pub fn Dictionary(tree_id: String) -> Element {
                     DictTab::Sources => render_sources_tab(
                         i18n,
                         &tree_id,
-                        sources_resource,
+                        source_history,
+                        sources_view_resource,
                         quick_filter,
-                        letter_filter,
-                        page_size,
-                        current_page,
                         expanded,
                         usage_resource,
                     ),
@@ -572,20 +604,42 @@ fn render_clear_filters(
     }
 }
 
+/// Renders a usage-list entry as "SURNAME Given" — surname uppercased and
+/// first, matching genealogical convention — falling back to a localized
+/// placeholder when both name parts are missing.
+fn surname_first(entry: &PersonUsageEntry, i18n: &I18n) -> String {
+    let surname = entry.surname.as_deref().map(str::to_uppercase);
+    let given = entry.given_names.as_deref();
+    match (surname, given) {
+        (Some(s), Some(g)) => format!("{s} {g}"),
+        (Some(s), None) => s,
+        (None, Some(g)) => g.to_string(),
+        (None, None) => i18n.t("common.unnamed"),
+    }
+}
+
 fn render_usage_accordion(
     i18n: I18n,
     tree_id: &str,
-    people: Resource<Vec<(Uuid, Option<String>)>>,
+    people: Resource<Vec<PersonUsageEntry>>,
 ) -> Element {
     match &*people.read() {
         Some(list) if !list.is_empty() => rsx! {
             div { class: "dict-accordion",
-                for (pid , name) in list.iter() {
+                for entry in list.iter() {
                     Link {
-                        key: "{pid}",
-                        to: Route::TreeDetail { tree_id: tree_id.to_string(), person: Some(pid.to_string()) },
+                        key: "{entry.person_id}",
+                        to: Route::TreeDetail { tree_id: tree_id.to_string(), person: Some(entry.person_id.to_string()) },
                         class: "dict-accordion-item",
-                        {name.clone().unwrap_or_else(|| i18n.t("common.unnamed"))}
+                        span { class: "dict-accordion-name", {surname_first(entry, &i18n)} }
+                        {
+                            let lifespan = format_lifespan(entry.birth_year, entry.death_year);
+                            if lifespan.is_empty() {
+                                rsx! {}
+                            } else {
+                                rsx! { span { class: "dict-accordion-dates", "{lifespan}" } }
+                            }
+                        }
                     }
                 }
             }
@@ -618,7 +672,7 @@ fn render_value_tab(
     // Family names and occupations expand an inline usage list.
     navigable: bool,
     mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<Vec<(Uuid, Option<String>)>>,
+    usage_people: Resource<Vec<PersonUsageEntry>>,
 ) -> Element {
     let all_entries: Vec<DictionaryEntry> = match &*resource.read() {
         Some(Ok(entries)) => entries.clone(),
@@ -703,58 +757,217 @@ fn render_value_tab(
     }
 }
 
-// ── Sources tab ───────────────────────────────────────────────────────────
+// ── Sources tab — intelligent letter/prefix drill-down ──────────────────
+//
+// Unlike Family Names / Places / Occupations, most sources in a genealogy
+// tree share long common prefixes (e.g. French "AD44 - ..." for Archives
+// Départementales), making a flat A-Z index nearly useless. Instead, the
+// Sources tab drills down one character at a time — only letters/prefixes
+// that actually occur are ever shown — until the current prefix matches
+// <= `SOURCES_DRILL_THRESHOLD` sources, at which point the full matching
+// list is displayed at once (no pagination). See ui-dictionary.md §8.
 
-#[allow(clippy::too_many_arguments)]
-fn render_sources_tab(
+/// Selects the French/English plural suffix for a count, matching the rule
+/// `I18n::t_plural` uses internally — duplicated locally because the
+/// Sources tab needs to combine pluralisation with a second `{prefix}`
+/// placeholder, which `t_plural` (count-only) doesn't support.
+fn plural_suffix(i18n: &I18n, count: usize) -> &'static str {
+    match i18n.0 {
+        Language::Fr => {
+            if count <= 1 {
+                "_one"
+            } else {
+                "_other"
+            }
+        }
+        Language::En => {
+            if count == 1 {
+                "_one"
+            } else {
+                "_other"
+            }
+        }
+    }
+}
+
+fn sources_total_label(i18n: &I18n, count: usize, prefix: &str) -> String {
+    let suffix = plural_suffix(i18n, count);
+    if prefix.is_empty() {
+        i18n.t_args(
+            &format!("dictionary.sources_total{suffix}"),
+            &[("count", &count.to_string())],
+        )
+    } else {
+        i18n.t_args(
+            &format!("dictionary.sources_total_prefix{suffix}"),
+            &[("count", &count.to_string()), ("prefix", prefix)],
+        )
+    }
+}
+
+/// Breadcrumb above the Sources tab content: "All sources > AD44 > AD44 -
+/// HOTEL - (". Each history entry is a branch the user actually chose
+/// (real, multi-way choices only — see `Dictionary`'s `source_history`);
+/// clicking one truncates history back to that point. If the backend
+/// auto-skipped ahead of the last click (forced single-choice levels — see
+/// ui-dictionary.md §8.10), the resolved `active_prefix` is appended as one
+/// extra, non-clickable crumb representing where that skip landed.
+fn render_sources_breadcrumb(
     i18n: I18n,
-    tree_id: &str,
-    resource: Resource<Result<Vec<SourceDictionaryEntry>, ApiError>>,
-    quick_filter: Signal<String>,
-    letter_filter: Signal<Option<char>>,
-    page_size: Signal<PageSize>,
-    current_page: Signal<usize>,
-    mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<Vec<(Uuid, Option<String>)>>,
+    mut history: Signal<Vec<String>>,
+    mut quick_filter: Signal<String>,
+    active_prefix: &str,
 ) -> Element {
-    let all_entries: Vec<SourceDictionaryEntry> = match &*resource.read() {
-        Some(Ok(entries)) => entries.clone(),
-        _ => Vec::new(),
-    };
-    let is_loading = resource.read().is_none();
-    let is_error = matches!(&*resource.read(), Some(Err(_)));
+    let hist = history();
+    let last_is_active = hist.last().map(String::as_str) == Some(active_prefix);
+    rsx! {
+        div { class: "dict-src-breadcrumb",
+            button {
+                class: if hist.is_empty() && active_prefix.is_empty() { "dict-src-crumb active" } else { "dict-src-crumb" },
+                onclick: move |_| {
+                    history.set(Vec::new());
+                    quick_filter.set(String::new());
+                },
+                {i18n.t("dictionary.sources_breadcrumb_root")}
+            }
+            for (i , label) in hist.iter().enumerate() {
+                {
+                    let idx = i;
+                    let is_last_history_entry = i == hist.len() - 1;
+                    let is_active = is_last_history_entry && last_is_active;
+                    rsx! {
+                        span { key: "sep-{i}", class: "dict-src-crumb-sep", "\u{203A}" }
+                        button {
+                            class: if is_active { "dict-src-crumb active" } else { "dict-src-crumb" },
+                            onclick: move |_| {
+                                let mut h = history();
+                                h.truncate(idx + 1);
+                                history.set(h);
+                                quick_filter.set(String::new());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+            if !active_prefix.is_empty() && !last_is_active {
+                span { class: "dict-src-crumb-sep", "\u{203A}" }
+                span { class: "dict-src-crumb active", "{active_prefix}" }
+            }
+        }
+    }
+}
 
-    let letters = available_letters(all_entries.iter().map(|e| e.source.title.as_str()));
+/// Renders the prefix-group buttons for the current drill-down level: only
+/// groups that actually occur in this tree are ever passed in, so every
+/// button is clickable (contrast with the disabled-letter A-Z index used by
+/// the other tabs). Clicking a group pushes it onto `history` — the next
+/// resolve request may auto-skip further forced single-choice levels
+/// beyond it (see ui-dictionary.md §8.10).
+fn render_sources_groups(
+    i18n: I18n,
+    mut history: Signal<Vec<String>>,
+    prefix: &str,
+    total: i64,
+    groups: &[SourceGroupEntry],
+    mut quick_filter: Signal<String>,
+) -> Element {
     let quick = quick_filter();
-    let letter = letter_filter();
-    let filtered: Vec<&SourceDictionaryEntry> = all_entries
+    let filtered: Vec<&SourceGroupEntry> = groups
         .iter()
-        .filter(|e| matches_filters(&e.source.title, &quick, letter))
+        .filter(|g| quick.is_empty() || g.label.to_lowercase().contains(&quick.to_lowercase()))
         .collect();
-    let total_filtered = filtered.len();
-    let per_page = page_size().as_option();
-    let page = current_page();
-    let pages = total_pages(total_filtered, per_page);
-    let page_items = paginate(filtered, page, per_page);
-    let rows = with_headers(&page_items, |e| e.source.title.as_str());
 
     rsx! {
-        {render_toolbar(i18n, &letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
+        div { class: "dict-src-summary", {sources_total_label(&i18n, total.max(0) as usize, prefix)} }
+        div { class: "dict-filter-row",
+            input {
+                r#type: "text",
+                class: "dict-filter-input",
+                placeholder: "{i18n.t(\"dictionary.filter_placeholder\")}",
+                value: "{quick_filter}",
+                oninput: move |e: Event<FormData>| quick_filter.set(e.value()),
+            }
+        }
+        div { class: "dict-src-groups-label", {i18n.t("dictionary.sources_choose_letter")} }
+        if filtered.is_empty() {
+            div { class: "sr-empty",
+                p { {i18n.t("dictionary.no_matches")} }
+                button {
+                    class: "sr-clear-filters",
+                    onclick: move |_| quick_filter.set(String::new()),
+                    {i18n.t("dictionary.clear_filter")}
+                }
+            }
+        } else {
+            div { class: "dict-letter-strip",
+                for g in filtered.iter() {
+                    button {
+                        key: "{g.label}",
+                        class: "dict-letter-btn",
+                        onclick: {
+                            let label = g.label.clone();
+                            move |_| {
+                                let mut h = history();
+                                h.push(label.clone());
+                                history.set(h);
+                                quick_filter.set(String::new());
+                            }
+                        },
+                        "{g.label}"
+                    }
+                }
+            }
+        }
+    }
+}
 
-        if is_loading {
-            div { class: "sr-empty", {i18n.t("dictionary.loading")} }
-        } else if is_error {
-            div { class: "sr-empty", {i18n.t("dictionary.error")} }
-        } else if all_entries.is_empty() {
-            div { class: "sr-empty", {i18n.t("dictionary.no_entries_sources")} }
-        } else if rows.is_empty() {
-            {render_clear_filters(i18n, quick_filter, letter_filter, current_page)}
+/// Renders the final flat list once the current prefix matches
+/// <= `SOURCES_DRILL_THRESHOLD` sources — no pagination, everything shown.
+fn render_sources_list(
+    i18n: I18n,
+    tree_id: &str,
+    sources: &[SourceDictionaryEntry],
+    mut quick_filter: Signal<String>,
+    mut expanded: Signal<Option<UsageKey>>,
+    usage_people: Resource<Vec<PersonUsageEntry>>,
+) -> Element {
+    let quick = quick_filter();
+    let filtered: Vec<&SourceDictionaryEntry> = sources
+        .iter()
+        .filter(|e| {
+            quick.is_empty()
+                || e.source
+                    .title
+                    .to_lowercase()
+                    .contains(&quick.to_lowercase())
+        })
+        .collect();
+
+    rsx! {
+        div { class: "dict-src-summary", {i18n.t_plural("dictionary.count", filtered.len())} }
+        div { class: "dict-filter-row",
+            input {
+                r#type: "text",
+                class: "dict-filter-input",
+                placeholder: "{i18n.t(\"dictionary.filter_placeholder\")}",
+                value: "{quick_filter}",
+                oninput: move |e: Event<FormData>| quick_filter.set(e.value()),
+            }
+        }
+
+        if filtered.is_empty() {
+            div { class: "sr-empty",
+                p { {i18n.t("dictionary.no_matches")} }
+                button {
+                    class: "sr-clear-filters",
+                    onclick: move |_| quick_filter.set(String::new()),
+                    {i18n.t("dictionary.clear_filter")}
+                }
+            }
         } else {
             div { class: "dict-list",
-                for (header , entry) in rows.iter() {
-                    if let Some(c) = header {
-                        div { key: "hdr-{c}", class: "dict-group-header", "{c}" }
-                    }
+                for entry in filtered.iter() {
                     {
                         let key = UsageKey::Source(entry.source.id);
                         let is_open = expanded() == Some(key.clone());
@@ -799,8 +1012,54 @@ fn render_sources_tab(
                 }
             }
         }
+    }
+}
 
-        {render_pagination(current_page, page, pages)}
+#[allow(clippy::too_many_arguments)]
+fn render_sources_tab(
+    i18n: I18n,
+    tree_id: &str,
+    history: Signal<Vec<String>>,
+    resource: Resource<Result<SourcesView, ApiError>>,
+    quick_filter: Signal<String>,
+    expanded: Signal<Option<UsageKey>>,
+    usage_people: Resource<Vec<PersonUsageEntry>>,
+) -> Element {
+    let is_loading = resource.read().is_none();
+    let is_error = matches!(&*resource.read(), Some(Err(_)));
+    let view: Option<SourcesView> = match &*resource.read() {
+        Some(Ok(v)) => Some(v.clone()),
+        _ => None,
+    };
+    // Falls back to the last clicked branch while the resolve request for
+    // it is still in flight, so the breadcrumb doesn't flash back to root.
+    let active_prefix = match &view {
+        Some(SourcesView::Groups { prefix, .. }) | Some(SourcesView::List { prefix, .. }) => {
+            prefix.clone()
+        }
+        None => history().last().cloned().unwrap_or_default(),
+    };
+
+    rsx! {
+        {render_sources_breadcrumb(i18n, history, quick_filter, &active_prefix)}
+
+        if is_loading {
+            div { class: "sr-empty", {i18n.t("dictionary.loading")} }
+        } else if is_error {
+            div { class: "sr-empty", {i18n.t("dictionary.error")} }
+        } else {
+            match view {
+                Some(SourcesView::Groups { prefix, total, groups }) if !groups.is_empty() => {
+                    render_sources_groups(i18n, history, &prefix, total, &groups, quick_filter)
+                }
+                Some(SourcesView::List { sources, .. }) => {
+                    render_sources_list(i18n, tree_id, &sources, quick_filter, expanded, usage_people)
+                }
+                _ => rsx! {
+                    div { class: "sr-empty", {i18n.t("dictionary.no_entries_sources")} }
+                },
+            }
+        }
     }
 }
 
@@ -816,7 +1075,7 @@ fn render_places_tab(
     page_size: Signal<PageSize>,
     current_page: Signal<usize>,
     mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<Vec<(Uuid, Option<String>)>>,
+    usage_people: Resource<Vec<PersonUsageEntry>>,
 ) -> Element {
     let all_entries: Vec<PlaceDictionaryEntry> = match &*resource.read() {
         Some(Ok(entries)) => entries.clone(),

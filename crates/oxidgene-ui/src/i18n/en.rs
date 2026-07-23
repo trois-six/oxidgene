@@ -436,6 +436,19 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("dictionary.view_in_search", "View in search"),
         ("dictionary.usage_empty", "No persons found."),
         ("dictionary.usage_error", "Failed to load usage."),
+        // ── Dictionary page: Sources smart drill-down (ui-dictionary.md §8) ──
+        ("dictionary.sources_breadcrumb_root", "All sources"),
+        ("dictionary.sources_choose_letter", "Choose a letter:"),
+        ("dictionary.sources_total_one", "{count} source in the tree"),
+        ("dictionary.sources_total_other", "{count} sources in the tree"),
+        (
+            "dictionary.sources_total_prefix_one",
+            "{count} source in the tree starting with \"{prefix}\"",
+        ),
+        (
+            "dictionary.sources_total_prefix_other",
+            "{count} sources in the tree starting with \"{prefix}\"",
+        ),
         // ── Settings page ───────────────────────────────────────────
         ("settings.breadcrumb", "Settings"),
         ("settings.tree_roots", "Tree & Roots"),

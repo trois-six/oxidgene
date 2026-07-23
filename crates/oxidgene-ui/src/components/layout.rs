@@ -2382,6 +2382,50 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
     }
 
+    .dict-src-breadcrumb {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 10px;
+    }
+
+    .dict-src-crumb {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        cursor: pointer;
+        padding: 2px 2px;
+    }
+
+    .dict-src-crumb:hover {
+        color: var(--orange);
+    }
+
+    .dict-src-crumb.active {
+        color: var(--text-primary);
+        font-weight: 600;
+        cursor: default;
+    }
+
+    .dict-src-crumb-sep {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+    }
+
+    .dict-src-summary {
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+
+    .dict-src-groups-label {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        margin: 8px 0 6px;
+    }
+
     .dict-filter-row {
         display: flex;
         align-items: center;
@@ -2521,7 +2565,9 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     a.dict-accordion-item {
-        display: block;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
         padding: 4px 0;
         color: var(--text-primary);
         text-decoration: none;
@@ -2530,6 +2576,18 @@ pub const LAYOUT_STYLES: &str = r#"
 
     a.dict-accordion-item:hover {
         color: var(--orange);
+    }
+
+    .dict-accordion-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .dict-accordion-dates {
+        flex-shrink: 0;
+        color: var(--text-muted);
+        font-size: 0.78rem;
     }
 
     .dict-accordion-empty {
