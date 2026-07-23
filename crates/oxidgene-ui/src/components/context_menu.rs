@@ -49,6 +49,10 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
         div {
             class: "context-menu-backdrop",
             onclick: move |_| props.on_close.call(()),
+            oncontextmenu: move |evt: Event<MouseData>| {
+                evt.prevent_default();
+                props.on_close.call(());
+            },
         }
         div {
             class: "context-menu",
