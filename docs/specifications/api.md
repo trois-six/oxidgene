@@ -184,7 +184,7 @@ Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints re
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/trees/{tree_id}/gedcom/import` | Import GEDCOM file (multipart, 10 MiB body limit) |
-| `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files) |
+| `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated — for importers (e.g. Geneanet) that only support a single profession field |
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
@@ -270,7 +270,7 @@ type Query {
   media(treeId: ID!, id: ID!): Media
 
   # GEDCOM (export is a read — it lives on Query, not Mutation)
-  exportGedcom(treeId: ID!): ExportGedcomResult!
+  exportGedcom(treeId: ID!, mergeOccupations: Boolean): ExportGedcomResult!
 
   # Cache (see Caching spec)
   cachedPerson(treeId: ID!, personId: ID!): CachedPerson!
@@ -608,6 +608,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Families (FAM) | Full | Full | Spouses, children, events, `FAMS`/`FAMC` back-links |
 | Events with native tags | Lossless | Lossless | See EventType enum for tag list |
 | Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType |
+| Occupation (`OCCU`) | Split | One tag per profession, or merged | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` `;` `/` `|` into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event unless `merge_occupations=true`, which collapses them back into a single comma-separated tag for importers that only support one profession field |
 | Adoption (`ADOP`) | Full | Full | Individual-level event; adoptive family via nested `FAMC` |
 | App-specific event types | N/A | As `EVEN` + `TYPE` | Confirmation, Military service, Civil union, etc. |
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import |

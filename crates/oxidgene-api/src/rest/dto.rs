@@ -377,6 +377,11 @@ pub struct ExportGedcomResponse {
 pub struct ExportGedcomQuery {
     /// Export format: `gedcom` (default) or `gedzip`.
     pub format: Option<String>,
+    /// Collapse each person's multiple `OCCU` tags back into one
+    /// (comma-separated), for importers such as Geneanet that only support
+    /// a single profession field. Defaults to `false` (one `OCCU` per
+    /// profession, lossless).
+    pub merge_occupations: Option<bool>,
 }
 
 // ── Cache DTOs ──────────────────────────────────────────────────────

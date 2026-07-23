@@ -45,6 +45,13 @@ use crate::ExportResult;
 ///
 /// All entity slices should belong to the same tree.
 ///
+/// `merge_occupations` collapses every `EventType::Occupation` event for a
+/// person back into a single `OCCU` tag (values joined with `", "`) instead
+/// of one `OCCU` tag per event. Some importers — Geneanet in particular —
+/// only support a single profession field per individual, so this is an
+/// opt-in, lossy compatibility option; leave it `false` to keep the
+/// lossless one-`OCCU`-per-profession export.
+///
 /// # Errors
 ///
 /// Returns `Err` if the GEDCOM writer encounters an I/O error.
@@ -63,6 +70,7 @@ pub fn export_gedcom(
     media: &[Media],
     media_links: &[MediaLink],
     notes: &[Note],
+    merge_occupations: bool,
 ) -> Result<ExportResult, String> {
     let mut warnings: Vec<String> = Vec::new();
 
@@ -352,6 +360,9 @@ pub fn export_gedcom(
                     &mut warnings,
                 )),
             }
+        }
+        if merge_occupations {
+            indi_attributes = merge_occupation_attributes(indi_attributes);
         }
 
         // Source citations on the individual
@@ -816,6 +827,52 @@ fn event_type_to_attribute(et: EventType) -> Option<GedIndividualAttribute> {
         EventType::Fact => Some(GedIndividualAttribute::Fact),
         _ => None,
     }
+}
+
+/// Collapses every `OCCU` attribute in a person's attribute list into one,
+/// for the `merge_occupations` export option (see `export_gedcom`). Values
+/// are joined with `", "`; the first occupation's date/place/cause/etc. are
+/// kept, and every occupation's source citations and first note are
+/// preserved on the merged entry. A no-op if the person has 0 or 1 `OCCU`.
+fn merge_occupation_attributes(attributes: Vec<GedAttributeDetail>) -> Vec<GedAttributeDetail> {
+    let occupation_count = attributes
+        .iter()
+        .filter(|a| a.attribute == GedIndividualAttribute::Occupation)
+        .count();
+    if occupation_count <= 1 {
+        return attributes;
+    }
+
+    let mut result = Vec::with_capacity(attributes.len() - occupation_count + 1);
+    let mut merged: Option<GedAttributeDetail> = None;
+    for attr in attributes {
+        if attr.attribute != GedIndividualAttribute::Occupation {
+            result.push(attr);
+            continue;
+        }
+        match &mut merged {
+            None => merged = Some(attr),
+            Some(m) => {
+                if let Some(value) = attr.value {
+                    match &mut m.value {
+                        Some(existing) => {
+                            existing.push_str(", ");
+                            existing.push_str(&value);
+                        }
+                        None => m.value = Some(value),
+                    }
+                }
+                m.sources.extend(attr.sources);
+                if m.note.is_none() {
+                    m.note = attr.note;
+                }
+            }
+        }
+    }
+    if let Some(m) = merged {
+        result.push(m);
+    }
+    result
 }
 
 /// Exports an individual attribute (e.g. `EventType::Occupation`, GEDCOM
