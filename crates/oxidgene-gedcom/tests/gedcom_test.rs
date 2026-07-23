@@ -512,6 +512,7 @@ fn test_export_produces_valid_gedcom() {
         &result.media,
         &result.media_links,
         &result.notes,
+        false,
     )
     .unwrap();
 
@@ -545,6 +546,7 @@ fn test_export_family() {
         &result.media,
         &result.media_links,
         &result.notes,
+        false,
     )
     .unwrap();
 
@@ -580,6 +582,7 @@ fn test_export_source() {
         &result.media,
         &result.media_links,
         &result.notes,
+        false,
     )
     .unwrap();
 
@@ -604,6 +607,7 @@ fn test_export_empty() {
         &[],
         &[],
         &[],
+        false,
     )
     .unwrap();
 
@@ -667,6 +671,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         &[],
         &[],
         &[note],
+        false,
     )
     .unwrap();
 
@@ -696,6 +701,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
         &result.media,
         &result.media_links,
         &result.notes,
+        false,
     )
     .unwrap();
 
@@ -737,6 +743,7 @@ fn test_roundtrip_preserves_individuals() {
         &imported.media,
         &imported.media_links,
         &imported.notes,
+        false,
     )
     .unwrap();
 
@@ -786,6 +793,7 @@ fn test_roundtrip_preserves_names() {
         &imported.media,
         &imported.media_links,
         &imported.notes,
+        false,
     )
     .unwrap();
 
@@ -1021,6 +1029,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
         &imported.media,
         &imported.media_links,
         &imported.notes,
+        false,
     )
     .unwrap();
 
@@ -1052,6 +1061,147 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
             .count()
     };
     assert_eq!(occu_count(&reimported.events), occu_count(&imported.events));
+}
+
+/// Geneanet only supports a single profession field, so a person with
+/// several jobs ends up with them packed into one OCCU value, e.g.
+/// "presales, trainer / consultant".
+const MULTI_OCCUPATION_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Jean /Dupont/
+1 SEX M
+1 OCCU presales, trainer / consultant
+0 TRLR
+";
+
+#[test]
+fn test_import_splits_and_normalizes_multi_occupation_occu() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(MULTI_OCCUPATION_GEDCOM, tree_id).unwrap();
+
+    let mut occupations: Vec<&str> = result
+        .events
+        .iter()
+        .filter(|e| e.event_type == oxidgene_core::EventType::Occupation)
+        .filter_map(|e| e.description.as_deref())
+        .collect();
+    occupations.sort_unstable();
+
+    assert_eq!(
+        occupations,
+        vec!["Consultant", "Presales", "Trainer"],
+        "expected the OCCU value split on ',' and '/' into 3 events, each with its first letter uppercased"
+    );
+}
+
+#[test]
+fn test_import_single_occupation_is_case_normalized_and_not_split() {
+    let tree_id = Uuid::now_v7();
+    let gedcom = MINIMAL_GEDCOM.replace("0 TRLR", "1 OCCU farmer\n0 TRLR");
+    let result = import_gedcom(&gedcom, tree_id).unwrap();
+
+    let occupations: Vec<&str> = result
+        .events
+        .iter()
+        .filter(|e| e.event_type == oxidgene_core::EventType::Occupation)
+        .filter_map(|e| e.description.as_deref())
+        .collect();
+
+    assert_eq!(occupations, vec!["Farmer"]);
+}
+
+/// A person with two distinct `OCCU` tags (as produced by our own export,
+/// or hand-authored GEDCOM), used to exercise the `merge_occupations`
+/// export option.
+const TWO_OCCUPATIONS_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Jean /Dupont/
+1 SEX M
+1 OCCU Farmer
+1 OCCU Carpenter
+0 TRLR
+";
+
+#[test]
+fn test_export_default_keeps_one_occu_tag_per_profession() {
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
+    assert_eq!(
+        imported
+            .events
+            .iter()
+            .filter(|e| e.event_type == oxidgene_core::EventType::Occupation)
+            .count(),
+        2
+    );
+
+    let exported = export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &imported.family_children,
+        &imported.events,
+        &imported.event_witnesses,
+        &imported.places,
+        &imported.sources,
+        &imported.citations,
+        &imported.media,
+        &imported.media_links,
+        &imported.notes,
+        false,
+    )
+    .unwrap();
+
+    assert!(exported.gedcom.contains("1 OCCU Farmer"));
+    assert!(exported.gedcom.contains("1 OCCU Carpenter"));
+    assert!(!exported.gedcom.contains("Farmer, Carpenter"));
+}
+
+#[test]
+fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
+
+    let exported = export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &imported.family_children,
+        &imported.events,
+        &imported.event_witnesses,
+        &imported.places,
+        &imported.sources,
+        &imported.citations,
+        &imported.media,
+        &imported.media_links,
+        &imported.notes,
+        true,
+    )
+    .unwrap();
+
+    let occu_lines = exported
+        .gedcom
+        .lines()
+        .filter(|l| l.trim_start() == "1 OCCU Farmer, Carpenter" || l.starts_with("1 OCCU"))
+        .count();
+    assert_eq!(
+        occu_lines, 1,
+        "expected exactly one merged OCCU line, got:\n{}",
+        exported.gedcom
+    );
+    assert!(exported.gedcom.contains("1 OCCU Farmer, Carpenter"));
 }
 
 #[test]
@@ -1177,6 +1327,7 @@ fn test_export_result_serialization() {
         &[],
         &[],
         &[],
+        false,
     )
     .unwrap();
 

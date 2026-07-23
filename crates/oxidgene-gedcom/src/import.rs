@@ -1041,11 +1041,13 @@ fn import_event_detail(
     }
 }
 
-/// Imports a GEDCOM individual attribute (OCCU, RESI, TITL, ...) as an
-/// `Event`. Mirrors `import_event_detail`, adapted to `AttributeDetail`'s
-/// shape: the tag's own value (e.g. "Presales" for OCCU) or its TYPE
-/// sub-tag is preserved as the description, and there is no multimedia
-/// sub-structure on attributes.
+/// Imports a GEDCOM individual attribute (OCCU, RESI, TITL, ...) as one or
+/// more `Event`s. Mirrors `import_event_detail`, adapted to
+/// `AttributeDetail`'s shape: the tag's own value (e.g. "Presales" for OCCU)
+/// or its TYPE sub-tag is preserved as the description, and there is no
+/// multimedia sub-structure on attributes. OCCU is special-cased: its value
+/// is split on common separators and case-normalized into one Occupation
+/// event per profession (see `split_occupations`/`normalize_occupation_case`).
 #[allow(clippy::too_many_arguments)]
 fn import_attribute_detail(
     detail: &ged_io::types::individual::attribute::detail::AttributeDetail,
@@ -1089,51 +1091,89 @@ fn import_attribute_detail(
         .clone()
         .or_else(|| detail.attribute_type.clone());
 
-    let event_id = Uuid::now_v7();
-    result.events.push(Event {
-        id: event_id,
-        tree_id,
-        event_type,
-        date_value,
-        date_sort,
-        date_qualifier: DateQualifier::default(),
-        date_value2: None,
-        calendar: Calendar::default(),
-        cause,
-        place_id,
-        person_id: Some(person_id),
-        family_id: None,
-        description,
-        created_at: now,
-        updated_at: now,
-        deleted_at: None,
-    });
+    // Some exporters (e.g. Geneanet) pack several professions into a single
+    // OCCU value ("Presales, Trainer") because they only support one
+    // profession field. Split those into distinct Occupation events so each
+    // can be edited and sourced independently, and uppercase each one's
+    // first letter (some exporters write them all lowercase) — the rest of
+    // the string is left as written. Every other attribute tag keeps its
+    // raw value verbatim.
+    let descriptions: Vec<Option<String>> = match &description {
+        Some(text) if event_type == EventType::Occupation => split_occupations(text)
+            .into_iter()
+            .map(|p| Some(normalize_occupation_case(&p)))
+            .collect(),
+        _ => vec![description],
+    };
 
-    // Source citations on the attribute
-    for cite in &detail.sources {
-        import_citation(
-            cite,
-            None,
-            Some(event_id),
-            None,
-            source_map,
-            get_or_create_text_source,
-            result,
-        );
-    }
-
-    // Note on the attribute
-    if let Some(ref note) = detail.note {
-        import_note(
-            &note.value,
+    for description in descriptions {
+        let event_id = Uuid::now_v7();
+        result.events.push(Event {
+            id: event_id,
             tree_id,
-            now,
-            None,
-            Some(event_id),
-            None,
-            None,
-            result,
-        );
+            event_type,
+            date_value: date_value.clone(),
+            date_sort,
+            date_qualifier: DateQualifier::default(),
+            date_value2: None,
+            calendar: Calendar::default(),
+            cause: cause.clone(),
+            place_id,
+            person_id: Some(person_id),
+            family_id: None,
+            description,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        });
+
+        // Source citations on the attribute
+        for cite in &detail.sources {
+            import_citation(
+                cite,
+                None,
+                Some(event_id),
+                None,
+                source_map,
+                get_or_create_text_source,
+                result,
+            );
+        }
+
+        // Note on the attribute
+        if let Some(ref note) = detail.note {
+            import_note(
+                &note.value,
+                tree_id,
+                now,
+                None,
+                Some(event_id),
+                None,
+                None,
+                result,
+            );
+        }
+    }
+}
+
+/// Splits a free-text value on common list separators, trimming whitespace
+/// and dropping empty segments. Used to break up multi-profession OCCU
+/// values from exporters that only support a single profession field.
+fn split_occupations(value: &str) -> Vec<String> {
+    value
+        .split([',', ';', '/', '|'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Normalizes a profession's case to "first letter upper, rest as it was written"
+fn normalize_occupation_case(value: &str) -> String {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }
 

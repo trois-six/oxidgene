@@ -1583,19 +1583,33 @@ impl ApiClient {
         Ok(result)
     }
 
-    pub async fn export_gedcom(&self, tree_id: Uuid) -> Result<ExportGedcomResult, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/gedcom/export"))
+    /// `merge_occupations` collapses each person's multiple `OCCU` tags back
+    /// into one, comma-separated (for importers, e.g. Geneanet, that only
+    /// support a single profession field).
+    pub async fn export_gedcom(
+        &self,
+        tree_id: Uuid,
+        merge_occupations: bool,
+    ) -> Result<ExportGedcomResult, ApiError> {
+        let query = [("merge_occupations", merge_occupations.to_string())];
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &query)
             .await
     }
 
     /// Export a tree as a GEDZIP archive (`.gdz`) — a ZIP file wrapping the
-    /// same GEDCOM data. Returns the raw archive bytes.
-    pub async fn export_gedzip(&self, tree_id: Uuid) -> Result<Vec<u8>, ApiError> {
-        self.get_bytes_with_query(
-            &format!("/api/v1/trees/{tree_id}/gedcom/export"),
-            &[("format", "gedzip")],
-        )
-        .await
+    /// same GEDCOM data. Returns the raw archive bytes. See `export_gedcom`
+    /// for `merge_occupations`.
+    pub async fn export_gedzip(
+        &self,
+        tree_id: Uuid,
+        merge_occupations: bool,
+    ) -> Result<Vec<u8>, ApiError> {
+        let query = [
+            ("format", "gedzip".to_string()),
+            ("merge_occupations", merge_occupations.to_string()),
+        ];
+        self.get_bytes_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &query)
+            .await
     }
 
     // ── Pedigree Cache ──────────────────────────────────────────────
