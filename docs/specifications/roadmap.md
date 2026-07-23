@@ -206,7 +206,6 @@ timestamp: 2026-07-19T00:00:00Z
 - [x] Multi-profession `OCCU` handling: import splits a Geneanet-style multi-profession `OCCU` value (`"Presales, Trainer"`) on `,` `;` `/` `|` into one case-normalized `Occupation` event per profession; export gained an opt-in `merge_occupations` option to collapse them back into a single comma-separated `OCCU` tag for importers (Geneanet) that only support one profession field (see [API Contract](api.md) §3, [ui-settings.md](ui-settings.md) §18).
 
 **Future (lower priority):**
-- Remove the UTF-8 hack once ged_io upstream tags a release
 - Create a CLI tool for import/export
 - Settings completion: manage locations, sources, occupations
 - Statistics page (Post-MVP)
@@ -220,7 +219,7 @@ Rationale: enhance the flat dictionary index with nested descent trees showing s
 
 - [ ] Database layer: group surname carriers into disjoint descent trees
 - [ ] API: `GET /dictionary/family-names/{value}/tree` endpoint
-- [ ] UI: recursive descent-tree component with generation indentation and SOSA badges
+- [ ] UI: recursive descent-tree component with generation indentation and SOSA badges when clicking on a last name in the dictionnary
 - [ ] Resolve design questions: non-surname-carrying children handling, toggle vs. replacement
 
 ---
