@@ -72,10 +72,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.140
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
+
+      - name: Run doctests
+        run: cargo test --doc --workspace
