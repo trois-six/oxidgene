@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,6 +31,28 @@ pub struct Event {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
+}
+
+impl Event {
+    /// Display year for this event: prefers the normalized `date_sort`,
+    /// falling back to the first 4-digit token in the free-text
+    /// `date_value` GEDCOM phrase (e.g. "ABT 1842" -> `Some(1842)`).
+    pub fn year(&self) -> Option<i32> {
+        year_from_date(self.date_sort, self.date_value.as_deref())
+    }
+}
+
+/// Shared "resolve a display year" logic used everywhere a birth/death year
+/// is shown (pedigree cards, person narrative, dictionary usage lists,
+/// search results): prefer the normalized date, fall back to the first
+/// 4-digit token in a free-text GEDCOM-style date phrase.
+pub fn year_from_date(date_sort: Option<NaiveDate>, date_value: Option<&str>) -> Option<i32> {
+    date_sort.map(|d| d.year()).or_else(|| {
+        date_value?
+            .split_whitespace()
+            .find(|w| w.len() == 4 && w.chars().all(|c| c.is_ascii_digit()))
+            .and_then(|w| w.parse().ok())
+    })
 }
 
 /// A witness (or godparent, etc.) linked to an [`Event`] — a pointer to

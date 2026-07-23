@@ -18,9 +18,9 @@ timestamp: 2026-06-17T00:00:00Z
 
 All visual styling uses CSS custom properties (design tokens) defined in `crates/oxidgene-ui/src/components/layout.rs` (`LAYOUT_STYLES`).
 
-**Light theme is the default.** Dark theme is activated via `<html class="dark">`. The active theme is persisted in `localStorage('oxidgene-theme')`. If no preference is saved, the system preference (`prefers-color-scheme`) is respected.
+**Light theme is the CSS default** (`:root` declares light values). **On first visit with no saved preference**, the app respects the system preference via `prefers-color-scheme` media query. Dark theme is activated via `<html class="dark">` (`:root.dark` overrides all tokens). The active theme preference is persisted in `localStorage('oxidgene-theme')`.
 
-A toggle button in the navbar switches between themes at runtime.
+A toggle button in the app settings ([App Settings](ui-app-settings.md) §5) switches between themes at runtime.
 
 ---
 

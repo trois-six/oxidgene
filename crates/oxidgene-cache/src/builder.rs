@@ -186,18 +186,8 @@ fn build_cached_event(event: &Event, places: &HashMap<Uuid, Place>) -> CachedEve
 /// Tries `date_sort` first (formatted as "YYYY"), then falls back to
 /// extracting a 4-digit year from `date_value`.
 pub fn extract_year(event: &CachedEvent) -> Option<String> {
-    if let Some(date) = event.date_sort {
-        return Some(date.format("%Y").to_string());
-    }
-    // Try to extract a 4-digit year from the GEDCOM date phrase
-    if let Some(ref dv) = event.date_value {
-        for word in dv.split_whitespace() {
-            if word.len() == 4 && word.chars().all(|c| c.is_ascii_digit()) {
-                return Some(word.to_string());
-            }
-        }
-    }
-    None
+    oxidgene_core::types::year_from_date(event.date_sort, event.date_value.as_deref())
+        .map(|y| format!("{y:04}"))
 }
 
 /// Build all `CachedPerson` entries for an entire tree.
