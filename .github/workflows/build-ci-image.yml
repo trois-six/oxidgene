@@ -3,10 +3,6 @@ name: Build & Publish CI Image
 on:
   schedule:
     - cron: '0 0 1 * *'
-  push:
-    branches: [main]
-    paths:
-      - 'docker/Dockerfile.ci'
   workflow_dispatch:
 
 env:
@@ -39,7 +35,7 @@ jobs:
         with:
           file: docker/Dockerfile.ci
           context: .
-          push: true
+          outputs: type=registry,compression=zstd,force-compression=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
