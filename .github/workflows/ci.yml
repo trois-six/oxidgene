@@ -39,38 +39,19 @@ jobs:
     # Only ever rebuilds on a real push to main (post-merge) — never on pull_request,
     # so a PR (even from a fork with a restricted token) can never push to :latest.
     if: github.event_name == 'push' && needs.changes.outputs.ci_image == 'true'
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          file: docker/Dockerfile.ci
-          context: .
-          outputs: type=registry,compression=zstd,force-compression=true
-          tags: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+    uses: ./.github/workflows/build-ci-image.yml
 
   check:
     name: Check
     needs: build-image
     if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
       credentials:
@@ -79,7 +60,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: mozilla-actions/sccache-action@v0.0.10
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
 
       - name: Check
         run: cargo check --workspace --all-targets
@@ -105,6 +90,9 @@ jobs:
     needs: build-image
     if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
       credentials:
@@ -113,7 +101,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: mozilla-actions/sccache-action@v0.0.10
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -123,6 +115,9 @@ jobs:
     needs: build-image
     if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
       credentials:
@@ -131,7 +126,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: mozilla-actions/sccache-action@v0.0.10
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
 
       - name: Run tests
         run: cargo nextest run --workspace
