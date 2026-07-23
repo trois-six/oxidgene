@@ -15,8 +15,61 @@ permissions:
   packages: read
 
 jobs:
+  changes:
+    name: Detect CI image changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ci_image: ${{ steps.filter.outputs.ci_image }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            ci_image:
+              - 'docker/Dockerfile.ci'
+
+  build-image:
+    name: Rebuild CI image
+    needs: changes
+    # Only ever rebuilds on a real push to main (post-merge) — never on pull_request,
+    # so a PR (even from a fork with a restricted token) can never push to :latest.
+    if: github.event_name == 'push' && needs.changes.outputs.ci_image == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          file: docker/Dockerfile.ci
+          context: .
+          outputs: type=registry,compression=zstd,force-compression=true
+          tags: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   check:
     name: Check
+    needs: build-image
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
@@ -33,6 +86,8 @@ jobs:
 
   fmt:
     name: Format
+    needs: build-image
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
@@ -47,6 +102,8 @@ jobs:
 
   clippy:
     name: Clippy
+    needs: build-image
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
@@ -63,6 +120,8 @@ jobs:
 
   test:
     name: Test
+    needs: build-image
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
