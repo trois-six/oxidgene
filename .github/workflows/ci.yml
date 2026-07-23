@@ -25,7 +25,7 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
           packages: libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-          version: 1.0
+          version: 1.0-${{ github.job }}
 
       - name: Check
         run: cargo check --workspace --all-targets
@@ -59,7 +59,7 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
           packages: libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-          version: 1.0
+          version: 1.0-${{ github.job }}
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -82,7 +82,7 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
           packages: libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-          version: 1.0
+          version: 1.0-${{ github.job }}
 
       - name: Run tests
         run: cargo nextest run --workspace
