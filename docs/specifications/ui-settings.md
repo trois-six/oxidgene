@@ -356,6 +356,7 @@ Two export format options, each displayed as a card with icon, name, description
 | Include contemporary persons | If disabled, persons subject to privacy rules are excluded from the export |
 | Include notes and sources | Exports personal notes and source references |
 | Include media (GEDZIP only) | Embeds photos and documents in the GEDZIP archive |
+| Merge occupations into a single field | Off by default (one `OCCU` tag per profession, lossless). When enabled, collapses a person's multiple `OCCU` tags back into one, comma-separated, for compatibility with importers such as Geneanet that only support a single profession field. See [API Contract](api.md) (GEDCOM) |
 
 Export is triggered directly by the format buttons.
 

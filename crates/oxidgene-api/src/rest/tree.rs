@@ -89,8 +89,10 @@ pub async fn duplicate_tree(
         )));
     }
 
-    // Export GEDCOM from source tree
-    let export = gedcom::load_and_export(&state.db, source_tree_id)
+    // Export GEDCOM from source tree (lossless round-trip, so don't merge
+    // OCCU tags — that's an opt-in compatibility trade-off for user-facing
+    // export, not for internal duplication).
+    let export = gedcom::load_and_export(&state.db, source_tree_id, false)
         .await
         .map_err(ApiError::from)?;
 

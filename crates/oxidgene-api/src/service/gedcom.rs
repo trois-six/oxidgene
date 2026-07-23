@@ -379,10 +379,13 @@ pub async fn import_and_persist(
 /// Load all entities from a tree and export them as a GEDCOM string.
 ///
 /// Verifies the tree exists, loads all entities, then calls the GEDCOM
-/// exporter to produce the output string.
+/// exporter to produce the output string. `merge_occupations` collapses each
+/// person's multiple `OCCU` tags back into one (see
+/// `oxidgene_gedcom::export::export_gedcom`).
 pub async fn load_and_export(
     db: &DatabaseConnection,
     tree_id: Uuid,
+    merge_occupations: bool,
 ) -> Result<ExportData, OxidGeneError> {
     // Verify tree exists
     let _tree = TreeRepo::get(db, tree_id).await?;
@@ -429,6 +432,7 @@ pub async fn load_and_export(
         &media,
         &media_links,
         &notes,
+        merge_occupations,
     )
     .map_err(OxidGeneError::Gedcom)?;
 
