@@ -220,22 +220,31 @@ pub fn Dictionary(tree_id: String) -> Element {
     }
 
     // ── Usage drill-down for the currently expanded row ──
+    //
+    // Tagged with the `UsageKey` it was fetched for: `use_resource` keeps
+    // returning the last *completed* value while a new fetch (for a
+    // different key) is in flight, so an untagged `Vec<PersonUsageEntry>`
+    // briefly — and, if the two fetches race, sometimes persistently —
+    // rendered the previous row's people under the newly expanded row.
+    // `render_usage_accordion` only trusts a value whose tag matches the
+    // row it's rendering, and shows a loading state otherwise.
     let api_usage = api.clone();
     let usage_resource = use_resource(move || {
         let api = api_usage.clone();
         let key = expanded();
         let tid = tree_id_parsed();
         async move {
-            let (Some(key), Some(tid)) = (key, tid) else {
-                return Vec::new();
+            let (Some(key), Some(tid)) = (key.clone(), tid) else {
+                return (key, Vec::new());
             };
-            match &key {
+            let people = match &key {
                 UsageKey::FamilyName(value) => api.dictionary_family_name_usage(tid, value).await,
                 UsageKey::Source(id) => api.dictionary_source_usage(tid, *id).await,
                 UsageKey::Place(id) => api.dictionary_place_usage(tid, *id).await,
                 UsageKey::Occupation(value) => api.dictionary_occupation_usage(tid, value).await,
             }
-            .unwrap_or_default()
+            .unwrap_or_default();
+            (Some(key), people)
         }
     });
 
@@ -634,9 +643,17 @@ fn surname_first(entry: &PersonUsageEntry, i18n: &I18n) -> String {
 fn render_usage_accordion(
     i18n: I18n,
     tree_id: &str,
-    people: Resource<Vec<PersonUsageEntry>>,
+    expected_key: &UsageKey,
+    people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
 ) -> Element {
-    match &*people.read() {
+    let snapshot = people.read();
+    // Ignore a resolved value fetched for a different (typically the
+    // previously expanded) row — see the comment on `usage_resource`.
+    let current = match &*snapshot {
+        Some((Some(key), list)) if key == expected_key => Some(list),
+        _ => None,
+    };
+    match current {
         Some(list) if !list.is_empty() => rsx! {
             div { class: "dict-accordion",
                 for entry in list.iter() {
@@ -685,7 +702,7 @@ fn render_value_tab(
     // Family names and occupations expand an inline usage list.
     navigable: bool,
     mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<Vec<PersonUsageEntry>>,
+    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
 ) -> Element {
     let all_entries: Vec<DictionaryEntry> = match &*resource.read() {
         Some(Ok(entries)) => entries.clone(),
@@ -757,7 +774,7 @@ fn render_value_tab(
                                     }
                                 }
                                 if is_open {
-                                    {render_usage_accordion(i18n, tree_id, usage_people)}
+                                    {render_usage_accordion(i18n, tree_id, &key, usage_people)}
                                 }
                             }
                         }
@@ -943,7 +960,7 @@ fn render_sources_list(
     sources: &[SourceDictionaryEntry],
     mut quick_filter: Signal<String>,
     mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<Vec<PersonUsageEntry>>,
+    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
 ) -> Element {
     let quick = quick_filter();
     let filtered: Vec<&SourceDictionaryEntry> = sources
@@ -1017,7 +1034,7 @@ fn render_sources_list(
                                     }
                                 }
                                 if is_open {
-                                    {render_usage_accordion(i18n, tree_id, usage_people)}
+                                    {render_usage_accordion(i18n, tree_id, &key, usage_people)}
                                 }
                             }
                         }
@@ -1036,7 +1053,7 @@ fn render_sources_tab(
     resource: Resource<Result<SourcesView, ApiError>>,
     quick_filter: Signal<String>,
     expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<Vec<PersonUsageEntry>>,
+    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
 ) -> Element {
     let is_loading = resource.read().is_none();
     let is_error = matches!(&*resource.read(), Some(Err(_)));
@@ -1088,7 +1105,7 @@ fn render_places_tab(
     page_size: Signal<PageSize>,
     current_page: Signal<usize>,
     mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<Vec<PersonUsageEntry>>,
+    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
 ) -> Element {
     let all_entries: Vec<PlaceDictionaryEntry> = match &*resource.read() {
         Some(Ok(entries)) => entries.clone(),
@@ -1160,7 +1177,7 @@ fn render_places_tab(
                                     }
                                 }
                                 if is_open {
-                                    {render_usage_accordion(i18n, tree_id, usage_people)}
+                                    {render_usage_accordion(i18n, tree_id, &key, usage_people)}
                                 }
                             }
                         }
