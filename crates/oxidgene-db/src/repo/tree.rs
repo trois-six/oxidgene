@@ -1,4 +1,6 @@
-//! Repository for `Tree` entities (full CRUD with soft delete).
+//! Repository for `Tree` entities. Deletion is a hard delete (not the
+//! soft-delete pattern used by other entities) so that cascading foreign
+//! keys immediately clean up everything scoped to the tree.
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
@@ -92,21 +94,18 @@ impl TreeRepo {
         Ok(into_domain(result))
     }
 
-    /// Soft-delete a tree.
+    /// Hard-delete a tree. Cascades via `ON DELETE CASCADE` foreign keys to
+    /// every entity scoped to this tree (person, event, family, place,
+    /// source, media, note, ...) — a tree's data is never shared with
+    /// another tree, so nothing outside it is affected.
     pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .ok_or(OxidGeneError::NotFound { entity: "Tree", id })?;
-
-        let mut active: ActiveModel = existing.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active
-            .update(db)
+        let result = Entity::delete_by_id(id)
+            .exec(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        if result.rows_affected == 0 {
+            return Err(OxidGeneError::NotFound { entity: "Tree", id });
+        }
         Ok(())
     }
 }

@@ -449,7 +449,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                 tree_id: tree_id.unwrap_or_default(),
                                 tree_id_str: props.tree_id.clone(),
                                 person_id: entry.person_id,
-                                display_name: entry.display_name.clone(),
+                                given_names: entry.given_names.clone(),
+                                surname: entry.surname.clone(),
                                 sex: entry.sex,
                                 birth_year: entry.birth_year.clone(),
                                 death_year: entry.death_year.clone(),
@@ -512,10 +513,8 @@ fn render_result_item(entry: &SearchEntry, tree_id: &str, origin: &str) -> Eleme
         Sex::Unknown => "",
     };
 
-    let (given, surname) = match entry.display_name.rsplit_once(' ') {
-        Some((g, s)) => (g.to_string(), s.to_string()),
-        None => (entry.display_name.clone(), String::new()),
-    };
+    let given = entry.given_names.clone();
+    let surname = entry.surname.clone();
 
     let initials: String = {
         let first_c = given.chars().next().map(|c| c.to_ascii_uppercase());
@@ -592,7 +591,8 @@ fn SearchPedigreeCard(
     tree_id: Uuid,
     tree_id_str: String,
     person_id: Uuid,
-    display_name: String,
+    given_names: String,
+    surname: String,
     sex: Sex,
     birth_year: Option<String>,
     death_year: Option<String>,
@@ -637,11 +637,6 @@ fn SearchPedigreeCard(
         Sex::Female => "female",
         Sex::Unknown => "",
     };
-    let (given, surname) = match display_name.rsplit_once(' ') {
-        Some((g, s)) => (g.to_string(), s.to_string()),
-        None => (display_name.clone(), String::new()),
-    };
-
     let ped = pedigree_resource.read();
     let body = match &*ped {
         Some(Ok(cached)) => {
@@ -673,8 +668,8 @@ fn SearchPedigreeCard(
                     if !surname.is_empty() {
                         span { class: "sp-surname", "{surname}" }
                     }
-                    span { class: "sp-given", " {given}" }
-                    if surname.is_empty() && given.is_empty() {
+                    span { class: "sp-given", " {given_names}" }
+                    if surname.is_empty() && given_names.is_empty() {
                         span { class: "sp-given", "?" }
                     }
                 }

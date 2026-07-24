@@ -96,6 +96,26 @@ pub struct PersonUsageEntry {
     pub death_year: Option<i32>,
 }
 
+// ── Reference content — occupation sheets, given-name meanings ──────
+
+/// Occupation fiche content, localized to the requesting UI language.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OccupationReference {
+    pub label: String,
+    pub summary: String,
+    pub text: String,
+}
+
+/// Given-name meaning content, localized to the requesting UI language.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GivenNameReference {
+    pub label: String,
+    pub origin: String,
+    pub meaning: String,
+    pub text: String,
+    pub feast_day: Option<String>,
+}
+
 // ── Tree request bodies ─────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -492,6 +512,21 @@ impl ApiClient {
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(path.to_string(), bytes.to_vec());
         Ok(val)
+    }
+
+    /// Helper: GET with query parameters, treating a 404 as `Ok(None)`.
+    /// Used for reference-content lookups, where "no fiche for this term
+    /// yet" is the expected common case, not an error.
+    async fn get_with_query_optional<T: serde::de::DeserializeOwned, Q: Serialize>(
+        &self,
+        path: &str,
+        query: &Q,
+    ) -> Result<Option<T>, ApiError> {
+        match self.get_with_query(path, query).await {
+            Ok(val) => Ok(Some(val)),
+            Err(ApiError::Api { status: 404, .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     /// Helper: send a cached GET request with query parameters.
@@ -1585,28 +1620,37 @@ impl ApiClient {
 
     /// `merge_occupations` collapses each person's multiple `OCCU` tags back
     /// into one, comma-separated (for importers, e.g. Geneanet, that only
-    /// support a single profession field).
+    /// support a single profession field). `merge_names` collapses each
+    /// person's non-primary names into the primary name's `SURN` tag,
+    /// comma-separated (for importers, e.g. Geneanet, that only read the
+    /// first `NAME` structure).
     pub async fn export_gedcom(
         &self,
         tree_id: Uuid,
         merge_occupations: bool,
+        merge_names: bool,
     ) -> Result<ExportGedcomResult, ApiError> {
-        let query = [("merge_occupations", merge_occupations.to_string())];
+        let query = [
+            ("merge_occupations", merge_occupations.to_string()),
+            ("merge_names", merge_names.to_string()),
+        ];
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &query)
             .await
     }
 
     /// Export a tree as a GEDZIP archive (`.gdz`) — a ZIP file wrapping the
     /// same GEDCOM data. Returns the raw archive bytes. See `export_gedcom`
-    /// for `merge_occupations`.
+    /// for `merge_occupations` and `merge_names`.
     pub async fn export_gedzip(
         &self,
         tree_id: Uuid,
         merge_occupations: bool,
+        merge_names: bool,
     ) -> Result<Vec<u8>, ApiError> {
         let query = [
             ("format", "gedzip".to_string()),
             ("merge_occupations", merge_occupations.to_string()),
+            ("merge_names", merge_names.to_string()),
         ];
         self.get_bytes_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &query)
             .await
@@ -1668,6 +1712,37 @@ impl ApiClient {
         self.patch_with_query(
             &format!("/api/v1/trees/{tree_id}/cache/pedigree/{root_person_id}/expand"),
             &params,
+        )
+        .await
+    }
+
+    /// Occupation-sheet content for a raw GEDCOM occupation label (e.g.
+    /// "Laboureur"), localized to `lang` ("fr"/"en"). `None` when no fiche
+    /// exists yet for that term — not an error, the caller should just
+    /// skip showing a tooltip.
+    pub async fn reference_occupation(
+        &self,
+        lang: &str,
+        term: &str,
+    ) -> Result<Option<OccupationReference>, ApiError> {
+        self.get_with_query_optional(
+            &format!("/api/v1/reference/{lang}/occupations"),
+            &[("term", term)],
+        )
+        .await
+    }
+
+    /// Given-name meaning content for a raw GEDCOM given name (e.g.
+    /// "Marie"), localized to `lang` ("fr"/"en"). `None` when no fiche
+    /// exists yet for that name.
+    pub async fn reference_given_name(
+        &self,
+        lang: &str,
+        term: &str,
+    ) -> Result<Option<GivenNameReference>, ApiError> {
+        self.get_with_query_optional(
+            &format!("/api/v1/reference/{lang}/given-names"),
+            &[("term", term)],
         )
         .await
     }

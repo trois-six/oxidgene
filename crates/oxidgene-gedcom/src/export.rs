@@ -52,6 +52,13 @@ use crate::ExportResult;
 /// opt-in, lossy compatibility option; leave it `false` to keep the
 /// lossless one-`OCCU`-per-profession export.
 ///
+/// `merge_names` collapses every non-primary `PersonName` for a person into
+/// the primary name's `SURN` tag (surnames joined with `,`) instead of one
+/// `NAME`/`SURN` structure per name. Geneanet's own exporter only emits one
+/// `NAME` per individual and packs every other surname it knows into that
+/// `SURN` sub-tag, so this is an opt-in, lossy compatibility option; leave
+/// it `false` to keep the lossless one-`NAME`-per-`PersonName` export.
+///
 /// # Errors
 ///
 /// Returns `Err` if the GEDCOM writer encounters an I/O error.
@@ -71,6 +78,7 @@ pub fn export_gedcom(
     media_links: &[MediaLink],
     notes: &[Note],
     merge_occupations: bool,
+    merge_names: bool,
 ) -> Result<ExportResult, String> {
     let mut warnings: Vec<String> = Vec::new();
 
@@ -323,7 +331,7 @@ pub fn export_gedcom(
 
         // Names (GEDCOM allows {0:M} NAME structures; primary goes first
         // so `names.first()` on the way back in matches what we exported).
-        let names: Vec<GedName> = names_by_person
+        let mut names: Vec<GedName> = names_by_person
             .get(&person.id)
             .map(|names| {
                 let mut ordered: Vec<_> = names.iter().collect();
@@ -331,6 +339,9 @@ pub fn export_gedcom(
                 ordered.into_iter().map(|pn| to_ged_name(pn)).collect()
             })
             .unwrap_or_default();
+        if merge_names {
+            names = merge_name_aliases_into_surn(names);
+        }
 
         // Events (GEDCOM INDIVIDUAL_EVENT_STRUCTURE) and attributes
         // (INDIVIDUAL_ATTRIBUTE_STRUCTURE, e.g. OCCU) — split so each
@@ -873,6 +884,26 @@ fn merge_occupation_attributes(attributes: Vec<GedAttributeDetail>) -> Vec<GedAt
         result.push(m);
     }
     result
+}
+
+/// Collapses a person's non-primary `PersonName`s into the primary name's
+/// `SURN` tag, for the `merge_names` export option (see `export_gedcom`).
+/// Geneanet only reads the first `NAME` structure, so it packs every other
+/// surname it knows about into that `NAME`'s `SURN` sub-tag as a
+/// comma-separated list instead of emitting one `NAME`/`SURN` per alias
+/// (mirrors what its own exporter produces). `names` must have the primary
+/// name first (see `export_gedcom`'s ordering). A no-op if the person has 0
+/// or 1 names.
+fn merge_name_aliases_into_surn(mut names: Vec<GedName>) -> Vec<GedName> {
+    if names.len() <= 1 {
+        return names;
+    }
+    let mut primary = names.remove(0);
+    let alias_surnames: Vec<String> = names.into_iter().filter_map(|n| n.surname).collect();
+    if !alias_surnames.is_empty() {
+        primary.surname = Some(alias_surnames.join(","));
+    }
+    vec![primary]
 }
 
 /// Exports an individual attribute (e.g. `EventType::Occupation`, GEDCOM

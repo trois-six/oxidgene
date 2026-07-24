@@ -52,16 +52,22 @@ pub async fn import_gedcom_handler(
 /// Export all entities in a tree as a GEDCOM 5.5.1 string. Pass
 /// `?format=gedzip` to instead receive a GEDZIP archive (`application/zip`)
 /// wrapping the same GEDCOM data. Pass `?merge_occupations=true` to collapse
-/// each person's multiple `OCCU` tags back into one, comma-separated.
+/// each person's multiple `OCCU` tags back into one, comma-separated. Pass
+/// `?merge_names=true` to collapse each person's non-primary names into the
+/// primary name's `SURN` tag, comma-separated.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<ExportGedcomQuery>,
 ) -> Result<Response, ApiError> {
-    let data =
-        gedcom::load_and_export(&state.db, tree_id, query.merge_occupations.unwrap_or(false))
-            .await
-            .map_err(ApiError::from)?;
+    let data = gedcom::load_and_export(
+        &state.db,
+        tree_id,
+        query.merge_occupations.unwrap_or(false),
+        query.merge_names.unwrap_or(false),
+    )
+    .await
+    .map_err(ApiError::from)?;
 
     if query.format.as_deref() == Some("gedzip") {
         let bytes = oxidgene_gedcom::export::export_gedzip(&data.gedcom)

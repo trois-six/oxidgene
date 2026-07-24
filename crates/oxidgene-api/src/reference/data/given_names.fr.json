@@ -1,0 +1,42 @@
+{
+  "marie": {
+    "label": "Marie",
+    "origin": "Hébraïque",
+    "meaning": "Dérivé de l'hébreu \"Miryam\", de sens discuté : \"dame\", \"celle qui élève\" ou \"étoile de la mer\".",
+    "text": "Prénom porté par la mère de Jésus, Marie est de très loin le prénom féminin le plus donné en France du Moyen Âge jusqu'au XIXe siècle, souvent en premier prénom associé à un second (Marie-Anne, Marie-Louise...). Sa fréquence extrême dans les registres en fait un prénom peu discriminant pour l'identification généalogique.",
+    "feast_day": "08-15",
+    "aliases": ["marie anne", "marie louise", "marye"]
+  },
+  "jean": {
+    "label": "Jean",
+    "origin": "Hébraïque",
+    "meaning": "De l'hébreu \"Yohanan\", \"Dieu fait grâce\".",
+    "text": "Porté par saint Jean-Baptiste et saint Jean l'Évangéliste, ce prénom est le plus donné aux garçons en France pendant des siècles, seul ou en composé (Jean-Baptiste, Jean-Pierre, Jean-Marie).",
+    "feast_day": "06-24",
+    "aliases": ["jehan", "jan"]
+  },
+  "pierre": {
+    "label": "Pierre",
+    "origin": "Grecque",
+    "meaning": "Du grec \"petros\", \"pierre, rocher\".",
+    "text": "Nom donné par Jésus à l'apôtre Simon (\"tu es Pierre et sur cette pierre je bâtirai mon Église\"), très populaire en France dès le haut Moyen Âge et jusqu'à aujourd'hui.",
+    "feast_day": "06-29",
+    "aliases": ["pierres", "petrus"]
+  },
+  "jeanne": {
+    "label": "Jeanne",
+    "origin": "Hébraïque",
+    "meaning": "Forme féminine de Jean, \"Dieu fait grâce\".",
+    "text": "Popularisé notamment par Jeanne d'Arc, ce prénom féminin est courant dans les actes français dès le XIVe siècle, avec de nombreuses variantes régionales (Jehanne, Jeannette).",
+    "feast_day": "05-30",
+    "aliases": ["jehanne", "jeannette"]
+  },
+  "louis": {
+    "label": "Louis",
+    "origin": "Germanique",
+    "meaning": "De \"Hlodwig\", \"combattant glorieux\" (hlod = gloire, wig = combat).",
+    "text": "Prénom des rois de France (Louis IX/Saint Louis notamment), extrêmement répandu dans toutes les classes sociales à partir du XVIIe siècle et jusqu'au XXe siècle.",
+    "feast_day": "08-25",
+    "aliases": ["loys", "ludovicus"]
+  }
+}

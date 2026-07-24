@@ -12,6 +12,12 @@ repository.workspace = true
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
+# WebKitGTK derives a few of its own default paths (notably HSTS storage)
+# from GLib's program name instead of the WebView data directory we pass to
+# wry — see the `glib::set_prgname` call in `main.rs`.
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+glib = { version = "0.18", default-features = false }
+
 [dependencies]
 oxidgene-api = { workspace = true }
 oxidgene-db = { workspace = true }

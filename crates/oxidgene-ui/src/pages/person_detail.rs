@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
+use crate::components::reference_tooltip::{GivenNamesHover, ReferenceHover, ReferenceKind};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -354,6 +355,32 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         // Blank while loading — better than flashing a loading label
         // in the breadcrumb and page header.
         _ => String::new(),
+    };
+
+    // Given name alone (for the reference tooltip), plus the surrounding
+    // prefix/surname/suffix parts — split out so only the given name itself
+    // becomes hoverable in the header, while the rendered text stays
+    // identical to `display_name` (same parts, same spacing).
+    let (header_prefix, header_given, header_rest) = match &*names_resource.read() {
+        Some(Ok(names)) => {
+            let primary = names.iter().find(|n| n.is_primary).or(names.first());
+            match primary {
+                Some(name) => {
+                    let rest = [name.surname.as_deref(), name.suffix.as_deref()]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    (
+                        name.prefix.clone(),
+                        name.given_names.clone().filter(|s| !s.is_empty()),
+                        rest,
+                    )
+                }
+                None => (None, None, String::new()),
+            }
+        }
+        _ => (None, None, String::new()),
     };
 
     // Alternate names shown under the header name, e.g."(Given Surname)".
@@ -1134,7 +1161,19 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                             img { class: "pd-avatar", alt: "", src: "{avatar_src}" }
                             div { class: "pd-header-main",
                                 div { class: "pd-header-top",
-                                    h1 { "{display_name}" }
+                                    h1 {
+                                        if let Some(given) = header_given.clone() {
+                                            if let Some(prefix) = &header_prefix {
+                                                "{prefix} "
+                                            }
+                                            GivenNamesHover { given_names: given.clone() }
+                                            if !header_rest.is_empty() {
+                                                " {header_rest}"
+                                            }
+                                        } else {
+                                            "{display_name}"
+                                        }
+                                    }
                                 }
                                 if !alt_names.is_empty() {
                                     p { class: "pd-alt-names",
@@ -1197,7 +1236,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                         rsx! { b { "{label}" } }
                                                     }
                                                     VitalClause::Occupation(title) => {
-                                                        rsx! { "{title}" }
+                                                        rsx! {
+                                                            ReferenceHover {
+                                                                key: "occ-{title}",
+                                                                kind: ReferenceKind::Occupation,
+                                                                term: title.clone(),
+                                                                "{title}"
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }

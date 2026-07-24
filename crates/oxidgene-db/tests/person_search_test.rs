@@ -35,6 +35,8 @@ fn entry(
         death_year: death_year.map(str::to_owned),
         sex: "male".into(),
         display_name: format!("{given_names} {surname}"),
+        surname_display: surname.to_owned(),
+        given_names_display: given_names.to_owned(),
         birth_place: None,
         date_sort: None,
     }

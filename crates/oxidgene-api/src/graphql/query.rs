@@ -309,18 +309,25 @@ impl QueryRoot {
     /// Export all entities in a tree as a GEDCOM 5.5.1 string. Pass
     /// `merge_occupations: true` to collapse each person's multiple `OCCU`
     /// tags back into one, comma-separated (for importers, e.g. Geneanet,
-    /// that only support a single profession field).
+    /// that only support a single profession field). Pass
+    /// `merge_names: true` to collapse each person's non-primary names into
+    /// the primary name's `SURN` tag, comma-separated.
     async fn export_gedcom(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         merge_occupations: Option<bool>,
+        merge_names: Option<bool>,
     ) -> Result<GqlExportGedcomResult> {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let data =
-            crate::service::gedcom::load_and_export(db, tid, merge_occupations.unwrap_or(false))
-                .await?;
+        let data = crate::service::gedcom::load_and_export(
+            db,
+            tid,
+            merge_occupations.unwrap_or(false),
+            merge_names.unwrap_or(false),
+        )
+        .await?;
         Ok(GqlExportGedcomResult {
             gedcom: data.gedcom,
             warnings: data.warnings,

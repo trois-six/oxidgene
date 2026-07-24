@@ -173,6 +173,10 @@ pub struct CachedFamily {
 pub struct CachedFamilyMember {
     pub person_id: Uuid,
     pub display_name: String,
+    #[serde(default)]
+    pub given_names: Option<String>,
+    #[serde(default)]
+    pub surname: Option<String>,
     pub sex: Sex,
     pub birth_year: Option<String>,
     pub death_year: Option<String>,
@@ -209,7 +213,10 @@ pub struct SearchEntry {
     pub surname_normalized: String,
     pub given_names_normalized: String,
     pub maiden_name_normalized: Option<String>,
-    // Display fields (original casing)
+    // Display fields (original casing) — always populated, so callers never
+    // need to guess the surname/given-name split by parsing `display_name`.
+    pub surname: String,
+    pub given_names: String,
     pub display_name: String,
     // Key dates for result display
     pub birth_year: Option<String>,

@@ -1,0 +1,32 @@
+{
+  "laboureur": {
+    "label": "Laboureur (ploughman-farmer)",
+    "summary": "A comparatively well-off farmer who owned a plough team and worked his own land.",
+    "text": "A \"laboureur\" owned (or rented) a team of oxen or horses together with a plough, which made him one of the wealthier members of the Ancien Régime peasantry. He is distinct from the simple farmhand or day-labourer, who owned no plough team and hired out his labour instead. The term appears very frequently in French parish and civil registers from the 17th to the 19th century.",
+    "aliases": ["laboureur/euse", "cultivateur laboureur", "laboureur a bras"]
+  },
+  "meunier": {
+    "label": "Meunier (miller)",
+    "summary": "Operator of a mill, responsible for grinding the villagers' grain.",
+    "text": "The miller operated a water or wind mill and turned the parish's grain into flour, keeping a portion as payment (the \"mouture\"). The trade was often hereditary, with the mill itself rented from the local lord or abbey.",
+    "aliases": ["meunier/ere", "meunier farinier"]
+  },
+  "tisserand": {
+    "label": "Tisserand (weaver)",
+    "summary": "Craftsman weaving linen or wool cloth on a hand loom.",
+    "text": "The weaver worked fibre (flax, hemp or wool) on a hand loom to produce cloth, frequently on commission for a merchant-clothier. Widespread in textile-producing regions (Normandy, Flanders, the Beauvaisis), the trade was often a supplementary activity alongside a small farm holding.",
+    "aliases": ["tisserand/e", "tisserand en toile", "tisseur"]
+  },
+  "forgeron": {
+    "label": "Forgeron (blacksmith)",
+    "summary": "Craftsman working iron at the forge fire to make tools and fittings.",
+    "text": "The blacksmith heated and hammered iron to make or repair farm tools, cart fittings and horseshoes. A central village figure, he was sometimes also the farrier when he shod horses and oxen as well.",
+    "aliases": ["forgeron/onne", "marechal ferrant", "ferronnier"]
+  },
+  "notaire": {
+    "label": "Notaire (notary)",
+    "summary": "Public officer who drafted and kept legal deeds.",
+    "text": "The notary was a royal (later republican) public officer responsible for drafting and preserving legal deeds: marriage contracts, probate inventories, property sales, wills. Notarial records are among the richest sources for genealogy, often far more detailed than parish registers.",
+    "aliases": ["notaire royal", "tabellion"]
+  }
+}

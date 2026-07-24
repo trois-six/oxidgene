@@ -382,6 +382,11 @@ pub struct ExportGedcomQuery {
     /// a single profession field. Defaults to `false` (one `OCCU` per
     /// profession, lossless).
     pub merge_occupations: Option<bool>,
+    /// Collapse each person's non-primary names into the primary name's
+    /// `SURN` tag (comma-separated), for importers such as Geneanet that
+    /// only read the first `NAME` structure. Defaults to `false` (one
+    /// `NAME` per name, lossless).
+    pub merge_names: Option<bool>,
 }
 
 // ── Cache DTOs ──────────────────────────────────────────────────────
@@ -457,6 +462,13 @@ pub struct PlaceDictionaryEntry {
 #[derive(Debug, Deserialize)]
 pub struct DictionaryUsageQuery {
     pub value: String,
+}
+
+/// Query parameters for reference-content lookups (occupation sheets,
+/// given-name meanings): the raw free-text GEDCOM value to resolve.
+#[derive(Debug, Deserialize)]
+pub struct ReferenceTermQuery {
+    pub term: String,
 }
 
 /// Query parameters for the Sources tab's smart drill-down (section 8 of

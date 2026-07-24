@@ -14,10 +14,29 @@
 //! - macOS:   `~/Library/Caches/oxidgene/`
 //! - Windows: `C:\Users\<user>\AppData\Local\oxidgene\`
 //!
-//! The WebView (cookies, HSTS, DOM storage, media keys, HTTP cache) stores
-//! its own data under `<data_dir>/webview/`, keeping everything under the
-//! same `oxidgene` namespace instead of WebKit's default (which derives a
-//! separate `oxidgene-desktop` directory from the binary name).
+//! The WebView data directory (`Config::with_data_directory`, set to
+//! `<data_dir>/webview/`) is honored very differently per platform — wry
+//! only forwards it to the OS webview engine on some of them:
+//!
+//! - **Windows (WebView2):** fully honored. Cookies, cache, IndexedDB, and
+//!   WebView2's HSTS-equivalent network security state all live under
+//!   `<data_dir>/webview/`.
+//! - **Linux/BSD (WebKitGTK):** mostly honored via `WebsiteDataManager`'s
+//!   `base-data-directory`, but a few legacy properties — notably HSTS
+//!   storage — ignore it and fall back to `$XDG_DATA_HOME/<prgname>/`,
+//!   where `prgname` is set by GTK from the binary name
+//!   (`oxidgene-desktop`). We override it to `oxidgene` at startup so those
+//!   fallbacks land in the same namespace too.
+//! - **macOS/iOS (WKWebView):** *not* honored at all — wry's `WebContext`
+//!   is a no-op stub on this backend (see `wry::web_context`), so cookies,
+//!   DOM storage, and HSTS are all managed by WebKit's own
+//!   `WKWebsiteDataStore::defaultDataStore()`, entirely outside
+//!   `<data_dir>/webview/`. In a properly bundled `.app` this is still
+//!   namespaced per-app via `CFBundleIdentifier`; there is currently no
+//!   macOS bundle/`Info.plist` in this repo, so that namespacing isn't
+//!   wired up yet. Revisit when macOS packaging is added — wry's
+//!   `with_data_store_identifier` (macOS >= 14) is the closest available
+//!   knob, though it's an opaque store ID rather than a directory.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -52,6 +71,20 @@ struct Cli {
 }
 
 fn main() {
+    // WebKitGTK's WebsiteDataManager derives some default paths (e.g. HSTS
+    // storage) from GLib's prgname rather than our configured data
+    // directory. GTK would otherwise set it to the binary name
+    // (`oxidgene-desktop`); pin it to `oxidgene` before any GTK/WebKit
+    // initialization so those fallbacks stay under the same directory.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    glib::set_prgname(Some("oxidgene"));
+
     let cli = Cli::parse();
 
     // ── Initialize tracing ───────────────────────────────────────────

@@ -240,8 +240,9 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         // Names (GEDCOM allows {0:M} NAME structures per individual; the
         // first is primary, the rest import as additional PersonNames).
         for (i, name) in indi.names.iter().enumerate() {
-            let person_name = convert_name(name, person_id, i == 0, now);
+            let (person_name, aliases) = convert_name(name, person_id, i == 0, now);
             result.person_names.push(person_name);
+            result.person_names.extend(aliases);
         }
 
         // Events
@@ -647,12 +648,14 @@ fn convert_gender(g: &ged_io::types::individual::gender::GenderType) -> Sex {
     }
 }
 
+/// Converts a GEDCOM `NAME` structure into a `PersonName`, plus any surname
+/// aliases packed into its `SURN` sub-tag (see `surname_aliases_from_surn`).
 fn convert_name(
     name: &ged_io::types::individual::name::Name,
     person_id: Uuid,
     is_primary: bool,
     now: chrono::DateTime<Utc>,
-) -> PersonName {
+) -> (PersonName, Vec<PersonName>) {
     let name_type = name
         .name_type
         .as_ref()
@@ -661,22 +664,64 @@ fn convert_name(
 
     // ged_io populates name.given / name.surname only when GIVN/SURN sub-tags
     // exist. Most GEDCOM files only have the full name on the NAME line
-    // (e.g. "John /DOE/"), stored in name.value. Fall back to parsing it.
+    // (e.g. "John /DOE/"), stored in name.value. The NAME line's surname
+    // wins over SURN: some exporters (Geneanet) pack a comma-separated list
+    // of surname aliases into SURN instead of matching NAME, so SURN can't
+    // be trusted as the primary surname.
     let (parsed_given, parsed_surname) = parse_name_value(name.value.as_deref());
+    let given_names = name.given.clone().or(parsed_given);
+    let surname = parsed_surname.or_else(|| name.surname.clone());
 
-    PersonName {
+    let aliases = surname_aliases_from_surn(name.surname.as_deref(), surname.as_deref())
+        .into_iter()
+        .map(|alias_surname| PersonName {
+            id: Uuid::now_v7(),
+            person_id,
+            name_type: NameType::AlsoKnownAs,
+            given_names: given_names.clone(),
+            surname: Some(alias_surname),
+            prefix: None,
+            suffix: None,
+            nickname: None,
+            is_primary: false,
+            created_at: now,
+            updated_at: now,
+        })
+        .collect();
+
+    let person_name = PersonName {
         id: Uuid::now_v7(),
         person_id,
         name_type,
-        given_names: name.given.clone().or(parsed_given),
-        surname: name.surname.clone().or(parsed_surname),
+        given_names,
+        surname,
         prefix: name.prefix.clone(),
         suffix: name.suffix.clone(),
         nickname: name.nickname.clone(),
         is_primary,
         created_at: now,
         updated_at: now,
-    }
+    };
+
+    (person_name, aliases)
+}
+
+/// Splits a `SURN` value on `,` and returns the parts that differ from the
+/// resolved primary surname. Geneanet's exporter packs surname variants into
+/// a single `SURN` tag (e.g. "LE NADEN,NADAM") instead of emitting one
+/// `NAME`/`SURN` structure per variant; each distinct part becomes its own
+/// "also known as" `PersonName` so the alternate spellings aren't lost.
+fn surname_aliases_from_surn(surn: Option<&str>, primary_surname: Option<&str>) -> Vec<String> {
+    let Some(surn) = surn else {
+        return Vec::new();
+    };
+    let primary = primary_surname.unwrap_or_default().trim().to_lowercase();
+    surn.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .filter(|s| s.to_lowercase() != primary)
+        .collect()
 }
 
 /// Parse given name and surname from a GEDCOM NAME value (e.g. "John /DOE/").
@@ -1161,7 +1206,7 @@ fn import_attribute_detail(
 /// values from exporters that only support a single profession field.
 fn split_occupations(value: &str) -> Vec<String> {
     value
-        .split([',', ';', '/', '|'])
+        .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
