@@ -33,6 +33,7 @@ pub fn Settings(tree_id: String) -> Element {
     let mut export_success = use_signal(|| None::<String>);
     let export_format = use_signal(|| "gedcom".to_string());
     let export_merge_occupations = use_signal(|| false);
+    let export_merge_names = use_signal(|| false);
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
@@ -72,7 +73,8 @@ pub fn Settings(tree_id: String) -> Element {
         let api = api_export.clone();
         let base_name = export_base_name.clone();
         let is_gedzip = export_format() == "gedzip";
-        let merge_occupations = export_merge_occupations();
+        let merge_occupations = !is_gedzip && export_merge_occupations();
+        let merge_names = !is_gedzip && export_merge_names();
         export_loading.set(true);
         export_error.set(None);
         export_success.set(None);
@@ -81,9 +83,9 @@ pub fn Settings(tree_id: String) -> Element {
                 let extension = if is_gedzip { "gdz" } else { "ged" };
                 let file_name = format!("{base_name}.{extension}");
                 let bytes_result = if is_gedzip {
-                    api.export_gedzip(tid, merge_occupations).await
+                    api.export_gedzip(tid, merge_occupations, merge_names).await
                 } else {
-                    api.export_gedcom(tid, merge_occupations)
+                    api.export_gedcom(tid, merge_occupations, merge_names)
                         .await
                         .map(|r| r.gedcom.into_bytes())
                 };
@@ -313,6 +315,7 @@ pub fn Settings(tree_id: String) -> Element {
                             success: export_success(),
                             format: export_format,
                             merge_occupations: export_merge_occupations,
+                            merge_names: export_merge_names,
                         }
                     } else if sec == "appearance" {
                         AppearanceSection { is_dark }
@@ -549,12 +552,24 @@ fn ExportSection(
     success: Option<String>,
     format: Signal<String>,
     merge_occupations: Signal<bool>,
+    merge_names: Signal<bool>,
 ) -> Element {
     let i18n = use_i18n();
-    let download_label = if format() == "gedzip" {
+    let is_gedzip = format() == "gedzip";
+    let download_label = if is_gedzip {
         i18n.t("settings.download_gedzip")
     } else {
         i18n.t("settings.download_ged")
+    };
+    let format_title = if is_gedzip {
+        i18n.t("settings.gedzip_title")
+    } else {
+        i18n.t("settings.gedcom_title")
+    };
+    let format_desc = if is_gedzip {
+        i18n.t("settings.gedzip_desc")
+    } else {
+        i18n.t("settings.gedcom_desc")
     };
     rsx! {
         div { class: "settings-section",
@@ -568,10 +583,10 @@ fn ExportSection(
                 div { style: "display: flex; align-items: center; gap: 16px;",
                     div { style: "flex: 1;",
                         h3 { style: "font-size: 0.95rem; margin-bottom: 4px; color: var(--text-primary);",
-                            {i18n.t("settings.gedcom_title")}
+                            "{format_title}"
                         }
                         p { style: "font-size: 0.82rem; color: var(--text-secondary);",
-                            {i18n.t("settings.gedcom_desc")}
+                            "{format_desc}"
                         }
                     }
                     select {
@@ -588,20 +603,39 @@ fn ExportSection(
                         if loading { {i18n.t("common.exporting")} } else { {download_label} }
                     }
                 }
-                label {
-                    style: "display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); cursor: pointer;",
-                    input {
-                        r#type: "checkbox",
-                        style: "margin: 3px 0 0 0;",
-                        checked: merge_occupations(),
-                        onchange: move |e: Event<FormData>| merge_occupations.set(e.checked()),
-                    }
-                    div {
-                        div { style: "font-size: 0.85rem; color: var(--text-primary);",
-                            {i18n.t("settings.export_merge_occupations")}
+                if !is_gedzip {
+                    label {
+                        style: "display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); cursor: pointer;",
+                        input {
+                            r#type: "checkbox",
+                            style: "margin: 3px 0 0 0;",
+                            checked: merge_occupations(),
+                            onchange: move |e: Event<FormData>| merge_occupations.set(e.checked()),
                         }
-                        p { style: "font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px;",
-                            {i18n.t("settings.export_merge_occupations_desc")}
+                        div {
+                            div { style: "font-size: 0.85rem; color: var(--text-primary);",
+                                {i18n.t("settings.export_merge_occupations")}
+                            }
+                            p { style: "font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px;",
+                                {i18n.t("settings.export_merge_occupations_desc")}
+                            }
+                        }
+                    }
+                    label {
+                        style: "display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; margin-top: 12px;",
+                        input {
+                            r#type: "checkbox",
+                            style: "margin: 3px 0 0 0;",
+                            checked: merge_names(),
+                            onchange: move |e: Event<FormData>| merge_names.set(e.checked()),
+                        }
+                        div {
+                            div { style: "font-size: 0.85rem; color: var(--text-primary);",
+                                {i18n.t("settings.export_merge_names")}
+                            }
+                            p { style: "font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px;",
+                                {i18n.t("settings.export_merge_names_desc")}
+                            }
                         }
                     }
                 }

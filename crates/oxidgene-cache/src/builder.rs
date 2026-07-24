@@ -467,6 +467,8 @@ pub fn build_search_entry(person: &CachedPerson) -> SearchEntry {
         surname_normalized: normalize_for_search(&surname),
         given_names_normalized: normalize_for_search(&given_names),
         maiden_name_normalized: maiden_name.as_deref().map(normalize_for_search),
+        surname,
+        given_names,
         display_name,
         birth_year: person.birth.as_ref().and_then(extract_year),
         birth_place: person.birth.as_ref().and_then(|e| e.place_name.clone()),
@@ -491,6 +493,8 @@ pub fn build_db_search_entry(person: &CachedPerson) -> oxidgene_db::repo::Person
         death_year: entry.death_year,
         sex: entry.sex.to_string(),
         display_name: entry.display_name,
+        surname_display: entry.surname,
+        given_names_display: entry.given_names,
         birth_place: entry.birth_place,
         date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
     }
@@ -509,6 +513,8 @@ pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> Search
         surname_normalized: row.surname,
         given_names_normalized: row.given_names,
         maiden_name_normalized: row.maiden_name,
+        surname: row.surname_display,
+        given_names: row.given_names_display,
         display_name: row.display_name,
         birth_year: row.birth_year,
         birth_place: row.birth_place,
@@ -587,6 +593,8 @@ mod tests {
             surname_normalized: "smith".to_string(),
             given_names_normalized: "jeanne".to_string(),
             maiden_name_normalized: Some("dupont".to_string()),
+            surname: "Smith".to_string(),
+            given_names: "Jane".to_string(),
             display_name: "Jane Smith".to_string(),
             birth_year: Some("1850".to_string()),
             birth_place: Some("Berlin".to_string()),
@@ -605,6 +613,8 @@ mod tests {
             death_year: entry.death_year.clone(),
             sex: entry.sex.to_string(),
             display_name: entry.display_name.clone(),
+            surname_display: entry.surname.clone(),
+            given_names_display: entry.given_names.clone(),
             birth_place: entry.birth_place.clone(),
             date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
         };
@@ -616,5 +626,7 @@ mod tests {
         assert_eq!(back.maiden_name_normalized.as_deref(), Some("dupont"));
         assert_eq!(back.date_sort, entry.date_sort);
         assert_eq!(back.display_name, "Jane Smith");
+        assert_eq!(back.surname, "Smith");
+        assert_eq!(back.given_names, "Jane");
     }
 }

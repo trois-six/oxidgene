@@ -360,6 +360,8 @@ mod tests {
             surname_normalized: "doe".to_string(),
             given_names_normalized: "john".to_string(),
             maiden_name_normalized: None,
+            surname: "Doe".to_string(),
+            given_names: "John".to_string(),
             display_name: "John Doe".to_string(),
             birth_year: Some("1900".to_string()),
             birth_place: Some("Paris".to_string()),

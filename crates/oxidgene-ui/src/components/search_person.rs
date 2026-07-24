@@ -125,11 +125,8 @@ fn render_search_entry(entry: &SearchEntry, on_select: EventHandler<Uuid>) -> El
         Sex::Unknown => "",
     };
 
-    // Parse display_name into given_names + surname for initials.
-    let (given, surname) = match entry.display_name.rsplit_once(' ') {
-        Some((g, s)) => (g.to_string(), s.to_string()),
-        None => (entry.display_name.clone(), String::new()),
-    };
+    let given = &entry.given_names;
+    let surname = &entry.surname;
 
     let initials: String = {
         let first_c = given.chars().next().map(|c| c.to_ascii_uppercase());
