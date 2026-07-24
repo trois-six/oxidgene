@@ -5,6 +5,7 @@ pub mod context_menu;
 pub mod layout;
 pub mod pedigree_chart;
 pub mod person_form;
+pub mod reference_tooltip;
 pub mod search_person;
 pub mod topbar_search;
 pub mod tree_cache;

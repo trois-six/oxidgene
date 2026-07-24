@@ -184,7 +184,7 @@ Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints re
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/trees/{tree_id}/gedcom/import` | Import GEDCOM file (multipart, 10 MiB body limit) |
-| `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated — for importers (e.g. Geneanet) that only support a single profession field |
+| `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
@@ -207,6 +207,17 @@ Server-side cache endpoints provide pre-built, denormalized data for instant pag
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
 
 **Note:** All existing mutation endpoints (create/update/delete) now include a synchronous cache update step after the DB write. The response waits for the cache to be refreshed, guaranteeing consistency on subsequent reads. See [Caching](caching.md) §4.
+
+### Reference Content
+
+Read-only lookup of static reference content (occupation sheets, given-name meanings) shown as a hover tooltip on the person profile page. Not tied to a tree — `term` is the raw free-text GEDCOM value (occupation label or given name); matching is case/accent/punctuation-insensitive with alias support (e.g. gendered variants), and given-name lookups fall back to the first token of a compound name (e.g. "Marie-Claire" → "Marie"). Source content lives in `oxidgene-api/src/reference/data/*.json` (one file per language per data type), gzip-compressed at build time and decompressed once into an in-memory table (see `oxidgene-api::reference`).
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/reference/{lang}/occupations?term=...` | Occupation fiche (label, summary, text) for `lang` (`fr`/`en`); 404 if none |
+| `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
+
+Note the path prefix: these sit at `/api/v1/reference/...`, not under `/api/v1/trees/{tree_id}/...`. Used by: [Person Profile](ui-person-profile.md) (`ReferenceHover`/`ReferenceBubble` tooltip over the occupation and given name). Content set is seeded with 5 occupations + 5 given names (fr/en) as of Sprint E.7 — growing the data set is a separate content task, not a code change.
 
 ### Pagination
 
@@ -270,7 +281,7 @@ type Query {
   media(treeId: ID!, id: ID!): Media
 
   # GEDCOM (export is a read — it lives on Query, not Mutation)
-  exportGedcom(treeId: ID!, mergeOccupations: Boolean): ExportGedcomResult!
+  exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedcomResult!
 
   # Cache (see Caching spec)
   cachedPerson(treeId: ID!, personId: ID!): CachedPerson!
@@ -583,6 +594,8 @@ type SearchEntry {
   personId: ID!
   sex: Sex!
   displayName: String!
+  surname: String!
+  givenNames: String!
   birthYear: String
   birthPlace: String
   deathYear: String
@@ -608,7 +621,8 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Families (FAM) | Full | Full | Spouses, children, events, `FAMS`/`FAMC` back-links |
 | Events with native tags | Lossless | Lossless | See EventType enum for tag list |
 | Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType |
-| Occupation (`OCCU`) | Split | One tag per profession, or merged | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` `;` `/` `|` into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event unless `merge_occupations=true`, which collapses them back into a single comma-separated tag for importers that only support one profession field |
+| Occupation (`OCCU`) | Split | One tag per profession, or merged | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` (each part trimmed) into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event unless `merge_occupations=true`, which collapses them back into a single comma-separated tag for importers that only support one profession field |
+| Name aliases (`SURN`) | Split | One `NAME` per alias, or merged | The primary `PersonName` takes its surname from the `NAME` line, not `SURN` — Geneanet packs every surname alias it knows into a single `SURN` sub-tag (e.g. `"LE NADEN,NADAM"`) instead of matching `NAME`. That value is split on `,` (each part trimmed, primary excluded) into one `AlsoKnownAs` `PersonName` per alias. Export writes one `NAME`/`SURN` structure per name unless `merge_names=true`, which collapses non-primary names back into the primary name's comma-separated `SURN` tag for importers that only read the first `NAME` structure |
 | Adoption (`ADOP`) | Full | Full | Individual-level event; adoptive family via nested `FAMC` |
 | App-specific event types | N/A | As `EVEN` + `TYPE` | Confirmation, Military service, Civil union, etc. |
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import |

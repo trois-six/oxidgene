@@ -1024,11 +1024,18 @@ impl CacheService {
                             .as_ref()
                             .map(|n| n.display_name.clone())
                             .unwrap_or_default();
+                        let given_names = person
+                            .primary_name
+                            .as_ref()
+                            .and_then(|n| n.given_names.clone());
+                        let surname = person.primary_name.as_ref().and_then(|n| n.surname.clone());
                         let birth_year = person.birth.as_ref().and_then(builder::extract_year);
                         let death_year = person.death.as_ref().and_then(builder::extract_year);
                         fam.members.push(crate::types::CachedFamilyMember {
                             person_id: cid,
                             display_name,
+                            given_names,
+                            surname,
                             sex: person.sex,
                             birth_year,
                             death_year,

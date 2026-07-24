@@ -513,6 +513,7 @@ fn test_export_produces_valid_gedcom() {
         &result.media_links,
         &result.notes,
         false,
+        false,
     )
     .unwrap();
 
@@ -546,6 +547,7 @@ fn test_export_family() {
         &result.media,
         &result.media_links,
         &result.notes,
+        false,
         false,
     )
     .unwrap();
@@ -583,6 +585,7 @@ fn test_export_source() {
         &result.media_links,
         &result.notes,
         false,
+        false,
     )
     .unwrap();
 
@@ -607,6 +610,7 @@ fn test_export_empty() {
         &[],
         &[],
         &[],
+        false,
         false,
     )
     .unwrap();
@@ -672,6 +676,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         &[],
         &[note],
         false,
+        false,
     )
     .unwrap();
 
@@ -701,6 +706,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
         &result.media,
         &result.media_links,
         &result.notes,
+        false,
         false,
     )
     .unwrap();
@@ -743,6 +749,7 @@ fn test_roundtrip_preserves_individuals() {
         &imported.media,
         &imported.media_links,
         &imported.notes,
+        false,
         false,
     )
     .unwrap();
@@ -793,6 +800,7 @@ fn test_roundtrip_preserves_names() {
         &imported.media,
         &imported.media_links,
         &imported.notes,
+        false,
         false,
     )
     .unwrap();
@@ -1030,6 +1038,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
         &imported.media_links,
         &imported.notes,
         false,
+        false,
     )
     .unwrap();
 
@@ -1065,7 +1074,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
 
 /// Geneanet only supports a single profession field, so a person with
 /// several jobs ends up with them packed into one OCCU value, e.g.
-/// "presales, trainer / consultant".
+/// "presales, trainer, consultant".
 const MULTI_OCCUPATION_GEDCOM: &str = "\
 0 HEAD
 1 GEDC
@@ -1075,7 +1084,7 @@ const MULTI_OCCUPATION_GEDCOM: &str = "\
 0 @I1@ INDI
 1 NAME Jean /Dupont/
 1 SEX M
-1 OCCU presales, trainer / consultant
+1 OCCU presales,   trainer , consultant
 0 TRLR
 ";
 
@@ -1095,7 +1104,7 @@ fn test_import_splits_and_normalizes_multi_occupation_occu() {
     assert_eq!(
         occupations,
         vec!["Consultant", "Presales", "Trainer"],
-        "expected the OCCU value split on ',' and '/' into 3 events, each with its first letter uppercased"
+        "expected the OCCU value split on ',' into 3 trimmed events, each with its first letter uppercased"
     );
 }
 
@@ -1160,6 +1169,7 @@ fn test_export_default_keeps_one_occu_tag_per_profession() {
         &imported.media_links,
         &imported.notes,
         false,
+        false,
     )
     .unwrap();
 
@@ -1188,6 +1198,7 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
         &imported.media_links,
         &imported.notes,
         true,
+        false,
     )
     .unwrap();
 
@@ -1202,6 +1213,133 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
         exported.gedcom
     );
     assert!(exported.gedcom.contains("1 OCCU Farmer, Carpenter"));
+}
+
+/// Geneanet's export puts the resolved surname on the NAME line but packs
+/// every surname variant it knows about (including the resolved one, or
+/// not) into a single comma-separated SURN sub-tag instead of emitting one
+/// NAME/SURN structure per variant.
+const SURNAME_ALIAS_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Anna /BRANCH_A/
+2 SURN BRANCH_B,BRANCH_C
+1 SEX F
+0 TRLR
+";
+
+#[test]
+fn test_import_keeps_name_surname_as_primary_over_surn() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+
+    let primary = result
+        .person_names
+        .iter()
+        .find(|n| n.is_primary)
+        .expect("expected a primary PersonName");
+    assert_eq!(primary.surname.as_deref(), Some("BRANCH_A"));
+}
+
+#[test]
+fn test_import_splits_multi_alias_surn_into_also_known_as_names() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+
+    let mut aliases: Vec<&str> = result
+        .person_names
+        .iter()
+        .filter(|n| n.name_type == oxidgene_core::NameType::AlsoKnownAs)
+        .filter_map(|n| n.surname.as_deref())
+        .collect();
+    aliases.sort_unstable();
+
+    assert_eq!(
+        aliases,
+        vec!["BRANCH_B", "BRANCH_C"],
+        "expected the SURN value split on ',' into 2 also-known-as names, excluding the primary surname"
+    );
+}
+
+#[test]
+fn test_export_default_keeps_one_name_tag_per_person_name() {
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+    assert_eq!(imported.person_names.len(), 3);
+
+    let exported = export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &imported.family_children,
+        &imported.events,
+        &imported.event_witnesses,
+        &imported.places,
+        &imported.sources,
+        &imported.citations,
+        &imported.media,
+        &imported.media_links,
+        &imported.notes,
+        false,
+        false,
+    )
+    .unwrap();
+
+    let name_lines = exported
+        .gedcom
+        .lines()
+        .filter(|l| l.trim_start().starts_with("1 NAME"))
+        .count();
+    assert_eq!(
+        name_lines, 3,
+        "expected one '1 NAME' line per PersonName, got:\n{}",
+        exported.gedcom
+    );
+    assert!(exported.gedcom.contains("1 NAME Anna /BRANCH_A/"));
+    assert!(!exported.gedcom.contains("BRANCH_B,BRANCH_C"));
+}
+
+#[test]
+fn test_export_merge_names_option_collapses_aliases_into_primary_surn() {
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+
+    let exported = export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &imported.family_children,
+        &imported.events,
+        &imported.event_witnesses,
+        &imported.places,
+        &imported.sources,
+        &imported.citations,
+        &imported.media,
+        &imported.media_links,
+        &imported.notes,
+        false,
+        true,
+    )
+    .unwrap();
+
+    let name_lines = exported
+        .gedcom
+        .lines()
+        .filter(|l| l.trim_start().starts_with("1 NAME"))
+        .count();
+    assert_eq!(
+        name_lines, 1,
+        "expected exactly one merged '1 NAME' line, got:\n{}",
+        exported.gedcom
+    );
+    assert!(exported.gedcom.contains("1 NAME Anna /BRANCH_A/"));
+    assert!(exported.gedcom.contains("2 SURN BRANCH_B,BRANCH_C"));
 }
 
 #[test]
@@ -1327,6 +1465,7 @@ fn test_export_result_serialization() {
         &[],
         &[],
         &[],
+        false,
         false,
     )
     .unwrap();

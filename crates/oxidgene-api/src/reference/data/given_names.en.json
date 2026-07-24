@@ -1,0 +1,42 @@
+{
+  "marie": {
+    "label": "Marie",
+    "origin": "Hebrew",
+    "meaning": "From Hebrew \"Miryam\"; disputed meaning — \"lady\", \"one who raises up\", or \"star of the sea\".",
+    "text": "The name of Jesus's mother, Marie was by far the most common female given name in France from the Middle Ages through the 19th century, often used as a first given name paired with a second one (Marie-Anne, Marie-Louise...). Its extreme frequency in the records makes it a poor identifier on its own for genealogical research.",
+    "feast_day": "08-15",
+    "aliases": ["marie anne", "marie louise", "marye"]
+  },
+  "jean": {
+    "label": "Jean",
+    "origin": "Hebrew",
+    "meaning": "From Hebrew \"Yohanan\", \"God is gracious\".",
+    "text": "Borne by both Saint John the Baptist and Saint John the Evangelist, this was the most common male given name in France for centuries, alone or in compound forms (Jean-Baptiste, Jean-Pierre, Jean-Marie).",
+    "feast_day": "06-24",
+    "aliases": ["jehan", "jan"]
+  },
+  "pierre": {
+    "label": "Pierre",
+    "origin": "Greek",
+    "meaning": "From Greek \"petros\", \"stone, rock\".",
+    "text": "The name Jesus gave the apostle Simon (\"you are Peter, and on this rock I will build my church\"), very popular in France from the early Middle Ages to today.",
+    "feast_day": "06-29",
+    "aliases": ["pierres", "petrus"]
+  },
+  "jeanne": {
+    "label": "Jeanne",
+    "origin": "Hebrew",
+    "meaning": "Feminine form of Jean, \"God is gracious\".",
+    "text": "Popularised in particular by Joan of Arc (Jeanne d'Arc), this female name is common in French records from the 14th century onward, with several regional variants (Jehanne, Jeannette).",
+    "feast_day": "05-30",
+    "aliases": ["jehanne", "jeannette"]
+  },
+  "louis": {
+    "label": "Louis",
+    "origin": "Germanic",
+    "meaning": "From \"Hlodwig\", \"glorious warrior\" (hlod = glory, wig = fight).",
+    "text": "The name of the kings of France (notably Louis IX / Saint Louis), extremely common across all social classes from the 17th through the 20th century.",
+    "feast_day": "08-25",
+    "aliases": ["loys", "ludovicus"]
+  }
+}

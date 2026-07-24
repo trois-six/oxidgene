@@ -1317,6 +1317,44 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-secondary);
     }
 
+    /* ── Reference tooltip (occupation sheets, given-name meanings) ──── */
+
+    .ref-hover-target {
+        cursor: help;
+    }
+
+    .ref-tooltip {
+        position: fixed;
+        z-index: 320;
+        max-width: 320px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        padding: 10px 14px;
+        pointer-events: none;
+    }
+
+    .ref-tooltip-label {
+        font-family: var(--font-heading);
+        font-weight: 700;
+        color: var(--orange);
+        margin-bottom: 4px;
+    }
+
+    .ref-tooltip-meta {
+        font-size: 0.8rem;
+        font-style: italic;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+
+    .ref-tooltip-text {
+        font-size: 0.85rem;
+        line-height: 1.4;
+        color: var(--text-primary);
+    }
+
     /* ── SVG pedigree connector paths ─────────────────────────────── */
 
     .pedigree-connector-path {

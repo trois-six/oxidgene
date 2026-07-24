@@ -307,21 +307,12 @@ impl PedigreeData {
             };
             persons.insert(node.person_id, person);
 
-            // Use structured name fields if available, fall back to splitting display_name.
-            let (given, surname) = if node.given_names.is_some() || node.surname.is_some() {
-                (node.given_names.clone(), node.surname.clone())
-            } else {
-                match node.display_name.rsplit_once(' ') {
-                    Some((g, s)) => (Some(g.to_string()), Some(s.to_string())),
-                    None => (Some(node.display_name.clone()), None),
-                }
-            };
             let name = PersonName {
                 id: Uuid::nil(),
                 person_id: node.person_id,
                 name_type: oxidgene_core::NameType::Birth,
-                given_names: given,
-                surname,
+                given_names: node.given_names.clone(),
+                surname: node.surname.clone(),
                 prefix: None,
                 suffix: None,
                 nickname: None,
@@ -513,10 +504,6 @@ impl PedigreeData {
                     continue;
                 }
                 // Build synthetic person + name (for display in event panel).
-                let (given, surname) = match member.display_name.rsplit_once(' ') {
-                    Some((g, s)) => (Some(g.to_string()), Some(s.to_string())),
-                    None => (Some(member.display_name.clone()), None),
-                };
                 let person = Person {
                     id: member.person_id,
                     tree_id,
@@ -531,8 +518,8 @@ impl PedigreeData {
                     id: Uuid::nil(),
                     person_id: member.person_id,
                     name_type: oxidgene_core::NameType::Birth,
-                    given_names: given,
-                    surname,
+                    given_names: member.given_names.clone(),
+                    surname: member.surname.clone(),
                     prefix: None,
                     suffix: None,
                     nickname: None,

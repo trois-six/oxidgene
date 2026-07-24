@@ -1,0 +1,32 @@
+{
+  "laboureur": {
+    "label": "Laboureur",
+    "summary": "Paysan aisé possédant un attelage de trait, labourant sa terre et celle d'autrui.",
+    "text": "Le laboureur est un paysan qui possède (ou loue) un attelage de bœufs ou de chevaux et une charrue, ce qui en fait l'un des exploitants les plus aisés de la paysannerie d'Ancien Régime. Il se distingue du simple manœuvre ou du journalier, qui ne possède pas d'attelage et loue sa force de travail. Le terme apparaît très fréquemment dans les actes paroissiaux et d'état civil du XVIIe au XIXe siècle.",
+    "aliases": ["laboureur/euse", "cultivateur laboureur", "laboureur a bras"]
+  },
+  "meunier": {
+    "label": "Meunier",
+    "summary": "Exploitant d'un moulin, chargé de moudre le grain des habitants.",
+    "text": "Le meunier exploite un moulin (à eau ou à vent) et transforme le grain des habitants de la paroisse en farine, prélevant une redevance en nature appelée mouture. Le métier était souvent héréditaire et le moulin loué au seigneur ou à l'abbaye locale.",
+    "aliases": ["meunier/ere", "meunier farinier"]
+  },
+  "tisserand": {
+    "label": "Tisserand",
+    "summary": "Artisan tissant la toile ou le drap sur un métier à tisser.",
+    "text": "Le tisserand travaille le fil (lin, chanvre ou laine) sur un métier à tisser pour produire de la toile ou du drap, souvent à façon pour le compte d'un marchand-fabricant. Très répandu dans les campagnes textiles (Normandie, Flandre, Beauvaisis), ce métier constitue souvent une activité d'appoint à côté de la petite exploitation agricole.",
+    "aliases": ["tisserand/e", "tisserand en toile", "tisseur"]
+  },
+  "forgeron": {
+    "label": "Forgeron",
+    "summary": "Artisan travaillant le fer au feu de forge pour outils et ferrures.",
+    "text": "Le forgeron chauffe et martèle le fer pour fabriquer ou réparer outils agricoles, ferrures de charrettes et fers à cheval. Figure centrale du village, il est parfois aussi maréchal-ferrant lorsqu'il ferre également les chevaux et les bœufs.",
+    "aliases": ["forgeron/onne", "marechal ferrant", "ferronnier"]
+  },
+  "notaire": {
+    "label": "Notaire",
+    "summary": "Officier public rédigeant et conservant les actes juridiques.",
+    "text": "Le notaire est un officier public royal (puis républicain) chargé de rédiger et conserver les actes juridiques : contrats de mariage, inventaires après décès, ventes, testaments. Ses minutes constituent l'une des sources les plus riches pour la généalogie, souvent bien plus détaillées que les registres paroissiaux.",
+    "aliases": ["notaire royal", "tabellion"]
+  }
+}

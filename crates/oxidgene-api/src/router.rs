@@ -3,6 +3,7 @@
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
+use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]
 use crate::graphql::{build_schema, graphql_handler, graphql_playground};
@@ -19,6 +20,7 @@ use crate::rest::note;
 use crate::rest::person;
 use crate::rest::person_name;
 use crate::rest::place;
+use crate::rest::reference;
 use crate::rest::snapshot;
 use crate::rest::source;
 use crate::rest::state::AppState;
@@ -258,6 +260,12 @@ pub fn build_router(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)); // 10 MiB
 
+    // Static reference content (occupation sheets, given-name meanings) —
+    // not tied to a tree, so kept out of the `/trees` nest.
+    let reference_routes = Router::new()
+        .route("/{lang}/occupations", get(reference::occupation))
+        .route("/{lang}/given-names", get(reference::given_name));
+
     #[cfg(feature = "graphql")]
     let schema = build_schema(state.db.clone(), state.cache.clone());
 
@@ -281,6 +289,8 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(cache_routes)
                 .merge(gedcom_routes),
         )
+        .nest("/api/v1/reference", reference_routes)
+        .layer(CompressionLayer::new())
         .with_state(state);
 
     #[cfg(feature = "graphql")]

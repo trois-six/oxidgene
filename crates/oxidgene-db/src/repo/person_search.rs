@@ -34,6 +34,10 @@ pub struct PersonSearchEntry {
     pub sex: String,
     /// Display name with original casing, for rendering results.
     pub display_name: String,
+    /// Original-cased surname, for rendering without re-splitting `display_name`.
+    pub surname_display: String,
+    /// Original-cased given names, for rendering without re-splitting `display_name`.
+    pub given_names_display: String,
     pub birth_place: Option<String>,
     /// ISO date (`YYYY-MM-DD`) used for sorting, if known.
     pub date_sort: Option<String>,
@@ -47,9 +51,10 @@ pub struct PersonSearchPage {
 }
 
 const COLUMNS: &str = "person_id, tree_id, surname, given_names, maiden_name, \
-                       birth_year, death_year, sex, display_name, birth_place, date_sort";
+                       birth_year, death_year, sex, display_name, surname_display, \
+                       given_names_display, birth_place, date_sort";
 
-/// Maximum rows per INSERT batch (11 bind values per row, well under the
+/// Maximum rows per INSERT batch (13 bind values per row, well under the
 /// SQLite / PostgreSQL parameter limits).
 const INSERT_CHUNK: usize = 500;
 
@@ -308,14 +313,14 @@ impl PersonSearchRepo {
         let backend = db.get_database_backend();
 
         for chunk in entries.chunks(INSERT_CHUNK) {
-            let mut values: Vec<Value> = Vec::with_capacity(chunk.len() * 11);
+            let mut values: Vec<Value> = Vec::with_capacity(chunk.len() * 13);
             let mut rows = Vec::with_capacity(chunk.len());
             for entry in chunk {
                 let base = values.len();
                 let row = match backend {
-                    DbBackend::Sqlite => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)".to_owned(),
+                    DbBackend::Sqlite => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)".to_owned(),
                     _ => format!(
-                        "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                        "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                         base + 1,
                         base + 2,
                         base + 3,
@@ -326,7 +331,9 @@ impl PersonSearchRepo {
                         base + 8,
                         base + 9,
                         base + 10,
-                        base + 11
+                        base + 11,
+                        base + 12,
+                        base + 13
                     ),
                 };
                 rows.push(row);
@@ -340,6 +347,8 @@ impl PersonSearchRepo {
                     Value::from(entry.death_year.clone()),
                     Value::from(entry.sex.clone()),
                     Value::from(entry.display_name.clone()),
+                    Value::from(entry.surname_display.clone()),
+                    Value::from(entry.given_names_display.clone()),
                     Value::from(entry.birth_place.clone()),
                     Value::from(entry.date_sort.clone()),
                 ]);
@@ -378,6 +387,8 @@ impl PersonSearchRepo {
             death_year: get_opt("death_year")?,
             sex: get_string("sex")?,
             display_name: get_string("display_name")?,
+            surname_display: get_string("surname_display")?,
+            given_names_display: get_string("given_names_display")?,
             birth_place: get_opt("birth_place")?,
             date_sort: get_opt("date_sort")?,
         })

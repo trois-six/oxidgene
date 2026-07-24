@@ -72,11 +72,42 @@ async fn tree_crud() {
         .unwrap();
     assert!(updated2.description.is_none());
 
-    // Soft-delete
+    // Delete
     TreeRepo::delete(&db, id).await.unwrap();
 
     // Get after delete returns NotFound
     let err = TreeRepo::get(&db, id).await.unwrap_err();
+    assert!(matches!(err, OxidGeneError::NotFound { .. }));
+}
+
+#[tokio::test]
+async fn tree_delete_cascades_to_children() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let person_id = create_person(&db, tree_id).await;
+
+    let event_id = Uuid::now_v7();
+    EventRepo::create(
+        &db,
+        event_id,
+        tree_id,
+        EventType::Occupation,
+        None,
+        None,
+        None,
+        Some(person_id),
+        None,
+        Some("Cultivateur".into()),
+    )
+    .await
+    .expect("create occupation event");
+
+    TreeRepo::delete(&db, tree_id).await.unwrap();
+
+    let err = PersonRepo::get(&db, person_id).await.unwrap_err();
+    assert!(matches!(err, OxidGeneError::NotFound { .. }));
+
+    let err = EventRepo::get(&db, event_id).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 }
 
@@ -114,7 +145,7 @@ async fn tree_list_pagination() {
     assert!(!conn2.page_info.has_next_page);
     assert_eq!(conn2.total_count, 5);
 
-    // Soft-deleted trees are excluded from list
+    // Deleted trees are excluded from list
     TreeRepo::delete(&db, ids[0]).await.unwrap();
     let params3 = PaginationParams {
         first: 100,
