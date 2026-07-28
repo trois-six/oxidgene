@@ -191,7 +191,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person.family.unknown_person", "? ?"),
         ("person.names_section", "Noms"),
         ("person.new_name", "Nouveau nom"),
-        ("person.create_name", "Cr\u{00E9}er le nom"),
+        ("person.create_information", "Cr\u{00E9}er l\u{2019}information"),
         ("person.create_event", "Cr\u{00E9}er l\u{2019}\u{00E9}v\u{00E9}nement"),
         ("person.create_citation", "Cr\u{00E9}er la citation"),
         ("person.create_note", "Cr\u{00E9}er la note"),
