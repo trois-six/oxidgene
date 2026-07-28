@@ -66,7 +66,7 @@ pub struct SearchResultsProps {
 pub fn SearchResults(props: SearchResultsProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let _nav = navigator();
+    let nav = navigator();
 
     let tree_id = Uuid::parse_str(&props.tree_id).ok();
 
@@ -123,8 +123,56 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     });
 
     // Search action: combine last + first into a query string.
+    //
+    // Mirrors `TopbarSearch::do_search` — a family-name-only, numeric query
+    // is tried as a SOSA-Stradonitz number first, jumping straight to the
+    // matching person, and only falls back to a normal name search if no
+    // person exists at that number (or the tree has no SOSA root).
+    let api_search_action = api.clone();
+    let origin = props.origin.clone();
+    let tree_id_str = props.tree_id.clone();
     let mut do_search = move || {
-        let parts: Vec<String> = [search_last(), search_first()]
+        let last = search_last();
+        let first = search_first();
+        let last_trim = last.trim();
+        let first_trim = first.trim();
+        if last_trim.is_empty() && first_trim.is_empty() {
+            return;
+        }
+
+        if first_trim.is_empty()
+            && let Ok(number) = last_trim.parse::<u64>()
+            && let Some(tid) = tree_id
+        {
+            let api = api_search_action.clone();
+            let origin = origin.clone();
+            let tree_id_str = tree_id_str.clone();
+            spawn(async move {
+                match api.get_person_by_sosa(tid, number).await {
+                    Ok(person) => {
+                        let person_id = person.id.to_string();
+                        if origin == "person" {
+                            nav.push(Route::PersonDetail {
+                                tree_id: tree_id_str,
+                                person_id,
+                            });
+                        } else {
+                            nav.push(Route::TreeDetail {
+                                tree_id: tree_id_str,
+                                person: Some(person_id),
+                            });
+                        }
+                    }
+                    Err(_) => {
+                        committed_query.set(last);
+                        current_page.set(1);
+                    }
+                }
+            });
+            return;
+        }
+
+        let parts: Vec<String> = [last, first]
             .into_iter()
             .filter(|s| !s.trim().is_empty())
             .collect();
@@ -134,8 +182,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
         }
     };
 
-    let mut do_search2 = do_search;
-    let mut do_search3 = do_search;
+    let mut do_search2 = do_search.clone();
+    let mut do_search3 = do_search.clone();
     let on_search_enter = move |e: Event<KeyboardData>| {
         if e.key() == Key::Enter {
             do_search();
