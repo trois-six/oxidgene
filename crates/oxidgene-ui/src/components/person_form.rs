@@ -10,16 +10,19 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{
-    AddChildBody, AddSpouseBody, ApiClient, CreateEventBody, CreateNoteBody, CreatePersonBody,
-    CreatePersonNameBody, UpdateEventBody, UpdatePersonBody, UpdatePersonNameBody,
+    AddChildBody, AddSpouseBody, ApiClient, CreateCitationBody, CreateEventBody, CreateNoteBody,
+    CreatePersonBody, CreatePersonNameBody, UpdateEventBody, UpdatePersonBody,
+    UpdatePersonNameBody,
 };
 use crate::i18n::use_i18n;
 use crate::utils::{
     opt_str, parse_calendar, parse_date_qualifier, parse_event_type, parse_name_type,
     parse_privacy, parse_sex,
 };
-use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
-use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, SpouseRole};
+use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote, Source as CoreSource};
+use oxidgene_core::{
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, SpouseRole,
+};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -71,15 +74,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut privacy_val = use_signal(|| "Default".to_string());
     let mut privacy_loaded = use_signal(|| false);
 
-    // ── Name CRUD state ──
-    let mut show_name_form = use_signal(move || is_create); // visible by default in create mode
-    let mut name_form_type = use_signal(|| "Birth".to_string());
-    let mut name_form_given = use_signal(String::new);
-    let mut name_form_surname = use_signal(String::new);
-    let mut name_form_prefix = use_signal(String::new);
-    let mut name_form_suffix = use_signal(String::new);
-    let mut name_form_nickname = use_signal(String::new);
-    let mut name_form_primary = use_signal(|| true);
+    // ── Birth identity (mandatory surname + given names) ──
+    // Managed directly under Civil Status rather than through the generic
+    // name-CRUD list below — there is always exactly one Birth/primary name.
+    let mut birth_name_id = use_signal(|| None::<Uuid>);
+    let mut birth_identity_loaded = use_signal(|| false);
+    let mut birth_given = use_signal(String::new);
+    let mut birth_surname = use_signal(String::new);
+
+    // ── Additional information (name) CRUD state ──
+    //
+    // "Type d'information" reuses the existing NameType variants — Alias,
+    // Surnom and Sobriquet are UI-only vocabulary for AlsoKnownAs (GEDCOM
+    // AKA), not new name types (see parse_name_type). Each entry is just a
+    // single value: a name-like string for every type except Sobriquet,
+    // which fills the nickname piece instead.
+    let mut show_name_form = use_signal(|| false);
+    let mut name_form_type = use_signal(|| "Married".to_string());
+    let mut name_form_value = use_signal(String::new);
     let mut name_form_error = use_signal(|| None::<String>);
 
     let mut editing_name_id = use_signal(|| None::<Uuid>);
@@ -116,6 +128,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
     // ── Additional fields panel ──
     let mut show_additional = use_signal(|| false);
+
+    // ── Profession(s) CRUD state ──
+    let mut show_profession_form = use_signal(|| false);
+    let mut profession_form_label = use_signal(String::new);
+    let mut profession_form_date = use_signal(String::new);
+    let mut profession_form_place_id = use_signal(String::new);
+    let mut profession_form_notes = use_signal(String::new);
+    let mut profession_form_source_id = use_signal(String::new);
+    let mut profession_form_error = use_signal(|| None::<String>);
 
     // ── Other event CRUD state ──
     let mut show_event_form = use_signal(|| false);
@@ -207,6 +228,18 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
     });
 
+    let api_sources = api.clone();
+    let sources_resource = use_resource(move || {
+        let api = api_sources.clone();
+        let _tick = refresh();
+        async move {
+            if is_create {
+                return Ok(vec![]);
+            }
+            api.list_all_sources(tid).await
+        }
+    });
+
     // ── Populate sex + privacy (once) ──
 
     // Create mode: pre-fill sex from context (once).
@@ -266,6 +299,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         birth_death_loaded.set(true);
     }
 
+    // ── Populate birth identity (once) ──
+    if !is_create
+        && !birth_identity_loaded()
+        && let Some(Ok(names)) = &*names_resource.read()
+    {
+        let primary = names
+            .iter()
+            .find(|n| n.name_type == NameType::Birth && n.is_primary)
+            .or_else(|| names.iter().find(|n| n.is_primary))
+            .or_else(|| names.iter().find(|n| n.name_type == NameType::Birth));
+        if let Some(n) = primary {
+            birth_name_id.set(Some(n.id));
+            birth_given.set(n.given_names.clone().unwrap_or_default());
+            birth_surname.set(n.surname.clone().unwrap_or_default());
+        }
+        birth_identity_loaded.set(true);
+    }
+
     // ── Derived ──
 
     let display_name: String = if is_create {
@@ -294,8 +345,31 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         Some(Ok(conn)) => conn
             .edges
             .iter()
-            .filter(|e| !matches!(e.node.event_type, EventType::Birth | EventType::Death))
+            .filter(|e| {
+                !matches!(
+                    e.node.event_type,
+                    EventType::Birth | EventType::Death | EventType::Occupation
+                )
+            })
             .map(|e| e.node.clone())
+            .collect(),
+        _ => vec![],
+    };
+
+    let professions: Vec<CoreEvent> = match &*events_resource.read() {
+        Some(Ok(conn)) => conn
+            .edges
+            .iter()
+            .filter(|e| e.node.event_type == EventType::Occupation)
+            .map(|e| e.node.clone())
+            .collect(),
+        _ => vec![],
+    };
+
+    let source_options: Vec<(String, String)> = match &*sources_resource.read() {
+        Some(Ok(sources)) => sources
+            .iter()
+            .map(|s: &CoreSource| (s.id.to_string(), s.title.clone()))
             .collect(),
         _ => vec![],
     };
@@ -346,37 +420,42 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let on_saved_name = props.on_saved;
     let on_create_name = move |_| {
         let api = api_create_name.clone();
-        let given = name_form_given().trim().to_string();
-        let surname = name_form_surname().trim().to_string();
-        let prefix = name_form_prefix().trim().to_string();
-        let suffix = name_form_suffix().trim().to_string();
-        let nickname = name_form_nickname().trim().to_string();
-        let name_type_str = name_form_type();
-        let is_primary = name_form_primary();
+        let value = name_form_value().trim().to_string();
+        let info_type_str = name_form_type();
+        let birth_surname_val = birth_surname().trim().to_string();
         spawn(async move {
-            if given.is_empty() && surname.is_empty() {
-                name_form_error.set(Some(i18n.t("person_form.given_or_surname_required")));
+            if value.is_empty() {
+                name_form_error.set(Some(i18n.t("person_form.information_value_required")));
                 return;
             }
+            // Every information type is just a single value: it fills the
+            // nickname piece for "Sobriquet" (NICK), the given-names piece
+            // for "Prenom" (paired with the existing birth surname, since a
+            // given name is never recorded standalone), or the name piece
+            // for everything else (all backed by existing NameType variants
+            // — see parse_name_type).
+            let is_nickname = info_type_str == "Sobriquet";
+            let is_given = info_type_str == "Prenom";
             let body = CreatePersonNameBody {
-                name_type: parse_name_type(&name_type_str),
-                given_names: opt_str(&given),
-                surname: opt_str(&surname),
-                prefix: opt_str(&prefix),
-                suffix: opt_str(&suffix),
-                nickname: opt_str(&nickname),
-                is_primary,
+                name_type: parse_name_type(&info_type_str),
+                given_names: if is_given { opt_str(&value) } else { None },
+                surname: if is_given {
+                    opt_str(&birth_surname_val)
+                } else if is_nickname {
+                    None
+                } else {
+                    opt_str(&value)
+                },
+                prefix: None,
+                suffix: None,
+                nickname: if is_nickname { opt_str(&value) } else { None },
+                is_primary: false,
             };
             match api.create_person_name(tid, pid, &body).await {
                 Ok(_) => {
                     show_name_form.set(false);
-                    name_form_given.set(String::new());
-                    name_form_surname.set(String::new());
-                    name_form_prefix.set(String::new());
-                    name_form_suffix.set(String::new());
-                    name_form_nickname.set(String::new());
-                    name_form_type.set("Birth".to_string());
-                    name_form_primary.set(true);
+                    name_form_value.set(String::new());
+                    name_form_type.set("Married".to_string());
                     name_form_error.set(None);
                     on_saved_name.call(());
                     refresh += 1;
@@ -439,6 +518,88 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let api_del_event = api.clone();
     let on_saved_event_del = props.on_saved;
 
+    let api_create_profession = api.clone();
+    let on_saved_profession = props.on_saved;
+    let on_create_profession = move |_| {
+        let api = api_create_profession.clone();
+        let label = profession_form_label().trim().to_string();
+        let date = profession_form_date().trim().to_string();
+        let place_str = profession_form_place_id();
+        let notes = profession_form_notes().trim().to_string();
+        let source_str = profession_form_source_id();
+        spawn(async move {
+            if label.is_empty() {
+                profession_form_error.set(Some(i18n.t("person_form.profession_required")));
+                return;
+            }
+            let place_id = if place_str.is_empty() {
+                None
+            } else {
+                place_str.parse::<Uuid>().ok()
+            };
+            let source_id = if source_str.is_empty() {
+                None
+            } else {
+                source_str.parse::<Uuid>().ok()
+            };
+            let body = CreateEventBody {
+                event_type: EventType::Occupation,
+                date_value: opt_str(&date),
+                date_sort: None,
+                date_qualifier: DateQualifier::default(),
+                date_value2: None,
+                calendar: Calendar::default(),
+                cause: None,
+                place_id,
+                person_id: Some(pid),
+                family_id: None,
+                description: opt_str(&label),
+            };
+            match api.create_event(tid, &body).await {
+                Ok(new_event) => {
+                    // A source turns the notes into a proper Citation; with
+                    // no source picked ("source éventuelle") they're just a
+                    // plain Note against the event — Citation.source_id is
+                    // required, so it can't represent a sourceless entry.
+                    if let Some(sid) = source_id {
+                        let cbody = CreateCitationBody {
+                            source_id: sid,
+                            person_id: Some(pid),
+                            event_id: Some(new_event.id),
+                            family_id: None,
+                            page: None,
+                            confidence: Confidence::Medium,
+                            text: opt_str(&notes),
+                        };
+                        let _ = api.create_citation(tid, &cbody).await;
+                    } else if !notes.is_empty() {
+                        let nbody = CreateNoteBody {
+                            text: notes,
+                            person_id: Some(pid),
+                            event_id: Some(new_event.id),
+                            family_id: None,
+                            source_id: None,
+                        };
+                        let _ = api.create_note(tid, &nbody).await;
+                    }
+                    show_profession_form.set(false);
+                    profession_form_label.set(String::new());
+                    profession_form_date.set(String::new());
+                    profession_form_place_id.set(String::new());
+                    profession_form_notes.set(String::new());
+                    profession_form_source_id.set(String::new());
+                    profession_form_error.set(None);
+                    on_saved_profession.call(());
+                    refresh += 1;
+                }
+                Err(e) => profession_form_error.set(Some(format!("{e}"))),
+            }
+        });
+    };
+
+    let api_del_profession = api.clone();
+    let on_saved_profession_del = props.on_saved;
+
     let api_create_note = api.clone();
     let on_saved_note = props.on_saved;
     let on_create_note = move |_| {
@@ -483,13 +644,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             let ctx = create_ctx.clone();
             let sex_str = sex_val();
             let privacy_str = privacy_val();
-            // Name form values (used in create mode)
-            let nm_type = name_form_type();
-            let nm_given = name_form_given().trim().to_string();
-            let nm_surname = name_form_surname().trim().to_string();
-            let nm_prefix = name_form_prefix().trim().to_string();
-            let nm_suffix = name_form_suffix().trim().to_string();
-            let nm_nickname = name_form_nickname().trim().to_string();
+            // Birth identity (mandatory surname + given names)
+            let bn_given = birth_given().trim().to_string();
+            let bn_surname = birth_surname().trim().to_string();
+            let bn_id = birth_name_id();
             // Event form values
             let birth_eid = birth_event_id();
             let death_eid = death_event_id();
@@ -506,6 +664,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             let d_note = death_note().trim().to_string();
             let d_cal = death_calendar();
             spawn(async move {
+                if bn_given.is_empty() || bn_surname.is_empty() {
+                    save_error.set(Some(i18n.t("person_form.birth_identity_required")));
+                    return;
+                }
+
                 saving.set(true);
                 save_error.set(None);
 
@@ -528,22 +691,20 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     };
                     let new_pid = new_person.id;
 
-                    // 2. Create name if any field is filled.
-                    if !nm_given.is_empty() || !nm_surname.is_empty() {
-                        let body = CreatePersonNameBody {
-                            name_type: parse_name_type(&nm_type),
-                            given_names: opt_str(&nm_given),
-                            surname: opt_str(&nm_surname),
-                            prefix: opt_str(&nm_prefix),
-                            suffix: opt_str(&nm_suffix),
-                            nickname: opt_str(&nm_nickname),
-                            is_primary: true,
-                        };
-                        if let Err(e) = api.create_person_name(tid, new_pid, &body).await {
-                            save_error.set(Some(format!("{e}")));
-                            saving.set(false);
-                            return;
-                        }
+                    // 2. Create the mandatory birth name.
+                    let body = CreatePersonNameBody {
+                        name_type: NameType::Birth,
+                        given_names: Some(bn_given.clone()),
+                        surname: Some(bn_surname.clone()),
+                        prefix: None,
+                        suffix: None,
+                        nickname: None,
+                        is_primary: true,
+                    };
+                    if let Err(e) = api.create_person_name(tid, new_pid, &body).await {
+                        save_error.set(Some(format!("{e}")));
+                        saving.set(false);
+                        return;
                     }
 
                     // 3. Birth event.
@@ -653,6 +814,39 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         save_error.set(Some(format!("{e}")));
                         saving.set(false);
                         return;
+                    }
+
+                    // 1b. Birth name (surname + given names).
+                    if let Some(bnid) = bn_id {
+                        let name_body = UpdatePersonNameBody {
+                            name_type: None,
+                            given_names: Some(opt_str(&bn_given)),
+                            surname: Some(opt_str(&bn_surname)),
+                            prefix: None,
+                            suffix: None,
+                            nickname: None,
+                            is_primary: None,
+                        };
+                        if let Err(e) = api.update_person_name(tid, pid, bnid, &name_body).await {
+                            save_error.set(Some(format!("{e}")));
+                            saving.set(false);
+                            return;
+                        }
+                    } else {
+                        let name_body = CreatePersonNameBody {
+                            name_type: NameType::Birth,
+                            given_names: Some(bn_given.clone()),
+                            surname: Some(bn_surname.clone()),
+                            prefix: None,
+                            suffix: None,
+                            nickname: None,
+                            is_primary: true,
+                        };
+                        if let Err(e) = api.create_person_name(tid, pid, &name_body).await {
+                            save_error.set(Some(format!("{e}")));
+                            saving.set(false);
+                            return;
+                        }
                     }
 
                     // 2. Birth event.
@@ -796,6 +990,28 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     div { class: "person-form-section",
                         div { class: "pf-section-title", {i18n.t("person_form.tab_civil")} }
 
+                        // Birth name + given names — mandatory, always visible.
+                        div { class: "form-row",
+                            div { class: "form-group",
+                                label { {i18n.t("name_type.birth")} " *" }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"person_form.surname_placeholder\")}",
+                                    value: "{birth_surname}",
+                                    oninput: move |e: Event<FormData>| { birth_surname.set(e.value().to_uppercase()); has_changes.set(true); },
+                                }
+                            }
+                            div { class: "form-group",
+                                label { {i18n.t("person_form.given_names")} " *" }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"person_form.given_placeholder\")}",
+                                    value: "{birth_given}",
+                                    oninput: move |e: Event<FormData>| { birth_given.set(e.value()); has_changes.set(true); },
+                                }
+                            }
+                        }
+
                         div { class: "form-group",
                             label { {i18n.t("person_form.sex")} }
                             div { class: "pf-gender-group",
@@ -825,32 +1041,157 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             }
                         }
 
-                        div { style: "margin-top: 16px;",
-                            div { class: "section-header",
-                                h3 { style: "font-size: 0.9rem;", {i18n.t("person_form.tab_names")} }
-                                if !is_create {
+                        // ── Profession(s) (edit mode only) ──
+                        if !is_create {
+                            div { style: "margin-top: 16px;",
+                                div { style: "display: flex; gap: 8px; margin-bottom: 12px; justify-content: flex-end;",
+                                    button {
+                                        class: "btn btn-primary btn-sm",
+                                        onclick: move |_| show_profession_form.toggle(),
+                                        if show_profession_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_profession")} }
+                                    }
                                     button {
                                         class: "btn btn-primary btn-sm",
                                         onclick: move |_| show_name_form.toggle(),
-                                        if show_name_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_name")} }
+                                        if show_name_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_information")} }
+                                    }
+                                }
+
+                                div { class: "section-header",
+                                    h3 { style: "font-size: 0.9rem;", {i18n.t("person_form.professions")} }
+                                }
+
+                                if show_profession_form() {
+                                    div { style: "padding: 12px; background: var(--color-bg); border-radius: var(--radius); margin-bottom: 12px;",
+                                        if let Some(err) = profession_form_error() {
+                                            div { class: "error-msg", "{err}" }
+                                        }
+                                        div { class: "form-row",
+                                            div { class: "form-group",
+                                                label { {i18n.t("person_form.profession")} }
+                                                input {
+                                                    r#type: "text",
+                                                    value: "{profession_form_label}",
+                                                    oninput: move |e: Event<FormData>| profession_form_label.set(e.value()),
+                                                }
+                                            }
+                                            div { class: "form-group",
+                                                label { {i18n.t("person_form.date")} }
+                                                input {
+                                                    r#type: "text",
+                                                    placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
+                                                    value: "{profession_form_date}",
+                                                    oninput: move |e: Event<FormData>| profession_form_date.set(e.value()),
+                                                }
+                                            }
+                                        }
+                                        div { class: "form-row",
+                                            div { class: "form-group",
+                                                label { {i18n.t("person_form.place")} }
+                                                select {
+                                                    value: "{profession_form_place_id}",
+                                                    oninput: move |e: Event<FormData>| profession_form_place_id.set(e.value()),
+                                                    option { value: "", {i18n.t("person_form.no_place")} }
+                                                    for (pid_opt, pname) in place_options.iter() {
+                                                        option { value: "{pid_opt}", "{pname}" }
+                                                    }
+                                                }
+                                            }
+                                            div { class: "form-group",
+                                                label { {i18n.t("person_form.source")} }
+                                                select {
+                                                    value: "{profession_form_source_id}",
+                                                    oninput: move |e: Event<FormData>| profession_form_source_id.set(e.value()),
+                                                    option { value: "", {i18n.t("person_form.no_source")} }
+                                                    for (sid_opt, sname) in source_options.iter() {
+                                                        option { value: "{sid_opt}", "{sname}" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        div { class: "form-group",
+                                            label { {i18n.t("person_form.citation_notes")} }
+                                            textarea {
+                                                rows: 3,
+                                                value: "{profession_form_notes}",
+                                                oninput: move |e: Event<FormData>| profession_form_notes.set(e.value()),
+                                            }
+                                        }
+                                        button {
+                                            class: "btn btn-primary btn-sm",
+                                            onclick: on_create_profession,
+                                            {i18n.t("person.create_profession")}
+                                        }
+                                    }
+                                }
+
+                                if professions.is_empty() {
+                                    div { class: "pf-empty-item", p { {i18n.t("person_form.no_professions")} } }
+                                } else {
+                                    for ev in professions.iter() {
+                                        {
+                                            let eid = ev.id;
+                                            let label = ev.description.clone().unwrap_or_default();
+                                            let date = ev.date_value.clone().unwrap_or_default();
+                                            let place = ev.place_id.map(&place_name).unwrap_or_default();
+                                            rsx! {
+                                                div { class: "person-form-item pf-compact-item",
+                                                    div { class: "person-form-item-info",
+                                                        "{label}"
+                                                        if !date.is_empty() { span { " \u{2014} {date}" } }
+                                                        if !place.is_empty() { span { class: "text-muted", " @ {place}" } }
+                                                    }
+                                                    div { class: "person-form-item-actions",
+                                                        button {
+                                                            class: "btn btn-danger btn-sm",
+                                                            onclick: {
+                                                                let api = api_del_profession.clone();
+                                                                move |_| {
+                                                                    let api = api.clone();
+                                                                    spawn(async move {
+                                                                        match api.delete_event(tid, eid).await {
+                                                                            Ok(_) => { on_saved_profession_del.call(()); refresh += 1; }
+                                                                            Err(e) => save_error.set(Some(format!("{e}"))),
+                                                                        }
+                                                                    });
+                                                                }
+                                                            },
+                                                            {i18n.t("common.delete")}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
+                        }
+
+                        // ── Additional information (edit mode only) ──
+                        if !is_create {
+                        div { style: "margin-top: 16px;",
+                            div { class: "section-header",
+                                h3 { style: "font-size: 0.9rem;", {i18n.t("person_form.tab_more_information")} }
+                            }
 
                             if show_name_form() {
-                                {render_name_form(
+                                {render_information_form(
                                     &i18n,
                                     &name_form_error,
-                                    is_create,
-                                    &mut name_form_type, &mut name_form_given, &mut name_form_surname,
-                                    &mut name_form_prefix, &mut name_form_suffix, &mut name_form_nickname,
-                                    &mut name_form_primary, on_create_name,
+                                    &mut name_form_type, &mut name_form_value,
+                                    on_create_name,
                                 )}
                             }
 
                             match &*names_resource.read() {
-                                Some(Ok(names)) => rsx! {
-                                    for name in names.iter() {
+                                Some(Ok(names)) => {
+                                    let has_additional =
+                                        names.iter().any(|n| Some(n.id) != birth_name_id());
+                                    rsx! {
+                                    if !has_additional {
+                                        div { class: "pf-empty-item", p { {i18n.t("person_form.no_information")} } }
+                                    }
+                                    for name in names.iter().filter(|n| Some(n.id) != birth_name_id()) {
                                         {
                                             let nid = name.id;
                                             let is_editing = editing_name_id() == Some(nid);
@@ -965,7 +1306,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                 }
                                             } else {
                                                 rsx! {
-                                                    div { class: "person-form-item",
+                                                    div { class: "person-form-item pf-compact-item",
                                                         div { class: "person-form-item-info",
                                                             span { class: "badge", "{nt_label}" }
                                                             strong {
@@ -1014,12 +1355,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             }
                                         }
                                     }
-                                },
+                                    }
+                                }
                                 Some(Err(e)) => rsx! { div { class: "error-msg", "Failed to load names: {e}" } },
                                 None => rsx! { div { class: "loading", {i18n.t("person_form.loading_names")} } },
                             }
                         }
+                        } // end Additional information if !is_create
                     }
+
+                    hr { class: "pf-section-divider" }
 
                     // ── Birth ──
                     div { class: "person-form-section",
@@ -1076,6 +1421,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             }
                         }
                     }
+
+                    hr { class: "pf-section-divider" }
 
                     // ── Death ──
                     div { class: "person-form-section",
@@ -1743,30 +2090,35 @@ fn render_event_witnesses(
     }
 }
 
-// ── Name form helper ──────────────────────────────────────────────────────
+// ── Information form helper ───────────────────────────────────────────────
+//
+// Adds a single piece of "additional information" backed by a PersonName
+// row. Every information type is just one value — no given names, prefix,
+// suffix, or primary flag — split only by which underlying field it fills:
+// the nickname piece for Sobriquet (GEDCOM NICK), the name piece for
+// everything else. Alias/Surnom/Sobriquet are UI-only vocabulary for the
+// existing AlsoKnownAs (GEDCOM AKA) name type, not new name types — see
+// `parse_name_type`.
 
-#[allow(clippy::too_many_arguments)]
-fn render_name_form(
+fn render_information_form(
     i18n: &crate::i18n::I18n,
     error: &Signal<Option<String>>,
-    hide_create_btn: bool,
-    name_type_mut: &mut Signal<String>,
-    given_mut: &mut Signal<String>,
-    surname_mut: &mut Signal<String>,
-    prefix_mut: &mut Signal<String>,
-    suffix_mut: &mut Signal<String>,
-    nickname_mut: &mut Signal<String>,
-    primary_mut: &mut Signal<bool>,
+    info_type_mut: &mut Signal<String>,
+    value_mut: &mut Signal<String>,
     on_create: impl FnMut(Event<MouseData>) + 'static,
 ) -> Element {
     let i18n = *i18n;
-    let mut name_type_sig = *name_type_mut;
-    let mut given_sig = *given_mut;
-    let mut surname_sig = *surname_mut;
-    let mut prefix_sig = *prefix_mut;
-    let mut suffix_sig = *suffix_mut;
-    let mut nickname_sig = *nickname_mut;
-    let mut primary_sig = *primary_mut;
+    let mut info_type_sig = *info_type_mut;
+    let mut value_sig = *value_mut;
+    let is_nickname = info_type_sig() == "Sobriquet";
+    let is_given = info_type_sig() == "Prenom";
+    let value_label = if is_nickname {
+        i18n.t("person_form.nickname")
+    } else if is_given {
+        i18n.t("person_form.given_names")
+    } else {
+        i18n.t("person_form.name_value")
+    };
 
     rsx! {
         div { style: "padding: 12px; background: var(--color-bg); border-radius: var(--radius); margin-bottom: 12px;",
@@ -1775,65 +2127,30 @@ fn render_name_form(
             }
             div { class: "form-row",
                 div { class: "form-group",
-                    label { {i18n.t("person_form.name_type")} }
+                    label { {i18n.t("person_form.information_type")} }
                     select {
-                        value: "{name_type_sig}",
-                        oninput: move |e: Event<FormData>| name_type_sig.set(e.value()),
-                        option { value: "Birth",      {i18n.t("name_type.birth")} }
+                        value: "{info_type_sig}",
+                        oninput: move |e: Event<FormData>| info_type_sig.set(e.value()),
+                        option { value: "Prenom",     {i18n.t("name_type.prenom")} }
                         option { value: "Married",    {i18n.t("name_type.married")} }
-                        option { value: "AlsoKnownAs",{i18n.t("name_type.also_known_as")} }
+                        option { value: "Alias",      {i18n.t("name_type.alias")} }
+                        option { value: "Surnom",     {i18n.t("name_type.surnom")} }
                         option { value: "Maiden",     {i18n.t("name_type.maiden")} }
                         option { value: "Religious",  {i18n.t("name_type.religious")} }
                         option { value: "Other",      {i18n.t("name_type.other")} }
+                        option { value: "Sobriquet",  {i18n.t("name_type.sobriquet")} }
                     }
                 }
                 div { class: "form-group",
-                    label { {i18n.t("person_form.primary")} }
-                    select {
-                        value: if primary_sig() { "true" } else { "false" },
-                        oninput: move |e: Event<FormData>| primary_sig.set(e.value() == "true"),
-                        option { value: "true",  {i18n.t("common.yes")} }
-                        option { value: "false", {i18n.t("common.no")} }
-                    }
-                }
-            }
-            div { class: "form-row",
-                div { class: "form-group",
-                    label { {i18n.t("person_form.given_names")} }
+                    label { "{value_label}" }
                     input {
                         r#type: "text",
-                        placeholder: "{i18n.t(\"person_form.given_placeholder\")}",
-                        value: "{given_sig}",
-                        oninput: move |e: Event<FormData>| given_sig.set(e.value()),
-                    }
-                }
-                div { class: "form-group",
-                    label { {i18n.t("person_form.surname")} }
-                    input {
-                        r#type: "text",
-                        placeholder: "{i18n.t(\"person_form.surname_placeholder\")}",
-                        value: "{surname_sig}",
-                        oninput: move |e: Event<FormData>| surname_sig.set(e.value().to_uppercase()),
+                        value: "{value_sig}",
+                        oninput: move |e: Event<FormData>| value_sig.set(e.value()),
                     }
                 }
             }
-            div { class: "form-row",
-                div { class: "form-group",
-                    label { {i18n.t("person_form.prefix")} }
-                    input { r#type: "text", placeholder: "{i18n.t(\"person_form.prefix_placeholder\")}", value: "{prefix_sig}", oninput: move |e: Event<FormData>| prefix_sig.set(e.value()) }
-                }
-                div { class: "form-group",
-                    label { {i18n.t("person_form.suffix")} }
-                    input { r#type: "text", placeholder: "{i18n.t(\"person_form.suffix_placeholder\")}", value: "{suffix_sig}", oninput: move |e: Event<FormData>| suffix_sig.set(e.value()) }
-                }
-                div { class: "form-group",
-                    label { {i18n.t("person_form.nickname")} }
-                    input { r#type: "text", placeholder: "{i18n.t(\"person_form.nickname_placeholder\")}", value: "{nickname_sig}", oninput: move |e: Event<FormData>| nickname_sig.set(e.value()) }
-                }
-            }
-            if !hide_create_btn {
-                button { class: "btn btn-primary btn-sm", onclick: on_create, {i18n.t("person.create_name")} }
-            }
+            button { class: "btn btn-primary btn-sm", onclick: on_create, {i18n.t("person.create_name")} }
         }
     }
 }

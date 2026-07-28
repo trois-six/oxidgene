@@ -68,6 +68,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         *person_id_parsed.write() = new_pid;
     }
 
+    // The router reuses this component instance across navigations (e.g.
+    // clicking a relative in the mini pedigree or family section), so the
+    // scroll position from the previous person otherwise carries over.
+    use_effect(move || {
+        person_id_parsed();
+        document::eval(
+            "document.querySelector('.sub-page-content')?.scrollTo({ top: 0, behavior: 'instant' });",
+        );
+    });
+
     // Delete confirmation state.
     let mut confirm_delete = use_signal(|| false);
     let mut delete_error = use_signal(|| None::<String>);
@@ -436,7 +446,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         Born { date: String, place: Option<String> },
         Died { date: String, place: Option<String> },
         Age(AgeSpan),
-        Occupation(String),
+        Occupation(Vec<String>),
     }
 
     // Birth/death vitals clauses shown under the header name, e.g.
@@ -494,7 +504,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 .filter(|title| !title.is_empty())
                 .collect();
             if !occupations.is_empty() {
-                clauses.push(VitalClause::Occupation(occupations.join(", ")));
+                clauses.push(VitalClause::Occupation(occupations));
             }
 
             clauses
@@ -1235,13 +1245,19 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                             .replace("{n}", &n.to_string());
                                                         rsx! { b { "{label}" } }
                                                     }
-                                                    VitalClause::Occupation(title) => {
+                                                    VitalClause::Occupation(titles) => {
                                                         rsx! {
-                                                            ReferenceHover {
-                                                                key: "occ-{title}",
-                                                                kind: ReferenceKind::Occupation,
-                                                                term: title.clone(),
-                                                                "{title}"
+                                                            for (i , title) in titles.iter().enumerate() {
+                                                                span { key: "occ-{title}",
+                                                                    if i > 0 {
+                                                                        ", "
+                                                                    }
+                                                                    ReferenceHover {
+                                                                        kind: ReferenceKind::Occupation,
+                                                                        term: title.clone(),
+                                                                        "{title}"
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }

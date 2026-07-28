@@ -116,7 +116,11 @@ static GIVEN_NAMES_FR_TABLE: OnceLock<HashMap<String, GivenNameEntry>> = OnceLoc
 static GIVEN_NAMES_EN_TABLE: OnceLock<HashMap<String, GivenNameEntry>> = OnceLock::new();
 
 /// Looks up an occupation fiche by raw GEDCOM label (any case/accent/alias
-/// variant listed in the data file).
+/// variant listed in the data file). Free-text occupation fields (e.g. "CTO
+/// chez Entreprise Exemple") rarely match a full entry verbatim, so on exact
+/// miss this falls back to the longest dictionary key/alias that occurs as a
+/// whole-word run inside the term — long enough to still tell "Barbier
+/// Perruquier" apart from plain "Barbier" when both are present.
 pub fn lookup_occupation(lang: ReferenceLang, term: &str) -> Option<OccupationEntry> {
     let table = match lang {
         ReferenceLang::Fr => OCCUPATIONS_FR_TABLE
@@ -124,7 +128,45 @@ pub fn lookup_occupation(lang: ReferenceLang, term: &str) -> Option<OccupationEn
         ReferenceLang::En => OCCUPATIONS_EN_TABLE
             .get_or_init(|| build_table(OCCUPATIONS_EN, |e: &OccupationEntry| &e.aliases)),
     };
-    table.get(&normalize_key(term)).cloned()
+    let normalized = normalize_key(term);
+    if let Some(entry) = table.get(&normalized) {
+        return Some(entry.clone());
+    }
+    longest_word_run_match(table, &normalized).cloned()
+}
+
+/// Returns `true` when `needle_words` occurs as a contiguous run inside
+/// `haystack_words`, matching on whole words only (so "cto" never matches
+/// inside e.g. "directeur").
+fn contains_word_run(haystack_words: &[&str], needle_words: &[&str]) -> bool {
+    !needle_words.is_empty()
+        && needle_words.len() <= haystack_words.len()
+        && haystack_words
+            .windows(needle_words.len())
+            .any(|w| w == needle_words)
+}
+
+/// Scans every (already-normalized) key/alias in `table` and returns the
+/// entry for the longest one occurring as a whole-word run inside
+/// `haystack`. Longest wins so a more specific multi-word entry ("barbier
+/// perruquier") is preferred over a shorter one it contains ("barbier").
+fn longest_word_run_match<'a, T>(table: &'a HashMap<String, T>, haystack: &str) -> Option<&'a T> {
+    let haystack_words: Vec<&str> = haystack.split(' ').filter(|w| !w.is_empty()).collect();
+    let mut best: Option<(&str, &T)> = None;
+    for (key, entry) in table {
+        if key.is_empty() {
+            continue;
+        }
+        let key_words: Vec<&str> = key.split(' ').collect();
+        if contains_word_run(&haystack_words, &key_words)
+            && best
+                .as_ref()
+                .is_none_or(|(best_key, _)| key.len() > best_key.len())
+        {
+            best = Some((key, entry));
+        }
+    }
+    best.map(|(_, entry)| entry)
 }
 
 /// Looks up a given-name fiche. Tries the full (possibly compound) term
@@ -171,6 +213,35 @@ mod tests {
     fn looks_up_occupation_in_english() {
         let entry = lookup_occupation(ReferenceLang::En, "laboureur").expect("english entry");
         assert!(entry.label.contains("ploughman"));
+    }
+
+    #[test]
+    fn falls_back_to_longest_word_run_within_free_text() {
+        let entry = lookup_occupation(ReferenceLang::Fr, "CTO chez Entreprise Exemple")
+            .expect("substring match");
+        assert_eq!(entry.label, "CTO");
+    }
+
+    #[test]
+    fn prefers_longer_word_run_over_shorter_one_it_contains() {
+        let entry =
+            lookup_occupation(ReferenceLang::Fr, "Barbier Perruquier").expect("exact match");
+        assert_eq!(entry.label, "Barbier Perruquier");
+
+        // No entry has "Barbier Coiffeur" verbatim, so this only resolves via
+        // the word-run fallback — which must prefer "Barbier Perruquier"
+        // over the shorter "Barbier" it also contains, whichever iteration
+        // order the underlying HashMap happens to produce.
+        let fallback = lookup_occupation(ReferenceLang::Fr, "Ancien Barbier Perruquier Retraité")
+            .expect("word-run fallback match");
+        assert_eq!(fallback.label, "Barbier Perruquier");
+    }
+
+    #[test]
+    fn does_not_match_a_word_partially() {
+        // "cto" must not match inside a longer word that merely contains
+        // those letters.
+        assert!(lookup_occupation(ReferenceLang::Fr, "directoire").is_none());
     }
 
     #[test]
