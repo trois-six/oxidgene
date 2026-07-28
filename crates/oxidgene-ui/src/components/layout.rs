@@ -1628,6 +1628,30 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card);
     }
 
+    /* Match every editable field in the modal (birth name, given names,
+       dates, notes, ...) to the same background used by a saved
+       .person-form-item row (e.g. a created profession), instead of the
+       app-wide input background. */
+    .person-form-modal input,
+    .person-form-modal select,
+    .person-form-modal textarea,
+    .pf-embedded input,
+    .pf-embedded select,
+    .pf-embedded textarea {
+        background: var(--bg-card);
+    }
+
+    /* <select> reserves extra native chrome height beyond its padding in
+       some engines (e.g. WebKitGTK), rendering taller than a same-padded
+       <input> — force both to the same box height so a "Date"/"Lieu" row
+       lines up with a plain text field like "Note". */
+    .person-form-modal input,
+    .person-form-modal select,
+    .pf-embedded input,
+    .pf-embedded select {
+        height: 38px;
+    }
+
     .person-form-item.editing {
         display: block;
         padding: 12px;
@@ -1648,6 +1672,25 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 4px;
         flex-shrink: 0;
     }
+
+    /* Empty-state placeholder sized like a .person-form-item row instead of
+       the much taller generic .empty-state, so an empty list doesn't jump
+       in height once its first entry is added. */
+    .pf-empty-item {
+        padding: 8px 12px;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-panel);
+        color: var(--text-secondary);
+        text-align: center;
+        margin-bottom: 8px;
+    }
+    .pf-empty-item p { margin: 0; }
+
+    /* Profession(s) / additional-information rows — same height as a plain
+       input (8px vertical padding) instead of the slightly taller default
+       .person-form-item used for events/notes. */
+    .person-form-item.pf-compact-item { padding: 8px 12px; }
 
     /* ── Person form — section redesign ────────────────────────────── */
 
@@ -1809,6 +1852,10 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .pf-delete-section { margin-top: 8px; }
     .pf-delete-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+    /* Same line as .person-form-header's border-bottom, with the same
+       ~16px breathing room on each side as the header/body padding gives
+       it above "État civil". */
+    .pf-section-divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
     .pf-delete-person-btn {
         margin-top: 12px;
         background: none;
