@@ -22,7 +22,12 @@ pub fn parse_name_type(s: &str) -> NameType {
     match s {
         "Birth" => NameType::Birth,
         "Married" => NameType::Married,
-        "AlsoKnownAs" => NameType::AlsoKnownAs,
+        // "Alias", "Surnom", "Sobriquet" and "Prenom" are UI-only labels for
+        // the same GEDCOM AKA name type as "AlsoKnownAs" — see
+        // person_form.rs's information-type picker, which offers
+        // French-genealogy vocabulary for the same underlying record rather
+        // than inventing new name types.
+        "AlsoKnownAs" | "Alias" | "Surnom" | "Sobriquet" | "Prenom" => NameType::AlsoKnownAs,
         "Maiden" => NameType::Maiden,
         "Religious" => NameType::Religious,
         _ => NameType::Other,
