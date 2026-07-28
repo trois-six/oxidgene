@@ -2150,7 +2150,7 @@ fn render_information_form(
                     }
                 }
             }
-            button { class: "btn btn-primary btn-sm", onclick: on_create, {i18n.t("person.create_name")} }
+            button { class: "btn btn-primary btn-sm", onclick: on_create, {i18n.t("person.create_information")} }
         }
     }
 }
