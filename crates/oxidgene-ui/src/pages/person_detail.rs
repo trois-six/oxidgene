@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use dioxus::prelude::*;
-use oxidgene_cache::types::CachedPedigree;
 use oxidgene_core::EventType;
+use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::Event as DomainEvent;
 use uuid::Uuid;
 
@@ -1669,7 +1669,7 @@ fn age_span(birth: chrono::NaiveDate, end: chrono::NaiveDate) -> AgeSpan {
 /// both the Ancestors (parents + grandparents) and Descendants (children +
 /// grandchildren) sections, depending on the levels passed in.
 fn render_mini_pedigree(
-    pedigree_resource: &Resource<Result<Option<CachedPedigree>, crate::api::ApiError>>,
+    pedigree_resource: &Resource<Result<Option<Pedigree>, crate::api::ApiError>>,
     photos_resource: &Resource<HashMap<Uuid, String>>,
     ancestor_levels: usize,
     descendant_levels: usize,
@@ -1691,7 +1691,7 @@ fn render_mini_pedigree(
         }
     };
 
-    let mut data = crate::components::pedigree_chart::PedigreeData::from_cached_pedigree(cached);
+    let mut data = crate::components::pedigree_chart::PedigreeData::from_pedigree(cached);
     data.photos = photos_resource.read().clone().unwrap_or_default();
     let root_person_id = cached.root_person_id;
 

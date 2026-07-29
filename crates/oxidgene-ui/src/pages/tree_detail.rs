@@ -156,7 +156,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
-    // ── Fetch pedigree from cache API ──
+    // ── Fetch pedigree from the API ──
     let api_pedigree = api.clone();
     let mut pedigree_resource = use_resource(move || {
         let api = api_pedigree.clone();
@@ -241,7 +241,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         pedigree_resource.restart();
     }
 
-    // ── Build pedigree data from cached pedigree ──
+    // ── Build pedigree data from the fetched pedigree ──
     let (pedigree_data, root_person_id): (Option<PedigreeData>, Option<Uuid>) = {
         let ped_data = pedigree_resource.read();
         let photos: std::collections::HashMap<Uuid, String> = {
@@ -252,10 +252,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             }
         };
         match &*ped_data {
-            Some(Ok(cached_ped)) => {
-                let mut pd = PedigreeData::from_cached_pedigree(cached_ped);
+            Some(Ok(pedigree)) => {
+                let mut pd = PedigreeData::from_pedigree(pedigree);
                 pd.photos = photos;
-                (Some(pd), Some(cached_ped.root_person_id))
+                (Some(pd), Some(pedigree.root_person_id))
             }
             _ => (None, selected_root()),
         }

@@ -19,7 +19,7 @@ This directory contains all functional, technical, and visual specifications for
 | [Data Model](data-model.md) | All entities (Tree, Person, Family, Event…), enums with GEDCOM tag mapping, ERD |
 | [API Contract](api.md) | REST (`/api/v1`) and GraphQL (`/graphql`) endpoints, pagination, types, GEDCOM compatibility |
 | [Roadmap](roadmap.md) | EPICs A–G, sprint breakdown, milestones, completion status |
-| [Caching](caching.md) | Server-side cache architecture: PersonCache, PedigreeCache, SearchIndex, storage backends, invalidation |
+| [Read Projections](read-projections.md) | Denormalized read models in the database: person projections, pedigree assembly, search, refresh |
 
 ## Cross-cutting
 
@@ -71,7 +71,7 @@ index.md  <- you are here
 |  |- data-model.md        Entities, enums, GEDCOM mapping, ERD
 |  |- api.md               REST + GraphQL + GEDCOM compat
 |  |- roadmap.md           EPICs & sprints (with status)
-|  '- caching.md           Server-side cache architecture
+|  '- read-projections.md  Denormalized read models (no cache tier)
 |
 |- Cross-cutting
 |  |- i18n.md              Internationalization

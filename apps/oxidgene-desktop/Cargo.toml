@@ -21,7 +21,6 @@ glib = { version = "0.18", default-features = false }
 [dependencies]
 oxidgene-api = { workspace = true }
 oxidgene-db = { workspace = true }
-oxidgene-cache = { workspace = true, features = ["disk"] }
 oxidgene-ui = { workspace = true }
 dioxus = { workspace = true, features = ["desktop", "router"] }
 axum = { workspace = true }

@@ -4,7 +4,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Note;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::note::{self, ActiveModel, Column, Entity};
@@ -14,7 +14,7 @@ pub struct NoteRepo;
 
 impl NoteRepo {
     /// Get a single note by ID (excludes soft-deleted).
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Note, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Note, OxidGeneError> {
         Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -26,7 +26,7 @@ impl NoteRepo {
 
     /// List all notes in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Note>, OxidGeneError> {
         let models = Entity::find()
@@ -40,7 +40,7 @@ impl NoteRepo {
 
     /// List notes for a specific entity (person, event, family, or source) in a tree.
     pub async fn list_by_entity(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         person_id: Option<Uuid>,
         event_id: Option<Uuid>,
@@ -74,7 +74,7 @@ impl NoteRepo {
     /// Create a new note.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
         text: String,
@@ -105,7 +105,7 @@ impl NoteRepo {
 
     /// Update a note's text.
     pub async fn update(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         text: Option<String>,
     ) -> Result<Note, OxidGeneError> {
@@ -130,7 +130,7 @@ impl NoteRepo {
     }
 
     /// Soft-delete a note.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)

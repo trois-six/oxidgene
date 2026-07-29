@@ -417,7 +417,7 @@ None of the following aggregations exist yet; they must be added before this pag
 
 | Tab | Aggregation needed |
 |---|---|
-| Family Names | `GROUP BY surname, COUNT(*)` over `person_search_fts` (already indexed per tree — see [Caching](caching.md), Sprint E.6) |
+| Family Names | `GROUP BY surname, COUNT(*)` over `person_search_fts` (already indexed per tree — see [Read Projections](read-projections.md) §4) |
 | Sources | `COUNT(Citation)` per `source_id`, joined onto the existing `SourceRepo::list` |
 | Places | `COUNT(Event) + COUNT(Media)` per `place_id`, joined onto the existing `PlaceRepo::list` |
 | Occupations | `GROUP BY description, COUNT(*)` over `Event` where `event_type = Occupation` — new aggregation, no existing index |

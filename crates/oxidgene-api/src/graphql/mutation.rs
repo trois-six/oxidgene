@@ -1,8 +1,9 @@
 //! GraphQL mutation root with all write operations.
 
+use crate::profile::invalidation;
+use crate::rest::state::{begin_tx, commit_tx};
 use async_graphql::{Context, ID, Object, Result};
 use chrono::NaiveDate;
-use oxidgene_cache::invalidation;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
@@ -19,10 +20,10 @@ use super::inputs::{
     UpdateSourceInput, UpdateTreeInput, UploadMediaInput,
 };
 use super::types::{
-    GqlCacheRebuildResult, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
-    GqlFamilySpouse, GqlImportGedcomResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta,
-    GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace, GqlSource, GqlTree, cache_from_ctx,
-    db_from_ctx,
+    GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilySpouse,
+    GqlImportGedcomResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta, GqlPedigreeDirection,
+    GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource, GqlTree, db_from_ctx,
+    profiles_from_ctx,
 };
 
 /// The root mutation type.
@@ -59,13 +60,15 @@ impl MutationRoot {
         Ok(tree.into())
     }
 
-    /// Delete a tree (soft delete). Also invalidates all caches for the tree.
+    /// Delete a tree (soft delete). Also drops the tree's projections.
     async fn delete_tree(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        TreeRepo::delete(db, uuid).await?;
-        cache.invalidate_tree(uuid).await?;
+        let txn = begin_tx(db).await?;
+        TreeRepo::delete(&txn, uuid).await?;
+        profiles.invalidate_tree(&txn, uuid).await?;
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -79,12 +82,14 @@ impl MutationRoot {
         input: CreatePersonInput,
     ) -> Result<GqlPerson> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
-        let person = PersonRepo::create(db, id, tid, input.sex.into()).await?;
-        // New person is not linked to any family yet — just build its cache entry.
-        cache.rebuild_person(tid, id).await?;
+        let txn = begin_tx(db).await?;
+        let person = PersonRepo::create(&txn, id, tid, input.sex.into()).await?;
+        // New person is not linked to any family yet — just build its projection.
+        profiles.rebuild_person(&txn, tid, id).await?;
+        commit_tx(txn).await?;
         Ok(person.into())
     }
 
@@ -96,35 +101,39 @@ impl MutationRoot {
         input: UpdatePersonInput,
     ) -> Result<GqlPerson> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
+        let txn = begin_tx(db).await?;
         let person = PersonRepo::update(
-            db,
+            &txn,
             uuid,
             input.sex.map(|s| s.into()),
             input.privacy.map(|p| p.into()),
         )
         .await?;
         // Rebuild the affected set (person + spouses + children + parents).
-        let affected = invalidation::affected_persons(db, uuid).await?;
-        cache
-            .invalidate_for_mutation(person.tree_id, &affected)
+        let affected = invalidation::affected_persons(&txn, uuid).await?;
+        profiles
+            .invalidate_for_mutation(&txn, person.tree_id, &affected)
             .await?;
+        commit_tx(txn).await?;
         Ok(person.into())
     }
 
     /// Delete a person (soft delete).
     async fn delete_person(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let person = PersonRepo::get(db, uuid).await?;
-        PersonRepo::delete(db, uuid).await?;
-        // Removes the person from cache + search table, rebuilds affected
-        // relatives, and drops pedigrees.
-        cache
-            .invalidate_for_person_delete(person.tree_id, uuid)
+        let txn = begin_tx(db).await?;
+        let person = PersonRepo::get(&txn, uuid).await?;
+        PersonRepo::delete(&txn, uuid).await?;
+        // Drops the person's projection + search row and refreshes the
+        // relatives that referenced them.
+        profiles
+            .invalidate_for_person_delete(&txn, person.tree_id, uuid)
             .await?;
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -138,11 +147,12 @@ impl MutationRoot {
         input: PersonNameInput,
     ) -> Result<GqlPersonName> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let pid = Uuid::parse_str(person_id.as_str())?;
         let id = Uuid::now_v7();
+        let txn = begin_tx(db).await?;
         let name = PersonNameRepo::create(
-            db,
+            &txn,
             id,
             pid,
             input.name_type.into(),
@@ -155,11 +165,12 @@ impl MutationRoot {
         )
         .await?;
         // Name changes affect display_name references across relatives.
-        let affected = invalidation::affected_persons(db, pid).await?;
-        let person = PersonRepo::get(db, pid).await?;
-        cache
-            .invalidate_for_mutation(person.tree_id, &affected)
+        let affected = invalidation::affected_persons(&txn, pid).await?;
+        let person = PersonRepo::get(&txn, pid).await?;
+        profiles
+            .invalidate_for_mutation(&txn, person.tree_id, &affected)
             .await?;
+        commit_tx(txn).await?;
         Ok(name.into())
     }
 
@@ -171,10 +182,11 @@ impl MutationRoot {
         input: UpdatePersonNameInput,
     ) -> Result<GqlPersonName> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
+        let txn = begin_tx(db).await?;
         let name = PersonNameRepo::update(
-            db,
+            &txn,
             uuid,
             input.name_type.map(|nt| nt.into()),
             input.given_names.map(Some),
@@ -185,26 +197,29 @@ impl MutationRoot {
             input.is_primary,
         )
         .await?;
-        let affected = invalidation::affected_persons(db, name.person_id).await?;
-        let person = PersonRepo::get(db, name.person_id).await?;
-        cache
-            .invalidate_for_mutation(person.tree_id, &affected)
+        let affected = invalidation::affected_persons(&txn, name.person_id).await?;
+        let person = PersonRepo::get(&txn, name.person_id).await?;
+        profiles
+            .invalidate_for_mutation(&txn, person.tree_id, &affected)
             .await?;
+        commit_tx(txn).await?;
         Ok(name.into())
     }
 
     /// Delete a person name (hard delete).
     async fn delete_person_name(&self, ctx: &Context<'_>, person_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let pid = Uuid::parse_str(person_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        PersonNameRepo::delete(db, uuid).await?;
-        let affected = invalidation::affected_persons(db, pid).await?;
-        let person = PersonRepo::get(db, pid).await?;
-        cache
-            .invalidate_for_mutation(person.tree_id, &affected)
+        let txn = begin_tx(db).await?;
+        PersonNameRepo::delete(&txn, uuid).await?;
+        let affected = invalidation::affected_persons(&txn, pid).await?;
+        let person = PersonRepo::get(&txn, pid).await?;
+        profiles
+            .invalidate_for_mutation(&txn, person.tree_id, &affected)
             .await?;
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -216,7 +231,7 @@ impl MutationRoot {
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let family = FamilyRepo::create(db, id, tid).await?;
-        // No cache impact — empty family.
+        // No projection impact — empty family.
         Ok(family.into())
     }
 
@@ -231,17 +246,19 @@ impl MutationRoot {
     /// Delete a family (soft delete).
     async fn delete_family(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let family = FamilyRepo::get(db, uuid).await?;
+        let txn = begin_tx(db).await?;
+        let family = FamilyRepo::get(&txn, uuid).await?;
         // Compute affected BEFORE delete.
-        let affected = invalidation::affected_persons_for_family(db, uuid).await?;
-        FamilyRepo::delete(db, uuid).await?;
+        let affected = invalidation::affected_persons_for_family(&txn, uuid).await?;
+        FamilyRepo::delete(&txn, uuid).await?;
         if !affected.is_empty() {
-            cache
-                .invalidate_for_mutation(family.tree_id, &affected)
+            profiles
+                .invalidate_for_mutation(&txn, family.tree_id, &affected)
                 .await?;
         }
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -253,43 +270,48 @@ impl MutationRoot {
         input: AddSpouseInput,
     ) -> Result<GqlFamilySpouse> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let fid = Uuid::parse_str(family_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
+        let txn = begin_tx(db).await?;
         let spouse =
-            FamilySpouseRepo::create(db, id, fid, pid, input.role.into(), input.sort_order).await?;
+            FamilySpouseRepo::create(&txn, id, fid, pid, input.role.into(), input.sort_order)
+                .await?;
         let affected =
-            invalidation::affected_persons_for_family_spouse_change(db, fid, pid).await?;
-        let family = FamilyRepo::get(db, fid).await?;
-        cache
-            .invalidate_for_mutation(family.tree_id, &affected)
+            invalidation::affected_persons_for_family_spouse_change(&txn, fid, pid).await?;
+        let family = FamilyRepo::get(&txn, fid).await?;
+        profiles
+            .invalidate_for_mutation(&txn, family.tree_id, &affected)
             .await?;
+        commit_tx(txn).await?;
         Ok(spouse.into())
     }
 
     /// Remove a spouse from a family (hard delete).
     async fn remove_spouse(&self, ctx: &Context<'_>, family_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let fid = Uuid::parse_str(family_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        let txn = begin_tx(db).await?;
         // Look up which person this spouse link refers to BEFORE deletion.
-        let spouses = FamilySpouseRepo::list_by_families(db, &[fid]).await?;
+        let spouses = FamilySpouseRepo::list_by_families(&txn, &[fid]).await?;
         let person_id = spouses.iter().find(|s| s.id == uuid).map(|s| s.person_id);
-        let family = FamilyRepo::get(db, fid).await?;
+        let family = FamilyRepo::get(&txn, fid).await?;
         // Compute affected BEFORE delete.
         let affected = if let Some(pid) = person_id {
-            invalidation::affected_persons_for_family_spouse_change(db, fid, pid).await?
+            invalidation::affected_persons_for_family_spouse_change(&txn, fid, pid).await?
         } else {
             vec![]
         };
-        FamilySpouseRepo::delete(db, uuid).await?;
+        FamilySpouseRepo::delete(&txn, uuid).await?;
         if !affected.is_empty() {
-            cache
-                .invalidate_for_mutation(family.tree_id, &affected)
+            profiles
+                .invalidate_for_mutation(&txn, family.tree_id, &affected)
                 .await?;
         }
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -301,42 +323,53 @@ impl MutationRoot {
         input: AddChildInput,
     ) -> Result<GqlFamilyChild> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let fid = Uuid::parse_str(family_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
-        let child =
-            FamilyChildRepo::create(db, id, fid, pid, input.child_type.into(), input.sort_order)
-                .await?;
-        let affected = invalidation::affected_persons_for_family_child_change(db, fid, pid).await?;
-        let family = FamilyRepo::get(db, fid).await?;
-        cache
-            .invalidate_for_mutation(family.tree_id, &affected)
+        let txn = begin_tx(db).await?;
+        let child = FamilyChildRepo::create(
+            &txn,
+            id,
+            fid,
+            pid,
+            input.child_type.into(),
+            input.sort_order,
+        )
+        .await?;
+        let affected =
+            invalidation::affected_persons_for_family_child_change(&txn, fid, pid).await?;
+        let family = FamilyRepo::get(&txn, fid).await?;
+        profiles
+            .invalidate_for_mutation(&txn, family.tree_id, &affected)
             .await?;
+        commit_tx(txn).await?;
         Ok(child.into())
     }
 
     /// Remove a child from a family (hard delete).
     async fn remove_child(&self, ctx: &Context<'_>, family_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let fid = Uuid::parse_str(family_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        let txn = begin_tx(db).await?;
         // Look up which person this child link refers to BEFORE deletion.
-        let children = FamilyChildRepo::list_by_families(db, &[fid]).await?;
+        let children = FamilyChildRepo::list_by_families(&txn, &[fid]).await?;
         let person_id = children.iter().find(|c| c.id == uuid).map(|c| c.person_id);
-        let family = FamilyRepo::get(db, fid).await?;
+        let family = FamilyRepo::get(&txn, fid).await?;
         let affected = if let Some(pid) = person_id {
-            invalidation::affected_persons_for_family_child_change(db, fid, pid).await?
+            invalidation::affected_persons_for_family_child_change(&txn, fid, pid).await?
         } else {
             vec![]
         };
-        FamilyChildRepo::delete(db, uuid).await?;
+        FamilyChildRepo::delete(&txn, uuid).await?;
         if !affected.is_empty() {
-            cache
-                .invalidate_for_mutation(family.tree_id, &affected)
+            profiles
+                .invalidate_for_mutation(&txn, family.tree_id, &affected)
                 .await?;
         }
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -350,7 +383,7 @@ impl MutationRoot {
         input: CreateEventInput,
     ) -> Result<GqlEvent> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let place_id = input.place_id.as_deref().map(Uuid::parse_str).transpose()?;
@@ -370,8 +403,9 @@ impl MutationRoot {
             .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
             .transpose()
             .map_err(|e| async_graphql::Error::new(format!("Invalid date_sort: {e}")))?;
+        let txn = begin_tx(db).await?;
         let event = EventRepo::create(
-            db,
+            &txn,
             id,
             tid,
             input.event_type.into(),
@@ -385,12 +419,17 @@ impl MutationRoot {
         .await?;
         // Invalidate: person event or family event.
         if let Some(pid) = person_id {
-            let affected = invalidation::affected_persons(db, pid).await?;
-            cache.invalidate_for_mutation(tid, &affected).await?;
+            let affected = invalidation::affected_persons(&txn, pid).await?;
+            profiles
+                .invalidate_for_mutation(&txn, tid, &affected)
+                .await?;
         } else if let Some(fid) = family_id {
-            let affected = invalidation::affected_persons_for_family(db, fid).await?;
-            cache.invalidate_for_mutation(tid, &affected).await?;
+            let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
+            profiles
+                .invalidate_for_mutation(&txn, tid, &affected)
+                .await?;
         }
+        commit_tx(txn).await?;
         Ok(event.into())
     }
 
@@ -402,7 +441,7 @@ impl MutationRoot {
         input: UpdateEventInput,
     ) -> Result<GqlEvent> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         let place_id = input.place_id.as_deref().map(Uuid::parse_str).transpose()?;
         let date_sort = input
@@ -411,8 +450,9 @@ impl MutationRoot {
             .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
             .transpose()
             .map_err(|e| async_graphql::Error::new(format!("Invalid date_sort: {e}")))?;
+        let txn = begin_tx(db).await?;
         let event = EventRepo::update(
-            db,
+            &txn,
             uuid,
             input.event_type.map(|et| et.into()),
             input.date_value.map(Some),
@@ -427,37 +467,40 @@ impl MutationRoot {
         .await?;
         // Invalidate based on event ownership.
         if let Some(pid) = event.person_id {
-            let affected = invalidation::affected_persons(db, pid).await?;
-            cache
-                .invalidate_for_mutation(event.tree_id, &affected)
+            let affected = invalidation::affected_persons(&txn, pid).await?;
+            profiles
+                .invalidate_for_mutation(&txn, event.tree_id, &affected)
                 .await?;
         } else if let Some(fid) = event.family_id {
-            let affected = invalidation::affected_persons_for_family(db, fid).await?;
-            cache
-                .invalidate_for_mutation(event.tree_id, &affected)
+            let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
+            profiles
+                .invalidate_for_mutation(&txn, event.tree_id, &affected)
                 .await?;
         }
+        commit_tx(txn).await?;
         Ok(event.into())
     }
 
     /// Delete an event (soft delete).
     async fn delete_event(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let event = EventRepo::get(db, uuid).await?;
-        EventRepo::delete(db, uuid).await?;
+        let txn = begin_tx(db).await?;
+        let event = EventRepo::get(&txn, uuid).await?;
+        EventRepo::delete(&txn, uuid).await?;
         if let Some(pid) = event.person_id {
-            let affected = invalidation::affected_persons(db, pid).await?;
-            cache
-                .invalidate_for_mutation(event.tree_id, &affected)
+            let affected = invalidation::affected_persons(&txn, pid).await?;
+            profiles
+                .invalidate_for_mutation(&txn, event.tree_id, &affected)
                 .await?;
         } else if let Some(fid) = event.family_id {
-            let affected = invalidation::affected_persons_for_family(db, fid).await?;
-            cache
-                .invalidate_for_mutation(event.tree_id, &affected)
+            let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
+            profiles
+                .invalidate_for_mutation(&txn, event.tree_id, &affected)
                 .await?;
         }
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -519,10 +562,10 @@ impl MutationRoot {
             input.longitude.map(Some),
         )
         .await?;
-        // Place changes could affect event display — but the event cache stores
-        // the place *name* snapshot. For now, place edits don't trigger person
-        // cache invalidation (place names in cache become stale). A full rebuild
-        // or explicit invalidation is needed after place renames.
+        // Place changes could affect event display — but a person projection
+        // stores the place *name* snapshot. For now, place edits don't refresh
+        // the projections that embed the old name; a full rebuild is needed
+        // after a place rename.
         Ok(place.into())
     }
 
@@ -810,7 +853,7 @@ impl MutationRoot {
     // ── GEDCOM Mutations ──────────────────────────────────────────────
 
     /// Import a GEDCOM string into a tree, persisting all extracted entities.
-    /// Triggers a full cache rebuild after import.
+    /// Triggers a full projection rebuild after import.
     async fn import_gedcom(
         &self,
         ctx: &Context<'_>,
@@ -818,11 +861,14 @@ impl MutationRoot {
         input: ImportGedcomInput,
     ) -> Result<GqlImportGedcomResult> {
         let db = db_from_ctx(ctx);
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let summary = crate::service::gedcom::import_and_persist(db, tid, &input.gedcom).await?;
-        // Eager full rebuild after GEDCOM import.
-        cache.rebuild_tree_full(tid).await?;
+        // Eager full rebuild after GEDCOM import — deliberately outside a
+        // transaction: it is an idempotent bulk operation over the whole tree,
+        // and wrapping 100K rows would hold a very long-lived write lock. The
+        // import itself is already atomic (see `gedcom::import_and_persist`).
+        profiles.rebuild_tree_full(db, tid).await?;
         Ok(GqlImportGedcomResult {
             persons_count: summary.persons_count as i32,
             families_count: summary.families_count as i32,
@@ -835,50 +881,61 @@ impl MutationRoot {
         })
     }
 
-    // ── Cache Admin Mutations ────────────────────────────────────────
+    // ── Projection Admin Mutations ───────────────────────────────────
 
-    /// Rebuild the entire cache for a tree (all persons + search index).
-    async fn rebuild_tree_cache(
+    /// Rebuild every projection of a tree (all persons + search index).
+    async fn rebuild_tree_profiles(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-    ) -> Result<GqlCacheRebuildResult> {
-        let cache = cache_from_ctx(ctx);
+    ) -> Result<GqlProfileRebuildResult> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let count = cache.rebuild_tree_full(tid).await?;
-        Ok(GqlCacheRebuildResult {
+        let count = profiles.rebuild_tree_full(db, tid).await?;
+        Ok(GqlProfileRebuildResult {
             rebuilt: true,
             persons_count: count as i32,
         })
     }
 
-    /// Rebuild the cache for a single person (and their affected set).
-    async fn rebuild_person_cache(
+    /// Rebuild the projection of a single person.
+    async fn rebuild_person_profile(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         person_id: ID,
-    ) -> Result<GqlCacheRebuildResult> {
-        let cache = cache_from_ctx(ctx);
+    ) -> Result<GqlProfileRebuildResult> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
-        cache.rebuild_person(tid, pid).await?;
-        Ok(GqlCacheRebuildResult {
+        let txn = begin_tx(db).await?;
+        profiles.rebuild_person(&txn, tid, pid).await?;
+        commit_tx(txn).await?;
+        Ok(GqlProfileRebuildResult {
             rebuilt: true,
             persons_count: 1,
         })
     }
 
-    /// Drop all caches for a tree. Used for debugging or after bulk operations.
-    async fn invalidate_tree_cache(&self, ctx: &Context<'_>, tree_id: ID) -> Result<bool> {
-        let cache = cache_from_ctx(ctx);
+    /// Drop every projection of a tree. For debugging or after bulk operations.
+    async fn drop_tree_profiles(&self, ctx: &Context<'_>, tree_id: ID) -> Result<bool> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        cache.invalidate_tree(tid).await?;
+        let txn = begin_tx(db).await?;
+        profiles.invalidate_tree(&txn, tid).await?;
+        commit_tx(txn).await?;
         Ok(true)
     }
 
-    /// Expand a cached pedigree in one direction, returning only the new nodes
-    /// and edges (delta). The client merges the delta into its current view.
+    /// Expand a pedigree in one direction, returning only the new nodes and
+    /// edges (delta). The client merges the delta into its current view.
+    ///
+    /// `otherDepth` is the depth already loaded in the opposite direction —
+    /// pass it so the returned `*DepthLoaded` values match what you hold.
+    #[allow(clippy::too_many_arguments)]
     async fn expand_pedigree(
         &self,
         ctx: &Context<'_>,
@@ -887,8 +944,9 @@ impl MutationRoot {
         direction: GqlPedigreeDirection,
         from_depth: i32,
         to_depth: i32,
+        #[graphql(default = 0)] other_depth: i32,
     ) -> Result<GqlPedigreeDelta> {
-        let cache = cache_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let rid = Uuid::parse_str(root_person_id.as_str())?;
 
@@ -898,10 +956,16 @@ impl MutationRoot {
             )));
         }
 
-        let additional_levels = (to_depth - from_depth) as u32;
-        let dir: oxidgene_cache::types::PedigreeDirection = direction.into();
-        let delta = cache
-            .expand_pedigree(tid, rid, dir, additional_levels)
+        let dir: oxidgene_core::projection::PedigreeDirection = direction.into();
+        let delta = profiles
+            .expand_pedigree(
+                tid,
+                rid,
+                dir,
+                from_depth.max(0) as u32,
+                to_depth.max(0) as u32,
+                other_depth.max(0) as u32,
+            )
             .await?;
         Ok(delta.into())
     }

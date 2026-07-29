@@ -118,13 +118,13 @@ timestamp: 2026-07-19T00:00:00Z
 
 ---
 
-## EPIC E — Server-Side Caching ✅
+## EPIC E — Read Projections & Search ✅
 
-> See [Caching specification](caching.md) for the full architecture.
+> See [Read Projections specification](read-projections.md) for the full architecture.
 
 ### Sprint E.1 — Cache Foundation ✅
 
-- [x] Create `oxidgene-cache` crate with `CacheStore` trait. → see [Caching](caching.md)
+- [x] Create `oxidgene-cache` crate with `CacheStore` trait. *(removed in E.7 — see [Read Projections](read-projections.md))*
 - [x] Implement cache type structs (`CachedPerson`, `CachedPedigree`, `CachedSearchIndex`, sub-types).
 - [x] Implement `MemoryCacheStore` (DashMap-based, no persistence yet).
 - [x] Implement `CacheBuilder` — build `CachedPerson` from DB data.
@@ -135,7 +135,7 @@ timestamp: 2026-07-19T00:00:00Z
 
 - [x] Add `CacheService` and `CacheStore` to `AppState`.
 - [x] Implement `GET /cache/persons/{id}` and `GET /cache/persons?ids=...` REST endpoints. → see [API Contract](api.md) (Cache)
-- [x] Implement `cachedPerson` and `cachedPersons` GraphQL queries.
+- [x] Implement `cachedPerson` and `cachedPersons` GraphQL queries. *(renamed `personProfile` / `personProfiles` in E.9)*
 - [x] Hook all mutation handlers to trigger synchronous cache invalidation.
 - [x] Update `person_detail.rs` to use cached endpoint.
 - [x] Update `person_form.rs` and `union_form.rs` to use cached endpoint.
@@ -156,7 +156,7 @@ timestamp: 2026-07-19T00:00:00Z
 - [x] Hook GEDCOM import to trigger eager background cache build.
 - [x] Update search components to use server-side search.
 - [x] Remove `TreeSnapshot` endpoint and client-side `ResponseCache`.
-- [x] Implement `POST /cache/rebuild` REST endpoint and `rebuildTreeCache` GraphQL mutation.
+- [x] Implement `POST /cache/rebuild` REST endpoint and `rebuildTreeCache` GraphQL mutation. *(renamed in E.9)*
 
 ### Sprint E.5 — Redis Backend & Desktop Persistence ✅
 
@@ -178,7 +178,7 @@ timestamp: 2026-07-19T00:00:00Z
 - [x] Evaluate and remove `PersonCache` from `MemoryCacheStore` — removed; persons are built on
   demand with targeted SQLite queries (`caches_persons()` store flag; Redis keeps PersonCache).
   Disk persistence reduced to pedigrees only (cache schema v2).
-- [x] Update `caching.md` to document the SQLite-native path vs. Redis path.
+- [x] Update the caching spec to document the SQLite-native path vs. Redis path.
 - [x] Performance regression test: search and person-load times verified <= current with FTS5
   (`service_e6_test.rs`: person load < 100 ms asserted; measured ~1 ms at 2K persons).
 - [x] Performance benchmarks on large GEDCOM-scale trees (`bench_large_tree_20k`, run with
@@ -223,6 +223,45 @@ Rationale: enhance the flat dictionary index with nested descent trees showing s
 - [ ] API: `GET /dictionary/family-names/{value}/tree` endpoint
 - [ ] UI: recursive descent-tree component with generation indentation and SOSA badges when clicking on a last name in the dictionnary
 - [ ] Resolve design questions: non-surname-carrying children handling, toggle vs. replacement
+
+---
+
+### Sprint E.9 — Denormalization Replaces Caching ✅ (Jul 2026)
+
+> Rationale: the read models the cache held are a function of one person plus their immediate
+> relatives, cheap to rebuild, and never acceptably stale — that is denormalization, not caching.
+> E.6 proved the point by moving search into the database; E.9 finishes the job.
+> See [Read Projections](read-projections.md) for the full architecture.
+
+- [x] Add the `person_denorm` table (JSON payload, FK cascade on person/tree), `PersonDenormRepo`
+  and migration `m20260728_000001_person_denorm`.
+- [x] Move the projection types (`CachedPerson`, `CachedPedigree`, `SearchEntry`, …) from
+  `oxidgene-cache::types` to `oxidgene_core::projection`, so `oxidgene-ui` no longer drags
+  `oxidgene-db` / `tokio` / `dashmap` into the WASM build.
+- [x] Replace `CacheService` with `ProfileService` (`oxidgene-api/src/profile/`), carrying the
+  builder and the affected-set algorithm over unchanged.
+- [x] Assemble pedigrees per request from `person_ancestry` ⋈ `person_denorm` — pedigree cache,
+  LRU budget and pedigree invalidation all removed.
+- [x] **Delete the `oxidgene-cache` crate** (~4,100 lines, three storage backends) and the
+  `redis`, `dashmap`, `rmp-serde`, `bincode` dependencies.
+- [x] Remove the desktop disk-cache lifecycle (cache dir, staleness check, load-on-start,
+  persist-on-shutdown handshake).
+- [x] Rename the REST routes off `/cache/*` → `/profiles*` and `/pedigree/*`, **and the matching
+  GraphQL fields and types**, so the two surfaces stay symmetric: `cachedPerson` → `personProfile`,
+  `rebuildTreeCache` → `rebuildTreeProfiles`, `invalidateTreeCache` → `dropTreeProfiles`,
+  `GqlCached*` → `GqlPersonProfile`/`GqlProfile*`/`GqlPedigree`, field `cachedAt` → `builtAt`.
+  `expandPedigree` gained an optional `otherDepth`.
+- [x] Port the integration tests to `crates/oxidgene-api/tests/profile_service_test.rs`, adding
+  coverage for the guarantees a cache could not offer: projections survive a service restart,
+  a relative's projection is never left stale after a rename, and a rolled-back mutation leaves
+  no projection behind.
+- [x] Make the refresh **atomic with the mutation**: widen all 119 repo methods from
+  `&DatabaseConnection` to `&impl ConnectionTrait` (SeaORM implements it for `DatabaseTransaction`
+  too), and open/commit one transaction across the write and the projection refresh in the 35
+  REST + GraphQL mutation handlers. Whole-tree rebuilds stay outside — idempotent bulk work.
+
+**Known follow-ups:**
+- [ ] Refresh projections embedding a `Place` name when that place is renamed (pre-existing gap).
 
 ---
 

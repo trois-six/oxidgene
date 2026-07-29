@@ -1,15 +1,15 @@
 //! REST handlers for Family CRUD operations.
 
+use crate::profile::invalidation;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_cache::invalidation;
 use oxidgene_db::repo::{FamilyRepo, PaginationParams};
 use uuid::Uuid;
 
 use super::dto::PaginationQuery;
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, begin_tx, commit_tx};
 
 /// GET /api/v1/trees/:tree_id/families
 pub async fn list_families(
@@ -36,7 +36,7 @@ pub async fn create_family(
     let family = FamilyRepo::create(&state.db, id, tree_id)
         .await
         .map_err(ApiError::from)?;
-    // No cache impact — empty family.
+    // No projection impact — empty family.
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(family).unwrap()),
@@ -70,19 +70,21 @@ pub async fn delete_family(
     State(state): State<AppState>,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     // Compute affected BEFORE delete.
-    let affected = invalidation::affected_persons_for_family(&state.db, family_id)
+    let affected = invalidation::affected_persons_for_family(&txn, family_id)
         .await
         .map_err(ApiError)?;
-    FamilyRepo::delete(&state.db, family_id)
+    FamilyRepo::delete(&txn, family_id)
         .await
         .map_err(ApiError::from)?;
     if !affected.is_empty() {
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     }
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

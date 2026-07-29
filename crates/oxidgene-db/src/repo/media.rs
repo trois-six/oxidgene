@@ -4,7 +4,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Media};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::media::{self, ActiveModel, Column, Entity};
@@ -16,7 +16,7 @@ pub struct MediaRepo;
 impl MediaRepo {
     /// List media in a tree with pagination (excludes soft-deleted).
     pub async fn list(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &PaginationParams,
     ) -> Result<Connection<Media>, OxidGeneError> {
@@ -28,7 +28,7 @@ impl MediaRepo {
 
     /// List all media in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Media>, OxidGeneError> {
         let models = Entity::find()
@@ -42,7 +42,7 @@ impl MediaRepo {
 
     /// Get multiple media items by ID (excludes soft-deleted).
     pub async fn get_many(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Media>, OxidGeneError> {
         let models = Entity::find()
@@ -55,7 +55,7 @@ impl MediaRepo {
     }
 
     /// Get a single media by ID (excludes soft-deleted).
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Media, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Media, OxidGeneError> {
         Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -71,7 +71,7 @@ impl MediaRepo {
     /// Create a new media record.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
         file_name: String,
@@ -107,7 +107,7 @@ impl MediaRepo {
 
     /// Update a media record.
     pub async fn update(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         title: Option<Option<String>>,
         description: Option<Option<String>>,
@@ -139,7 +139,7 @@ impl MediaRepo {
     }
 
     /// Soft-delete a media record.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)

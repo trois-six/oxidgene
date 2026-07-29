@@ -1,28 +1,31 @@
-//! Cache invalidation logic.
+//! Affected-set computation.
 //!
-//! Given a mutation on a person (or related entity), computes the bounded set
-//! of persons whose [`CachedPerson`] entries must be rebuilt. The set is
-//! typically 2–10 persons, keeping the synchronous invalidation cost under
-//! 15 ms.
+//! Given a mutation on a person (or a related entity), computes the bounded set
+//! of persons whose projections must be rewritten — the person themselves, plus
+//! everyone whose projection embeds their display name. The set is typically
+//! 2–10 persons, keeping the synchronous refresh under 15 ms.
+//!
+//! This is the piece that survived the removal of the cache layer unchanged:
+//! "who is affected by this change" is a domain question, not a caching one.
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{FamilyChildRepo, FamilySpouseRepo};
-use oxidgene_db::sea_orm::DatabaseConnection;
+use oxidgene_db::sea_orm::ConnectionTrait;
 use uuid::Uuid;
 
-/// Compute the set of person IDs whose [`CachedPerson`] entries are affected
+/// Compute the set of person IDs whose [`PersonProfile`] entries are affected
 /// by a mutation involving `person_id`.
 ///
 /// The affected set includes:
 /// 1. The person itself.
 /// 2. All co-spouses and children in families where this person is a spouse
-///    (their [`CachedFamilyLink`] references this person's display name).
+///    (their [`ProfileFamilyLink`] references this person's display name).
 /// 3. All spouses (parents) in the family where this person is a child
-///    (their [`CachedFamilyLink::children_ids`] references this person).
+///    (their [`ProfileFamilyLink::children_ids`] references this person).
 ///
 /// The result is de-duplicated but not otherwise ordered.
 pub async fn affected_persons(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     let mut affected = vec![person_id];
@@ -76,9 +79,9 @@ pub async fn affected_persons(
 /// Compute the affected set for a family event mutation.
 ///
 /// Family events (marriage, divorce, etc.) affect both spouses in the family.
-/// Returns the set of persons whose caches need rebuilding.
+/// Returns the set of persons whose projections need rewriting.
 pub async fn affected_persons_for_family(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     family_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     let spouses = FamilySpouseRepo::list_by_families(db, &[family_id]).await?;
@@ -86,7 +89,7 @@ pub async fn affected_persons_for_family(
 
     // Each spouse's full affected set includes their other families' members.
     // But for a family event, we only need to rebuild the two spouses — their
-    // CachedPerson includes the family's marriage event.
+    // PersonProfile includes the family's marriage event.
     affected.sort();
     affected.dedup();
 
@@ -96,10 +99,10 @@ pub async fn affected_persons_for_family(
 /// Compute affected persons when a family membership changes (spouse added/removed).
 ///
 /// This is broader than a simple person edit: both spouses, all children in the
-/// family, AND the parents of both spouses (since their CachedChildLink
+/// family, AND the parents of both spouses (since their ProfileChildLink
 /// references might change) are affected.
 pub async fn affected_persons_for_family_spouse_change(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     family_id: Uuid,
     changed_person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
@@ -128,7 +131,7 @@ pub async fn affected_persons_for_family_spouse_change(
 /// The child itself, both parents in the family, and the child's other family
 /// relationships are all affected.
 pub async fn affected_persons_for_family_child_change(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     family_id: Uuid,
     child_person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
@@ -154,7 +157,7 @@ pub async fn affected_persons_for_family_child_change(
 /// Uses `FamilySpouseRepo` indirectly: since there is no `list_by_person`
 /// method, we query the `family_spouse` entity table directly.
 async fn families_as_spouse(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     use oxidgene_db::entities::family_spouse;
@@ -173,7 +176,7 @@ async fn families_as_spouse(
 ///
 /// A person can be a child in at most one family in our data model.
 async fn family_as_child(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     person_id: Uuid,
 ) -> Result<Option<Uuid>, OxidGeneError> {
     use oxidgene_db::entities::family_child;

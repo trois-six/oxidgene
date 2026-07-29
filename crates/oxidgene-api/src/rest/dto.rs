@@ -389,22 +389,22 @@ pub struct ExportGedcomQuery {
     pub merge_names: Option<bool>,
 }
 
-// ── Cache DTOs ──────────────────────────────────────────────────────
+// ── Projection DTOs ─────────────────────────────────────────────────
 
-/// Response body for cache rebuild operations.
+/// Response body for projection rebuild operations.
 #[derive(Debug, Serialize)]
-pub struct CacheRebuildResponse {
+pub struct ProfileRebuildResponse {
     pub rebuilt: bool,
     pub persons_count: usize,
 }
 
-/// Response body for cache invalidation.
+/// Response body for dropping a tree's projections.
 #[derive(Debug, Serialize)]
-pub struct CacheInvalidateResponse {
-    pub invalidated: bool,
+pub struct ProfileDropResponse {
+    pub dropped: bool,
 }
 
-/// Query parameters for pedigree cache lookup.
+/// Query parameters for pedigree assembly.
 #[derive(Debug, Deserialize)]
 pub struct PedigreeQuery {
     /// Number of ancestor generations to include (e.g. 5).
@@ -422,6 +422,11 @@ pub struct PedigreeExpandQuery {
     pub from_depth: u32,
     /// Target depth after expansion.
     pub to_depth: u32,
+    /// Depth already loaded in the *opposite* direction. Supplied so the
+    /// returned `*_depth_loaded` values match what the caller holds — the
+    /// server keeps no per-client pedigree state.
+    #[serde(default)]
+    pub other_depth: u32,
 }
 
 // ── Dictionary DTOs ───────────────────────────────────────────────────

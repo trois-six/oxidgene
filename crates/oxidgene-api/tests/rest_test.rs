@@ -1620,3 +1620,134 @@ async fn test_gedcom_export_invalid_tree() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+// ───────────────────── Profile & pedigree routes ─────────────────────
+
+/// The projection routes replaced `/cache/*` in Sprint E.9. This walks the
+/// whole surface through the real router — route ordering included, since
+/// `/profiles/rebuild` and `/profiles/{person_id}` share a path segment.
+#[tokio::test]
+async fn test_profile_routes() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+
+    send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+        Some(serde_json::json!({
+            "name_type": "birth",
+            "given_names": "Jean",
+            "surname": "Dupont",
+            "is_primary": true
+        })),
+    )
+    .await;
+
+    // Single projection.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "GET profile failed: {body}");
+    assert_eq!(body["person_id"], person_id);
+    assert_eq!(body["primary_name"]["display_name"], "Jean Dupont");
+
+    // Whole-tree listing.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "GET profiles failed: {body}");
+    assert_eq!(body.as_array().unwrap().len(), 1);
+
+    // `rebuild` must not be swallowed by the `{person_id}` route.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/profiles/rebuild"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "tree rebuild failed: {body}");
+    assert_eq!(body["persons_count"], 1);
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/profiles/rebuild/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "person rebuild failed: {body}");
+    assert_eq!(body["persons_count"], 1);
+
+    // Pedigree rooted on the only person.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{tree_id}/pedigree/{person_id}?ancestor_depth=2&descendant_depth=1"
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "GET pedigree failed: {body}");
+    assert_eq!(body["root_person_id"], person_id);
+    assert_eq!(body["persons"][&person_id]["display_name"], "Jean Dupont");
+    assert_eq!(body["ancestor_depth_loaded"], 2);
+
+    // Expansion returns a (here empty) delta, not an error.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PATCH,
+        &format!(
+            "/api/v1/trees/{tree_id}/pedigree/{person_id}/expand\
+             ?direction=ancestors&from_depth=2&to_depth=4&other_depth=1"
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "expand failed: {body}");
+    assert_eq!(body["ancestor_depth_loaded"], 4);
+    assert_eq!(body["descendant_depth_loaded"], 1);
+    assert!(body["new_nodes"].as_array().unwrap().is_empty());
+
+    // Dropping clears the projections; the next read re-materializes them.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/profiles/drop"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "drop failed: {body}");
+    assert_eq!(body["dropped"], true);
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "re-materialization failed: {body}");
+    assert_eq!(body["primary_name"]["display_name"], "Jean Dupont");
+
+    // The old `/cache/*` paths are gone (Sprint E.9).
+    for path in [
+        format!("/api/v1/trees/{tree_id}/cache/persons/{person_id}"),
+        format!("/api/v1/trees/{tree_id}/cache/persons"),
+        format!("/api/v1/trees/{tree_id}/cache/pedigree/{person_id}"),
+    ] {
+        let (status, _) = send_request(app.clone(), Method::GET, &path, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "still routed: {path}");
+    }
+}

@@ -4,7 +4,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Place};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::place::{self, ActiveModel, Column, Entity};
@@ -16,7 +16,7 @@ pub struct PlaceRepo;
 impl PlaceRepo {
     /// List places in a tree with optional search and pagination.
     pub async fn list(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         search: Option<&str>,
         params: &PaginationParams,
@@ -32,7 +32,7 @@ impl PlaceRepo {
 
     /// List all places in a tree without pagination.
     pub async fn list_all(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Place>, OxidGeneError> {
         let models = Entity::find()
@@ -45,7 +45,7 @@ impl PlaceRepo {
 
     /// Get multiple places by ID.
     pub async fn get_many(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Place>, OxidGeneError> {
         let models = Entity::find()
@@ -57,7 +57,7 @@ impl PlaceRepo {
     }
 
     /// Get a single place by ID.
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Place, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Place, OxidGeneError> {
         Entity::find_by_id(id)
             .one(db)
             .await
@@ -71,7 +71,7 @@ impl PlaceRepo {
 
     /// Create a new place.
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
         name: String,
@@ -97,7 +97,7 @@ impl PlaceRepo {
 
     /// Update a place.
     pub async fn update(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         name: Option<String>,
         latitude: Option<Option<f64>>,
@@ -132,7 +132,7 @@ impl PlaceRepo {
     }
 
     /// Hard-delete a place.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await
