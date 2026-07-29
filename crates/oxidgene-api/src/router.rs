@@ -7,7 +7,6 @@ use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]
 use crate::graphql::{build_schema, graphql_handler, graphql_playground};
-use crate::rest::cache;
 use crate::rest::citation;
 use crate::rest::dictionary;
 use crate::rest::event;
@@ -20,6 +19,7 @@ use crate::rest::note;
 use crate::rest::person;
 use crate::rest::person_name;
 use crate::rest::place;
+use crate::rest::profile;
 use crate::rest::reference;
 use crate::rest::snapshot;
 use crate::rest::source;
@@ -225,28 +225,32 @@ pub fn build_router(state: AppState) -> Router {
             get(dictionary::place_usage),
         );
 
-    let cache_routes = Router::new()
+    let profile_routes = Router::new()
+        .route("/{tree_id}/profiles", get(profile::get_person_profiles))
         .route(
-            "/{tree_id}/cache/persons/{person_id}",
-            get(cache::get_cached_person),
-        )
-        .route("/{tree_id}/cache/persons", get(cache::get_cached_persons))
-        .route("/{tree_id}/cache/rebuild", post(cache::rebuild_tree_cache))
-        .route(
-            "/{tree_id}/cache/rebuild/{person_id}",
-            post(cache::rebuild_person_cache),
+            "/{tree_id}/profiles/rebuild",
+            post(profile::rebuild_tree_profiles),
         )
         .route(
-            "/{tree_id}/cache/invalidate",
-            post(cache::invalidate_tree_cache),
+            "/{tree_id}/profiles/rebuild/{person_id}",
+            post(profile::rebuild_person_profile),
         )
         .route(
-            "/{tree_id}/cache/pedigree/{root_person_id}",
-            get(cache::get_cached_pedigree),
+            "/{tree_id}/profiles/drop",
+            post(profile::drop_tree_profiles),
+        )
+        // Declared after the fixed `rebuild` / `drop` segments so those win.
+        .route(
+            "/{tree_id}/profiles/{person_id}",
+            get(profile::get_person_profile),
         )
         .route(
-            "/{tree_id}/cache/pedigree/{root_person_id}/expand",
-            patch(cache::expand_pedigree),
+            "/{tree_id}/pedigree/{root_person_id}",
+            get(profile::get_pedigree),
+        )
+        .route(
+            "/{tree_id}/pedigree/{root_person_id}/expand",
+            patch(profile::expand_pedigree),
         );
 
     let gedcom_routes = Router::new()
@@ -267,7 +271,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/{lang}/given-names", get(reference::given_name));
 
     #[cfg(feature = "graphql")]
-    let schema = build_schema(state.db.clone(), state.cache.clone());
+    let schema = build_schema(state.db.clone(), state.profiles.clone());
 
     let rest_router = Router::new()
         .nest(
@@ -286,7 +290,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(note_routes)
                 .merge(snapshot_routes)
                 .merge(dictionary_routes)
-                .merge(cache_routes)
+                .merge(profile_routes)
                 .merge(gedcom_routes),
         )
         .nest("/api/v1/reference", reference_routes)

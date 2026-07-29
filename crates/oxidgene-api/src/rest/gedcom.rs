@@ -26,10 +26,10 @@ pub async fn import_gedcom_handler(
         .await
         .map_err(ApiError::from)?;
 
-    // Eagerly rebuild the entire cache for this tree after GEDCOM import
+    // Eagerly rebuild every projection of this tree after a GEDCOM import
     state
-        .cache
-        .rebuild_tree_full(tree_id)
+        .profiles
+        .rebuild_tree_full(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
 

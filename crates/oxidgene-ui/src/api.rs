@@ -5,7 +5,7 @@
 //! from [`oxidgene_core`] directly, since those types already derive
 //! `Serialize` / `Deserialize`.
 
-use oxidgene_cache::types::{CachedPedigree, PedigreeDelta, SearchResult};
+use oxidgene_core::projection::{Pedigree, PedigreeDelta, SearchResult};
 use oxidgene_core::types::{
     Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse, Note, Person,
     PersonAncestry, PersonName, Place, Source, Tree,
@@ -1675,27 +1675,31 @@ impl ApiClient {
 
     /// Fetch a windowed pedigree for a root person.
     ///
-    /// Uses the cache endpoint; the server builds and caches lazily.
+    /// Assembled server-side from the closure table and the stored person
+    /// projections on every call.
     pub async fn get_pedigree(
         &self,
         tree_id: Uuid,
         root_person_id: Uuid,
         ancestor_depth: u32,
         descendant_depth: u32,
-    ) -> Result<CachedPedigree, ApiError> {
+    ) -> Result<Pedigree, ApiError> {
         let params = [
             ("ancestor_depth", ancestor_depth.to_string()),
             ("descendant_depth", descendant_depth.to_string()),
         ];
         self.get_with_query(
-            &format!("/api/v1/trees/{tree_id}/cache/pedigree/{root_person_id}"),
+            &format!("/api/v1/trees/{tree_id}/pedigree/{root_person_id}"),
             &params,
         )
         .await
     }
 
-    /// Expand a cached pedigree in one direction, returning only the new
-    /// nodes and edges (delta).
+    /// Expand a pedigree in one direction, returning only the new nodes and
+    /// edges (delta).
+    ///
+    /// `other_depth` is the depth already loaded in the opposite direction —
+    /// the server keeps no per-client pedigree state, so it has to be told.
     pub async fn expand_pedigree(
         &self,
         tree_id: Uuid,
@@ -1703,14 +1707,16 @@ impl ApiClient {
         direction: &str,
         from_depth: u32,
         to_depth: u32,
+        other_depth: u32,
     ) -> Result<PedigreeDelta, ApiError> {
         let params = [
             ("direction", direction.to_string()),
             ("from_depth", from_depth.to_string()),
             ("to_depth", to_depth.to_string()),
+            ("other_depth", other_depth.to_string()),
         ];
         self.patch_with_query(
-            &format!("/api/v1/trees/{tree_id}/cache/pedigree/{root_person_id}/expand"),
+            &format!("/api/v1/trees/{tree_id}/pedigree/{root_person_id}/expand"),
             &params,
         )
         .await

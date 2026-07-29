@@ -1,11 +1,12 @@
-//! Cache builder — constructs cache entries from database data.
+//! Projection builder — assembles denormalized read models from raw entities.
 //!
-//! The builder fetches raw entities from the database and assembles
-//! them into denormalized cache structures (CachedPerson, SearchEntry, etc.).
+//! Takes the normalized rows a caller has already fetched (see
+//! `ProfileService::fetch_tree_data` / `fetch_person_data`) and folds them into
+//! the shapes stored in `person_denorm` and `person_search_fts`.
 
-use crate::types::*;
 use chrono::Utc;
 use oxidgene_core::enums::*;
+use oxidgene_core::projection::*;
 
 use oxidgene_core::types::{
     Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place,
@@ -13,10 +14,10 @@ use oxidgene_core::types::{
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Holds all raw data for a tree, used to build cache entries efficiently.
+/// Holds all raw data for a tree, used to build projections efficiently.
 ///
-/// This is populated once (in parallel) and then used to build all cache entries
-/// without additional database calls.
+/// This is populated once (in parallel) and then used to build every
+/// projection without additional database calls.
 pub struct TreeData {
     pub persons: Vec<Person>,
     pub names: Vec<PersonName>,
@@ -29,7 +30,7 @@ pub struct TreeData {
     pub notes: Vec<Note>,
 }
 
-/// Pre-indexed tree data for efficient cache building.
+/// Pre-indexed tree data for efficient projection building.
 struct IndexedData {
     /// PersonName entries grouped by person_id
     names_by_person: HashMap<Uuid, Vec<PersonName>>,
@@ -163,14 +164,14 @@ impl IndexedData {
     }
 }
 
-/// Build a `CachedEvent` from a raw `Event` and the place index.
-fn build_cached_event(event: &Event, places: &HashMap<Uuid, Place>) -> CachedEvent {
+/// Build a `ProfileEvent` from a raw `Event` and the place index.
+fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>) -> ProfileEvent {
     let place_name = event
         .place_id
         .and_then(|pid| places.get(&pid))
         .map(|p| p.name.clone());
 
-    CachedEvent {
+    ProfileEvent {
         event_id: event.id,
         event_type: event.event_type,
         date_value: event.date_value.clone(),
@@ -181,17 +182,17 @@ fn build_cached_event(event: &Event, places: &HashMap<Uuid, Place>) -> CachedEve
     }
 }
 
-/// Extract a year string from a `CachedEvent` for display.
+/// Extract a year string from a `ProfileEvent` for display.
 ///
 /// Tries `date_sort` first (formatted as "YYYY"), then falls back to
 /// extracting a 4-digit year from `date_value`.
-pub fn extract_year(event: &CachedEvent) -> Option<String> {
+pub fn extract_year(event: &ProfileEvent) -> Option<String> {
     oxidgene_core::types::year_from_date(event.date_sort, event.date_value.as_deref())
         .map(|y| format!("{y:04}"))
 }
 
-/// Build all `CachedPerson` entries for an entire tree.
-pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<CachedPerson> {
+/// Build all `PersonProfile` entries for an entire tree.
+pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<PersonProfile> {
     let idx = IndexedData::new(data);
     let now = Utc::now();
 
@@ -201,34 +202,34 @@ pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<CachedPerson> {
         .collect()
 }
 
-/// Build a single `CachedPerson` from (possibly targeted) tree data.
+/// Build a single `PersonProfile` from (possibly targeted) tree data.
 ///
 /// `data` only needs to contain the person, their relatives (spouses, parents,
 /// children) and the entities attached to them — see
-/// `CacheService::fetch_person_data`. Returns `None` if the person is not in
+/// `ProfileService::fetch_person_data`. Returns `None` if the person is not in
 /// `data.persons`.
-pub fn build_person(tree_id: Uuid, person_id: Uuid, data: &TreeData) -> Option<CachedPerson> {
+pub fn build_person(tree_id: Uuid, person_id: Uuid, data: &TreeData) -> Option<PersonProfile> {
     let person = data.persons.iter().find(|p| p.id == person_id)?;
     let idx = IndexedData::new(data);
     Some(build_one_person(person, tree_id, &idx, Utc::now()))
 }
 
-/// Build a single `CachedPerson` from indexed data.
+/// Build a single `PersonProfile` from indexed data.
 fn build_one_person(
     person: &Person,
     tree_id: Uuid,
     idx: &IndexedData,
     now: chrono::DateTime<Utc>,
-) -> CachedPerson {
+) -> PersonProfile {
     let pid = person.id;
 
     // ── Names ────────────────────────────────────────────────────────────
     let names = idx.names_by_person.get(&pid).cloned().unwrap_or_default();
-    let mut primary_name: Option<CachedName> = None;
-    let mut other_names: Vec<CachedName> = Vec::new();
+    let mut primary_name: Option<ProfileName> = None;
+    let mut other_names: Vec<ProfileName> = Vec::new();
 
     for name in &names {
-        let cached = CachedName {
+        let cached = ProfileName {
             name_id: name.id,
             name_type: name.name_type,
             display_name: name.display_name(),
@@ -244,15 +245,15 @@ fn build_one_person(
 
     // ── Events ───────────────────────────────────────────────────────────
     let events = idx.events_by_person.get(&pid).cloned().unwrap_or_default();
-    let mut birth: Option<CachedEvent> = None;
-    let mut death: Option<CachedEvent> = None;
-    let mut baptism: Option<CachedEvent> = None;
-    let mut burial: Option<CachedEvent> = None;
+    let mut birth: Option<ProfileEvent> = None;
+    let mut death: Option<ProfileEvent> = None;
+    let mut baptism: Option<ProfileEvent> = None;
+    let mut burial: Option<ProfileEvent> = None;
     let mut occupation: Option<String> = None;
-    let mut other_events: Vec<CachedEvent> = Vec::new();
+    let mut other_events: Vec<ProfileEvent> = Vec::new();
 
     for event in &events {
-        let cached = build_cached_event(event, &idx.places_by_id);
+        let cached = build_profile_event(event, &idx.places_by_id);
         match event.event_type {
             EventType::Birth => birth = Some(cached),
             EventType::Death => death = Some(cached),
@@ -272,7 +273,7 @@ fn build_one_person(
         .get(&pid)
         .cloned()
         .unwrap_or_default();
-    let families_as_spouse: Vec<CachedFamilyLink> = spouse_entries
+    let families_as_spouse: Vec<ProfileFamilyLink> = spouse_entries
         .iter()
         .map(|fs| {
             let family_id = fs.family_id;
@@ -289,13 +290,13 @@ fn build_one_person(
             let spouse_sex = spouse_id.and_then(|sid| idx.sex_by_person.get(&sid).copied());
 
             // Collect all family events (marriage, divorce, annulment, etc.)
-            let all_family_events: Vec<CachedEvent> = idx
+            let all_family_events: Vec<ProfileEvent> = idx
                 .events_by_family
                 .get(&family_id)
                 .map(|events| {
                     events
                         .iter()
-                        .map(|e| build_cached_event(e, &idx.places_by_id))
+                        .map(|e| build_profile_event(e, &idx.places_by_id))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -315,7 +316,7 @@ fn build_one_person(
             let children_ids: Vec<Uuid> = family_children.iter().map(|c| c.person_id).collect();
             let children_count = children_ids.len() as u32;
 
-            CachedFamilyLink {
+            ProfileFamilyLink {
                 family_id,
                 role: fs.role,
                 spouse_id,
@@ -372,7 +373,7 @@ fn build_one_person(
                 }
             }
 
-            CachedChildLink {
+            ProfileChildLink {
                 family_id,
                 child_type: fc.child_type,
                 father_id,
@@ -395,7 +396,7 @@ fn build_one_person(
         .iter()
         .min_by_key(|ml| ml.sort_order)
         .and_then(|ml| idx.media_by_id.get(&ml.media_id))
-        .map(|m| CachedMediaRef {
+        .map(|m| ProfileMediaRef {
             media_id: m.id,
             file_path: m.file_path.clone(),
             mime_type: m.mime_type.clone(),
@@ -411,7 +412,7 @@ fn build_one_person(
     // ── Note count ───────────────────────────────────────────────────────
     let note_count = idx.note_count_by_person.get(&pid).copied().unwrap_or(0);
 
-    CachedPerson {
+    PersonProfile {
         person_id: pid,
         tree_id,
         sex: person.sex,
@@ -430,12 +431,12 @@ fn build_one_person(
         citation_count,
         note_count,
         updated_at: person.updated_at,
-        cached_at: now,
+        built_at: now,
     }
 }
 
-/// Build a `SearchEntry` from a `CachedPerson`.
-pub fn build_search_entry(person: &CachedPerson) -> SearchEntry {
+/// Build a `SearchEntry` from a `PersonProfile`.
+pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
     let display_name = person
         .primary_name
         .as_ref()
@@ -477,11 +478,11 @@ pub fn build_search_entry(person: &CachedPerson) -> SearchEntry {
     }
 }
 
-/// Build a `person_search_fts` row from a `CachedPerson` (Sprint E.6).
+/// Build a `person_search_fts` row from a `PersonProfile` (Sprint E.6).
 ///
 /// This is the write model for the DB-native search table which replaced the
-/// in-memory `CachedSearchIndex`.
-pub fn build_db_search_entry(person: &CachedPerson) -> oxidgene_db::repo::PersonSearchEntry {
+/// in-memory search index.
+pub fn build_db_search_entry(person: &PersonProfile) -> oxidgene_db::repo::PersonSearchEntry {
     let entry = build_search_entry(person);
     oxidgene_db::repo::PersonSearchEntry {
         person_id: entry.person_id,
@@ -525,9 +526,9 @@ pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> Search
     }
 }
 
-/// Build a `PedigreeNode` from a `CachedPerson`.
+/// Build a `PedigreeNode` from a `PersonProfile`.
 pub fn build_pedigree_node(
-    person: &CachedPerson,
+    person: &PersonProfile,
     generation: i32,
     sosa_number: Option<u64>,
 ) -> PedigreeNode {
@@ -557,8 +558,8 @@ pub fn build_pedigree_node(
 
 /// Normalize a string for search: lowercase + accent folding.
 ///
-/// Re-exported from `oxidgene_core::search` so cache-crate callers keep
-/// their existing import path.
+/// Re-exported from `oxidgene_core::search` so callers of this module keep
+/// a single import path.
 pub use oxidgene_core::search::normalize_for_search;
 
 #[cfg(test)]
@@ -567,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_extract_year() {
-        let event = CachedEvent {
+        let event = ProfileEvent {
             event_id: Uuid::now_v7(),
             event_type: EventType::Birth,
             date_value: Some("ABT 1842".to_string()),
@@ -578,7 +579,7 @@ mod tests {
         };
         assert_eq!(extract_year(&event), Some("1842".to_string()));
 
-        let event_with_sort = CachedEvent {
+        let event_with_sort = ProfileEvent {
             date_sort: Some(chrono::NaiveDate::from_ymd_opt(1842, 3, 15).unwrap()),
             ..event.clone()
         };

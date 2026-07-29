@@ -239,7 +239,7 @@ Used by: ancestor/descendant [API endpoints](api.md) · SOSA badge computation (
 
 ### person_search_fts (Search Table — Sprint E.6)
 
-DB-native person search index; not a domain entity (no UUID PK, maintained by `PersonSearchRepo`). SQLite FTS5 virtual table on desktop, plain indexed table on PostgreSQL. Columns: normalized `surname`, `given_names`, `maiden_name`, `birth_year`, `death_year` plus unindexed display fields. See [Caching](caching.md) §2.3.
+DB-native person search index; not a domain entity (no UUID PK, maintained by `PersonSearchRepo`). SQLite FTS5 virtual table on desktop, plain indexed table on PostgreSQL. Columns: normalized `surname`, `given_names`, `maiden_name`, `birth_year`, `death_year` plus unindexed display fields. See [Read Projections](read-projections.md) §4.
 
 ---
 

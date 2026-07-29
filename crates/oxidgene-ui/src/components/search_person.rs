@@ -8,8 +8,8 @@
 //! accent-folded matching, instead of downloading the full tree.
 
 use dioxus::prelude::*;
-use oxidgene_cache::types::SearchEntry;
 use oxidgene_core::Sex;
+use oxidgene_core::projection::SearchEntry;
 use uuid::Uuid;
 
 use crate::api::ApiClient;

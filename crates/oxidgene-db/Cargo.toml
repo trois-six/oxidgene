@@ -21,6 +21,7 @@ sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+serde_json = { workspace = true }
 tracing = { workspace = true }
 async-trait = "0.1"
 

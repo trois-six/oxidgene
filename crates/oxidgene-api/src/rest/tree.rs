@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, begin_tx, commit_tx};
 use crate::service::gedcom;
 
 /// GET /api/v1/trees
@@ -107,10 +107,10 @@ pub async fn duplicate_tree(
         .await
         .map_err(ApiError::from)?;
 
-    // Rebuild cache for the new tree
+    // Materialize projections for the new tree
     state
-        .cache
-        .rebuild_tree_full(new_id)
+        .profiles
+        .rebuild_tree_full(&state.db, new_id)
         .await
         .map_err(ApiError::from)?;
 
@@ -125,16 +125,18 @@ pub async fn delete_tree(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    TreeRepo::delete(&state.db, tree_id)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    TreeRepo::delete(&txn, tree_id)
         .await
         .map_err(ApiError::from)?;
 
-    // Invalidate all caches for the deleted tree
+    // Drop the projections of the deleted tree
     state
-        .cache
-        .invalidate_tree(tree_id)
+        .profiles
+        .invalidate_tree(&txn, tree_id)
         .await
         .map_err(ApiError::from)?;
+    commit_tx(txn).await.map_err(ApiError)?;
 
     Ok(StatusCode::NO_CONTENT)
 }

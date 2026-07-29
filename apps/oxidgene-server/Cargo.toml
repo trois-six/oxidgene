@@ -8,7 +8,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-oxidgene-api = { workspace = true, features = ["redis", "graphql", "postgres"] }
+oxidgene-api = { workspace = true, features = ["graphql", "postgres"] }
 oxidgene-db = { workspace = true, features = ["postgres"] }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["net", "signal"] }

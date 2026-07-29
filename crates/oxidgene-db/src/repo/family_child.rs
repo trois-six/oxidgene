@@ -4,7 +4,7 @@ use oxidgene_core::enums::ChildType;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::FamilyChild;
 use sea_orm::entity::prelude::*;
-use sea_orm::{QueryFilter, Set};
+use sea_orm::{ConnectionTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::family_child::{self, Column, Entity};
@@ -16,7 +16,7 @@ pub struct FamilyChildRepo;
 impl FamilyChildRepo {
     /// List children in a family.
     pub async fn list_by_family(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         family_id: Uuid,
     ) -> Result<Vec<FamilyChild>, OxidGeneError> {
         let models = Entity::find()
@@ -29,7 +29,7 @@ impl FamilyChildRepo {
 
     /// List children for multiple families.
     pub async fn list_by_families(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         family_ids: &[Uuid],
     ) -> Result<Vec<FamilyChild>, OxidGeneError> {
         let models = Entity::find()
@@ -42,7 +42,7 @@ impl FamilyChildRepo {
 
     /// List all family memberships where this person is a child.
     pub async fn list_by_person(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         person_id: Uuid,
     ) -> Result<Vec<FamilyChild>, OxidGeneError> {
         let models = Entity::find()
@@ -55,7 +55,7 @@ impl FamilyChildRepo {
 
     /// Create a family–child link.
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         family_id: Uuid,
         person_id: Uuid,
@@ -77,7 +77,7 @@ impl FamilyChildRepo {
     }
 
     /// Hard-delete a family–child link.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await

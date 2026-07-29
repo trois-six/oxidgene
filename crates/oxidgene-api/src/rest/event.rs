@@ -1,15 +1,15 @@
 //! REST handlers for Event CRUD operations.
 
+use crate::profile::invalidation;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_cache::invalidation;
 use oxidgene_db::repo::{EventFilter, EventRepo, EventWitnessRepo, PaginationParams};
 use uuid::Uuid;
 
 use super::dto::{AddEventWitnessRequest, CreateEventRequest, EventListQuery, UpdateEventRequest};
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, begin_tx, commit_tx};
 
 /// GET /api/v1/trees/:tree_id/events
 pub async fn list_events(
@@ -39,8 +39,9 @@ pub async fn create_event(
     Json(body): Json<CreateEventRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     let event = EventRepo::create(
-        &state.db,
+        &txn,
         id,
         tree_id,
         body.event_type,
@@ -55,24 +56,25 @@ pub async fn create_event(
     .map_err(ApiError::from)?;
     // Invalidate: person event or family event.
     if let Some(pid) = body.person_id {
-        let affected = invalidation::affected_persons(&state.db, pid)
+        let affected = invalidation::affected_persons(&txn, pid)
             .await
             .map_err(ApiError)?;
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     } else if let Some(fid) = body.family_id {
-        let affected = invalidation::affected_persons_for_family(&state.db, fid)
+        let affected = invalidation::affected_persons_for_family(&txn, fid)
             .await
             .map_err(ApiError)?;
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     }
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(event).unwrap()),
@@ -96,8 +98,9 @@ pub async fn update_event(
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateEventRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     let event = EventRepo::update(
-        &state.db,
+        &txn,
         event_id,
         body.event_type,
         body.date_value,
@@ -113,24 +116,25 @@ pub async fn update_event(
     .map_err(ApiError::from)?;
     // Invalidate based on event ownership.
     if let Some(pid) = event.person_id {
-        let affected = invalidation::affected_persons(&state.db, pid)
+        let affected = invalidation::affected_persons(&txn, pid)
             .await
             .map_err(ApiError)?;
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     } else if let Some(fid) = event.family_id {
-        let affected = invalidation::affected_persons_for_family(&state.db, fid)
+        let affected = invalidation::affected_persons_for_family(&txn, fid)
             .await
             .map_err(ApiError)?;
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     }
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(event).unwrap()))
 }
 
@@ -139,31 +143,33 @@ pub async fn delete_event(
     State(state): State<AppState>,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let event = EventRepo::get(&state.db, event_id)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let event = EventRepo::get(&txn, event_id)
         .await
         .map_err(ApiError::from)?;
-    EventRepo::delete(&state.db, event_id)
+    EventRepo::delete(&txn, event_id)
         .await
         .map_err(ApiError::from)?;
     if let Some(pid) = event.person_id {
-        let affected = invalidation::affected_persons(&state.db, pid)
+        let affected = invalidation::affected_persons(&txn, pid)
             .await
             .map_err(ApiError)?;
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     } else if let Some(fid) = event.family_id {
-        let affected = invalidation::affected_persons_for_family(&state.db, fid)
+        let affected = invalidation::affected_persons_for_family(&txn, fid)
             .await
             .map_err(ApiError)?;
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     }
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

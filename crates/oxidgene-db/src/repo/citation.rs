@@ -5,7 +5,7 @@ use oxidgene_core::enums::Confidence;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Citation;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::citation::{self, ActiveModel, Column, Entity};
@@ -17,7 +17,7 @@ pub struct CitationRepo;
 impl CitationRepo {
     /// List citations for a given source.
     pub async fn list_by_source(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         source_id: Uuid,
     ) -> Result<Vec<Citation>, OxidGeneError> {
         let models = Entity::find()
@@ -30,7 +30,7 @@ impl CitationRepo {
 
     /// List citations for multiple sources.
     pub async fn list_by_sources(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         source_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
         let models = Entity::find()
@@ -42,7 +42,7 @@ impl CitationRepo {
     }
 
     /// Get a single citation by ID.
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Citation, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Citation, OxidGeneError> {
         Entity::find_by_id(id)
             .one(db)
             .await
@@ -57,7 +57,7 @@ impl CitationRepo {
     /// Create a new citation.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         source_id: Uuid,
         person_id: Option<Uuid>,
@@ -90,7 +90,7 @@ impl CitationRepo {
     /// Update a citation.
     #[allow(clippy::too_many_arguments)]
     pub async fn update(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         page: Option<Option<String>>,
         confidence: Option<Confidence>,
@@ -125,7 +125,7 @@ impl CitationRepo {
     }
 
     /// Hard-delete a citation.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await

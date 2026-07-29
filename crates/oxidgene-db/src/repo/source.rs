@@ -4,7 +4,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Source};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::source::{self, ActiveModel, Column, Entity};
@@ -16,7 +16,7 @@ pub struct SourceRepo;
 impl SourceRepo {
     /// List sources in a tree with pagination (excludes soft-deleted).
     pub async fn list(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &PaginationParams,
     ) -> Result<Connection<Source>, OxidGeneError> {
@@ -28,7 +28,7 @@ impl SourceRepo {
 
     /// List all sources in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Source>, OxidGeneError> {
         let models = Entity::find()
@@ -41,7 +41,7 @@ impl SourceRepo {
     }
 
     /// Get a single source by ID (excludes soft-deleted).
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Source, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Source, OxidGeneError> {
         Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -57,7 +57,7 @@ impl SourceRepo {
     /// Create a new source.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
         title: String,
@@ -89,7 +89,7 @@ impl SourceRepo {
     /// Update an existing source.
     #[allow(clippy::too_many_arguments)]
     pub async fn update(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         title: Option<String>,
         author: Option<Option<String>>,
@@ -133,7 +133,7 @@ impl SourceRepo {
     }
 
     /// Soft-delete a source.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)

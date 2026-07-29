@@ -6,7 +6,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Tree};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::tree::{self, ActiveModel, Column, Entity};
@@ -18,7 +18,7 @@ pub struct TreeRepo;
 impl TreeRepo {
     /// List trees with cursor-based pagination (excludes soft-deleted).
     pub async fn list(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         params: &PaginationParams,
     ) -> Result<Connection<Tree>, OxidGeneError> {
         let query = Entity::find().filter(Column::DeletedAt.is_null());
@@ -26,7 +26,7 @@ impl TreeRepo {
     }
 
     /// Get a single tree by ID (excludes soft-deleted).
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Tree, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Tree, OxidGeneError> {
         Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -38,7 +38,7 @@ impl TreeRepo {
 
     /// Create a new tree.
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         name: String,
         description: Option<String>,
@@ -62,7 +62,7 @@ impl TreeRepo {
 
     /// Update an existing tree.
     pub async fn update(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         name: Option<String>,
         description: Option<Option<String>>,
@@ -98,7 +98,7 @@ impl TreeRepo {
     /// every entity scoped to this tree (person, event, family, place,
     /// source, media, note, ...) — a tree's data is never shared with
     /// another tree, so nothing outside it is affected.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await

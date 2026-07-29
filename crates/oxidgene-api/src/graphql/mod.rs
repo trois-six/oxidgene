@@ -5,11 +5,11 @@ pub mod mutation;
 pub mod query;
 pub mod types;
 
+use crate::profile::ProfileService;
 use async_graphql::{EmptySubscription, Schema, http::GraphiQLSource};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
 use axum::response::{Html, IntoResponse};
-use oxidgene_cache::CacheService;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
@@ -19,12 +19,12 @@ use query::QueryRoot;
 /// The full GraphQL schema type.
 pub type OxidGeneSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
-/// Build the async-graphql schema with the given database connection and cache
+/// Build the async-graphql schema with the given database connection and profile
 /// service.
-pub fn build_schema(db: DatabaseConnection, cache: Arc<CacheService>) -> OxidGeneSchema {
+pub fn build_schema(db: DatabaseConnection, profiles: Arc<ProfileService>) -> OxidGeneSchema {
     Schema::build(QueryRoot, MutationRoot, EmptySubscription)
         .data(db)
-        .data(cache)
+        .data(profiles)
         .finish()
 }
 

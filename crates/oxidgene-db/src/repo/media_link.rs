@@ -3,7 +3,7 @@
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::MediaLink;
 use sea_orm::entity::prelude::*;
-use sea_orm::{QueryFilter, Set};
+use sea_orm::{ConnectionTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::media_link::{self, Column, Entity};
@@ -25,7 +25,7 @@ impl MediaLinkRepo {
     /// List all media links for persons belonging to a tree, joining media
     /// to return file path and file name alongside the linked entity.
     pub async fn list_for_tree(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<MediaLinkRow>, OxidGeneError> {
         use sea_orm::DbBackend;
@@ -96,7 +96,7 @@ impl MediaLinkRepo {
 
     /// List links for a given media item.
     pub async fn list_by_media(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         media_id: Uuid,
     ) -> Result<Vec<MediaLink>, OxidGeneError> {
         let models = Entity::find()
@@ -109,7 +109,7 @@ impl MediaLinkRepo {
 
     /// List links for multiple media items.
     pub async fn list_by_medias(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         media_ids: &[Uuid],
     ) -> Result<Vec<MediaLink>, OxidGeneError> {
         let models = Entity::find()
@@ -122,7 +122,7 @@ impl MediaLinkRepo {
 
     /// List all media links attached to a person.
     pub async fn list_by_person(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         person_id: Uuid,
     ) -> Result<Vec<MediaLink>, OxidGeneError> {
         let models = Entity::find()
@@ -136,7 +136,7 @@ impl MediaLinkRepo {
     /// Create a media link.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         media_id: Uuid,
         person_id: Option<Uuid>,
@@ -163,7 +163,7 @@ impl MediaLinkRepo {
     }
 
     /// Hard-delete a media link.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await

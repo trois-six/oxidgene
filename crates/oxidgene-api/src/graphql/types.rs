@@ -3,9 +3,9 @@
 //! Each domain type is wrapped in a GraphQL object with resolvers for
 //! nested relationships (e.g., Person -> names, events, families).
 
+use crate::profile::ProfileService;
 use async_graphql::{ComplexObject, Context, Enum, ID, Result, SimpleObject};
 use chrono::{DateTime, Utc};
-use oxidgene_cache::CacheService;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -437,8 +437,8 @@ pub(crate) fn db_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a DatabaseConnection {
     ctx.data_unchecked::<DatabaseConnection>()
 }
 
-pub(crate) fn cache_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<CacheService> {
-    ctx.data_unchecked::<Arc<CacheService>>()
+pub(crate) fn profiles_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<ProfileService> {
+    ctx.data_unchecked::<Arc<ProfileService>>()
 }
 
 // ── PageInfo ─────────────────────────────────────────────────────────
@@ -1509,36 +1509,36 @@ pub struct GqlExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
-// ── Cache GraphQL types ─────────────────────────────────────────────────────
+// ── Projection GraphQL types ────────────────────────────────────────────────
 
-/// A denormalised cached person profile — everything needed for card/detail
+/// A denormalized person profile — everything needed for card/detail
 /// display in a single object.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedPerson {
+pub struct GqlPersonProfile {
     pub person_id: ID,
     pub tree_id: ID,
     pub sex: GqlSex,
-    pub primary_name: Option<GqlCachedName>,
-    pub other_names: Vec<GqlCachedName>,
-    pub birth: Option<GqlCachedEvent>,
-    pub death: Option<GqlCachedEvent>,
-    pub baptism: Option<GqlCachedEvent>,
-    pub burial: Option<GqlCachedEvent>,
+    pub primary_name: Option<GqlProfileName>,
+    pub other_names: Vec<GqlProfileName>,
+    pub birth: Option<GqlProfileEvent>,
+    pub death: Option<GqlProfileEvent>,
+    pub baptism: Option<GqlProfileEvent>,
+    pub burial: Option<GqlProfileEvent>,
     pub occupation: Option<String>,
-    pub other_events: Vec<GqlCachedEvent>,
-    pub families_as_spouse: Vec<GqlCachedFamilyLink>,
-    pub family_as_child: Option<GqlCachedChildLink>,
-    pub primary_media: Option<GqlCachedMediaRef>,
+    pub other_events: Vec<GqlProfileEvent>,
+    pub families_as_spouse: Vec<GqlProfileFamilyLink>,
+    pub family_as_child: Option<GqlProfileChildLink>,
+    pub primary_media: Option<GqlProfileMediaRef>,
     pub media_count: i32,
     pub citation_count: i32,
     pub note_count: i32,
     pub updated_at: DateTime<Utc>,
-    pub cached_at: DateTime<Utc>,
+    pub built_at: DateTime<Utc>,
 }
 
-/// A cached name entry.
+/// A name entry, pre-computed for display.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedName {
+pub struct GqlProfileName {
     pub name_id: ID,
     pub name_type: GqlNameType,
     pub display_name: String,
@@ -1546,9 +1546,9 @@ pub struct GqlCachedName {
     pub surname: Option<String>,
 }
 
-/// A cached event summary (birth, death, etc.).
+/// An event summary with its place name resolved (birth, death, etc.).
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedEvent {
+pub struct GqlProfileEvent {
     pub event_id: ID,
     pub event_type: GqlEventType,
     pub date_value: Option<String>,
@@ -1557,22 +1557,22 @@ pub struct GqlCachedEvent {
     pub description: Option<String>,
 }
 
-/// A cached family link (spouse relationship).
+/// A family link (spouse relationship).
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedFamilyLink {
+pub struct GqlProfileFamilyLink {
     pub family_id: ID,
     pub role: GqlSpouseRole,
     pub spouse_id: Option<ID>,
     pub spouse_display_name: Option<String>,
     pub spouse_sex: Option<GqlSex>,
-    pub marriage: Option<GqlCachedEvent>,
+    pub marriage: Option<GqlProfileEvent>,
     pub children_ids: Vec<ID>,
     pub children_count: i32,
 }
 
-/// A cached child link (child's relationship to parents).
+/// A child link (child's relationship to parents).
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedChildLink {
+pub struct GqlProfileChildLink {
     pub family_id: ID,
     pub child_type: GqlChildType,
     pub father_id: Option<ID>,
@@ -1581,18 +1581,18 @@ pub struct GqlCachedChildLink {
     pub mother_display_name: Option<String>,
 }
 
-/// A cached media reference.
+/// A media reference (portrait / primary photo).
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedMediaRef {
+pub struct GqlProfileMediaRef {
     pub media_id: ID,
     pub file_path: String,
     pub mime_type: String,
     pub title: Option<String>,
 }
 
-/// A search result from the cached search index.
+/// A single search result entry.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedSearchEntry {
+pub struct GqlSearchEntry {
     pub person_id: ID,
     pub sex: GqlSex,
     pub display_name: String,
@@ -1603,24 +1603,24 @@ pub struct GqlCachedSearchEntry {
     pub death_year: Option<String>,
 }
 
-/// Paginated search results from the cache.
+/// Paginated search results.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCachedSearchResult {
-    pub entries: Vec<GqlCachedSearchEntry>,
+pub struct GqlSearchResult {
+    pub entries: Vec<GqlSearchEntry>,
     pub total_count: i32,
 }
 
-/// Result of a cache rebuild operation.
+/// Result of a projection rebuild operation.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCacheRebuildResult {
+pub struct GqlProfileRebuildResult {
     pub rebuilt: bool,
     pub persons_count: i32,
 }
 
-// ── From impls for cache types ──────────────────────────────────────────────
+// ── From impls for projection types ─────────────────────────────────────────
 
-impl From<oxidgene_cache::types::CachedPerson> for GqlCachedPerson {
-    fn from(p: oxidgene_cache::types::CachedPerson) -> Self {
+impl From<oxidgene_core::projection::PersonProfile> for GqlPersonProfile {
+    fn from(p: oxidgene_core::projection::PersonProfile) -> Self {
         Self {
             person_id: ID(p.person_id.to_string()),
             tree_id: ID(p.tree_id.to_string()),
@@ -1640,13 +1640,13 @@ impl From<oxidgene_cache::types::CachedPerson> for GqlCachedPerson {
             citation_count: p.citation_count as i32,
             note_count: p.note_count as i32,
             updated_at: p.updated_at,
-            cached_at: p.cached_at,
+            built_at: p.built_at,
         }
     }
 }
 
-impl From<oxidgene_cache::types::CachedName> for GqlCachedName {
-    fn from(n: oxidgene_cache::types::CachedName) -> Self {
+impl From<oxidgene_core::projection::ProfileName> for GqlProfileName {
+    fn from(n: oxidgene_core::projection::ProfileName) -> Self {
         Self {
             name_id: ID(n.name_id.to_string()),
             name_type: n.name_type.into(),
@@ -1657,8 +1657,8 @@ impl From<oxidgene_cache::types::CachedName> for GqlCachedName {
     }
 }
 
-impl From<oxidgene_cache::types::CachedEvent> for GqlCachedEvent {
-    fn from(e: oxidgene_cache::types::CachedEvent) -> Self {
+impl From<oxidgene_core::projection::ProfileEvent> for GqlProfileEvent {
+    fn from(e: oxidgene_core::projection::ProfileEvent) -> Self {
         Self {
             event_id: ID(e.event_id.to_string()),
             event_type: e.event_type.into(),
@@ -1670,8 +1670,8 @@ impl From<oxidgene_cache::types::CachedEvent> for GqlCachedEvent {
     }
 }
 
-impl From<oxidgene_cache::types::CachedFamilyLink> for GqlCachedFamilyLink {
-    fn from(f: oxidgene_cache::types::CachedFamilyLink) -> Self {
+impl From<oxidgene_core::projection::ProfileFamilyLink> for GqlProfileFamilyLink {
+    fn from(f: oxidgene_core::projection::ProfileFamilyLink) -> Self {
         Self {
             family_id: ID(f.family_id.to_string()),
             role: f.role.into(),
@@ -1689,8 +1689,8 @@ impl From<oxidgene_cache::types::CachedFamilyLink> for GqlCachedFamilyLink {
     }
 }
 
-impl From<oxidgene_cache::types::CachedChildLink> for GqlCachedChildLink {
-    fn from(c: oxidgene_cache::types::CachedChildLink) -> Self {
+impl From<oxidgene_core::projection::ProfileChildLink> for GqlProfileChildLink {
+    fn from(c: oxidgene_core::projection::ProfileChildLink) -> Self {
         Self {
             family_id: ID(c.family_id.to_string()),
             child_type: c.child_type.into(),
@@ -1702,8 +1702,8 @@ impl From<oxidgene_cache::types::CachedChildLink> for GqlCachedChildLink {
     }
 }
 
-impl From<oxidgene_cache::types::CachedMediaRef> for GqlCachedMediaRef {
-    fn from(m: oxidgene_cache::types::CachedMediaRef) -> Self {
+impl From<oxidgene_core::projection::ProfileMediaRef> for GqlProfileMediaRef {
+    fn from(m: oxidgene_core::projection::ProfileMediaRef) -> Self {
         Self {
             media_id: ID(m.media_id.to_string()),
             file_path: m.file_path,
@@ -1713,8 +1713,8 @@ impl From<oxidgene_cache::types::CachedMediaRef> for GqlCachedMediaRef {
     }
 }
 
-impl From<oxidgene_cache::types::SearchEntry> for GqlCachedSearchEntry {
-    fn from(e: oxidgene_cache::types::SearchEntry) -> Self {
+impl From<oxidgene_core::projection::SearchEntry> for GqlSearchEntry {
+    fn from(e: oxidgene_core::projection::SearchEntry) -> Self {
         Self {
             person_id: ID(e.person_id.to_string()),
             sex: e.sex.into(),
@@ -1728,8 +1728,8 @@ impl From<oxidgene_cache::types::SearchEntry> for GqlCachedSearchEntry {
     }
 }
 
-impl From<oxidgene_cache::types::SearchResult> for GqlCachedSearchResult {
-    fn from(r: oxidgene_cache::types::SearchResult) -> Self {
+impl From<oxidgene_core::projection::SearchResult> for GqlSearchResult {
+    fn from(r: oxidgene_core::projection::SearchResult) -> Self {
         Self {
             entries: r.entries.into_iter().map(Into::into).collect(),
             total_count: r.total_count as i32,
@@ -1737,7 +1737,7 @@ impl From<oxidgene_cache::types::SearchResult> for GqlCachedSearchResult {
     }
 }
 
-// ── Pedigree cache GQL types ──────────────────────────────────────────
+// ── Pedigree GraphQL types ────────────────────────────────────────────
 
 /// Direction for pedigree expansion.
 #[derive(async_graphql::Enum, Copy, Clone, Eq, PartialEq, Debug)]
@@ -1746,7 +1746,7 @@ pub enum GqlPedigreeDirection {
     Descendants,
 }
 
-impl From<GqlPedigreeDirection> for oxidgene_cache::types::PedigreeDirection {
+impl From<GqlPedigreeDirection> for oxidgene_core::projection::PedigreeDirection {
     fn from(d: GqlPedigreeDirection) -> Self {
         match d {
             GqlPedigreeDirection::Ancestors => Self::Ancestors,
@@ -1784,7 +1784,7 @@ pub struct GqlPedigreeEdge {
 
 /// Full windowed pedigree for a root person.
 #[derive(SimpleObject, Debug, Clone)]
-pub struct GqlCachedPedigree {
+pub struct GqlPedigree {
     pub tree_id: ID,
     pub root_person_id: ID,
     pub nodes: Vec<GqlPedigreeNode>,
@@ -1804,8 +1804,8 @@ pub struct GqlPedigreeDelta {
 
 // ── From impls for pedigree types ─────────────────────────────────────
 
-impl From<oxidgene_cache::types::PedigreeNode> for GqlPedigreeNode {
-    fn from(n: oxidgene_cache::types::PedigreeNode) -> Self {
+impl From<oxidgene_core::projection::PedigreeNode> for GqlPedigreeNode {
+    fn from(n: oxidgene_core::projection::PedigreeNode) -> Self {
         Self {
             person_id: ID(n.person_id.to_string()),
             sex: n.sex.into(),
@@ -1822,8 +1822,8 @@ impl From<oxidgene_cache::types::PedigreeNode> for GqlPedigreeNode {
     }
 }
 
-impl From<oxidgene_cache::types::PedigreeEdge> for GqlPedigreeEdge {
-    fn from(e: oxidgene_cache::types::PedigreeEdge) -> Self {
+impl From<oxidgene_core::projection::PedigreeEdge> for GqlPedigreeEdge {
+    fn from(e: oxidgene_core::projection::PedigreeEdge) -> Self {
         Self {
             parent_id: ID(e.parent_id.to_string()),
             child_id: ID(e.child_id.to_string()),
@@ -1833,8 +1833,8 @@ impl From<oxidgene_cache::types::PedigreeEdge> for GqlPedigreeEdge {
     }
 }
 
-impl From<oxidgene_cache::types::CachedPedigree> for GqlCachedPedigree {
-    fn from(p: oxidgene_cache::types::CachedPedigree) -> Self {
+impl From<oxidgene_core::projection::Pedigree> for GqlPedigree {
+    fn from(p: oxidgene_core::projection::Pedigree) -> Self {
         Self {
             tree_id: ID(p.tree_id.to_string()),
             root_person_id: ID(p.root_person_id.to_string()),
@@ -1846,8 +1846,8 @@ impl From<oxidgene_cache::types::CachedPedigree> for GqlCachedPedigree {
     }
 }
 
-impl From<oxidgene_cache::types::PedigreeDelta> for GqlPedigreeDelta {
-    fn from(d: oxidgene_cache::types::PedigreeDelta) -> Self {
+impl From<oxidgene_core::projection::PedigreeDelta> for GqlPedigreeDelta {
+    fn from(d: oxidgene_core::projection::PedigreeDelta) -> Self {
         Self {
             new_nodes: d.new_nodes.into_iter().map(Into::into).collect(),
             new_edges: d.new_edges.into_iter().map(Into::into).collect(),

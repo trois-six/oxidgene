@@ -5,8 +5,8 @@
 //! Uses the `sub-page` layout pattern (no left sidebar).
 
 use dioxus::prelude::*;
-use oxidgene_cache::types::SearchEntry;
 use oxidgene_core::Sex;
+use oxidgene_core::projection::SearchEntry;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
@@ -688,8 +688,7 @@ fn SearchPedigreeCard(
     let ped = pedigree_resource.read();
     let body = match &*ped {
         Some(Ok(cached)) => {
-            let data =
-                crate::components::pedigree_chart::PedigreeData::from_cached_pedigree(cached);
+            let data = crate::components::pedigree_chart::PedigreeData::from_pedigree(cached);
             rsx! {
                 crate::components::pedigree_chart::MiniPedigree {
                     root_person_id: person_id,

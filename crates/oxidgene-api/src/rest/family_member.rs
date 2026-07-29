@@ -1,15 +1,15 @@
 //! REST handlers for FamilySpouse and FamilyChild membership operations.
 
+use crate::profile::invalidation;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use oxidgene_cache::invalidation;
 use oxidgene_db::repo::{FamilyChildRepo, FamilySpouseRepo};
 use uuid::Uuid;
 
 use super::dto::{AddChildRequest, AddSpouseRequest};
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, begin_tx, commit_tx};
 
 // ── Spouses ──────────────────────────────────────────────────────────
 
@@ -31,8 +31,9 @@ pub async fn add_spouse(
     Json(body): Json<AddSpouseRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     let spouse = FamilySpouseRepo::create(
-        &state.db,
+        &txn,
         id,
         family_id,
         body.person_id,
@@ -41,18 +42,16 @@ pub async fn add_spouse(
     )
     .await
     .map_err(ApiError::from)?;
-    let affected = invalidation::affected_persons_for_family_spouse_change(
-        &state.db,
-        family_id,
-        body.person_id,
-    )
-    .await
-    .map_err(ApiError)?;
+    let affected =
+        invalidation::affected_persons_for_family_spouse_change(&txn, family_id, body.person_id)
+            .await
+            .map_err(ApiError)?;
     state
-        .cache
-        .invalidate_for_mutation(tree_id, &affected)
+        .profiles
+        .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(spouse).unwrap()),
@@ -64,8 +63,9 @@ pub async fn remove_spouse(
     State(state): State<AppState>,
     Path((tree_id, family_id, spouse_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     // Look up which person this spouse link refers to BEFORE deletion.
-    let spouses = FamilySpouseRepo::list_by_families(&state.db, &[family_id])
+    let spouses = FamilySpouseRepo::list_by_families(&txn, &[family_id])
         .await
         .map_err(ApiError::from)?;
     let person_id = spouses
@@ -74,22 +74,23 @@ pub async fn remove_spouse(
         .map(|s| s.person_id);
     // Compute affected BEFORE delete.
     let affected = if let Some(pid) = person_id {
-        invalidation::affected_persons_for_family_spouse_change(&state.db, family_id, pid)
+        invalidation::affected_persons_for_family_spouse_change(&txn, family_id, pid)
             .await
             .map_err(ApiError)?
     } else {
         vec![]
     };
-    FamilySpouseRepo::delete(&state.db, spouse_id)
+    FamilySpouseRepo::delete(&txn, spouse_id)
         .await
         .map_err(ApiError::from)?;
     if !affected.is_empty() {
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     }
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -113,8 +114,9 @@ pub async fn add_child(
     Json(body): Json<AddChildRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     let child = FamilyChildRepo::create(
-        &state.db,
+        &txn,
         id,
         family_id,
         body.person_id,
@@ -123,18 +125,16 @@ pub async fn add_child(
     )
     .await
     .map_err(ApiError::from)?;
-    let affected = invalidation::affected_persons_for_family_child_change(
-        &state.db,
-        family_id,
-        body.person_id,
-    )
-    .await
-    .map_err(ApiError)?;
+    let affected =
+        invalidation::affected_persons_for_family_child_change(&txn, family_id, body.person_id)
+            .await
+            .map_err(ApiError)?;
     state
-        .cache
-        .invalidate_for_mutation(tree_id, &affected)
+        .profiles
+        .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(child).unwrap()),
@@ -146,8 +146,9 @@ pub async fn remove_child(
     State(state): State<AppState>,
     Path((tree_id, family_id, child_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     // Look up which person this child link refers to BEFORE deletion.
-    let children = FamilyChildRepo::list_by_families(&state.db, &[family_id])
+    let children = FamilyChildRepo::list_by_families(&txn, &[family_id])
         .await
         .map_err(ApiError::from)?;
     let person_id = children
@@ -155,21 +156,22 @@ pub async fn remove_child(
         .find(|c| c.id == child_id)
         .map(|c| c.person_id);
     let affected = if let Some(pid) = person_id {
-        invalidation::affected_persons_for_family_child_change(&state.db, family_id, pid)
+        invalidation::affected_persons_for_family_child_change(&txn, family_id, pid)
             .await
             .map_err(ApiError)?
     } else {
         vec![]
     };
-    FamilyChildRepo::delete(&state.db, child_id)
+    FamilyChildRepo::delete(&txn, child_id)
         .await
         .map_err(ApiError::from)?;
     if !affected.is_empty() {
         state
-            .cache
-            .invalidate_for_mutation(tree_id, &affected)
+            .profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
             .await
             .map_err(ApiError)?;
     }
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

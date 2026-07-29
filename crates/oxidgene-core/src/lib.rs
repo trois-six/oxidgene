@@ -5,6 +5,7 @@
 
 pub mod enums;
 pub mod error;
+pub mod projection;
 pub mod search;
 pub mod types;
 

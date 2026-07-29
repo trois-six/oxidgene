@@ -2,10 +2,10 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use crate::profile::invalidation;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_cache::invalidation;
 use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
@@ -20,7 +20,7 @@ use super::dto::{
     UpdatePersonRequest,
 };
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, begin_tx, commit_tx};
 
 /// BFS from `sosa_root` through the ancestry graph to find the SOSA-Stradonitz
 /// number of `person_id`. Loads all family data for the tree in two queries.
@@ -172,15 +172,17 @@ pub async fn create_person(
     Json(body): Json<CreatePersonRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
-    let person = PersonRepo::create(&state.db, id, tree_id, body.sex)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let person = PersonRepo::create(&txn, id, tree_id, body.sex)
         .await
         .map_err(ApiError::from)?;
-    // Build cache for the new person (not linked to any family yet).
+    // Build the projection for the new person (not linked to any family yet).
     state
-        .cache
-        .rebuild_person(tree_id, id)
+        .profiles
+        .rebuild_person(&txn, tree_id, id)
         .await
         .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(person).unwrap()),
@@ -213,17 +215,19 @@ pub async fn update_person(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdatePersonRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let person = PersonRepo::update(&state.db, person_id, body.sex, body.privacy)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let person = PersonRepo::update(&txn, person_id, body.sex, body.privacy)
         .await
         .map_err(ApiError::from)?;
-    let affected = invalidation::affected_persons(&state.db, person_id)
+    let affected = invalidation::affected_persons(&txn, person_id)
         .await
         .map_err(ApiError)?;
     state
-        .cache
-        .invalidate_for_mutation(tree_id, &affected)
+        .profiles
+        .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(person).unwrap()))
 }
 
@@ -232,16 +236,18 @@ pub async fn delete_person(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    PersonRepo::delete(&state.db, person_id)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    PersonRepo::delete(&txn, person_id)
         .await
         .map_err(ApiError::from)?;
-    // Removes the person from cache + search table, rebuilds affected
-    // relatives, and drops pedigrees.
+    // Drops the person's projection + search row and refreshes the relatives
+    // that referenced them.
     state
-        .cache
-        .invalidate_for_person_delete(tree_id, person_id)
+        .profiles
+        .invalidate_for_person_delete(&txn, tree_id, person_id)
         .await
         .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -285,7 +291,7 @@ pub async fn search_persons(
     let limit = query.limit.unwrap_or(25).min(100);
     let offset = query.offset.unwrap_or(0);
     let results = state
-        .cache
+        .profiles
         .search(tree_id, &q, limit, offset)
         .await
         .map_err(ApiError)?;

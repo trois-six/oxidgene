@@ -3,7 +3,7 @@
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::PersonAncestry;
 use sea_orm::entity::prelude::*;
-use sea_orm::{Order, QueryFilter, QueryOrder, Set};
+use sea_orm::{ConnectionTrait, Order, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::person_ancestry::{self, Column, Entity};
@@ -14,7 +14,7 @@ pub struct PersonAncestryRepo;
 impl PersonAncestryRepo {
     /// Get all ancestors of a person (optionally limited by max depth).
     pub async fn ancestors(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         descendant_id: Uuid,
         max_depth: Option<i32>,
     ) -> Result<Vec<PersonAncestry>, OxidGeneError> {
@@ -36,7 +36,7 @@ impl PersonAncestryRepo {
 
     /// Get all descendants of a person (optionally limited by max depth).
     pub async fn descendants(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         ancestor_id: Uuid,
         max_depth: Option<i32>,
     ) -> Result<Vec<PersonAncestry>, OxidGeneError> {
@@ -58,7 +58,7 @@ impl PersonAncestryRepo {
 
     /// Insert a closure table entry (used internally when family relationships change).
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
         ancestor_id: Uuid,
@@ -81,7 +81,7 @@ impl PersonAncestryRepo {
 
     /// Delete all ancestry entries for a given descendant (used when re-parenting).
     pub async fn delete_by_descendant(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         descendant_id: Uuid,
     ) -> Result<u64, OxidGeneError> {
         let result = Entity::delete_many()

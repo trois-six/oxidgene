@@ -6,6 +6,7 @@
 use oxidgene_core::enums::EventType;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Place, Source, year_from_date};
+use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
 use sea_orm::entity::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -44,7 +45,7 @@ impl DictionaryRepo {
     /// Distinct surnames across all persons in a tree, with the number of
     /// persons carrying each (as entered — no accent-folding/normalization).
     pub async fn family_names(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
         let person_ids: Vec<Uuid> = person::Entity::find()
@@ -81,7 +82,7 @@ impl DictionaryRepo {
     /// Distinct occupation labels (`Event.description` for `Occupation`
     /// events) across a tree, with the number of persons holding each.
     pub async fn occupations(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
         let events = event::Entity::find()
@@ -106,7 +107,7 @@ impl DictionaryRepo {
 
     /// All sources in a tree paired with their citation count.
     pub async fn sources_with_usage(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<(Source, i64)>, OxidGeneError> {
         let sources = source::Entity::find()
@@ -147,7 +148,7 @@ impl DictionaryRepo {
     /// ui-dictionary.md §8). An empty prefix returns every source, same as
     /// `sources_with_usage`.
     pub async fn sources_with_usage_by_prefix(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         prefix: &str,
     ) -> Result<Vec<(Source, i64)>, OxidGeneError> {
@@ -175,7 +176,7 @@ impl DictionaryRepo {
     /// switches to `sources_with_usage_by_prefix` for the final flat list.
     /// See ui-dictionary.md §8.
     pub async fn source_group_counts(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         prefix: &str,
     ) -> Result<Vec<(String, i64)>, OxidGeneError> {
@@ -225,7 +226,7 @@ impl DictionaryRepo {
     /// `sources_with_usage_by_prefix(resolved_prefix)` instead of rendering
     /// another drill-down level. See ui-dictionary.md §8.10.
     pub async fn resolve_source_drill_down(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         prefix: &str,
         threshold: i64,
@@ -254,7 +255,7 @@ impl DictionaryRepo {
     /// All places in a tree paired with their usage count (events + media
     /// referencing them).
     pub async fn places_with_usage(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<(Place, i64)>, OxidGeneError> {
         let places = place::Entity::find()
@@ -305,7 +306,7 @@ impl DictionaryRepo {
     /// Distinct persons cited by a given source (via a direct person
     /// citation, or via the person of a cited individual event).
     pub async fn source_usage_person_ids(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         source_id: Uuid,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
         let citations = citation::Entity::find()
@@ -338,7 +339,7 @@ impl DictionaryRepo {
 
     /// Distinct persons with an individual event at a given place.
     pub async fn place_usage_person_ids(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         place_id: Uuid,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
         let events = event::Entity::find()
@@ -355,7 +356,7 @@ impl DictionaryRepo {
 
     /// Distinct persons holding a given occupation label in a tree.
     pub async fn occupation_usage_person_ids(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         value: &str,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
@@ -375,7 +376,7 @@ impl DictionaryRepo {
 
     /// Distinct persons carrying a given surname in a tree.
     pub async fn family_name_usage_person_ids(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         value: &str,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
@@ -408,7 +409,7 @@ impl DictionaryRepo {
     /// avoids one HTTP round trip per person on the dictionary usage panel.
     /// Sorted by given name, matching how the panel lists people.
     pub async fn resolve_person_usage_entries(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonUsageEntry>, OxidGeneError> {
         if person_ids.is_empty() {

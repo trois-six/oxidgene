@@ -162,7 +162,7 @@ Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 |---|---|---|
 | `GET` | `/trees/{tree_id}/snapshot` | Full tree snapshot (persons, names, events, places, spouses, children) in one response |
 
-> Legacy endpoint predating the server-side cache. Still used by the person profile page to enrich events (witness/family context). Candidate for removal once the cached-person payload covers those needs — see [Caching](caching.md) §6.1.
+> Legacy endpoint predating the read projections. Still used by the person profile page to enrich events (witness/family context). Candidate for removal once the person projection payload covers those needs — see [Read Projections](read-projections.md).
 
 ### Dictionary
 
@@ -188,25 +188,27 @@ Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints re
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
-### Cache
+### Profiles & Pedigree
 
-Server-side cache endpoints provide pre-built, denormalized data for instant page rendering. See [Caching](caching.md) for the full cache architecture.
+Pre-built, denormalized read models for instant page rendering. Person profiles are materialized in the `person_denorm` table; pedigrees are assembled per request from the `person_ancestry` closure table joined against those profiles. See [Read Projections](read-projections.md) for the full architecture.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/cache/persons/{person_id}` | Get a single cached person (full denormalized profile) |
-| `GET` | `/trees/{tree_id}/cache/persons?ids=uuid1,uuid2,...` | Batch get cached persons |
-| `GET` | `/trees/{tree_id}/cache/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Get windowed pedigree for a root person |
-| `PATCH` | `/trees/{tree_id}/cache/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N` | Expand pedigree depth (returns only new nodes/edges) |
-| `POST` | `/trees/{tree_id}/cache/rebuild` | Force full cache rebuild for a tree |
-| `POST` | `/trees/{tree_id}/cache/rebuild/{person_id}` | Rebuild a single person's cache entry |
-| `POST` | `/trees/{tree_id}/cache/invalidate` | Invalidate all cache entries for a tree |
+| `GET` | `/trees/{tree_id}/profiles/{person_id}` | Get a single person projection (full denormalized profile) |
+| `GET` | `/trees/{tree_id}/profiles` | Get every person projection of a tree |
+| `POST` | `/trees/{tree_id}/profiles/rebuild` | Force a full projection rebuild for a tree |
+| `POST` | `/trees/{tree_id}/profiles/rebuild/{person_id}` | Rebuild a single person's projection |
+| `POST` | `/trees/{tree_id}/profiles/drop` | Drop a tree's projections (rebuilt lazily on next read) |
+| `GET` | `/trees/{tree_id}/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Assemble a windowed pedigree for a root person |
+| `PATCH` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
+
+> **Sprint E.9 renamed these routes** off `/cache/*`, which named an implementation that no longer exists: `/cache/persons*` → `/profiles*`, `/cache/pedigree/*` → `/pedigree/*`, `/cache/invalidate` → `/profiles/drop`. GraphQL field and type names are unchanged.
 
 **Search (Sprint E.6):** person search moved to the normal search path — `GET /trees/{tree_id}/persons/search?q=query&limit=20&offset=0` (paginated `SearchResult`, backed by the `person_search_fts` DB table; empty or missing `q` = browse mode, sorted by name). The former `GET /cache/search` endpoint and the legacy `surname`/`given_names`/`sex` field filters were removed.
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
 
-**Note:** All existing mutation endpoints (create/update/delete) now include a synchronous cache update step after the DB write. The response waits for the cache to be refreshed, guaranteeing consistency on subsequent reads. See [Caching](caching.md) §4.
+**Note:** All mutation endpoints (create/update/delete) include a synchronous projection refresh after the DB write. The response waits for it, guaranteeing consistency on subsequent reads. See [Read Projections](read-projections.md) §5.
 
 ### Reference Content
 
@@ -283,11 +285,11 @@ type Query {
   # GEDCOM (export is a read — it lives on Query, not Mutation)
   exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedcomResult!
 
-  # Cache (see Caching spec)
-  cachedPerson(treeId: ID!, personId: ID!): CachedPerson!
-  cachedPersons(treeId: ID!, personIds: [ID!]!): [CachedPerson!]!
-  pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): CachedPedigree!
-  searchPersons(treeId: ID!, query: String!, limit: Int, offset: Int): SearchResult!
+  # Read projections (see Read Projections spec) — mirrors the REST routes
+  personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
+  personProfiles(treeId: ID!): [GqlPersonProfile!]!
+  pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
+  searchPersons(treeId: ID!, query: String!, limit: Int, offset: Int): GqlSearchResult!
 }
 ```
 
@@ -356,11 +358,11 @@ type Mutation {
   # GEDCOM (content passed as a string — no Upload scalar)
   importGedcom(treeId: ID!, input: ImportGedcomInput!): ImportGedcomResult!
 
-  # Cache management (see Caching spec)
-  expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!): PedigreeDelta!
-  rebuildTreeCache(treeId: ID!): Boolean!
-  rebuildPersonCache(treeId: ID!, personId: ID!): Boolean!
-  invalidateTreeCache(treeId: ID!): Boolean!
+  # Read projections (see Read Projections spec) — mirrors the REST routes
+  expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
+  rebuildTreeProfiles(treeId: ID!): GqlProfileRebuildResult!
+  rebuildPersonProfile(treeId: ID!, personId: ID!): GqlProfileRebuildResult!
+  dropTreeProfiles(treeId: ID!): Boolean!
 }
 ```
 
@@ -480,29 +482,29 @@ type PageInfo {
 
 # --- Cache types (see Caching spec for full details) ---
 
-type CachedPerson {
+type GqlPersonProfile {
   personId: ID!
   treeId: ID!
   sex: Sex!
-  primaryName: CachedName
-  otherNames: [CachedName!]!
-  birth: CachedEvent
-  death: CachedEvent
-  baptism: CachedEvent
-  burial: CachedEvent
+  primaryName: GqlProfileName
+  otherNames: [GqlProfileName!]!
+  birth: GqlProfileEvent
+  death: GqlProfileEvent
+  baptism: GqlProfileEvent
+  burial: GqlProfileEvent
   occupation: String
-  otherEvents: [CachedEvent!]!
-  familiesAsSpouse: [CachedFamilyLink!]!
-  familyAsChild: CachedChildLink
-  primaryMedia: CachedMediaRef
+  otherEvents: [GqlProfileEvent!]!
+  familiesAsSpouse: [GqlProfileFamilyLink!]!
+  familyAsChild: GqlProfileChildLink
+  primaryMedia: GqlProfileMediaRef
   mediaCount: Int!
   citationCount: Int!
   noteCount: Int!
   updatedAt: DateTime!
-  cachedAt: DateTime!
+  builtAt: DateTime!
 }
 
-type CachedName {
+type GqlProfileName {
   nameId: ID!
   nameType: NameType!
   displayName: String!
@@ -510,7 +512,7 @@ type CachedName {
   surname: String
 }
 
-type CachedEvent {
+type GqlProfileEvent {
   eventId: ID!
   eventType: EventType!
   dateValue: String
@@ -520,18 +522,18 @@ type CachedEvent {
   description: String
 }
 
-type CachedFamilyLink {
+type GqlProfileFamilyLink {
   familyId: ID!
   role: SpouseRole!
   spouseId: ID
   spouseDisplayName: String
   spouseSex: Sex
-  marriage: CachedEvent
+  marriage: GqlProfileEvent
   childrenIds: [ID!]!
   childrenCount: Int!
 }
 
-type CachedChildLink {
+type GqlProfileChildLink {
   familyId: ID!
   childType: ChildType!
   fatherId: ID
@@ -540,21 +542,21 @@ type CachedChildLink {
   motherDisplayName: String
 }
 
-type CachedMediaRef {
+type GqlProfileMediaRef {
   mediaId: ID!
   filePath: String!
   mimeType: String!
   title: String
 }
 
-type CachedPedigree {
+type GqlPedigree {
   treeId: ID!
   rootPersonId: ID!
   persons: [PedigreeNode!]!
   edges: [PedigreeEdge!]!
   ancestorDepthLoaded: Int!
   descendantDepthLoaded: Int!
-  cachedAt: DateTime!
+  builtAt: DateTime!
 }
 
 type PedigreeNode {

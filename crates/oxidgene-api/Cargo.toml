@@ -9,7 +9,6 @@ repository.workspace = true
 
 [features]
 default = []
-redis = ["oxidgene-cache/redis"]
 postgres = ["oxidgene-db/postgres"]
 # GraphQL endpoint — opt in for the server binary; desktop skips async-graphql entirely.
 graphql = ["dep:async-graphql", "dep:async-graphql-axum"]
@@ -17,7 +16,6 @@ graphql = ["dep:async-graphql", "dep:async-graphql-axum"]
 [dependencies]
 oxidgene-core = { workspace = true }
 oxidgene-db = { workspace = true }
-oxidgene-cache = { workspace = true }
 oxidgene-gedcom = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
