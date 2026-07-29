@@ -9,10 +9,9 @@
 //! - macOS:   `~/Library/Application Support/oxidgene/oxidgene.db`
 //! - Windows: `C:\Users\<user>\AppData\Roaming\oxidgene\oxidgene.db`
 //!
-//! The cache is persisted to the platform cache directory:
-//! - Linux:   `~/.cache/oxidgene/`
-//! - macOS:   `~/Library/Caches/oxidgene/`
-//! - Windows: `C:\Users\<user>\AppData\Local\oxidgene\`
+//! There is no separate cache directory: the denormalized person projections
+//! live in the same SQLite file (`person_denorm`), written as part of each
+//! mutation, so nothing has to be warmed at startup or flushed at exit.
 //!
 //! The WebView data directory (`Config::with_data_directory`, set to
 //! `<data_dir>/webview/`) is honored very differently per platform — wry
@@ -48,19 +47,14 @@ use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::{AppState, build_router};
-use oxidgene_cache::store::disk;
-use oxidgene_cache::store::memory::MemoryCacheStore;
 use oxidgene_db::repo::{connect, run_migrations};
 use oxidgene_ui::api::ApiClient;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
-
-/// Default pedigree LRU budget in bytes (64 MB).
-const DEFAULT_PEDIGREE_BUDGET_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = "oxidgene-desktop", about = "OxidGene desktop genealogy app")]
@@ -89,7 +83,7 @@ fn main() {
 
     // ── Initialize tracing ───────────────────────────────────────────
     let filter = if cli.debug {
-        "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug,oxidgene_cache=debug"
+        "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug"
     } else {
         "info"
     };
@@ -113,51 +107,12 @@ fn main() {
     let database_url = format!("sqlite://{}?mode=rwc", db_path.display());
     info!(%database_url, "Using SQLite database");
 
-    // ── Resolve cache directory ──────────────────────────────────────
-    let cache_dir = std::env::var("OXIDGENE_CACHE_DIR")
-        .map(std::path::PathBuf::from)
-        .ok()
-        .or_else(disk::default_cache_dir)
-        .expect("could not determine platform cache directory");
-
-    info!(cache_dir = %cache_dir.display(), "Using cache directory");
-
-    // ── Read pedigree budget ─────────────────────────────────────────
-    let pedigree_budget = std::env::var("OXIDGENE_PEDIGREE_CACHE_MB")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .map(|mb| mb * 1024 * 1024)
-        .unwrap_or(DEFAULT_PEDIGREE_BUDGET_BYTES);
-
-    // ── Load cache from disk (if available and not stale) ────────────
-    let memory_store = if disk::is_cache_stale(&cache_dir, &db_path) {
-        info!("Disk cache is stale or missing, starting with empty cache");
-        MemoryCacheStore::with_budget(pedigree_budget)
-    } else {
-        match disk::load_from_disk(&cache_dir, pedigree_budget) {
-            Some(store) => {
-                info!("Cache loaded from disk");
-                store
-            }
-            None => {
-                warn!("Failed to load cache from disk, starting with empty cache");
-                MemoryCacheStore::with_budget(pedigree_budget)
-            }
-        }
-    };
-
     // ── Start embedded Axum server in a background tokio runtime ─────
     let (tx, rx) = std::sync::mpsc::channel::<u16>();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     // Wrap shutdown_tx so it can be captured by the Dioxus event handler closure.
     let shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
-
-    // Channel for the server thread to signal that cache persistence is done.
-    let (persist_done_tx, persist_done_rx) = std::sync::mpsc::channel::<()>();
-
-    let db_path_for_persist = db_path.clone();
-    let cache_dir_for_persist = cache_dir.clone();
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
@@ -174,9 +129,8 @@ fn main() {
                 std::process::exit(1);
             });
 
-            // Build router with the pre-loaded memory store.
-            let state = AppState::with_memory_store(db, memory_store);
-            let api_router = build_router(state.clone());
+            let state = AppState::new(db);
+            let api_router = build_router(state);
 
             let app = Router::new()
                 .route("/healthz", get(healthz))
@@ -215,13 +169,6 @@ fn main() {
                 .unwrap_or_else(|e| {
                     error!(%e, "Server error");
                 });
-
-            // ── Persist cache to disk on shutdown ────────────────────
-            info!("Persisting cache to disk before exit…");
-            persist_cache_via_service(&state, &cache_dir_for_persist, &db_path_for_persist);
-
-            // Signal the event handler that persistence is done.
-            let _ = persist_done_tx.send(());
         });
     });
 
@@ -236,9 +183,10 @@ fn main() {
     let api_client = ApiClient::new(&api_url);
 
     // ── Launch Dioxus desktop window ─────────────────────────────────
-    // Dioxus `launch()` returns `-> !` (never returns), so we use a
-    // custom event handler to intercept `Event::LoopDestroyed` and
-    // trigger cache persistence before the process exits.
+    // Dioxus `launch()` returns `-> !` (never returns), so we use a custom
+    // event handler to intercept `Event::LoopDestroyed` and shut the embedded
+    // server down cleanly before the process exits. Nothing needs flushing:
+    // person projections live in SQLite, written as part of each mutation.
     let window_icon: Option<Icon> = icon_from_memory(ICON_PNG).ok();
     let shutdown_tx_for_handler = Arc::clone(&shutdown_tx);
     let mut cfg = Config::new()
@@ -256,43 +204,14 @@ fn main() {
         .with_context(api_client)
         .with_cfg(cfg.with_custom_event_handler(move |event, _target| {
             if let Event::LoopDestroyed = event {
-                info!("Window closing, signalling server to persist cache…");
+                info!("Window closing, shutting the embedded server down…");
                 // Take the sender (only fires once).
                 if let Some(sender) = shutdown_tx_for_handler.lock().unwrap().take() {
                     let _ = sender.send(());
-                    // Wait for the server thread to finish persisting.
-                    // Timeout after 5 seconds to avoid hanging.
-                    match persist_done_rx.recv_timeout(std::time::Duration::from_secs(5)) {
-                        Ok(()) => info!("Cache persisted to disk successfully"),
-                        Err(_) => warn!("Timed out waiting for cache persistence"),
-                    }
                 }
             }
         }))
         .launch(oxidgene_ui::App);
-}
-
-/// Persist the cache from the CacheService's inner store.
-///
-/// Attempts to downcast the `dyn CacheStore` back to `MemoryCacheStore`.
-fn persist_cache_via_service(
-    state: &AppState,
-    cache_dir: &std::path::Path,
-    db_path: &std::path::Path,
-) {
-    use std::any::Any;
-
-    // The CacheService exposes store() -> &dyn CacheStore.
-    // We need to downcast to MemoryCacheStore for snapshot_for_disk().
-    let store = state.cache.store();
-    let store_any: &dyn Any = store.as_any();
-    if let Some(memory_store) = store_any.downcast_ref::<MemoryCacheStore>() {
-        if let Err(e) = disk::persist_to_disk(memory_store, cache_dir, Some(db_path)) {
-            error!(%e, "Failed to persist cache to disk");
-        }
-    } else {
-        warn!("Cache store is not MemoryCacheStore, skipping disk persistence");
-    }
 }
 
 /// Health check handler returning `200 OK` with a JSON body.

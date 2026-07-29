@@ -9,11 +9,10 @@ use oxidgene_db::repo::{
 };
 
 use super::types::{
-    GqlCachedPedigree, GqlCachedPerson, GqlCachedSearchResult, GqlEvent, GqlEventConnection,
-    GqlEventType, GqlExportGedcomResult, GqlFamily, GqlFamilyConnection, GqlMedia,
-    GqlMediaConnection, GqlPerson, GqlPersonConnection, GqlPersonWithDepth, GqlPlace,
-    GqlPlaceConnection, GqlSource, GqlSourceConnection, GqlTree, GqlTreeConnection, cache_from_ctx,
-    db_from_ctx,
+    GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult, GqlFamily,
+    GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlPedigree, GqlPerson, GqlPersonConnection,
+    GqlPersonProfile, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlSearchResult, GqlSource,
+    GqlSourceConnection, GqlTree, GqlTreeConnection, db_from_ctx, profiles_from_ctx,
 };
 
 /// The root query type.
@@ -334,37 +333,37 @@ impl QueryRoot {
         })
     }
 
-    // ── Cache queries ────────────────────────────────────────────────
+    // ── Projection queries ───────────────────────────────────────────
 
-    /// Get a single cached (denormalised) person profile.
+    /// Get a single profile (denormalised) person profile.
     ///
-    /// Falls back to building from DB if not yet cached.
-    async fn cached_person(
+    /// Falls back to building it from the DB if not yet materialized.
+    async fn person_profile(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         person_id: ID,
-    ) -> Result<GqlCachedPerson> {
-        let cache = cache_from_ctx(ctx);
+    ) -> Result<GqlPersonProfile> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
-        let cached = cache.get_or_build_person(tid, pid).await?;
-        Ok(cached.into())
+        let profile = profiles.get_or_build_person(db, tid, pid).await?;
+        Ok(profile.into())
     }
 
-    /// Get all cached persons for a tree.
+    /// Get every person projection of a tree.
     ///
-    /// If the cache is cold, triggers a full rebuild first.
-    async fn cached_persons(&self, ctx: &Context<'_>, tree_id: ID) -> Result<Vec<GqlCachedPerson>> {
-        let cache = cache_from_ctx(ctx);
+    /// Materializes the tree first if it has never been built.
+    async fn person_profiles(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<Vec<GqlPersonProfile>> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-
-        let mut persons = cache.store().get_all_persons(tid).await?;
-        if persons.is_empty() {
-            cache.rebuild_tree_full(tid).await?;
-            persons = cache.store().get_all_persons(tid).await?;
-        }
-
+        let persons = profiles.get_all_persons(db, tid).await?;
         Ok(persons.into_iter().map(Into::into).collect())
     }
 
@@ -379,17 +378,17 @@ impl QueryRoot {
         query: String,
         #[graphql(default = 25)] limit: usize,
         #[graphql(default = 0)] offset: usize,
-    ) -> Result<GqlCachedSearchResult> {
-        let cache = cache_from_ctx(ctx);
+    ) -> Result<GqlSearchResult> {
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let result = cache.search(tid, &query, limit.min(100), offset).await?;
+        let result = profiles.search(tid, &query, limit.min(100), offset).await?;
         Ok(result.into())
     }
 
     /// Get a windowed pedigree for a root person.
     ///
-    /// Returns nodes and edges within the given ancestor / descendant depth.
-    /// If no cache exists yet, it is built lazily from DB.
+    /// Returns nodes and edges within the given ancestor / descendant depth,
+    /// assembled on demand from the closure table and the stored projections.
     async fn pedigree(
         &self,
         ctx: &Context<'_>,
@@ -397,11 +396,11 @@ impl QueryRoot {
         root_person_id: ID,
         ancestor_depth: i32,
         descendant_depth: i32,
-    ) -> Result<GqlCachedPedigree> {
-        let cache = cache_from_ctx(ctx);
+    ) -> Result<GqlPedigree> {
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let rid = Uuid::parse_str(root_person_id.as_str())?;
-        let pedigree = cache
+        let pedigree = profiles
             .get_or_build_pedigree(tid, rid, ancestor_depth as u32, descendant_depth as u32)
             .await?;
         Ok(pedigree.into())

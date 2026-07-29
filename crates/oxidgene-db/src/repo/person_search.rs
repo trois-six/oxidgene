@@ -11,7 +11,7 @@
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::normalize_for_search;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Value};
+use sea_orm::{ConnectionTrait, DbBackend, Statement, Value};
 use uuid::Uuid;
 
 /// A row of the `person_search_fts` table.
@@ -65,7 +65,7 @@ impl PersonSearchRepo {
     /// Replace all search rows for a tree (used on full cache rebuild /
     /// GEDCOM import).
     pub async fn replace_tree(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         entries: &[PersonSearchEntry],
     ) -> Result<(), OxidGeneError> {
@@ -76,7 +76,7 @@ impl PersonSearchRepo {
     /// Insert or update search rows for a bounded set of persons (used after
     /// person / name / event mutations).
     pub async fn upsert(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         entries: &[PersonSearchEntry],
     ) -> Result<(), OxidGeneError> {
         if entries.is_empty() {
@@ -89,14 +89,17 @@ impl PersonSearchRepo {
 
     /// Remove the search row for a single person.
     pub async fn delete_person(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         person_id: Uuid,
     ) -> Result<(), OxidGeneError> {
         Self::delete_persons(db, &[person_id]).await
     }
 
     /// Remove all search rows for a tree.
-    pub async fn delete_tree(db: &DatabaseConnection, tree_id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<(), OxidGeneError> {
         let backend = db.get_database_backend();
         let sql = match backend {
             DbBackend::Sqlite => "DELETE FROM person_search_fts WHERE tree_id = ?",
@@ -113,7 +116,10 @@ impl PersonSearchRepo {
     }
 
     /// Count the search rows for a tree (used to detect a cold index).
-    pub async fn count_tree(db: &DatabaseConnection, tree_id: Uuid) -> Result<u64, OxidGeneError> {
+    pub async fn count_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<u64, OxidGeneError> {
         let backend = db.get_database_backend();
         let sql = match backend {
             DbBackend::Sqlite => "SELECT COUNT(*) AS cnt FROM person_search_fts WHERE tree_id = ?",
@@ -143,7 +149,7 @@ impl PersonSearchRepo {
     /// condition across the searchable columns. An empty query returns all
     /// persons in the tree (browse mode), sorted by name.
     pub async fn search(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         query: &str,
         limit: u64,
@@ -276,7 +282,7 @@ impl PersonSearchRepo {
     // ── Internals ───────────────────────────────────────────────────────
 
     async fn delete_persons(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<(), OxidGeneError> {
         if person_ids.is_empty() {
@@ -304,7 +310,7 @@ impl PersonSearchRepo {
     }
 
     async fn insert_batch(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         entries: &[PersonSearchEntry],
     ) -> Result<(), OxidGeneError> {
         if entries.is_empty() {

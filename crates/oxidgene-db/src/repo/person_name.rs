@@ -5,7 +5,7 @@ use oxidgene_core::enums::NameType;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::PersonName;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::person_name::{self, ActiveModel, Column, Entity};
@@ -17,7 +17,7 @@ pub struct PersonNameRepo;
 impl PersonNameRepo {
     /// List all names for a person.
     pub async fn list_by_person(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         person_id: Uuid,
     ) -> Result<Vec<PersonName>, OxidGeneError> {
         let models = Entity::find()
@@ -30,7 +30,7 @@ impl PersonNameRepo {
 
     /// List all names for multiple persons.
     pub async fn list_by_persons(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonName>, OxidGeneError> {
         let models = Entity::find()
@@ -42,7 +42,7 @@ impl PersonNameRepo {
     }
 
     /// Get a single person name by ID.
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<PersonName, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<PersonName, OxidGeneError> {
         Entity::find_by_id(id)
             .one(db)
             .await
@@ -57,7 +57,7 @@ impl PersonNameRepo {
     /// Create a new person name.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         person_id: Uuid,
         name_type: NameType,
@@ -92,7 +92,7 @@ impl PersonNameRepo {
     /// Update a person name.
     #[allow(clippy::too_many_arguments)]
     pub async fn update(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         name_type: Option<NameType>,
         given_names: Option<Option<String>>,
@@ -143,7 +143,7 @@ impl PersonNameRepo {
     }
 
     /// Hard-delete a person name.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await

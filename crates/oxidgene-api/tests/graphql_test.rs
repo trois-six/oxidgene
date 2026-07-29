@@ -1080,3 +1080,132 @@ async fn test_graphql_import_gedcom_invalid_tree() {
     // Should have errors
     assert!(resp.get("errors").is_some());
 }
+
+// ── Projection queries & mutations ───────────────────────────────────
+
+/// GraphQL must expose the same vocabulary as REST (Sprint E.9): `profiles`
+/// and `pedigree`, never `cache`. This resolves the whole renamed surface.
+#[tokio::test]
+async fn test_projection_graphql_surface() {
+    let app = setup_app().await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Projection Tree" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: MALE }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let person_id = data(&resp)["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{
+                nameType: BIRTH, givenNames: "Jean", surname: "Dupont", isPrimary: true
+            }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+
+    // personProfile / personProfiles (were cachedPerson / cachedPersons).
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"query {{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{
+                personId primaryName {{ displayName }} builtAt
+            }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let profile = &data(&resp)["personProfile"];
+    assert_eq!(profile["personId"], person_id);
+    assert_eq!(profile["primaryName"]["displayName"], "Jean Dupont");
+    assert!(profile["builtAt"].is_string(), "builtAt (was cachedAt)");
+
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"query {{ personProfiles(treeId: "{tree_id}") {{ personId }} }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfiles"].as_array().unwrap().len(), 1);
+
+    // pedigree — unchanged name, but must still resolve after the type rename.
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"query {{ pedigree(treeId: "{tree_id}", rootPersonId: "{person_id}",
+                ancestorDepth: 2, descendantDepth: 1) {{
+                rootPersonId ancestorDepthLoaded nodes {{ displayName }}
+            }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let pedigree = &data(&resp)["pedigree"];
+    assert_eq!(pedigree["rootPersonId"], person_id);
+    assert_eq!(pedigree["ancestorDepthLoaded"], 2);
+
+    // rebuildTreeProfiles / rebuildPersonProfile / dropTreeProfiles.
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ rebuildTreeProfiles(treeId: "{tree_id}") {{ rebuilt personsCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["rebuildTreeProfiles"]["personsCount"], 1);
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ rebuildPersonProfile(treeId: "{tree_id}", personId: "{person_id}") {{ rebuilt }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["rebuildPersonProfile"]["rebuilt"], true);
+
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"mutation {{ dropTreeProfiles(treeId: "{tree_id}") }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["dropTreeProfiles"], true);
+
+    // The old cache-flavoured fields must be gone from the schema.
+    for field in [
+        format!(
+            r#"query {{ cachedPerson(treeId: "{tree_id}", personId: "{person_id}") {{ personId }} }}"#
+        ),
+        format!(r#"query {{ cachedPersons(treeId: "{tree_id}") {{ personId }} }}"#),
+        format!(r#"mutation {{ rebuildTreeCache(treeId: "{tree_id}") {{ rebuilt }} }}"#),
+        format!(r#"mutation {{ invalidateTreeCache(treeId: "{tree_id}") }}"#),
+    ] {
+        let resp = graphql(app.clone(), &field, None).await;
+        assert!(
+            resp.get("errors").is_some(),
+            "field still in schema: {field}"
+        );
+    }
+}

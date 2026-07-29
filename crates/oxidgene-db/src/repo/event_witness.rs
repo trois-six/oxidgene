@@ -3,7 +3,7 @@
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::EventWitness;
 use sea_orm::entity::prelude::*;
-use sea_orm::{QueryFilter, QueryOrder, Set};
+use sea_orm::{ConnectionTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::event_witness::{self, Column, Entity};
@@ -14,7 +14,7 @@ pub struct EventWitnessRepo;
 impl EventWitnessRepo {
     /// List witnesses on an event, ordered by `sort_order`.
     pub async fn list_by_event(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         event_id: Uuid,
     ) -> Result<Vec<EventWitness>, OxidGeneError> {
         let models = Entity::find()
@@ -28,7 +28,7 @@ impl EventWitnessRepo {
 
     /// List witnesses for multiple events, ordered by `sort_order`.
     pub async fn list_by_events(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         event_ids: &[Uuid],
     ) -> Result<Vec<EventWitness>, OxidGeneError> {
         let models = Entity::find()
@@ -42,7 +42,7 @@ impl EventWitnessRepo {
 
     /// Create an event–witness link.
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         event_id: Uuid,
         person_id: Uuid,
@@ -64,7 +64,7 @@ impl EventWitnessRepo {
     }
 
     /// Hard-delete an event–witness link.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await

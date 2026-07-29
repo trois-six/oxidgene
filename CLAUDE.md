@@ -16,7 +16,7 @@ All specifications live in `docs/specifications/` — always read the relevant s
 | `data-model.md` | All 14 entities, enums, ERD |
 | `api.md` | Full REST + GraphQL contract |
 | `roadmap.md` | EPICs A–G, sprint breakdown |
-| `caching.md` | Server-side cache: PersonCache, PedigreeCache, SearchIndex, invalidation |
+| `read-projections.md` | Denormalized read models in the DB: `person_denorm`, pedigree assembly, search, refresh |
 | `ui-home.md` | Homepage / tree dashboard |
 | `ui-genealogy-tree.md` | Pedigree canvas, cards, connectors, sidebar |
 | `ui-person-edit-modal.md` | Person edit, couple edit, media, deletion |
@@ -26,11 +26,10 @@ All specifications live in `docs/specifications/` — always read the relevant s
 
 ```
 crates/
-  oxidgene-core/    # Domain types, enums, errors — no internal deps
+  oxidgene-core/    # Domain types, enums, errors, read projections — no internal deps
   oxidgene-db/      # SeaORM entities, migrations, repos
   oxidgene-gedcom/  # GEDCOM ↔ domain (wraps ged_io)
-  oxidgene-cache/   # Server-side cache (Redis / in-memory + disk)
-  oxidgene-api/     # Axum REST + async-graphql + service layer
+  oxidgene-api/     # Axum REST + async-graphql + service + profile layer
   oxidgene-ui/      # Dioxus components + pages
 apps/
   oxidgene-server/  # Web server binary
@@ -38,7 +37,9 @@ apps/
   oxidgene-cli/     # CLI (import/export, migrations)
 ```
 
-Dependency flow: `core` ← `db` ← `cache` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `core` ← `ui`.
+Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `core` ← `ui`.
+
+**No cache tier.** Denormalized read models are materialized in the DB (`person_denorm`, `person_search_fts`) and refreshed on every mutation; pedigrees are assembled per request from `person_ancestry` ⋈ `person_denorm`. See `docs/specifications/read-projections.md`.
 
 ## Key design rules
 
@@ -76,10 +77,10 @@ Dioxus. Components in `src/components/`, pages in `src/pages/`.
 - `rest/` — one handler file per resource (tree, person, family, event, place, source, citation, media, media_link, note, gedcom, family_member)
 - `graphql/` — query.rs, mutation.rs, types.rs, inputs.rs
 - `service/` — business logic (gedcom service)
+- `profile/` — read projections: `service.rs` (ProfileService), `builder.rs`, `invalidation.rs`
 - `rest/dto.rs` — request/response DTOs
-- `rest/state.rs` — AppState (DB connection)
+- `rest/state.rs` — AppState (DB connection + `Arc<ProfileService>`)
 - `router.rs` — Axum router wiring
-- `service/cache_service.rs` — cache orchestration, invalidation, builders
 
 ## Build commands
 
@@ -100,6 +101,6 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–E complete. Next: **EPIC F — Security & Deployment**.
+EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). Next: **EPIC F — Media Management**.
 
 See [`docs/specifications/general.md` §8b](docs/specifications/general.md) for the EPIC status table and recently shipped work, and [`docs/specifications/roadmap.md`](docs/specifications/roadmap.md) for full sprint details. Update both files each time a new feature is developed.

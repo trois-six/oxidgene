@@ -4,7 +4,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Family};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::family::{self, ActiveModel, Column, Entity};
@@ -16,7 +16,7 @@ pub struct FamilyRepo;
 impl FamilyRepo {
     /// List families in a tree with pagination (excludes soft-deleted).
     pub async fn list(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &PaginationParams,
     ) -> Result<Connection<Family>, OxidGeneError> {
@@ -28,7 +28,7 @@ impl FamilyRepo {
 
     /// List all families in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Family>, OxidGeneError> {
         let models = Entity::find()
@@ -41,7 +41,7 @@ impl FamilyRepo {
     }
 
     /// Get a single family by ID (excludes soft-deleted).
-    pub async fn get(db: &DatabaseConnection, id: Uuid) -> Result<Family, OxidGeneError> {
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Family, OxidGeneError> {
         Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -56,7 +56,7 @@ impl FamilyRepo {
 
     /// Create a new family.
     pub async fn create(
-        db: &DatabaseConnection,
+        db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
     ) -> Result<Family, OxidGeneError> {
@@ -76,7 +76,7 @@ impl FamilyRepo {
     }
 
     /// Update a family (touch updated_at).
-    pub async fn update(db: &DatabaseConnection, id: Uuid) -> Result<Family, OxidGeneError> {
+    pub async fn update(db: &impl ConnectionTrait, id: Uuid) -> Result<Family, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -98,7 +98,7 @@ impl FamilyRepo {
     }
 
     /// Soft-delete a family.
-    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)

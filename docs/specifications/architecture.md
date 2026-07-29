@@ -27,8 +27,7 @@ timestamp: 2026-06-17T00:00:00Z
 | Web database | PostgreSQL | 16+ | Production web deployment |
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
 | GEDCOM | ged_io | 0.16+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
-| Cache (web) | Redis | 7+ | Server-side cache backend for web deployment. See [Caching](caching.md) |
-| Cache (desktop) | DashMap + bincode | — | In-memory cache with disk persistence. See [Caching](caching.md) |
+| Read projections | (none — same DB) | — | Denormalized read models live in `person_denorm` / `person_search_fts`. No cache tier. See [Read Projections](read-projections.md) |
 | Build orchestration | just | latest | Unified justfile for all tasks |
 
 ---
@@ -61,7 +60,7 @@ For full entity definitions, see [Data Model](data-model.md).
 - SeaORM entities crate (`oxidgene-db`) with migrations.
 - API crate (`oxidgene-api`) with Axum handlers (REST) and async-graphql resolvers.
 - GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic.
-- Cache crate (`oxidgene-cache`) with dual-backend storage (Redis/in-memory), cache builders, and invalidation logic. See [Caching](caching.md).
+- Denormalized read projections materialized in the database (`person_denorm`), assembled by `oxidgene-api::profile`. See [Read Projections](read-projections.md).
 - Separate binary crates for web server, desktop app, and CLI tool.
 
 API endpoints are documented in [API Contract](api.md).
@@ -106,7 +105,6 @@ UI specifications:
 ### 8.1 Web Deployment
 
 - Docker Compose for local development.
-- Redis container for server-side cache (shared across all users of a tree). See [Caching](caching.md).
 - Kubernetes deployment for production (dev & prod).
 - GitOps with FluxCD.
 - Liveness/readiness probes on the Axum server.
@@ -137,7 +135,6 @@ oxidgene/
 │   ├── oxidgene-db/        # SeaORM entities + migrations
 │   ├── oxidgene-api/       # Axum handlers + GraphQL resolvers
 │   ├── oxidgene-gedcom/    # GEDCOM import/export (wraps ged_io)
-│   ├── oxidgene-cache/    # Server-side cache (Redis / in-memory + disk)
 │   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
@@ -152,11 +149,9 @@ oxidgene-core (no internal deps)
     ↑
 oxidgene-db (depends on: oxidgene-core)
     ↑
-oxidgene-cache (depends on: oxidgene-core, oxidgene-db)
-    ↑
 oxidgene-gedcom (depends on: oxidgene-core)
     ↑
-oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-cache, oxidgene-gedcom)
+oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-gedcom)
     ↑
 oxidgene-server (depends on: oxidgene-api, oxidgene-db)
 oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui)
@@ -165,4 +160,4 @@ oxidgene-cli (depends on: oxidgene-db, oxidgene-gedcom)
 oxidgene-ui (depends on: oxidgene-core)
 ```
 
-**Current layout:** All 7 crates are co-located in `crates/`. The single migration file `m20250101_000001_initial.rs` holds all schema (13 tables + `person_search_fts` FTS5 index); future changes add new files (e.g. `m20260801_000002_feature.rs`). No incremental migration squashing.
+**Current layout:** All 6 crates are co-located in `crates/`. The base migration `m20250101_000001_initial.rs` holds the bulk of the schema (13 tables + the `person_search_fts` FTS5 index); later changes add their own files (`m20260724_*`, `m20260728_000001_person_denorm`). No incremental migration squashing.

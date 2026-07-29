@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
-use oxidgene_cache::types::CachedPedigree;
+use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{
     Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place,
 };
@@ -280,12 +280,12 @@ impl PartialEq for PedigreeData {
 }
 
 impl PedigreeData {
-    /// Build `PedigreeData` from a [`CachedPedigree`] returned by the cache API.
+    /// Build `PedigreeData` from a [`Pedigree`] returned by the cache API.
     ///
     /// Creates synthetic domain objects (Person, PersonName, Event) from the
     /// denormalized pedigree nodes so the existing layout + rendering code works
     /// unchanged.
-    pub fn from_cached_pedigree(pedigree: &CachedPedigree) -> Self {
+    pub fn from_pedigree(pedigree: &Pedigree) -> Self {
         use chrono::{NaiveDate, Utc};
 
         let now = Utc::now();
@@ -391,9 +391,9 @@ impl PedigreeData {
             }
         }
 
-        // ── Family relationships from CachedFamily + PedigreeEdge ──
+        // ── Family relationships from PedigreeFamily + PedigreeEdge ──
         //
-        // CachedFamily carries full family membership (spouses + children),
+        // PedigreeFamily carries full family membership (spouses + children),
         // covering childless couples that produce no PedigreeEdge.
         // We supplement with edge data for child_type info.
 
@@ -408,9 +408,9 @@ impl PedigreeData {
         let mut families_as_child: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
         let mut families_as_spouse: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
 
-        for (family_id, cached_family) in &pedigree.families {
+        for (family_id, family) in &pedigree.families {
             // Build FamilySpouse entries — assign role by sex.
-            for (i, &spouse_id) in cached_family.spouse_ids.iter().enumerate() {
+            for (i, &spouse_id) in family.spouse_ids.iter().enumerate() {
                 let role = match persons.get(&spouse_id).map(|p| &p.sex) {
                     Some(Sex::Male) => SpouseRole::Husband,
                     Some(Sex::Female) => SpouseRole::Wife,
@@ -437,7 +437,7 @@ impl PedigreeData {
             }
 
             // Build FamilyChild entries.
-            for (i, &child_id) in cached_family.children_ids.iter().enumerate() {
+            for (i, &child_id) in family.children_ids.iter().enumerate() {
                 let child_type = child_type_map
                     .get(&(*family_id, child_id))
                     .copied()
@@ -469,10 +469,10 @@ impl PedigreeData {
             fids.dedup();
         }
 
-        // ── Reconstruct family events from cached pedigree ──
+        // ── Reconstruct family events from the pedigree payload ──
         let mut events_by_family: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
-        for (family_id, cached_events) in &pedigree.family_events {
-            let domain_events: Vec<DomainEvent> = cached_events
+        for (family_id, events) in &pedigree.family_events {
+            let domain_events: Vec<DomainEvent> = events
                 .iter()
                 .map(|ce| DomainEvent {
                     id: ce.event_id,
@@ -497,8 +497,8 @@ impl PedigreeData {
         }
 
         // ── Synthetic events + names for family members outside the pedigree window ──
-        for cached_family in pedigree.families.values() {
-            for member in &cached_family.members {
+        for family in pedigree.families.values() {
+            for member in &family.members {
                 // Skip members already in the pedigree persons map.
                 if persons.contains_key(&member.person_id) {
                     continue;

@@ -6,7 +6,9 @@
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Edge, PageInfo};
 use sea_orm::entity::prelude::*;
-use sea_orm::{Condition, Order, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select};
+use sea_orm::{
+    Condition, ConnectionTrait, Order, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use uuid::Uuid;
 
 /// Default page size.
@@ -65,7 +67,7 @@ pub fn encode_cursor(id: &Uuid) -> String {
 /// - `params`: pagination parameters
 /// - `convert`: converts a SeaORM model into `(Uuid, T)` — the UUID is used for the cursor
 pub async fn paginate<E, M, T, F>(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     base_query: Select<E>,
     id_column: E::Column,
     params: &PaginationParams,
