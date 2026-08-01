@@ -27,6 +27,7 @@ timestamp: 2026-06-17T00:00:00Z
 | Web database | PostgreSQL | 16+ | Production web deployment |
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
 | GEDCOM | ged_io | 0.16+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
+| GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.1+ | Read only, incl. `gwplus`; converts to the same `ged_io` model, so one domain mapping serves both formats |
 | Read projections | (none — same DB) | — | Denormalized read models live in `person_denorm` / `person_search_fts`. No cache tier. See [Read Projections](read-projections.md) |
 | Build orchestration | just | latest | Unified justfile for all tasks |
 
@@ -59,7 +60,7 @@ For full entity definitions, see [Data Model](data-model.md).
 - Rust core crate (`oxidgene-core`) with domain types, shared across all binaries.
 - SeaORM entities crate (`oxidgene-db`) with migrations.
 - API crate (`oxidgene-api`) with Axum handlers (REST) and async-graphql resolvers.
-- GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic.
+- GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `ged_io` model, so both formats share one conversion into the domain.
 - Denormalized read projections materialized in the database (`person_denorm`), assembled by `oxidgene-api::profile`. See [Read Projections](read-projections.md).
 - Separate binary crates for web server, desktop app, and CLI tool.
 
@@ -134,7 +135,7 @@ oxidgene/
 │   ├── oxidgene-core/      # Domain types, enums, error types
 │   ├── oxidgene-db/        # SeaORM entities + migrations
 │   ├── oxidgene-api/       # Axum handlers + GraphQL resolvers
-│   ├── oxidgene-gedcom/    # GEDCOM import/export (wraps ged_io)
+│   ├── oxidgene-gedcom/    # GEDCOM import/export + GeneWeb .gw import
 │   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary

@@ -15,16 +15,32 @@ use oxidgene_db::repo::{
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
-    CreateTreeInput, ImportGedcomInput, PersonNameInput, UpdateCitationInput, UpdateEventInput,
-    UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
-    UpdateSourceInput, UpdateTreeInput, UploadMediaInput,
+    CreateTreeInput, ImportGedcomInput, ImportGenewebInput, PersonNameInput, UpdateCitationInput,
+    UpdateEventInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput,
+    UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput, UploadMediaInput,
 };
 use super::types::{
     GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilySpouse,
-    GqlImportGedcomResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta, GqlPedigreeDirection,
+    GqlImportResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta, GqlPedigreeDirection,
     GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource, GqlTree, db_from_ctx,
     profiles_from_ctx,
 };
+
+/// Convert a service-layer import summary into its GraphQL shape.
+///
+/// Shared by every import mutation — the summary is format-agnostic.
+fn import_result(summary: crate::service::gedcom::ImportSummary) -> GqlImportResult {
+    GqlImportResult {
+        persons_count: summary.persons_count as i32,
+        families_count: summary.families_count as i32,
+        events_count: summary.events_count as i32,
+        sources_count: summary.sources_count as i32,
+        media_count: summary.media_count as i32,
+        places_count: summary.places_count as i32,
+        notes_count: summary.notes_count as i32,
+        warnings: summary.warnings,
+    }
+}
 
 /// The root mutation type.
 pub struct MutationRoot;
@@ -850,7 +866,7 @@ impl MutationRoot {
         Ok(true)
     }
 
-    // ── GEDCOM Mutations ──────────────────────────────────────────────
+    // ── Import Mutations ──────────────────────────────────────────────
 
     /// Import a GEDCOM string into a tree, persisting all extracted entities.
     /// Triggers a full projection rebuild after import.
@@ -859,7 +875,7 @@ impl MutationRoot {
         ctx: &Context<'_>,
         tree_id: ID,
         input: ImportGedcomInput,
-    ) -> Result<GqlImportGedcomResult> {
+    ) -> Result<GqlImportResult> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
@@ -869,16 +885,35 @@ impl MutationRoot {
         // and wrapping 100K rows would hold a very long-lived write lock. The
         // import itself is already atomic (see `gedcom::import_and_persist`).
         profiles.rebuild_tree_full(db, tid).await?;
-        Ok(GqlImportGedcomResult {
-            persons_count: summary.persons_count as i32,
-            families_count: summary.families_count as i32,
-            events_count: summary.events_count as i32,
-            sources_count: summary.sources_count as i32,
-            media_count: summary.media_count as i32,
-            places_count: summary.places_count as i32,
-            notes_count: summary.notes_count as i32,
-            warnings: summary.warnings,
-        })
+        Ok(import_result(summary))
+    }
+
+    /// Import a GeneWeb `.gw` file into a tree, persisting all extracted
+    /// entities. Triggers a full projection rebuild after import.
+    ///
+    /// The file content is base64-encoded because `.gw` is ISO-8859-1 unless
+    /// the file opts into UTF-8 — see [`ImportGenewebInput`]. There is no
+    /// matching export: `.gw` is a read-only format in OxidGene.
+    async fn import_geneweb(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: ImportGenewebInput,
+    ) -> Result<GqlImportResult> {
+        use base64::Engine as _;
+
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&input.content_base64)
+            .map_err(|e| async_graphql::Error::new(format!("contentBase64 is not base64: {e}")))?;
+        let filename = input.filename.as_deref().unwrap_or("import.gw");
+        let summary =
+            crate::service::geneweb::import_and_persist(db, tid, &bytes, filename).await?;
+        // Same rationale as `import_gedcom` above.
+        profiles.rebuild_tree_full(db, tid).await?;
+        Ok(import_result(summary))
     }
 
     // ── Projection Admin Mutations ───────────────────────────────────

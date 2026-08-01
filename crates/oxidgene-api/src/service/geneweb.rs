@@ -1,0 +1,35 @@
+//! Shared GeneWeb `.gw` import service logic.
+//!
+//! Reading a `.gw` file yields the same domain-model entities a GEDCOM import
+//! does, so persistence is delegated to
+//! [`crate::service::gedcom::persist_import_result`] and only the parse step
+//! differs. There is no `.gw` export: the format is read-only in OxidGene, as
+//! it is in the underlying `geneweb` crate.
+
+use oxidgene_core::OxidGeneError;
+use oxidgene_db::repo::TreeRepo;
+use oxidgene_gedcom::geneweb::import_geneweb;
+use sea_orm::DatabaseConnection;
+use uuid::Uuid;
+
+use super::gedcom::{ImportSummary, persist_import_result};
+
+/// Read a GeneWeb `.gw` file and persist all extracted entities into the tree.
+///
+/// `input` is the raw file content: `.gw` is ISO-8859-1 unless the file opts
+/// into UTF-8, so it must not be decoded before it reaches the reader.
+/// `origin_file` is the uploaded file's name, which GeneWeb records on every
+/// family and which is echoed back in parse warnings.
+pub async fn import_and_persist(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    input: &[u8],
+    origin_file: &str,
+) -> Result<ImportSummary, OxidGeneError> {
+    // Verify tree exists
+    let _tree = TreeRepo::get(db, tree_id).await?;
+
+    let result = import_geneweb(input, origin_file, tree_id).map_err(OxidGeneError::Gedcom)?;
+
+    persist_import_result(db, result).await
+}

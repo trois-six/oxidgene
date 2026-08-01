@@ -344,7 +344,7 @@ pub struct UpdateNoteRequest {
     pub text: Option<String>,
 }
 
-// ── GEDCOM DTOs ──────────────────────────────────────────────────────
+// ── Import / export DTOs ─────────────────────────────────────────────
 
 /// Request body for importing a GEDCOM string.
 #[derive(Debug, Deserialize)]
@@ -352,9 +352,17 @@ pub struct ImportGedcomRequest {
     pub gedcom: String,
 }
 
-/// Response body for GEDCOM import.
+/// Query parameters for a GeneWeb `.gw` import.
+#[derive(Debug, Deserialize)]
+pub struct ImportGenewebQuery {
+    /// Name of the uploaded file. GeneWeb records it on every family and it is
+    /// echoed back in parse warnings; defaults to `import.gw` when omitted.
+    pub filename: Option<String>,
+}
+
+/// Response body for an import, whatever the source format.
 #[derive(Debug, Serialize)]
-pub struct ImportGedcomResponse {
+pub struct ImportResponse {
     pub persons_count: usize,
     pub families_count: usize,
     pub events_count: usize,

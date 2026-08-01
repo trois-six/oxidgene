@@ -91,6 +91,34 @@ timestamp: 2026-07-19T00:00:00Z
 - [x] Streaming import for large files.
 - [x] Wire up import/export REST and GraphQL endpoints. → see [API Contract](api.md) (GEDCOM)
 
+### GeneWeb `.gw` import ✅ (Aug 2026)
+
+> Rationale: GeneWeb is the genealogy software behind a large share of French online
+> genealogies, and its `.gw` export carries more than the GEDCOM its own `gwb2ged` produces.
+> The [`geneweb`](https://github.com/trois-six/rust-geneweb) crate converts `.gw` into the same
+> `ged_io` model this EPIC already consumes, so importing the format costs a reader, not a
+> second domain mapping.
+
+- [x] Add the `geneweb` crate as a workspace dependency.
+- [x] Split `import_gedcom` into a parse step and a reusable
+  `import_gedcom_data(&GedcomData, tree_id)`, so both formats share one domain mapping.
+- [x] Add `oxidgene_gedcom::geneweb::import_geneweb(bytes, origin_file, tree_id)` — lenient
+  reading, `.gw` parse errors surfaced as import warnings rather than aborting the file.
+- [x] Carry raw bytes end to end: `POST /trees/{id}/geneweb/import` takes
+  `application/octet-stream` + `?filename=`, GraphQL `importGeneweb` takes base64. `.gw` is
+  ISO-8859-1 unless a file opts into UTF-8 mid-stream, so decoding it upstream of the reader
+  would mangle accented names.
+- [x] Extract `persist_import_result` in the service layer so every import format shares one
+  FK-ordered, transactional persistence path; rename the summary type to be format-neutral
+  (`ImportGedcomResponse` → `ImportResponse`, `GqlImportGedcomResult` → `GqlImportResult`).
+- [x] UI: one Import button, file dialog accepting `.ged` and `.gw`, dispatch by extension.
+- [x] Tests: REST (incl. an ISO-8859-1 fidelity regression test), GraphQL, and unit coverage.
+  Verified against a real 10K-person base (10,254 persons / 2,507 families / 23,201 events).
+
+**Not covered** (the `geneweb` crate reads only): writing `.gw`, the binary `.gwb` database,
+and GeneWeb-only concepts with no GEDCOM counterpart (per-person access rights, wizard notes,
+wiki pages) — they survive conversion as `_GW…` tags, which the GEDCOM importer does not model.
+
 ---
 
 ## EPIC C — Tree Editing (Frontend) ✅

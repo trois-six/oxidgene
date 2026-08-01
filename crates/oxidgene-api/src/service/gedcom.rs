@@ -1,7 +1,9 @@
 //! Shared GEDCOM import/export service logic.
 //!
 //! Extracted so both REST and GraphQL handlers can reuse the same
-//! persist-all-entities and load-all-entities workflows.
+//! persist-all-entities and load-all-entities workflows. The persist half —
+//! [`persist_import_result`] — is format-agnostic and also backs the GeneWeb
+//! importer in [`crate::service::geneweb`].
 
 use chrono::Utc;
 use oxidgene_core::OxidGeneError;
@@ -63,11 +65,7 @@ where
 
 /// Parse a GEDCOM string and persist all extracted entities into the database.
 ///
-/// Uses a single database transaction for atomicity, and batch inserts for
-/// performance. Entities are inserted in FK-safe order: places → sources →
-/// media → persons → person_names → families → family_spouses →
-/// family_children → events → citations → media_links → notes →
-/// person_ancestry.
+/// See [`persist_import_result`] for the persistence guarantees.
 pub async fn import_and_persist(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -79,6 +77,23 @@ pub async fn import_and_persist(
     // Parse GEDCOM
     let result = import_gedcom(gedcom_str, tree_id).map_err(OxidGeneError::Gedcom)?;
 
+    persist_import_result(db, result).await
+}
+
+/// Persist every entity of a parsed import into the database.
+///
+/// Format-agnostic: it takes the domain-model output of any importer (GEDCOM,
+/// GeneWeb `.gw`), so all import formats share one persistence path.
+///
+/// Uses a single database transaction for atomicity, and batch inserts for
+/// performance. Entities are inserted in FK-safe order: places → sources →
+/// media → persons → person_names → families → family_spouses →
+/// family_children → events → citations → media_links → notes →
+/// person_ancestry.
+pub(crate) async fn persist_import_result(
+    db: &DatabaseConnection,
+    result: oxidgene_gedcom::ImportResult,
+) -> Result<ImportSummary, OxidGeneError> {
     let now = Utc::now();
 
     // Start a transaction for atomicity

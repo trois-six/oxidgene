@@ -238,11 +238,27 @@ pub struct UpdateNoteInput {
     pub text: Option<String>,
 }
 
-// ── GEDCOM Inputs ────────────────────────────────────────────────────
+// ── Import Inputs ────────────────────────────────────────────────────
 
 /// Input for importing a GEDCOM string.
 #[derive(Debug, InputObject)]
 pub struct ImportGedcomInput {
     /// The raw GEDCOM string content.
     pub gedcom: String,
+}
+
+/// Input for importing a GeneWeb `.gw` file.
+#[derive(Debug, InputObject)]
+pub struct ImportGenewebInput {
+    /// The raw file content, base64-encoded.
+    ///
+    /// `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:`
+    /// directive, so its bytes cannot travel as a GraphQL `String` — those are
+    /// UTF-8 by definition and a Latin-1 file would arrive mangled. The REST
+    /// endpoint takes the same bytes raw, without this encoding step.
+    pub content_base64: String,
+
+    /// Name of the file being imported. GeneWeb records it on every family and
+    /// it is echoed back in parse warnings; defaults to `import.gw`.
+    pub filename: Option<String>,
 }

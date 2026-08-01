@@ -31,6 +31,7 @@ OxidGene is a multiplatform genealogy application featuring:
 - **Dual API**: REST + GraphQL with full feature parity
 - **Cross-platform**: Web (WASM) and Desktop from a single Dioxus codebase
 - **GEDCOM support**: Import/export GEDCOM 5.5.1 and 7.0 files
+- **GeneWeb support**: Import GeneWeb `.gw` files, including the `gwplus` extension
 - **Offline-capable**: Desktop app with embedded SQLite database
 - **Performant**: Rust from top to bottom, closure table for fast tree traversal
 

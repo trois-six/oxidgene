@@ -7,9 +7,7 @@ use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use uuid::Uuid;
 
-use super::dto::{
-    ExportGedcomQuery, ExportGedcomResponse, ImportGedcomRequest, ImportGedcomResponse,
-};
+use super::dto::{ExportGedcomQuery, ExportGedcomResponse, ImportGedcomRequest, ImportResponse};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::gedcom;
@@ -21,7 +19,7 @@ pub async fn import_gedcom_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<ImportGedcomRequest>,
-) -> Result<(StatusCode, Json<ImportGedcomResponse>), ApiError> {
+) -> Result<(StatusCode, Json<ImportResponse>), ApiError> {
     let summary = gedcom::import_and_persist(&state.db, tree_id, &body.gedcom)
         .await
         .map_err(ApiError::from)?;
@@ -33,7 +31,7 @@ pub async fn import_gedcom_handler(
         .await
         .map_err(ApiError::from)?;
 
-    let response = ImportGedcomResponse {
+    let response = ImportResponse {
         persons_count: summary.persons_count,
         families_count: summary.families_count,
         events_count: summary.events_count,

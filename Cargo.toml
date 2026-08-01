@@ -75,6 +75,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # GEDCOM
 ged_io = { version = "0.16.1", features = ["json", "gedzip"] }
 
+# GeneWeb .gw reader (converts to the same ged_io model as above)
+geneweb = "0.1.0"
+
+# Base64 (GraphQL transport for binary .gw payloads)
+base64 = "0.22"
+
 # Configuration
 config = "0.15"
 

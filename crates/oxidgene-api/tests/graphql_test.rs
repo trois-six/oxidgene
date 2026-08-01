@@ -953,6 +953,90 @@ fn minimal_gedcom() -> &'static str {
     )
 }
 
+/// The same one-couple-one-child genealogy as `minimal_gedcom`, in GeneWeb's
+/// `.gw` syntax.
+fn minimal_geneweb() -> &'static str {
+    concat!(
+        "encoding: utf-8\n",
+        "\n",
+        "fam Doe Jean.0 1980 #bp Springfield +2005 Smith Jeanne.0\n",
+        "beg\n",
+        "- h Pierre.0 2007\n",
+        "end\n",
+    )
+}
+
+#[tokio::test]
+async fn test_graphql_import_geneweb() {
+    use base64::Engine as _;
+
+    let app = setup_app().await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "GQL GeneWeb Tree" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(minimal_geneweb());
+    let query = format!(
+        r#"mutation {{
+            importGeneweb(
+                treeId: "{tree_id}",
+                input: {{ contentBase64: "{encoded}", filename: "family.gw" }}
+            ) {{
+                personsCount
+                familiesCount
+                warnings
+            }}
+        }}"#
+    );
+    let resp = graphql(app.clone(), &query, None).await;
+    let result = &data(&resp)["importGeneweb"];
+    assert_eq!(result["personsCount"], 3);
+    assert_eq!(result["familiesCount"], 1);
+
+    // The persons really landed in the tree.
+    let query =
+        format!(r#"{{ persons(treeId: "{tree_id}") {{ edges {{ node {{ id }} }} totalCount }} }}"#);
+    let resp = graphql(app.clone(), &query, None).await;
+    assert_eq!(data(&resp)["persons"]["totalCount"], 3);
+}
+
+#[tokio::test]
+async fn test_graphql_import_geneweb_rejects_bad_base64() {
+    let app = setup_app().await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "GQL GeneWeb Bad" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let query = format!(
+        r#"mutation {{
+            importGeneweb(treeId: "{tree_id}", input: {{ contentBase64: "not!base64!" }}) {{
+                personsCount
+            }}
+        }}"#
+    );
+    let resp = graphql(app.clone(), &query, None).await;
+    assert!(
+        resp["errors"].is_array(),
+        "expected a GraphQL error, got: {resp}"
+    );
+}
+
 #[tokio::test]
 async fn test_graphql_import_gedcom() {
     let app = setup_app().await;
