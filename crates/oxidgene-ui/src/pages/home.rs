@@ -626,8 +626,25 @@ fn TreeCard(
 
     let is_recent = diff.num_hours() < 24;
 
+    // Lift the card above the backdrop while its dropdown is open.
+    let card_class = if menu_open() {
+        "tree-card tree-card-menu-open"
+    } else {
+        "tree-card"
+    };
+
     rsx! {
-        div { class: "tree-card",
+        // Backdrop to close the dropdown on outside click. It must stay a
+        // *sibling* of `.tree-card`: the card's hover `transform` would make it
+        // the containing block for `position: fixed`, collapsing the backdrop
+        // onto the card.
+        if menu_open() {
+            div {
+                class: "tree-card-menu-backdrop",
+                onclick: move |_| menu_open.set(false),
+            }
+        }
+        div { class: "{card_class}",
             // ── Visual header ──────────────────────────────────────
             div { class: "tree-card-visual",
                 svg {
@@ -743,14 +760,6 @@ fn TreeCard(
                         class: "btn-open",
                         {i18n.t("common.open")}
                     }
-                }
-            }
-
-            // Backdrop to close dropdown on outside click
-            if menu_open() {
-                div {
-                    class: "tree-card-menu-backdrop",
-                    onclick: move |_| menu_open.set(false),
                 }
             }
         }
@@ -1097,6 +1106,12 @@ const HOME_STYLES: &str = r#"
         position: fixed;
         inset: 0;
         z-index: 99;
+    }
+
+    /* Keep the open card (and its dropdown) painted above the backdrop, even
+       when hover `transform` turns the card into a stacking context. */
+    .tree-card-menu-open {
+        z-index: 101;
     }
 
     .tree-card-desc {
