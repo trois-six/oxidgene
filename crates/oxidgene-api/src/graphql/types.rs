@@ -1487,11 +1487,11 @@ impl From<oxidgene_core::types::Note> for GqlNote {
     }
 }
 
-// ── GEDCOM Import/Export Results ──────────────────────────────────────
+// ── Import/Export Results ─────────────────────────────────────────────
 
-/// Result of a GEDCOM import operation.
+/// Result of an import operation, whatever the source format.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlImportGedcomResult {
+pub struct GqlImportResult {
     pub persons_count: i32,
     pub families_count: i32,
     pub events_count: i32,

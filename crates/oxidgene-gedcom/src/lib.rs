@@ -1,9 +1,12 @@
-//! GEDCOM import/export for OxidGene.
+//! GEDCOM and GeneWeb import/export for OxidGene.
 //!
 //! Wraps the [`ged_io`] crate to convert between GEDCOM files and OxidGene
-//! domain model types.
+//! domain model types, and the [`geneweb`] crate to read GeneWeb `.gw` files —
+//! which it converts to the same `ged_io` model, so both formats share one
+//! mapping into the domain model.
 
 pub mod export;
+pub mod geneweb;
 pub mod import;
 
 use serde::{Deserialize, Serialize};

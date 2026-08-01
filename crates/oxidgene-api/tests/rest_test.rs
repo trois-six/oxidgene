@@ -1621,6 +1621,131 @@ async fn test_gedcom_export_invalid_tree() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+// ── GeneWeb import ───────────────────────────────────────────────────
+
+/// A `.gw` file: one couple and one child, in GeneWeb's own syntax.
+fn minimal_geneweb() -> &'static str {
+    concat!(
+        "encoding: utf-8\n",
+        "\n",
+        "fam Doe Jean.0 1980 #bp Springfield +2005 Smith Jeanne.0\n",
+        "beg\n",
+        "- h Pierre.0 2007\n",
+        "end\n",
+    )
+}
+
+/// Helper: POST a raw binary body (the GeneWeb endpoint takes bytes, not JSON).
+async fn send_bytes(app: axum::Router, uri: &str, body: Vec<u8>) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header("content-type", "application/octet-stream")
+        .body(Body::from(body))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+    };
+    (status, json)
+}
+
+#[tokio::test]
+async fn test_geneweb_import() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    let (status, body) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{tree_id}/geneweb/import?filename=family.gw"),
+        minimal_geneweb().as_bytes().to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["persons_count"], 3);
+    assert_eq!(body["families_count"], 1);
+
+    // The entities really landed in the database.
+    let (status, persons) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(persons["edges"].as_array().unwrap().len(), 3);
+}
+
+/// A `.gw` file is ISO-8859-1 unless it opts into UTF-8, so the endpoint takes
+/// raw bytes; this is the regression test that nothing decodes them as UTF-8
+/// along the way.
+#[tokio::test]
+async fn test_geneweb_import_latin1_bytes() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // "Émile" with É as the single Latin-1 byte 0xC9 — invalid UTF-8.
+    let mut gw = Vec::new();
+    gw.extend_from_slice(b"fam Doe \xC9mile.0 + Smith Jeanne.0\n");
+    assert!(String::from_utf8(gw.clone()).is_err());
+
+    let (status, body) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{tree_id}/geneweb/import?filename=latin1.gw"),
+        gw,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["persons_count"], 2);
+
+    // Search folds accents, so `emile` finds the person either way — what is
+    // being asserted is the stored spelling: a lossy UTF-8 decode would have
+    // left U+FFFD where the É is.
+    let (_, found) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=emile"),
+        None,
+    )
+    .await;
+    assert_eq!(found["total_count"], 1, "search returned: {found}");
+    assert_eq!(found["entries"][0]["display_name"], "Émile Doe");
+}
+
+#[tokio::test]
+async fn test_geneweb_import_invalid_tree() {
+    let app = setup_app().await;
+    let fake_id = "00000000-0000-0000-0000-000000000000";
+
+    let (status, _) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{fake_id}/geneweb/import"),
+        minimal_geneweb().as_bytes().to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_geneweb_import_unparseable_file() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    let (status, _) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{tree_id}/geneweb/import"),
+        b"this is not a gw file at all\n".to_vec(),
+    )
+    .await;
+    assert_ne!(status, StatusCode::CREATED);
+}
+
 // ───────────────────── Profile & pedigree routes ─────────────────────
 
 /// The projection routes replaced `/cache/*` in Sprint E.9. This walks the

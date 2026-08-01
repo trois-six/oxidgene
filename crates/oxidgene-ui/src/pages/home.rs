@@ -35,7 +35,7 @@ pub fn Home() -> Element {
 
     // Import state.
     let mut import_error = use_signal(|| None::<String>);
-    let mut import_result = use_signal(|| None::<(String, crate::api::ImportGedcomResult)>);
+    let mut import_result = use_signal(|| None::<(String, crate::api::ImportResult)>);
     let mut importing_tree_id = use_signal(|| None::<Uuid>);
 
     // Rename state.
@@ -297,9 +297,11 @@ pub fn Home() -> Element {
                                                     let name_for_result = tree_name_import.clone();
                                                     spawn(async move {
                                                         let file = rfd::AsyncFileDialog::new()
+                                                            .add_filter("GEDCOM / GeneWeb", &["ged", "gw"])
                                                             .add_filter("GEDCOM", &["ged"])
+                                                            .add_filter("GeneWeb", &["gw"])
                                                             .add_filter("All files", &["*"])
-                                                            .set_title("Select a GEDCOM file")
+                                                            .set_title(i18n.t("gedcom.select_file"))
                                                             .pick_file()
                                                             .await;
                                                         let Some(file) = file else { return };
@@ -309,15 +311,40 @@ pub fn Home() -> Element {
                                                         import_result.set(None);
 
                                                         let path = file.path().to_path_buf();
-                                                        let gedcom = match tokio::fs::read_to_string(&path).await {
+                                                        let file_name = file.file_name();
+                                                        let is_geneweb = path
+                                                            .extension()
+                                                            .is_some_and(|e| e.eq_ignore_ascii_case("gw"));
+
+                                                        // Read bytes, not text: a `.gw` file is ISO-8859-1
+                                                        // unless it opts into UTF-8, and only its reader
+                                                        // knows which — decoding here would mangle accents.
+                                                        let bytes = match tokio::fs::read(&path).await {
                                                             Ok(content) => content,
                                                             Err(e) => {
-                                                                import_error.set(Some(format!("Failed to read file: {e}")));
+                                                                import_error.set(Some(i18n.t_args(
+                                                                    "import.read_error",
+                                                                    &[("error", &e.to_string())],
+                                                                )));
                                                                 importing_tree_id.set(None);
                                                                 return;
                                                             }
                                                         };
-                                                        match api.import_gedcom(tid, &gedcom).await {
+
+                                                        let outcome = if is_geneweb {
+                                                            api.import_geneweb(tid, bytes, &file_name).await
+                                                        } else {
+                                                            match String::from_utf8(bytes) {
+                                                                Ok(gedcom) => api.import_gedcom(tid, &gedcom).await,
+                                                                Err(_) => {
+                                                                    import_error.set(Some(i18n.t("import.not_utf8")));
+                                                                    importing_tree_id.set(None);
+                                                                    return;
+                                                                }
+                                                            }
+                                                        };
+
+                                                        match outcome {
                                                             Ok(result) => {
                                                                 import_result.set(Some((name_for_result, result)));
                                                                 importing_tree_id.set(None);
@@ -527,7 +554,7 @@ pub fn Home() -> Element {
         if importing_tree_id().is_some() {
             div { class: "import-overlay",
                 div { class: "import-spinner" }
-                div { class: "import-overlay-text", {i18n.t("common.importing_gedcom")} }
+                div { class: "import-overlay-text", {i18n.t("common.importing_file")} }
             }
         }
         if duplicating_tree_id().is_some() {

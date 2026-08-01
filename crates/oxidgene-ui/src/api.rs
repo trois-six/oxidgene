@@ -348,15 +348,16 @@ pub struct MediaLinkRow {
     pub file_name: String,
 }
 
-// ── GEDCOM DTOs ─────────────────────────────────────────────────────
+// ── Import / export DTOs ────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct ImportGedcomBody {
     pub gedcom: String,
 }
 
+/// Summary returned by any import, whatever the source format.
 #[derive(Debug, Clone, Deserialize)]
-pub struct ImportGedcomResult {
+pub struct ImportResult {
     pub persons_count: usize,
     pub families_count: usize,
     pub events_count: usize,
@@ -609,6 +610,30 @@ impl ApiClient {
         let body_json = serde_json::to_string(body).unwrap_or_default();
         tracing::debug!("POST {url} body={body_json}");
         let resp = self.client.post(&url).json(body).send().await?;
+        Self::handle_response(&url, "POST", resp).await
+    }
+
+    /// Helper: send a POST request with a raw binary body.
+    ///
+    /// Used by importers whose payload is a file whose encoding is the file's
+    /// own business (see `import_geneweb`) — wrapping those bytes in JSON would
+    /// force them through UTF-8 first.
+    async fn post_bytes<T: serde::de::DeserializeOwned, Q: Serialize>(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        query: &Q,
+    ) -> Result<T, ApiError> {
+        let url = self.url(path);
+        tracing::debug!("POST {url} ({} bytes)", body.len());
+        let resp = self
+            .client
+            .post(&url)
+            .query(query)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
         Self::handle_response(&url, "POST", resp).await
     }
 
@@ -1599,19 +1624,43 @@ impl ApiClient {
             .await
     }
 
-    // ── GEDCOM ──────────────────────────────────────────────────────
+    // ── Import / export ─────────────────────────────────────────────
 
     pub async fn import_gedcom(
         &self,
         tree_id: Uuid,
         gedcom: &str,
-    ) -> Result<ImportGedcomResult, ApiError> {
+    ) -> Result<ImportResult, ApiError> {
         let result = self
             .post(
                 &format!("/api/v1/trees/{tree_id}/gedcom/import"),
                 &ImportGedcomBody {
                     gedcom: gedcom.to_string(),
                 },
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
+    }
+
+    /// Import a GeneWeb `.gw` file.
+    ///
+    /// Takes the raw file bytes, never a `String`: `.gw` is ISO-8859-1 unless
+    /// the file opts into UTF-8 with an `encoding:` directive, so decoding it
+    /// here would mangle accented names. `file_name` is passed through to the
+    /// reader, which records it on every family and quotes it in warnings.
+    pub async fn import_geneweb(
+        &self,
+        tree_id: Uuid,
+        content: Vec<u8>,
+        file_name: &str,
+    ) -> Result<ImportResult, ApiError> {
+        let query = [("filename", file_name.to_string())];
+        let result = self
+            .post_bytes(
+                &format!("/api/v1/trees/{tree_id}/geneweb/import"),
+                content,
+                &query,
             )
             .await?;
         self.invalidate_tree(tree_id);

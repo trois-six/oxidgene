@@ -2,7 +2,7 @@
 
 ## Project
 
-Multiplatform genealogy app, 100% Rust. Dioxus frontend (WASM + desktop), Axum backend (REST `/api/v1` + GraphQL `/graphql`), SeaORM (PostgreSQL web / SQLite desktop), GEDCOM via ged_io.
+Multiplatform genealogy app, 100% Rust. Dioxus frontend (WASM + desktop), Axum backend (REST `/api/v1` + GraphQL `/graphql`), SeaORM (PostgreSQL web / SQLite desktop), GEDCOM via ged_io, GeneWeb `.gw` import via geneweb.
 
 ## Specs
 
@@ -28,7 +28,7 @@ All specifications live in `docs/specifications/` — always read the relevant s
 crates/
   oxidgene-core/    # Domain types, enums, errors, read projections — no internal deps
   oxidgene-db/      # SeaORM entities, migrations, repos
-  oxidgene-gedcom/  # GEDCOM ↔ domain (wraps ged_io)
+  oxidgene-gedcom/  # GEDCOM ↔ domain (wraps ged_io) + GeneWeb .gw → domain (wraps geneweb)
   oxidgene-api/     # Axum REST + async-graphql + service + profile layer
   oxidgene-ui/      # Dioxus components + pages
 apps/
@@ -74,9 +74,9 @@ Dioxus. Components in `src/components/`, pages in `src/pages/`.
 
 ## Backend (oxidgene-api)
 
-- `rest/` — one handler file per resource (tree, person, family, event, place, source, citation, media, media_link, note, gedcom, family_member)
+- `rest/` — one handler file per resource (tree, person, family, event, place, source, citation, media, media_link, note, gedcom, geneweb, family_member)
 - `graphql/` — query.rs, mutation.rs, types.rs, inputs.rs
-- `service/` — business logic (gedcom service)
+- `service/` — business logic (gedcom + geneweb import services; persistence shared via `gedcom::persist_import_result`)
 - `profile/` — read projections: `service.rs` (ProfileService), `builder.rs`, `invalidation.rs`
 - `rest/dto.rs` — request/response DTOs
 - `rest/state.rs` — AppState (DB connection + `Arc<ProfileService>`)

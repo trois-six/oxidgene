@@ -179,12 +179,19 @@ Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints re
 | `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
 | `GET` | `/trees/{tree_id}/dictionary/places/{place_id}/usage` | Persons referencing a place |
 
-### GEDCOM
+### Import / export
+
+GEDCOM is read and written; GeneWeb `.gw` is read only — OxidGene imports the
+format, it does not produce it.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/trees/{tree_id}/gedcom/import` | Import GEDCOM file (multipart, 10 MiB body limit) |
+| `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 10 MiB body limit |
+| `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 10 MiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
+
+Both import endpoints return the same `ImportResponse` shape and trigger a full
+projection rebuild of the tree.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
@@ -355,8 +362,11 @@ type Mutation {
   updateNote(treeId: ID!, id: ID!, input: UpdateNoteInput!): Note!
   deleteNote(treeId: ID!, id: ID!): Boolean!
 
-  # GEDCOM (content passed as a string — no Upload scalar)
-  importGedcom(treeId: ID!, input: ImportGedcomInput!): ImportGedcomResult!
+  # Import (content passed inline — no Upload scalar)
+  importGedcom(treeId: ID!, input: ImportGedcomInput!): ImportResult!
+  # `.gw` bytes are base64-encoded: the format is ISO-8859-1 unless the file
+  # opts into UTF-8, and a GraphQL String cannot carry non-UTF-8 bytes.
+  importGeneweb(treeId: ID!, input: ImportGenewebInput!): ImportResult!
 
   # Read projections (see Read Projections spec) — mirrors the REST routes
   expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
@@ -450,7 +460,17 @@ type EventWitness {
   sortOrder: Int!
 }
 
-type ImportGedcomResult {
+input ImportGedcomInput {
+  gedcom: String!
+}
+
+input ImportGenewebInput {
+  contentBase64: String!
+  filename: String   # default "import.gw"
+}
+
+# Returned by every import mutation, whatever the source format.
+type ImportResult {
   personsCount: Int!
   familiesCount: Int!
   eventsCount: Int!

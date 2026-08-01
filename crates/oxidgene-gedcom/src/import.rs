@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use chrono::{NaiveDate, Utc};
 use ged_io::GedcomBuilder;
+use ged_io::types::GedcomData;
 use ged_io::types::event::Event as GedEvent;
 use ged_io::types::source::citation::CitationSource;
 use uuid::Uuid;
@@ -34,6 +35,21 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         .build_from_str(gedcom_str)
         .map_err(|e| format!("GEDCOM parse error: {e}"))?;
 
+    import_gedcom_data(&data, tree_id)
+}
+
+/// Import an already-parsed GEDCOM model into OxidGene domain model entities.
+///
+/// This is the conversion half of [`import_gedcom`], exposed separately so that
+/// other readers producing a [`GedcomData`] — notably the GeneWeb `.gw` reader
+/// in [`crate::geneweb`] — reuse the exact same mapping.
+///
+/// All entities are assigned to the given `tree_id`.
+///
+/// # Errors
+///
+/// Returns `Err` if the model cannot be converted.
+pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResult, String> {
     let now = Utc::now();
     let mut result = ImportResult::default();
 
