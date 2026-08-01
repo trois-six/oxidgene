@@ -10,6 +10,7 @@ pub mod event;
 pub mod family;
 pub mod family_member;
 pub mod gedcom;
+pub mod geneweb;
 pub mod media;
 pub mod media_link;
 pub mod note;

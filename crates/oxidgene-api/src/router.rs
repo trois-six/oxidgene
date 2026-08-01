@@ -13,6 +13,7 @@ use crate::rest::event;
 use crate::rest::family;
 use crate::rest::family_member;
 use crate::rest::gedcom;
+use crate::rest::geneweb;
 use crate::rest::media;
 use crate::rest::media_link;
 use crate::rest::note;
@@ -253,7 +254,7 @@ pub fn build_router(state: AppState) -> Router {
             patch(profile::expand_pedigree),
         );
 
-    let gedcom_routes = Router::new()
+    let import_export_routes = Router::new()
         .route(
             "/{tree_id}/gedcom/import",
             post(gedcom::import_gedcom_handler),
@@ -261,6 +262,11 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/gedcom/export",
             get(gedcom::export_gedcom_handler),
+        )
+        // GeneWeb is import-only — `.gw` is a format OxidGene reads, not writes.
+        .route(
+            "/{tree_id}/geneweb/import",
+            post(geneweb::import_geneweb_handler),
         )
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)); // 10 MiB
 
@@ -291,7 +297,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(snapshot_routes)
                 .merge(dictionary_routes)
                 .merge(profile_routes)
-                .merge(gedcom_routes),
+                .merge(import_export_routes),
         )
         .nest("/api/v1/reference", reference_routes)
         .layer(CompressionLayer::new())
