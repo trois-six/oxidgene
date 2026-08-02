@@ -17,6 +17,7 @@
 
 use sea_orm::{ConnectionTrait, Statement, TryGetable, Value};
 use sea_orm_migration::prelude::*;
+use uuid::Uuid;
 
 use crate::html::sanitize_note_html;
 
@@ -37,7 +38,10 @@ impl MigrationTrait for Migration {
             .await?;
 
         for row in rows {
-            let id = String::try_get(&row, "", "id")?;
+            // `note.id` is a native `uuid` column on PostgreSQL, so it has to be
+            // read and re-bound as a `Uuid` — reading it as a `String` works on
+            // SQLite and fails on PG.
+            let id = Uuid::try_get(&row, "", "id")?;
             let text = String::try_get(&row, "", "text")?;
 
             let clean = sanitize_note_html(&text);
