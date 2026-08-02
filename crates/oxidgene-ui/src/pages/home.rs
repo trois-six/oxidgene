@@ -46,6 +46,13 @@ pub fn Home() -> Element {
     // Duplicate state.
     let mut duplicating_tree_id = use_signal(|| None::<Uuid>);
 
+    // Id of the tree card whose "⋮" dropdown is open, at most one at a time.
+    // Owned here rather than by `TreeCard` so the click-outside backdrop can be
+    // rendered at the page root, clear of the grid's animation and the card's
+    // hover `transform` — either would become the containing block for its
+    // `position: fixed` and shrink it away from the viewport.
+    let mut open_menu = use_signal(|| None::<String>);
+
     // Search & sort state.
     let mut search_query = use_signal(String::new);
     let mut sort_mode = use_signal(|| "recent".to_string());
@@ -103,6 +110,13 @@ pub fn Home() -> Element {
         div { class: "gear-bg gear-2" }
 
         div { class: "home-page",
+            if open_menu.read().is_some() {
+                div {
+                    class: "tree-card-menu-backdrop",
+                    onclick: move |_| open_menu.set(None),
+                }
+            }
+
             div { class: "home-main",
 
                 // ── Page header ──────────────────────────────────────
@@ -264,6 +278,7 @@ pub fn Home() -> Element {
                                                 tree_id: tid_str,
                                                 importing: is_importing,
                                                 duplicating: is_duplicating,
+                                                open_menu,
                                                 on_rename: move |_| {
                                                     rename_tree_id.set(Some(tid));
                                                     rename_name.set(tree_name_rename.clone());
@@ -589,13 +604,18 @@ fn TreeCard(
     tree_id: String,
     importing: bool,
     duplicating: bool,
+    /// Id of the card whose dropdown is open, owned by [`Home`] so the
+    /// click-outside backdrop can be rendered outside the animated grid.
+    open_menu: Signal<Option<String>>,
     on_rename: EventHandler<()>,
     on_duplicate: EventHandler<()>,
     on_delete: EventHandler<()>,
     on_import: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
-    let mut menu_open = use_signal(|| false);
+    let mut open_menu = open_menu;
+    let menu_open = open_menu.read().as_deref() == Some(tree_id.as_str());
+    let toggle_id = tree_id.clone();
 
     let now = Utc::now();
     let diff = now.signed_duration_since(updated_at);
@@ -627,23 +647,13 @@ fn TreeCard(
     let is_recent = diff.num_hours() < 24;
 
     // Lift the card above the backdrop while its dropdown is open.
-    let card_class = if menu_open() {
+    let card_class = if menu_open {
         "tree-card tree-card-menu-open"
     } else {
         "tree-card"
     };
 
     rsx! {
-        // Backdrop to close the dropdown on outside click. It must stay a
-        // *sibling* of `.tree-card`: the card's hover `transform` would make it
-        // the containing block for `position: fixed`, collapsing the backdrop
-        // onto the card.
-        if menu_open() {
-            div {
-                class: "tree-card-menu-backdrop",
-                onclick: move |_| menu_open.set(false),
-            }
-        }
         div { class: "{card_class}",
             // ── Visual header ──────────────────────────────────────
             div { class: "tree-card-visual",
@@ -685,23 +695,27 @@ fn TreeCard(
                             title: i18n.t("home.tree_actions"),
                             onclick: move |e: Event<MouseData>| {
                                 e.stop_propagation();
-                                menu_open.set(!menu_open());
+                                if menu_open {
+                                    open_menu.set(None);
+                                } else {
+                                    open_menu.set(Some(toggle_id.clone()));
+                                }
                             },
                             "⋮"
                         }
-                        if menu_open() {
+                        if menu_open {
                             div { class: "tree-card-dropdown",
                                 Link {
                                     to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                                     class: "tree-card-dropdown-item",
-                                    onclick: move |_| menu_open.set(false),
+                                    onclick: move |_| open_menu.set(None),
                                     {i18n.t("common.open")}
                                 }
                                 button {
                                     class: "tree-card-dropdown-item",
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
-                                        menu_open.set(false);
+                                        open_menu.set(None);
                                         on_rename.call(());
                                     },
                                     {i18n.t("common.rename")}
@@ -711,7 +725,7 @@ fn TreeCard(
                                     disabled: duplicating,
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
-                                        menu_open.set(false);
+                                        open_menu.set(None);
                                         on_duplicate.call(());
                                     },
                                     if duplicating { {i18n.t("common.duplicating")} } else { {i18n.t("common.duplicate")} }
@@ -721,7 +735,7 @@ fn TreeCard(
                                     disabled: importing,
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
-                                        menu_open.set(false);
+                                        open_menu.set(None);
                                         on_import.call(());
                                     },
                                     if importing { {i18n.t("common.importing")} } else { {i18n.t("common.import")} }
@@ -729,14 +743,14 @@ fn TreeCard(
                                 Link {
                                     to: Route::Settings { tree_id: tree_id.clone() },
                                     class: "tree-card-dropdown-item",
-                                    onclick: move |_| menu_open.set(false),
+                                    onclick: move |_| open_menu.set(None),
                                     {i18n.t("common.settings")}
                                 }
                                 button {
                                     class: "tree-card-dropdown-item tree-card-dropdown-danger",
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
-                                        menu_open.set(false);
+                                        open_menu.set(None);
                                         on_delete.call(());
                                     },
                                     {i18n.t("common.delete")}
@@ -828,7 +842,7 @@ const HOME_STYLES: &str = r#"
 
     .home-page-header {
         margin-bottom: 2.5rem;
-        animation: home-fade-up 0.6s ease both;
+        animation: home-fade-up 0.6s ease backwards;
     }
 
     .home-page-header h1 {
@@ -888,7 +902,7 @@ const HOME_STYLES: &str = r#"
         gap: 0.75rem;
         margin-bottom: 2rem;
         flex-wrap: wrap;
-        animation: home-fade-up 0.6s 0.08s ease both;
+        animation: home-fade-up 0.6s 0.08s ease backwards;
     }
 
     .home-search-box {
@@ -978,7 +992,7 @@ const HOME_STYLES: &str = r#"
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: 1.5rem;
-        animation: home-fade-up 0.6s 0.15s ease both;
+        animation: home-fade-up 0.6s 0.15s ease backwards;
     }
 
     /* ── Tree card ───────────────────────────────────────────────── */
@@ -1288,6 +1302,12 @@ const HOME_STYLES: &str = r#"
 
     /* ── Animations ──────────────────────────────────────────────── */
 
+    /* Users of this animation must set `fill-mode: backwards`, never `both`.
+       `backwards` covers the start delay and then stops applying once the
+       animation ends; `both` keeps it in effect forever, so the animated
+       `transform` lingers and turns the element into a containing block for
+       its `position: fixed` descendants — which silently shrinks full-screen
+       overlays (dropdown backdrops, modals) down to that element's box. */
     @keyframes home-fade-up {
         from { opacity: 0; transform: translateY(20px); }
         to   { opacity: 1; transform: translateY(0); }
