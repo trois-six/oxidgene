@@ -81,6 +81,9 @@ geneweb = "0.1.0"
 # Base64 (GraphQL transport for binary .gw payloads)
 base64 = "0.22"
 
+# HTML sanitizer for note bodies (see oxidgene-db::html)
+ammonia = "4"
+
 # Configuration
 config = "0.15"
 

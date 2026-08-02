@@ -1712,8 +1712,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             for note in notes_list.iter() {
                                 {
                                     let nid = note.id;
-                                    let text = note.text.clone();
-                                    let preview = if text.len() > 120 { format!("{}…", &text[..120]) } else { text };
+                                    let preview = crate::utils::html_to_preview(&note.text, 120);
                                     rsx! {
                                         div { class: "person-form-item",
                                             div { class: "person-form-item-info", span { "{preview}" } }

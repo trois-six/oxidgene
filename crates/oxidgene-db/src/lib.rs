@@ -7,6 +7,7 @@
 //! - (Future) Repository trait implementations for CRUD operations
 
 pub mod entities;
+pub mod html;
 pub mod migration;
 pub mod repo;
 
