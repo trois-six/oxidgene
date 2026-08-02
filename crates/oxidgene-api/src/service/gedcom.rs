@@ -11,6 +11,7 @@ use oxidgene_db::entities::{
     citation, event, event_witness, family, family_child, family_spouse, media, media_link, note,
     person, person_ancestry, person_name, place, sea_enums, source,
 };
+use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
     MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
@@ -345,7 +346,9 @@ pub(crate) async fn persist_import_result(
             .map(|n| note::ActiveModel {
                 id: Set(n.id),
                 tree_id: Set(n.tree_id),
-                text: Set(n.text.clone()),
+                // Imported bodies are rendered as HTML and reach here as a
+                // batch insert, bypassing `NoteRepo`'s own sanitizing.
+                text: Set(sanitize_note_html(&n.text)),
                 person_id: Set(n.person_id),
                 event_id: Set(n.event_id),
                 family_id: Set(n.family_id),

@@ -524,6 +524,69 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 140px;
     }
 
+    /* ── Note bodies ──────────────────────────────────────────────
+       Notes render the sanitized HTML they were imported with (see
+       oxidgene_db::html). The author of that markup is a GEDCOM or .gw file,
+       not this app, so it gets bounded here: anything wide scrolls inside its
+       own box rather than stretching the page. */
+
+    .note-html {
+        overflow-wrap: anywhere;
+    }
+
+    .note-html > *:first-child { margin-top: 0; }
+    .note-html > *:last-child  { margin-bottom: 0; }
+
+    .note-html p,
+    .note-html ul,
+    .note-html ol,
+    .note-html blockquote,
+    .note-html table {
+        margin: 0 0 0.6em;
+    }
+
+    .note-html ul, .note-html ol { padding-left: 1.4em; }
+
+    .note-html h1, .note-html h2, .note-html h3,
+    .note-html h4, .note-html h5, .note-html h6 {
+        font-size: 1em;
+        font-weight: 600;
+        margin: 0.8em 0 0.3em;
+    }
+
+    .note-html a {
+        color: var(--orange);
+        text-decoration: underline;
+    }
+
+    .note-html img {
+        max-width: 100%;
+        height: auto;
+    }
+
+    .note-html blockquote {
+        border-left: 3px solid var(--border);
+        padding-left: 0.8em;
+        color: var(--text-secondary);
+    }
+
+    .note-html pre {
+        overflow-x: auto;
+        white-space: pre-wrap;
+    }
+
+    .note-html table {
+        border-collapse: collapse;
+        display: block;
+        overflow-x: auto;
+        max-width: 100%;
+    }
+
+    .note-html td, .note-html th {
+        border: 1px solid var(--border);
+        padding: 4px 8px;
+    }
+
     .empty-state {
         text-align: center;
         padding: 48px 24px;

@@ -1320,7 +1320,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         for note in notes.iter() {
                             div {
                                 style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius);",
-                                p { style: "margin: 0; white-space: pre-wrap;", "{note.text}" }
+                                // Note bodies carry markup — GeneWeb writes its
+                                // line breaks as `<br>` — and are sanitized
+                                // server-side on write by
+                                // `oxidgene_db::html::sanitize_note_html`, so
+                                // nothing executable can reach here.
+                                div { class: "note-html", dangerous_inner_html: "{note.text}" }
                             }
                         }
                     }
