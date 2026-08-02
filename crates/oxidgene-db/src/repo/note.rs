@@ -1,4 +1,9 @@
 //! Repository for `Note` entities (CRUD with soft delete).
+//!
+//! Note bodies are rendered as HTML, so every write here runs the text through
+//! [`sanitize_note_html`] — this is the choke point both REST and GraphQL go
+//! through. Bulk imports do not come this way and sanitize on their own; see
+//! [`crate::html`].
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
@@ -8,6 +13,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, S
 use uuid::Uuid;
 
 use crate::entities::note::{self, ActiveModel, Column, Entity};
+use crate::html::sanitize_note_html;
 
 /// Repository for note CRUD operations.
 pub struct NoteRepo;
@@ -87,7 +93,7 @@ impl NoteRepo {
         let model = note::ActiveModel {
             id: Set(id),
             tree_id: Set(tree_id),
-            text: Set(text),
+            text: Set(sanitize_note_html(&text)),
             person_id: Set(person_id),
             event_id: Set(event_id),
             family_id: Set(family_id),
@@ -118,7 +124,7 @@ impl NoteRepo {
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(text) = text {
-            active.text = Set(text);
+            active.text = Set(sanitize_note_html(&text));
         }
         active.updated_at = Set(Utc::now());
 

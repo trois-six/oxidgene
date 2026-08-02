@@ -195,6 +195,62 @@ fn estimate_char_width_px(ch: char, font_size_px: f32) -> f32 {
     ratio * font_size_px
 }
 
+/// Flatten a sanitized note body into a one-line plain-text preview.
+///
+/// Note bodies are HTML (see `oxidgene_db::html`), which is fine where they are
+/// rendered but not in a list label: raw tags are noise, and truncating markup
+/// mid-tag produces broken output. This drops tags, collapses whitespace and
+/// cuts on a character boundary — `&text[..n]` would panic the moment an
+/// accented letter straddles the byte index.
+///
+/// Entity handling covers only the few `ammonia` emits; anything else is left
+/// as written, which is acceptable for a preview.
+#[must_use]
+pub fn html_to_preview(html: &str, max_chars: usize) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut entity: Option<String> = None;
+
+    for ch in html.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if in_tag => {}
+            '&' => entity = Some(String::new()),
+            ';' if entity.is_some() => {
+                let name = entity.take().unwrap_or_default();
+                text.push_str(match name.as_str() {
+                    "amp" => "&",
+                    "lt" => "<",
+                    "gt" => ">",
+                    "quot" => "\"",
+                    "#39" | "apos" => "'",
+                    "nbsp" => " ",
+                    _ => "",
+                });
+            }
+            _ => match entity.as_mut() {
+                // An unterminated `&…` is literal text, not an entity.
+                Some(buf) if buf.chars().count() < 8 => buf.push(ch),
+                Some(_) => {
+                    let buf = entity.take().unwrap_or_default();
+                    text.push('&');
+                    text.push_str(&buf);
+                    text.push(ch);
+                }
+                None => text.push(ch),
+            },
+        }
+    }
+
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= max_chars {
+        return collapsed;
+    }
+    let kept: String = collapsed.chars().take(max_chars).collect();
+    format!("{}…", kept.trim_end())
+}
+
 /// Estimate rendered text width in pixels for Lato-like sans fonts.
 fn estimate_text_width_px(text: &str, font_size_px: f32) -> f32 {
     text.chars()
@@ -234,5 +290,45 @@ pub fn truncate_text_to_fit(text: &str, max_width_px: f32, font_size_px: f32) ->
     } else {
         out.push(ellipsis);
         out
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::html_to_preview;
+
+    #[test]
+    fn strips_tags_and_collapses_whitespace() {
+        let out = html_to_preview("<p>Ne a <b>Paris</b></p>\n<p>en   1802</p>", 120);
+        assert_eq!(out, "Ne a Paris en 1802");
+    }
+
+    #[test]
+    fn decodes_the_entities_ammonia_emits() {
+        assert_eq!(
+            html_to_preview("Durand &amp; fils &lt;x&gt;", 120),
+            "Durand & fils <x>"
+        );
+    }
+
+    #[test]
+    fn keeps_a_bare_ampersand_as_text() {
+        assert_eq!(
+            html_to_preview("vins & spiritueux", 120),
+            "vins & spiritueux"
+        );
+    }
+
+    #[test]
+    fn truncates_on_a_char_boundary() {
+        // Every char is multi-byte: slicing by byte index would panic here.
+        let out = html_to_preview(&"é".repeat(50), 10);
+        assert_eq!(out.chars().filter(|c| *c == 'é').count(), 10);
+        assert!(out.ends_with('…'), "got: {out}");
+    }
+
+    #[test]
+    fn leaves_short_text_untouched() {
+        assert_eq!(html_to_preview("court", 120), "court");
     }
 }
