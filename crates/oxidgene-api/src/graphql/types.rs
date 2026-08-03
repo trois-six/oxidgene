@@ -4,6 +4,7 @@
 //! nested relationships (e.g., Person -> names, events, families).
 
 use crate::profile::ProfileService;
+use crate::service::purge::PurgeQueue;
 use async_graphql::{ComplexObject, Context, Enum, ID, Result, SimpleObject};
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
@@ -439,6 +440,10 @@ pub(crate) fn db_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a DatabaseConnection {
 
 pub(crate) fn profiles_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<ProfileService> {
     ctx.data_unchecked::<Arc<ProfileService>>()
+}
+
+pub(crate) fn purge_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a PurgeQueue {
+    ctx.data_unchecked::<PurgeQueue>()
 }
 
 // ── PageInfo ─────────────────────────────────────────────────────────

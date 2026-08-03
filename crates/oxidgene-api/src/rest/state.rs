@@ -5,6 +5,7 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use std::sync::Arc;
 
 use crate::profile::ProfileService;
+use crate::service::purge::{self, PurgeQueue};
 
 /// Shared state available to all Axum handlers.
 #[derive(Debug, Clone)]
@@ -12,6 +13,8 @@ pub struct AppState {
     pub db: DatabaseConnection,
     /// Denormalized person projections, search and pedigree assembly.
     pub profiles: Arc<ProfileService>,
+    /// Hands soft-deleted trees to the background purge worker.
+    pub purge: PurgeQueue,
 }
 
 impl AppState {
@@ -20,14 +23,22 @@ impl AppState {
     /// There is no cache backend to select any more: projections live in the
     /// `person_denorm` table of the same database, so desktop (SQLite) and
     /// web (PostgreSQL) run the identical code path.
+    ///
+    /// Spawns the purge worker, which also sweeps trees left soft-deleted by a
+    /// previous run — so this must be called from within a Tokio runtime.
     pub fn new(db: DatabaseConnection) -> Self {
         let profiles = Arc::new(ProfileService::new(db.clone()));
-        Self { db, profiles }
+        Self::with_profiles(db, profiles)
     }
 
     /// Create a new `AppState` with an explicit profile service (for testing).
     pub fn with_profiles(db: DatabaseConnection, profiles: Arc<ProfileService>) -> Self {
-        Self { db, profiles }
+        let purge = purge::spawn_worker(db.clone(), Arc::clone(&profiles));
+        Self {
+            db,
+            profiles,
+            purge,
+        }
     }
 }
 
