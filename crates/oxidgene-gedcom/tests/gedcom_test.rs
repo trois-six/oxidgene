@@ -297,21 +297,6 @@ fn test_import_family() {
 }
 
 #[test]
-fn test_import_ancestry_closure() {
-    let tree_id = Uuid::now_v7();
-    let result = import_gedcom(FAMILY_GEDCOM, tree_id).unwrap();
-
-    // We have 3 persons: father, mother, child
-    // Should have 2 ancestry entries: father→child(1), mother→child(1)
-    assert_eq!(result.person_ancestry.len(), 2);
-
-    for pa in &result.person_ancestry {
-        assert_eq!(pa.depth, 1);
-        assert_eq!(pa.tree_id, tree_id);
-    }
-}
-
-#[test]
 fn test_import_source_and_citation() {
     let tree_id = Uuid::now_v7();
     let result = import_gedcom(SOURCE_GEDCOM, tree_id).unwrap();

@@ -60,6 +60,71 @@ async fn send_request(
     (status, json)
 }
 
+// ───────────────────────── Tree guard tests ─────────────────────────
+
+/// Deleting a tree is asynchronous, so its children must stop answering the
+/// moment the flag is set — not only once the background purge has run.
+#[tokio::test]
+async fn deleted_tree_children_are_not_readable() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Reachable while the tree lives.
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The purge may not have run yet; the children must already be gone.
+    for path in [
+        format!("/api/v1/trees/{tree_id}"),
+        format!("/api/v1/trees/{tree_id}/persons"),
+        format!("/api/v1/trees/{tree_id}/families"),
+        format!("/api/v1/trees/{tree_id}/events"),
+        format!("/api/v1/trees/{tree_id}/notes"),
+    ] {
+        let (status, _) = send_request(app.clone(), Method::GET, &path, None).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "{path} must 404 once deleted"
+        );
+    }
+}
+
+/// A tree id that never existed is a 404, not an empty 200.
+#[tokio::test]
+async fn unknown_tree_id_is_not_found() {
+    let app = setup_app().await;
+    let missing = uuid::Uuid::now_v7();
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{missing}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Listing and creating name no tree, so they stay reachable.
+    let (status, _) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
 // ───────────────────────── Tree tests ─────────────────────────
 
 #[tokio::test]

@@ -4,8 +4,8 @@ use async_graphql::{Context, ID, Object, Result};
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    EventFilter, EventRepo, FamilyRepo, MediaRepo, PaginationParams, PersonAncestryRepo,
-    PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
+    AncestryRepo, EventFilter, EventRepo, FamilyRepo, MediaRepo, PaginationParams, PersonRepo,
+    PlaceRepo, SourceRepo, TreeRepo,
 };
 
 use super::types::{
@@ -92,10 +92,10 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let _tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
-        let rows = PersonAncestryRepo::ancestors(db, pid, max_depth).await?;
+        let rows = AncestryRepo::ancestors(db, pid, max_depth).await?;
         let mut result = Vec::new();
         for row in rows {
-            let person = PersonRepo::get(db, row.ancestor_id).await?;
+            let person = PersonRepo::get(db, row.person_id).await?;
             result.push(GqlPersonWithDepth {
                 person: person.into(),
                 depth: row.depth,
@@ -115,10 +115,10 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let _tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
-        let rows = PersonAncestryRepo::descendants(db, pid, max_depth).await?;
+        let rows = AncestryRepo::descendants(db, pid, max_depth).await?;
         let mut result = Vec::new();
         for row in rows {
-            let person = PersonRepo::get(db, row.descendant_id).await?;
+            let person = PersonRepo::get(db, row.person_id).await?;
             result.push(GqlPersonWithDepth {
                 person: person.into(),
                 depth: row.depth,

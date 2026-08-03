@@ -53,7 +53,53 @@ async fn enable_wal(db: &DatabaseConnection) {
 pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
     Migrator::up(db, None).await?;
     info!("Migrations applied successfully");
+    reclaim_free_pages(db).await;
     Ok(())
+}
+
+/// Number of free 4 KiB pages past which a SQLite file is worth rewriting.
+/// 5 000 pages is ~20 MB — well above the churn of ordinary use, and far
+/// below what dropping a large table leaves behind.
+const VACUUM_THRESHOLD_PAGES: i64 = 5_000;
+
+/// Shrink a SQLite file that has a lot of free space, after migrations.
+///
+/// Dropping a table marks its pages free but does not return them to the
+/// filesystem — dropping `person_ancestry` left a 238 MB file holding 91 MB of
+/// data. Only `VACUUM` rewrites the file, and it cannot run inside a
+/// transaction, which is why this sits here rather than in the migration.
+///
+/// Gated on the free-page count so it costs one rewrite after a migration that
+/// frees real space, and is skipped on every ordinary start.
+async fn reclaim_free_pages(db: &DatabaseConnection) {
+    if db.get_database_backend() != DatabaseBackend::Sqlite {
+        return;
+    }
+
+    let free_pages = match db
+        .query_one(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "PRAGMA freelist_count",
+        ))
+        .await
+    {
+        Ok(Some(row)) => row.try_get::<i32>("", "freelist_count").unwrap_or(0) as i64,
+        _ => return,
+    };
+
+    if free_pages < VACUUM_THRESHOLD_PAGES {
+        return;
+    }
+
+    info!(free_pages, "reclaiming free database pages (VACUUM)");
+    match db
+        .execute(Statement::from_string(DatabaseBackend::Sqlite, "VACUUM"))
+        .await
+    {
+        Ok(_) => info!("database file compacted"),
+        // Not fatal: the database is correct, just larger than it needs to be.
+        Err(e) => warn!(%e, "VACUUM failed; database file stays at its current size"),
+    }
 }
 
 /// Roll back all migrations on the given database connection.
