@@ -17,7 +17,7 @@ use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::utils::resolve_name;
+use crate::utils::{note_html_for_display, resolve_name};
 use oxidgene_core::Sex;
 
 const SHOW_MANUAL_REFRESH: bool = cfg!(target_arch = "wasm32");
@@ -1320,12 +1320,17 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         for note in notes.iter() {
                             div {
                                 style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius);",
-                                // Note bodies carry markup — GeneWeb writes its
-                                // line breaks as `<br>` — and are sanitized
+                                // Note bodies carry markup — GEDCOM and GeneWeb
+                                // both put some in — and are sanitized
                                 // server-side on write by
                                 // `oxidgene_db::html::sanitize_note_html`, so
-                                // nothing executable can reach here.
-                                div { class: "note-html", dangerous_inner_html: "{note.text}" }
+                                // nothing executable can reach here. That same
+                                // pass stores line breaks as `\n`, which only
+                                // shows as a break once turned back into `<br>`.
+                                div {
+                                    class: "note-html",
+                                    dangerous_inner_html: note_html_for_display(&note.text),
+                                }
                             }
                         }
                     }

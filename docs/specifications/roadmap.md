@@ -132,6 +132,10 @@ wiki pages) — they survive conversion as `_GW…` tags, which the GEDCOM impor
 - [x] GEDCOM import/export UI (file upload, download).
 - [x] Frontend integration with REST/GraphQL API.
 
+**Post-livraison (Aug 2026):**
+- [x] Note bodies render as sanitized HTML (`ammonia` allowlist, applied on write in `oxidgene_db::html`) instead of escaped text, because the imported formats put markup in them.
+- [x] Line breaks in note bodies canonicalized to `\n` on write and restored to `<br>` at display, so the same note reads identically whether it arrived as GEDCOM `CONT` lines, as GeneWeb `<br/>` + newline, or typed into the note textarea.
+
 ---
 
 ## EPIC D — UX, Languages, Performance ✅

@@ -966,6 +966,100 @@ fn minimal_geneweb() -> &'static str {
     )
 }
 
+/// A note whose two lines are one break apart, in each format's own spelling:
+/// GEDCOM continues the line with `CONT`, GeneWeb ends it with `<br/>` *and*
+/// the newline that follows in the file. `samples/juesce_2026-08-01.{ged,gw}`
+/// hold the same real note both ways.
+///
+/// Whichever file it came from, the stored body has to end up identical — the
+/// import must not decide how many blank lines the author wrote.
+#[tokio::test]
+async fn test_import_normalizes_line_breaks_across_formats() {
+    use base64::Engine as _;
+
+    let app = setup_app().await;
+
+    async fn note_texts(app: axum::Router, tree_id: &str) -> Vec<String> {
+        let query = format!(
+            r#"{{ persons(treeId: "{tree_id}") {{ edges {{ node {{ notes {{ text }} }} }} }} }}"#
+        );
+        let resp = graphql(app, &query, None).await;
+        data(&resp)["persons"]["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|edge| edge["node"]["notes"].as_array().unwrap().clone())
+            .map(|note| note["text"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    async fn new_tree(app: axum::Router, name: &str) -> String {
+        let resp = graphql(
+            app,
+            &format!(r#"mutation {{ createTree(input: {{ name: "{name}" }}) {{ id }} }}"#),
+            None,
+        )
+        .await;
+        data(&resp)["createTree"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    // GEDCOM: the break is a CONT line.
+    let ged_tree = new_tree(app.clone(), "breaks GEDCOM").await;
+    let gedcom = concat!(
+        "0 HEAD\n",
+        "1 GEDC\n",
+        "2 VERS 5.5.1\n",
+        "0 @I1@ INDI\n",
+        "1 NAME Jean /Doe/\n",
+        "1 NOTE Ligne un\n",
+        "2 CONT Ligne deux\n",
+        "0 TRLR\n",
+    );
+    let query = format!(
+        r#"mutation {{
+            importGedcom(treeId: "{ged_tree}", input: {{ gedcom: "{}" }}) {{ notesCount }}
+        }}"#,
+        gedcom.replace('\n', "\\n").replace('"', "\\\"")
+    );
+    graphql(app.clone(), &query, None).await;
+
+    // GeneWeb: the break is `<br/>` followed by the file's own newline.
+    let gw_tree = new_tree(app.clone(), "breaks GeneWeb").await;
+    let geneweb = concat!(
+        "encoding: utf-8\n",
+        "\n",
+        "fam Doe Jean.0 + Roe Marie.0\n",
+        "beg\n",
+        "- h Pierre.0\n",
+        "end\n",
+        "\n",
+        "notes Doe Jean.0\n",
+        "beg\n",
+        "Ligne un<br/>\n",
+        "Ligne deux\n",
+        "end notes\n",
+    );
+    let encoded = base64::engine::general_purpose::STANDARD.encode(geneweb);
+    let query = format!(
+        r#"mutation {{
+            importGeneweb(
+                treeId: "{gw_tree}",
+                input: {{ contentBase64: "{encoded}", filename: "breaks.gw" }}
+            ) {{ notesCount }}
+        }}"#
+    );
+    graphql(app.clone(), &query, None).await;
+
+    let from_gedcom = note_texts(app.clone(), &ged_tree).await;
+    let from_geneweb = note_texts(app.clone(), &gw_tree).await;
+
+    assert_eq!(from_gedcom, vec!["Ligne un\nLigne deux".to_string()]);
+    assert_eq!(from_geneweb, from_gedcom);
+}
+
 #[tokio::test]
 async fn test_graphql_import_geneweb() {
     use base64::Engine as _;
