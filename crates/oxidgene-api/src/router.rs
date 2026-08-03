@@ -277,7 +277,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/{lang}/given-names", get(reference::given_name));
 
     #[cfg(feature = "graphql")]
-    let schema = build_schema(state.db.clone(), state.profiles.clone());
+    let schema = build_schema(
+        state.db.clone(),
+        state.profiles.clone(),
+        state.purge.clone(),
+    );
 
     let rest_router = Router::new()
         .nest(

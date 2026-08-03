@@ -32,6 +32,9 @@ pub fn Home() -> Element {
     let mut confirm_delete_id = use_signal(|| None::<Uuid>);
     let mut confirm_delete_name = use_signal(String::new);
     let mut delete_error = use_signal(|| None::<String>);
+    // Set while the delete request is in flight, so the dialog can show a
+    // spinner instead of sitting there looking hung.
+    let mut deleting = use_signal(|| false);
 
     // Import state.
     let mut import_error = use_signal(|| None::<String>);
@@ -92,8 +95,16 @@ pub fn Home() -> Element {
         let Some(id) = confirm_delete_id() else {
             return;
         };
+        // Guard against a second click landing before the first request
+        // returns — the dialog stays open for the whole round-trip.
+        if deleting() {
+            return;
+        }
+        deleting.set(true);
         spawn(async move {
-            match api.delete_tree(id).await {
+            let result = api.delete_tree(id).await;
+            deleting.set(false);
+            match result {
                 Ok(_) => {
                     confirm_delete_id.set(None);
                     delete_error.set(None);
@@ -471,9 +482,10 @@ pub fn Home() -> Element {
             ConfirmDialog {
                 title: i18n.t("confirm.delete_tree.title"),
                 message: i18n.t_args("confirm.delete_tree.message_name", &[("name", &confirm_delete_name())]),
-                confirm_label: i18n.t("common.delete"),
+                confirm_label: if deleting() { i18n.t("common.deleting") } else { i18n.t("common.delete") },
                 confirm_class: "btn btn-danger",
                 error: delete_error(),
+                busy: deleting(),
                 on_confirm: on_confirm_delete,
                 on_cancel: move |_| {
                     confirm_delete_id.set(None);

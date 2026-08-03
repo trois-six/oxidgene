@@ -2772,6 +2772,26 @@ pub const LAYOUT_STYLES: &str = r#"
         to { transform: rotate(360deg); }
     }
 
+    /* ── In-button spinner (ConfirmDialog `busy`) ─────────────────── */
+
+    .btn-spinner {
+        display: inline-block;
+        width: 0.85em;
+        height: 0.85em;
+        margin-right: 0.5em;
+        vertical-align: -0.1em;
+        border: 2px solid currentColor;
+        /* Transparent top edge is what makes the ring read as spinning. */
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+    }
+
+    .modal-actions .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
     .import-overlay-text {
         font-family: var(--font-heading);
         font-size: 1.1rem;
