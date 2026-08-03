@@ -149,7 +149,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             match api.get_ancestors(tid, sosa_id, None).await {
                 Ok(entries) => entries
                     .into_iter()
-                    .map(|a| a.ancestor_id)
+                    .map(|a| a.person_id)
                     .collect::<std::collections::HashSet<Uuid>>(),
                 Err(_) => std::collections::HashSet::new(),
             }

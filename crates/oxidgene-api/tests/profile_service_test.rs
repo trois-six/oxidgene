@@ -392,15 +392,6 @@ async fn pedigree_builds_from_stored_projections() {
     let tree_id = create_tree(&db).await;
     let (father, mother, child, _family) = create_family_trio(&db, tree_id).await;
 
-    // Closure table entries (normally maintained by the family handlers).
-    use oxidgene_db::repo::PersonAncestryRepo;
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, father, child, 1)
-        .await
-        .unwrap();
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, mother, child, 1)
-        .await
-        .unwrap();
-
     let pedigree = service
         .get_or_build_pedigree(tree_id, child, 2, 1)
         .await
@@ -430,15 +421,7 @@ async fn pedigree_builds_from_stored_projections() {
 async fn pedigree_reflects_a_mutation_immediately() {
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;
-    let (father, mother, child, _family) = create_family_trio(&db, tree_id).await;
-
-    use oxidgene_db::repo::PersonAncestryRepo;
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, father, child, 1)
-        .await
-        .unwrap();
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, mother, child, 1)
-        .await
-        .unwrap();
+    let (father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
 
     let before = service
         .get_or_build_pedigree(tree_id, child, 2, 1)
@@ -481,7 +464,7 @@ async fn pedigree_reflects_a_mutation_immediately() {
 async fn expand_pedigree_returns_only_the_new_generation() {
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;
-    let (father, mother, child, _family) = create_family_trio(&db, tree_id).await;
+    let (father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
 
     // Add a grandfather one generation above the father.
     let grandfather =
@@ -508,20 +491,6 @@ async fn expand_pedigree_returns_only_the_new_generation() {
     )
     .await
     .unwrap();
-
-    use oxidgene_db::repo::PersonAncestryRepo;
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, father, child, 1)
-        .await
-        .unwrap();
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, mother, child, 1)
-        .await
-        .unwrap();
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, grandfather, father, 1)
-        .await
-        .unwrap();
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, grandfather, child, 2)
-        .await
-        .unwrap();
 
     let delta = service
         .expand_pedigree(

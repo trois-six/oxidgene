@@ -53,13 +53,14 @@ impl PersonName {
     }
 }
 
-/// An entry in the ancestry closure table for optimized traversal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersonAncestry {
-    pub id: Uuid,
-    pub tree_id: Uuid,
-    pub ancestor_id: Uuid,
-    pub descendant_id: Uuid,
+/// One person reached by an ancestor or descendant traversal, with the number
+/// of generations separating them from the person the walk started at.
+///
+/// `depth` is the *shortest* distance: with pedigree implex the same ancestor
+/// is reachable by several paths, and this reports the closest one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AncestryLink {
+    pub person_id: Uuid,
     pub depth: i32,
 }
 

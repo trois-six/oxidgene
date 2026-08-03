@@ -52,7 +52,7 @@ timestamp: 2026-07-19T00:00:00Z
 
 - [x] Implement REST handlers for Events, Places, Sources, Citations.
 - [x] Implement REST handlers for Media (upload/download), MediaLinks, Notes.
-- [x] Implement ancestor/descendant endpoints using closure table.
+- [x] Implement ancestor/descendant endpoints (closure table; replaced by a recursive CTE in Aug 2026).
 - [x] Complete integration test coverage.
 
 ### Sprint A.6 — GraphQL API ✅
@@ -170,7 +170,7 @@ wiki pages) — they survive conversion as `_GW…` tags, which the GEDCOM impor
 
 ### Sprint E.3 — Pedigree Cache ✅
 
-- [x] Implement pedigree cache builder from PersonAncestry + PersonCache.
+- [x] Implement pedigree cache builder from PersonAncestry + PersonCache (both since removed).
 - [x] Implement `GET /cache/pedigree/{root_id}` and `PATCH .../expand` REST endpoints.
 - [x] Implement `pedigree` query and `expandPedigree` mutation in GraphQL.
 - [x] Implement LRU memory budget for pedigree caches (configurable per deployment).
@@ -268,7 +268,7 @@ Rationale: enhance the flat dictionary index with nested descent trees showing s
   `oxidgene-db` / `tokio` / `dashmap` into the WASM build.
 - [x] Replace `CacheService` with `ProfileService` (`oxidgene-api/src/profile/`), carrying the
   builder and the affected-set algorithm over unchanged.
-- [x] Assemble pedigrees per request from `person_ancestry` ⋈ `person_denorm` — pedigree cache,
+- [x] Assemble pedigrees per request from ancestry traversal ⋈ `person_denorm` — pedigree cache,
   LRU budget and pedigree invalidation all removed.
 - [x] **Delete the `oxidgene-cache` crate** (~4,100 lines, three storage backends) and the
   `redis`, `dashmap`, `rmp-serde`, `bincode` dependencies.

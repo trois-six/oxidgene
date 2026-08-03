@@ -197,7 +197,7 @@ Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md)
 
 ### Profiles & Pedigree
 
-Pre-built, denormalized read models for instant page rendering. Person profiles are materialized in the `person_denorm` table; pedigrees are assembled per request from the `person_ancestry` closure table joined against those profiles. See [Read Projections](read-projections.md) for the full architecture.
+Pre-built, denormalized read models for instant page rendering. Person profiles are materialized in the `person_denorm` table; pedigrees are assembled per request by walking the family links and joining the reached persons against those profiles. See [Read Projections](read-projections.md) for the full architecture.
 
 | Method | Path | Description |
 |---|---|---|

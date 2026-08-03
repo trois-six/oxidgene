@@ -20,7 +20,7 @@ pub use family::{Family, FamilyChild, FamilySpouse};
 pub use media::{Media, MediaLink};
 pub use note::Note;
 pub use pagination::{Connection, Edge, PageInfo};
-pub use person::{Person, PersonAncestry, PersonName};
+pub use person::{AncestryLink, Person, PersonName};
 pub use place::Place;
 pub use source::Source;
 pub use tree::Tree;

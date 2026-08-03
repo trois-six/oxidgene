@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonAncestry, PersonName, Place, Source,
+    Person, PersonName, Place, Source,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
@@ -643,10 +643,6 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             }
         }
     }
-
-    // ── Build PersonAncestry closure table ───────────────────────────
-    result.person_ancestry =
-        build_ancestry_closure(&result.family_spouses, &result.family_children, tree_id);
 
     Ok(result)
 }
@@ -1393,84 +1389,6 @@ fn parse_gedcom_coord(s: &str) -> Result<f64, std::num::ParseFloatError> {
     } else {
         s.parse::<f64>()
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Ancestry closure table builder
-// ═══════════════════════════════════════════════════════════════════════
-
-/// Build the `PersonAncestry` closure table from family relationships.
-///
-/// For each parent→child link (derived from `FamilySpouse` + `FamilyChild`),
-/// we add depth-1 entries and then propagate transitively.
-fn build_ancestry_closure(
-    spouses: &[FamilySpouse],
-    children: &[FamilyChild],
-    tree_id: Uuid,
-) -> Vec<PersonAncestry> {
-    // Build parent → [child] map
-    // A parent is anyone in FamilySpouse whose family also has FamilyChild entries.
-    let mut family_parents: HashMap<Uuid, Vec<Uuid>> = HashMap::new(); // family_id -> [parent_person_id]
-    for sp in spouses {
-        family_parents
-            .entry(sp.family_id)
-            .or_default()
-            .push(sp.person_id);
-    }
-
-    // Direct parent→child edges
-    let mut parent_children: HashMap<Uuid, Vec<Uuid>> = HashMap::new(); // parent_id -> [child_id]
-    for ch in children {
-        if let Some(parents) = family_parents.get(&ch.family_id) {
-            for &parent_id in parents {
-                parent_children
-                    .entry(parent_id)
-                    .or_default()
-                    .push(ch.person_id);
-            }
-        }
-    }
-
-    // BFS/DFS to build full closure
-    let mut entries: Vec<PersonAncestry> = Vec::new();
-    let mut seen: HashMap<(Uuid, Uuid), i32> = HashMap::new(); // (ancestor, descendant) -> depth
-
-    // For every person who is a parent, traverse downward
-    for (&parent_id, direct_children) in &parent_children {
-        let mut stack: Vec<(Uuid, i32)> = Vec::new(); // (descendant_id, depth)
-        for &child_id in direct_children {
-            stack.push((child_id, 1));
-        }
-
-        while let Some((desc_id, depth)) = stack.pop() {
-            let key = (parent_id, desc_id);
-            if let Some(&existing_depth) = seen.get(&key)
-                && existing_depth <= depth
-            {
-                continue; // already have a shorter/equal path
-            }
-            seen.insert(key, depth);
-
-            // Continue traversal: desc_id's children are at depth+1
-            if let Some(grandchildren) = parent_children.get(&desc_id) {
-                for &gc_id in grandchildren {
-                    stack.push((gc_id, depth + 1));
-                }
-            }
-        }
-    }
-
-    for ((ancestor_id, descendant_id), depth) in &seen {
-        entries.push(PersonAncestry {
-            id: Uuid::now_v7(),
-            tree_id,
-            ancestor_id: *ancestor_id,
-            descendant_id: *descendant_id,
-            depth: *depth,
-        });
-    }
-
-    entries
 }
 
 #[cfg(test)]

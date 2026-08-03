@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonAncestry, PersonName, Place, Source,
+    Person, PersonName, Place, Source,
 };
 
 /// The result of importing a GEDCOM file — all domain model entities extracted
@@ -33,7 +33,6 @@ pub struct ImportResult {
     pub media: Vec<Media>,
     pub media_links: Vec<MediaLink>,
     pub notes: Vec<Note>,
-    pub person_ancestry: Vec<PersonAncestry>,
     /// Warnings collected during import (non-fatal issues).
     pub warnings: Vec<String>,
 }

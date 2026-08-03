@@ -9,7 +9,7 @@ use chrono::Utc;
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::entities::{
     citation, event, event_witness, family, family_child, family_spouse, media, media_link, note,
-    person, person_ancestry, person_name, place, sea_enums, source,
+    person, person_name, place, sea_enums, source,
 };
 use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
@@ -89,8 +89,7 @@ pub async fn import_and_persist(
 /// Uses a single database transaction for atomicity, and batch inserts for
 /// performance. Entities are inserted in FK-safe order: places → sources →
 /// media → persons → person_names → families → family_spouses →
-/// family_children → events → citations → media_links → notes →
-/// person_ancestry.
+/// family_children → events → citations → media_links → notes.
 pub(crate) async fn persist_import_result(
     db: &DatabaseConnection,
     result: oxidgene_gedcom::ImportResult,
@@ -359,22 +358,6 @@ pub(crate) async fn persist_import_result(
             })
             .collect();
         batch_insert::<note::Entity, _>(&txn, models).await?;
-    }
-
-    // 13. Person ancestry closure table
-    if !result.person_ancestry.is_empty() {
-        let models: Vec<person_ancestry::ActiveModel> = result
-            .person_ancestry
-            .iter()
-            .map(|pa| person_ancestry::ActiveModel {
-                id: Set(pa.id),
-                tree_id: Set(pa.tree_id),
-                ancestor_id: Set(pa.ancestor_id),
-                descendant_id: Set(pa.descendant_id),
-                depth: Set(pa.depth),
-            })
-            .collect();
-        batch_insert::<person_ancestry::Entity, _>(&txn, models).await?;
     }
 
     // Commit the transaction

@@ -35,7 +35,7 @@ Sprints E.1–E.6 built that pre-computation as a *cache* — an `oxidgene-cache
 
 Data that is a function of one entity plus its neighbours, cheap to rebuild, and never acceptably stale is **denormalization**, not caching. So the projection now lives in a table (`person_denorm`), written in the same request that mutates the underlying rows.
 
-Pedigrees looked like the counter-example — a pedigree is keyed by `(root, ancestor_depth, descendant_depth)`, a *query window* rather than a fact about an entity, and materializing every window would be combinatorial. But the graph traversal was already denormalized: the `person_ancestry` closure table answers "who are the ancestors of X within N generations" in one indexed query. All the pedigree cache added on top was the *display payload* per node — which `person_denorm` now holds. So a pedigree is assembled on demand from a closure-table read joined against a projection batch read, and nothing about it is stored.
+Pedigrees looked like the counter-example — a pedigree is keyed by `(root, ancestor_depth, descendant_depth)`, a *query window* rather than a fact about an entity, and materializing every window would be combinatorial. But the graph traversal is cheap on its own: a recursive CTE over the family links answers "who are the ancestors of X within N generations" in milliseconds. All the pedigree cache added on top was the *display payload* per node — which `person_denorm` now holds. So a pedigree is assembled on demand from a traversal joined against a projection batch read, and nothing about it is stored.
 
 ### 1.3 What this buys
 
@@ -168,7 +168,7 @@ The **cross-references** are what make this non-trivial: `spouse_display_name`, 
 
 Assembled fresh on every request, in two indexed reads plus in-memory assembly:
 
-1. **`person_ancestry`** (closure table) → the ancestor and descendant IDs within the requested depths, with their generation numbers.
+1. **`AncestryRepo`** (recursive CTE over `family_child` ⋈ `family_spouse`) → the ancestor and descendant IDs within the requested depths, with their generation numbers.
 2. **`person_denorm`** → the display payload for those IDs, in one batched read. Any person without a projection yet is built on the spot and persisted.
 3. Assemble nodes, parent→child edges, family units (including childless couples, which produce no edge) and family events from those payloads.
 
@@ -209,7 +209,7 @@ struct PedigreeEdge {
 }
 ```
 
-Beyond the closure-table window, the assembler also pulls in **spouses** of window members (so couples render), **one parent** of any family whose parents all fall outside the window (to recover the full sibling list in birth order), and **minimal info for family members outside the window** (so the event panel and the "+" hidden-relations indicator are accurate). None of these recurse.
+Beyond the traversal window, the assembler also pulls in **spouses** of window members (so couples render), **one parent** of any family whose parents all fall outside the window (to recover the full sibling list in birth order), and **minimal info for family members outside the window** (so the event panel and the "+" hidden-relations indicator are accurate). None of these recurse.
 
 ### 3.1 Incremental operations
 
@@ -217,7 +217,7 @@ Beyond the closure-table window, the assembler also pulls in **spouses** of wind
 |---|---|
 | User increases ancestor levels (e.g. 5→7) | `PATCH .../expand` assembles the window at both depths and returns the difference as a `PedigreeDelta`, so the client merges instead of re-rendering. Equally valid: just re-`GET` at the new depth. |
 | User decreases levels | Client-side only: hide nodes outside the range. Zero network requests. |
-| User changes root person | A new `GET` — the projections for overlapping persons are already materialized, so it is a closure-table read plus a batch read. |
+| User changes root person | A new `GET` — the projections for overlapping persons are already materialized, so it is a traversal plus a batch read. |
 | A person is edited | Nothing to patch. The next pedigree request reads the refreshed projection. |
 
 Because the server holds no per-client pedigree state, `expand` must be told the depth already loaded in the *opposite* direction (`other_depth`, default `0`) for the returned `*_depth_loaded` values to match what the caller holds.
@@ -537,7 +537,7 @@ In hindsight this sprint was the proof of concept for E.9: moving one of the thr
 - Added the `person_denorm` table, `PersonDenormRepo`, and migration `m20260728_000001_person_denorm`.
 - Moved the projection types from `oxidgene-cache::types` to `oxidgene_core::projection`, removing the frontend's dependency on the database layer.
 - Replaced `CacheService` with `ProfileService` in `oxidgene-api/src/profile/`, carrying the builder and the affected-set algorithm over unchanged.
-- Pedigrees are assembled per request from `person_ancestry` ⋈ `person_denorm`; the pedigree cache, its LRU budget and its invalidation are gone.
+- Pedigrees are assembled per request by walking the family links and joining against `person_denorm`; the pedigree cache, its LRU budget and its invalidation are gone.
 - **Deleted the `oxidgene-cache` crate** — all three storage backends, ~4,100 lines — plus the `redis`, `dashmap`, `rmp-serde` and `bincode` dependencies.
 - Removed the desktop disk-cache lifecycle entirely (§9).
 - Renamed the REST routes off `/cache/*` **and the matching GraphQL fields and types** (§6.1, §6.2), so the two surfaces stay symmetric. The projection structs lost their `Cached*` prefix (`PersonProfile`, `ProfileName`, `Pedigree`, …) and the `cachedAt` field became `builtAt`.

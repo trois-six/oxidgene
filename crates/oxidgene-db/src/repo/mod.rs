@@ -5,6 +5,7 @@
 //! - A generic cursor-based pagination helper
 //! - Repository implementations for all entities
 
+mod ancestry;
 mod citation;
 mod connection;
 mod dictionary;
@@ -18,7 +19,7 @@ mod media_link;
 mod note;
 mod pagination;
 mod person;
-mod person_ancestry;
+
 mod person_denorm;
 mod person_name;
 mod person_search;
@@ -26,6 +27,7 @@ mod place;
 mod source;
 mod tree;
 
+pub use ancestry::AncestryRepo;
 pub use citation::CitationRepo;
 pub use connection::{connect, rollback_migrations, run_migrations};
 pub use dictionary::{
@@ -41,7 +43,7 @@ pub use media_link::{MediaLinkRepo, MediaLinkRow};
 pub use note::NoteRepo;
 pub use pagination::PaginationParams;
 pub use person::PersonRepo;
-pub use person_ancestry::PersonAncestryRepo;
+
 pub use person_denorm::PersonDenormRepo;
 pub use person_name::PersonNameRepo;
 pub use person_search::{PersonSearchEntry, PersonSearchPage, PersonSearchRepo};

@@ -200,7 +200,6 @@ The **"Import"** button is prominent (orange gradient). Clicking it starts the i
 │  ◌ Places: pending                                           │
 │  ◌ Media references: pending                                 │
 │  ◌ Family links: pending                                     │
-│  ◌ Ancestry closure table: pending                           │
 │                                                              │
 ├─────────────────────────────────────────────────────────────┤
 │  Import in progress — please wait…                          │

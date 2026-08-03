@@ -26,6 +26,7 @@ use crate::rest::snapshot;
 use crate::rest::source;
 use crate::rest::state::AppState;
 use crate::rest::tree;
+use crate::rest::tree_guard;
 
 /// Build the complete API router.
 pub fn build_router(state: AppState) -> Router {
@@ -301,7 +302,13 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(snapshot_routes)
                 .merge(dictionary_routes)
                 .merge(profile_routes)
-                .merge(import_export_routes),
+                .merge(import_export_routes)
+                // Applied to the whole nest so every tree-scoped route gets
+                // the same check, including any added later.
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tree_guard::require_live_tree,
+                )),
         )
         .nest("/api/v1/reference", reference_routes)
         .layer(CompressionLayer::new())

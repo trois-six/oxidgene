@@ -37,7 +37,7 @@ timestamp: 2026-06-17T00:00:00Z
 
 - **Family-centric** model (classic GEDCOM style): Persons exist independently; Families link spouses and children.
 - Not person-centric (GEDCOM-X style) — deferred to post-MVP consideration.
-- Closure table (`PersonAncestry`) for optimized ancestor/descendant traversal.
+- Recursive CTE over the family links (`AncestryRepo`) for ancestor/descendant traversal — no closure table.
 
 For full entity definitions, see [Data Model](data-model.md).
 

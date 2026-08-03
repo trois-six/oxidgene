@@ -112,8 +112,9 @@ pub async fn drop_tree_profiles(
 
 /// `GET /api/v1/trees/{tree_id}/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N`
 ///
-/// Returns a windowed pedigree for the given root person, assembled from the
-/// `person_ancestry` closure table joined against the stored projections.
+/// Returns a windowed pedigree for the given root person, assembled by walking
+/// the family links and joining the reached persons against the stored
+/// projections.
 pub async fn get_pedigree(
     State(state): State<AppState>,
     Path((tree_id, root_person_id)): Path<(Uuid, Uuid)>,

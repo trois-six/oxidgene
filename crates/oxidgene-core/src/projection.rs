@@ -118,8 +118,8 @@ pub struct ProfileMediaRef {
 /// A windowed pedigree view for a given root person, containing only
 /// the persons and edges visible at the requested depth levels.
 ///
-/// Built on demand by joining the `person_ancestry` closure table against the
-/// `person_denorm` projections — it is never stored.
+/// Built on demand by walking the family links and joining the reached persons
+/// against the `person_denorm` projections — it is never stored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pedigree {
     pub tree_id: Uuid,

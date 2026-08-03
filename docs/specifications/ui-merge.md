@@ -200,7 +200,7 @@ On confirmation:
 2. All kept events, media, notes, and citations from Person B are re-linked to Person A
 3. All family links from Person B are transferred to Person A (FamilySpouse, FamilyChild)
 4. **Person B** is soft-deleted
-5. The `PersonAncestry` closure table is recalculated for affected subtrees
+5. Ancestor/descendant traversal needs no maintenance — it reads the family links directly
 6. The modal closes
 7. The tree view refreshes, centered on the merged person (Person A)
 
