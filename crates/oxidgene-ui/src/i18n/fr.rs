@@ -10,6 +10,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("common.saving", "Enregistrement\u{2026}"),
         ("common.cancel", "Annuler"),
         ("common.delete", "Supprimer"),
+        ("common.deleting", "Suppression…"),
         ("common.edit", "Modifier"),
         ("common.close", "Fermer"),
         ("common.create", "Cr\u{00E9}er"),

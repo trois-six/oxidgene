@@ -23,7 +23,7 @@ use super::types::{
     GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilySpouse,
     GqlImportResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta, GqlPedigreeDirection,
     GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource, GqlTree, db_from_ctx,
-    profiles_from_ctx,
+    profiles_from_ctx, purge_from_ctx,
 };
 
 /// Convert a service-layer import summary into its GraphQL shape.
@@ -76,15 +76,16 @@ impl MutationRoot {
         Ok(tree.into())
     }
 
-    /// Delete a tree (soft delete). Also drops the tree's projections.
+    /// Delete a tree.
+    ///
+    /// Flags it as deleted and returns straight away; the rows it owns and its
+    /// projections are removed by the background purge worker. See
+    /// [`crate::service::purge`].
     async fn delete_tree(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let txn = begin_tx(db).await?;
-        TreeRepo::delete(&txn, uuid).await?;
-        profiles.invalidate_tree(&txn, uuid).await?;
-        commit_tx(txn).await?;
+        TreeRepo::soft_delete(db, uuid).await?;
+        purge_from_ctx(ctx).enqueue(uuid);
         Ok(true)
     }
 

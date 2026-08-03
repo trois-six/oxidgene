@@ -23,6 +23,13 @@ pub struct ConfirmDialogProps {
     /// Optional error message to display inside the dialog.
     #[props(default)]
     pub error: Option<String>,
+    /// Whether the confirmed action is still running.
+    ///
+    /// While set, both buttons are disabled, the backdrop no longer cancels
+    /// and the confirm button shows a spinner — so a slow action reads as
+    /// working rather than as a frozen dialog, and cannot be fired twice.
+    #[props(default = false)]
+    pub busy: bool,
     /// Called when the user clicks the confirm button.
     pub on_confirm: EventHandler<()>,
     /// Called when the user clicks cancel or the backdrop.
@@ -53,10 +60,12 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
         props.confirm_label.clone()
     };
 
+    let busy = props.busy;
+
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| props.on_cancel.call(()),
+            onclick: move |_| if !busy { props.on_cancel.call(()) },
             div {
                 class: "modal-card",
                 // Prevent clicks inside the card from closing the dialog.
@@ -69,12 +78,17 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
                 div { class: "modal-actions",
                     button {
                         class: "btn btn-outline",
+                        disabled: busy,
                         onclick: move |_| props.on_cancel.call(()),
                         {i18n.t("common.cancel")}
                     }
                     button {
                         class: "{props.confirm_class}",
+                        disabled: busy,
                         onclick: move |_| props.on_confirm.call(()),
+                        if busy {
+                            span { class: "btn-spinner" }
+                        }
                         "{confirm_label}"
                     }
                 }

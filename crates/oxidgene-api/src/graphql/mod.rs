@@ -6,6 +6,7 @@ pub mod query;
 pub mod types;
 
 use crate::profile::ProfileService;
+use crate::service::purge::PurgeQueue;
 use async_graphql::{EmptySubscription, Schema, http::GraphiQLSource};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
@@ -19,12 +20,17 @@ use query::QueryRoot;
 /// The full GraphQL schema type.
 pub type OxidGeneSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
-/// Build the async-graphql schema with the given database connection and profile
-/// service.
-pub fn build_schema(db: DatabaseConnection, profiles: Arc<ProfileService>) -> OxidGeneSchema {
+/// Build the async-graphql schema with the given database connection, profile
+/// service and purge queue.
+pub fn build_schema(
+    db: DatabaseConnection,
+    profiles: Arc<ProfileService>,
+    purge: PurgeQueue,
+) -> OxidGeneSchema {
     Schema::build(QueryRoot, MutationRoot, EmptySubscription)
         .data(db)
         .data(profiles)
+        .data(purge)
         .finish()
 }
 

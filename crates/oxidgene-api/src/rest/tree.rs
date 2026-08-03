@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::AppState;
 use crate::service::gedcom;
 
 /// GET /api/v1/trees
@@ -121,22 +121,21 @@ pub async fn duplicate_tree(
 }
 
 /// DELETE /api/v1/trees/:tree_id
+///
+/// Flags the tree as deleted and returns straight away; the rows it owns are
+/// removed by the background purge worker. Removing them here instead took
+/// seconds on a tree of any size — long enough to look like a hang — because
+/// SQLite walks the `ON DELETE CASCADE` graph one row at a time.
 pub async fn delete_tree(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    TreeRepo::delete(&txn, tree_id)
+    TreeRepo::soft_delete(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
 
-    // Drop the projections of the deleted tree
-    state
-        .profiles
-        .invalidate_tree(&txn, tree_id)
-        .await
-        .map_err(ApiError::from)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    // Only once the flag is committed, so a purge can never outrun it.
+    state.purge.enqueue(tree_id);
 
     Ok(StatusCode::NO_CONTENT)
 }

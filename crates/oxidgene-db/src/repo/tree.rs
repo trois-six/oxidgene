@@ -1,11 +1,17 @@
-//! Repository for `Tree` entities. Deletion is a hard delete (not the
-//! soft-delete pattern used by other entities) so that cascading foreign
-//! keys immediately clean up everything scoped to the tree.
+//! Repository for `Tree` entities.
+//!
+//! Deleting a tree happens in two stages. [`TreeRepo::soft_delete`] flips
+//! `deleted_at` — one row, instant, and the tree disappears from [`TreeRepo::list`]
+//! straight away. [`TreeRepo::purge`] then does the real cascade in the
+//! background, because SQLite resolves `ON DELETE CASCADE` one row at a time
+//! and that costs seconds on a tree of any size. Doing both inside the request
+//! is what used to freeze the UI.
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Tree};
 use sea_orm::entity::prelude::*;
+use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
@@ -94,18 +100,57 @@ impl TreeRepo {
         Ok(into_domain(result))
     }
 
-    /// Hard-delete a tree. Cascades via `ON DELETE CASCADE` foreign keys to
-    /// every entity scoped to this tree (person, event, family, place,
-    /// source, media, note, ...) — a tree's data is never shared with
-    /// another tree, so nothing outside it is affected.
-    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let result = Entity::delete_by_id(id)
+    /// Mark a tree as deleted, without touching the rows it owns.
+    ///
+    /// This is what a delete request does: it is a single-row UPDATE, so it
+    /// returns in about a millisecond however large the tree is. [`list_purgeable`]
+    /// then finds the tree again and [`purge`] does the expensive part in the
+    /// background. The tree is already invisible to [`list`] and [`get`].
+    pub async fn soft_delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
+        let result = Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(Utc::now()))
+            .filter(Column::Id.eq(id))
+            .filter(Column::DeletedAt.is_null())
             .exec(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         if result.rows_affected == 0 {
             return Err(OxidGeneError::NotFound { entity: "Tree", id });
         }
+        Ok(())
+    }
+
+    /// IDs of every soft-deleted tree still holding data.
+    ///
+    /// This *is* the purge queue: because the flag lives in the database, a
+    /// purge interrupted by a crash or a quit is simply picked up again at the
+    /// next start. No separate job table is needed.
+    pub async fn list_purgeable(db: &impl ConnectionTrait) -> Result<Vec<Uuid>, OxidGeneError> {
+        Entity::find()
+            .filter(Column::DeletedAt.is_not_null())
+            .all(db)
+            .await
+            .map(|models| models.into_iter().map(|m| m.id).collect())
+            .map_err(|e| OxidGeneError::Database(e.to_string()))
+    }
+
+    /// Hard-delete a tree. Cascades via `ON DELETE CASCADE` foreign keys to
+    /// every entity scoped to this tree (person, event, family, place,
+    /// source, media, note, ...) — a tree's data is never shared with
+    /// another tree, so nothing outside it is affected.
+    ///
+    /// Unlike the other methods this deliberately does *not* filter on
+    /// `deleted_at`: it is called precisely on trees that were soft-deleted.
+    ///
+    /// Expensive — SQLite resolves the cascade one row at a time, which on a
+    /// 10k-person tree costs seconds. Call it from the purge worker, never
+    /// from a request handler. Deleting an already-purged tree is not an
+    /// error, so a re-run after a crash is harmless.
+    pub async fn purge(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
+        Entity::delete_by_id(id)
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         Ok(())
     }
 }

@@ -2,3 +2,4 @@
 
 pub mod gedcom;
 pub mod geneweb;
+pub mod purge;

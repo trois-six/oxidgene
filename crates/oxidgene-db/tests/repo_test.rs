@@ -72,12 +72,45 @@ async fn tree_crud() {
         .unwrap();
     assert!(updated2.description.is_none());
 
-    // Delete
-    TreeRepo::delete(&db, id).await.unwrap();
+    // Delete — the flag alone is enough to hide the tree
+    TreeRepo::soft_delete(&db, id).await.unwrap();
 
     // Get after delete returns NotFound
     let err = TreeRepo::get(&db, id).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
+}
+
+/// A soft-deleted tree stays queued until it is actually purged, which is what
+/// lets an interrupted purge resume after a restart.
+#[tokio::test]
+async fn soft_deleted_tree_stays_purgeable_until_purged() {
+    let db = setup_db().await;
+    let kept = create_tree(&db).await;
+    let doomed = create_tree(&db).await;
+
+    assert!(TreeRepo::list_purgeable(&db).await.unwrap().is_empty());
+
+    TreeRepo::soft_delete(&db, doomed).await.unwrap();
+
+    // Still queued — this is what the startup sweep picks up.
+    assert_eq!(
+        TreeRepo::list_purgeable(&db).await.unwrap(),
+        vec![doomed],
+        "a soft-deleted tree must remain purgeable until purged"
+    );
+
+    // Soft-deleting twice is a NotFound, so a double delete cannot enqueue twice.
+    let err = TreeRepo::soft_delete(&db, doomed).await.unwrap_err();
+    assert!(matches!(err, OxidGeneError::NotFound { .. }));
+
+    TreeRepo::purge(&db, doomed).await.unwrap();
+    assert!(TreeRepo::list_purgeable(&db).await.unwrap().is_empty());
+
+    // Re-purging is a no-op, so resuming after a crash is safe.
+    TreeRepo::purge(&db, doomed).await.unwrap();
+
+    // The untouched tree is unaffected throughout.
+    assert_eq!(TreeRepo::get(&db, kept).await.unwrap().id, kept);
 }
 
 #[tokio::test]
@@ -102,7 +135,8 @@ async fn tree_delete_cascades_to_children() {
     .await
     .expect("create occupation event");
 
-    TreeRepo::delete(&db, tree_id).await.unwrap();
+    // The cascade only runs on the hard delete, not on the flag.
+    TreeRepo::purge(&db, tree_id).await.unwrap();
 
     let err = PersonRepo::get(&db, person_id).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
@@ -146,7 +180,7 @@ async fn tree_list_pagination() {
     assert_eq!(conn2.total_count, 5);
 
     // Deleted trees are excluded from list
-    TreeRepo::delete(&db, ids[0]).await.unwrap();
+    TreeRepo::soft_delete(&db, ids[0]).await.unwrap();
     let params3 = PaginationParams {
         first: 100,
         after: None,
@@ -843,7 +877,7 @@ async fn delete_nonexistent_returns_not_found() {
     let db = setup_db().await;
     let fake = Uuid::now_v7();
 
-    let err = TreeRepo::delete(&db, fake).await.unwrap_err();
+    let err = TreeRepo::soft_delete(&db, fake).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 
     let err = PersonRepo::delete(&db, fake).await.unwrap_err();
