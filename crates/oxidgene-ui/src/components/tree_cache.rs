@@ -45,6 +45,30 @@ impl TreeCache {
         t.set(Some(tree));
     }
 
+    /// Refresh the cached metadata for `tid` with a value the caller already
+    /// has — typically the `Tree` a mutation just returned.
+    ///
+    /// A no-op when another tree is cached: it would evict that entry to store
+    /// something the next reader can fetch for itself. The generation counter
+    /// is deliberately left alone — the entry is now current, not invalid, so
+    /// there is nothing for dependent resources to re-fetch.
+    pub fn refresh_tree(&self, tid: Uuid, tree: Tree) {
+        if *self.tree_tid.peek() != Some(tid) {
+            return;
+        }
+        let mut t = self.tree;
+        t.set(Some(tree));
+    }
+
+    /// Drop the cached metadata for `tid` if it is the one held, e.g. once the
+    /// tree is deleted. Leaves another tree's entry in place.
+    pub fn forget(&self, tid: Uuid) {
+        if *self.tree_tid.peek() != Some(tid) {
+            return;
+        }
+        self.invalidate();
+    }
+
     /// Invalidate the cache and bump the generation counter so that
     /// any reactive `use_resource` that reads `generation()` will re-run.
     pub fn invalidate(&self) {
