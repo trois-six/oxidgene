@@ -9,8 +9,8 @@ use axum::http::StatusCode;
 use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
-    FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PaginationParams, PersonAncestryRepo,
-    PersonRepo, TreeRepo,
+    AncestryRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PaginationParams, PersonRepo,
+    TreeRepo,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -257,7 +257,7 @@ pub async fn get_ancestors(
     Path((_tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let ancestors = PersonAncestryRepo::ancestors(&state.db, person_id, query.max_depth)
+    let ancestors = AncestryRepo::ancestors(&state.db, person_id, query.max_depth)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(ancestors).unwrap()))
@@ -269,7 +269,7 @@ pub async fn get_descendants(
     Path((_tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let descendants = PersonAncestryRepo::descendants(&state.db, person_id, query.max_depth)
+    let descendants = AncestryRepo::descendants(&state.db, person_id, query.max_depth)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(descendants).unwrap()))

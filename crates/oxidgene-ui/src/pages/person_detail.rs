@@ -282,7 +282,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 return HashSet::new();
             };
             match api.get_ancestors(tid, sosa_id, None).await {
-                Ok(entries) => entries.into_iter().map(|a| a.ancestor_id).collect(),
+                Ok(entries) => entries.into_iter().map(|a| a.person_id).collect(),
                 Err(_) => HashSet::new(),
             }
         }

@@ -225,17 +225,24 @@ Displayed in: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
 
-### PersonAncestry (Closure Table)
+### Ancestry traversal (no table)
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | UUID v7 | PK |
-| `tree_id` | UUID v7 | FK → Tree |
-| `ancestor_id` | UUID v7 | FK → Person |
-| `descendant_id` | UUID v7 | FK → Person |
-| `depth` | i32 | Generation distance (0 = self) |
+There is no closure table. Ancestor and descendant traversal is a recursive
+CTE over `family_child` ⋈ `family_spouse` (`AncestryRepo`): a person's parents
+are the spouses of the family in which they are a child. Both back-ends support
+`WITH RECURSIVE`. Each reached person is returned once, at their **shortest**
+generation distance, as `AncestryLink { person_id, depth }`.
 
-Used by: ancestor/descendant [API endpoints](api.md) · SOSA badge computation ([Person Profile](ui-person-profile.md), [Dictionary](ui-dictionary.md) §12)
+The `person_ancestry` closure table it replaced was dropped in
+`m20260803_000001`: on a real 10k-person tree it held 364k rows and, with its
+four indexes, 62 % of the whole database, while being ~12x *slower* to read
+than the CTE (160 ms against 13 ms for a depth-10 pedigree) and needing a
+rebuild on every re-parenting.
+
+Traversal is bounded at 64 generations when no depth is given, because the
+schema does not prevent a cycle in the family links.
+
+Used by: ancestor/descendant [API endpoints](api.md) · pedigree assembly ([Read Projections](read-projections.md)) · SOSA badge computation ([Person Profile](ui-person-profile.md), [Dictionary](ui-dictionary.md) §12)
 
 ### person_search_fts (Search Table — Sprint E.6)
 
@@ -384,7 +391,6 @@ erDiagram
     Tree ||--o{ Source : contains
     Tree ||--o{ Media : contains
     Tree ||--o{ Note : contains
-    Tree ||--o{ PersonAncestry : contains
     Tree }o--o| Person : "sosa_root_person_id"
 
     Person ||--o{ PersonName : "has names"
@@ -416,6 +422,4 @@ erDiagram
 
     Media ||--o{ MediaLink : "linked to"
 
-    PersonAncestry }o--|| Person : "ancestor"
-    PersonAncestry }o--|| Person : "descendant"
 ```

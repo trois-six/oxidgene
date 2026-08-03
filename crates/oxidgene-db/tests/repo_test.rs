@@ -5,8 +5,8 @@
 use oxidgene_core::enums::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
-    CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo, FamilyRepo,
-    FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams, PersonAncestryRepo,
+    AncestryRepo, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo,
+    FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams,
     PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
@@ -733,88 +733,153 @@ async fn note_crud() {
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 }
 
-// ───────────────────────── PersonAncestry tests ─────────────────────────
+// ───────────────────────── Ancestry traversal tests ─────────────────────────
 
-#[tokio::test]
-async fn person_ancestry_queries() {
-    let db = setup_db().await;
-    let tree_id = create_tree(&db).await;
-
-    let grandparent_id = create_person(&db, tree_id).await;
-    let parent_id = create_person(&db, tree_id).await;
-    let child_id = create_person(&db, tree_id).await;
-
-    // Self-references (depth 0)
-    PersonAncestryRepo::create(
-        &db,
+/// Helper: create a family linking `parents` to `child`.
+async fn link_parents(db: &DatabaseConnection, tree_id: Uuid, parents: &[Uuid], child: Uuid) {
+    let family_id = Uuid::now_v7();
+    FamilyRepo::create(db, family_id, tree_id)
+        .await
+        .expect("create family");
+    for (i, &parent) in parents.iter().enumerate() {
+        FamilySpouseRepo::create(
+            db,
+            Uuid::now_v7(),
+            family_id,
+            parent,
+            SpouseRole::Husband,
+            i as i32,
+        )
+        .await
+        .expect("add spouse");
+    }
+    FamilyChildRepo::create(
+        db,
         Uuid::now_v7(),
-        tree_id,
-        grandparent_id,
-        grandparent_id,
+        family_id,
+        child,
+        ChildType::Biological,
         0,
     )
     .await
-    .unwrap();
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, parent_id, parent_id, 0)
-        .await
-        .unwrap();
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, child_id, child_id, 0)
-        .await
-        .unwrap();
+    .expect("add child");
+}
 
-    // grandparent -> parent (depth 1)
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, grandparent_id, parent_id, 1)
-        .await
-        .unwrap();
+#[tokio::test]
+async fn ancestry_walks_the_family_links() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
 
-    // grandparent -> child (depth 2)
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, grandparent_id, child_id, 2)
-        .await
-        .unwrap();
+    let grandparent = create_person(&db, tree_id).await;
+    let parent = create_person(&db, tree_id).await;
+    let child = create_person(&db, tree_id).await;
 
-    // parent -> child (depth 1)
-    PersonAncestryRepo::create(&db, Uuid::now_v7(), tree_id, parent_id, child_id, 1)
-        .await
-        .unwrap();
+    link_parents(&db, tree_id, &[grandparent], parent).await;
+    link_parents(&db, tree_id, &[parent], child).await;
 
-    // Ancestors of child (excludes self-reference)
-    let ancestors = PersonAncestryRepo::ancestors(&db, child_id, None)
-        .await
-        .unwrap();
+    // Ancestors, ordered by depth and never including the person themself.
+    let ancestors = AncestryRepo::ancestors(&db, child, None).await.unwrap();
     assert_eq!(ancestors.len(), 2);
-    // Ordered by depth: parent (1), grandparent (2)
+    assert_eq!(ancestors[0].person_id, parent);
     assert_eq!(ancestors[0].depth, 1);
-    assert_eq!(ancestors[0].ancestor_id, parent_id);
+    assert_eq!(ancestors[1].person_id, grandparent);
     assert_eq!(ancestors[1].depth, 2);
-    assert_eq!(ancestors[1].ancestor_id, grandparent_id);
 
-    // Ancestors with max_depth=1
-    let ancestors_limited = PersonAncestryRepo::ancestors(&db, child_id, Some(1))
-        .await
-        .unwrap();
-    assert_eq!(ancestors_limited.len(), 1);
-    assert_eq!(ancestors_limited[0].ancestor_id, parent_id);
+    // max_depth stops the walk.
+    let limited = AncestryRepo::ancestors(&db, child, Some(1)).await.unwrap();
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0].person_id, parent);
 
-    // Descendants of grandparent (excludes self-reference)
-    let descendants = PersonAncestryRepo::descendants(&db, grandparent_id, None)
+    // Descendants are the mirror image.
+    let descendants = AncestryRepo::descendants(&db, grandparent, None)
         .await
         .unwrap();
     assert_eq!(descendants.len(), 2);
+    assert_eq!(descendants[0].person_id, parent);
     assert_eq!(descendants[0].depth, 1);
-    assert_eq!(descendants[0].descendant_id, parent_id);
+    assert_eq!(descendants[1].person_id, child);
     assert_eq!(descendants[1].depth, 2);
-    assert_eq!(descendants[1].descendant_id, child_id);
 
-    // Delete ancestry for child (re-parenting scenario)
-    let deleted = PersonAncestryRepo::delete_by_descendant(&db, child_id)
-        .await
-        .unwrap();
-    assert_eq!(deleted, 3); // self-ref + parent + grandparent
+    // A person with no links either way gets empty results, not an error.
+    let orphan = create_person(&db, tree_id).await;
+    assert!(
+        AncestryRepo::ancestors(&db, orphan, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        AncestryRepo::descendants(&db, orphan, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
 
-    let ancestors_after = PersonAncestryRepo::ancestors(&db, child_id, None)
-        .await
-        .unwrap();
-    assert_eq!(ancestors_after.len(), 0);
+/// Both parents of a couple are ancestors at the same depth.
+#[tokio::test]
+async fn ancestry_reports_both_parents() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    let parent_a = create_person(&db, tree_id).await;
+    let parent_b = create_person(&db, tree_id).await;
+    let child = create_person(&db, tree_id).await;
+    link_parents(&db, tree_id, &[parent_a, parent_b], child).await;
+
+    let ancestors = AncestryRepo::ancestors(&db, child, None).await.unwrap();
+    assert_eq!(ancestors.len(), 2);
+    assert!(ancestors.iter().all(|a| a.depth == 1));
+    let mut found: Vec<Uuid> = ancestors.iter().map(|a| a.person_id).collect();
+    found.sort();
+    let mut expected = vec![parent_a, parent_b];
+    expected.sort();
+    assert_eq!(found, expected);
+}
+
+/// Pedigree implex: when an ancestor is reachable by two paths of different
+/// lengths, they appear once, at the shorter distance. The closure table this
+/// replaced could only ever store one arbitrary depth per pair.
+#[tokio::test]
+async fn ancestry_reports_shortest_depth_on_implex() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    // shared is both the parent of branch_a and the grandparent of root,
+    // so root reaches them at depth 2 (via branch_a) and depth 1 (directly).
+    let shared = create_person(&db, tree_id).await;
+    let branch_a = create_person(&db, tree_id).await;
+    let root = create_person(&db, tree_id).await;
+
+    link_parents(&db, tree_id, &[shared], branch_a).await;
+    link_parents(&db, tree_id, &[branch_a, shared], root).await;
+
+    let ancestors = AncestryRepo::ancestors(&db, root, None).await.unwrap();
+    assert_eq!(ancestors.len(), 2, "each ancestor is reported once");
+    let shared_link = ancestors
+        .iter()
+        .find(|a| a.person_id == shared)
+        .expect("shared ancestor present");
+    assert_eq!(shared_link.depth, 1, "the shortest path wins");
+}
+
+/// A cycle in the family links must not hang the walk. The schema does not
+/// prevent one, and corrupt imports produce them.
+#[tokio::test]
+async fn ancestry_terminates_on_a_cycle() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    let a = create_person(&db, tree_id).await;
+    let b = create_person(&db, tree_id).await;
+    link_parents(&db, tree_id, &[a], b).await;
+    link_parents(&db, tree_id, &[b], a).await; // closes the loop
+
+    // Bounded by MAX_GENERATIONS rather than recursing forever.
+    let ancestors = AncestryRepo::ancestors(&db, a, None).await.unwrap();
+    assert_eq!(ancestors.len(), 2, "both persons reachable, each once");
+    let descendants = AncestryRepo::descendants(&db, a, None).await.unwrap();
+    assert_eq!(descendants.len(), 2);
 }
 
 // ───────────────────────── Pagination edge cases ─────────────────────────

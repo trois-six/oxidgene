@@ -31,8 +31,6 @@ pub enum Relation {
     Media,
     #[sea_orm(has_many = "super::note::Entity")]
     Note,
-    #[sea_orm(has_many = "super::person_ancestry::Entity")]
-    PersonAncestry,
 }
 
 impl Related<super::person::Entity> for Entity {
@@ -74,12 +72,6 @@ impl Related<super::media::Entity> for Entity {
 impl Related<super::note::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Note.def()
-    }
-}
-
-impl Related<super::person_ancestry::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::PersonAncestry.def()
     }
 }
 

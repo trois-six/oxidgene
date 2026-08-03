@@ -10,7 +10,6 @@ pub mod media;
 pub mod media_link;
 pub mod note;
 pub mod person;
-pub mod person_ancestry;
 pub mod person_denorm;
 pub mod person_name;
 pub mod place;

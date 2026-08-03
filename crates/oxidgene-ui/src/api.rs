@@ -7,8 +7,8 @@
 
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, SearchResult};
 use oxidgene_core::types::{
-    Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse, Note, Person,
-    PersonAncestry, PersonName, Place, Source, Tree,
+    AncestryLink, Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse,
+    Note, Person, PersonName, Place, Source, Tree,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
@@ -861,7 +861,7 @@ impl ApiClient {
         tree_id: Uuid,
         person_id: Uuid,
         max_depth: Option<i32>,
-    ) -> Result<Vec<PersonAncestry>, ApiError> {
+    ) -> Result<Vec<AncestryLink>, ApiError> {
         let mut params = Vec::new();
         if let Some(d) = max_depth {
             params.push(("max_depth", d.to_string()));
@@ -878,7 +878,7 @@ impl ApiClient {
         tree_id: Uuid,
         person_id: Uuid,
         max_depth: Option<i32>,
-    ) -> Result<Vec<PersonAncestry>, ApiError> {
+    ) -> Result<Vec<AncestryLink>, ApiError> {
         let mut params = Vec::new();
         if let Some(d) = max_depth {
             params.push(("max_depth", d.to_string()));

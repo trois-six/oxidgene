@@ -23,3 +23,4 @@ pub mod snapshot;
 pub mod source;
 pub mod state;
 pub mod tree;
+pub mod tree_guard;

@@ -3,7 +3,7 @@
 //! [`ProfileService`] owns the read side of the domain: it materializes the
 //! denormalized person projections into `person_denorm`, keeps
 //! `person_search_fts` in step, and assembles pedigrees on demand by joining
-//! the `person_ancestry` closure table against those projections.
+//! the family links against those projections.
 //!
 //! There is no cache. Every read is a database read, and every mutation
 //! rewrites the bounded set of projections it invalidates, so a projection is
@@ -18,8 +18,8 @@ use oxidgene_core::projection::{
     PedigreeNode, PersonProfile, SearchResult,
 };
 use oxidgene_db::repo::{
-    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo,
-    PersonAncestryRepo, PersonDenormRepo, PersonNameRepo, PersonRepo, PersonSearchRepo, PlaceRepo,
+    AncestryRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo,
+    MediaRepo, NoteRepo, PersonDenormRepo, PersonNameRepo, PersonRepo, PersonSearchRepo, PlaceRepo,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use tracing::{debug, info, instrument};
@@ -185,8 +185,9 @@ impl ProfileService {
 
     /// Assemble a windowed pedigree for a root person.
     ///
-    /// Built fresh on every call from `person_ancestry` ⋈ `person_denorm` —
-    /// there is nothing to cache and nothing to invalidate.
+    /// Built fresh on every call by walking the family links and joining the
+    /// reached persons against `person_denorm` — there is nothing to cache and
+    /// nothing to invalidate.
     #[instrument(skip(self), fields(tree_id = %tree_id, root_person_id = %root_person_id))]
     pub async fn get_or_build_pedigree(
         &self,
@@ -626,16 +627,16 @@ impl ProfileService {
             root_person_id, ancestor_depth, descendant_depth
         );
 
-        // 1. Get ancestor and descendant IDs from the closure table.
+        // 1. Walk the family links for ancestor and descendant IDs.
         let (ancestors, descendants) = tokio::try_join!(
-            PersonAncestryRepo::ancestors(conn, root_person_id, Some(ancestor_depth as i32)),
-            PersonAncestryRepo::descendants(conn, root_person_id, Some(descendant_depth as i32)),
+            AncestryRepo::ancestors(conn, root_person_id, Some(ancestor_depth as i32)),
+            AncestryRepo::descendants(conn, root_person_id, Some(descendant_depth as i32)),
         )?;
 
         // 2. Collect all person IDs we need.
         let mut person_ids: Vec<Uuid> = vec![root_person_id];
-        person_ids.extend(ancestors.iter().map(|a| a.ancestor_id));
-        person_ids.extend(descendants.iter().map(|d| d.descendant_id));
+        person_ids.extend(ancestors.iter().map(|a| a.person_id));
+        person_ids.extend(descendants.iter().map(|d| d.person_id));
         person_ids.sort();
         person_ids.dedup();
 
@@ -643,10 +644,13 @@ impl ProfileService {
         //    ancestors, positive for descendants, 0 for root).
         let mut depth_map: HashMap<Uuid, i32> = HashMap::new();
         depth_map.insert(root_person_id, 0);
+        // The walk already reports each person at their shortest distance, but
+        // someone can be both an ancestor and a descendant (implex), so the
+        // closest-to-root rule still has to arbitrate between the two lists.
         for a in &ancestors {
             let generation = -(a.depth);
             depth_map
-                .entry(a.ancestor_id)
+                .entry(a.person_id)
                 .and_modify(|existing| {
                     // Keep the smallest absolute depth (closest to root).
                     if generation.abs() < existing.abs() {
@@ -658,7 +662,7 @@ impl ProfileService {
         for d in &descendants {
             let generation = d.depth;
             depth_map
-                .entry(d.descendant_id)
+                .entry(d.person_id)
                 .and_modify(|existing| {
                     if generation.abs() < existing.abs() {
                         *existing = generation;
