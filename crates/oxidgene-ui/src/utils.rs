@@ -195,6 +195,21 @@ fn estimate_char_width_px(ch: char, font_size_px: f32) -> f32 {
     ratio * font_size_px
 }
 
+/// Turn a stored note body into the HTML actually handed to the DOM.
+///
+/// Note bodies are stored with their line breaks canonicalised to `\n`, which
+/// keeps them useful as plain text — GEDCOM export writes real `CONT` lines,
+/// the edit textarea shows text rather than tags — but means nothing to an HTML
+/// renderer, which collapses a newline into a space. Restoring `<br>` here is
+/// the other half of that trade; see `oxidgene_db::html` for the write side.
+///
+/// The input is already sanitized, and `<br>` is on its allowlist, so this adds
+/// nothing the sanitizer would have removed.
+#[must_use]
+pub fn note_html_for_display(html: &str) -> String {
+    html.replace('\n', "<br>")
+}
+
 /// Flatten a sanitized note body into a one-line plain-text preview.
 ///
 /// Note bodies are HTML (see `oxidgene_db::html`), which is fine where they are
