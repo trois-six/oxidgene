@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 
@@ -14,6 +15,11 @@ use crate::router::Route;
 pub fn Home() -> Element {
     let api = use_context::<ApiClient>();
     let mut refresh_counter = use_signal(|| 0u32);
+    // Mutating a tree from here must also reach the shared `TreeCache`: it is
+    // keyed by tree id alone, so a snapshot loaded before the change survives
+    // it, and the tree pages would go on rendering stale metadata (the old
+    // name in the breadcrumb) from that snapshot.
+    let tree_cache = use_tree_cache();
 
     let api_res = api.clone();
     let trees_resource = use_resource(move || {
@@ -108,6 +114,7 @@ pub fn Home() -> Element {
                 Ok(_) => {
                     confirm_delete_id.set(None);
                     delete_error.set(None);
+                    tree_cache.forget(id);
                     refresh_counter += 1;
                 }
                 Err(e) => delete_error.set(Some(format!("{e}"))),
@@ -374,6 +381,7 @@ pub fn Home() -> Element {
                                                             Ok(result) => {
                                                                 import_result.set(Some((name_for_result, result)));
                                                                 importing_tree_id.set(None);
+                                                                tree_cache.invalidate();
                                                                 refresh_counter += 1;
                                                             }
                                                             Err(e) => {
@@ -559,9 +567,10 @@ pub fn Home() -> Element {
                                                 sosa_root_person_id: None,
                                             };
                                             match api.update_tree(tid, &body).await {
-                                                Ok(_) => {
+                                                Ok(tree) => {
                                                     rename_tree_id.set(None);
                                                     rename_error.set(None);
+                                                    tree_cache.refresh_tree(tid, tree);
                                                     refresh_counter += 1;
                                                 }
                                                 Err(e) => rename_error.set(Some(format!("{e}"))),
