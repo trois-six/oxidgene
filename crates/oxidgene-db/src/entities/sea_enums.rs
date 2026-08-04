@@ -53,6 +53,14 @@ pub enum NameType {
     Maiden,
     #[sea_orm(string_value = "religious")]
     Religious,
+    #[sea_orm(string_value = "given_name")]
+    GivenName,
+    #[sea_orm(string_value = "alias")]
+    Alias,
+    #[sea_orm(string_value = "byname")]
+    Byname,
+    #[sea_orm(string_value = "sobriquet")]
+    Sobriquet,
     #[sea_orm(string_value = "other")]
     Other,
 }
@@ -65,6 +73,10 @@ impl From<enums::NameType> for NameType {
             enums::NameType::AlsoKnownAs => Self::AlsoKnownAs,
             enums::NameType::Maiden => Self::Maiden,
             enums::NameType::Religious => Self::Religious,
+            enums::NameType::GivenName => Self::GivenName,
+            enums::NameType::Alias => Self::Alias,
+            enums::NameType::Byname => Self::Byname,
+            enums::NameType::Sobriquet => Self::Sobriquet,
             enums::NameType::Other => Self::Other,
         }
     }
@@ -78,6 +90,10 @@ impl From<NameType> for enums::NameType {
             NameType::AlsoKnownAs => Self::AlsoKnownAs,
             NameType::Maiden => Self::Maiden,
             NameType::Religious => Self::Religious,
+            NameType::GivenName => Self::GivenName,
+            NameType::Alias => Self::Alias,
+            NameType::Byname => Self::Byname,
+            NameType::Sobriquet => Self::Sobriquet,
             NameType::Other => Self::Other,
         }
     }

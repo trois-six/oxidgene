@@ -65,6 +65,7 @@ pub fn set_theme(mut is_dark: Signal<bool>, dark: bool) {
 #[component]
 pub fn Layout() -> Element {
     let _lang_signal = i18n::use_init_language();
+    let _sort_particles = crate::prefs::use_init_sort_particles();
     let _theme_signal = use_init_theme();
     let _tree_cache = tree_cache::use_init_tree_cache();
     let _view_cache = tree_cache::use_init_view_state_cache();

@@ -7,6 +7,7 @@ pub mod m20260728_000001_person_denorm;
 pub mod m20260802_000001_sanitize_note_html;
 pub mod m20260803_000001_drop_person_ancestry;
 pub mod m20260803_000002_normalize_note_line_breaks;
+pub mod m20260804_000001_person_name_surname_prefix;
 
 use sea_orm_migration::prelude::*;
 
@@ -23,6 +24,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260802_000001_sanitize_note_html::Migration),
             Box::new(m20260803_000001_drop_person_ancestry::Migration),
             Box::new(m20260803_000002_normalize_note_line_breaks::Migration),
+            Box::new(m20260804_000001_person_name_surname_prefix::Migration),
         ]
     }
 }

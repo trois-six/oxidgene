@@ -5,7 +5,9 @@
 
 use oxidgene_core::enums::EventType;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Place, Source, year_from_date};
+use oxidgene_core::types::{
+    Place, Source, join_surname_particle, split_surname_particle, year_from_date,
+};
 use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
 use sea_orm::entity::prelude::*;
@@ -18,7 +20,16 @@ use crate::entities::{citation, event, media, person, person_name, place, sea_en
 /// persons carrying it.
 #[derive(Debug, Clone)]
 pub struct DictionaryValueEntry {
+    /// The value as it should be displayed — for surnames, particle included
+    /// ("de la Cruz").
     pub value: String,
+    /// The key this value files under when particles are ignored — for
+    /// surnames, the root only ("cruz"), lowercased.
+    ///
+    /// Returned alongside `value` so the client can honour the user's
+    /// "sort particles" preference without a second round trip. Entries
+    /// arrive sorted by `value`, i.e. particles included.
+    pub sort_key: String,
     pub count: i64,
 }
 
@@ -70,13 +81,27 @@ impl DictionaryRepo {
 
         // Group by person, not by row: a person with two `PersonName` entries
         // sharing the same surname (e.g. birth + nickname) must count once.
+        //
+        // Keyed on the full surname, particle included: "de la Cruz" and
+        // "Cruz" are two different families and must stay two entries. The
+        // particle only affects where each one *files*, which is what
+        // `sort_key` carries.
         let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
+        let mut roots: HashMap<String, String> = HashMap::new();
         for n in names {
-            if let Some(surname) = trimmed(n.surname.as_deref()) {
-                per_value.entry(surname).or_default().insert(n.person_id);
-            }
+            let Some(root) = trimmed(n.surname.as_deref()) else {
+                continue;
+            };
+            let full = join_surname_particle(n.surname_prefix.as_deref(), &root);
+            roots.insert(full.clone(), root.to_lowercase());
+            per_value.entry(full).or_default().insert(n.person_id);
         }
-        Ok(sorted_entries(per_value))
+        Ok(sorted_entries_with(per_value, |value| {
+            roots
+                .get(value)
+                .cloned()
+                .unwrap_or_else(|| value.to_lowercase())
+        }))
     }
 
     /// Distinct occupation labels (`Event.description` for `Occupation`
@@ -394,14 +419,28 @@ impl DictionaryRepo {
             return Ok(Vec::new());
         }
 
+        // `value` comes from `family_names`, which reports full surnames, so
+        // it may carry a particle while the column holds only the root. Match
+        // on the root and re-check the particle in memory, so that "Cruz" and
+        // "de la Cruz" resolve to their own people rather than to each other's.
+        let (particle, root) = split_surname_particle(value);
+
         let names = person_name::Entity::find()
             .filter(person_name::Column::PersonId.is_in(person_ids))
-            .filter(person_name::Column::Surname.eq(value))
+            .filter(person_name::Column::Surname.eq(root.as_str()))
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
-        Ok(dedup(names.into_iter().map(|n| n.person_id).collect()))
+        Ok(dedup(
+            names
+                .into_iter()
+                .filter(|n| {
+                    trimmed(n.surname_prefix.as_deref()) == particle.as_ref().map(|p| p.to_string())
+                })
+                .map(|n| n.person_id)
+                .collect(),
+        ))
     }
 
     /// Resolve a batch of person IDs (as returned by the `*_usage_person_ids`
@@ -465,7 +504,11 @@ impl DictionaryRepo {
                 PersonUsageEntry {
                     person_id,
                     given_names: name.and_then(|n| trimmed(n.given_names.as_deref())),
-                    surname: name.and_then(|n| trimmed(n.surname.as_deref())),
+                    // Full surname: this feeds a display list, not a filing key.
+                    surname: name.and_then(|n| {
+                        trimmed(n.surname.as_deref())
+                            .map(|root| join_surname_particle(n.surname_prefix.as_deref(), &root))
+                    }),
                     birth_year: birth_by_person.get(&person_id).copied(),
                     death_year: death_by_person.get(&person_id).copied(),
                 }
@@ -487,10 +530,20 @@ fn trimmed(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Sorted entries whose filing key is just the value itself — correct for
+/// every dictionary except family names, which file under the surname root.
 fn sorted_entries(per_value: HashMap<String, HashSet<Uuid>>) -> Vec<DictionaryValueEntry> {
+    sorted_entries_with(per_value, |value| value.to_lowercase())
+}
+
+fn sorted_entries_with(
+    per_value: HashMap<String, HashSet<Uuid>>,
+    sort_key: impl Fn(&str) -> String,
+) -> Vec<DictionaryValueEntry> {
     let mut out: Vec<DictionaryValueEntry> = per_value
         .into_iter()
         .map(|(value, ids)| DictionaryValueEntry {
+            sort_key: sort_key(&value),
             value,
             count: ids.len() as i64,
         })

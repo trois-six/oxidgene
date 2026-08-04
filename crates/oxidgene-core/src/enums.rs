@@ -24,6 +24,12 @@ impl std::fmt::Display for Sex {
 }
 
 /// Type of a person's name.
+///
+/// `Alias`, `Byname`, `Sobriquet` and `GivenName` are OxidGene-specific
+/// refinements of "also known as": GEDCOM's `NAME.TYPE` enumeration has no
+/// equivalent, so all four export as `aka` (see `oxidgene-gedcom`). They exist
+/// because the UI lets the user pick between them, and collapsing them onto
+/// [`Self::AlsoKnownAs`] on save made the choice unrecoverable on reload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NameType {
@@ -32,6 +38,15 @@ pub enum NameType {
     AlsoKnownAs,
     Maiden,
     Religious,
+    /// An additional given name, recorded on its own rather than as part of
+    /// the birth name's `given_names` piece.
+    GivenName,
+    /// A formally adopted alternative name (stage name, pen name).
+    Alias,
+    /// A byname the person was commonly known by.
+    Byname,
+    /// A familiar or ironic nickname, distinct from a plain byname.
+    Sobriquet,
     Other,
 }
 
@@ -43,6 +58,10 @@ impl std::fmt::Display for NameType {
             Self::AlsoKnownAs => write!(f, "Also known as"),
             Self::Maiden => write!(f, "Maiden name"),
             Self::Religious => write!(f, "Religious name"),
+            Self::GivenName => write!(f, "Given name"),
+            Self::Alias => write!(f, "Alias"),
+            Self::Byname => write!(f, "Byname"),
+            Self::Sobriquet => write!(f, "Sobriquet"),
             Self::Other => write!(f, "Other"),
         }
     }

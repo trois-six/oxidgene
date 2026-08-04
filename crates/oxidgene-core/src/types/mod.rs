@@ -12,6 +12,7 @@ mod pagination;
 mod person;
 mod place;
 mod source;
+mod surname;
 mod tree;
 
 pub use citation::Citation;
@@ -23,4 +24,5 @@ pub use pagination::{Connection, Edge, PageInfo};
 pub use person::{AncestryLink, Person, PersonName};
 pub use place::Place;
 pub use source::Source;
+pub use surname::{join_surname_particle, split_surname_particle, surname_sort_key};
 pub use tree::Tree;

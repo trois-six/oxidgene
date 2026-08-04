@@ -1,9 +1,10 @@
-//! Application-level settings page (theme, language).
+//! Application-level settings page (theme, language, name display).
 
 use dioxus::prelude::*;
 
 use crate::components::layout::set_theme;
 use crate::i18n::{self, Language, use_i18n};
+use crate::prefs::{SortParticles, set_sort_particles};
 use crate::router::Route;
 
 /// Sidebar sections.
@@ -11,6 +12,7 @@ use crate::router::Route;
 enum Section {
     Appearance,
     Language,
+    Names,
 }
 
 #[component]
@@ -18,6 +20,7 @@ pub fn AppSettings() -> Element {
     let i18n = use_i18n();
     let is_dark = use_context::<Signal<bool>>();
     let lang_signal = use_context::<Signal<Language>>();
+    let sort_particles = use_context::<Signal<SortParticles>>();
 
     let mut active_section = use_signal(|| Section::Appearance);
 
@@ -57,6 +60,11 @@ pub fn AppSettings() -> Element {
                             onclick: move |_| active_section.set(Section::Language),
                             {i18n.t("app_settings.language")}
                         }
+                        button {
+                            class: if *active_section.read() == Section::Names { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set(Section::Names),
+                            {i18n.t("app_settings.names")}
+                        }
                     }
                 }
 
@@ -68,6 +76,9 @@ pub fn AppSettings() -> Element {
                         },
                         Section::Language => rsx! {
                             LanguageSection { lang_signal }
+                        },
+                        Section::Names => rsx! {
+                            NamesSection { sort_particles }
                         },
                     }
                 }
@@ -311,6 +322,57 @@ pub(crate) const APP_SETTINGS_WIDGET_STYLES: &str = r#"
         }
     }
 "#;
+
+// ── Names section ───────────────────────────────────────────────────────────
+
+/// How surnames carrying a particle ("de la Cruz") are filed alphabetically.
+///
+/// Both conventions are in real use — French genealogy usually files under the
+/// particle, many catalogues file under the root — so this is a preference,
+/// not a correctness question. It only affects ordering: names always *display*
+/// with their particle.
+#[component]
+pub fn NamesSection(sort_particles: Signal<SortParticles>) -> Element {
+    let i18n = use_i18n();
+    let include = sort_particles.read().0;
+
+    rsx! {
+        div { class: "settings-section",
+            span { class: "settings-section-eyebrow", {i18n.t("app_settings.names")} }
+            h2 { class: "settings-section-title", {i18n.t("app_settings.names_title")} }
+            p { class: "settings-section-subtitle", {i18n.t("app_settings.names_desc")} }
+
+            div { class: "app-settings-card",
+                div { class: "app-settings-option",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label",
+                            {i18n.t("app_settings.sort_particles")}
+                        }
+                        span { class: "app-settings-option-hint",
+                            {i18n.t(if include {
+                                "app_settings.sort_particles_included_hint"
+                            } else {
+                                "app_settings.sort_particles_ignored_hint"
+                            })}
+                        }
+                    }
+                    div { class: "theme-toggle-group",
+                        button {
+                            class: if include { "theme-toggle-btn active" } else { "theme-toggle-btn" },
+                            onclick: move |_| set_sort_particles(sort_particles, true),
+                            {i18n.t("app_settings.sort_particles_included")}
+                        }
+                        button {
+                            class: if include { "theme-toggle-btn" } else { "theme-toggle-btn active" },
+                            onclick: move |_| set_sort_particles(sort_particles, false),
+                            {i18n.t("app_settings.sort_particles_ignored")}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 const APP_SETTINGS_STYLES: &str = r#"
     .settings-layout {

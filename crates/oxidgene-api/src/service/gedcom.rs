@@ -195,10 +195,12 @@ pub(crate) async fn persist_import_result(
                 name_type: Set(sea_enums::NameType::from(pn.name_type)),
                 given_names: Set(pn.given_names.clone()),
                 surname: Set(pn.surname.clone()),
+                surname_prefix: Set(pn.surname_prefix.clone()),
                 prefix: Set(pn.prefix.clone()),
                 suffix: Set(pn.suffix.clone()),
                 nickname: Set(pn.nickname.clone()),
                 is_primary: Set(pn.is_primary),
+                sort_order: Set(pn.sort_order),
                 created_at: Set(now),
                 updated_at: Set(now),
             })

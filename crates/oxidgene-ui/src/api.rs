@@ -44,6 +44,10 @@ type PaginatedResponse<T> = Connection<T>;
 #[derive(Debug, Clone, Deserialize)]
 pub struct DictionaryEntry {
     pub value: String,
+    /// Filing key when surname particles are ignored; see the sorting
+    /// preference in `crate::prefs`.
+    #[serde(default)]
+    pub sort_key: String,
     pub count: i64,
 }
 
@@ -161,11 +165,20 @@ pub struct UpdatePersonBody {
 pub struct CreatePersonNameBody {
     pub name_type: NameType,
     pub given_names: Option<String>,
+    /// Surname root only — split the particle off with
+    /// `oxidgene_core::types::split_surname_particle` before sending.
     pub surname: Option<String>,
+    pub surname_prefix: Option<String>,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub nickname: Option<String>,
     pub is_primary: bool,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub sort_order: i32,
+}
+
+fn is_zero(v: &i32) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Serialize)]
@@ -177,6 +190,8 @@ pub struct UpdatePersonNameBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surname: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub surname_prefix: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suffix: Option<Option<String>>,
@@ -184,6 +199,8 @@ pub struct UpdatePersonNameBody {
     pub nickname: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_primary: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<i32>,
 }
 
 // ── Family member request bodies ────────────────────────────────────

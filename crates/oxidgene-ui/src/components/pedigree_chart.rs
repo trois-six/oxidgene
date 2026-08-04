@@ -312,11 +312,15 @@ impl PedigreeData {
                 person_id: node.person_id,
                 name_type: oxidgene_core::NameType::Birth,
                 given_names: node.given_names.clone(),
+                // Projection surnames already carry their particle, so there
+                // is nothing to re-attach here.
                 surname: node.surname.clone(),
+                surname_prefix: None,
                 prefix: None,
                 suffix: None,
                 nickname: None,
                 is_primary: true,
+                sort_order: 0,
                 created_at: now,
                 updated_at: now,
             };
@@ -520,10 +524,12 @@ impl PedigreeData {
                     name_type: oxidgene_core::NameType::Birth,
                     given_names: member.given_names.clone(),
                     surname: member.surname.clone(),
+                    surname_prefix: None,
                     prefix: None,
                     suffix: None,
                     nickname: None,
                     is_primary: true,
+                    sort_order: 0,
                     created_at: now,
                     updated_at: now,
                 };
@@ -679,7 +685,10 @@ impl PedigreeData {
             .find(|n| n.is_primary)
             .or_else(|| names.first());
         match name {
-            Some(n) => (n.given_names.clone(), n.surname.clone(), n.nickname.clone()),
+            // Full surname: card labels are display, so the particle belongs.
+            // This is the single choke point every `PersonNode` label flows
+            // through, so fixing it here covers the whole canvas.
+            Some(n) => (n.given_names.clone(), n.full_surname(), n.nickname.clone()),
             None => (None, None, None),
         }
     }

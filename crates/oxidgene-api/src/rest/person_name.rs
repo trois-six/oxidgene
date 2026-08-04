@@ -4,7 +4,7 @@ use crate::profile::invalidation;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::PersonNameRepo;
+use oxidgene_db::repo::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};
 use uuid::Uuid;
 
 use super::dto::{CreatePersonNameRequest, UpdatePersonNameRequest};
@@ -35,12 +35,16 @@ pub async fn create_person_name(
         id,
         person_id,
         body.name_type,
-        body.given_names,
-        body.surname,
-        body.prefix,
-        body.suffix,
-        body.nickname,
+        PersonNamePieces {
+            given_names: body.given_names,
+            surname: body.surname,
+            surname_prefix: body.surname_prefix,
+            prefix: body.prefix,
+            suffix: body.suffix,
+            nickname: body.nickname,
+        },
         body.is_primary,
+        body.sort_order,
     )
     .await
     .map_err(ApiError::from)?;
@@ -71,12 +75,16 @@ pub async fn update_person_name(
         &txn,
         name_id,
         body.name_type,
-        body.given_names,
-        body.surname,
-        body.prefix,
-        body.suffix,
-        body.nickname,
+        PersonNamePiecesPatch {
+            given_names: body.given_names,
+            surname: body.surname,
+            surname_prefix: body.surname_prefix,
+            prefix: body.prefix,
+            suffix: body.suffix,
+            nickname: body.nickname,
+        },
         body.is_primary,
+        body.sort_order,
     )
     .await
     .map_err(ApiError::from)?;

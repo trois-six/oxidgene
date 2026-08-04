@@ -12,11 +12,15 @@ pub struct Model {
     pub person_id: Uuid,
     pub name_type: NameType,
     pub given_names: Option<String>,
+    /// Surname root, particle excluded — see `surname_prefix`.
     pub surname: Option<String>,
+    /// GEDCOM `SPFX`: the particle preceding the surname ("de la", "van der").
+    pub surname_prefix: Option<String>,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub nickname: Option<String>,
     pub is_primary: bool,
+    pub sort_order: i32,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }
