@@ -113,7 +113,7 @@ pub fn split_surname_particle(raw: &str) -> (Option<String>, String) {
 /// use oxidgene_core::types::split_surname_with;
 ///
 /// // Correcting a detected particle.
-/// assert_eq!(split_surname_with("VON LUNKHOFEN", "VON"), (Some("VON".into()), "LUNKHOFEN".into()));
+/// assert_eq!(split_surname_with("VON BERG", "VON"), (Some("VON".into()), "BERG".into()));
 /// // Opting out of the split entirely.
 /// assert_eq!(split_surname_with("Da Silva", ""), (None, "Da Silva".into()));
 /// ```
@@ -349,8 +349,8 @@ mod tests {
         assert_eq!(split_surname_with("Le", ""), (None, "Le".into()));
         // Casing follows the surname as typed, not the supplied particle.
         assert_eq!(
-            split_surname_with("VON LUNKHOFEN", "von"),
-            (Some("VON".into()), "LUNKHOFEN".into())
+            split_surname_with("VON BERG", "von"),
+            (Some("VON".into()), "BERG".into())
         );
     }
 

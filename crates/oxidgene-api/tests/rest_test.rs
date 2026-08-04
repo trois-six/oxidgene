@@ -371,8 +371,9 @@ async fn create_person_via_api(app: &axum::Router, tree_id: &str) -> String {
 
 #[tokio::test]
 async fn test_update_can_clear_a_nullable_field() {
-    // The reported bug: editing "de ERRAUD" down to "ERRAUD" left the person
-    // still named "de ERRAUD". The UI correctly sent `"surname_prefix": null`,
+    // The reported bug: editing a birth name from "de MARTIN" down to "MARTIN"
+    // left the person still named "de MARTIN". The UI correctly sent
+    // `"surname_prefix": null`,
     // but serde read a JSON null as "field absent" for `Option<Option<T>>`, so
     // the update was accepted and the old particle silently kept.
     let app = setup_app().await;
@@ -385,10 +386,10 @@ async fn test_update_can_clear_a_nullable_field() {
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         Some(serde_json::json!({
             "name_type": "birth",
-            "given_names": "Maxime",
-            "surname": "ERRAUD",
+            "given_names": "Jean",
+            "surname": "MARTIN",
             "surname_prefix": "de",
-            "nickname": "Max",
+            "nickname": "Jeannot",
             "is_primary": true
         })),
     )
@@ -403,7 +404,7 @@ async fn test_update_can_clear_a_nullable_field() {
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
         Some(serde_json::json!({
-            "surname": "ERRAUD",
+            "surname": "MARTIN",
             "surname_prefix": null
         })),
     )
@@ -415,8 +416,8 @@ async fn test_update_can_clear_a_nullable_field() {
         body["surname_prefix"]
     );
     // ...while a field left out still means "leave unchanged".
-    assert_eq!(body["nickname"], "Max");
-    assert_eq!(body["surname"], "ERRAUD");
+    assert_eq!(body["nickname"], "Jeannot");
+    assert_eq!(body["surname"], "MARTIN");
 }
 
 #[tokio::test]
