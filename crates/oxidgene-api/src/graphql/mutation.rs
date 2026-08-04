@@ -2,7 +2,7 @@
 
 use crate::profile::invalidation;
 use crate::rest::state::{begin_tx, commit_tx};
-use async_graphql::{Context, ID, Object, Result};
+use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use chrono::NaiveDate;
 use uuid::Uuid;
 
@@ -25,6 +25,41 @@ use super::types::{
     GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource, GqlTree, db_from_ctx,
     profiles_from_ctx, purge_from_ctx,
 };
+
+/// Maps a GraphQL nullable update field onto the repositories' patch shape.
+///
+/// `None` leaves the column alone, `Some(None)` clears it, `Some(Some(v))` sets
+/// it. Only [`MaybeUndefined`] can express the first two distinctly — a plain
+/// `Option<T>` collapses an omitted field and an explicit `null` into the same
+/// `None`, which is why nullable fields could previously be set but never
+/// cleared over GraphQL. Mirrors `double_option` on the REST side.
+pub(crate) fn patch<T>(value: MaybeUndefined<T>) -> Option<Option<T>> {
+    match value {
+        MaybeUndefined::Undefined => None,
+        MaybeUndefined::Null => Some(None),
+        MaybeUndefined::Value(v) => Some(Some(v)),
+    }
+}
+
+/// Same, for a field that has to be parsed on the way through.
+///
+/// A `null` clears without parsing anything; only a real value can fail.
+fn patch_parse<T, U, E>(
+    value: MaybeUndefined<T>,
+    parse: impl FnOnce(T) -> Result<U, E>,
+    field: &str,
+) -> Result<Option<Option<U>>>
+where
+    E: std::fmt::Display,
+{
+    match value {
+        MaybeUndefined::Undefined => Ok(None),
+        MaybeUndefined::Null => Ok(Some(None)),
+        MaybeUndefined::Value(v) => parse(v)
+            .map(|parsed| Some(Some(parsed)))
+            .map_err(|e| async_graphql::Error::new(format!("Invalid {field}: {e}"))),
+    }
+}
 
 /// Convert a service-layer import summary into its GraphQL shape.
 ///
@@ -66,13 +101,13 @@ impl MutationRoot {
     ) -> Result<GqlTree> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let sosa_root = input
-            .sosa_root_person_id
-            .map(|s| Uuid::parse_str(&s).map(Some))
-            .transpose()
-            .map_err(|e| async_graphql::Error::new(format!("Invalid sosa_root_person_id: {e}")))?;
+        let sosa_root = patch_parse(
+            input.sosa_root_person_id,
+            |s| Uuid::parse_str(&s),
+            "sosa_root_person_id",
+        )?;
         let tree =
-            TreeRepo::update(db, uuid, input.name, input.description.map(Some), sosa_root).await?;
+            TreeRepo::update(db, uuid, input.name, patch(input.description), sosa_root).await?;
         Ok(tree.into())
     }
 
@@ -211,12 +246,12 @@ impl MutationRoot {
             uuid,
             input.name_type.map(|nt| nt.into()),
             PersonNamePiecesPatch {
-                given_names: input.given_names.map(Some),
-                surname: input.surname.map(Some),
-                surname_prefix: input.surname_prefix.map(Some),
-                prefix: input.prefix.map(Some),
-                suffix: input.suffix.map(Some),
-                nickname: input.nickname.map(Some),
+                given_names: patch(input.given_names),
+                surname: patch(input.surname),
+                surname_prefix: patch(input.surname_prefix),
+                prefix: patch(input.prefix),
+                suffix: patch(input.suffix),
+                nickname: patch(input.nickname),
             },
             input.is_primary,
             input.sort_order,
@@ -468,22 +503,21 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let place_id = input.place_id.as_deref().map(Uuid::parse_str).transpose()?;
-        let date_sort = input
-            .date_sort
-            .as_deref()
-            .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
-            .transpose()
-            .map_err(|e| async_graphql::Error::new(format!("Invalid date_sort: {e}")))?;
+        let place_id = patch_parse(input.place_id, |s| Uuid::parse_str(&s), "place_id")?;
+        let date_sort = patch_parse(
+            input.date_sort,
+            |s| NaiveDate::parse_from_str(&s, "%Y-%m-%d"),
+            "date_sort",
+        )?;
         let txn = begin_tx(db).await?;
         let event = EventRepo::update(
             &txn,
             uuid,
             input.event_type.map(|et| et.into()),
-            input.date_value.map(Some),
-            date_sort.map(Some),
-            place_id.map(Some),
-            input.description.map(Some),
+            patch(input.date_value),
+            date_sort,
+            place_id,
+            patch(input.description),
             None,
             None,
             None,
@@ -583,8 +617,8 @@ impl MutationRoot {
             db,
             uuid,
             input.name,
-            input.latitude.map(Some),
-            input.longitude.map(Some),
+            patch(input.latitude),
+            patch(input.longitude),
         )
         .await?;
         // Place changes could affect event display — but a person projection
@@ -641,10 +675,10 @@ impl MutationRoot {
             db,
             uuid,
             input.title,
-            input.author.map(Some),
-            input.publisher.map(Some),
-            input.abbreviation.map(Some),
-            input.repository_name.map(Some),
+            patch(input.author),
+            patch(input.publisher),
+            patch(input.abbreviation),
+            patch(input.repository_name),
         )
         .await?;
         Ok(source.into())
@@ -707,9 +741,9 @@ impl MutationRoot {
         let citation = CitationRepo::update(
             db,
             uuid,
-            input.page.map(Some),
+            patch(input.page),
             input.confidence.map(|c| c.into()),
-            input.text.map(Some),
+            patch(input.text),
         )
         .await?;
         Ok(citation.into())
@@ -760,7 +794,7 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         let media =
-            MediaRepo::update(db, uuid, input.title.map(Some), input.description.map(Some)).await?;
+            MediaRepo::update(db, uuid, patch(input.title), patch(input.description)).await?;
         Ok(media.into())
     }
 
