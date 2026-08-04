@@ -4,6 +4,22 @@ use oxidgene_core::types::{Place, Source};
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 use serde::{Deserialize, Serialize};
 
+/// Deserializer for update fields that must tell "absent" from `null`.
+///
+/// serde maps a JSON `null` to `None` for *any* `Option`, so a plain
+/// `Option<Option<T>>` collapses `{"x": null}` and `{}` to the same `None` —
+/// which these DTOs read as "leave unchanged". The effect was that no nullable
+/// field could ever be cleared over REST: the request was accepted and the old
+/// value silently kept. Paired with `#[serde(default)]` this restores the
+/// distinction — absent stays `None`, `null` becomes `Some(None)`.
+fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(de).map(Some)
+}
+
 // ── Pagination query params ──────────────────────────────────────────
 
 /// Query parameters for cursor-based pagination.
@@ -29,8 +45,10 @@ pub struct CreateTreeRequest {
 pub struct UpdateTreeRequest {
     pub name: Option<String>,
     /// `null` clears the description; absent field leaves it unchanged.
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
     /// `null` clears the root person; absent field leaves it unchanged.
+    #[serde(default, deserialize_with = "double_option")]
     pub sosa_root_person_id: Option<Option<uuid::Uuid>>,
 }
 
@@ -107,12 +125,17 @@ pub struct CreatePersonNameRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdatePersonNameRequest {
     pub name_type: Option<NameType>,
+    #[serde(default, deserialize_with = "double_option")]
     pub given_names: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub surname: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "double_option")]
     pub surname_prefix: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub prefix: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub suffix: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub nickname: Option<Option<String>>,
     pub is_primary: Option<bool>,
     #[serde(default)]
@@ -191,9 +214,13 @@ pub struct CreateEventRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateEventRequest {
     pub event_type: Option<EventType>,
+    #[serde(default, deserialize_with = "double_option")]
     pub date_value: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub date_sort: Option<Option<chrono::NaiveDate>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub place_id: Option<Option<uuid::Uuid>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
 }
 
@@ -230,7 +257,9 @@ pub struct CreatePlaceRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdatePlaceRequest {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub latitude: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub longitude: Option<Option<f64>>,
 }
 
@@ -250,9 +279,13 @@ pub struct CreateSourceRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateSourceRequest {
     pub title: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub author: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub publisher: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub abbreviation: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub repository_name: Option<Option<String>>,
 }
 
@@ -273,8 +306,10 @@ pub struct CreateCitationRequest {
 /// Request body for updating a citation.
 #[derive(Debug, Deserialize)]
 pub struct UpdateCitationRequest {
+    #[serde(default, deserialize_with = "double_option")]
     pub page: Option<Option<String>>,
     pub confidence: Option<Confidence>,
+    #[serde(default, deserialize_with = "double_option")]
     pub text: Option<Option<String>>,
 }
 
@@ -303,7 +338,9 @@ pub struct CreateMediaRequest {
 /// Request body for updating media metadata.
 #[derive(Debug, Deserialize)]
 pub struct UpdateMediaRequest {
+    #[serde(default, deserialize_with = "double_option")]
     pub title: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
 }
 
