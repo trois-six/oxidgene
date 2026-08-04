@@ -423,13 +423,15 @@ pub fn Home() -> Element {
         if show_create() {
             div {
                 class: "modal-backdrop",
-                onclick: move |_| {
+                // Dismiss on press (not click): a click fires on the common ancestor of
+                // mousedown/mouseup, so selecting text then releasing outside would close.
+                onmousedown: move |_| {
                     show_create.set(false);
                     form_error.set(None);
                 },
                 div {
                     class: "home-create-modal",
-                    onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                    onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
 
                     div { class: "home-create-modal-header",
                         h2 { {i18n.t("home.new_tree")} }
@@ -506,13 +508,13 @@ pub fn Home() -> Element {
         if rename_tree_id().is_some() {
             div {
                 class: "modal-backdrop",
-                onclick: move |_| {
+                onmousedown: move |_| {
                     rename_tree_id.set(None);
                     rename_error.set(None);
                 },
                 div {
                     class: "home-create-modal",
-                    onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                    onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
 
                     div { class: "home-create-modal-header",
                         h2 { {i18n.t("home.rename_tree")} }

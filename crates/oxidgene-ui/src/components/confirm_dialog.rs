@@ -65,11 +65,13 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| if !busy { props.on_cancel.call(()) },
+            // Dismiss on press (not click): a click fires on the common ancestor of
+            // mousedown/mouseup, so selecting text then releasing outside would close.
+            onmousedown: move |_| if !busy { props.on_cancel.call(()) },
             div {
                 class: "modal-card",
-                // Prevent clicks inside the card from closing the dialog.
-                onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                // Prevent presses inside the card from closing the dialog.
+                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
                 h3 { "{props.title}" }
                 p { style: "margin: 12px 0;", "{props.message}" }
                 if let Some(err) = &props.error {
