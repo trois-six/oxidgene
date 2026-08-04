@@ -24,5 +24,7 @@ pub use pagination::{Connection, Edge, PageInfo};
 pub use person::{AncestryLink, Person, PersonName};
 pub use place::Place;
 pub use source::Source;
-pub use surname::{join_surname_particle, split_surname_particle, surname_sort_key};
+pub use surname::{
+    join_surname_particle, split_surname_particle, split_surname_with, surname_sort_key,
+};
 pub use tree::Tree;
