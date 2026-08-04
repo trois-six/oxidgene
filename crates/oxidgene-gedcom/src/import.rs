@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source,
+    Person, PersonName, Place, Source, split_surname_particle,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
@@ -684,20 +684,32 @@ fn convert_name(
     let given_names = name.given.clone().or(parsed_given);
     let surname = parsed_surname.or_else(|| name.surname.clone());
 
+    let (surname_prefix, surname) =
+        split_import_surname(surname.as_deref(), name.surname_prefix.as_deref());
+
+    // Compare SURN against the *root*, not the full surname: a file writing
+    // `1 NAME Lois /de la Cruz/` + `2 SURN Cruz` is stating the same surname
+    // twice, and matching on the full form would read the SURN as an alias.
     let aliases = surname_aliases_from_surn(name.surname.as_deref(), surname.as_deref())
         .into_iter()
-        .map(|alias_surname| PersonName {
-            id: Uuid::now_v7(),
-            person_id,
-            name_type: NameType::AlsoKnownAs,
-            given_names: given_names.clone(),
-            surname: Some(alias_surname),
-            prefix: None,
-            suffix: None,
-            nickname: None,
-            is_primary: false,
-            created_at: now,
-            updated_at: now,
+        .map(|alias_surname| {
+            // Aliases carry no SPFX of their own, so derive one.
+            let (alias_prefix, alias_root) = split_import_surname(Some(&alias_surname), None);
+            PersonName {
+                id: Uuid::now_v7(),
+                person_id,
+                name_type: NameType::AlsoKnownAs,
+                given_names: given_names.clone(),
+                surname: alias_root,
+                surname_prefix: alias_prefix,
+                prefix: None,
+                suffix: None,
+                nickname: None,
+                is_primary: false,
+                sort_order: 0,
+                created_at: now,
+                updated_at: now,
+            }
         })
         .collect();
 
@@ -707,10 +719,12 @@ fn convert_name(
         name_type,
         given_names,
         surname,
+        surname_prefix,
         prefix: name.prefix.clone(),
         suffix: name.suffix.clone(),
         nickname: name.nickname.clone(),
         is_primary,
+        sort_order: 0,
         created_at: now,
         updated_at: now,
     };
@@ -718,21 +732,60 @@ fn convert_name(
     (person_name, aliases)
 }
 
+/// Separates an imported surname into `(particle, root)`.
+///
+/// The particle comes from the file's `SPFX` when it has one, and is derived
+/// from the surname itself otherwise. The two need reconciling because GEDCOM
+/// repeats the particle in both places: `1 NAME Lois /de la Cruz/` carries it
+/// inside the slashes *and* in `2 SPFX de la`, so taking both at face value
+/// would yield "de la de la Cruz".
+fn split_import_surname(
+    surname: Option<&str>,
+    spfx: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let raw = surname.map(str::trim).filter(|s| !s.is_empty());
+    let spfx = spfx.map(str::trim).filter(|s| !s.is_empty());
+
+    let Some(raw) = raw else {
+        return (spfx.map(str::to_string), None);
+    };
+
+    let Some(spfx) = spfx else {
+        let (particle, root) = split_surname_particle(raw);
+        return (particle, Some(root));
+    };
+
+    // The file gave an explicit SPFX. If the surname repeats it, strip it —
+    // keeping the casing as it appears in the surname — otherwise trust both.
+    if raw.len() > spfx.len() && raw[..spfx.len()].eq_ignore_ascii_case(spfx) {
+        let rest = raw[spfx.len()..].trim_start();
+        if !rest.is_empty() {
+            return (Some(raw[..spfx.len()].to_string()), Some(rest.to_string()));
+        }
+    }
+
+    (Some(spfx.to_string()), Some(raw.to_string()))
+}
+
 /// Splits a `SURN` value on `,` and returns the parts that differ from the
 /// resolved primary surname. Geneanet's exporter packs surname variants into
 /// a single `SURN` tag (e.g. "LE NADEN,NADAM") instead of emitting one
 /// `NAME`/`SURN` structure per variant; each distinct part becomes its own
 /// "also known as" `PersonName` so the alternate spellings aren't lost.
-fn surname_aliases_from_surn(surn: Option<&str>, primary_surname: Option<&str>) -> Vec<String> {
+fn surname_aliases_from_surn(surn: Option<&str>, primary_root: Option<&str>) -> Vec<String> {
     let Some(surn) = surn else {
         return Vec::new();
     };
-    let primary = primary_surname.unwrap_or_default().trim().to_lowercase();
+    let primary = primary_root.unwrap_or_default().trim().to_lowercase();
     surn.split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .filter(|s| s.to_lowercase() != primary)
+        // Compare roots, not raw strings: `1 NAME Lois /de la Cruz/` makes
+        // ged_io fill SURN with the full "de la Cruz" while `primary_root` is
+        // the split-off "Cruz". Comparing those verbatim would read the
+        // person's own surname back as an alias of itself.
+        .filter(|s| split_surname_particle(s).1.to_lowercase() != primary)
         .collect()
 }
 

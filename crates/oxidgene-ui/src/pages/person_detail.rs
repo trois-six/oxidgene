@@ -376,7 +376,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             let primary = names.iter().find(|n| n.is_primary).or(names.first());
             match primary {
                 Some(name) => {
-                    let rest = [name.surname.as_deref(), name.suffix.as_deref()]
+                    // Particle included, so the header still matches
+                    // `display_name` part for part.
+                    let full_surname = name.full_surname();
+                    let rest = [full_surname.as_deref(), name.suffix.as_deref()]
                         .into_iter()
                         .flatten()
                         .collect::<Vec<_>>()
@@ -403,9 +406,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             let mut seen: std::collections::HashSet<(String, String)> =
                 std::collections::HashSet::new();
             if let Some(p) = primary {
+                // Keyed on the full surname: "Cruz" and "de la Cruz" are
+                // different alternates and must not dedup against each other.
                 seen.insert((
                     p.given_names.clone().unwrap_or_default(),
-                    p.surname.clone().unwrap_or_default(),
+                    p.full_surname().unwrap_or_default(),
                 ));
             }
             names
@@ -414,7 +419,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 .filter_map(|n| {
                     let key = (
                         n.given_names.clone().unwrap_or_default(),
-                        n.surname.clone().unwrap_or_default(),
+                        n.full_surname().unwrap_or_default(),
                     );
                     if !seen.insert(key) {
                         return None;

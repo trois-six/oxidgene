@@ -45,11 +45,19 @@ pub struct UpdatePersonInput {
 pub struct PersonNameInput {
     pub name_type: GqlNameType,
     pub given_names: Option<String>,
+    /// The surname root, particle excluded.
+    ///
+    /// Stored verbatim: the server does not detect a particle hiding in it.
+    /// Callers holding a full surname should split it with
+    /// `oxidgene_core::types::split_surname_particle` first, as the UI does.
     pub surname: Option<String>,
+    /// The surname particle, GEDCOM `SPFX` ("de la", "van der").
+    pub surname_prefix: Option<String>,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub nickname: Option<String>,
     pub is_primary: bool,
+    pub sort_order: Option<i32>,
 }
 
 /// Input for updating a person name (all fields optional except id).
@@ -58,10 +66,12 @@ pub struct UpdatePersonNameInput {
     pub name_type: Option<GqlNameType>,
     pub given_names: Option<String>,
     pub surname: Option<String>,
+    pub surname_prefix: Option<String>,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub nickname: Option<String>,
     pub is_primary: Option<bool>,
+    pub sort_order: Option<i32>,
 }
 
 // ── Family Inputs ────────────────────────────────────────────────────

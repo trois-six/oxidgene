@@ -82,6 +82,10 @@ pub enum GqlNameType {
     AlsoKnownAs,
     Maiden,
     Religious,
+    GivenName,
+    Alias,
+    Byname,
+    Sobriquet,
     Other,
 }
 
@@ -93,6 +97,10 @@ impl From<oxidgene_core::NameType> for GqlNameType {
             oxidgene_core::NameType::AlsoKnownAs => Self::AlsoKnownAs,
             oxidgene_core::NameType::Maiden => Self::Maiden,
             oxidgene_core::NameType::Religious => Self::Religious,
+            oxidgene_core::NameType::GivenName => Self::GivenName,
+            oxidgene_core::NameType::Alias => Self::Alias,
+            oxidgene_core::NameType::Byname => Self::Byname,
+            oxidgene_core::NameType::Sobriquet => Self::Sobriquet,
             oxidgene_core::NameType::Other => Self::Other,
         }
     }
@@ -106,6 +114,10 @@ impl From<GqlNameType> for oxidgene_core::NameType {
             GqlNameType::AlsoKnownAs => Self::AlsoKnownAs,
             GqlNameType::Maiden => Self::Maiden,
             GqlNameType::Religious => Self::Religious,
+            GqlNameType::GivenName => Self::GivenName,
+            GqlNameType::Alias => Self::Alias,
+            GqlNameType::Byname => Self::Byname,
+            GqlNameType::Sobriquet => Self::Sobriquet,
             GqlNameType::Other => Self::Other,
         }
     }
@@ -743,11 +755,15 @@ pub struct GqlPersonName {
     pub person_id: ID,
     pub name_type: GqlNameType,
     pub given_names: Option<String>,
+    /// Surname root, particle excluded — see `surnamePrefix`.
     pub surname: Option<String>,
+    /// The surname particle, GEDCOM `SPFX` ("de la", "van der").
+    pub surname_prefix: Option<String>,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub nickname: Option<String>,
     pub is_primary: bool,
+    pub sort_order: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -760,10 +776,12 @@ impl From<oxidgene_core::types::PersonName> for GqlPersonName {
             name_type: n.name_type.into(),
             given_names: n.given_names,
             surname: n.surname,
+            surname_prefix: n.surname_prefix,
             prefix: n.prefix,
             suffix: n.suffix,
             nickname: n.nickname,
             is_primary: n.is_primary,
+            sort_order: n.sort_order,
             created_at: n.created_at,
             updated_at: n.updated_at,
         }

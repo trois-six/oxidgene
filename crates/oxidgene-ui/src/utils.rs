@@ -22,15 +22,51 @@ pub fn parse_name_type(s: &str) -> NameType {
     match s {
         "Birth" => NameType::Birth,
         "Married" => NameType::Married,
-        // "Alias", "Surnom", "Sobriquet" and "Prenom" are UI-only labels for
-        // the same GEDCOM AKA name type as "AlsoKnownAs" — see
-        // person_form.rs's information-type picker, which offers
-        // French-genealogy vocabulary for the same underlying record rather
-        // than inventing new name types.
-        "AlsoKnownAs" | "Alias" | "Surnom" | "Sobriquet" | "Prenom" => NameType::AlsoKnownAs,
+        "AlsoKnownAs" => NameType::AlsoKnownAs,
+        // Each information type the picker offers now has its own variant.
+        // They used to all collapse onto `AlsoKnownAs`, which made the user's
+        // choice unrecoverable on reload — "Alias" and "Surnom" both filled
+        // the surname piece, so nothing distinguished them once saved.
+        "Prenom" => NameType::GivenName,
+        "Alias" => NameType::Alias,
+        "Surnom" => NameType::Byname,
+        "Sobriquet" => NameType::Sobriquet,
         "Maiden" => NameType::Maiden,
         "Religious" => NameType::Religious,
         _ => NameType::Other,
+    }
+}
+
+/// The picker value that round-trips back to `name_type`, so a saved entry
+/// reopens on the type it was created with.
+pub fn name_type_value(nt: NameType) -> &'static str {
+    match nt {
+        NameType::Birth => "Birth",
+        NameType::Married => "Married",
+        NameType::AlsoKnownAs => "AlsoKnownAs",
+        NameType::GivenName => "Prenom",
+        NameType::Alias => "Alias",
+        NameType::Byname => "Surnom",
+        NameType::Sobriquet => "Sobriquet",
+        NameType::Maiden => "Maiden",
+        NameType::Religious => "Religious",
+        NameType::Other => "Other",
+    }
+}
+
+/// The i18n key labelling a name type in lists and read-only views.
+pub fn name_type_label_key(nt: NameType) -> &'static str {
+    match nt {
+        NameType::Birth => "name_type.birth",
+        NameType::Married => "name_type.married",
+        NameType::AlsoKnownAs => "name_type.also_known_as",
+        NameType::GivenName => "name_type.prenom",
+        NameType::Alias => "name_type.alias",
+        NameType::Byname => "name_type.surnom",
+        NameType::Sobriquet => "name_type.sobriquet",
+        NameType::Maiden => "name_type.maiden",
+        NameType::Religious => "name_type.religious",
+        NameType::Other => "name_type.other",
     }
 }
 

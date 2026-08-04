@@ -86,11 +86,21 @@ pub struct UpdatePersonRequest {
 pub struct CreatePersonNameRequest {
     pub name_type: NameType,
     pub given_names: Option<String>,
+    /// The surname root, particle excluded.
+    ///
+    /// The server stores this verbatim — it does not try to detect a particle
+    /// hiding in it. Callers that hold a full surname should split it with
+    /// `oxidgene_core::types::split_surname_particle` first, as the UI does.
     pub surname: Option<String>,
+    /// The surname particle, GEDCOM `SPFX` ("de la", "van der").
+    #[serde(default)]
+    pub surname_prefix: Option<String>,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub nickname: Option<String>,
     pub is_primary: bool,
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 /// Request body for updating a person name.
@@ -99,10 +109,14 @@ pub struct UpdatePersonNameRequest {
     pub name_type: Option<NameType>,
     pub given_names: Option<Option<String>>,
     pub surname: Option<Option<String>>,
+    #[serde(default)]
+    pub surname_prefix: Option<Option<String>>,
     pub prefix: Option<Option<String>>,
     pub suffix: Option<Option<String>>,
     pub nickname: Option<Option<String>>,
     pub is_primary: Option<bool>,
+    #[serde(default)]
+    pub sort_order: Option<i32>,
 }
 
 // ── Family DTOs ──────────────────────────────────────────────────────
@@ -443,6 +457,11 @@ pub struct PedigreeExpandQuery {
 #[derive(Debug, Serialize)]
 pub struct DictionaryEntryDto {
     pub value: String,
+    /// Key to file this value under when surname particles are ignored.
+    ///
+    /// Entries arrive sorted by `value` (particles included); a client whose
+    /// user prefers the other convention re-sorts on this without refetching.
+    pub sort_key: String,
     pub count: i64,
 }
 
@@ -450,6 +469,7 @@ impl From<oxidgene_db::repo::DictionaryValueEntry> for DictionaryEntryDto {
     fn from(e: oxidgene_db::repo::DictionaryValueEntry) -> Self {
         Self {
             value: e.value,
+            sort_key: e.sort_key,
             count: e.count,
         }
     }
