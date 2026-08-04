@@ -370,6 +370,56 @@ async fn create_person_via_api(app: &axum::Router, tree_id: &str) -> String {
 }
 
 #[tokio::test]
+async fn test_update_can_clear_a_nullable_field() {
+    // The reported bug: editing "de ERRAUD" down to "ERRAUD" left the person
+    // still named "de ERRAUD". The UI correctly sent `"surname_prefix": null`,
+    // but serde read a JSON null as "field absent" for `Option<Option<T>>`, so
+    // the update was accepted and the old particle silently kept.
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+        Some(serde_json::json!({
+            "name_type": "birth",
+            "given_names": "Maxime",
+            "surname": "ERRAUD",
+            "surname_prefix": "de",
+            "nickname": "Max",
+            "is_primary": true
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["surname_prefix"], "de");
+    let name_id = body["id"].as_str().unwrap().to_string();
+
+    // An explicit null clears the field...
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
+        Some(serde_json::json!({
+            "surname": "ERRAUD",
+            "surname_prefix": null
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["surname_prefix"].is_null(),
+        "an explicit null must clear the particle, got {}",
+        body["surname_prefix"]
+    );
+    // ...while a field left out still means "leave unchanged".
+    assert_eq!(body["nickname"], "Max");
+    assert_eq!(body["surname"], "ERRAUD");
+}
+
+#[tokio::test]
 async fn test_person_name_crud() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
