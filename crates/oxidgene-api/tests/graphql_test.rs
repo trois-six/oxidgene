@@ -1387,3 +1387,68 @@ async fn test_projection_graphql_surface() {
         );
     }
 }
+
+/// GraphQL must be able to clear a nullable field, like REST can.
+///
+/// Its inputs used to be plain `Option<T>`, which collapses an omitted field
+/// and an explicit `null` into the same `None` — so a field could be set but
+/// never cleared, and the mutation reported success either way.
+#[tokio::test]
+async fn test_update_can_clear_a_nullable_field() {
+    let app = setup_app().await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "T" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: MALE }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let person_id = data(&resp)["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Jean", surname: "MARTIN", surnamePrefix: "de", nickname: "Jeannot", isPrimary: true }}) {{ id surnamePrefix }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let name = &data(&resp)["addPersonName"];
+    assert_eq!(name["surnamePrefix"], "de");
+    let name_id = name["id"].as_str().unwrap().to_string();
+
+    // An explicit null clears the particle...
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updatePersonName(id: "{name_id}", input: {{ surname: "MARTIN", surnamePrefix: null }}) {{ surname surnamePrefix nickname }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let name = &data(&resp)["updatePersonName"];
+    assert!(
+        name["surnamePrefix"].is_null(),
+        "an explicit null must clear the particle, got {}",
+        name["surnamePrefix"]
+    );
+    // ...while an omitted field still means "leave unchanged".
+    assert_eq!(name["nickname"], "Jeannot");
+    assert_eq!(name["surname"], "MARTIN");
+}
