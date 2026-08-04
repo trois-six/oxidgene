@@ -228,6 +228,24 @@ Read-only lookup of static reference content (occupation sheets, given-name mean
 
 Note the path prefix: these sit at `/api/v1/reference/...`, not under `/api/v1/trees/{tree_id}/...`. Used by: [Person Profile](ui-person-profile.md) (`ReferenceHover`/`ReferenceBubble` tooltip over the occupation and given name). Content set is seeded with 5 occupations + 5 given names (fr/en) as of Sprint E.7 — growing the data set is a separate content task, not a code change.
 
+### Update semantics — omitted vs `null`
+
+On every update endpoint (`PUT`/`PATCH`) and every GraphQL `Update*Input`, a
+nullable field distinguishes three cases:
+
+| Sent | Meaning |
+|---|---|
+| field omitted | leave the stored value unchanged |
+| `"field": null` | **clear** the stored value |
+| `"field": "value"` | set it |
+
+This holds identically on both surfaces. REST gets it from the `double_option`
+deserializer in `rest/dto.rs` (plain serde maps a JSON `null` to `None` for any
+`Option`, which would make "clear" indistinguishable from "omitted"); GraphQL
+gets it from `MaybeUndefined<T>` on the input field plus `mutation::patch`.
+Non-nullable fields (a tree's `name`, a source's `title`) stay plain optionals:
+omitting them leaves them alone, and `null` is rejected.
+
 ### Pagination
 
 All list endpoints accept:

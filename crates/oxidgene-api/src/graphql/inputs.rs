@@ -1,6 +1,15 @@
 //! GraphQL input types for mutations.
+//!
+//! Nullable fields on `Update*` inputs are [`MaybeUndefined`], not `Option`.
+//! A plain `Option<T>` cannot tell an omitted field from an explicit `null` —
+//! both arrive as `None` — so those fields could never be *cleared*, only set:
+//! the mutation was accepted and the old value silently kept. `MaybeUndefined`
+//! keeps the three cases apart, and [`super::mutation::patch`] maps it onto the
+//! repositories' `Option<Option<T>>` patch convention. This mirrors the
+//! `double_option` deserializer on the REST side, so both surfaces behave
+//! identically.
 
-use async_graphql::InputObject;
+use async_graphql::{InputObject, MaybeUndefined};
 
 use super::types::{
     GqlChildType, GqlConfidence, GqlEventType, GqlNameType, GqlPrivacy, GqlSex, GqlSpouseRole,
@@ -19,8 +28,8 @@ pub struct CreateTreeInput {
 #[derive(Debug, InputObject)]
 pub struct UpdateTreeInput {
     pub name: Option<String>,
-    pub description: Option<String>,
-    pub sosa_root_person_id: Option<String>,
+    pub description: MaybeUndefined<String>,
+    pub sosa_root_person_id: MaybeUndefined<String>,
 }
 
 // ── Person Inputs ────────────────────────────────────────────────────
@@ -64,12 +73,12 @@ pub struct PersonNameInput {
 #[derive(Debug, InputObject)]
 pub struct UpdatePersonNameInput {
     pub name_type: Option<GqlNameType>,
-    pub given_names: Option<String>,
-    pub surname: Option<String>,
-    pub surname_prefix: Option<String>,
-    pub prefix: Option<String>,
-    pub suffix: Option<String>,
-    pub nickname: Option<String>,
+    pub given_names: MaybeUndefined<String>,
+    pub surname: MaybeUndefined<String>,
+    pub surname_prefix: MaybeUndefined<String>,
+    pub prefix: MaybeUndefined<String>,
+    pub suffix: MaybeUndefined<String>,
+    pub nickname: MaybeUndefined<String>,
     pub is_primary: Option<bool>,
     pub sort_order: Option<i32>,
 }
@@ -118,11 +127,11 @@ pub struct CreateEventInput {
 #[derive(Debug, InputObject)]
 pub struct UpdateEventInput {
     pub event_type: Option<GqlEventType>,
-    pub date_value: Option<String>,
+    pub date_value: MaybeUndefined<String>,
     /// Date for sorting, in YYYY-MM-DD format.
-    pub date_sort: Option<String>,
-    pub place_id: Option<String>,
-    pub description: Option<String>,
+    pub date_sort: MaybeUndefined<String>,
+    pub place_id: MaybeUndefined<String>,
+    pub description: MaybeUndefined<String>,
 }
 
 /// Input for adding a witness to an event.
@@ -148,8 +157,8 @@ pub struct CreatePlaceInput {
 #[derive(Debug, InputObject)]
 pub struct UpdatePlaceInput {
     pub name: Option<String>,
-    pub latitude: Option<f64>,
-    pub longitude: Option<f64>,
+    pub latitude: MaybeUndefined<f64>,
+    pub longitude: MaybeUndefined<f64>,
 }
 
 // ── Source Inputs ────────────────────────────────────────────────────
@@ -168,10 +177,10 @@ pub struct CreateSourceInput {
 #[derive(Debug, InputObject)]
 pub struct UpdateSourceInput {
     pub title: Option<String>,
-    pub author: Option<String>,
-    pub publisher: Option<String>,
-    pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
+    pub author: MaybeUndefined<String>,
+    pub publisher: MaybeUndefined<String>,
+    pub abbreviation: MaybeUndefined<String>,
+    pub repository_name: MaybeUndefined<String>,
 }
 
 // ── Citation Inputs ──────────────────────────────────────────────────
@@ -191,9 +200,9 @@ pub struct CreateCitationInput {
 /// Input for updating a citation.
 #[derive(Debug, InputObject)]
 pub struct UpdateCitationInput {
-    pub page: Option<String>,
+    pub page: MaybeUndefined<String>,
     pub confidence: Option<GqlConfidence>,
-    pub text: Option<String>,
+    pub text: MaybeUndefined<String>,
 }
 
 // ── Media Inputs ─────────────────────────────────────────────────────
@@ -212,8 +221,8 @@ pub struct UploadMediaInput {
 /// Input for updating media metadata.
 #[derive(Debug, InputObject)]
 pub struct UpdateMediaInput {
-    pub title: Option<String>,
-    pub description: Option<String>,
+    pub title: MaybeUndefined<String>,
+    pub description: MaybeUndefined<String>,
 }
 
 // ── MediaLink Inputs ─────────────────────────────────────────────────
