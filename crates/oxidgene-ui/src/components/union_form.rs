@@ -441,11 +441,13 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
     rsx! {
         div { class: "modal-backdrop union-form-backdrop",
-            onclick: move |_| props.on_close.call(()),
+            // Dismiss on press (not click): a click fires on the common ancestor of
+            // mousedown/mouseup, so selecting text then releasing outside would close.
+            onmousedown: move |_| props.on_close.call(()),
 
             div {
                 class: "union-form-modal",
-                onclick: move |evt| evt.stop_propagation(),
+                onmousedown: move |evt: Event<MouseData>| evt.stop_propagation(),
                 onkeydown: move |e: Event<KeyboardData>| {
                     match e.key() {
                         Key::Escape => props.on_close.call(()),

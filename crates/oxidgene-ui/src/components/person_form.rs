@@ -1827,11 +1827,13 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
     rsx! {
         div { class: "modal-backdrop person-form-backdrop",
-            onclick: try_close,
+            // Dismiss on press (not click): a click fires on the common ancestor of
+            // mousedown/mouseup, so selecting text then releasing outside would close.
+            onmousedown: try_close,
 
             div {
                 class: "person-form-modal",
-                onclick: move |evt| evt.stop_propagation(),
+                onmousedown: move |evt: Event<MouseData>| evt.stop_propagation(),
                 onkeydown: move |e: Event<KeyboardData>| {
                     match e.key() {
                         Key::Escape => {
