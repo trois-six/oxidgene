@@ -549,6 +549,12 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 0;
     }
 
+    /* A particle that could not be applied: informational, not an error —
+       nothing was lost, the cut simply did not happen. */
+    .field-hint-warn {
+        color: var(--orange, #e07820);
+    }
+
     .particle-label {
         font-size: 0.8rem;
         color: var(--text-secondary, #9a9384);
