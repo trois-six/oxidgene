@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source, split_surname_particle,
+    Person, PersonName, Place, Source, split_surname_particle, split_surname_with,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
@@ -750,21 +750,13 @@ fn split_import_surname(
         return (spfx.map(str::to_string), None);
     };
 
-    let Some(spfx) = spfx else {
-        let (particle, root) = split_surname_particle(raw);
-        return (particle, Some(root));
+    // An explicit SPFX overrides detection, exactly as a user correcting the
+    // particle in the person form does — same helper, so the two agree.
+    let (particle, root) = match spfx {
+        Some(spfx) => split_surname_with(raw, spfx),
+        None => split_surname_particle(raw),
     };
-
-    // The file gave an explicit SPFX. If the surname repeats it, strip it —
-    // keeping the casing as it appears in the surname — otherwise trust both.
-    if raw.len() > spfx.len() && raw[..spfx.len()].eq_ignore_ascii_case(spfx) {
-        let rest = raw[spfx.len()..].trim_start();
-        if !rest.is_empty() {
-            return (Some(raw[..spfx.len()].to_string()), Some(rest.to_string()));
-        }
-    }
-
-    (Some(spfx.to_string()), Some(raw.to_string()))
+    (particle, Some(root))
 }
 
 /// Splits a `SURN` value on `,` and returns the parts that differ from the

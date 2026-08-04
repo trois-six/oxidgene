@@ -98,6 +98,50 @@ pub fn split_surname_particle(raw: &str) -> (Option<String>, String) {
     (Some(particle_parts.join(" ")), root)
 }
 
+/// Splits a surname using an explicitly supplied particle instead of guessing.
+///
+/// This is the override path for [`split_surname_particle`]: the UI uses it
+/// when the user corrects a detected particle, and the GEDCOM importer uses it
+/// when the file states its own `SPFX`. An empty `particle` means "this name
+/// has no particle" — which is how someone actually surnamed "Le" or a
+/// "Da Silva" that should file under D opts out of detection.
+///
+/// When `raw` already starts with `particle` the two are de-duplicated, keeping
+/// the casing as written in `raw`; otherwise both are taken at face value.
+///
+/// ```
+/// use oxidgene_core::types::split_surname_with;
+///
+/// // Correcting a detected particle.
+/// assert_eq!(split_surname_with("VON LUNKHOFEN", "VON"), (Some("VON".into()), "LUNKHOFEN".into()));
+/// // Opting out of the split entirely.
+/// assert_eq!(split_surname_with("Da Silva", ""), (None, "Da Silva".into()));
+/// ```
+#[must_use]
+pub fn split_surname_with(raw: &str, particle: &str) -> (Option<String>, String) {
+    let raw = raw.trim();
+    let particle = particle.trim();
+
+    if particle.is_empty() {
+        return (None, raw.to_string());
+    }
+    if raw.is_empty() {
+        return (Some(particle.to_string()), String::new());
+    }
+
+    // `raw` usually still contains the particle (it is the full surname as
+    // typed, or the value between GEDCOM's slashes), so strip it rather than
+    // ending up with "de la de la Cruz".
+    if raw.len() > particle.len() && raw[..particle.len()].eq_ignore_ascii_case(particle) {
+        let rest = raw[particle.len()..].trim_start();
+        if !rest.is_empty() {
+            return (Some(raw[..particle.len()].to_string()), rest.to_string());
+        }
+    }
+
+    (Some(particle.to_string()), raw.to_string())
+}
+
 /// Recombines a particle and a root back into a displayable surname.
 ///
 /// Elided particles are joined without a space (`d'` + `Aubigné`), everything
@@ -233,6 +277,40 @@ mod tests {
             let (particle, root) = split_surname_particle(raw);
             assert_eq!(join_surname_particle(particle.as_deref(), &root), raw);
         }
+    }
+
+    #[test]
+    fn explicit_particle_overrides_detection() {
+        // The user disagrees with the guess and narrows it.
+        assert_eq!(
+            split_surname_with("de la Cruz", "de"),
+            (Some("de".into()), "la Cruz".into())
+        );
+        // The user says there is no particle at all.
+        assert_eq!(
+            split_surname_with("Da Silva", ""),
+            (None, "Da Silva".into())
+        );
+        assert_eq!(split_surname_with("Le", ""), (None, "Le".into()));
+        // Casing follows the surname as typed, not the supplied particle.
+        assert_eq!(
+            split_surname_with("VON LUNKHOFEN", "von"),
+            (Some("VON".into()), "LUNKHOFEN".into())
+        );
+    }
+
+    #[test]
+    fn explicit_particle_is_not_duplicated_or_dropped() {
+        // Already stripped: the root does not start with the particle.
+        assert_eq!(
+            split_surname_with("Cruz", "de la"),
+            (Some("de la".into()), "Cruz".into())
+        );
+        // A particle that would swallow the whole name leaves it intact.
+        assert_eq!(
+            split_surname_with("de la", "de la"),
+            (Some("de la".into()), "de la".into())
+        );
     }
 
     #[test]

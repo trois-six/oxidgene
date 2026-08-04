@@ -71,7 +71,15 @@ into its own table would lose which given names go with which surname.
 
 **Particles are derived, not typed.** The UI keeps a single "surname" field and
 calls `oxidgene_core::types::split_surname_particle` on save, showing the
-detected split so a wrong guess can be corrected. GEDCOM/GeneWeb import does the
+detected split with a **Modifier** button beside it. Detection is a guess over a
+fixed word list, so the override is part of the contract, not a nicety: someone
+actually surnamed "Le", or a "Da Silva" that should file under D, clears the
+particle to opt out, and an unusual particle can be declared by hand. The
+override path is `split_surname_with`, shared with GEDCOM import so an explicit
+`SPFX` and a hand-corrected particle resolve identically. A stored particle that
+detection disagrees with pins the override on load, so saving an unrelated field
+never silently re-splits it. The per-name editor, already a multi-field form,
+exposes `surname_prefix` as its own input instead. GEDCOM/GeneWeb import does the
 same when the file carries no `SPFX`. Display always rejoins the two parts
 (`PersonName::full_surname`), so a name entered as "de la Cruz" still reads
 "de la Cruz" — only *filing* changes. Whether the particle counts when sorting is

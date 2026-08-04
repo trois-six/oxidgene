@@ -525,6 +525,57 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 140px;
     }
 
+    /* Secondary text under an input: what the app derived from what was
+       typed, subordinate to the field itself. */
+    .field-hint {
+        display: block;
+        margin-top: 4px;
+        font-size: 0.8rem;
+        color: var(--text-secondary, #9a9384);
+    }
+
+    /* Surname particle: the detected split plus the affordance to correct it.
+       Wraps rather than overflowing, since the summary text is translated and
+       its length varies. */
+    .particle-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 4px;
+    }
+
+    .particle-row .field-hint {
+        margin-top: 0;
+    }
+
+    .particle-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary, #9a9384);
+    }
+
+    .particle-input {
+        width: 8rem;
+        flex: 0 0 auto;
+        padding: 4px 8px;
+        font-size: 0.85rem;
+    }
+
+    .particle-btn {
+        padding: 2px 8px;
+        font-size: 0.78rem;
+        line-height: 1.6;
+        color: var(--orange, #e07820);
+        background: none;
+        border: 1px solid currentColor;
+        border-radius: var(--radius, 6px);
+        cursor: pointer;
+    }
+
+    .particle-btn:hover {
+        background: color-mix(in srgb, var(--orange, #e07820) 12%, transparent);
+    }
+
     /* ── Note bodies ──────────────────────────────────────────────
        Notes render the sanitized HTML they were imported with (see
        oxidgene_db::html). The author of that markup is a GEDCOM or .gw file,
