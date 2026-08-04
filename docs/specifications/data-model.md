@@ -75,8 +75,12 @@ detected split with a **Modifier** button beside it. Detection is a guess over a
 fixed word list, so the override is part of the contract, not a nicety: someone
 actually surnamed "Le", or a "Da Silva" that should file under D, clears the
 particle to opt out, and an unusual particle can be declared by hand. The
-override path is `split_surname_with`, shared with GEDCOM import so an explicit
-`SPFX` and a hand-corrected particle resolve identically. A stored particle that
+override can only *cut* the single field, never add to it (`split_surname_at_head`):
+the field's text is the complete surname, so a particle absent from it is
+reported rather than applied — accepting it would inject a word the user never
+typed, and clearing the particle afterwards could not remove it. GEDCOM import
+uses the looser `split_surname_with`, since a file may legitimately state
+`2 SPFX de la` beside a bare `2 SURN Cruz`. A stored particle that
 detection disagrees with pins the override on load, so saving an unrelated field
 never silently re-splits it. The per-name editor, already a multi-field form,
 exposes `surname_prefix` as its own input instead. GEDCOM/GeneWeb import does the

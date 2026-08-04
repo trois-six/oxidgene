@@ -122,24 +122,79 @@ pub fn split_surname_with(raw: &str, particle: &str) -> (Option<String>, String)
     let raw = raw.trim();
     let particle = particle.trim();
 
-    if particle.is_empty() {
-        return (None, raw.to_string());
+    // `raw` usually still contains the particle (it is the full surname as
+    // typed, or the value between GEDCOM's slashes), so cut rather than ending
+    // up with "de la de la Cruz".
+    if let Some(split) = split_surname_at_head(raw, particle) {
+        return split;
     }
+
+    // The particle is not in `raw` at all. A GEDCOM file may legitimately say
+    // so — `2 SPFX de la` beside a bare `2 SURN Cruz` — so both are taken at
+    // face value. Callers whose particle can only ever *cut* an existing
+    // string should use [`split_surname_at_head`] and handle its `None`.
     if raw.is_empty() {
         return (Some(particle.to_string()), String::new());
     }
+    (Some(particle.to_string()), raw.to_string())
+}
 
-    // `raw` usually still contains the particle (it is the full surname as
-    // typed, or the value between GEDCOM's slashes), so strip it rather than
-    // ending up with "de la de la Cruz".
-    if raw.len() > particle.len() && raw[..particle.len()].eq_ignore_ascii_case(particle) {
-        let rest = raw[particle.len()..].trim_start();
-        if !rest.is_empty() {
-            return (Some(raw[..particle.len()].to_string()), rest.to_string());
-        }
+/// Splits `raw` at a particle that must already sit at its head.
+///
+/// Returns `None` when `particle` is not the leading word (or words) of `raw`,
+/// so it cannot be applied without inventing text. An empty `particle` always
+/// succeeds and means "no particle": the whole value is the root.
+///
+/// This is what a single-field surname input needs. There the field *is* the
+/// complete surname and the particle only chooses where to cut it, so accepting
+/// a particle that is absent from the field would inject a word the user never
+/// typed — and, worse, would not be undoable by clearing the particle again,
+/// since by then the word has become part of the surname.
+///
+/// Matching is case-insensitive but respects word boundaries, so "d" does not
+/// match the "D" of "DUPONT".
+///
+/// ```
+/// use oxidgene_core::types::split_surname_at_head;
+///
+/// assert_eq!(
+///     split_surname_at_head("de la Cruz", "de"),
+///     Some((Some("de".into()), "la Cruz".into()))
+/// );
+/// assert_eq!(split_surname_at_head("Cruz", ""), Some((None, "Cruz".into())));
+/// // "de" is not part of "DUPONT", so there is nothing to cut.
+/// assert_eq!(split_surname_at_head("DUPONT", "de"), None);
+/// ```
+#[must_use]
+pub fn split_surname_at_head(raw: &str, particle: &str) -> Option<(Option<String>, String)> {
+    let raw = raw.trim();
+    let particle = particle.trim();
+
+    if particle.is_empty() {
+        return Some((None, raw.to_string()));
     }
 
-    (Some(particle.to_string()), raw.to_string())
+    // `get` rather than `split_at`: `particle.len()` may land inside a
+    // multi-byte character, which would panic.
+    let head = raw.get(..particle.len())?;
+    if !head.eq_ignore_ascii_case(particle) {
+        return None;
+    }
+
+    let rest = &raw[particle.len()..];
+    // Without this, particle "d" would cut "DUPONT" into "D" + "UPONT".
+    // Elided particles carry their own boundary ("d'" in "d'Aubigné").
+    if !head.ends_with(APOSTROPHES) && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+
+    let root = rest.trim_start();
+    if root.is_empty() {
+        // The particle would swallow the whole surname.
+        return None;
+    }
+
+    Some((Some(head.to_string()), root.to_string()))
 }
 
 /// Recombines a particle and a root back into a displayable surname.
@@ -311,6 +366,49 @@ mod tests {
             split_surname_with("de la", "de la"),
             (Some("de la".into()), "de la".into())
         );
+    }
+
+    #[test]
+    fn head_split_refuses_a_particle_that_is_not_there() {
+        // The bug this guards: typing "de" against a plain "DUPONT" used to
+        // return (Some("de"), "DUPONT"), injecting a word the field never
+        // contained — and clearing the particle afterwards could not remove it,
+        // because by then "de" had become part of the surname.
+        assert_eq!(split_surname_at_head("DUPONT", "de"), None);
+        assert_eq!(split_surname_at_head("Cruz", "de la"), None);
+    }
+
+    #[test]
+    fn head_split_respects_word_boundaries() {
+        // "d" must not cut "DUPONT" into "D" + "UPONT".
+        assert_eq!(split_surname_at_head("DUPONT", "d"), None);
+        // ...but an elided particle carries its own boundary.
+        assert_eq!(
+            split_surname_at_head("d'Aubigné", "d'"),
+            Some((Some("d'".into()), "Aubigné".into()))
+        );
+    }
+
+    #[test]
+    fn head_split_is_reversible() {
+        // Cutting then clearing must return the original string untouched.
+        let raw = "de la Cruz";
+        let (particle, root) = split_surname_at_head(raw, "de").unwrap();
+        assert_eq!(join_surname_particle(particle.as_deref(), &root), raw);
+        let (particle, root) = split_surname_at_head(raw, "").unwrap();
+        assert_eq!(particle, None);
+        assert_eq!(join_surname_particle(particle.as_deref(), &root), raw);
+    }
+
+    #[test]
+    fn head_split_never_swallows_the_whole_surname() {
+        assert_eq!(split_surname_at_head("de la", "de la"), None);
+    }
+
+    #[test]
+    fn head_split_handles_multibyte_boundaries() {
+        // `particle.len()` is a byte count and could land mid-character.
+        assert_eq!(split_surname_at_head("Étang", "de"), None);
     }
 
     #[test]

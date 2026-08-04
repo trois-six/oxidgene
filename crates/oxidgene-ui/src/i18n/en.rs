@@ -319,6 +319,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person_form.particle", "Particle"),
         ("person_form.particle_placeholder", "e.g. de la"),
         ("person_form.particle_change", "Change"),
+        (
+            "person_form.particle_not_in_surname",
+            "\u{201C}{particle}\u{201D} is not at the start of \u{201C}{surname}\u{201D} \u{00B7} add it to the surname to use it",
+        ),
         ("person_form.particle_auto", "Auto-detect"),
         (
             "person_form.particle_none",
