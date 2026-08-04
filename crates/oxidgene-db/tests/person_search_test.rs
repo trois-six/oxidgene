@@ -214,7 +214,13 @@ async fn trees_are_isolated() {
 
 /// Performance regression guard: FTS5 search on a 10K-person tree must stay
 /// well under the 50 ms server-side search target from the caching spec.
+/// Ignored by default — run with `cargo test -p oxidgene-db -- --ignored`.
+///
+/// The assertion is wall-clock, so running it alongside the rest of the suite
+/// measured contention rather than the query: it failed under a loaded
+/// `cargo nextest run --workspace` and passed on its own, at the same commit.
 #[tokio::test]
+#[ignore = "benchmark — run manually"]
 async fn search_performance_10k() {
     let db = setup_db().await;
     let tree_id = Uuid::now_v7();
