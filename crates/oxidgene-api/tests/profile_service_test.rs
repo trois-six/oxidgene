@@ -11,8 +11,8 @@ use std::time::Instant;
 use oxidgene_api::profile::ProfileService;
 use oxidgene_core::enums::{ChildType, EventType, NameType, Sex, SpouseRole};
 use oxidgene_db::repo::{
-    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PersonDenormRepo, PersonNameRepo,
-    PersonRepo, PersonSearchRepo, TreeRepo, connect, run_migrations,
+    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PersonDenormRepo, PersonNamePieces,
+    PersonNameRepo, PersonRepo, PersonSearchRepo, TreeRepo, connect, run_migrations,
 };
 use oxidgene_db::sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -49,12 +49,13 @@ async fn create_named_person(
         Uuid::now_v7(),
         id,
         NameType::Birth,
-        Some(given.into()),
-        Some(surname.into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some(given.into()),
+            surname: Some(surname.into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .expect("name");
@@ -285,12 +286,13 @@ async fn name_mutation_refreshes_stored_projections() {
         Uuid::now_v7(),
         father,
         NameType::Birth,
-        Some("Marcel".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Marcel".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -436,12 +438,13 @@ async fn pedigree_reflects_a_mutation_immediately() {
         Uuid::now_v7(),
         father,
         NameType::Birth,
-        Some("Marcel".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Marcel".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -649,12 +652,13 @@ async fn a_rolled_back_mutation_leaves_no_projection_behind() {
         Uuid::now_v7(),
         father,
         NameType::Birth,
-        Some("Marcel".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Marcel".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -738,12 +742,13 @@ async fn a_committed_mutation_applies_data_and_projection_together() {
         Uuid::now_v7(),
         father,
         NameType::Birth,
-        Some("Marcel".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Marcel".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();

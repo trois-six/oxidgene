@@ -54,6 +54,23 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.theme_dark", "Dark"),
         ("app_settings.theme_light_active", "Light theme is active"),
         ("app_settings.theme_dark_active", "Dark theme is active"),
+        ("app_settings.names", "Names"),
+        ("app_settings.names_title", "Name display"),
+        (
+            "app_settings.names_desc",
+            "How surnames carrying a particle are filed in lists and the dictionary.",
+        ),
+        ("app_settings.sort_particles", "Surname sorting"),
+        ("app_settings.sort_particles_included", "Particle included"),
+        ("app_settings.sort_particles_ignored", "Particle ignored"),
+        (
+            "app_settings.sort_particles_included_hint",
+            "\u{201C}de la Cruz\u{201D} files under D.",
+        ),
+        (
+            "app_settings.sort_particles_ignored_hint",
+            "\u{201C}de la Cruz\u{201D} files under C.",
+        ),
         ("app_settings.language", "Language"),
         ("app_settings.language_title", "Language"),
         ("app_settings.language_desc", "Choose the display language for the interface."),
@@ -295,6 +312,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person_form.prefix_placeholder", "e.g. Dr."),
         ("person_form.suffix_placeholder", "e.g. Jr."),
         ("person_form.nickname_placeholder", "e.g. JP"),
+        (
+            "person_form.particle_detected",
+            "Particle \u{201C}{particle}\u{201D} \u{00B7} surname \u{201C}{surname}\u{201D}",
+        ),
         ("person_form.description_placeholder", "Optional description"),
         ("person_form.loading_names", "Loading names..."),
         ("person_form.no_notes", "No notes recorded."),
@@ -530,6 +551,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("name_type.surnom", "Byname"),
         ("name_type.sobriquet", "Sobriquet"),
         ("name_type.prenom", "Given Name"),
+        ("name_type.prefixe", "Prefix"),
+        ("name_type.suffixe", "Suffix"),
         // ── Name type enum (short, for selects) ─────────────────────
         ("name_type_short.birth", "Birth"),
         ("name_type_short.married", "Married"),

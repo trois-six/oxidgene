@@ -45,7 +45,7 @@ pub use pagination::PaginationParams;
 pub use person::PersonRepo;
 
 pub use person_denorm::PersonDenormRepo;
-pub use person_name::PersonNameRepo;
+pub use person_name::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};
 pub use person_search::{PersonSearchEntry, PersonSearchPage, PersonSearchRepo};
 pub use place::PlaceRepo;
 pub use source::SourceRepo;

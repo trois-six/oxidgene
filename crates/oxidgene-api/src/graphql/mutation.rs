@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
-    TreeRepo,
+    MediaLinkRepo, MediaRepo, NoteRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo,
+    PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
 };
 
 use super::inputs::{
@@ -173,12 +173,16 @@ impl MutationRoot {
             id,
             pid,
             input.name_type.into(),
-            input.given_names,
-            input.surname,
-            input.prefix,
-            input.suffix,
-            input.nickname,
+            PersonNamePieces {
+                given_names: input.given_names,
+                surname: input.surname,
+                surname_prefix: input.surname_prefix,
+                prefix: input.prefix,
+                suffix: input.suffix,
+                nickname: input.nickname,
+            },
             input.is_primary,
+            input.sort_order.unwrap_or(0),
         )
         .await?;
         // Name changes affect display_name references across relatives.
@@ -206,12 +210,16 @@ impl MutationRoot {
             &txn,
             uuid,
             input.name_type.map(|nt| nt.into()),
-            input.given_names.map(Some),
-            input.surname.map(Some),
-            input.prefix.map(Some),
-            input.suffix.map(Some),
-            input.nickname.map(Some),
+            PersonNamePiecesPatch {
+                given_names: input.given_names.map(Some),
+                surname: input.surname.map(Some),
+                surname_prefix: input.surname_prefix.map(Some),
+                prefix: input.prefix.map(Some),
+                suffix: input.suffix.map(Some),
+                nickname: input.nickname.map(Some),
+            },
             input.is_primary,
+            input.sort_order,
         )
         .await?;
         let affected = invalidation::affected_persons(&txn, name.person_id).await?;

@@ -15,6 +15,7 @@ use crate::components::pedigree_chart::format_lifespan;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, Language, use_i18n};
+use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
 
 /// Above this many filtered entries, selecting the "All" page size shows a
@@ -134,6 +135,8 @@ pub fn Dictionary(tree_id: String) -> Element {
     });
 
     let api_fn = api.clone();
+    let sort_particles = use_sort_particles();
+
     let mut family_names_resource = use_resource(move || {
         let api = api_fn.clone();
         let tid = tree_id_parsed();
@@ -365,6 +368,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         true,
                         expanded,
                         usage_resource,
+                        sort_particles,
                     ),
                     DictTab::Occupations => render_value_tab(
                         i18n,
@@ -378,6 +382,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         false,
                         expanded,
                         usage_resource,
+                        sort_particles,
                     ),
                     DictTab::Sources => render_sources_tab(
                         i18n,
@@ -408,14 +413,29 @@ pub fn Dictionary(tree_id: String) -> Element {
 
 // ── Shared filter/pagination helpers ─────────────────────────────────────
 
-fn matches_filters(label: &str, quick: &str, letter: Option<char>) -> bool {
+/// The label an entry files under, given the viewer's particle preference.
+///
+/// A named function rather than a closure: the returned `&str` borrows from
+/// the entry, which a closure in this position cannot express.
+fn filing_label(entry: &DictionaryEntry, file_by_root: bool) -> &str {
+    if file_by_root {
+        entry.sort_key.as_str()
+    } else {
+        entry.value.as_str()
+    }
+}
+
+/// `filing` decides which letter group the entry belongs to, `display` is what
+/// the free-text box searches. They differ only for surnames filed under their
+/// root: "de la Cruz" files under C but is still found by typing "de la".
+fn matches_filters(filing: &str, display: &str, quick: &str, letter: Option<char>) -> bool {
     if let Some(l) = letter {
-        let first = label.chars().next().map(|c| c.to_ascii_uppercase());
+        let first = filing.chars().next().map(|c| c.to_ascii_uppercase());
         if first != Some(l) {
             return false;
         }
     }
-    if !quick.is_empty() && !label.to_lowercase().contains(&quick.to_lowercase()) {
+    if !quick.is_empty() && !display.to_lowercase().contains(&quick.to_lowercase()) {
         return false;
     }
     true
@@ -703,27 +723,37 @@ fn render_value_tab(
     navigable: bool,
     mut expanded: Signal<Option<UsageKey>>,
     usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+    sort_particles: SortParticles,
 ) -> Element {
-    let all_entries: Vec<DictionaryEntry> = match &*resource.read() {
+    let mut all_entries: Vec<DictionaryEntry> = match &*resource.read() {
         Some(Ok(entries)) => entries.clone(),
         _ => Vec::new(),
     };
+
+    // Entries arrive sorted by `value` (particles included). Re-file them on
+    // `sort_key` when the viewer prefers surnames under their root — for
+    // occupations the two are the same string, so this changes nothing.
+    let file_by_root = !sort_particles.0;
+    if file_by_root {
+        all_entries.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
+    }
+
     let is_loading = resource.read().is_none();
     let is_error = matches!(&*resource.read(), Some(Err(_)));
 
-    let letters = available_letters(all_entries.iter().map(|e| e.value.as_str()));
+    let letters = available_letters(all_entries.iter().map(|e| filing_label(e, file_by_root)));
     let quick = quick_filter();
     let letter = letter_filter();
     let filtered: Vec<&DictionaryEntry> = all_entries
         .iter()
-        .filter(|e| matches_filters(&e.value, &quick, letter))
+        .filter(|e| matches_filters(filing_label(e, file_by_root), &e.value, &quick, letter))
         .collect();
     let total_filtered = filtered.len();
     let per_page = page_size().as_option();
     let page = current_page();
     let pages = total_pages(total_filtered, per_page);
     let page_items = paginate(filtered, page, per_page);
-    let rows = with_headers(&page_items, |e| e.value.as_str());
+    let rows = with_headers(&page_items, |e| filing_label(e, file_by_root));
 
     rsx! {
         {render_toolbar(i18n, &letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
@@ -1119,7 +1149,7 @@ fn render_places_tab(
     let letter = letter_filter();
     let filtered: Vec<&PlaceDictionaryEntry> = all_entries
         .iter()
-        .filter(|e| matches_filters(&e.place.name, &quick, letter))
+        .filter(|e| matches_filters(&e.place.name, &e.place.name, &quick, letter))
         .collect();
     let total_filtered = filtered.len();
     let per_page = page_size().as_option();

@@ -626,10 +626,12 @@ fn test_export_long_utf8_note_does_not_panic() {
         name_type: NameType::Birth,
         given_names: Some("Maya".to_string()),
         surname: Some("Sample".to_string()),
+        surname_prefix: None,
         prefix: None,
         suffix: None,
         nickname: None,
         is_primary: true,
+        sort_order: 0,
         created_at: now,
         updated_at: now,
     };
@@ -797,6 +799,146 @@ fn test_roundtrip_preserves_names() {
     let name = &reimported.person_names[0];
     assert_eq!(name.given_names.as_deref(), Some("John"));
     assert_eq!(name.surname.as_deref(), Some("Doe"));
+}
+
+/// A surname particle must survive a full GEDCOM round trip as `SPFX`, and
+/// must not be doubled when the file carries it both inside the NAME slashes
+/// and in its own SPFX tag.
+#[test]
+fn test_roundtrip_preserves_surname_particle() {
+    const WITH_SPFX: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Lois Mary /de la Cruz/
+2 GIVN Lois Mary
+2 SPFX de la
+2 SURN Cruz
+1 SEX F
+0 TRLR
+";
+
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(WITH_SPFX, tree_id).unwrap();
+
+    assert_eq!(imported.person_names.len(), 1);
+    let name = &imported.person_names[0];
+    // The particle is split off, not glued into the root and not doubled.
+    assert_eq!(name.surname.as_deref(), Some("Cruz"));
+    assert_eq!(name.surname_prefix.as_deref(), Some("de la"));
+    assert_eq!(name.full_surname().as_deref(), Some("de la Cruz"));
+    assert_eq!(name.display_name(), "Lois Mary de la Cruz");
+
+    let exported = export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &imported.family_children,
+        &imported.events,
+        &imported.event_witnesses,
+        &imported.places,
+        &imported.sources,
+        &imported.citations,
+        &imported.media,
+        &imported.media_links,
+        &imported.notes,
+        false,
+        false,
+    )
+    .unwrap();
+
+    // SPFX is emitted, and the NAME line still carries the full surname.
+    assert!(
+        exported.gedcom.contains("2 SPFX de la"),
+        "{}",
+        exported.gedcom
+    );
+    assert!(
+        exported.gedcom.contains("2 SURN Cruz"),
+        "{}",
+        exported.gedcom
+    );
+    assert!(
+        exported.gedcom.contains("1 NAME Lois Mary /de la Cruz/"),
+        "{}",
+        exported.gedcom
+    );
+
+    let reimported = import_gedcom(&exported.gedcom, Uuid::now_v7()).unwrap();
+    let back = &reimported.person_names[0];
+    assert_eq!(back.surname.as_deref(), Some("Cruz"));
+    assert_eq!(back.surname_prefix.as_deref(), Some("de la"));
+}
+
+/// Splitting the particle must not make a person look like an alias of
+/// themselves: `ged_io` fills SURN with the full "de la Cruz" parsed from the
+/// NAME slashes, while the stored root is "Cruz", and comparing those verbatim
+/// used to synthesize a spurious second AKA name.
+#[test]
+fn test_particle_split_does_not_synthesize_a_self_alias() {
+    const NO_SURN_TAG: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Lois /de la Cruz/
+1 SEX F
+0 TRLR
+";
+
+    let imported = import_gedcom(NO_SURN_TAG, Uuid::now_v7()).unwrap();
+    assert_eq!(
+        imported.person_names.len(),
+        1,
+        "expected exactly one name, got {:?}",
+        imported
+            .person_names
+            .iter()
+            .map(|n| (n.name_type, n.surname.clone(), n.surname_prefix.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(imported.person_names[0].name_type, NameType::Birth);
+}
+
+/// Files that carry no SPFX at all — the common case — still get a structured
+/// particle, derived from the surname itself.
+#[test]
+fn test_import_derives_particle_when_file_has_no_spfx() {
+    const NO_SPFX: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Pierre /van der Berg/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anne /Dupont/
+1 SEX F
+0 TRLR
+";
+
+    let imported = import_gedcom(NO_SPFX, Uuid::now_v7()).unwrap();
+
+    let berg = imported
+        .person_names
+        .iter()
+        .find(|n| n.surname.as_deref() == Some("Berg"))
+        .expect("van der Berg imported under its root");
+    assert_eq!(berg.surname_prefix.as_deref(), Some("van der"));
+    assert_eq!(berg.full_surname().as_deref(), Some("van der Berg"));
+
+    // A surname with no particle is left entirely alone.
+    let dupont = imported
+        .person_names
+        .iter()
+        .find(|n| n.surname.as_deref() == Some("Dupont"))
+        .expect("Dupont imported");
+    assert_eq!(dupont.surname_prefix, None);
 }
 
 // ═══════════════════════════════════════════════════════════════════════

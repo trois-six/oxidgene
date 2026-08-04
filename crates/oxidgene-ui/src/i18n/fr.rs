@@ -54,6 +54,23 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.theme_dark", "Sombre"),
         ("app_settings.theme_light_active", "Th\u{00E8}me clair actif"),
         ("app_settings.theme_dark_active", "Th\u{00E8}me sombre actif"),
+        ("app_settings.names", "Noms"),
+        ("app_settings.names_title", "Affichage des noms"),
+        (
+            "app_settings.names_desc",
+            "Comment les patronymes \u{00E0} particule sont class\u{00E9}s dans les listes et le dictionnaire.",
+        ),
+        ("app_settings.sort_particles", "Tri des patronymes"),
+        ("app_settings.sort_particles_included", "Particule incluse"),
+        ("app_settings.sort_particles_ignored", "Particule ignor\u{00E9}e"),
+        (
+            "app_settings.sort_particles_included_hint",
+            "\u{00AB} de la Cruz \u{00BB} est class\u{00E9} \u{00E0} la lettre D.",
+        ),
+        (
+            "app_settings.sort_particles_ignored_hint",
+            "\u{00AB} de la Cruz \u{00BB} est class\u{00E9} \u{00E0} la lettre C.",
+        ),
         ("app_settings.language", "Langue"),
         ("app_settings.language_title", "Langue"),
         ("app_settings.language_desc", "Choisissez la langue d\u{2019}affichage de l\u{2019}interface."),
@@ -301,6 +318,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person_form.prefix_placeholder", "ex. Dr"),
         ("person_form.suffix_placeholder", "ex. fils"),
         ("person_form.nickname_placeholder", "ex. JP"),
+        (
+            "person_form.particle_detected",
+            "Particule \u{00AB} {particle} \u{00BB} \u{00B7} nom \u{00AB} {surname} \u{00BB}",
+        ),
         ("person_form.description_placeholder", "Description facultative"),
         ("person_form.loading_names", "Chargement des noms\u{2026}"),
         ("person_form.no_notes", "Aucune note enregistr\u{00E9}e."),
@@ -545,6 +566,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("name_type.surnom", "Surnom"),
         ("name_type.sobriquet", "Sobriquet"),
         ("name_type.prenom", "Pr\u{00E9}nom"),
+        ("name_type.prefixe", "Pr\u{00E9}fixe"),
+        ("name_type.suffixe", "Suffixe"),
         // ── Name type enum (short, for selects) ─────────────────────
         ("name_type_short.birth", "Naissance"),
         ("name_type_short.married", "Marital"),

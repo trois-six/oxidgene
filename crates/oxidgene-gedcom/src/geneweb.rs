@@ -86,6 +86,41 @@ beg
 end
 ";
 
+    /// `.gw` goes through `to_gedcom()` and then the shared GEDCOM importer,
+    /// so surname particles get split there too — this pins that the GeneWeb
+    /// path is not a separate code path that could drift.
+    #[test]
+    fn splits_surname_particles_via_the_shared_gedcom_path() {
+        const WITH_PARTICLE: &str = "\
+encoding: utf-8
+
+fam de_la_Cruz Jean.0 +1900 Roe Marie.0
+beg
+end
+";
+        let result =
+            import_geneweb(WITH_PARTICLE.as_bytes(), "particle.gw", Uuid::now_v7()).unwrap();
+
+        // GeneWeb spells a multi-word surname with underscores; the importer
+        // sees "de la Cruz" and files it under its root.
+        let cruz = result
+            .person_names
+            .iter()
+            .find(|n| n.surname.as_deref() == Some("Cruz"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected a surname root of Cruz, got {:?}",
+                    result
+                        .person_names
+                        .iter()
+                        .map(|n| (n.surname.clone(), n.surname_prefix.clone()))
+                        .collect::<Vec<_>>()
+                )
+            });
+        assert_eq!(cruz.surname_prefix.as_deref(), Some("de la"));
+        assert_eq!(cruz.full_surname().as_deref(), Some("de la Cruz"));
+    }
+
     #[test]
     fn imports_a_minimal_family() {
         let tree_id = Uuid::now_v7();

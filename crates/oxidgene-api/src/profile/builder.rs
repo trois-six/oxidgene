@@ -234,7 +234,10 @@ fn build_one_person(
             name_type: name.name_type,
             display_name: name.display_name(),
             given_names: name.given_names.clone(),
-            surname: name.surname.clone(),
+            // The full surname, particle included: this is a read projection,
+            // so it carries display-ready values. It also indexes better —
+            // FTS tokenizes "de la Cruz", so both "de la" and "Cruz" match.
+            surname: name.full_surname(),
         };
         if name.is_primary {
             primary_name = Some(cached);

@@ -619,9 +619,11 @@ fn convert_child_type_to_pedigree(child_type: ChildType) -> Option<GedPedigree> 
 }
 
 fn to_ged_name(pn: &PersonName) -> GedName {
-    // Build the GEDCOM full name value: "Given /Surname/"
+    // Build the GEDCOM full name value: "Given /Surname/". The surname goes in
+    // with its particle, as GEDCOM expects — SPFX below repeats it separately.
     let given_part = pn.given_names.as_deref().unwrap_or("");
-    let surname_part = pn.surname.as_deref().unwrap_or("");
+    let full_surname = pn.full_surname().unwrap_or_default();
+    let surname_part = full_surname.as_str();
     let value = if !given_part.is_empty() || !surname_part.is_empty() {
         Some(
             format!("{given_part} /{surname_part}/")
@@ -638,13 +640,21 @@ fn to_ged_name(pn: &PersonName) -> GedName {
         NameType::Maiden => Some(GedNameType::Maiden),
         NameType::AlsoKnownAs => Some(GedNameType::Aka),
         NameType::Religious => Some(GedNameType::Religious),
+        // GEDCOM's NAME.TYPE enumeration has no finer-grained "also known as",
+        // so OxidGene's four refinements all export as `aka`. The distinction
+        // survives internally, not across a GEDCOM round trip.
+        NameType::GivenName | NameType::Alias | NameType::Byname | NameType::Sobriquet => {
+            Some(GedNameType::Aka)
+        }
         NameType::Other => None,
     };
 
     GedName {
         value,
         given: pn.given_names.clone(),
+        // SURN is the root alone; the particle rides in SPFX beside it.
         surname: pn.surname.clone(),
+        surname_prefix: pn.surname_prefix.clone(),
         prefix: pn.prefix.clone(),
         suffix: pn.suffix.clone(),
         nickname: pn.nickname.clone(),

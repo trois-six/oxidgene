@@ -7,7 +7,8 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo,
     FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
+    PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
+    TreeRepo, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -256,12 +257,13 @@ async fn person_name_crud() {
         id,
         person_id,
         NameType::Birth,
-        Some("Jean".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Jean".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -283,10 +285,10 @@ async fn person_name_crud() {
         &db,
         id,
         Some(NameType::Married),
-        None,
-        Some(Some("Martin".into())),
-        None,
-        None,
+        PersonNamePiecesPatch {
+            surname: Some(Some("Martin".into())),
+            ..Default::default()
+        },
         None,
         None,
     )
@@ -1000,12 +1002,13 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
         Uuid::now_v7(),
         p1,
         NameType::Birth,
-        Some("Jean".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Jean".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -1014,12 +1017,13 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
         Uuid::now_v7(),
         p1,
         NameType::AlsoKnownAs,
-        Some("Jeannot".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Jeannot".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         false,
+        0,
     )
     .await
     .unwrap();
@@ -1029,12 +1033,13 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
         Uuid::now_v7(),
         p2,
         NameType::Birth,
-        Some("Marie".into()),
-        Some("Dupont".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Marie".into()),
+            surname: Some("Dupont".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -1044,12 +1049,13 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
         Uuid::now_v7(),
         p3,
         NameType::Birth,
-        Some("Paul".into()),
-        Some("Martin".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("Paul".into()),
+            surname: Some("Martin".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -1061,12 +1067,13 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
         Uuid::now_v7(),
         p4,
         NameType::Birth,
-        None,
-        Some("Ghost".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: None,
+            surname: Some("Ghost".into()),
+            ..Default::default()
+        },
         true,
+        0,
     )
     .await
     .unwrap();
@@ -1078,12 +1085,13 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
         Uuid::now_v7(),
         p3,
         NameType::AlsoKnownAs,
-        Some("X".into()),
-        Some("   ".into()),
-        None,
-        None,
-        None,
+        PersonNamePieces {
+            given_names: Some("X".into()),
+            surname: Some("   ".into()),
+            ..Default::default()
+        },
         false,
+        0,
     )
     .await
     .unwrap();

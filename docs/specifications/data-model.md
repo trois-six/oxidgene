@@ -53,14 +53,29 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (person cards) · [Person Edit M
 | `id` | UUID v7 | PK |
 | `person_id` | UUID v7 | FK → Person |
 | `name_type` | NameType | Enum |
-| `given_names` | String? | |
-| `surname` | String? | |
-| `prefix` | String? | |
-| `suffix` | String? | |
-| `nickname` | String? | |
+| `given_names` | String? | GEDCOM `GIVN`. Multiple given names stay in one string ("Jean Baptiste Marie") — they are one name, not three |
+| `surname` | String? | GEDCOM `SURN` — the surname **root**, particle excluded ("Cruz") |
+| `surname_prefix` | String? | GEDCOM `SPFX` — the surname particle ("de la", "van der") |
+| `prefix` | String? | GEDCOM `NPFX` — title of address ("Dr.", "Rév. Père") |
+| `suffix` | String? | GEDCOM `NSFX` — generational ordinal or epithet ("Jr.", "III") |
+| `nickname` | String? | GEDCOM `NICK` |
 | `is_primary` | bool | Default true |
+| `sort_order` | i32 | Display order among a person's secondary names; the primary name always comes first |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
+
+**One row = one complete name the person bore**, not one name *piece*. The pieces
+only mean anything relative to each other, which is why a birth name and a
+married name are two rows rather than shared columns: splitting `given_names`
+into its own table would lose which given names go with which surname.
+
+**Particles are derived, not typed.** The UI keeps a single "surname" field and
+calls `oxidgene_core::types::split_surname_particle` on save, showing the
+detected split so a wrong guess can be corrected. GEDCOM/GeneWeb import does the
+same when the file carries no `SPFX`. Display always rejoins the two parts
+(`PersonName::full_surname`), so a name entered as "de la Cruz" still reads
+"de la Cruz" — only *filing* changes. Whether the particle counts when sorting is
+a per-viewer preference (`/app-settings` → Noms), defaulting to "included".
 
 ### Family
 
@@ -267,6 +282,14 @@ enum NameType {
     AlsoKnownAs,
     Maiden,
     Religious,
+    // Refinements of "also known as". GEDCOM's NAME.TYPE enumeration has no
+    // equivalent, so all four export as `aka` — the distinction is internal.
+    // They exist because the UI lets the user pick between them, and
+    // collapsing them onto AlsoKnownAs made the choice unrecoverable.
+    GivenName,
+    Alias,
+    Byname,
+    Sobriquet,
     Other,
 }
 

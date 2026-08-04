@@ -5,11 +5,45 @@ use oxidgene_core::enums::NameType;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::PersonName;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::person_name::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
+
+/// The writable pieces of a name, as a group.
+///
+/// Passed as a struct rather than as positional arguments because `prefix`
+/// (GEDCOM `NPFX`, "Dr.") and `surname_prefix` (GEDCOM `SPFX`, "de la") are
+/// both `Option<String>` and mean entirely different things — positionally
+/// they would be silently swappable.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonNamePieces {
+    pub given_names: Option<String>,
+    /// Surname root, particle excluded.
+    pub surname: Option<String>,
+    /// The surname particle (GEDCOM `SPFX`).
+    pub surname_prefix: Option<String>,
+    /// Name prefix / title (GEDCOM `NPFX`).
+    pub prefix: Option<String>,
+    pub suffix: Option<String>,
+    pub nickname: Option<String>,
+}
+
+/// A partial update of [`PersonNamePieces`].
+///
+/// The double `Option` is deliberate: the outer level distinguishes "leave
+/// this piece alone" from "set this piece", the inner one carries the new
+/// value, which may itself be `None` to clear the piece.
+#[derive(Debug, Clone, Default)]
+pub struct PersonNamePiecesPatch {
+    pub given_names: Option<Option<String>>,
+    pub surname: Option<Option<String>>,
+    pub surname_prefix: Option<Option<String>>,
+    pub prefix: Option<Option<String>>,
+    pub suffix: Option<Option<String>>,
+    pub nickname: Option<Option<String>>,
+}
 
 /// Repository for person name operations.
 pub struct PersonNameRepo;
@@ -22,6 +56,11 @@ impl PersonNameRepo {
     ) -> Result<Vec<PersonName>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::PersonId.eq(person_id))
+            // Primary name first, then the author's chosen order; `id` is a
+            // UUID v7 so it breaks ties by creation time.
+            .order_by_desc(Column::IsPrimary)
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::Id)
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -35,6 +74,9 @@ impl PersonNameRepo {
     ) -> Result<Vec<PersonName>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::PersonId.is_in(person_ids.iter().copied()))
+            .order_by_desc(Column::IsPrimary)
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::Id)
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -55,30 +97,28 @@ impl PersonNameRepo {
     }
 
     /// Create a new person name.
-    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
         person_id: Uuid,
         name_type: NameType,
-        given_names: Option<String>,
-        surname: Option<String>,
-        prefix: Option<String>,
-        suffix: Option<String>,
-        nickname: Option<String>,
+        pieces: PersonNamePieces,
         is_primary: bool,
+        sort_order: i32,
     ) -> Result<PersonName, OxidGeneError> {
         let now = Utc::now();
         let model = person_name::ActiveModel {
             id: Set(id),
             person_id: Set(person_id),
             name_type: Set(sea_enums::NameType::from(name_type)),
-            given_names: Set(given_names),
-            surname: Set(surname),
-            prefix: Set(prefix),
-            suffix: Set(suffix),
-            nickname: Set(nickname),
+            given_names: Set(pieces.given_names),
+            surname: Set(pieces.surname),
+            surname_prefix: Set(pieces.surname_prefix),
+            prefix: Set(pieces.prefix),
+            suffix: Set(pieces.suffix),
+            nickname: Set(pieces.nickname),
             is_primary: Set(is_primary),
+            sort_order: Set(sort_order),
             created_at: Set(now),
             updated_at: Set(now),
         };
@@ -90,17 +130,13 @@ impl PersonNameRepo {
     }
 
     /// Update a person name.
-    #[allow(clippy::too_many_arguments)]
     pub async fn update(
         db: &impl ConnectionTrait,
         id: Uuid,
         name_type: Option<NameType>,
-        given_names: Option<Option<String>>,
-        surname: Option<Option<String>>,
-        prefix: Option<Option<String>>,
-        suffix: Option<Option<String>>,
-        nickname: Option<Option<String>>,
+        pieces: PersonNamePiecesPatch,
         is_primary: Option<bool>,
+        sort_order: Option<i32>,
     ) -> Result<PersonName, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .one(db)
@@ -115,23 +151,29 @@ impl PersonNameRepo {
         if let Some(name_type) = name_type {
             active.name_type = Set(sea_enums::NameType::from(name_type));
         }
-        if let Some(given_names) = given_names {
+        if let Some(given_names) = pieces.given_names {
             active.given_names = Set(given_names);
         }
-        if let Some(surname) = surname {
+        if let Some(surname) = pieces.surname {
             active.surname = Set(surname);
         }
-        if let Some(prefix) = prefix {
+        if let Some(surname_prefix) = pieces.surname_prefix {
+            active.surname_prefix = Set(surname_prefix);
+        }
+        if let Some(prefix) = pieces.prefix {
             active.prefix = Set(prefix);
         }
-        if let Some(suffix) = suffix {
+        if let Some(suffix) = pieces.suffix {
             active.suffix = Set(suffix);
         }
-        if let Some(nickname) = nickname {
+        if let Some(nickname) = pieces.nickname {
             active.nickname = Set(nickname);
         }
         if let Some(is_primary) = is_primary {
             active.is_primary = Set(is_primary);
+        }
+        if let Some(sort_order) = sort_order {
+            active.sort_order = Set(sort_order);
         }
         active.updated_at = Set(Utc::now());
 
@@ -165,10 +207,12 @@ fn into_domain(m: person_name::Model) -> PersonName {
         name_type: m.name_type.into(),
         given_names: m.given_names,
         surname: m.surname,
+        surname_prefix: m.surname_prefix,
         prefix: m.prefix,
         suffix: m.suffix,
         nickname: m.nickname,
         is_primary: m.is_primary,
+        sort_order: m.sort_order,
         created_at: m.created_at,
         updated_at: m.updated_at,
     }

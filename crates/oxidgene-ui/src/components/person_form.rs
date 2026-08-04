@@ -16,9 +16,10 @@ use crate::api::{
 };
 use crate::i18n::use_i18n;
 use crate::utils::{
-    opt_str, parse_calendar, parse_date_qualifier, parse_event_type, parse_name_type,
-    parse_privacy, parse_sex,
+    name_type_label_key, name_type_value, opt_str, parse_calendar, parse_date_qualifier,
+    parse_event_type, parse_name_type, parse_privacy, parse_sex,
 };
+use oxidgene_core::types::split_surname_particle;
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote, Source as CoreSource};
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, SpouseRole,
@@ -312,7 +313,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         if let Some(n) = primary {
             birth_name_id.set(Some(n.id));
             birth_given.set(n.given_names.clone().unwrap_or_default());
-            birth_surname.set(n.surname.clone().unwrap_or_default());
+            // Edited as one field, particle included — re-split on save.
+            birth_surname.set(n.full_surname().unwrap_or_default());
         }
         birth_identity_loaded.set(true);
     }
@@ -428,29 +430,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 name_form_error.set(Some(i18n.t("person_form.information_value_required")));
                 return;
             }
-            // Every information type is just a single value: it fills the
-            // nickname piece for "Sobriquet" (NICK), the given-names piece
-            // for "Prenom" (paired with the existing birth surname, since a
-            // given name is never recorded standalone), or the name piece
-            // for everything else (all backed by existing NameType variants
-            // — see parse_name_type).
-            let is_nickname = info_type_str == "Sobriquet";
-            let is_given = info_type_str == "Prenom";
-            let body = CreatePersonNameBody {
-                name_type: parse_name_type(&info_type_str),
-                given_names: if is_given { opt_str(&value) } else { None },
-                surname: if is_given {
-                    opt_str(&birth_surname_val)
-                } else if is_nickname {
-                    None
-                } else {
-                    opt_str(&value)
-                },
-                prefix: None,
-                suffix: None,
-                nickname: if is_nickname { opt_str(&value) } else { None },
-                is_primary: false,
-            };
+            let body = build_information_body(&info_type_str, &value, &birth_surname_val);
             match api.create_person_name(tid, pid, &body).await {
                 Ok(_) => {
                     show_name_form.set(false);
@@ -692,14 +672,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     let new_pid = new_person.id;
 
                     // 2. Create the mandatory birth name.
+                    let (bn_particle, bn_root) = split_surname_particle(&bn_surname);
                     let body = CreatePersonNameBody {
                         name_type: NameType::Birth,
                         given_names: Some(bn_given.clone()),
-                        surname: Some(bn_surname.clone()),
+                        surname: Some(bn_root),
+                        surname_prefix: bn_particle,
                         prefix: None,
                         suffix: None,
                         nickname: None,
                         is_primary: true,
+                        sort_order: 0,
                     };
                     if let Err(e) = api.create_person_name(tid, new_pid, &body).await {
                         save_error.set(Some(format!("{e}")));
@@ -817,15 +800,18 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     }
 
                     // 1b. Birth name (surname + given names).
+                    let (bn_particle, bn_root) = split_surname_particle(&bn_surname);
                     if let Some(bnid) = bn_id {
                         let name_body = UpdatePersonNameBody {
                             name_type: None,
                             given_names: Some(opt_str(&bn_given)),
-                            surname: Some(opt_str(&bn_surname)),
+                            surname: Some(opt_str(&bn_root)),
+                            surname_prefix: Some(bn_particle.clone()),
                             prefix: None,
                             suffix: None,
                             nickname: None,
                             is_primary: None,
+                            sort_order: None,
                         };
                         if let Err(e) = api.update_person_name(tid, pid, bnid, &name_body).await {
                             save_error.set(Some(format!("{e}")));
@@ -836,11 +822,13 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         let name_body = CreatePersonNameBody {
                             name_type: NameType::Birth,
                             given_names: Some(bn_given.clone()),
-                            surname: Some(bn_surname.clone()),
+                            surname: Some(bn_root),
+                            surname_prefix: bn_particle,
                             prefix: None,
                             suffix: None,
                             nickname: None,
                             is_primary: true,
+                            sort_order: 0,
                         };
                         if let Err(e) = api.create_person_name(tid, pid, &name_body).await {
                             save_error.set(Some(format!("{e}")));
@@ -999,6 +987,13 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     placeholder: "{i18n.t(\"person_form.surname_placeholder\")}",
                                     value: "{birth_surname}",
                                     oninput: move |e: Event<FormData>| { birth_surname.set(e.value().to_uppercase()); has_changes.set(true); },
+                                }
+                                // Surface the particle split the save path will apply,
+                                // so a wrong guess is visible before it is stored.
+                                if let (Some(particle), root) = split_surname_particle(birth_surname().trim()) {
+                                    div { class: "field-hint",
+                                        {i18n.t_args("person_form.particle_detected", &[("particle", &particle), ("surname", &root)])}
+                                    }
                                 }
                             }
                             div { class: "form-group",
@@ -1195,10 +1190,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         {
                                             let nid = name.id;
                                             let is_editing = editing_name_id() == Some(nid);
-                                            let nt = format!("{:?}", name.name_type);
-                                            let nt_label = format!("{}", name.name_type);
+                                            // The picker value, not the Debug spelling: they diverge
+                                            // for the AKA refinements ("Byname" vs "Surnom"), and
+                                            // feeding Debug back through parse_name_type silently
+                                            // downgraded the entry to Other on save.
+                                            let nt = name_type_value(name.name_type).to_string();
+                                            let nt_label = i18n.t(name_type_label_key(name.name_type));
                                             let gn = name.given_names.clone().unwrap_or_default();
-                                            let sn = name.surname.clone().unwrap_or_default();
+                                            // Edited as one field, particle included; re-split on save.
+                                            let sn = name.full_surname().unwrap_or_default();
                                             let pfx = name.prefix.clone().unwrap_or_default();
                                             let sfx = name.suffix.clone().unwrap_or_default();
                                             let nick = name.nickname.clone().unwrap_or_default();
@@ -1220,6 +1220,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                     option { value: "AlsoKnownAs", {i18n.t("name_type.also_known_as")} }
                                                                     option { value: "Maiden", {i18n.t("name_type.maiden")} }
                                                                     option { value: "Religious", {i18n.t("name_type.religious")} }
+                                                                    option { value: "Prenom", {i18n.t("name_type.prenom")} }
+                                                                    option { value: "Alias", {i18n.t("name_type.alias")} }
+                                                                    option { value: "Surnom", {i18n.t("name_type.surnom")} }
+                                                                    option { value: "Sobriquet", {i18n.t("name_type.sobriquet")} }
                                                                     option { value: "Other", {i18n.t("name_type.other")} }
                                                                 }
                                                             }
@@ -1273,14 +1277,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                         let name_type_str = edit_name_type();
                                                                         let is_primary = edit_name_primary();
                                                                         spawn(async move {
+                                                                            let (particle, root) = split_surname_particle(&surname);
                                                                             let body = UpdatePersonNameBody {
                                                                                 name_type: Some(parse_name_type(&name_type_str)),
                                                                                 given_names: Some(opt_str(&given)),
-                                                                                surname: Some(opt_str(&surname)),
+                                                                                surname: Some(opt_str(&root)),
+                                                                                surname_prefix: Some(particle),
                                                                                 prefix: Some(opt_str(&prefix)),
                                                                                 suffix: Some(opt_str(&suffix)),
                                                                                 nickname: Some(opt_str(&nickname)),
                                                                                 is_primary: Some(is_primary),
+                                                                                sort_order: None,
                                                                             };
                                                                             match api.update_person_name(tid, pid, nid, &body).await {
                                                                                 Ok(_) => {
@@ -1968,7 +1975,7 @@ async fn resolve_witness_names(
                     format!(
                         "{} {}",
                         n.given_names.as_deref().unwrap_or(""),
-                        n.surname.as_deref().unwrap_or("")
+                        n.full_surname().unwrap_or_default()
                     )
                     .trim()
                     .to_string()
@@ -2092,12 +2099,76 @@ fn render_event_witnesses(
 // ── Information form helper ───────────────────────────────────────────────
 //
 // Adds a single piece of "additional information" backed by a PersonName
-// row. Every information type is just one value — no given names, prefix,
-// suffix, or primary flag — split only by which underlying field it fills:
-// the nickname piece for Sobriquet (GEDCOM NICK), the name piece for
-// everything else. Alias/Surnom/Sobriquet are UI-only vocabulary for the
-// existing AlsoKnownAs (GEDCOM AKA) name type, not new name types — see
-// `parse_name_type`.
+// row. Every information type is one value; they differ only in which piece
+// of the name that value fills — see `info_piece`.
+
+/// The name piece an information type writes to.
+///
+/// The picker mixes two axes: most entries name a *type* of name (Married,
+/// Maiden, Alias…) and fill the surname, while Prenom/Sobriquet/Prefixe/
+/// Suffixe name a *piece* (GEDCOM `GIVN`/`NICK`/`NPFX`/`NSFX`) of one. This
+/// maps each entry onto the piece it fills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InfoPiece {
+    Given,
+    Surname,
+    Nickname,
+    Prefix,
+    Suffix,
+}
+
+fn info_piece(info_type: &str) -> InfoPiece {
+    match info_type {
+        "Prenom" => InfoPiece::Given,
+        "Sobriquet" | "Surnom" => InfoPiece::Nickname,
+        "Prefixe" => InfoPiece::Prefix,
+        "Suffixe" => InfoPiece::Suffix,
+        _ => InfoPiece::Surname,
+    }
+}
+
+/// Builds the request body for one "additional information" entry.
+///
+/// Surnames are split into particle + root here rather than server-side, so
+/// the user can see and correct the split before saving (see
+/// `render_information_form`). `birth_surname` pairs a standalone given name
+/// with the surname the person already carries, since a given name is never
+/// recorded on its own.
+fn build_information_body(
+    info_type: &str,
+    value: &str,
+    birth_surname: &str,
+) -> CreatePersonNameBody {
+    let piece = info_piece(info_type);
+
+    // Whichever string ends up in the surname slot gets split.
+    let raw_surname = match piece {
+        InfoPiece::Surname => value,
+        InfoPiece::Given => birth_surname,
+        _ => "",
+    };
+    let (surname_prefix, surname_root) = split_surname_particle(raw_surname);
+
+    CreatePersonNameBody {
+        name_type: parse_name_type(info_type),
+        given_names: (piece == InfoPiece::Given)
+            .then(|| opt_str(value))
+            .flatten(),
+        surname: opt_str(&surname_root),
+        surname_prefix,
+        prefix: (piece == InfoPiece::Prefix)
+            .then(|| opt_str(value))
+            .flatten(),
+        suffix: (piece == InfoPiece::Suffix)
+            .then(|| opt_str(value))
+            .flatten(),
+        nickname: (piece == InfoPiece::Nickname)
+            .then(|| opt_str(value))
+            .flatten(),
+        is_primary: false,
+        sort_order: 0,
+    }
+}
 
 fn render_information_form(
     i18n: &crate::i18n::I18n,
@@ -2109,14 +2180,27 @@ fn render_information_form(
     let i18n = *i18n;
     let mut info_type_sig = *info_type_mut;
     let mut value_sig = *value_mut;
-    let is_nickname = info_type_sig() == "Sobriquet";
-    let is_given = info_type_sig() == "Prenom";
-    let value_label = if is_nickname {
-        i18n.t("person_form.nickname")
-    } else if is_given {
-        i18n.t("person_form.given_names")
+    let piece = info_piece(&info_type_sig());
+    let value_label = match piece {
+        InfoPiece::Nickname => i18n.t("person_form.nickname"),
+        InfoPiece::Given => i18n.t("person_form.given_names"),
+        InfoPiece::Prefix => i18n.t("person_form.prefix"),
+        InfoPiece::Suffix => i18n.t("person_form.suffix"),
+        InfoPiece::Surname => i18n.t("person_form.name_value"),
+    };
+
+    // Show the detected particle split so the user can catch a wrong guess
+    // before saving — the single input stays a single input.
+    let particle_hint = if piece == InfoPiece::Surname {
+        let (particle, root) = split_surname_particle(value_sig().trim());
+        particle.map(|p| {
+            i18n.t_args(
+                "person_form.particle_detected",
+                &[("particle", &p), ("surname", &root)],
+            )
+        })
     } else {
-        i18n.t("person_form.name_value")
+        None
     };
 
     rsx! {
@@ -2136,6 +2220,8 @@ fn render_information_form(
                         option { value: "Surnom",     {i18n.t("name_type.surnom")} }
                         option { value: "Maiden",     {i18n.t("name_type.maiden")} }
                         option { value: "Religious",  {i18n.t("name_type.religious")} }
+                        option { value: "Prefixe",    {i18n.t("name_type.prefixe")} }
+                        option { value: "Suffixe",    {i18n.t("name_type.suffixe")} }
                         option { value: "Other",      {i18n.t("name_type.other")} }
                         option { value: "Sobriquet",  {i18n.t("name_type.sobriquet")} }
                     }
@@ -2147,9 +2233,70 @@ fn render_information_form(
                         value: "{value_sig}",
                         oninput: move |e: Event<FormData>| value_sig.set(e.value()),
                     }
+                    if let Some(hint) = particle_hint {
+                        div { class: "field-hint", "{hint}" }
+                    }
                 }
             }
             button { class: "btn btn-primary btn-sm", onclick: on_create, {i18n.t("person.create_information")} }
         }
+    }
+}
+
+#[cfg(test)]
+mod information_form_tests {
+    use super::*;
+
+    #[test]
+    fn prefix_and_suffix_reach_their_own_pieces() {
+        // These two information types had no picker entry at all, so NPFX and
+        // NSFX were unreachable from the add form.
+        let body = build_information_body("Prefixe", "Dr.", "DUPONT");
+        assert_eq!(body.prefix.as_deref(), Some("Dr."));
+        assert_eq!(body.suffix, None);
+        assert_eq!(body.surname, None);
+
+        let body = build_information_body("Suffixe", "Jr.", "DUPONT");
+        assert_eq!(body.suffix.as_deref(), Some("Jr."));
+        assert_eq!(body.prefix, None);
+    }
+
+    #[test]
+    fn each_information_type_keeps_its_own_name_type() {
+        // Previously every one of these collapsed onto AlsoKnownAs, which made
+        // the user's pick unrecoverable once saved.
+        for (picked, expected) in [
+            ("Alias", NameType::Alias),
+            ("Surnom", NameType::Byname),
+            ("Sobriquet", NameType::Sobriquet),
+            ("Prenom", NameType::GivenName),
+            ("Married", NameType::Married),
+        ] {
+            let body = build_information_body(picked, "X", "DUPONT");
+            assert_eq!(body.name_type, expected, "for {picked}");
+        }
+    }
+
+    #[test]
+    fn surname_entries_are_split_into_particle_and_root() {
+        let body = build_information_body("Married", "de la Cruz", "DUPONT");
+        assert_eq!(body.surname.as_deref(), Some("Cruz"));
+        assert_eq!(body.surname_prefix.as_deref(), Some("de la"));
+    }
+
+    #[test]
+    fn a_standalone_given_name_pairs_with_the_split_birth_surname() {
+        let body = build_information_body("Prenom", "Baptiste", "van der Berg");
+        assert_eq!(body.given_names.as_deref(), Some("Baptiste"));
+        assert_eq!(body.surname.as_deref(), Some("Berg"));
+        assert_eq!(body.surname_prefix.as_deref(), Some("van der"));
+    }
+
+    #[test]
+    fn a_nickname_fills_only_the_nickname_piece() {
+        let body = build_information_body("Sobriquet", "Titi", "DUPONT");
+        assert_eq!(body.nickname.as_deref(), Some("Titi"));
+        assert_eq!(body.surname, None);
+        assert_eq!(body.given_names, None);
     }
 }
