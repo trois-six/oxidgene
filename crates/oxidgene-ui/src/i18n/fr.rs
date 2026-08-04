@@ -325,6 +325,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person_form.particle", "Particule"),
         ("person_form.particle_placeholder", "ex. de la"),
         ("person_form.particle_change", "Modifier"),
+        (
+            "person_form.particle_not_in_surname",
+            "\u{00AB} {particle} \u{00BB} n\u{2019}est pas au d\u{00E9}but de \u{00AB} {surname} \u{00BB} \u{00B7} ajoutez-la au nom pour l\u{2019}utiliser",
+        ),
         ("person_form.particle_auto", "D\u{00E9}tection auto"),
         (
             "person_form.particle_none",

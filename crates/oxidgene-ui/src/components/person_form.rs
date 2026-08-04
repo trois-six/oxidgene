@@ -20,7 +20,7 @@ use crate::utils::{
     parse_event_type, parse_name_type, parse_privacy, parse_sex,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote, Source as CoreSource};
-use oxidgene_core::types::{split_surname_particle, split_surname_with};
+use oxidgene_core::types::{split_surname_at_head, split_surname_particle, split_surname_with};
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, SpouseRole,
 };
@@ -689,8 +689,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     let new_pid = new_person.id;
 
                     // 2. Create the mandatory birth name.
-                    let (bn_particle, bn_root) =
-                        resolve_particle(&bn_surname, bn_particle_override.as_deref());
+                    let bn_split = resolve_particle(&bn_surname, bn_particle_override.as_deref());
+                    let (bn_particle, bn_root) = (bn_split.particle, bn_split.root);
                     let body = CreatePersonNameBody {
                         name_type: NameType::Birth,
                         given_names: Some(bn_given.clone()),
@@ -818,8 +818,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     }
 
                     // 1b. Birth name (surname + given names).
-                    let (bn_particle, bn_root) =
-                        resolve_particle(&bn_surname, bn_particle_override.as_deref());
+                    let bn_split = resolve_particle(&bn_surname, bn_particle_override.as_deref());
+                    let (bn_particle, bn_root) = (bn_split.particle, bn_split.root);
                     if let Some(bnid) = bn_id {
                         let name_body = UpdatePersonNameBody {
                             name_type: None,
@@ -2137,15 +2137,46 @@ fn render_event_witnesses(
 
 // ── Surname particle row ──────────────────────────────────────────────────
 
+/// How a surname field splits into particle + root.
+struct ParticleSplit {
+    particle: Option<String>,
+    root: String,
+    /// The typed particle is not at the head of the surname, so it was not
+    /// applied.
+    rejected: bool,
+}
+
 /// Resolves the particle/root split for a surname field, honouring an override.
 ///
 /// `override_particle` is `None` while the automatic detection is trusted, and
 /// `Some(p)` once the user has taken control — where `p` may be empty, meaning
 /// "this name has no particle at all".
-fn resolve_particle(raw: &str, override_particle: Option<&str>) -> (Option<String>, String) {
-    match override_particle {
-        Some(p) => split_surname_with(raw, p),
-        None => split_surname_particle(raw),
+///
+/// The override can only *cut* the field, never add to it: these forms keep a
+/// single surname input whose text is the complete surname, so a particle that
+/// is absent from it would inject a word the user never typed — and clearing
+/// the particle afterwards would not remove it, since by then the word has
+/// become part of the surname. Such a particle is reported instead of applied.
+fn resolve_particle(raw: &str, override_particle: Option<&str>) -> ParticleSplit {
+    let Some(p) = override_particle else {
+        let (particle, root) = split_surname_particle(raw);
+        return ParticleSplit {
+            particle,
+            root,
+            rejected: false,
+        };
+    };
+    match split_surname_at_head(raw, p) {
+        Some((particle, root)) => ParticleSplit {
+            particle,
+            root,
+            rejected: false,
+        },
+        None => ParticleSplit {
+            particle: None,
+            root: raw.trim().to_string(),
+            rejected: true,
+        },
     }
 }
 
@@ -2177,18 +2208,31 @@ fn render_particle_row(
     let mut override_sig = *override_mut;
     let raw = raw.trim().to_string();
     let current = override_sig();
-    let (particle, root) = resolve_particle(&raw, current.as_deref());
+    let split = resolve_particle(&raw, current.as_deref());
+    let (particle, root, rejected) = (split.particle, split.root, split.rejected);
 
     if raw.is_empty() {
         return rsx! {};
     }
 
-    let summary = match &particle {
-        Some(p) => i18n.t_args(
-            "person_form.particle_detected",
-            &[("particle", p), ("surname", &root)],
-        ),
-        None => i18n.t_args("person_form.particle_none", &[("surname", &root)]),
+    // A particle the surname does not contain is reported rather than applied,
+    // so the field never gains a word the user did not type.
+    let summary = if rejected {
+        i18n.t_args(
+            "person_form.particle_not_in_surname",
+            &[
+                ("particle", current.as_deref().unwrap_or("")),
+                ("surname", &root),
+            ],
+        )
+    } else {
+        match &particle {
+            Some(p) => i18n.t_args(
+                "person_form.particle_detected",
+                &[("particle", p), ("surname", &root)],
+            ),
+            None => i18n.t_args("person_form.particle_none", &[("surname", &root)]),
+        }
     };
 
     rsx! {
@@ -2208,7 +2252,7 @@ fn render_particle_row(
                     onclick: move |_| override_sig.set(None),
                     {i18n.t("person_form.particle_auto")}
                 }
-                span { class: "field-hint", "{summary}" }
+                span { class: if rejected { "field-hint field-hint-warn" } else { "field-hint" }, "{summary}" }
             } else {
                 span { class: "field-hint", "{summary}" }
                 button {
@@ -2272,7 +2316,8 @@ fn build_information_body(
         InfoPiece::Given => (birth_surname, birth_particle_override),
         _ => ("", None),
     };
-    let (surname_prefix, surname_root) = resolve_particle(raw_surname, override_particle);
+    let split = resolve_particle(raw_surname, override_particle);
+    let (surname_prefix, surname_root) = (split.particle, split.root);
 
     CreatePersonNameBody {
         name_type: parse_name_type(info_type),
@@ -2402,6 +2447,37 @@ mod information_form_tests {
         assert_eq!(body.given_names.as_deref(), Some("Baptiste"));
         assert_eq!(body.surname.as_deref(), Some("Berg"));
         assert_eq!(body.surname_prefix.as_deref(), Some("van der"));
+    }
+
+    /// The reported bug: on a plain surname, typing a particle that is not in
+    /// the field used to inject it — after which clearing the particle field
+    /// could not remove it, because the word had become part of the surname.
+    #[test]
+    fn a_particle_absent_from_the_surname_is_never_injected() {
+        let split = resolve_particle("DUPONT", Some("de"));
+        assert_eq!(split.particle, None, "must not invent a particle");
+        assert_eq!(split.root, "DUPONT", "the surname must be left untouched");
+        assert!(split.rejected, "and the user must be told why");
+
+        // Which makes it reversible: clearing returns the original name.
+        let split = resolve_particle("DUPONT", Some(""));
+        assert_eq!(split.particle, None);
+        assert_eq!(split.root, "DUPONT");
+        assert!(!split.rejected);
+    }
+
+    #[test]
+    fn an_override_only_moves_the_cut_within_the_field() {
+        // Narrowing a guess is a cut, so it applies.
+        let split = resolve_particle("de la Cruz", Some("de"));
+        assert_eq!(split.particle.as_deref(), Some("de"));
+        assert_eq!(split.root, "la Cruz");
+        assert!(!split.rejected);
+
+        // Widening past what the field holds is not.
+        let split = resolve_particle("Cruz", Some("de la"));
+        assert!(split.rejected);
+        assert_eq!(split.root, "Cruz");
     }
 
     #[test]
