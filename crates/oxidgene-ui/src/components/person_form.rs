@@ -2195,6 +2195,25 @@ fn override_for_stored(full_surname: &str, stored: Option<&str>) -> Option<Strin
     }
 }
 
+/// Whether the particle row has anything to say about this surname.
+///
+/// A single-word surname with no particle in it — the overwhelmingly common
+/// case — gets no row at all: there is nothing to cut, and since
+/// [`split_surname_at_head`] refuses a particle that is not already at the head
+/// of the field, the editor could not do anything there either. Announcing
+/// "no particle" under every ordinary name is noise.
+///
+/// One word is not the same as no particle: "d'Aubigné" is a single token that
+/// does carry one, which is why this asks detection rather than counting words
+/// alone. An open override always keeps the row, so it cannot vanish from under
+/// the user mid-edit.
+fn particle_row_is_useful(raw: &str, particle: Option<&str>, override_active: bool) -> bool {
+    if raw.trim().is_empty() {
+        return false;
+    }
+    override_active || particle.is_some() || raw.split_whitespace().count() > 1
+}
+
 /// Renders the detected particle under a surname field, with a way to correct
 /// it — the detection is a guess over a fixed word list, so it has to be
 /// overridable: someone actually surnamed "Le", or a "Da Silva" that should
@@ -2211,7 +2230,7 @@ fn render_particle_row(
     let split = resolve_particle(&raw, current.as_deref());
     let (particle, root, rejected) = (split.particle, split.root, split.rejected);
 
-    if raw.is_empty() {
+    if !particle_row_is_useful(&raw, particle.as_deref(), current.is_some()) {
         return rsx! {};
     }
 
@@ -2452,6 +2471,27 @@ mod information_form_tests {
     /// The reported bug: on a plain surname, typing a particle that is not in
     /// the field used to inject it — after which clearing the particle field
     /// could not remove it, because the word had become part of the surname.
+    #[test]
+    fn the_particle_row_stays_hidden_for_an_ordinary_surname() {
+        // The common case: one word, no particle. Nothing to cut, and the
+        // editor could not cut anything either — so say nothing.
+        assert!(!particle_row_is_useful("DUPONT", None, false));
+        assert!(!particle_row_is_useful("", None, false));
+        assert!(!particle_row_is_useful("   ", None, false));
+    }
+
+    #[test]
+    fn the_particle_row_appears_when_it_has_something_to_offer() {
+        // A detected particle, even inside a single token.
+        assert!(particle_row_is_useful("d'Aubigné", Some("d'"), false));
+        assert!(particle_row_is_useful("de la Cruz", Some("de la"), false));
+        // Several words but no particle: the user may still want to declare an
+        // unusual one, so the affordance stays.
+        assert!(particle_row_is_useful("MARTIN DUPONT", None, false));
+        // And an open editor is never yanked away mid-edit.
+        assert!(particle_row_is_useful("DUPONT", None, true));
+    }
+
     #[test]
     fn a_particle_absent_from_the_surname_is_never_injected() {
         let split = resolve_particle("DUPONT", Some("de"));
