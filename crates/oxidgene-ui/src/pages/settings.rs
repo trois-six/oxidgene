@@ -14,7 +14,10 @@ use crate::components::search_person::SearchPerson;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{Language, use_i18n};
-use crate::pages::app_settings::{APP_SETTINGS_WIDGET_STYLES, AppearanceSection, LanguageSection};
+use crate::pages::app_settings::{
+    APP_SETTINGS_WIDGET_STYLES, AppearanceSection, LanguageSection, NamesSection,
+};
+use crate::prefs::SortParticles;
 use crate::router::Route;
 use crate::utils::resolve_name;
 
@@ -26,6 +29,7 @@ pub fn Settings(tree_id: String) -> Element {
     let nav = use_navigator();
     let is_dark = use_context::<Signal<bool>>();
     let lang_signal = use_context::<Signal<Language>>();
+    let sort_particles = use_context::<Signal<SortParticles>>();
     let refresh = use_signal(|| 0u32);
     let mut active_section = use_signal(|| "tree-roots".to_string());
     let mut export_loading = use_signal(|| false);
@@ -297,6 +301,11 @@ pub fn Settings(tree_id: String) -> Element {
                             onclick: move |_| active_section.set("language".to_string()),
                             {i18n.t("app_settings.language")}
                         }
+                        button {
+                            class: if sec == "names" { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set("names".to_string()),
+                            {i18n.t("app_settings.names")}
+                        }
                     }
                 }
 
@@ -321,6 +330,8 @@ pub fn Settings(tree_id: String) -> Element {
                         AppearanceSection { is_dark }
                     } else if sec == "language" {
                         LanguageSection { lang_signal }
+                    } else if sec == "names" {
+                        NamesSection { sort_particles }
                     } else {
                         PlaceholderSection { section_name: sec.clone() }
                     }
