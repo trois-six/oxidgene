@@ -59,6 +59,7 @@ const TEXT_X_COMPACT: f64 = 10.0;
 const TEXT_Y_FULL: f64 = 21.0;
 const TEXT_Y_COMPACT: f64 = 81.0;
 const TEXT_MAX_WIDTH_FULL: f32 = 105.0;
+const TEXT_MAX_WIDTH_COMPACT: f32 = (COMPACT_INNER_W - TEXT_X_COMPACT) as f32;
 const SURNAME_FONT_SIZE_PX: f32 = 11.0;
 const GIVEN_FONT_SIZE_PX: f32 = 10.0;
 const SOSA_CX_FULL: f64 = 57.5;
@@ -67,7 +68,6 @@ const SOSA_CY: f64 = 57.5;
 const SOSA_R: f64 = 7.5;
 const EDIT_FAB_R: f64 = 14.0;
 const EDIT_FAB_GAP: f64 = 16.0;
-const COMPACT_TEXT_TRUNCATE: usize = 7;
 
 // ── Connector / Bézier path parameters ───────────────────────────────────
 
@@ -2931,23 +2931,14 @@ fn render_pedigree_card(
                 .unwrap_or("")
                 .to_string();
             let surname_up = label_surname.to_uppercase();
-            let surname_disp = if is_compact {
-                surname_up
-                    .chars()
-                    .take(COMPACT_TEXT_TRUNCATE)
-                    .collect::<String>()
+            let text_max_width = if is_compact {
+                TEXT_MAX_WIDTH_COMPACT
             } else {
-                truncate_text_to_fit(&surname_up, TEXT_MAX_WIDTH_FULL, SURNAME_FONT_SIZE_PX)
+                TEXT_MAX_WIDTH_FULL
             };
+            let surname_disp = truncate_text_to_fit(&surname_up, text_max_width, SURNAME_FONT_SIZE_PX);
             let label_given = node.label_given.split(",").next().unwrap_or("").to_string();
-            let given_disp = if is_compact {
-                label_given
-                    .chars()
-                    .take(COMPACT_TEXT_TRUNCATE)
-                    .collect::<String>()
-            } else {
-                truncate_text_to_fit(&label_given, TEXT_MAX_WIDTH_FULL, GIVEN_FONT_SIZE_PX)
-            };
+            let given_disp = truncate_text_to_fit(&label_given, text_max_width, GIVEN_FONT_SIZE_PX);
             let date_s = format_lifespan(node.birth_year, node.death_year);
             let has_surname = !surname_disp.is_empty();
             let has_given = !given_disp.is_empty();
