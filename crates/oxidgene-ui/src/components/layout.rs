@@ -108,7 +108,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     :root {
         /* ── Light palette (default) ─────────────────────────────── */
-        --bg-deep:        #f4f2ee;
+        --bg-deep:        #ffffff;
         --bg-panel:       #ede9e2;
         --bg-card:        #ffffff;
         --bg-card-hover:  #f5f3ef;
@@ -2758,6 +2758,71 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .dict-row-action:hover {
         color: var(--orange);
+    }
+
+    /* Bulk surname-particle editor, opened from a family-name row. */
+    .dict-particle-modal {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 20px 24px 16px;
+        width: min(460px, calc(100vw - 32px));
+        box-shadow: var(--shadow-md);
+    }
+
+    .dict-particle-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .dict-particle-header h2 {
+        font-size: 1.05rem;
+        color: var(--text-primary);
+    }
+
+    .dict-particle-intro {
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .dict-particle-scope {
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        margin: 4px 0 14px;
+    }
+
+    .dict-particle-hint {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        margin-top: 6px;
+    }
+
+    .dict-particle-preview {
+        margin-top: 14px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-deep);
+    }
+
+    .dict-particle-preview-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 0.85rem;
+        padding: 2px 0;
+    }
+
+    .dict-particle-preview-key {
+        color: var(--text-muted);
+    }
+
+    .dict-particle-preview-val {
+        color: var(--text-primary);
+        font-weight: 600;
     }
 
     .dict-pin {

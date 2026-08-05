@@ -2183,8 +2183,8 @@ fn resolve_particle(raw: &str, override_particle: Option<&str>) -> ParticleSplit
 /// Seeds the override signal so a stored particle that detection disagrees with
 /// is not silently "corrected" the next time the form is saved.
 ///
-/// Without this, a name deliberately stored with no particle ("Le Goff" filed
-/// under L) would be re-split on the next save of an unrelated field.
+/// Without this, a name deliberately stored with no particle ("Da Silva" filed
+/// under D) would be re-split on the next save of an unrelated field.
 fn override_for_stored(full_surname: &str, stored: Option<&str>) -> Option<String> {
     let stored = stored.unwrap_or("").trim().to_string();
     let (detected, _) = split_surname_particle(full_surname);
@@ -2548,10 +2548,12 @@ mod information_form_tests {
         // Detection already agrees: stay on auto, so later edits keep tracking it.
         assert_eq!(override_for_stored("de la Cruz", Some("de la")), None);
         assert_eq!(override_for_stored("Dupont", None), None);
+        // Including for a name whose leading article detection now leaves alone.
+        assert_eq!(override_for_stored("Le Branch", None), None);
 
         // A stored "no particle" that detection would split must be pinned,
         // otherwise saving an unrelated field would silently re-split it.
-        assert_eq!(override_for_stored("Le Goff", None), Some(String::new()));
+        assert_eq!(override_for_stored("Da Silva", None), Some(String::new()));
         // As must a stored particle narrower than the guess.
         assert_eq!(
             override_for_stored("de la Cruz", Some("de")),

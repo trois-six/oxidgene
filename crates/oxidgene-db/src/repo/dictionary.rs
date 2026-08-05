@@ -2,15 +2,26 @@
 //! (family names, occupations) or existing entities (sources, places) paired
 //! with how many persons/events reference them, plus drill-down lookups
 //! resolving a value back to the persons that carry it.
+//!
+//! Plus the one bulk edit the page offers — [`DictionaryRepo::set_family_name_particle`],
+//! which re-cuts every occurrence of one surname at once. It lives here rather
+//! than in `PersonNameRepo` because "which rows are this dictionary entry" is
+//! defined by [`DictionaryRepo::family_names`] right above it, and the two must
+//! agree on the answer.
 
-use oxidgene_core::enums::EventType;
+use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{
-    Place, Source, join_surname_particle, split_surname_particle, year_from_date,
+use oxidgene_core::{
+    enums::EventType,
+    types::{
+        Place, Source, join_surname_particle, split_surname_at_head, split_surname_particle,
+        year_from_date,
+    },
 };
 use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
 use sea_orm::entity::prelude::*;
+use sea_orm::{ActiveValue::Set, Unchanged};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -42,6 +53,23 @@ pub struct PersonUsageEntry {
     pub surname: Option<String>,
     pub birth_year: Option<i32>,
     pub death_year: Option<i32>,
+}
+
+/// Outcome of [`DictionaryRepo::set_family_name_particle`].
+#[derive(Debug, Clone)]
+pub struct FamilyNameParticleUpdate {
+    /// The surname as it will still be listed — re-cutting moves the boundary
+    /// inside the name, never the text.
+    pub value: String,
+    /// The particle now stored, `None` when the name was declared to have one.
+    pub surname_prefix: Option<String>,
+    /// The root now stored, i.e. what the name files under.
+    pub surname: String,
+    /// `person_name` rows rewritten. Rows already cut that way are skipped, so
+    /// a second identical call reports zero.
+    pub names_updated: usize,
+    /// Distinct persons behind `names_updated`.
+    pub persons_updated: usize,
 }
 
 /// Above this many sources matching a prefix, the Sources tab's smart
@@ -441,6 +469,105 @@ impl DictionaryRepo {
                 .map(|n| n.person_id)
                 .collect(),
         ))
+    }
+
+    /// Re-cut every occurrence of one surname at the given particle.
+    ///
+    /// This is the dictionary's bulk repair for a particle that detection got
+    /// wrong across a whole family — a tree full of "Le …" persons wrongly
+    /// carrying a `Le` prefix is fixed in one call with an empty `particle`.
+    ///
+    /// `value` is a surname as listed by [`Self::family_names`], particle
+    /// included. Rows are matched on that *joined* surname rather than by
+    /// re-splitting it, because how they are currently cut is precisely what
+    /// is being corrected — the full surname is a dictionary entry's only
+    /// stable identity.
+    ///
+    /// The displayed surname never changes; only the boundary inside it does,
+    /// and with it the letter the name files under. A `particle` that is not at
+    /// the head of `value` is rejected rather than prepended, so this can never
+    /// invent a word the tree does not already carry.
+    ///
+    /// Rows already cut that way are left untouched, making a repeated call a
+    /// no-op instead of a pointless `updated_at` bump.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OxidGeneError::Validation`] if `value` is blank or `particle`
+    /// is not at its head, and [`OxidGeneError::Database`] on query failure.
+    pub async fn set_family_name_particle(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        value: &str,
+        particle: &str,
+    ) -> Result<FamilyNameParticleUpdate, OxidGeneError> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(OxidGeneError::Validation(
+                "a family name is required".to_string(),
+            ));
+        }
+        let Some((new_prefix, new_surname)) = split_surname_at_head(value, particle) else {
+            return Err(OxidGeneError::Validation(format!(
+                "particle \"{particle}\" is not at the head of surname \"{value}\""
+            )));
+        };
+
+        let person_ids: Vec<Uuid> = person::Entity::find()
+            .filter(person::Column::TreeId.eq(tree_id))
+            .filter(person::Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+
+        let mut updated_persons: HashSet<Uuid> = HashSet::new();
+        let mut names_updated = 0usize;
+
+        if !person_ids.is_empty() {
+            let names = person_name::Entity::find()
+                .filter(person_name::Column::PersonId.is_in(person_ids))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+            for n in names {
+                let Some(root) = trimmed(n.surname.as_deref()) else {
+                    continue;
+                };
+                if join_surname_particle(n.surname_prefix.as_deref(), &root) != value {
+                    continue;
+                }
+                if trimmed(n.surname_prefix.as_deref()) == new_prefix && root == new_surname {
+                    continue;
+                }
+
+                let person_id = n.person_id;
+                person_name::ActiveModel {
+                    id: Unchanged(n.id),
+                    surname: Set(Some(new_surname.clone())),
+                    surname_prefix: Set(new_prefix.clone()),
+                    updated_at: Set(Utc::now()),
+                    ..Default::default()
+                }
+                .update(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+                updated_persons.insert(person_id);
+                names_updated += 1;
+            }
+        }
+
+        Ok(FamilyNameParticleUpdate {
+            value: value.to_string(),
+            surname_prefix: new_prefix,
+            surname: new_surname,
+            names_updated,
+            persons_updated: updated_persons.len(),
+        })
     }
 
     /// Resolve a batch of person IDs (as returned by the `*_usage_person_ids`

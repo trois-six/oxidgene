@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 
 use dioxus::prelude::*;
+use oxidgene_core::types::split_surname_at_head;
 use uuid::Uuid;
 
 use crate::api::{
@@ -61,6 +62,37 @@ impl PageSize {
         match self {
             PageSize::Fixed(n) => Some(n),
             PageSize::All => None,
+        }
+    }
+}
+
+/// The family name whose particle is being re-cut, and the state of that edit.
+///
+/// `value` is the surname as listed, particle included — the only stable
+/// identity of a dictionary entry, and what the API matches rows on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParticleEdit {
+    value: String,
+    /// Persons carrying the name, so the dialog can say what it is about to
+    /// touch before it touches it.
+    count: i64,
+    /// The particle as typed; empty means "this name has no particle".
+    particle: String,
+    /// Set when the last apply failed, cleared on the next keystroke.
+    error: Option<String>,
+    saving: bool,
+}
+
+impl ParticleEdit {
+    fn new(entry: &DictionaryEntry) -> Self {
+        Self {
+            value: entry.value.clone(),
+            count: entry.count,
+            particle: entry_particle_split(entry)
+                .map(|(particle, _)| particle)
+                .unwrap_or_default(),
+            error: None,
+            saving: false,
         }
     }
 }
@@ -136,6 +168,7 @@ pub fn Dictionary(tree_id: String) -> Element {
 
     let api_fn = api.clone();
     let sort_particles = use_sort_particles();
+    let particle_edit = use_signal(|| None::<ParticleEdit>);
 
     let mut family_names_resource = use_resource(move || {
         let api = api_fn.clone();
@@ -369,6 +402,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         expanded,
                         usage_resource,
                         sort_particles,
+                        Some(particle_edit),
                     ),
                     DictTab::Occupations => render_value_tab(
                         i18n,
@@ -383,6 +417,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         expanded,
                         usage_resource,
                         sort_particles,
+                        None,
                     ),
                     DictTab::Sources => render_sources_tab(
                         i18n,
@@ -405,7 +440,153 @@ pub fn Dictionary(tree_id: String) -> Element {
                         usage_resource,
                     ),
                 }
+
+                {render_particle_modal(i18n, api.clone(), tree_id_parsed(), particle_edit, family_names_resource)}
             }
+            }
+        }
+    }
+}
+
+/// The bulk particle editor: re-cuts every occurrence of one surname at once.
+///
+/// Shows what the cut will produce before applying it, because the operation
+/// touches every person carrying the name and is not individually undoable.
+fn render_particle_modal(
+    i18n: I18n,
+    api: ApiClient,
+    tree_id: Option<Uuid>,
+    mut edit: Signal<Option<ParticleEdit>>,
+    mut family_names: Resource<Result<Vec<DictionaryEntry>, ApiError>>,
+) -> Element {
+    let Some(current) = edit() else {
+        return rsx! {};
+    };
+
+    // The particle must already sit at the head of the surname — this edit
+    // only moves the cut, so anything else is rejected before it is sent.
+    let preview = split_surname_at_head(&current.value, &current.particle);
+    let is_valid = preview.is_some();
+    let can_apply = is_valid && !current.saving && tree_id.is_some();
+
+    rsx! {
+        div {
+            class: "modal-backdrop",
+            // Dismiss on press, not click: a click fires on the common ancestor
+            // of mousedown/mouseup, so selecting text then releasing outside
+            // would close the dialog.
+            onmousedown: move |_| edit.set(None),
+            div {
+                class: "dict-particle-modal",
+                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+
+                div { class: "dict-particle-header",
+                    h2 { {i18n.t("dictionary.particle.title")} }
+                    button {
+                        class: "person-form-close",
+                        onclick: move |_| edit.set(None),
+                        "✕"
+                    }
+                }
+
+                div { class: "dict-particle-body",
+                    p { class: "dict-particle-intro",
+                        {i18n.t_args("dictionary.particle.intro", &[("name", &current.value)])}
+                    }
+                    p { class: "dict-particle-scope",
+                        {i18n.t_plural("dictionary.particle.scope", current.count as usize)}
+                    }
+
+                    div { class: "form-group",
+                        label { {i18n.t("dictionary.particle.label")} }
+                        input {
+                            r#type: "text",
+                            value: "{current.particle}",
+                            placeholder: "{i18n.t(\"dictionary.particle.placeholder\")}",
+                            oninput: move |e: Event<FormData>| {
+                                if let Some(mut c) = edit() {
+                                    c.particle = e.value();
+                                    c.error = None;
+                                    edit.set(Some(c));
+                                }
+                            },
+                        }
+                        p { class: "dict-particle-hint", {i18n.t("dictionary.particle.hint")} }
+                    }
+
+                    match &preview {
+                        Some((particle, root)) => rsx! {
+                            div { class: "dict-particle-preview",
+                                div { class: "dict-particle-preview-row",
+                                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_particle")} }
+                                    span { class: "dict-particle-preview-val",
+                                        {particle.clone().unwrap_or_else(|| i18n.t("dictionary.particle.none"))}
+                                    }
+                                }
+                                div { class: "dict-particle-preview-row",
+                                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_root")} }
+                                    span { class: "dict-particle-preview-val", "{root}" }
+                                }
+                                div { class: "dict-particle-preview-row",
+                                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_files_under")} }
+                                    span { class: "dict-particle-preview-val",
+                                        {root.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()}
+                                    }
+                                }
+                            }
+                        },
+                        None => rsx! {
+                            div { class: "error-msg",
+                                {i18n.t_args("dictionary.particle.not_at_head", &[("name", &current.value)])}
+                            }
+                        },
+                    }
+
+                    if let Some(err) = current.error.clone() {
+                        div { class: "error-msg", "{err}" }
+                    }
+                }
+
+                div { class: "modal-actions",
+                    button {
+                        class: "td-btn",
+                        onclick: move |_| edit.set(None),
+                        {i18n.t("common.cancel")}
+                    }
+                    button {
+                        class: "td-btn td-btn-primary",
+                        disabled: !can_apply,
+                        onclick: move |_| {
+                            let api = api.clone();
+                            let Some(tid) = tree_id else { return };
+                            let Some(mut current) = edit() else { return };
+                            current.saving = true;
+                            current.error = None;
+                            let (value, particle) = (current.value.clone(), current.particle.clone());
+                            edit.set(Some(current));
+                            spawn(async move {
+                                match api.set_family_name_particle(tid, &value, &particle).await {
+                                    Ok(_) => {
+                                        edit.set(None);
+                                        family_names.restart();
+                                    }
+                                    Err(e) => {
+                                        if let Some(mut c) = edit() {
+                                            c.saving = false;
+                                            c.error = Some(e.to_string());
+                                            edit.set(Some(c));
+                                        }
+                                    }
+                                }
+                            });
+                        },
+                        if current.saving {
+                            {i18n.t("common.saving")}
+                        } else {
+                            {i18n.t("dictionary.particle.apply")}
+                        }
+                    }
+                }
             }
         }
     }
@@ -422,6 +603,52 @@ fn filing_label(entry: &DictionaryEntry, file_by_root: bool) -> &str {
         entry.sort_key.as_str()
     } else {
         entry.value.as_str()
+    }
+}
+
+/// Recovers where an entry is currently cut, as `(particle, root)`.
+///
+/// The boundary comes from `sort_key` — the root the backend filed the entry
+/// under — rather than from re-detecting a particle here, so a name whose
+/// particle was corrected by hand still splits where the user put it.
+///
+/// Returns `None` when there is no particle to separate, which is every
+/// occupation and most surnames.
+fn entry_particle_split(entry: &DictionaryEntry) -> Option<(String, String)> {
+    let value = entry.value.trim();
+    let root_chars = entry.sort_key.chars().count();
+    let value_chars = value.chars().count();
+    if root_chars == 0 || root_chars >= value_chars {
+        return None;
+    }
+
+    // Cut from the end: the particle is the head, and only the root's length
+    // is known. Lowercasing can change a string's length (ß → ss), so the
+    // candidate is verified rather than trusted — a mismatch just means the
+    // entry is left as written.
+    let split_at = value_chars - root_chars;
+    let particle: String = value.chars().take(split_at).collect();
+    let root: String = value.chars().skip(split_at).collect();
+    if root.to_lowercase() != entry.sort_key {
+        return None;
+    }
+
+    let particle = particle.trim();
+    if particle.is_empty() {
+        return None;
+    }
+    Some((particle.to_string(), root))
+}
+
+/// How an entry reads when it files under its root: root first, particle
+/// parenthesised behind it — "d'Aubigné" listed under A reads "Aubigné (d')".
+fn row_label(entry: &DictionaryEntry, file_by_root: bool) -> String {
+    if !file_by_root {
+        return entry.value.clone();
+    }
+    match entry_particle_split(entry) {
+        Some((particle, root)) => format!("{root} ({particle})"),
+        None => entry.value.clone(),
     }
 }
 
@@ -724,6 +951,8 @@ fn render_value_tab(
     mut expanded: Signal<Option<UsageKey>>,
     usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
     sort_particles: SortParticles,
+    // `Some` only on the Family Names tab: occupations have no particle to cut.
+    particle_edit: Option<Signal<Option<ParticleEdit>>>,
 ) -> Element {
     let mut all_entries: Vec<DictionaryEntry> = match &*resource.read() {
         Some(Ok(entries)) => entries.clone(),
@@ -779,6 +1008,7 @@ fn render_value_tab(
                             UsageKey::Occupation(entry.value.clone())
                         };
                         let is_open = expanded() == Some(key.clone());
+                        let label = row_label(entry, file_by_root);
                         rsx! {
                             div { key: "{entry.value}",
                                 div {
@@ -794,9 +1024,26 @@ fn render_value_tab(
                                         }
                                     },
                                     div { class: "dict-row-main",
-                                        span { class: "dict-row-value", "{entry.value}" }
+                                        span { class: "dict-row-value", "{label}" }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.person_count", entry.count as usize)} }
+                                    if let Some(mut particle_edit) = particle_edit {
+                                        button {
+                                            class: "dict-row-action",
+                                            title: "{i18n.t(\"dictionary.particle.edit\")}",
+                                            onclick: {
+                                                let entry = (*entry).clone();
+                                                move |e: Event<MouseData>| {
+                                                    // Without this the row's own
+                                                    // handler would also toggle the
+                                                    // usage accordion underneath.
+                                                    e.stop_propagation();
+                                                    particle_edit.set(Some(ParticleEdit::new(&entry)));
+                                                }
+                                            },
+                                            "\u{270E}"
+                                        }
+                                    }
                                     button {
                                         class: "dict-row-action",
                                         title: "{i18n.t(\"dictionary.view_usage\")}",
@@ -1217,5 +1464,63 @@ fn render_places_tab(
         }
 
         {render_pagination(current_page, page, pages)}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(value: &str, sort_key: &str) -> DictionaryEntry {
+        DictionaryEntry {
+            value: value.to_string(),
+            sort_key: sort_key.to_string(),
+            count: 1,
+        }
+    }
+
+    #[test]
+    fn a_particle_moves_behind_the_root_when_filing_by_root() {
+        // Listed under A, so the A-group reads "Aubigné (d')" rather than
+        // burying the root behind a particle the sort just ignored.
+        let e = entry("d'Aubigné", "aubigné");
+        assert_eq!(row_label(&e, true), "Aubigné (d')");
+        // Filing with particles included leaves the name as written.
+        assert_eq!(row_label(&e, false), "d'Aubigné");
+
+        let e = entry("de la Cruz", "cruz");
+        assert_eq!(row_label(&e, true), "Cruz (de la)");
+    }
+
+    #[test]
+    fn a_name_without_a_particle_is_left_alone() {
+        let e = entry("Dupont", "dupont");
+        assert_eq!(row_label(&e, true), "Dupont");
+        // A surname whose leading article is part of the name files whole, so
+        // there is nothing to move behind anything.
+        let e = entry("Le Branch", "le branch");
+        assert_eq!(row_label(&e, true), "Le Branch");
+    }
+
+    #[test]
+    fn the_boundary_comes_from_the_sort_key_not_from_detection() {
+        // A particle narrowed by hand: detection would say "de la", but the
+        // backend filed this under "la cruz" and that is what must be shown.
+        let e = entry("de la Cruz", "la cruz");
+        assert_eq!(
+            entry_particle_split(&e),
+            Some(("de".into(), "la Cruz".into()))
+        );
+        assert_eq!(row_label(&e, true), "la Cruz (de)");
+    }
+
+    #[test]
+    fn a_sort_key_that_does_not_match_the_value_is_ignored() {
+        // Occupations file under the whole value, so nothing splits.
+        assert_eq!(entry_particle_split(&entry("Baker", "baker")), None);
+        // A key that is not the tail of the value (stale or unrelated) must
+        // not produce a bogus split.
+        assert_eq!(entry_particle_split(&entry("de la Cruz", "smith")), None);
+        assert_eq!(entry_particle_split(&entry("Cruz", "de la cruz")), None);
     }
 }
