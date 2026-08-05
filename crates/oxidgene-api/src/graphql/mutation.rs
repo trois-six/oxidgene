@@ -7,23 +7,24 @@ use chrono::NaiveDate;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo,
-    PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
+    CitationRepo, DictionaryRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo,
+    FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonNamePieces, PersonNamePiecesPatch,
+    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
 };
 
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
-    CreateTreeInput, ImportGedcomInput, ImportGenewebInput, PersonNameInput, UpdateCitationInput,
-    UpdateEventInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput,
-    UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput, UploadMediaInput,
+    CreateTreeInput, ImportGedcomInput, ImportGenewebInput, PersonNameInput,
+    SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput,
+    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput,
+    UpdateTreeInput, UploadMediaInput,
 };
 use super::types::{
-    GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilySpouse,
-    GqlImportResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta, GqlPedigreeDirection,
-    GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource, GqlTree, db_from_ctx,
-    profiles_from_ctx, purge_from_ctx,
+    GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilyNameParticleUpdate,
+    GqlFamilySpouse, GqlImportResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta,
+    GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource,
+    GqlTree, db_from_ctx, profiles_from_ctx, purge_from_ctx,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -910,6 +911,32 @@ impl MutationRoot {
     }
 
     // ── Import Mutations ──────────────────────────────────────────────
+
+    /// Re-cut every occurrence of one surname at the given particle — the
+    /// dictionary's bulk repair for an import that guessed wrong across a
+    /// whole family. Triggers a full projection rebuild when anything changed.
+    async fn set_family_name_particle(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: SetFamilyNameParticleInput,
+    ) -> Result<GqlFamilyNameParticleUpdate> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let txn = begin_tx(db).await?;
+        let update =
+            DictionaryRepo::set_family_name_particle(&txn, tid, &input.value, &input.particle)
+                .await?;
+        commit_tx(txn).await?;
+        // Same reasoning as the REST handler: a surname reaches every
+        // projection embedding a display name, so rebuild the tree eagerly and
+        // outside the transaction rather than bounding an unbounded set.
+        if update.names_updated > 0 {
+            profiles.rebuild_tree_full(db, tid).await?;
+        }
+        Ok(update.into())
+    }
 
     /// Import a GEDCOM string into a tree, persisting all extracted entities.
     /// Triggers a full projection rebuild after import.

@@ -11,26 +11,49 @@
 //! derive the split, showing the result so it can be corrected. That keeps
 //! data entry to one field while still producing a structured `SPFX`.
 
-/// Particle tokens recognised at the head of a surname, lowercased.
+/// Particle tokens that may *start* a particle run, lowercased.
+///
+/// These are the prepositional particles proper — "de la Cruz" files under C,
+/// "von Berg" under B.
 ///
 /// Deliberately excludes `mac` / `mc` / `o'`: in Gaelic surnames those are
 /// bound to the root ("MacDonald", "O'Brien") rather than being separate
 /// words, so treating them as particles would split names that should not be.
-const PARTICLES: &[&str] = &[
+const HEAD_PARTICLES: &[&str] = &[
     // French
-    "de", "du", "des", "le", "la", "les", // Spanish / Portuguese
-    "del", "dos", "das", "do", "da", "y", "e", // Italian
-    "di", "dal", "dalla", "della", "dello", "dei", "degli", "delle", "lo",
-    // Dutch / Flemish
+    "de", "du", "des", // Spanish / Portuguese
+    "del", "dos", "das", "do", "da", // Italian
+    "di", "dal", "dalla", "della", "dello", "dei", "degli", "delle", // Dutch / Flemish
     "van", "vander", "ver", "ten", "ter", "te", "op", "in", "'t", "aan", "uit",
     // German
-    "von", "vom", "zu", "zur", "zum", "auf", "der", "den", "dem",
+    "von", "vom", "zu", "zur", "zum", "auf",
 ];
 
-/// Particles that elide onto the next word with an apostrophe (`d'Aubigné`).
+/// Particle tokens that only count *after* a [`HEAD_PARTICLES`] token.
+///
+/// These are bare articles, and a surname that opens with one keeps it: the
+/// many Breton and Norman "Le …" / "La …" names, Italian "Lo …", Dutch
+/// "Den …" all file under L / D as written, because the article is welded to
+/// the name rather than preceding it. The same words *are* part of the
+/// particle once a preposition has introduced them — "de **la** Cruz",
+/// "van **der** Berg", "von **dem** Busche".
+///
+/// Spanish `y` / Portuguese `e` sit here for a different reason: they join two
+/// surnames ("García **y** López") and are never a leading particle either.
+const TAIL_PARTICLES: &[&str] = &[
+    "le", "la", "les", "lo", // French / Italian articles
+    "der", "den", "dem", // German / Dutch articles
+    "y", "e", // Spanish / Portuguese conjunctions
+];
+
+/// Elided particles that may start a particle run (`d'Aubigné`, `Dell'Acqua`).
 ///
 /// Matched against the part of a token *before* the apostrophe, lowercased.
-const ELIDED_PARTICLES: &[&str] = &["d", "l", "dell", "all", "nell", "sull", "dall"];
+const HEAD_ELIDED_PARTICLES: &[&str] = &["d", "dell", "all", "nell", "sull", "dall"];
+
+/// Elided articles, subject to the same rule as [`TAIL_PARTICLES`]: "L'Étang"
+/// keeps its article and files under L, but "de **l'**Étang" does not.
+const TAIL_ELIDED_PARTICLES: &[&str] = &["l"];
 
 /// Both apostrophe characters that show up in imported genealogy data.
 const APOSTROPHES: [char; 2] = ['\'', '\u{2019}'];
@@ -42,6 +65,9 @@ const APOSTROPHES: [char; 2] = ['\'', '\u{2019}'];
 /// unsplit, since filing it under nothing would be worse than filing it under
 /// its own first letter.
 ///
+/// A leading article is not a particle — see [`TAIL_PARTICLES`] — so a
+/// "Le …" surname stays whole while "de la Cruz" still yields "de la".
+///
 /// The original casing and apostrophe characters are preserved in both parts —
 /// only the matching is case-insensitive.
 ///
@@ -52,6 +78,7 @@ const APOSTROPHES: [char; 2] = ['\'', '\u{2019}'];
 /// assert_eq!(split_surname_particle("d'Aubigné"), (Some("d'".into()), "Aubigné".into()));
 /// assert_eq!(split_surname_particle("Dupont"), (None, "Dupont".into()));
 /// assert_eq!(split_surname_particle("MacDonald"), (None, "MacDonald".into()));
+/// assert_eq!(split_surname_particle("Le Branch"), (None, "Le Branch".into()));
 /// ```
 #[must_use]
 pub fn split_surname_particle(raw: &str) -> (Option<String>, String) {
@@ -63,15 +90,18 @@ pub fn split_surname_particle(raw: &str) -> (Option<String>, String) {
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
 
     // Consume whole tokens that are particles, always leaving at least one
-    // token behind to serve as the root.
+    // token behind to serve as the root. `taken > 0` is what makes an article
+    // count: it may continue a run a preposition opened, never start one.
     let mut taken = 0;
-    while taken + 1 < tokens.len() && is_particle(tokens[taken]) {
+    while taken + 1 < tokens.len() && is_particle(tokens[taken], taken > 0) {
         taken += 1;
     }
 
     // The first non-particle token may still carry an elided particle glued to
     // it by an apostrophe ("l'Étang"). Only split it when a root remains.
-    let elided: Option<(&str, &str)> = tokens.get(taken).and_then(|token| split_elided(token));
+    let elided: Option<(&str, &str)> = tokens
+        .get(taken)
+        .and_then(|token| split_elided(token, taken > 0));
 
     if taken == 0 && elided.is_none() {
         return (None, trimmed.to_string());
@@ -224,20 +254,30 @@ pub fn surname_sort_key(particle: Option<&str>, root: &str, include_particle: bo
     }
 }
 
-fn is_particle(token: &str) -> bool {
+/// Is `token` a particle here? `after_head` says whether a
+/// [`HEAD_PARTICLES`] token already opened the run, which is the only position
+/// where a bare article counts.
+fn is_particle(token: &str, after_head: bool) -> bool {
     let lowered = token.to_lowercase();
-    PARTICLES.contains(&lowered.as_str())
+    HEAD_PARTICLES.contains(&lowered.as_str())
+        || (after_head && TAIL_PARTICLES.contains(&lowered.as_str()))
 }
 
 /// Splits `l'Étang` into `("l'", "Étang")`, or returns `None` when the token
 /// carries no elided particle or has nothing left after it.
-fn split_elided(token: &str) -> Option<(&str, &str)> {
+///
+/// `after_head` carries the same meaning as in [`is_particle`]: without a
+/// preposition ahead of it, "L'Étang" keeps its article.
+fn split_elided(token: &str, after_head: bool) -> Option<(&str, &str)> {
     let idx = token.find(APOSTROPHES)?;
     let (head, rest) = token.split_at(idx);
     // `rest` starts with the apostrophe, which belongs to the particle.
     let apostrophe_len = rest.chars().next()?.len_utf8();
     let (apostrophe, root) = rest.split_at(apostrophe_len);
-    if root.is_empty() || !ELIDED_PARTICLES.contains(&head.to_lowercase().as_str()) {
+    let lowered = head.to_lowercase();
+    let is_elided_particle = HEAD_ELIDED_PARTICLES.contains(&lowered.as_str())
+        || (after_head && TAIL_ELIDED_PARTICLES.contains(&lowered.as_str()));
+    if root.is_empty() || !is_elided_particle {
         return None;
     }
     // Return the particle as one slice of the original token so casing and the
@@ -280,6 +320,67 @@ mod tests {
         assert_eq!(
             split_surname_particle("d\u{2019}Artagnan"),
             (Some("d\u{2019}".into()), "Artagnan".into())
+        );
+    }
+
+    #[test]
+    fn a_leading_article_is_part_of_the_surname() {
+        // Breton and Norman names are the bulk of these: the article is welded
+        // to the name, so it files under L and must not lose a "Le" particle
+        // on every person carrying it. Only the leading token drives the
+        // split, so a placeholder root stands in for the real surnames.
+        assert_eq!(
+            split_surname_particle("Le Branch"),
+            (None, "Le Branch".into())
+        );
+        assert_eq!(
+            split_surname_particle("LE BRANCH"),
+            (None, "LE BRANCH".into())
+        );
+        assert_eq!(
+            split_surname_particle("La Branch"),
+            (None, "La Branch".into())
+        );
+        assert_eq!(
+            split_surname_particle("Les Branch"),
+            (None, "Les Branch".into())
+        );
+        // Italian and Dutch articles behave the same way.
+        assert_eq!(
+            split_surname_particle("Lo Branch"),
+            (None, "Lo Branch".into())
+        );
+        assert_eq!(
+            split_surname_particle("Den Branch"),
+            (None, "Den Branch".into())
+        );
+        // Elided too: "L'Étang" files under L, unlike "d'Aubigné" under A.
+        assert_eq!(split_surname_particle("L'Étang"), (None, "L'Étang".into()));
+    }
+
+    #[test]
+    fn an_article_still_counts_after_a_preposition() {
+        // The same words that stay welded at the head do belong to the
+        // particle once a preposition has introduced them.
+        assert_eq!(
+            split_surname_particle("de Le Branch"),
+            (Some("de Le".into()), "Branch".into())
+        );
+        assert_eq!(
+            split_surname_particle("van den Branch"),
+            (Some("van den".into()), "Branch".into())
+        );
+        assert_eq!(
+            split_surname_particle("de l'Étang"),
+            (Some("de l'".into()), "Étang".into())
+        );
+    }
+
+    #[test]
+    fn a_joining_conjunction_is_never_a_leading_particle() {
+        assert_eq!(
+            split_surname_particle("Y Branch"),
+            (None, "Y Branch".into())
         );
     }
 
@@ -328,6 +429,8 @@ mod tests {
             "Dupont",
             "van der Berg",
             "de l'Étang",
+            "Le Branch",
+            "L'Étang",
         ] {
             let (particle, root) = split_surname_particle(raw);
             assert_eq!(join_surname_particle(particle.as_deref(), &root), raw);
