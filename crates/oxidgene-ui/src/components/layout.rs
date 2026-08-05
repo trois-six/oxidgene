@@ -16,27 +16,35 @@ pub const LOGO_PNG_B64: &str =
 /// Initialise the theme signal as a Dioxus context.
 ///
 /// Reads persisted preference from `localStorage` (key `oxidgene-theme`),
-/// falling back to the OS-level `prefers-color-scheme` media query.
+/// falling back on first use to the OS-level `prefers-color-scheme` media
+/// query, and to the light theme when neither can be read.
 /// Returns the shared signal so the Layout can consume it if needed.
 pub fn use_init_theme() -> Signal<bool> {
     let mut is_dark = use_context_provider(|| Signal::new(false));
 
     use_effect(move || {
         spawn(async move {
+            // Storage and `matchMedia` are probed independently: blocked
+            // storage (private browsing) must not skip the OS query, and a
+            // webview without `matchMedia` must not throw. Light is the
+            // fallback for both, matching the CSS default.
             let result = document::eval(
                 r#"
-                let theme = localStorage.getItem('oxidgene-theme');
-                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                    document.documentElement.classList.add('dark');
-                    return 'dark';
+                let stored = null;
+                try { stored = localStorage.getItem('oxidgene-theme'); } catch (e) {}
+                let dark = stored === 'dark';
+                if (stored !== 'dark' && stored !== 'light') {
+                    try {
+                        dark = !!(window.matchMedia
+                            && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                    } catch (e) { dark = false; }
                 }
-                return 'light';
+                document.documentElement.classList.toggle('dark', dark);
+                return dark;
                 "#,
             );
-            if let Ok(val) = result.await
-                && val.as_str() == Some("dark")
-            {
-                is_dark.set(true);
+            if let Ok(val) = result.await {
+                is_dark.set(val.as_bool().unwrap_or(false));
             }
         });
     });
