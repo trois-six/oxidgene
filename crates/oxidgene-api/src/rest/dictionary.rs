@@ -7,11 +7,12 @@ use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
 use uuid::Uuid;
 
 use super::dto::{
-    DictionaryEntryDto, DictionaryUsageQuery, PersonUsageEntryDto, PlaceDictionaryEntry,
-    SourceDictionaryEntry, SourceDrillResponse, SourceGroupDto, SourcePrefixQuery,
+    DictionaryEntryDto, DictionaryUsageQuery, FamilyNameParticleUpdateDto, PersonUsageEntryDto,
+    PlaceDictionaryEntry, SetFamilyNameParticleRequest, SourceDictionaryEntry, SourceDrillResponse,
+    SourceGroupDto, SourcePrefixQuery,
 };
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, begin_tx, commit_tx};
 
 /// GET /api/v1/trees/:tree_id/dictionary/family-names
 pub async fn family_names(
@@ -153,6 +154,38 @@ pub async fn family_name_usage(
         .await
         .map_err(ApiError::from)?;
     resolve_usage(&state, &ids).await
+}
+
+/// PATCH /api/v1/trees/:tree_id/dictionary/family-names/particle
+///
+/// Re-cuts every occurrence of one surname at a given particle — the bulk
+/// repair for an import that guessed wrong across a whole family.
+pub async fn set_family_name_particle(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<SetFamilyNameParticleRequest>,
+) -> Result<Json<FamilyNameParticleUpdateDto>, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let update =
+        DictionaryRepo::set_family_name_particle(&txn, tree_id, &body.value, &body.particle)
+            .await
+            .map_err(ApiError::from)?;
+    commit_tx(txn).await.map_err(ApiError)?;
+
+    // Surnames feed every projection that embeds a display name, so the
+    // affected set of a bulk edit is unbounded in practice. Rebuild the tree
+    // eagerly and outside the transaction, as the GEDCOM import does: it is an
+    // idempotent bulk operation, and holding a write lock over every row of a
+    // large tree to save a rarely-used edit some work is the wrong trade.
+    // Skipped entirely when nothing changed, which is the repeat-call case.
+    if update.names_updated > 0 {
+        state
+            .profiles
+            .rebuild_tree_full(&state.db, tree_id)
+            .await
+            .map_err(ApiError)?;
+    }
+    Ok(Json(update.into()))
 }
 
 /// Shared tail of the four usage handlers: resolve raw person IDs into

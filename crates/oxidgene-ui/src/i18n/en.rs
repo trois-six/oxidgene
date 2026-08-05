@@ -484,6 +484,36 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("dictionary.view_in_search", "View in search"),
         ("dictionary.usage_empty", "No persons found."),
         ("dictionary.usage_error", "Failed to load usage."),
+        // ── Dictionary page: bulk surname-particle edit ─────────────
+        ("dictionary.particle.edit", "Edit particle"),
+        ("dictionary.particle.title", "Surname particle"),
+        (
+            "dictionary.particle.intro",
+            "Choose where \"{name}\" splits into a particle and a surname.",
+        ),
+        (
+            "dictionary.particle.scope_one",
+            "Applies to {count} person carrying this name.",
+        ),
+        (
+            "dictionary.particle.scope_other",
+            "Applies to all {count} persons carrying this name.",
+        ),
+        ("dictionary.particle.label", "Particle"),
+        ("dictionary.particle.placeholder", "e.g. de la — empty for none"),
+        (
+            "dictionary.particle.hint",
+            "Leave empty when the leading word is part of the surname. The name itself is unchanged — only the letter it files under.",
+        ),
+        ("dictionary.particle.preview_particle", "Particle"),
+        ("dictionary.particle.preview_root", "Surname"),
+        ("dictionary.particle.preview_files_under", "Files under"),
+        ("dictionary.particle.none", "none"),
+        (
+            "dictionary.particle.not_at_head",
+            "That particle is not at the start of \"{name}\".",
+        ),
+        ("dictionary.particle.apply", "Apply to all"),
         // ── Dictionary page: Sources smart drill-down (ui-dictionary.md §8) ──
         ("dictionary.sources_breadcrumb_root", "All sources"),
         ("dictionary.sources_choose_letter", "Choose a letter:"),

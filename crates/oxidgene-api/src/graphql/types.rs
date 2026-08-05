@@ -1640,6 +1640,30 @@ pub struct GqlProfileRebuildResult {
     pub persons_count: i32,
 }
 
+/// Result of the dictionary's bulk surname-particle edit.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlFamilyNameParticleUpdate {
+    /// The surname as it will still be listed — re-cutting moves where the
+    /// name files, not the text itself.
+    pub value: String,
+    pub surname_prefix: Option<String>,
+    pub surname: String,
+    pub names_updated: i32,
+    pub persons_updated: i32,
+}
+
+impl From<oxidgene_db::repo::FamilyNameParticleUpdate> for GqlFamilyNameParticleUpdate {
+    fn from(u: oxidgene_db::repo::FamilyNameParticleUpdate) -> Self {
+        Self {
+            value: u.value,
+            surname_prefix: u.surname_prefix,
+            surname: u.surname,
+            names_updated: u.names_updated as i32,
+            persons_updated: u.persons_updated as i32,
+        }
+    }
+}
+
 // ── From impls for projection types ─────────────────────────────────────────
 
 impl From<oxidgene_core::projection::PersonProfile> for GqlPersonProfile {

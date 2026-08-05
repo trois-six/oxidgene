@@ -100,6 +100,26 @@ pub struct PersonUsageEntry {
     pub death_year: Option<i32>,
 }
 
+/// Body of the dictionary's bulk particle edit.
+#[derive(Debug, Serialize)]
+struct SetFamilyNameParticleBody {
+    value: String,
+    /// Empty means "this name has no particle".
+    particle: String,
+}
+
+/// Outcome of a bulk particle edit.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FamilyNameParticleUpdate {
+    /// The surname as it will still be listed — re-cutting moves where the
+    /// name files, not the text.
+    pub value: String,
+    pub surname_prefix: Option<String>,
+    pub surname: String,
+    pub names_updated: usize,
+    pub persons_updated: usize,
+}
+
 // ── Reference content — occupation sheets, given-name meanings ──────
 
 /// Occupation fiche content, localized to the requesting UI language.
@@ -665,6 +685,19 @@ impl ApiClient {
         tracing::debug!("PUT {url} body={body_json}");
         let resp = self.client.put(&url).json(body).send().await?;
         Self::handle_response(&url, "PUT", resp).await
+    }
+
+    /// Helper: send a PATCH request with a JSON body.
+    async fn patch<T: serde::de::DeserializeOwned, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ApiError> {
+        let url = self.url(path);
+        let body_json = serde_json::to_string(body).unwrap_or_default();
+        tracing::debug!("PATCH {url} body={body_json}");
+        let resp = self.client.patch(&url).json(body).send().await?;
+        Self::handle_response(&url, "PATCH", resp).await
     }
 
     /// Helper: send a DELETE request expecting 204 No Content.
@@ -1418,6 +1451,28 @@ impl ApiClient {
             &[("value", value)],
         )
         .await
+    }
+
+    /// Re-cut every occurrence of a family name at `particle` — the bulk
+    /// repair for an import that guessed the particle wrong across a whole
+    /// family. An empty `particle` means "this name has no particle".
+    pub async fn set_family_name_particle(
+        &self,
+        tree_id: Uuid,
+        value: &str,
+        particle: &str,
+    ) -> Result<FamilyNameParticleUpdate, ApiError> {
+        let result = self
+            .patch(
+                &format!("/api/v1/trees/{tree_id}/dictionary/family-names/particle"),
+                &SetFamilyNameParticleBody {
+                    value: value.to_string(),
+                    particle: particle.to_string(),
+                },
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     /// Distinct occupation labels in the tree, with the number of persons holding each.

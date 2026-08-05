@@ -300,6 +300,32 @@ Rationale: enhance the flat dictionary index with nested descent trees showing s
 
 ---
 
+### Sprint E.10 — Surname Particle Fix & Bulk Repair ✅ (Aug 2026)
+
+> Rationale: `split_surname_particle`'s flat particle list treated a bare leading article ("Le",
+> "La") the same as a preposition ("de", "van"), so a whole class of names — Breton/Norman "Le …"
+> surnames chief among them — got a spurious particle on every import. Fixing detection does not
+> repair a tree already imported wrong, so the dictionary also gained a bulk edit.
+
+- [x] Split `PARTICLES` into `HEAD_PARTICLES` (prepositions, may open a particle run) and
+  `TAIL_PARTICLES` (bare articles, count only immediately after a head particle) in
+  `oxidgene-core::types::surname`, with the same two-tier rule for elided forms (`d'`/`l'`).
+  A leading article ("Le …", "La …") no longer splits; "de la Cruz" / "van der Berg" /
+  "de l'Étang" still do.
+- [x] `DictionaryRepo::set_family_name_particle`: re-cuts every `person_name` row matching a given
+  surname (particle included) at a new particle, empty meaning "no particle". Rejects a particle
+  not at the head of the surname (would inject a word the tree never had) and skips rows already
+  cut that way (repeat calls are a no-op).
+- [x] `PATCH /trees/{id}/dictionary/family-names/particle` (REST) and `setFamilyNameParticle`
+  (GraphQL), both transactional and triggering a full projection rebuild when anything changed —
+  a surname reaches every projection embedding a display name, so the affected set is unbounded.
+- [x] Dictionary Family Names tab: pencil icon per row opens a modal showing the person count and
+  a live preview (particle / root / filing letter) before applying.
+- [x] Root-first display when filing by root: `d'Aubigné` under A now reads `Aubigné (d')` instead
+  of leaving the particle stranded at the row's front.
+
+---
+
 ## EPIC F — Media Management (New, Sprints F.1–F.4)
 
 Comprehensive media workflow: upload, storage, thumbnails, multi-page documents, image cropping (vignettes), event linking.

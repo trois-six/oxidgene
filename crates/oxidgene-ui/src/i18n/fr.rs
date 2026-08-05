@@ -499,6 +499,39 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("dictionary.view_in_search", "Voir dans la recherche"),
         ("dictionary.usage_empty", "Aucune personne trouv\u{00E9}e."),
         ("dictionary.usage_error", "\u{00C9}chec du chargement des usages."),
+        // ── Dictionary page: bulk surname-particle edit ─────────────
+        ("dictionary.particle.edit", "Modifier la particule"),
+        ("dictionary.particle.title", "Particule du nom"),
+        (
+            "dictionary.particle.intro",
+            "Choisissez o\u{00F9} \u{00AB}\u{00A0}{name}\u{00A0}\u{00BB} se coupe entre particule et nom.",
+        ),
+        (
+            "dictionary.particle.scope_one",
+            "S'applique \u{00E0} {count} personne portant ce nom.",
+        ),
+        (
+            "dictionary.particle.scope_other",
+            "S'applique aux {count} personnes portant ce nom.",
+        ),
+        ("dictionary.particle.label", "Particule"),
+        (
+            "dictionary.particle.placeholder",
+            "ex.\u{00A0}: de la \u{2014} vide si aucune",
+        ),
+        (
+            "dictionary.particle.hint",
+            "Laissez vide quand le premier mot fait partie du nom. Le nom lui-m\u{00EA}me ne change pas \u{2014} seulement la lettre sous laquelle il se classe.",
+        ),
+        ("dictionary.particle.preview_particle", "Particule"),
+        ("dictionary.particle.preview_root", "Nom"),
+        ("dictionary.particle.preview_files_under", "Class\u{00E9} \u{00E0}"),
+        ("dictionary.particle.none", "aucune"),
+        (
+            "dictionary.particle.not_at_head",
+            "Cette particule n'est pas au d\u{00E9}but de \u{00AB}\u{00A0}{name}\u{00A0}\u{00BB}.",
+        ),
+        ("dictionary.particle.apply", "Appliquer \u{00E0} tous"),
         // ── Dictionary page: Sources smart drill-down (ui-dictionary.md §8) ──
         ("dictionary.sources_breadcrumb_root", "Toutes les sources"),
         ("dictionary.sources_choose_letter", "Choisissez une lettre\u{00A0}:"),

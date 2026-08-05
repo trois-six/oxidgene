@@ -172,6 +172,7 @@ Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints re
 |---|---|---|
 | `GET` | `/trees/{tree_id}/dictionary/family-names` | Distinct surnames + person counts |
 | `GET` | `/trees/{tree_id}/dictionary/family-names/usage?value=...` | Persons carrying a surname |
+| `PATCH` | `/trees/{tree_id}/dictionary/family-names/particle` | Bulk-edit — body `{ "value": "...", "particle": "..." }` re-cuts every `PersonName` carrying surname `value` at `particle` (empty = no particle). `particle` must already be at the head of `value`; rows already cut that way are skipped. Triggers a full projection rebuild when anything changed |
 | `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
 | `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
 | `GET` | `/trees/{tree_id}/dictionary/sources` | Sources + citation counts |
@@ -336,6 +337,9 @@ type Mutation {
   addPersonName(treeId: ID!, personId: ID!, input: PersonNameInput!): PersonName!
   updatePersonName(treeId: ID!, personId: ID!, nameId: ID!, input: PersonNameInput!): PersonName!
   deletePersonName(treeId: ID!, personId: ID!, nameId: ID!): Boolean!
+
+  # Dictionary — bulk surname-particle edit (mirrors the REST PATCH route)
+  setFamilyNameParticle(treeId: ID!, input: SetFamilyNameParticleInput!): GqlFamilyNameParticleUpdate!
 
   # Families
   createFamily(treeId: ID!, input: CreateFamilyInput!): Family!

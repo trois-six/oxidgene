@@ -259,6 +259,18 @@ pub struct UpdateNoteInput {
 
 // ── Import Inputs ────────────────────────────────────────────────────
 
+/// Input for the dictionary's bulk surname-particle edit.
+///
+/// `value` is a surname as listed by the dictionary, particle included;
+/// `particle` is the new cut to apply to every occurrence of it, empty meaning
+/// "this name has no particle". The particle must already be at the head of
+/// `value` — this edit moves a boundary, it never adds a word.
+#[derive(Debug, InputObject)]
+pub struct SetFamilyNameParticleInput {
+    pub value: String,
+    pub particle: String,
+}
+
 /// Input for importing a GEDCOM string.
 #[derive(Debug, InputObject)]
 pub struct ImportGedcomInput {

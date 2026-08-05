@@ -109,7 +109,28 @@ Grouped by first letter of the normalized surname, with a sticky letter header (
 
 - Surname, in its most common original casing
 - Usage count badge: number of persons carrying that surname (as primary or any `PersonName`)
+- A pencil — opens the [particle editor](#71-surname-particle-editor)
 - A chevron — clicking the row expands it inline, listing the persons carrying that surname in a smaller nested list. Each person is clickable and opens the [Genealogy Tree](ui-genealogy-tree.md) focused on that person.
+
+Which letter a surname files under depends on the viewer's "sort particles" preference. With particles included, "d'Aubigné" files under D and reads as written. With particles ignored it files under A, and the row then reads **root first, particle parenthesised** — `Aubigné (d')` — so the A group is scannable by the word it was actually sorted on. The boundary is taken from the entry's `sort_key` (the root the backend filed it under), never re-detected client-side, so a particle the user corrected by hand still displays where they put it.
+
+### 7.1 Surname Particle Editor
+
+Particle detection at import is a guess (see `oxidgene-core`'s `split_surname_particle`), and a wrong guess lands on every person carrying the name at once — a tree full of Breton "Le …" surnames wrongly filed under their root is the motivating case. Fixing that person by person through the [person edit modal](ui-person-edit-modal.md) does not scale, so the Family Names tab offers the repair at the level the mistake was made: the name.
+
+The pencil on a row opens a small modal:
+
+- States which surname is being cut, and how many persons the change will touch.
+- One **Particle** field, pre-filled with the particle currently stored. Emptying it means "this name has no particle".
+- A live preview of the resulting particle, surname root, and the letter the name will file under.
+- **Apply to all** writes the new cut to every `PersonName` row carrying that surname, via `PATCH /trees/{id}/dictionary/family-names/particle`.
+
+Two rules keep the operation safe, both enforced server-side rather than only in the dialog:
+
+- **The particle must already be at the head of the surname.** A particle that is absent is rejected instead of being prepended — otherwise the edit would inject a word the tree never contained, and clearing the particle afterwards could not take it back out (it would have become part of the surname by then).
+- **The displayed surname never changes**, only the boundary inside it. Re-cutting moves where a name files; it is not a rename. Renaming across rows is [section 11](#11-future-bulk-editing-v2--not-built-in-this-pass)'s job.
+
+Rows already cut the requested way are skipped, so re-applying the same cut is a no-op rather than a pointless `updated_at` bump. Because a surname reaches every projection that embeds a display name, a change triggers a full projection rebuild for the tree.
 
 ---
 

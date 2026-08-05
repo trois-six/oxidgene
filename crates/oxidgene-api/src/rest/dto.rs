@@ -512,6 +512,42 @@ impl From<oxidgene_db::repo::DictionaryValueEntry> for DictionaryEntryDto {
     }
 }
 
+/// Body of the dictionary's bulk particle edit.
+///
+/// `value` is the surname as listed by the family-names endpoint, particle
+/// included; `particle` is the new cut to apply to every occurrence of it, an
+/// empty string meaning "this name has no particle". The particle must already
+/// be at the head of `value` — this edit moves a boundary, it never adds a word.
+#[derive(Debug, Deserialize)]
+pub struct SetFamilyNameParticleRequest {
+    pub value: String,
+    pub particle: String,
+}
+
+/// Outcome of a bulk particle edit.
+#[derive(Debug, Serialize)]
+pub struct FamilyNameParticleUpdateDto {
+    /// The surname as it will still be listed — unchanged, since re-cutting
+    /// only moves where the name files.
+    pub value: String,
+    pub surname_prefix: Option<String>,
+    pub surname: String,
+    pub names_updated: usize,
+    pub persons_updated: usize,
+}
+
+impl From<oxidgene_db::repo::FamilyNameParticleUpdate> for FamilyNameParticleUpdateDto {
+    fn from(u: oxidgene_db::repo::FamilyNameParticleUpdate) -> Self {
+        Self {
+            value: u.value,
+            surname_prefix: u.surname_prefix,
+            surname: u.surname,
+            names_updated: u.names_updated,
+            persons_updated: u.persons_updated,
+        }
+    }
+}
+
 /// A source paired with its citation count.
 #[derive(Debug, Serialize)]
 pub struct SourceDictionaryEntry {

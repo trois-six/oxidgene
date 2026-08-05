@@ -1104,6 +1104,121 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
     assert_eq!(entries[1].count, 1);
 }
 
+/// Helper: give `person_id` a birth name already split into particle + root,
+/// as an import would have stored it.
+async fn create_split_name(
+    db: &DatabaseConnection,
+    person_id: Uuid,
+    surname_prefix: Option<&str>,
+    surname: &str,
+) {
+    PersonNameRepo::create(
+        db,
+        Uuid::now_v7(),
+        person_id,
+        NameType::Birth,
+        PersonNamePieces {
+            surname: Some(surname.into()),
+            surname_prefix: surname_prefix.map(Into::into),
+            ..Default::default()
+        },
+        true,
+        0,
+    )
+    .await
+    .expect("create name");
+}
+
+#[tokio::test]
+async fn dictionary_set_family_name_particle_recuts_every_occurrence() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    // Three persons an import filed under a particle they do not have, plus a
+    // fourth carrying a genuine one that must be left alone.
+    for _ in 0..3 {
+        let p = create_person(&db, tree_id).await;
+        create_split_name(&db, p, Some("LE"), "BRANCH").await;
+    }
+    let untouched = create_person(&db, tree_id).await;
+    create_split_name(&db, untouched, Some("de la"), "Cruz").await;
+
+    let out = DictionaryRepo::set_family_name_particle(&db, tree_id, "LE BRANCH", "")
+        .await
+        .unwrap();
+    assert_eq!(out.names_updated, 3);
+    assert_eq!(out.persons_updated, 3);
+    assert_eq!(out.surname_prefix, None);
+    assert_eq!(out.surname, "LE BRANCH");
+
+    // The dictionary still lists the same text — only the filing key moved,
+    // from the root "branch" to the whole surname.
+    let entries = DictionaryRepo::family_names(&db, tree_id).await.unwrap();
+    let branch = entries.iter().find(|e| e.value == "LE BRANCH").unwrap();
+    assert_eq!(branch.count, 3);
+    assert_eq!(branch.sort_key, "le branch");
+
+    // The genuine particle next door is untouched.
+    let cruz = entries.iter().find(|e| e.value == "de la Cruz").unwrap();
+    assert_eq!(cruz.sort_key, "cruz");
+
+    // Drill-down still resolves the re-cut name to its people.
+    let ids = DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "LE BRANCH")
+        .await
+        .unwrap();
+    assert_eq!(ids.len(), 3);
+}
+
+#[tokio::test]
+async fn dictionary_set_family_name_particle_is_idempotent_and_can_narrow() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let p = create_person(&db, tree_id).await;
+    create_split_name(&db, p, Some("de la"), "Cruz").await;
+
+    // Narrowing a particle that went too far.
+    let out = DictionaryRepo::set_family_name_particle(&db, tree_id, "de la Cruz", "de")
+        .await
+        .unwrap();
+    assert_eq!(out.names_updated, 1);
+    assert_eq!(out.surname_prefix.as_deref(), Some("de"));
+    assert_eq!(out.surname, "la Cruz");
+    // The name still displays — and so is still addressable — as it was.
+    assert_eq!(out.value, "de la Cruz");
+
+    // Applying the same cut again rewrites nothing.
+    let out = DictionaryRepo::set_family_name_particle(&db, tree_id, "de la Cruz", "de")
+        .await
+        .unwrap();
+    assert_eq!(out.names_updated, 0);
+    assert_eq!(out.persons_updated, 0);
+}
+
+#[tokio::test]
+async fn dictionary_set_family_name_particle_refuses_a_particle_that_is_not_there() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let p = create_person(&db, tree_id).await;
+    create_split_name(&db, p, None, "Dupont").await;
+
+    // Accepting this would prepend a word the tree never contained, and
+    // clearing the particle afterwards could not take it back out.
+    let err = DictionaryRepo::set_family_name_particle(&db, tree_id, "Dupont", "de")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, OxidGeneError::Validation(_)), "got {err:?}");
+
+    // A particle that would swallow the whole surname is refused too.
+    let err = DictionaryRepo::set_family_name_particle(&db, tree_id, "Dupont", "Dupont")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, OxidGeneError::Validation(_)), "got {err:?}");
+
+    let entries = DictionaryRepo::family_names(&db, tree_id).await.unwrap();
+    assert_eq!(entries[0].value, "Dupont");
+    assert_eq!(entries[0].sort_key, "dupont");
+}
+
 #[tokio::test]
 async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types() {
     let db = setup_db().await;
