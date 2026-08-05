@@ -34,13 +34,33 @@ impl Language {
         }
     }
 
-    /// Parse from a BCP-47 code or prefix (e.g. "fr-FR" → Fr).
-    pub fn from_code(s: &str) -> Self {
-        if s.starts_with("fr") {
-            Self::Fr
-        } else {
-            Self::En
+    /// Parse a BCP-47 code or prefix (e.g. "fr-FR" → Fr).
+    ///
+    /// Returns `None` for a language the UI has no translation for, so a
+    /// caller walking a preference list can keep looking instead of settling
+    /// on English at the first unknown entry.
+    pub fn try_from_code(s: &str) -> Option<Self> {
+        // Only the primary subtag matters: "fr", "fr-FR", "fr_CA" all map to Fr.
+        let primary = s.split(['-', '_']).next().unwrap_or_default();
+        match primary.to_ascii_lowercase().as_str() {
+            "en" => Some(Self::En),
+            "fr" => Some(Self::Fr),
+            _ => None,
         }
+    }
+
+    /// Pick the best supported language from an ordered preference list.
+    ///
+    /// Mirrors how the platform exposes its preferences (`navigator.languages`
+    /// is ordered most-preferred first): the first entry we have a translation
+    /// for wins, so a user whose OS lists German then French gets French rather
+    /// than English. English is the fallback when nothing matches — including
+    /// when detection produced no list at all.
+    pub fn from_preferences<'a>(codes: impl IntoIterator<Item = &'a str>) -> Self {
+        codes
+            .into_iter()
+            .find_map(Self::try_from_code)
+            .unwrap_or(Self::En)
     }
 
     fn translations(self) -> &'static HashMap<String, String> {
@@ -123,25 +143,46 @@ pub fn use_i18n() -> I18n {
 
 /// Hook: initialise the language context (call once in `Layout` or `App`).
 ///
-/// Reads the persisted language from `localStorage` (web) or defaults to
-/// English. Provides a `Signal<Language>` in the Dioxus context.
+/// On first use — no persisted choice yet — the language follows the
+/// languages configured in the browser or OS, which the webview reports
+/// most-preferred first. English is used when none of them is translated, and
+/// when detection yields nothing at all. Provides a `Signal<Language>` in the
+/// Dioxus context.
 pub fn use_init_language() -> Signal<Language> {
     let mut lang = use_context_provider(|| Signal::new(Language::En));
 
     // On mount: read persisted language or detect browser/system language.
     use_effect(move || {
         spawn(async move {
+            // One ordered list: the explicit choice (if any) first, then what
+            // the platform reports. An unreadable stored value therefore falls
+            // through to detection instead of pinning English. Each accessor is
+            // guarded — storage can be blocked, and `navigator.languages` is
+            // missing on some embedded webviews — so a failure just leaves the
+            // list shorter rather than aborting detection.
             let result = document::eval(
                 r#"
-                let stored = localStorage.getItem('oxidgene-lang');
-                if (stored) return stored;
-                return (navigator.language || navigator.userLanguage || 'en').substring(0, 2);
+                const prefs = [];
+                try {
+                    const stored = localStorage.getItem('oxidgene-lang');
+                    if (stored) prefs.push(stored);
+                } catch (e) {}
+                try {
+                    if (navigator.languages && navigator.languages.length) {
+                        prefs.push(...navigator.languages);
+                    } else if (navigator.language || navigator.userLanguage) {
+                        prefs.push(navigator.language || navigator.userLanguage);
+                    }
+                } catch (e) {}
+                return prefs;
                 "#,
             );
-            if let Ok(val) = result.await
-                && let Some(code) = val.as_str()
-            {
-                lang.set(Language::from_code(code));
+            if let Ok(val) = result.await {
+                let prefs: Vec<&str> = val
+                    .as_array()
+                    .map(|items| items.iter().filter_map(|v| v.as_str()).collect())
+                    .unwrap_or_default();
+                lang.set(Language::from_preferences(prefs));
             }
         });
     });
@@ -154,4 +195,45 @@ pub fn set_language(mut lang: Signal<Language>, new_lang: Language) {
     lang.set(new_lang);
     let code = new_lang.code();
     document::eval(&format!("localStorage.setItem('oxidgene-lang', '{code}');"));
+}
+
+#[cfg(test)]
+mod language_detection_tests {
+    use super::Language;
+
+    #[test]
+    fn matches_on_the_primary_subtag_only() {
+        assert_eq!(Language::try_from_code("fr"), Some(Language::Fr));
+        assert_eq!(Language::try_from_code("fr-FR"), Some(Language::Fr));
+        assert_eq!(Language::try_from_code("fr_CA"), Some(Language::Fr));
+        assert_eq!(Language::try_from_code("EN-gb"), Some(Language::En));
+    }
+
+    #[test]
+    fn reports_untranslated_languages_as_unsupported() {
+        assert_eq!(Language::try_from_code("de"), None);
+        assert_eq!(Language::try_from_code("frr"), None); // North Frisian, not French
+        assert_eq!(Language::try_from_code(""), None);
+    }
+
+    #[test]
+    fn picks_the_first_translated_entry_not_the_first_entry() {
+        assert_eq!(
+            Language::from_preferences(["de-DE", "fr-FR", "en"]),
+            Language::Fr
+        );
+    }
+
+    #[test]
+    fn falls_back_to_english_without_a_usable_preference() {
+        assert_eq!(Language::from_preferences(["de", "es"]), Language::En);
+        assert_eq!(Language::from_preferences([]), Language::En);
+    }
+
+    #[test]
+    fn an_explicit_choice_leading_the_list_wins_over_the_os() {
+        assert_eq!(Language::from_preferences(["en", "fr-FR"]), Language::En);
+        // A corrupted stored value defers to the OS rather than pinning English.
+        assert_eq!(Language::from_preferences(["xx", "fr-FR"]), Language::Fr);
+    }
 }

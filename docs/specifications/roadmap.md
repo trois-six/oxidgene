@@ -132,7 +132,7 @@ wiki pages) — they survive conversion as `_GW…` tags, which the GEDCOM impor
 - [x] GEDCOM import/export UI (file upload, download).
 - [x] Frontend integration with REST/GraphQL API.
 
-**Post-livraison (Aug 2026):**
+**Post-delivery (Aug 2026):**
 - [x] Note bodies render as sanitized HTML (`ammonia` allowlist, applied on write in `oxidgene_db::html`) instead of escaped text, because the imported formats put markup in them.
 - [x] Line breaks in note bodies canonicalized to `\n` on write and restored to `<br>` at display, so the same note reads identically whether it arrived as GEDCOM `CONT` lines, as GeneWeb `<br/>` + newline, or typed into the note textarea.
 
@@ -147,6 +147,9 @@ wiki pages) — they survive conversion as `_GW…` tags, which the GEDCOM impor
 - [x] Client-side caching of API responses. → `ApiClient` in-memory cache, 30s TTL, invalidated on mutations.
 - [x] Lazy loading of tree branches in the visualization. → Parallel JoinSet fetches for names & family members.
 - [x] Performance optimization pass (bundle size, render performance). → Parallel fetches; cache avoids redundant round-trips.
+
+**Post-delivery (Aug 2026):**
+- [x] First-run defaults follow the OS: language picked from the ordered `navigator.languages` list (first translated entry wins), theme from `prefers-color-scheme`. English and light theme when detection fails. → `i18n::Language::from_preferences`, `layout::use_init_theme`
 
 ---
 
@@ -233,7 +236,7 @@ wiki pages) — they survive conversion as `_GW…` tags, which the GEDCOM impor
 **Deferred to Sprint F.1 (Media Management):**
 - Media management (binary upload/download, thumbnails, multi-page docs, vignettes)
 
-**Post-livraison (E.7 improvements):**
+**Post-delivery (E.7 improvements):**
 - [x] Sources smart drill-down: intelligent letter/prefix navigation (> 250 results → drill-down; <= 250 → display all), with server-side compression that auto-skips forced single-choice levels (see [ui-dictionary.md §8.10](ui-dictionary.md)) — a branch is only ever shown to the user when there is a genuine choice.
 - [x] Multi-profession `OCCU` handling: import splits a Geneanet-style multi-profession `OCCU` value (`"Presales, Trainer"`) on `,` (each part trimmed) into one case-normalized `Occupation` event per profession; export gained an opt-in `merge_occupations` option to collapse them back into a single comma-separated `OCCU` tag for importers (Geneanet) that only support one profession field (see [API Contract](api.md) §3, [ui-settings.md](ui-settings.md) §18).
 - [x] Multi-alias `SURN` handling: import previously trusted `SURN` over `NAME` for the primary surname, silently dropping the real primary name when a Geneanet-style multi-alias `SURN` value (`"LE NADEN,NADAM"`) was present. Fixed to prefer `NAME`'s surname as primary and split `SURN`'s extra parts (on `,`) into `AlsoKnownAs` `PersonName` rows; export gained a matching opt-in `merge_names` option to collapse non-primary names back into the primary `NAME`'s comma-separated `SURN` tag for importers (Geneanet) that only read the first `NAME` structure (see [API Contract](api.md) §3, [ui-settings.md](ui-settings.md) §18).
