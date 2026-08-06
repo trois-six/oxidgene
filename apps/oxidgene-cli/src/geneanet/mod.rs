@@ -136,7 +136,9 @@ pub async fn manifest_from_browser(input: &Path, out: &Path) -> Result<Manifest>
     })?;
 
     let (deposits, references) = collection.into_references();
-    let manifest = Manifest::build("browser".to_string(), deposits, references);
+    // The browser collection carries no host of its own, and the media manager
+    // it was gathered from only exists on the one host.
+    let manifest = Manifest::build(client::DEFAULT_BASE_URL.to_string(), deposits, references);
 
     write_manifest(&manifest, out).await?;
     report(&manifest, out);

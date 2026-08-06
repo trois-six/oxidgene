@@ -161,11 +161,33 @@ pub struct ManifestDeposit {
     pub private: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_create: Option<String>,
+    /// Absolute URL of the uncompressed original.
+    ///
+    /// Deposit-level on purpose: `/media/download/` serves a *deposit*, so this
+    /// is one image when `views` holds one entry and a ZIP of every page when
+    /// it holds several. `views[].files` carries only downsized renditions —
+    /// there is no per-page original, and the API exposes none.
+    ///
+    /// Derivable from `id`, but materialised so a consumer never has to know
+    /// how to build it.
+    pub original: String,
     /// Path of the downloaded original, relative to the manifest. Filled in by
     /// `fetch`; absent until then.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_file: Option<String>,
     pub views: Vec<ManifestView>,
+}
+
+/// Builds the download URL for a deposit's original.
+///
+/// Absolute, unlike the rendition paths in `views[].files`: those are served
+/// from `gw.geneanet.org` while this lives on the API host, so a relative path
+/// would be ambiguous about which.
+pub fn original_url(base_url: &str, deposit_id: i64) -> String {
+    format!(
+        "{}/media/download/?deposits[]={deposit_id}",
+        base_url.trim_end_matches('/')
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -250,6 +272,7 @@ impl Manifest {
 
                 ManifestDeposit {
                     id: deposit.id,
+                    original: original_url(&source, deposit.id),
                     title: deposit.title,
                     kind: deposit.kind,
                     private: deposit.private,
@@ -423,6 +446,61 @@ mod tests {
         assert_eq!(manifest.person_count, 2);
         assert_eq!(manifest.linked_view_count, 1);
         assert_eq!(manifest.deposits[0].views[0].references.len(), 2);
+    }
+
+    #[test]
+    fn every_deposit_carries_an_absolute_original_url() {
+        let manifest = Manifest::build(
+            "https://www.geneanet.org".to_string(),
+            vec![deposit(16053569, vec![view(10, 1)])],
+            BTreeMap::new(),
+        );
+
+        assert_eq!(
+            manifest.deposits[0].original,
+            "https://www.geneanet.org/media/download/?deposits[]=16053569"
+        );
+    }
+
+    #[test]
+    fn a_multi_page_deposit_still_carries_one_original() {
+        // Deposit-level, so it is defined whatever the page count — it is the
+        // deposit's download, which is a ZIP here. `views.len()` is what tells
+        // a consumer which of the two it will get.
+        let manifest = Manifest::build(
+            "https://www.geneanet.org".to_string(),
+            vec![deposit(43994698, vec![view(10, 1), view(11, 2)])],
+            BTreeMap::new(),
+        );
+
+        assert!(
+            manifest.deposits[0]
+                .original
+                .ends_with("deposits[]=43994698")
+        );
+        assert_eq!(manifest.deposits[0].views.len(), 2);
+    }
+
+    #[test]
+    fn the_original_is_never_confused_with_a_rendition() {
+        // `views[].files` holds downsized renditions only. Putting the deposit
+        // download in there would hand a consumer a whole ZIP under a key that
+        // reads like a per-page image.
+        let manifest = Manifest::build(
+            "https://www.geneanet.org".to_string(),
+            vec![deposit(1, vec![view(10, 1)])],
+            BTreeMap::new(),
+        );
+
+        assert!(!manifest.deposits[0].views[0].files.contains_key("original"));
+    }
+
+    #[test]
+    fn a_trailing_slash_on_the_base_url_does_not_double_up() {
+        assert_eq!(
+            original_url("https://www.geneanet.org/", 7),
+            "https://www.geneanet.org/media/download/?deposits[]=7"
+        );
     }
 
     #[test]
