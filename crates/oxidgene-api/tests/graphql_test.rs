@@ -968,7 +968,7 @@ fn minimal_geneweb() -> &'static str {
 
 /// A note whose two lines are one break apart, in each format's own spelling:
 /// GEDCOM continues the line with `CONT`, GeneWeb ends it with `<br/>` *and*
-/// the newline that follows in the file. `samples/sample_account_2026-08-01.{ged,gw}`
+/// the newline that follows in the file. The sample Geneanet exports in `samples/`
 /// hold the same real note both ways.
 ///
 /// Whichever file it came from, the stored body has to end up identical — the
