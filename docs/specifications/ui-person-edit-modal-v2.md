@@ -9,7 +9,7 @@ timestamp: 2026-07-19T00:00:00Z
 # Person Edit Modal V2 — Complete Redesign
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Tree View](ui-genealogy-tree.md) · [Person Detail](person_detail.md) · [Error Handling](error-handling.md)
+> See also: [Tree View](ui-genealogy-tree.md) · [Error Handling](error-handling.md)
 
 ---
 
