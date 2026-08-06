@@ -20,6 +20,7 @@ This directory contains all functional, technical, and visual specifications for
 | [API Contract](api.md) | REST (`/api/v1`) and GraphQL (`/graphql`) endpoints, pagination, types, GEDCOM compatibility |
 | [Roadmap](roadmap.md) | EPICs A–G, sprint breakdown, milestones, completion status |
 | [Read Projections](read-projections.md) | Denormalized read models in the database: person projections, pedigree assembly, search, refresh |
+| [Geneanet Media Import](geneanet-media-import.md) | Technical: recovering the person↔photo links a Geneanet export drops — the media API, the GeneWeb join key, size matching |
 
 ## Cross-cutting
 
@@ -57,6 +58,7 @@ This directory contains all functional, technical, and visual specifications for
 | [Person Edit Modal](ui-person-edit-modal.md) | Create & edit person (all context variants), couple/union edit, media, deletion | -> [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) |
 | [Person Merge](ui-merge.md) | 3-step wizard: select duplicate, compare side-by-side, confirm merge | -> [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) (duplicates tool) |
 | [GEDCOM Import](ui-gedcom-import.md) | Upload, preview, and import a GEDCOM file into a tree | -> [Tree View](ui-genealogy-tree.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) (export) |
+| [Geneanet Import](ui-geneanet-import.md) | Single-page accordion flow importing a Geneanet tree with its photos: `.gw`, photo archives, in-app login, preview | -> [Geneanet Media Import](geneanet-media-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) |
 
 ---
 
@@ -71,7 +73,8 @@ index.md  <- you are here
 |  |- data-model.md        Entities, enums, GEDCOM mapping, ERD
 |  |- api.md               REST + GraphQL + GEDCOM compat
 |  |- roadmap.md           EPICs & sprints (with status)
-|  '- read-projections.md  Denormalized read models (no cache tier)
+|  |- read-projections.md  Denormalized read models (no cache tier)
+|  '- geneanet-media-import.md  Geneanet media API, join key, size matching
 |
 |- Cross-cutting
 |  |- i18n.md              Internationalization
@@ -95,5 +98,6 @@ index.md  <- you are here
 	'- Modals & Flows
 		|- ui-person-edit-modal.md Person create/edit & couple edit modals
 		|- ui-merge.md             Person merge wizard
-		'- ui-gedcom-import.md     GEDCOM import wizard
+		|- ui-gedcom-import.md     GEDCOM import wizard
+		'- ui-geneanet-import.md   Geneanet import (tree + photos)
 ```

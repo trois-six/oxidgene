@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn the_same_note_normalizes_the_same_from_both_formats() {
-        // `samples/juesce_2026-08-01.{ged,gw}` hold this note in both spellings.
+        // The sample Geneanet exports in `samples/` hold this note in both spellings.
         let from_gedcom = sanitize_note_html("Capitaine de réserve\nRésistant: cote GR 16 P.");
         let from_geneweb =
             sanitize_note_html("Capitaine de réserve<br/>\nRésistant: cote GR 16 P.");

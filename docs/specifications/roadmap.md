@@ -330,6 +330,8 @@ Rationale: enhance the flat dictionary index with nested descent trees showing s
 
 Comprehensive media workflow: upload, storage, thumbnails, multi-page documents, image cropping (vignettes), event linking.
 
+**First consumer:** the [Geneanet import](ui-geneanet-import.md) is blocked on this sprint — it arrives with hundreds of real files, multi-page PDFs and photos shared between several people, which makes it a better shakedown of the storage design than manual upload. Its steps 1–4 can be built before F.1; only the write step depends on it.
+
 ### Sprint F.1 — Media Storage & Serving
 
 - [ ] Media storage architecture (filesystem vs. S3 decision + implementation)
