@@ -2936,7 +2936,8 @@ fn render_pedigree_card(
             } else {
                 TEXT_MAX_WIDTH_FULL
             };
-            let surname_disp = truncate_text_to_fit(&surname_up, text_max_width, SURNAME_FONT_SIZE_PX);
+            let surname_disp =
+                truncate_text_to_fit(&surname_up, text_max_width, SURNAME_FONT_SIZE_PX);
             let label_given = node.label_given.split(",").next().unwrap_or("").to_string();
             let given_disp = truncate_text_to_fit(&label_given, text_max_width, GIVEN_FONT_SIZE_PX);
             let date_s = format_lifespan(node.birth_year, node.death_year);
