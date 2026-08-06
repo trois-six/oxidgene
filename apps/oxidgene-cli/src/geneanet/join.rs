@@ -257,6 +257,7 @@ mod tests {
             unjoinable_reference_count: 0,
             deposits: vec![ManifestDeposit {
                 id: 1,
+                original: "https://www.geneanet.org/media/download/?deposits[]=1".to_string(),
                 title: Some("a title".to_string()),
                 kind: Some("portraits".to_string()),
                 private: true,
