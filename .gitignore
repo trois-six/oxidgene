@@ -26,6 +26,7 @@ samples
 
 # Media uploads (local dev)
 /uploads/
+/geneanet-media/
 
 # Coverage
 /coverage/

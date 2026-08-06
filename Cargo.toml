@@ -78,6 +78,12 @@ ged_io = { version = "0.16.1", features = ["json", "gedzip"] }
 # GeneWeb .gw reader (converts to the same ged_io model as above)
 geneweb = "0.1.0"
 
+# Unicode folding (Geneanet media keys are unaccented — see oxidgene-cli::geneanet::key)
+unicode-normalization = "0.1"
+
+# ZIP reader (Geneanet serves multi-page deposits as an archive)
+zip = { version = "8", default-features = false, features = ["deflate"] }
+
 # Base64 (GraphQL transport for binary .gw payloads)
 base64 = "0.22"
 

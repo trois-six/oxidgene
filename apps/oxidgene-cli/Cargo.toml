@@ -8,4 +8,16 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Stub binary for Sprint G — deps will be re-added when implemented.
+anyhow.workspace = true
+clap = { workspace = true, features = ["env"] }
+ged_io.workspace = true
+geneweb.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["fs", "sync", "time"] }
+unicode-normalization.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
