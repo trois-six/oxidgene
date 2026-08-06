@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 use super::model::{Deposit, Reference, ReferenceEntry};
 
-const DEFAULT_BASE_URL: &str = "https://www.geneanet.org";
+pub const DEFAULT_BASE_URL: &str = "https://www.geneanet.org";
 const DEPOSITS_PER_PAGE: usize = 100;
 
 /// `/media/api/references` caps the page size at 100 whatever is asked for.

@@ -214,6 +214,14 @@ The original, byte for byte — verified identical to the data-archive copy
   `Content-Length`**
 - several `deposits[]` → a ZIP, entries named after the original uploads
 
+The manifest materialises this as an `original` field **on each deposit** —
+derivable from the id, but written out so a consumer never has to know how to
+build it. Deposit-level on purpose: it is one image when `views` holds a single
+entry and a ZIP of every page when it holds several, and `views[].files` carries
+only downsized renditions. Putting it under `files` alongside `normal`/`medium`
+would hand a consumer a whole archive under a key that reads like a per-page
+image; `views.len()` is what says which of the two will arrive.
+
 The trailing slash is not decoration: `/media/download` without it answers `301`
 to the same path *with* one, so omitting it doubles the request count of the
 whole download phase.
