@@ -259,6 +259,34 @@ Two properties worth keeping when this is reimplemented: an entry is never
 attached on a *probable* match, and a size clash is **detected** rather than
 silently resolved.
 
+### Why not one bulk download instead of one `HEAD` per deposit
+
+Tempting — `/media/download/` accepts any number of `deposits[]`, and its ZIP
+entries come out in request order, so a single request looks like it could
+replace hundreds. Measured, it cannot:
+
+- **`Range` is ignored.** `Range: bytes=-2000` returns `200` with the entire
+  body, and the response carries neither `Accept-Ranges` nor `Content-Length` —
+  the archive is assembled on the fly and streamed.
+- **Local file headers carry no sizes.** The streaming bit (flag `0x08`) is set
+  and both size fields are `0xFFFFFFFF`, so reading the stream as it arrives
+  yields filenames and nothing else.
+- **Sizes live only in the central directory, which is at the end.** Reaching it
+  means having received everything before it.
+
+So the comparison is 378 `HEAD`s transferring *no body* against one request
+transferring ~780 MB. And the moment you have downloaded that archive you hold
+every original already, which makes matching against a local copy pointless —
+that path is just `fetch`, which exists.
+
+Entry order does track request order, but no entry carries a deposit id, so any
+mapping would be positional and would drift on multi-page deposits, which
+contribute one entry per page.
+
+(The manager UI also paginates at 20 deposits per page, so its "select all"
+covers only the visible page — a manual bulk download would be ~19 archives,
+not one.)
+
 > **Why not a perceptual hash?**
 > A pHash answers a harder question — matching *re-encoded* images — and answers
 > it with a distance and a threshold. Here both sides are the same original, so
