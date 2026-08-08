@@ -10,16 +10,16 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{
-    AddChildBody, AddSpouseBody, ApiClient, CreateCitationBody, CreateEventBody, CreateNoteBody,
-    CreatePersonBody, CreatePersonNameBody, UpdateEventBody, UpdatePersonBody,
-    UpdatePersonNameBody,
+    AddChildBody, AddSpouseBody, ApiClient, ApiError, CreateCitationBody, CreateEventBody,
+    CreateNoteBody, CreatePersonBody, CreatePersonNameBody, CreateSourceBody, UpdateCitationBody,
+    UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
 use crate::i18n::use_i18n;
 use crate::utils::{
     name_type_label_key, name_type_value, opt_str, parse_calendar, parse_date_qualifier,
     parse_event_type, parse_name_type, parse_privacy, parse_sex,
 };
-use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote, Source as CoreSource};
+use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle, split_surname_with};
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, SpouseRole,
@@ -132,6 +132,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
     let mut birth_death_loaded = use_signal(|| false);
 
+    // ── Notes + source (see NotesSource) ──
+    // Birth and death ride the footer Save like the rest of their section;
+    // the person-level pair only exposes a source, since the person's notes
+    // are the list under Civil Status.
+    let mut birth_notes = use_signal(String::new);
+    let mut birth_source = use_signal(String::new);
+    let mut birth_ns = use_signal(NotesSource::default);
+    let mut death_notes = use_signal(String::new);
+    let mut death_source = use_signal(String::new);
+    let mut death_ns = use_signal(NotesSource::default);
+    let mut bd_ns_loaded = use_signal(|| false);
+    let mut person_source = use_signal(String::new);
+    let mut person_ns = use_signal(NotesSource::default);
+    let mut person_ns_loaded = use_signal(|| false);
+    // Which event row in the profession / other-event lists has its notes
+    // panel open — at most one at a time.
+    let mut open_event_notes = use_signal(|| None::<Uuid>);
+
     // ── Additional fields panel ──
     let mut show_additional = use_signal(|| false);
 
@@ -141,7 +159,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut profession_form_date = use_signal(String::new);
     let mut profession_form_place_id = use_signal(String::new);
     let mut profession_form_notes = use_signal(String::new);
-    let mut profession_form_source_id = use_signal(String::new);
+    let mut profession_form_source = use_signal(String::new);
     let mut profession_form_error = use_signal(|| None::<String>);
 
     // ── Other event CRUD state ──
@@ -151,12 +169,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut event_form_place_id = use_signal(String::new);
     let mut event_form_note = use_signal(String::new);
     let mut event_form_cause = use_signal(String::new);
+    let mut event_form_notes = use_signal(String::new);
+    let mut event_form_source = use_signal(String::new);
     let mut event_form_error = use_signal(|| None::<String>);
 
     // ── Note CRUD state ──
     let mut show_note_form = use_signal(|| false);
     let mut note_form_text = use_signal(String::new);
     let mut note_form_error = use_signal(|| None::<String>);
+    let mut editing_note_id = use_signal(|| None::<Uuid>);
+    let mut edit_note_text = use_signal(String::new);
+    let mut edit_note_error = use_signal(|| None::<String>);
 
     // ── UI state ──
     let mut saving = use_signal(|| false);
@@ -234,15 +257,51 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
     });
 
-    let api_sources = api.clone();
-    let sources_resource = use_resource(move || {
-        let api = api_sources.clone();
+    // Birth and death notes/source in one resource: it re-reads the events
+    // itself (the GET is cached) so the ids it loads against are always the
+    // ones it just saw, rather than a signal that may not have caught up.
+    let api_bd_ns = api.clone();
+    let bd_ns_resource = use_resource(move || {
+        let api = api_bd_ns.clone();
         let _tick = refresh();
         async move {
             if is_create {
-                return Ok(vec![]);
+                return (NotesSource::default(), NotesSource::default());
             }
-            api.list_all_sources(tid).await
+            let (mut birth_eid, mut death_eid) = (None, None);
+            if let Ok(conn) = api
+                .list_events(tid, Some(100), None, None, Some(pid), None)
+                .await
+            {
+                for edge in &conn.edges {
+                    match edge.node.event_type {
+                        EventType::Birth => birth_eid = Some(edge.node.id),
+                        EventType::Death => death_eid = Some(edge.node.id),
+                        _ => {}
+                    }
+                }
+            }
+            let birth = match birth_eid {
+                Some(eid) => load_notes_source(&api, tid, pid, Some(eid)).await,
+                None => NotesSource::default(),
+            };
+            let death = match death_eid {
+                Some(eid) => load_notes_source(&api, tid, pid, Some(eid)).await,
+                None => NotesSource::default(),
+            };
+            (birth, death)
+        }
+    });
+
+    let api_person_ns = api.clone();
+    let person_ns_resource = use_resource(move || {
+        let api = api_person_ns.clone();
+        let _tick = refresh();
+        async move {
+            if is_create {
+                return NotesSource::default();
+            }
+            load_notes_source(&api, tid, pid, None).await
         }
     });
 
@@ -303,6 +362,29 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             }
         }
         birth_death_loaded.set(true);
+    }
+
+    // ── Populate notes + source (once) ──
+    if !is_create
+        && !bd_ns_loaded()
+        && let Some((birth, death)) = &*bd_ns_resource.read()
+    {
+        birth_notes.set(birth.notes.clone());
+        birth_source.set(birth.source_title.clone());
+        birth_ns.set(birth.clone());
+        death_notes.set(death.notes.clone());
+        death_source.set(death.source_title.clone());
+        death_ns.set(death.clone());
+        bd_ns_loaded.set(true);
+    }
+
+    if !is_create
+        && !person_ns_loaded()
+        && let Some(ns) = &*person_ns_resource.read()
+    {
+        person_source.set(ns.source_title.clone());
+        person_ns.set(ns.clone());
+        person_ns_loaded.set(true);
     }
 
     // ── Populate birth identity (once) ──
@@ -375,16 +457,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         _ => vec![],
     };
 
-    let source_options: Vec<(String, String)> = match &*sources_resource.read() {
-        Some(Ok(sources)) => sources
-            .iter()
-            .map(|s: &CoreSource| (s.id.to_string(), s.title.clone()))
-            .collect(),
-        _ => vec![],
-    };
-
+    // Person-scoped notes only: a note stamped with an event belongs to that
+    // event's own panel, not to the person's list. (Older rows carry both
+    // ids, which is why this filters rather than trusting the query.)
     let notes_list: Vec<CoreNote> = match &*notes_resource.read() {
-        Some(Ok(notes)) => notes.clone(),
+        Some(Ok(notes)) => notes
+            .iter()
+            .filter(|n| n.event_id.is_none())
+            .cloned()
+            .collect(),
         _ => vec![],
     };
 
@@ -475,6 +556,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let place_str = event_form_place_id();
         let note = event_form_note().trim().to_string();
         let cause = event_form_cause().trim().to_string();
+        let notes = event_form_notes().trim().to_string();
+        let source = event_form_source();
         spawn(async move {
             let place_id = if place_str.is_empty() {
                 None
@@ -495,13 +578,25 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 description: opt_str(&note),
             };
             match api.create_event(tid, &body).await {
-                Ok(_) => {
+                Ok(new_event) => {
+                    let _ = save_notes_source(
+                        &api,
+                        tid,
+                        pid,
+                        Some(new_event.id),
+                        &notes,
+                        &source,
+                        &NotesSource::default(),
+                    )
+                    .await;
                     show_event_form.set(false);
                     event_form_type.set("Baptism".to_string());
                     event_form_date.set(String::new());
                     event_form_place_id.set(String::new());
                     event_form_note.set(String::new());
                     event_form_cause.set(String::new());
+                    event_form_notes.set(String::new());
+                    event_form_source.set(String::new());
                     event_form_error.set(None);
                     on_saved_event.call(());
                     refresh += 1;
@@ -522,7 +617,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let date = profession_form_date().trim().to_string();
         let place_str = profession_form_place_id();
         let notes = profession_form_notes().trim().to_string();
-        let source_str = profession_form_source_id();
+        let source = profession_form_source();
         spawn(async move {
             if label.is_empty() {
                 profession_form_error.set(Some(i18n.t("person_form.profession_required")));
@@ -532,11 +627,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 None
             } else {
                 place_str.parse::<Uuid>().ok()
-            };
-            let source_id = if source_str.is_empty() {
-                None
-            } else {
-                source_str.parse::<Uuid>().ok()
             };
             let body = CreateEventBody {
                 event_type: EventType::Occupation,
@@ -553,37 +643,22 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             };
             match api.create_event(tid, &body).await {
                 Ok(new_event) => {
-                    // A source turns the notes into a proper Citation; with
-                    // no source picked ("source éventuelle") they're just a
-                    // plain Note against the event — Citation.source_id is
-                    // required, so it can't represent a sourceless entry.
-                    if let Some(sid) = source_id {
-                        let cbody = CreateCitationBody {
-                            source_id: sid,
-                            person_id: Some(pid),
-                            event_id: Some(new_event.id),
-                            family_id: None,
-                            page: None,
-                            confidence: Confidence::Medium,
-                            text: opt_str(&notes),
-                        };
-                        let _ = api.create_citation(tid, &cbody).await;
-                    } else if !notes.is_empty() {
-                        let nbody = CreateNoteBody {
-                            text: notes,
-                            person_id: Some(pid),
-                            event_id: Some(new_event.id),
-                            family_id: None,
-                            source_id: None,
-                        };
-                        let _ = api.create_note(tid, &nbody).await;
-                    }
+                    let _ = save_notes_source(
+                        &api,
+                        tid,
+                        pid,
+                        Some(new_event.id),
+                        &notes,
+                        &source,
+                        &NotesSource::default(),
+                    )
+                    .await;
                     show_profession_form.set(false);
                     profession_form_label.set(String::new());
                     profession_form_date.set(String::new());
                     profession_form_place_id.set(String::new());
                     profession_form_notes.set(String::new());
-                    profession_form_source_id.set(String::new());
+                    profession_form_source.set(String::new());
                     profession_form_error.set(None);
                     on_saved_profession.call(());
                     refresh += 1;
@@ -629,6 +704,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let api_del_note = api.clone();
     let on_saved_note_del = props.on_saved;
 
+    let api_edit_note = api.clone();
+    let on_saved_note_edit = props.on_saved;
+
     // ── Unified footer Save / Create ──
     let api_save = api.clone();
     let on_save = {
@@ -660,6 +738,23 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             let d_place = death_place_id();
             let d_note = death_note().trim().to_string();
             let d_cal = death_calendar();
+            // Notes + source for both events and for the person.
+            let b_notes = birth_notes();
+            let b_source = birth_source();
+            let b_ns = birth_ns();
+            let d_notes = death_notes();
+            let d_source = death_source();
+            let d_ns = death_ns();
+            let p_source = person_source();
+            // Only the source travels with the person: its notes are the
+            // list under Civil Status, each row managed on its own, so this
+            // save must not touch them.
+            let p_ns = NotesSource {
+                notes: String::new(),
+                note_id: None,
+                citation_holds_notes: false,
+                ..person_ns()
+            };
             spawn(async move {
                 if bn_given.is_empty() || bn_surname.is_empty() {
                     save_error.set(Some(i18n.t("person_form.birth_identity_required")));
@@ -728,10 +823,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             family_id: None,
                             description: opt_str(&b_note),
                         };
-                        if let Err(e) = api.create_event(tid, &body).await {
-                            save_error.set(Some(format!("{e}")));
-                            saving.set(false);
-                            return;
+                        match api.create_event(tid, &body).await {
+                            Ok(ev) => {
+                                let _ = save_notes_source(
+                                    &api,
+                                    tid,
+                                    new_pid,
+                                    Some(ev.id),
+                                    &b_notes,
+                                    &b_source,
+                                    &NotesSource::default(),
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                save_error.set(Some(format!("{e}")));
+                                saving.set(false);
+                                return;
+                            }
                         }
                     }
 
@@ -755,12 +864,38 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             family_id: None,
                             description: opt_str(&d_note),
                         };
-                        if let Err(e) = api.create_event(tid, &body).await {
-                            save_error.set(Some(format!("{e}")));
-                            saving.set(false);
-                            return;
+                        match api.create_event(tid, &body).await {
+                            Ok(ev) => {
+                                let _ = save_notes_source(
+                                    &api,
+                                    tid,
+                                    new_pid,
+                                    Some(ev.id),
+                                    &d_notes,
+                                    &d_source,
+                                    &NotesSource::default(),
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                save_error.set(Some(format!("{e}")));
+                                saving.set(false);
+                                return;
+                            }
                         }
                     }
+
+                    // 4b. Person-level source.
+                    let _ = save_notes_source(
+                        &api,
+                        tid,
+                        new_pid,
+                        None,
+                        "",
+                        &p_source,
+                        &NotesSource::default(),
+                    )
+                    .await;
 
                     // 5. Wire relationship.
                     match context {
@@ -864,7 +999,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     };
                     let b_qualifier_enum = parse_date_qualifier(&b_qual);
                     let b_calendar_enum = parse_calendar(&b_cal);
-                    if let Some(eid) = birth_eid {
+                    let b_saved_eid = if let Some(eid) = birth_eid {
                         let body = UpdateEventBody {
                             event_type: Some(EventType::Birth),
                             date_value: Some(opt_str(&b_date)),
@@ -881,6 +1016,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             saving.set(false);
                             return;
                         }
+                        Some(eid)
                     } else if !b_date.is_empty() || b_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Birth,
@@ -895,11 +1031,25 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             family_id: None,
                             description: opt_str(&b_note),
                         };
-                        if let Err(e) = api.create_event(tid, &body).await {
-                            save_error.set(Some(format!("{e}")));
-                            saving.set(false);
-                            return;
+                        match api.create_event(tid, &body).await {
+                            Ok(ev) => Some(ev.id),
+                            Err(e) => {
+                                save_error.set(Some(format!("{e}")));
+                                saving.set(false);
+                                return;
+                            }
                         }
+                    } else {
+                        None
+                    };
+                    // Notes and source need an event to hang off; with no
+                    // birth recorded at all there is nothing to attach to.
+                    if let Some(eid) = b_saved_eid
+                        && let Ok(stored) =
+                            save_notes_source(&api, tid, pid, Some(eid), &b_notes, &b_source, &b_ns)
+                                .await
+                    {
+                        birth_ns.set(stored);
                     }
 
                     // 3. Death event.
@@ -910,7 +1060,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     };
                     let d_qualifier_enum = parse_date_qualifier(&d_qual);
                     let d_calendar_enum = parse_calendar(&d_cal);
-                    if let Some(eid) = death_eid {
+                    let d_saved_eid = if let Some(eid) = death_eid {
                         let body = UpdateEventBody {
                             event_type: Some(EventType::Death),
                             date_value: Some(opt_str(&d_date)),
@@ -927,6 +1077,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             saving.set(false);
                             return;
                         }
+                        Some(eid)
                     } else if !d_date.is_empty() || d_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Death,
@@ -941,11 +1092,38 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             family_id: None,
                             description: opt_str(&d_note),
                         };
-                        if let Err(e) = api.create_event(tid, &body).await {
-                            save_error.set(Some(format!("{e}")));
-                            saving.set(false);
-                            return;
+                        match api.create_event(tid, &body).await {
+                            Ok(ev) => Some(ev.id),
+                            Err(e) => {
+                                save_error.set(Some(format!("{e}")));
+                                saving.set(false);
+                                return;
+                            }
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(eid) = d_saved_eid
+                        && let Ok(stored) =
+                            save_notes_source(&api, tid, pid, Some(eid), &d_notes, &d_source, &d_ns)
+                                .await
+                    {
+                        death_ns.set(stored);
+                    }
+
+                    // 4. Person-level source (its notes are the list under
+                    //    Civil Status, saved row by row).
+                    if let Ok(stored) =
+                        save_notes_source(&api, tid, pid, None, "", &p_source, &p_ns).await
+                    {
+                        // The person's notes are the list above, not this
+                        // pair — keep them out of the state it reconciles
+                        // against, exactly as `p_ns` was built.
+                        person_ns.set(NotesSource {
+                            notes: String::new(),
+                            note_id: None,
+                            ..stored
+                        });
                     }
                 }
 
@@ -1054,25 +1232,18 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         // ── Profession(s) (edit mode only) ──
                         if !is_create {
                             div { style: "margin-top: 16px;",
-                                div { style: "display: flex; gap: 8px; margin-bottom: 12px; justify-content: flex-end;",
+                                div { class: "pf-block-label",
+                                    {i18n.t("person_form.professions")}
                                     button {
-                                        class: "btn btn-primary btn-sm",
+                                        class: if show_profession_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                        r#type: "button",
                                         onclick: move |_| show_profession_form.toggle(),
                                         if show_profession_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_profession")} }
                                     }
-                                    button {
-                                        class: "btn btn-primary btn-sm",
-                                        onclick: move |_| show_name_form.toggle(),
-                                        if show_name_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_information")} }
-                                    }
-                                }
-
-                                div { class: "section-header",
-                                    h3 { style: "font-size: 0.9rem;", {i18n.t("person_form.professions")} }
                                 }
 
                                 if show_profession_form() {
-                                    div { style: "padding: 12px; background: var(--color-bg); border-radius: var(--radius); margin-bottom: 12px;",
+                                    div { class: "pf-subform",
                                         if let Some(err) = profession_form_error() {
                                             div { class: "error-msg", "{err}" }
                                         }
@@ -1095,40 +1266,21 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                 }
                                             }
                                         }
-                                        div { class: "form-row",
-                                            div { class: "form-group",
-                                                label { {i18n.t("person_form.place")} }
-                                                select {
-                                                    value: "{profession_form_place_id}",
-                                                    oninput: move |e: Event<FormData>| profession_form_place_id.set(e.value()),
-                                                    option { value: "", {i18n.t("person_form.no_place")} }
-                                                    for (pid_opt, pname) in place_options.iter() {
-                                                        option { value: "{pid_opt}", "{pname}" }
-                                                    }
-                                                }
-                                            }
-                                            div { class: "form-group",
-                                                label { {i18n.t("person_form.source")} }
-                                                select {
-                                                    value: "{profession_form_source_id}",
-                                                    oninput: move |e: Event<FormData>| profession_form_source_id.set(e.value()),
-                                                    option { value: "", {i18n.t("person_form.no_source")} }
-                                                    for (sid_opt, sname) in source_options.iter() {
-                                                        option { value: "{sid_opt}", "{sname}" }
-                                                    }
-                                                }
-                                            }
-                                        }
                                         div { class: "form-group",
-                                            label { {i18n.t("person_form.citation_notes")} }
-                                            textarea {
-                                                rows: 3,
-                                                value: "{profession_form_notes}",
-                                                oninput: move |e: Event<FormData>| profession_form_notes.set(e.value()),
+                                            label { {i18n.t("person_form.place")} }
+                                            select {
+                                                value: "{profession_form_place_id}",
+                                                oninput: move |e: Event<FormData>| profession_form_place_id.set(e.value()),
+                                                option { value: "", {i18n.t("person_form.no_place")} }
+                                                for (pid_opt, pname) in place_options.iter() {
+                                                    option { value: "{pid_opt}", "{pname}" }
+                                                }
                                             }
                                         }
+                                        {render_notes_source_fields(&i18n, profession_form_notes, profession_form_source, || {})}
                                         button {
-                                            class: "btn btn-primary btn-sm",
+                                            class: "pf-confirm-btn",
+                                            r#type: "button",
                                             onclick: on_create_profession,
                                             {i18n.t("person.create_profession")}
                                         }
@@ -1144,8 +1296,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             let label = ev.description.clone().unwrap_or_default();
                                             let date = ev.date_value.clone().unwrap_or_default();
                                             let place = ev.place_id.map(&place_name).unwrap_or_default();
+                                            let notes_open = open_event_notes() == Some(eid);
                                             rsx! {
-                                                div { class: "person-form-item pf-compact-item",
+                                                div {
+                                                    class: if notes_open { "person-form-item pf-compact-item pf-ns-open" } else { "person-form-item pf-compact-item" },
                                                     div { class: "person-form-item-info",
                                                         "{label}"
                                                         if !date.is_empty() { span { " \u{2014} {date}" } }
@@ -1153,7 +1307,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                     }
                                                     div { class: "person-form-item-actions",
                                                         button {
-                                                            class: "btn btn-danger btn-sm",
+                                                            class: if notes_open { "pf-row-btn is-active" } else { "pf-row-btn" },
+                                                            r#type: "button",
+                                                            onclick: move |_| open_event_notes.set(if notes_open { None } else { Some(eid) }),
+                                                            {i18n.t("person_form.notes_source")}
+                                                        }
+                                                        button {
+                                                            class: "pf-row-btn is-danger",
+                                                            r#type: "button",
                                                             onclick: {
                                                                 let api = api_del_profession.clone();
                                                                 move |_| {
@@ -1170,6 +1331,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                         }
                                                     }
                                                 }
+                                                if notes_open {
+                                                    EventNotesSource {
+                                                        tree_id: tid,
+                                                        person_id: pid,
+                                                        event_id: eid,
+                                                        on_saved: move |_| { on_saved_profession_del.call(()); refresh += 1; },
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1180,8 +1349,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         // ── Additional information (edit mode only) ──
                         if !is_create {
                         div { style: "margin-top: 16px;",
-                            div { class: "section-header",
-                                h3 { style: "font-size: 0.9rem;", {i18n.t("person_form.tab_more_information")} }
+                            div { class: "pf-block-label",
+                                {i18n.t("person_form.tab_more_information")}
+                                button {
+                                    class: if show_name_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                    r#type: "button",
+                                    onclick: move |_| show_name_form.toggle(),
+                                    if show_name_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_information")} }
+                                }
                             }
 
                             if show_name_form() {
@@ -1288,7 +1463,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                         }
                                                         div { style: "display:flex;gap:8px;",
                                                             button {
-                                                                class: "btn btn-primary btn-sm",
+                                                                class: "pf-confirm-btn",
+                                                                r#type: "button",
                                                                 onclick: {
                                                                     let api = api_edit_name.clone();
                                                                     move |_| {
@@ -1334,7 +1510,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 {i18n.t("common.save")}
                                                             }
                                                             button {
-                                                                class: "btn btn-outline btn-sm",
+                                                                class: "pf-row-btn",
+                                                                r#type: "button",
                                                                 onclick: move |_| { editing_name_id.set(None); edit_name_error.set(None); },
                                                                 {i18n.t("common.cancel")}
                                                             }
@@ -1351,12 +1528,13 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 "{sn_display}"
                                                             }
                                                             if prim {
-                                                                span { class: "badge", style: "background: var(--color-primary); color: white;", {i18n.t("person_form.primary")} }
+                                                                span { class: "badge badge-primary", {i18n.t("person_form.primary")} }
                                                             }
                                                         }
                                                         div { class: "person-form-item-actions",
                                                             button {
-                                                                class: "btn btn-outline btn-sm",
+                                                                class: "pf-row-btn",
+                                                                r#type: "button",
                                                                 onclick: move |_| {
                                                                     editing_name_id.set(Some(nid));
                                                                     edit_name_type.set(nt.clone());
@@ -1372,7 +1550,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 {i18n.t("common.edit")}
                                                             }
                                                             button {
-                                                                class: "btn btn-danger btn-sm",
+                                                                class: "pf-row-btn is-danger",
+                                                                r#type: "button",
                                                                 onclick: {
                                                                     let api = api_del_name.clone();
                                                                     move |_| {
@@ -1400,6 +1579,158 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             }
                         }
                         } // end Additional information if !is_create
+
+                        // ── Notes (edit mode only) ──
+                        // Notes about the person as such — the ones tied to a
+                        // single event live in that event's own panel.
+                        if !is_create {
+                            div { style: "margin-top: 16px;",
+                                div { class: "pf-block-label",
+                                    {i18n.t("person_form.notes")}
+                                    button {
+                                        class: if show_note_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                        r#type: "button",
+                                        onclick: move |_| show_note_form.toggle(),
+                                        if show_note_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_note")} }
+                                    }
+                                }
+
+                                if show_note_form() {
+                                    div { class: "pf-subform",
+                                        if let Some(err) = note_form_error() {
+                                            div { class: "error-msg", "{err}" }
+                                        }
+                                        div { class: "form-group",
+                                            textarea {
+                                                rows: 4,
+                                                placeholder: "{i18n.t(\"person_form.note_placeholder\")}",
+                                                value: "{note_form_text}",
+                                                oninput: move |e: Event<FormData>| note_form_text.set(e.value()),
+                                            }
+                                        }
+                                        button {
+                                            class: "pf-confirm-btn",
+                                            r#type: "button",
+                                            onclick: on_create_note,
+                                            {i18n.t("person.create_note")}
+                                        }
+                                    }
+                                }
+
+                                if notes_list.is_empty() {
+                                    div { class: "pf-empty-item", p { {i18n.t("person_form.no_notes")} } }
+                                } else {
+                                    for note in notes_list.iter() {
+                                        {
+                                            let nid = note.id;
+                                            let text = note.text.clone();
+                                            let preview = crate::utils::html_to_preview(&note.text, 120);
+                                            if editing_note_id() == Some(nid) {
+                                                rsx! {
+                                                    div { class: "person-form-item editing",
+                                                        if let Some(err) = edit_note_error() {
+                                                            div { class: "error-msg", "{err}" }
+                                                        }
+                                                        div { class: "form-group",
+                                                            textarea {
+                                                                rows: 4,
+                                                                value: "{edit_note_text}",
+                                                                oninput: move |e: Event<FormData>| edit_note_text.set(e.value()),
+                                                            }
+                                                        }
+                                                        div { style: "display:flex;gap:8px;",
+                                                            button {
+                                                                class: "pf-confirm-btn",
+                                                                r#type: "button",
+                                                                onclick: {
+                                                                    let api = api_edit_note.clone();
+                                                                    move |_| {
+                                                                        let api = api.clone();
+                                                                        let text = edit_note_text().trim().to_string();
+                                                                        spawn(async move {
+                                                                            if text.is_empty() {
+                                                                                edit_note_error.set(Some(i18n.t("person_form.note_required")));
+                                                                                return;
+                                                                            }
+                                                                            match api.update_note(tid, nid, &UpdateNoteBody { text: Some(text) }).await {
+                                                                                Ok(_) => {
+                                                                                    editing_note_id.set(None);
+                                                                                    edit_note_error.set(None);
+                                                                                    on_saved_note_edit.call(());
+                                                                                    refresh += 1;
+                                                                                }
+                                                                                Err(e) => edit_note_error.set(Some(format!("{e}"))),
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                },
+                                                                {i18n.t("common.save")}
+                                                            }
+                                                            button {
+                                                                class: "pf-row-btn",
+                                                                r#type: "button",
+                                                                onclick: move |_| { editing_note_id.set(None); edit_note_error.set(None); },
+                                                                {i18n.t("common.cancel")}
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                rsx! {
+                                                    div { class: "person-form-item pf-compact-item",
+                                                        div { class: "person-form-item-info", span { "{preview}" } }
+                                                        div { class: "person-form-item-actions",
+                                                            button {
+                                                                class: "pf-row-btn",
+                                                                r#type: "button",
+                                                                onclick: move |_| {
+                                                                    // The stored body is the plain-text
+                                                                    // form (breaks folded to \n), so it
+                                                                    // goes straight back in the textarea.
+                                                                    edit_note_text.set(text.clone());
+                                                                    editing_note_id.set(Some(nid));
+                                                                    edit_note_error.set(None);
+                                                                },
+                                                                {i18n.t("common.edit")}
+                                                            }
+                                                            button {
+                                                                class: "pf-row-btn is-danger",
+                                                                r#type: "button",
+                                                                onclick: {
+                                                                    let api = api_del_note.clone();
+                                                                    move |_| {
+                                                                        let api = api.clone();
+                                                                        spawn(async move {
+                                                                            match api.delete_note(tid, nid).await {
+                                                                                Ok(_) => { on_saved_note_del.call(()); refresh += 1; }
+                                                                                Err(e) => save_error.set(Some(format!("{e}"))),
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                },
+                                                                {i18n.t("common.delete")}
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Where the civil-status information itself
+                                // came from; saved with the footer button.
+                                div { class: "form-group", style: "margin-top: 16px;",
+                                    label { {i18n.t("person_form.source")} }
+                                    input {
+                                        r#type: "text",
+                                        placeholder: "{i18n.t(\"person_form.source_placeholder\")}",
+                                        value: "{person_source}",
+                                        oninput: move |e: Event<FormData>| { person_source.set(e.value()); has_changes.set(true); },
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     hr { class: "pf-section-divider" }
@@ -1450,7 +1781,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                             div { class: "form-group",
-                                label { {i18n.t("person_form.note")} }
+                                // The event's own one-line description, kept
+                                // distinct from the Notes below (which are
+                                // Note rows, not a field on the event).
+                                label { {i18n.t("person_form.description")} }
                                 input {
                                     r#type: "text",
                                     value: "{birth_note}",
@@ -1458,6 +1792,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         }
+                        {render_notes_source_fields(&i18n, birth_notes, birth_source, move || has_changes.set(true))}
                     }
 
                     hr { class: "pf-section-divider" }
@@ -1508,7 +1843,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                             div { class: "form-group",
-                                label { {i18n.t("person_form.note")} }
+                                label { {i18n.t("person_form.description")} }
                                 input {
                                     r#type: "text",
                                     value: "{death_note}",
@@ -1516,6 +1851,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         }
+                        {render_notes_source_fields(&i18n, death_notes, death_source, move || has_changes.set(true))}
                     }
 
                     // ── Privacy ──
@@ -1604,14 +1940,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         div { class: "section-header",
                             div { class: "pf-section-title has-action", {i18n.t("person_form.other_events")} }
                             button {
-                                class: "btn btn-primary btn-sm",
+                                class: if show_event_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                r#type: "button",
                                 onclick: move |_| show_event_form.toggle(),
                                 if show_event_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_event")} }
                             }
                         }
 
                         if show_event_form() {
-                            div { style: "padding: 12px; background: var(--color-bg); border-radius: var(--radius); margin-bottom: 12px;",
+                            div { class: "pf-subform",
                                 if let Some(err) = event_form_error() {
                                     div { class: "error-msg", "{err}" }
                                 }
@@ -1656,15 +1993,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                 }
                                 div { class: "form-group",
-                                    label { {i18n.t("person_form.note")} }
+                                    label { {i18n.t("person_form.description")} }
                                     input {
                                         r#type: "text",
                                         value: "{event_form_note}",
                                         oninput: move |e: Event<FormData>| event_form_note.set(e.value()),
                                     }
                                 }
+                                {render_notes_source_fields(&i18n, event_form_notes, event_form_source, || {})}
                                 button {
-                                    class: "btn btn-primary btn-sm",
+                                    class: "pf-confirm-btn",
+                                    r#type: "button",
                                     onclick: on_create_event,
                                     {i18n.t("person.create_event")}
                                 }
@@ -1680,8 +2019,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     let et = format!("{}", ev.event_type);
                                     let date = ev.date_value.clone().unwrap_or_default();
                                     let place = ev.place_id.map(&place_name).unwrap_or_default();
+                                    let notes_open = open_event_notes() == Some(eid);
                                     rsx! {
-                                        div { class: "person-form-item",
+                                        div {
+                                            class: if notes_open { "person-form-item pf-ns-open" } else { "person-form-item" },
                                             div { class: "person-form-item-info",
                                                 span { class: "badge", "{et}" }
                                                 if !date.is_empty() { span { "{date}" } }
@@ -1689,7 +2030,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             }
                                             div { class: "person-form-item-actions",
                                                 button {
-                                                    class: "btn btn-danger btn-sm",
+                                                    class: if notes_open { "pf-row-btn is-active" } else { "pf-row-btn" },
+                                                    r#type: "button",
+                                                    onclick: move |_| open_event_notes.set(if notes_open { None } else { Some(eid) }),
+                                                    {i18n.t("person_form.notes_source")}
+                                                }
+                                                button {
+                                                    class: "pf-row-btn is-danger",
+                                                    r#type: "button",
                                                     onclick: {
                                                         let api = api_del_event.clone();
                                                         move |_| {
@@ -1706,78 +2054,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                 }
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    } } // end Other Events if !is_create
-
-                    // ── Notes (edit mode only) ──
-                    if !is_create { div { class: "person-form-section",
-                        div { class: "section-header",
-                            div { class: "pf-section-title has-action", {i18n.t("person_form.notes")} }
-                            button {
-                                class: "btn btn-primary btn-sm",
-                                onclick: move |_| show_note_form.toggle(),
-                                if show_note_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_note")} }
-                            }
-                        }
-
-                        if show_note_form() {
-                            div { style: "padding: 12px; background: var(--color-bg); border-radius: var(--radius); margin-bottom: 12px;",
-                                if let Some(err) = note_form_error() {
-                                    div { class: "error-msg", "{err}" }
-                                }
-                                div { class: "form-group",
-                                    textarea {
-                                        rows: 4,
-                                        placeholder: "{i18n.t(\"person_form.note_placeholder\")}",
-                                        value: "{note_form_text}",
-                                        oninput: move |e: Event<FormData>| note_form_text.set(e.value()),
-                                    }
-                                }
-                                button {
-                                    class: "btn btn-primary btn-sm",
-                                    onclick: on_create_note,
-                                    {i18n.t("person.create_note")}
-                                }
-                            }
-                        }
-
-                        if notes_list.is_empty() {
-                            div { class: "empty-state", p { {i18n.t("person_form.no_notes")} } }
-                        } else {
-                            for note in notes_list.iter() {
-                                {
-                                    let nid = note.id;
-                                    let preview = crate::utils::html_to_preview(&note.text, 120);
-                                    rsx! {
-                                        div { class: "person-form-item",
-                                            div { class: "person-form-item-info", span { "{preview}" } }
-                                            div { class: "person-form-item-actions",
-                                                button {
-                                                    class: "btn btn-danger btn-sm",
-                                                    onclick: {
-                                                        let api = api_del_note.clone();
-                                                        move |_| {
-                                                            let api = api.clone();
-                                                            spawn(async move {
-                                                                match api.delete_note(tid, nid).await {
-                                                                    Ok(_) => { on_saved_note_del.call(()); refresh += 1; }
-                                                                    Err(e) => save_error.set(Some(format!("{e}"))),
-                                                                }
-                                                            });
-                                                        }
-                                                    },
-                                                    {i18n.t("common.delete")}
-                                                }
+                                        if notes_open {
+                                            EventNotesSource {
+                                                tree_id: tid,
+                                                person_id: pid,
+                                                event_id: eid,
+                                                on_saved: move |_| { on_saved_event_del.call(()); refresh += 1; },
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    } } // end Notes if !is_create
+                    } } // end Other Events if !is_create
 
                     // ── Delete Person (edit mode only) ──
                     if !is_create && !is_embedded { div { class: "pf-delete-section",
@@ -2120,10 +2409,427 @@ fn render_event_witnesses(
             }
         } else {
             button {
-                class: "btn btn-outline btn-sm",
+                class: "pf-add-btn",
                 r#type: "button",
                 onclick: move |_| adding.set(true),
                 {i18n.t("person_form.add_witness")}
+            }
+        }
+    }
+}
+
+// ── Notes & source widget ─────────────────────────────────────────────────
+//
+// Every event (birth, death, profession, other) — and the person itself —
+// can carry free notes plus the source the information came from.
+//
+// The two are stored separately on purpose: notes go in a `Note` row and the
+// source in a `Citation` row. A `Citation` always needs a `source_id`, so it
+// cannot hold sourceless notes; and folding the notes into `Citation.text`
+// (which is what the profession form used to do) means they vanish the
+// moment the source is cleared.
+
+/// The notes + source pair attached to one target, together with the row ids
+/// needed to update them in place on the next save.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct NotesSource {
+    notes: String,
+    /// The source as the user types it — a plain line of text, empty for
+    /// none. `Source` rows are an implementation detail behind it: the title
+    /// is matched against the tree's existing sources on save and a new one
+    /// is created when nothing matches.
+    source_title: String,
+    /// The `Source` the citation currently points at, if any.
+    source_id: Option<Uuid>,
+    note_id: Option<Uuid>,
+    citation_id: Option<Uuid>,
+    /// A pre-existing citation whose `text` still holds the notes, from
+    /// before they were split out into their own `Note`.
+    citation_holds_notes: bool,
+}
+
+/// Resolves a typed source title to a `Source` id, creating the source when
+/// the tree has none by that title. Empty input means "no source".
+///
+/// Matching is case-insensitive on the trimmed title, so re-typing a source
+/// with different capitalisation reuses the existing row instead of
+/// littering the dictionary with near-duplicates.
+async fn resolve_source(
+    api: &ApiClient,
+    tree_id: Uuid,
+    title: &str,
+) -> Result<Option<Uuid>, ApiError> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Ok(None);
+    }
+    let needle = title.to_lowercase();
+    if let Some(existing) = api
+        .list_all_sources(tree_id)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .find(|s| s.title.trim().to_lowercase() == needle)
+    {
+        return Ok(Some(existing.id));
+    }
+    let created = api
+        .create_source(
+            tree_id,
+            &CreateSourceBody {
+                title: title.to_string(),
+                author: None,
+                publisher: None,
+                abbreviation: None,
+                repository_name: None,
+            },
+        )
+        .await?;
+    Ok(Some(created.id))
+}
+
+/// Loads the notes + source attached to an event (`event_id = Some`) or
+/// directly to the person (`event_id = None`).
+///
+/// Only ever surfaces the first of each: this editor exposes one notes field
+/// and one source picker per target, so extra rows (imported, or added
+/// through another surface) are left untouched rather than silently merged.
+async fn load_notes_source(
+    api: &ApiClient,
+    tree_id: Uuid,
+    person_id: Uuid,
+    event_id: Option<Uuid>,
+) -> NotesSource {
+    let (person_filter, event_filter) = match event_id {
+        Some(eid) => (None, Some(eid)),
+        None => (Some(person_id), None),
+    };
+    // A person-scoped query also returns whatever hangs off that person's
+    // events, so the person-level target has to drop those itself.
+    let person_level_only = event_id.is_none();
+
+    let note = api
+        .list_notes(tree_id, person_filter, event_filter, None, None)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .find(|n| !person_level_only || n.event_id.is_none());
+    let citation = api
+        .list_citations(tree_id, person_filter, event_filter, None, None)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .find(|c| !person_level_only || c.event_id.is_none());
+
+    let citation_text = citation.as_ref().and_then(|c| c.text.clone());
+    let source_id = citation.as_ref().map(|c| c.source_id);
+    let source_title = match source_id {
+        Some(sid) => api
+            .get_source(tree_id, sid)
+            .await
+            .map(|s| s.title)
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    NotesSource {
+        notes: note
+            .as_ref()
+            .map(|n| n.text.clone())
+            .or_else(|| citation_text.clone())
+            .unwrap_or_default(),
+        source_title,
+        source_id,
+        citation_holds_notes: note.is_none() && citation_text.is_some(),
+        note_id: note.map(|n| n.id),
+        citation_id: citation.map(|c| c.id),
+    }
+}
+
+/// Persists an edited notes + source pair against its target, reconciling
+/// with what `load_notes_source` read (`current`).
+///
+/// Edits the `Note` and `Citation` rows in place wherever they already
+/// exist — a row is only created when there is none and only deleted when
+/// its field is cleared. Returns the state that is now stored, which the
+/// caller must keep as its new `current`: saving twice against a stale
+/// `current` would take the "nothing there yet" branch a second time and
+/// leave a duplicate row behind.
+async fn save_notes_source(
+    api: &ApiClient,
+    tree_id: Uuid,
+    person_id: Uuid,
+    event_id: Option<Uuid>,
+    notes: &str,
+    source_title: &str,
+    current: &NotesSource,
+) -> Result<NotesSource, ApiError> {
+    // An event-scoped row is reachable through its event, and stamping the
+    // person on it too would pull it into the person's own note list.
+    let owner = if event_id.is_some() {
+        None
+    } else {
+        Some(person_id)
+    };
+    let notes = notes.trim();
+
+    let note_id = match (current.note_id, notes.is_empty()) {
+        (Some(nid), true) => {
+            api.delete_note(tree_id, nid).await?;
+            None
+        }
+        (Some(nid), false) => {
+            if notes != current.notes.trim() {
+                api.update_note(
+                    tree_id,
+                    nid,
+                    &UpdateNoteBody {
+                        text: Some(notes.to_string()),
+                    },
+                )
+                .await?;
+            }
+            Some(nid)
+        }
+        (None, false) => Some(
+            api.create_note(
+                tree_id,
+                &CreateNoteBody {
+                    text: notes.to_string(),
+                    person_id: owner,
+                    event_id,
+                    family_id: None,
+                    source_id: None,
+                },
+            )
+            .await?
+            .id,
+        ),
+        (None, true) => None,
+    };
+
+    let mut saved = NotesSource {
+        notes: notes.to_string(),
+        source_title: current.source_title.trim().to_string(),
+        source_id: current.source_id,
+        note_id,
+        citation_id: current.citation_id,
+        citation_holds_notes: false,
+    };
+
+    // Only touch the sources when the typed title actually changed, so an
+    // unrelated save never creates a `Source` row as a side effect.
+    if source_title.trim() == current.source_title.trim() {
+        if current.citation_holds_notes
+            && let Some(cid) = current.citation_id
+        {
+            // The notes now live in their own Note row; clearing the legacy
+            // copy stops it coming back the next time the citation is read.
+            api.update_citation(
+                tree_id,
+                cid,
+                &UpdateCitationBody {
+                    source_id: None,
+                    page: None,
+                    confidence: None,
+                    text: Some(None),
+                },
+            )
+            .await?;
+        }
+        return Ok(saved);
+    }
+
+    let source_id = resolve_source(api, tree_id, source_title).await?;
+    saved.source_title = source_title.trim().to_string();
+    saved.source_id = source_id;
+
+    match (current.citation_id, source_id) {
+        // Repointed at another source: the citation is the same statement
+        // about the same fact, so it is edited rather than replaced.
+        (Some(cid), Some(sid)) => {
+            api.update_citation(
+                tree_id,
+                cid,
+                &UpdateCitationBody {
+                    source_id: Some(sid),
+                    page: None,
+                    confidence: None,
+                    text: Some(None),
+                },
+            )
+            .await?;
+        }
+        (Some(cid), None) => {
+            api.delete_citation(tree_id, cid).await?;
+            saved.citation_id = None;
+        }
+        (None, Some(sid)) => {
+            saved.citation_id = Some(
+                api.create_citation(
+                    tree_id,
+                    &CreateCitationBody {
+                        source_id: sid,
+                        person_id: owner,
+                        event_id,
+                        family_id: None,
+                        page: None,
+                        confidence: Confidence::Medium,
+                        text: None,
+                    },
+                )
+                .await?
+                .id,
+            );
+        }
+        (None, None) => {}
+    }
+
+    // The source that was just let go may now be catalogued but unused:
+    // free-text entry mints one `Source` per distinct title, so a corrected
+    // typo would otherwise leave its row in the tree, and in the source
+    // dictionary, forever. The server keeps any source still referenced, so
+    // this only ever collects what nothing points at.
+    if let Some(previous) = current.source_id
+        && Some(previous) != source_id
+    {
+        let _ = api.delete_source_if_unused(tree_id, previous).await;
+    }
+
+    Ok(saved)
+}
+
+/// The notes textarea + source field themselves, bound to caller-owned
+/// signals. Who saves them differs by target — birth and death ride the
+/// modal's footer Save, the per-event rows save themselves — so this only
+/// renders the fields.
+///
+/// The source is a plain text line, not a picker: a source is typed the way
+/// it is read off the record ("AD44 — Vigneux-de-Bretagne — N — 1913"), and
+/// requiring it to exist first would put a detour in the middle of entering
+/// an event. The title is reconciled against the tree's `Source` rows on
+/// save.
+///
+/// Deliberately no `<datalist>` of existing titles: an imported tree has
+/// thousands of sources, and re-diffing that many `<option>` nodes on every
+/// keystroke made the field unusable. Completion belongs on a debounced
+/// prefix query (`dictionary_sources`), not a list of everything.
+fn render_notes_source_fields(
+    i18n: &crate::i18n::I18n,
+    mut notes: Signal<String>,
+    mut source_title: Signal<String>,
+    on_edit: impl FnMut() + Clone + 'static,
+) -> Element {
+    let i18n = *i18n;
+    let mut on_edit_notes = on_edit.clone();
+    let mut on_edit_source = on_edit;
+    rsx! {
+        div { class: "form-group",
+            label { {i18n.t("person_form.notes")} }
+            textarea {
+                rows: 3,
+                value: "{notes}",
+                oninput: move |e: Event<FormData>| { notes.set(e.value()); on_edit_notes(); },
+            }
+        }
+        div { class: "form-group",
+            label { {i18n.t("person_form.source")} }
+            input {
+                r#type: "text",
+                placeholder: "{i18n.t(\"person_form.source_placeholder\")}",
+                value: "{source_title}",
+                oninput: move |e: Event<FormData>| { source_title.set(e.value()); on_edit_source(); },
+            }
+        }
+    }
+}
+
+/// Notes + source editor for an already-saved event, with its own Save
+/// button — the surrounding lists (professions, other events) have no footer
+/// of their own.
+///
+/// Mounted only while its row is expanded, so a long list of events costs
+/// nothing until one is opened.
+#[component]
+fn EventNotesSource(
+    tree_id: Uuid,
+    person_id: Uuid,
+    event_id: Uuid,
+    on_saved: EventHandler<()>,
+) -> Element {
+    let api = use_context::<ApiClient>();
+    let i18n = use_i18n();
+
+    let mut notes = use_signal(String::new);
+    let mut source_title = use_signal(String::new);
+    let mut loaded = use_signal(|| None::<NotesSource>);
+    let mut saving = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+
+    let api_load = api.clone();
+    let resource = use_resource(move || {
+        let api = api_load.clone();
+        async move { load_notes_source(&api, tree_id, person_id, Some(event_id)).await }
+    });
+
+    if loaded().is_none()
+        && let Some(ns) = &*resource.read()
+    {
+        notes.set(ns.notes.clone());
+        source_title.set(ns.source_title.clone());
+        loaded.set(Some(ns.clone()));
+    }
+
+    let api_save = api.clone();
+    let on_save = move |_| {
+        let api = api_save.clone();
+        let Some(current) = loaded() else { return };
+        let notes_val = notes();
+        let source = source_title();
+        spawn(async move {
+            saving.set(true);
+            error.set(None);
+            match save_notes_source(
+                &api,
+                tree_id,
+                person_id,
+                Some(event_id),
+                &notes_val,
+                &source,
+                &current,
+            )
+            .await
+            {
+                // Adopt the state that was just written, so pressing Save
+                // again reconciles against those rows instead of creating a
+                // second set.
+                Ok(stored) => {
+                    loaded.set(Some(stored));
+                    on_saved.call(());
+                }
+                Err(e) => error.set(Some(format!("{e}"))),
+            }
+            saving.set(false);
+        });
+    };
+
+    rsx! {
+        div { class: "pf-ns-body",
+            if let Some(err) = error() {
+                div { class: "error-msg", "{err}" }
+            }
+            if loaded().is_none() {
+                div { class: "loading", {i18n.t("common.loading")} }
+            } else {
+                {render_notes_source_fields(&i18n, notes, source_title, || {})}
+                div { class: "pf-ns-actions",
+                    button {
+                        class: "pf-confirm-btn",
+                        r#type: "button",
+                        disabled: saving(),
+                        onclick: on_save,
+                        if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                    }
+                }
             }
         }
     }
@@ -2380,7 +3086,7 @@ fn render_information_form(
     };
 
     rsx! {
-        div { style: "padding: 12px; background: var(--color-bg); border-radius: var(--radius); margin-bottom: 12px;",
+        div { class: "pf-subform",
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
             }
@@ -2414,7 +3120,7 @@ fn render_information_form(
                     }
                 }
             }
-            button { class: "btn btn-primary btn-sm", onclick: on_create, {i18n.t("person.create_information")} }
+            button { class: "pf-confirm-btn", r#type: "button", onclick: on_create, {i18n.t("person.create_information")} }
         }
     }
 }
