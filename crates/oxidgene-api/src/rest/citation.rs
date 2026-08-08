@@ -80,6 +80,7 @@ pub async fn update_citation(
     let citation = CitationRepo::update(
         &state.db,
         citation_id,
+        body.source_id,
         body.page,
         body.confidence,
         body.text,

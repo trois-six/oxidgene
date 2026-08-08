@@ -113,7 +113,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/sources` | Create a source |
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source |
-| `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source |
+| `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note or media link still points at it — `204` deleted, `200` kept |
 
 ### Citations
 
@@ -121,7 +121,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 |---|---|---|
 | `GET` | `/trees/{tree_id}/citations` | List citations (filterable by person/event/family) |
 | `POST` | `/trees/{tree_id}/citations` | Create a citation |
-| `PUT` | `/trees/{tree_id}/citations/{citation_id}` | Update a citation |
+| `PUT` | `/trees/{tree_id}/citations/{citation_id}` | Update a citation — including `source_id`, which repoints it at another source in place |
 | `DELETE` | `/trees/{tree_id}/citations/{citation_id}` | Delete a citation |
 
 ### Media
@@ -365,7 +365,7 @@ type Mutation {
   # Sources
   createSource(treeId: ID!, input: CreateSourceInput!): Source!
   updateSource(treeId: ID!, id: ID!, input: UpdateSourceInput!): Source!
-  deleteSource(treeId: ID!, id: ID!): Boolean!
+  deleteSource(treeId: ID!, id: ID!, onlyIfUnused: Boolean! = false): Boolean!
 
   # Citations
   createCitation(treeId: ID!, input: CreateCitationInput!): Citation!

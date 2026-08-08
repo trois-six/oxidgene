@@ -1773,12 +1773,46 @@ pub const LAYOUT_STYLES: &str = r#"
     /* <select> reserves extra native chrome height beyond its padding in
        some engines (e.g. WebKitGTK), rendering taller than a same-padded
        <input> — force both to the same box height so a "Date"/"Lieu" row
-       lines up with a plain text field like "Note". */
+       lines up with a plain text field like "Note".
+
+       The explicit line-height matters just as much: an <input> centres its
+       single line of text in the content box whatever the line-height is,
+       while a <select> lays the selected option out in a line box sized by
+       the inherited one (1.6 from <body> = ~23px, taller than the 20px
+       content box) and top-aligns it. Left alone the two texts sit a couple
+       of pixels apart, which is what made the "Exact" qualifier look off
+       next to the date field. 20px = 38px − 2×8px padding − 2×1px border. */
     .person-form-modal input,
     .person-form-modal select,
     .pf-embedded input,
     .pf-embedded select {
         height: 38px;
+        line-height: 20px;
+    }
+
+    /* Dropping the native appearance is what actually settles the text:
+       while the engine draws the control, it positions the selected option
+       with its own metrics — the padding and line-height above are advisory
+       at best, which is why "Exact" kept sitting off-centre next to the date
+       field. With appearance:none the select is an ordinary box that obeys
+       both, and the arrow becomes ours to place. */
+    .person-form-modal select,
+    .pf-embedded select {
+        appearance: none;
+        -webkit-appearance: none;
+        padding-right: 30px;
+        background-color: var(--bg-card);
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235c5447' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+        background-repeat: no-repeat;
+        background-position: right 11px center;
+        background-size: 10px 6px;
+    }
+
+    /* The arrow is baked into a data URI, so it cannot read a CSS variable —
+       the dark palette needs its own copy. */
+    :root.dark .person-form-modal select,
+    :root.dark .pf-embedded select {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%237a8da8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     }
 
     .person-form-item.editing {
@@ -1830,6 +1864,12 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 2px;
     }
 
+    /* Section headings keep the orange: uppercase, letterspaced and 0.68rem,
+       they read as chapter markers rather than as something clickable, and
+       they are what makes the form's spine scannable. What was actually
+       competing with the save CTA was the orange spent on *buttons* — the
+       add actions are now monochrome (see the button-hierarchy block below),
+       so orange-on-a-control means "press this" and nothing else. */
     .pf-section-title {
         font-size: 0.68rem;
         font-weight: 700;
@@ -1846,10 +1886,143 @@ pub const LAYOUT_STYLES: &str = r#"
         content: "";
         flex: 1;
         height: 1px;
-        background: rgba(255,255,255,0.07);
+        background: var(--border);
     }
 
     .pf-section-title.has-action::after { display: none; }
+
+    /* Heading for a sub-block inside a section (Profession(s), Autres
+       informations, Notes). Deliberately the same weight, size and colour as
+       a field <label> such as "Sexe" — these are peers of the fields around
+       them, not sections of their own. The optional trailing button (add a
+       profession, add a note, ...) rides on the right of the same line. */
+    .pf-block-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        margin-bottom: 6px;
+        color: var(--text-secondary);
+    }
+
+    /* ── Person form — button hierarchy ────────────────────────────────
+       Three tiers, and only three, so a glance answers "what do I press?":
+
+         1. the modal CTA (footer Save) — the only filled orange gradient;
+         2. a sub-form confirm (.pf-confirm-btn) — orange outline on a tint,
+            clearly the action *inside* the open box without competing with
+            the CTA. At most one sub-form is open at a time;
+         3. everything else (.pf-add-btn to open a sub-form, .pf-row-btn for
+            per-row edit/delete) — monochrome until hovered.
+
+       Filled red (.btn-danger) is reserved for a delete that has already
+       been confirmed. A row's own "Supprimer" is tier 3: it turns red on
+       hover, so the modal no longer reads as a column of red blocks.
+
+       Section headings stay orange — they are typographically unmistakable
+       as headings, so they don't compete with a control for the same
+       meaning. The rule is about *buttons*: an orange button is one you are
+       meant to press. */
+
+    .pf-add-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        font-weight: 500;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .pf-add-btn::before {
+        content: "+";
+        font-size: 0.95rem;
+        line-height: 1;
+    }
+
+    .pf-add-btn.is-open::before { content: "\00d7"; }
+
+    .pf-add-btn:hover {
+        color: var(--orange);
+        border-color: var(--orange);
+        background: rgba(224,120,32,0.07);
+    }
+
+    .pf-confirm-btn {
+        padding: 6px 14px;
+        border-radius: 6px;
+        border: 1px solid var(--orange);
+        background: rgba(224,120,32,0.10);
+        color: var(--orange);
+        font-size: 0.82rem;
+        font-weight: 600;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .pf-confirm-btn:hover { background: rgba(224,120,32,0.20); }
+    .pf-confirm-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* Row actions stay legible when idle (muted label, no border) rather
+       than disappearing until hover — hidden-on-hover controls are
+       unreachable on touch — but they only gain a box once pointed at. */
+    .pf-row-btn {
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 5px;
+        padding: 3px 9px;
+        font-size: 0.78rem;
+        font-family: var(--font-sans);
+        color: var(--text-muted);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .pf-row-btn:hover {
+        color: var(--text-primary);
+        border-color: var(--border);
+        background: var(--bg-card-hover);
+    }
+
+    .pf-row-btn.is-active {
+        color: var(--orange);
+        border-color: var(--orange);
+    }
+
+    .pf-row-btn.is-danger:hover {
+        color: var(--color-danger-text);
+        border-color: var(--color-danger-text);
+        background: rgba(224,80,80,0.08);
+    }
+
+    /* An open sub-form ("add a profession", "add a note", ...) sat on
+       --bg-deep, which in the light palette is a hair off the modal's own
+       --bg-panel — the box had no edge and its fields read as part of the
+       surrounding form. Card background + border makes it a distinct
+       container you can see the boundaries of. */
+    .pf-subform {
+        padding: 14px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin-bottom: 12px;
+    }
+
+    .badge-primary {
+        background: rgba(224,120,32,0.12);
+        border-color: var(--orange);
+        color: var(--orange);
+    }
 
     .pf-gender-group {
         display: flex;
@@ -1870,7 +2043,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .pf-gender-btn:hover:not(.active) {
-        border-color: rgba(255,255,255,0.25);
+        border-color: var(--text-muted);
         color: var(--text-primary);
     }
 
@@ -1904,18 +2077,40 @@ pub const LAYOUT_STYLES: &str = r#"
 
     /* ── Date qualifier row ────────────────────────────────────────── */
 
-    .pf-date-row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+    .pf-date-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .pf-date-qualifier-select { flex: 0 0 130px; }
     .pf-date-input { flex: 1; min-width: 100px; }
+    /* Centred with the 38px controls it sits between, rather than pinned to
+       the top of the row by a hand-tuned line-height. */
     .pf-date-separator {
-        line-height: 36px;
+        line-height: 1;
         font-size: 0.82rem;
         color: var(--text-secondary);
         padding: 0 4px;
         white-space: nowrap;
-        align-self: flex-start;
-        padding-top: 7px;
     }
+
+    /* ── Per-event notes & source ──────────────────────────────────── */
+
+    /* The "Notes et source" toggle is a plain row action (.pf-row-btn), and
+       .is-active is what marks its panel as open — it had its own
+       .pf-ns-toggle style, permanently bordered and orange on hover, which
+       made it louder than the Modifier/Supprimer it sits next to. */
+
+    /* Rendered as a sibling right under its .person-form-item row: the row
+       loses its bottom rounding and the panel picks it up, so the two read
+       as one card. */
+    .person-form-item.pf-ns-open { margin-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; }
+    .pf-ns-body {
+        padding: 12px;
+        margin-bottom: 8px;
+        border: 1px solid var(--border);
+        border-top: none;
+        border-radius: 0 0 var(--radius) var(--radius);
+        background: var(--bg-card);
+    }
+    .pf-ns-actions { display: flex; gap: 8px; align-items: center; }
+    .pf-ns-status { font-size: 0.8rem; color: var(--text-secondary); }
 
     /* ── Witnesses list ────────────────────────────────────────────── */
 

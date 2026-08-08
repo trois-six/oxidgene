@@ -306,11 +306,22 @@ pub struct CreateCitationRequest {
 /// Request body for updating a citation.
 #[derive(Debug, Deserialize)]
 pub struct UpdateCitationRequest {
+    /// Repoints the citation at another source.
+    pub source_id: Option<uuid::Uuid>,
     #[serde(default, deserialize_with = "double_option")]
     pub page: Option<Option<String>>,
     pub confidence: Option<Confidence>,
     #[serde(default, deserialize_with = "double_option")]
     pub text: Option<Option<String>>,
+}
+
+/// Query parameters for deleting a source.
+#[derive(Debug, Default, Deserialize)]
+pub struct DeleteSourceQuery {
+    /// Keep the source if any citation, note or media link still points at
+    /// it. Answered by the status code: `204` deleted, `200` kept.
+    #[serde(default)]
+    pub only_if_unused: bool,
 }
 
 /// Query parameters for listing citations by entity.

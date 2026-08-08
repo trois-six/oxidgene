@@ -8,6 +8,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, S
 use uuid::Uuid;
 
 use crate::entities::source::{self, ActiveModel, Column, Entity};
+use crate::entities::{citation, media_link, note};
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for source CRUD operations.
@@ -151,6 +152,61 @@ impl SourceRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         Ok(())
+    }
+
+    /// Soft-deletes a source only if nothing points at it any more, and
+    /// reports whether it did.
+    ///
+    /// Free-text source entry mints a `Source` per distinct title, so a typo
+    /// corrected on the next save would otherwise leave its row in the tree —
+    /// and in the source dictionary — forever. A source is "unused" only when
+    /// no citation, note *and* media link reference it; a source that is
+    /// still cited anywhere is left alone, so this can never take out a
+    /// source the user is relying on.
+    ///
+    /// Returns `Ok(false)` for a source that is still referenced, and for one
+    /// that is already gone — the caller asked for it to be absent, and it is.
+    pub async fn delete_if_unused(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+    ) -> Result<bool, OxidGeneError> {
+        let referenced = |count: u64| count > 0;
+
+        let cited = citation::Entity::find()
+            .filter(citation::Column::SourceId.eq(id))
+            .count(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        if referenced(cited) {
+            return Ok(false);
+        }
+
+        // Notes and media links carry the source optionally, so only rows
+        // that actually name it count.
+        let noted = note::Entity::find()
+            .filter(note::Column::SourceId.eq(id))
+            .filter(note::Column::DeletedAt.is_null())
+            .count(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        if referenced(noted) {
+            return Ok(false);
+        }
+
+        let linked = media_link::Entity::find()
+            .filter(media_link::Column::SourceId.eq(id))
+            .count(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        if referenced(linked) {
+            return Ok(false);
+        }
+
+        match Self::delete(db, id).await {
+            Ok(()) => Ok(true),
+            Err(OxidGeneError::NotFound { .. }) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 }
 

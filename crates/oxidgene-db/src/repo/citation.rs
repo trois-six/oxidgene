@@ -89,9 +89,14 @@ impl CitationRepo {
 
     /// Update a citation.
     #[allow(clippy::too_many_arguments)]
+    /// Updates a citation in place. `source_id` can be repointed at another
+    /// source: a citation carries which record backs a fact, and correcting
+    /// that record is an edit of the same citation — deleting and recreating
+    /// it instead would strand the row every reference to it points at.
     pub async fn update(
         db: &impl ConnectionTrait,
         id: Uuid,
+        source_id: Option<Uuid>,
         page: Option<Option<String>>,
         confidence: Option<Confidence>,
         text: Option<Option<String>>,
@@ -106,6 +111,9 @@ impl CitationRepo {
             })?;
 
         let mut active: ActiveModel = existing.into_active_model();
+        if let Some(source_id) = source_id {
+            active.source_id = Set(source_id);
+        }
         if let Some(page) = page {
             active.page = Set(page);
         }
