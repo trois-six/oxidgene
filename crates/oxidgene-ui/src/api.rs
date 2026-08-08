@@ -348,6 +348,9 @@ pub struct CreateCitationBody {
 
 #[derive(Debug, Serialize)]
 pub struct UpdateCitationBody {
+    /// Repoints the citation at another source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -701,6 +704,25 @@ impl ApiClient {
     }
 
     /// Helper: send a DELETE request expecting 204 No Content.
+    /// Like [`Self::delete_no_content`], but hands back the status code for
+    /// the endpoints that answer with it (see `delete_source_if_unused`).
+    async fn delete_status(&self, path: &str) -> Result<u16, ApiError> {
+        let url = self.url(path);
+        tracing::debug!("DELETE {url}");
+        let resp = self.client.delete(&url).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            tracing::debug!("DELETE {url} -> {status} {body}");
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        tracing::debug!("DELETE {url} -> {status}");
+        Ok(status.as_u16())
+    }
+
     async fn delete_no_content(&self, path: &str) -> Result<(), ApiError> {
         let url = self.url(path);
         tracing::debug!("DELETE {url}");
@@ -1427,6 +1449,19 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(())
+    }
+
+    /// Deletes a source only if no citation, note or media link still points
+    /// at it. Returns whether it was deleted — `false` means it is still in
+    /// use and was kept.
+    pub async fn delete_source_if_unused(&self, tree_id: Uuid, id: Uuid) -> Result<bool, ApiError> {
+        let status = self
+            .delete_status(&format!(
+                "/api/v1/trees/{tree_id}/sources/{id}?only_if_unused=true"
+            ))
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(status == 204)
     }
 
     // ── Dictionary ───────────────────────────────────────────────────

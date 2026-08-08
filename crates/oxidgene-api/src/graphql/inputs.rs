@@ -9,7 +9,7 @@
 //! `double_option` deserializer on the REST side, so both surfaces behave
 //! identically.
 
-use async_graphql::{InputObject, MaybeUndefined};
+use async_graphql::{ID, InputObject, MaybeUndefined};
 
 use super::types::{
     GqlChildType, GqlConfidence, GqlEventType, GqlNameType, GqlPrivacy, GqlSex, GqlSpouseRole,
@@ -200,6 +200,8 @@ pub struct CreateCitationInput {
 /// Input for updating a citation.
 #[derive(Debug, InputObject)]
 pub struct UpdateCitationInput {
+    /// Repoints the citation at another source.
+    pub source_id: Option<ID>,
     pub page: MaybeUndefined<String>,
     pub confidence: Option<GqlConfidence>,
     pub text: MaybeUndefined<String>,

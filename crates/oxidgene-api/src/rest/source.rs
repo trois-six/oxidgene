@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use oxidgene_db::repo::{PaginationParams, SourceRepo};
 use uuid::Uuid;
 
-use super::dto::{CreateSourceRequest, PaginationQuery, UpdateSourceRequest};
+use super::dto::{CreateSourceRequest, DeleteSourceQuery, PaginationQuery, UpdateSourceRequest};
 use super::error::ApiError;
 use super::state::AppState;
 
@@ -91,7 +91,20 @@ pub async fn update_source(
 pub async fn delete_source(
     State(state): State<AppState>,
     Path((_tree_id, source_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<DeleteSourceQuery>,
 ) -> Result<StatusCode, ApiError> {
+    // `only_if_unused` turns the delete into a cleanup: a source still cited
+    // anywhere is kept, which the 200/204 split reports back.
+    if query.only_if_unused {
+        let deleted = SourceRepo::delete_if_unused(&state.db, source_id)
+            .await
+            .map_err(ApiError::from)?;
+        return Ok(if deleted {
+            StatusCode::NO_CONTENT
+        } else {
+            StatusCode::OK
+        });
+    }
     SourceRepo::delete(&state.db, source_id)
         .await
         .map_err(ApiError::from)?;

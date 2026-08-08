@@ -686,9 +686,19 @@ impl MutationRoot {
     }
 
     /// Delete a source (soft delete).
-    async fn delete_source(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    /// With `onlyIfUnused`, the source is kept if any citation, note or media
+    /// link still points at it; the return value says whether it was deleted.
+    async fn delete_source(
+        &self,
+        ctx: &Context<'_>,
+        id: ID,
+        #[graphql(default = false)] only_if_unused: bool,
+    ) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
+        if only_if_unused {
+            return Ok(SourceRepo::delete_if_unused(db, uuid).await?);
+        }
         SourceRepo::delete(db, uuid).await?;
         Ok(true)
     }
@@ -739,9 +749,14 @@ impl MutationRoot {
     ) -> Result<GqlCitation> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
+        let source_id = input
+            .source_id
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .transpose()?;
         let citation = CitationRepo::update(
             db,
             uuid,
+            source_id,
             patch(input.page),
             input.confidence.map(|c| c.into()),
             patch(input.text),

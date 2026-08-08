@@ -599,6 +599,7 @@ async fn source_and_citation_lifecycle() {
     let updated_cit = CitationRepo::update(
         &db,
         cit_id,
+        None,
         Some(Some("p. 43".into())),
         Some(Confidence::VeryHigh),
         None,
@@ -607,6 +608,46 @@ async fn source_and_citation_lifecycle() {
     .unwrap();
     assert_eq!(updated_cit.page.as_deref(), Some("p. 43"));
     assert_eq!(updated_cit.confidence, Confidence::VeryHigh);
+    assert_eq!(
+        updated_cit.source_id, src_id,
+        "source left alone when omitted"
+    );
+
+    // Repoint the citation at another source — the same statement about the
+    // same fact, so it is edited rather than deleted and recreated.
+    let other_src_id = Uuid::now_v7();
+    SourceRepo::create(
+        &db,
+        other_src_id,
+        tree_id,
+        "Civil Register".into(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let repointed = CitationRepo::update(&db, cit_id, Some(other_src_id), None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(repointed.id, cit_id, "same citation row");
+    assert_eq!(repointed.source_id, other_src_id);
+    assert_eq!(
+        repointed.page.as_deref(),
+        Some("p. 43"),
+        "other fields kept"
+    );
+    assert!(
+        CitationRepo::list_by_source(&db, src_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no longer attached to the old source"
+    );
+    CitationRepo::update(&db, cit_id, Some(src_id), None, None, None)
+        .await
+        .unwrap();
 
     // Hard-delete citation
     CitationRepo::delete(&db, cit_id).await.unwrap();
@@ -617,6 +658,82 @@ async fn source_and_citation_lifecycle() {
     SourceRepo::delete(&db, src_id).await.unwrap();
     let err = SourceRepo::get(&db, src_id).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
+}
+
+/// Free-text source entry mints a `Source` per distinct title, so a corrected
+/// typo leaves its row behind. Collecting those must never take out a source
+/// something still points at.
+#[tokio::test]
+async fn source_is_only_collected_once_nothing_points_at_it() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let person_id = create_person(&db, tree_id).await;
+
+    let new_source = async |title: &str| {
+        let id = Uuid::now_v7();
+        SourceRepo::create(&db, id, tree_id, title.into(), None, None, None, None)
+            .await
+            .unwrap();
+        id
+    };
+
+    // Referenced by a citation — the required link.
+    let cited = new_source("Parish Register").await;
+    let cit_id = Uuid::now_v7();
+    CitationRepo::create(
+        &db,
+        cit_id,
+        cited,
+        Some(person_id),
+        None,
+        None,
+        None,
+        Confidence::High,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !SourceRepo::delete_if_unused(&db, cited).await.unwrap(),
+        "a cited source must be kept"
+    );
+    assert_eq!(SourceRepo::get(&db, cited).await.unwrap().id, cited);
+
+    // Referenced by a note — an optional link, and just as binding.
+    let noted = new_source("Census 1901").await;
+    let note_id = Uuid::now_v7();
+    NoteRepo::create(
+        &db,
+        note_id,
+        tree_id,
+        "transcription".into(),
+        None,
+        None,
+        None,
+        Some(noted),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !SourceRepo::delete_if_unused(&db, noted).await.unwrap(),
+        "a source a note names must be kept"
+    );
+
+    // Nothing points at this one: this is the typo case.
+    let orphan = new_source("Parrish Registre").await;
+    assert!(SourceRepo::delete_if_unused(&db, orphan).await.unwrap());
+    let err = SourceRepo::get(&db, orphan).await.unwrap_err();
+    assert!(matches!(err, OxidGeneError::NotFound { .. }));
+
+    // Already gone: the caller asked for it to be absent, and it is.
+    assert!(
+        !SourceRepo::delete_if_unused(&db, orphan).await.unwrap(),
+        "collecting twice is a no-op, not an error"
+    );
+
+    // Dropping the last citation releases the source it was holding.
+    CitationRepo::delete(&db, cit_id).await.unwrap();
+    assert!(SourceRepo::delete_if_unused(&db, cited).await.unwrap());
 }
 
 // ───────────────────────── Media + MediaLink tests ─────────────────────────

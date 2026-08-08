@@ -84,6 +84,35 @@ The modal opens in **edit mode** when the user selects "Edit individual" from th
 - **Cancel** button (ghost style) — closes without saving
 - **Create** button (orange gradient, create mode) or **Save** button (orange gradient, edit mode)
 
+### Button Hierarchy
+
+The modal holds a lot of controls — one "add" per list, two or three actions per
+list row — so their styling is a fixed three-tier rule rather than a per-case
+choice. Without it every control reads as equally urgent and the one that
+matters, the footer save, is lost among them.
+
+| Tier | Role | Treatment | Class |
+|---|---|---|---|
+| 1 | The modal's action | Filled orange gradient + shadow. **Exactly one per modal** | `.btn.btn-primary` |
+| 2 | Commit an open sub-form ("Create the occupation", an inline row editor's Save) | Orange border and text on a 10% orange tint. At most one sub-form is open at a time, so two never coexist | `.pf-confirm-btn` |
+| 3 | Everything else — open a sub-form, edit or delete a row | Monochrome at rest, colour only on hover. Labels stay legible when idle: a control revealed only on hover is unreachable by touch | `.pf-add-btn`, `.pf-row-btn` |
+
+- `.pf-add-btn` prefixes a `+` glyph, swapped for `×` via `.is-open` while its
+  sub-form is showing.
+- `.pf-row-btn.is-danger` is a row's own delete: muted like its neighbours,
+  turning red **on hover only**.
+- `.pf-row-btn.is-active` marks a row whose "Notes & source" panel is expanded.
+- **Filled red (`.btn-danger`) is reserved for a destructive action already
+  behind a confirmation** — the final button of the delete-person prompt (§9)
+  and the discard-unsaved-changes dialog. A row-level delete never uses it.
+- Section headings (`.pf-section-title`) keep the orange. Uppercase,
+  letterspaced and 0.68rem, they cannot be mistaken for a control, and they are
+  what makes the form's spine scannable — the rule above governs buttons only.
+- An open sub-form (`.pf-subform`) sits on `--bg-card` with a border, not on
+  `--bg-deep`: in the light palette the latter is a hair off the modal's own
+  `--bg-panel`, leaving the box edgeless and its fields indistinguishable from
+  the surrounding form.
+
 ---
 
 ## 3. Create Mode — Context Variants
@@ -183,13 +212,21 @@ This ensures GEDCOM round-trip fidelity (GEDCOM `OCCU` tag maps to `EventType::O
 
 Dynamic list of text inputs. Represents known alternate first names (e.g. a common name vs. a registered name). Same add/remove pattern.
 
-### Note on this person
+### Notes on this person
 
-Multi-line textarea, free text. No character limit. Placeholder: "Personal notes, anecdotes, research notes…"
+A list of notes rather than a single field: each row is a `Note` carrying `person_id`, added through **"+ Add a note"** (multi-line textarea), then editable in place (**Edit** expands the row into a textarea with Save / Cancel, writing through `PUT /notes/{id}`) or removable. Notes attached to an event are *not* listed here — they belong to that event's own panel (§5, §9).
+
+The block sits at the end of Civil Status, after Additional Information. Its heading uses the same weight and colour as a field label such as "Gender", not a section title: these blocks are peers of the fields around them.
 
 ### Source
 
-Single text input, free text. Placeholder: "Reference, archive, document title…"
+Free-text input, persisted as a `Citation` carrying `person_id`. Saved with the modal's footer button along with the rest of the section.
+
+**Source fields are text, not pickers.** A source is typed the way it is read off the record — "AD44 — Vigneux-de-Bretagne — N — 1913 — 3E217/46" — and requiring the `Source` row to exist first would put a detour in the middle of entering an event. The typed title is reconciled against the tree's sources on save: a case-insensitive match on the trimmed title reuses that row, anything else creates one. Sources are only touched when the typed title actually changed, so an unrelated save never creates a `Source` row as a side effect, and changing the title repoints the existing citation (`PUT /citations/{id}` with `source_id`) rather than deleting and recreating it. The source it just let go is then collected — `DELETE /sources/{id}?only_if_unused=true` drops it only when no citation, note and media link still names it — so correcting a typo does not leave its `Source` behind, while a source still in use anywhere is kept.
+
+There is deliberately **no completion dropdown**: a `<datalist>` holding every source in the tree had to be re-diffed on each keystroke, which made the field unusable on an imported tree. Completion belongs on a debounced prefix query against `dictionary_sources`, not on a list of everything.
+
+Notes and sources are stored separately on purpose — a `Citation` always needs a `source_id`, so it cannot hold sourceless notes, and folding the notes into `Citation.text` loses them the moment the source is cleared.
 
 ---
 
@@ -222,19 +259,23 @@ When **two fields** are shown (Or / Between), they are displayed side by side wi
 
 Single text input with **place autocomplete** (see [PlaceInput](ui-shared-components.md) §5). Placeholder: "City, postal code, département, region, country…"
 
-### Note
+### Description
 
-Single-line text input, free text.
+Single-line text input, free text — the event's own `description` field. Named "Description" rather than "Note" so it is not confused with the Notes block below, which is backed by `Note` rows.
+
+### Notes
+
+Multi-line textarea, persisted as a `Note` carrying `event_id`.
 
 ### Source
 
-Single-line text input, free text.
+Free-text input (see §4 — Source), persisted as a `Citation` carrying `event_id`. Both fields are saved with the modal's footer button; if no birth event exists yet, they are attached to the event that same save creates.
 
 ---
 
 ## 6. Section: Death
 
-Identical structure to the Birth section. Same date qualifier options, same place/note/source fields.
+Identical structure to the Birth section. Same date qualifier options, same place / description / notes / source fields.
 
 Section divider label: "Death".
 
@@ -333,13 +374,16 @@ Each added event appears as a collapsible block with:
 - **Event type label** as block title (with remove button `×` top-right)
 - **Date** — same date qualifier + field(s) as birth/death
 - **Place** — text input with autocomplete
-- **Note** — free text input
-- **Source** — free text input
+- **Description** — free text input, the event's own `description` field
+- **Notes** — multi-line textarea, persisted as a `Note` carrying `event_id`
+- **Source** — free-text input (see §4 — Source), persisted as a `Citation` carrying `event_id`
 - **Cause** — single-line text input, free text. Relevant for death, burial, and other events where a cause is meaningful. Maps to GEDCOM `CAUS` tag.
 - **Calendar** (supplementary, collapsed by default) — same calendar selector
 - **Witnesses** (supplementary, collapsed by default) — same dynamic list
 
 Blocks can be reordered via drag handle. They are collapsed by default after creation, showing only the event type label and its date summary.
+
+Once saved, an event's row carries a **"Notes & source"** toggle that expands a panel with those two fields and its own Save button — the surrounding lists have no footer of their own. Only one row is open at a time, and the panel is mounted only while open, so a long event list costs nothing until one is expanded. The same toggle appears on each Occupation row in the Civil Status section.
 
 ---
 
