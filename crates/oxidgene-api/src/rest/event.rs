@@ -51,6 +51,10 @@ pub async fn create_event(
         body.person_id,
         body.family_id,
         body.description,
+        body.date_qualifier,
+        body.date_value2,
+        body.calendar,
+        body.cause,
     )
     .await
     .map_err(ApiError::from)?;
@@ -107,10 +111,10 @@ pub async fn update_event(
         body.date_sort,
         body.place_id,
         body.description,
-        None,
-        None,
-        None,
-        None,
+        body.date_qualifier,
+        body.date_value2,
+        body.calendar,
+        body.cause,
     )
     .await
     .map_err(ApiError::from)?;
