@@ -2,7 +2,9 @@
 //!
 //! All tests run against an in-memory SQLite database.
 
-use oxidgene_core::enums::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::enums::{
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Sex, SpouseRole,
+};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo,
@@ -132,6 +134,10 @@ async fn tree_delete_cascades_to_children() {
         Some(person_id),
         None,
         Some("Cultivateur".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .expect("create occupation event");
@@ -389,6 +395,10 @@ async fn event_crud_and_filters() {
         Some(person_id),
         None,
         Some("Born in Paris".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -405,6 +415,10 @@ async fn event_crud_and_filters() {
         None,
         Some(person_id),
         None,
+        None,
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
         None,
     )
     .await
@@ -1356,6 +1370,10 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         Some(p1),
         None,
         Some("Farmer".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -1370,6 +1388,10 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         Some(p1),
         None,
         Some("Farmer".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -1385,6 +1407,10 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         Some(p2),
         None,
         Some("Baker".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -1401,6 +1427,10 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         Some(p2),
         None,
         Some("Farmer".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -1417,6 +1447,10 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         Some(p2),
         None,
         Some("  ".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -1434,6 +1468,10 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         Some(p2),
         None,
         Some("Blacksmith".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -1511,6 +1549,10 @@ async fn dictionary_sources_with_usage_counts_citations() {
         None,
         Some(person_id),
         None,
+        None,
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
         None,
     )
     .await
@@ -1752,6 +1794,10 @@ async fn dictionary_places_with_usage_counts_events() {
         Some(person_id),
         None,
         None,
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
     )
     .await
     .unwrap();
@@ -1765,6 +1811,10 @@ async fn dictionary_places_with_usage_counts_events() {
         Some(used_place),
         Some(person_id),
         None,
+        None,
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
         None,
     )
     .await

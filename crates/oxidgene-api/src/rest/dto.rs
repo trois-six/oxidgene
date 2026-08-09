@@ -1,7 +1,9 @@
 //! Request/response DTOs for REST endpoints.
 
 use oxidgene_core::types::{Place, Source};
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
+use oxidgene_core::{
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
+};
 use serde::{Deserialize, Serialize};
 
 /// Deserializer for update fields that must tell "absent" from `null`.
@@ -204,6 +206,14 @@ pub struct CreateEventRequest {
     pub event_type: EventType,
     pub date_value: Option<String>,
     pub date_sort: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub date_qualifier: DateQualifier,
+    #[serde(default)]
+    pub date_value2: Option<String>,
+    #[serde(default)]
+    pub calendar: Calendar,
+    #[serde(default)]
+    pub cause: Option<String>,
     pub place_id: Option<uuid::Uuid>,
     pub person_id: Option<uuid::Uuid>,
     pub family_id: Option<uuid::Uuid>,
@@ -218,6 +228,12 @@ pub struct UpdateEventRequest {
     pub date_value: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub date_sort: Option<Option<chrono::NaiveDate>>,
+    pub date_qualifier: Option<DateQualifier>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub date_value2: Option<Option<String>>,
+    pub calendar: Option<Calendar>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub cause: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub place_id: Option<Option<uuid::Uuid>>,
     #[serde(default, deserialize_with = "double_option")]

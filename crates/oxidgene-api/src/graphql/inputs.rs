@@ -12,7 +12,8 @@
 use async_graphql::{ID, InputObject, MaybeUndefined};
 
 use super::types::{
-    GqlChildType, GqlConfidence, GqlEventType, GqlNameType, GqlPrivacy, GqlSex, GqlSpouseRole,
+    GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlEventType, GqlNameType,
+    GqlPrivacy, GqlSex, GqlSpouseRole,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -117,6 +118,10 @@ pub struct CreateEventInput {
     pub date_value: Option<String>,
     /// Date for sorting, in YYYY-MM-DD format.
     pub date_sort: Option<String>,
+    pub date_qualifier: Option<GqlDateQualifier>,
+    pub date_value2: Option<String>,
+    pub calendar: Option<GqlCalendar>,
+    pub cause: Option<String>,
     pub place_id: Option<String>,
     pub person_id: Option<String>,
     pub family_id: Option<String>,
@@ -130,6 +135,10 @@ pub struct UpdateEventInput {
     pub date_value: MaybeUndefined<String>,
     /// Date for sorting, in YYYY-MM-DD format.
     pub date_sort: MaybeUndefined<String>,
+    pub date_qualifier: MaybeUndefined<GqlDateQualifier>,
+    pub date_value2: MaybeUndefined<String>,
+    pub calendar: MaybeUndefined<GqlCalendar>,
+    pub cause: MaybeUndefined<String>,
     pub place_id: MaybeUndefined<String>,
     pub description: MaybeUndefined<String>,
 }

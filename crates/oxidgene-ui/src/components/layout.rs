@@ -2079,7 +2079,52 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .pf-date-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .pf-date-qualifier-select { flex: 0 0 130px; }
-    .pf-date-input { flex: 1; min-width: 100px; }
+    .pf-date-widget {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.pf-date-calendar {
+    flex: 0 0 150px;
+    padding: 7px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 13px;
+}
+.pf-date-calendar:focus {
+    outline: none;
+    border-color: var(--accent-gold);
+}
+.pf-date-part {
+    padding: 7px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 13px;
+    text-align: center;
+}
+.pf-date-part:focus {
+    outline: none;
+    border-color: var(--accent-gold);
+}
+.pf-date-dd,
+.pf-date-mm {
+    flex: 0 0 48px;
+}
+.pf-date-yyyy {
+    flex: 0 0 64px;
+}
+.pf-date-literal {
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding-left: 2px;
+}
+.pf-date-input { flex: 1; min-width: 100px; }
     /* Centred with the 38px controls it sits between, rather than pinned to
        the top of the row by a hand-tuned line-height. */
     .pf-date-separator {

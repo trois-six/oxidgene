@@ -9,7 +9,9 @@
 use std::time::Instant;
 
 use oxidgene_api::profile::ProfileService;
-use oxidgene_core::enums::{ChildType, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::enums::{
+    Calendar, ChildType, DateQualifier, EventType, NameType, Sex, SpouseRole,
+};
 use oxidgene_db::repo::{
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PersonDenormRepo, PersonNamePieces,
     PersonNameRepo, PersonRepo, PersonSearchRepo, TreeRepo, connect, run_migrations,
@@ -71,6 +73,10 @@ async fn create_named_person(
             Some(id),
             None,
             None,
+            DateQualifier::default(),
+            None,
+            Calendar::default(),
+            None,
         )
         .await
         .expect("birth event");
@@ -121,6 +127,10 @@ async fn create_family_trio(db: &DatabaseConnection, tree_id: Uuid) -> (Uuid, Uu
         None,
         None,
         Some(family_id),
+        None,
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
         None,
     )
     .await
