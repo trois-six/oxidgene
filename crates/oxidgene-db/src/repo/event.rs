@@ -117,6 +117,10 @@ impl EventRepo {
         person_id: Option<Uuid>,
         family_id: Option<Uuid>,
         description: Option<String>,
+        date_qualifier: DateQualifier,
+        date_value2: Option<String>,
+        calendar: Calendar,
+        cause: Option<String>,
     ) -> Result<Event, OxidGeneError> {
         let now = Utc::now();
         let model = event::ActiveModel {
@@ -125,10 +129,10 @@ impl EventRepo {
             event_type: Set(sea_enums::EventType::from(event_type)),
             date_value: Set(date_value),
             date_sort: Set(date_sort),
-            date_qualifier: Set(sea_enums::DateQualifier::from(DateQualifier::default())),
-            date_value2: Set(None),
-            calendar: Set(sea_enums::Calendar::from(Calendar::default())),
-            cause: Set(None),
+            date_qualifier: Set(sea_enums::DateQualifier::from(date_qualifier)),
+            date_value2: Set(date_value2),
+            calendar: Set(sea_enums::Calendar::from(calendar)),
+            cause: Set(cause),
             place_id: Set(place_id),
             person_id: Set(person_id),
             family_id: Set(family_id),

@@ -62,6 +62,19 @@ where
     }
 }
 
+/// Maps a non-nullable update field (one that can be set or left alone, but
+/// never cleared) from `MaybeUndefined`. `Undefined` and `Null` both leave the
+/// column untouched; only a real value updates it.
+fn patch_scalar<T, U>(value: MaybeUndefined<T>) -> Option<U>
+where
+    U: From<T>,
+{
+    match value {
+        MaybeUndefined::Value(v) => Some(v.into()),
+        _ => None,
+    }
+}
+
 /// Convert a service-layer import summary into its GraphQL shape.
 ///
 /// Shared by every import mutation — the summary is format-agnostic.
@@ -476,6 +489,10 @@ impl MutationRoot {
             person_id,
             family_id,
             input.description,
+            input.date_qualifier.map(Into::into).unwrap_or_default(),
+            input.date_value2,
+            input.calendar.map(Into::into).unwrap_or_default(),
+            input.cause,
         )
         .await?;
         // Invalidate: person event or family event.
@@ -519,10 +536,10 @@ impl MutationRoot {
             date_sort,
             place_id,
             patch(input.description),
-            None,
-            None,
-            None,
-            None,
+            patch_scalar(input.date_qualifier),
+            patch(input.date_value2),
+            patch_scalar(input.calendar),
+            patch(input.cause),
         )
         .await?;
         // Invalidate based on event ownership.
