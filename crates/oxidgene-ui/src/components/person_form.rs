@@ -115,7 +115,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut birth_qualifier = use_signal(|| "Exact".to_string());
     let mut birth_date2 = use_signal(String::new);
     let mut birth_place_id = use_signal(String::new);
-    let mut birth_note = use_signal(String::new);
+    let mut birth_source = use_signal(String::new);
     let mut birth_calendar = use_signal(|| "Gregorian".to_string());
     let mut birth_event_id = use_signal(|| None::<Uuid>);
     let birth_witnesses_tick = use_signal(|| 0u32);
@@ -125,7 +125,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut death_qualifier = use_signal(|| "Exact".to_string());
     let mut death_date2 = use_signal(String::new);
     let mut death_place_id = use_signal(String::new);
-    let mut death_note = use_signal(String::new);
+    let mut death_source = use_signal(String::new);
     let mut death_calendar = use_signal(|| "Gregorian".to_string());
     let mut death_event_id = use_signal(|| None::<Uuid>);
     let death_witnesses_tick = use_signal(|| 0u32);
@@ -136,10 +136,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // Birth and death ride the footer Save like the rest of their section;
     // the person-level pair only exposes a source, since the person's notes
     // are the list under Civil Status.
-    let mut birth_notes = use_signal(String::new);
+    let mut birth_sources = use_signal(String::new);
     let mut birth_source = use_signal(String::new);
     let mut birth_ns = use_signal(NotesSource::default);
-    let mut death_notes = use_signal(String::new);
+    let mut death_sources = use_signal(String::new);
     let mut death_source = use_signal(String::new);
     let mut death_ns = use_signal(NotesSource::default);
     let mut bd_ns_loaded = use_signal(|| false);
@@ -346,7 +346,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     birth_qualifier.set(format!("{:?}", ev.date_qualifier));
                     birth_date2.set(ev.date_value2.clone().unwrap_or_default());
                     birth_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
-                    birth_note.set(ev.description.clone().unwrap_or_default());
+                    birth_source.set(ev.description.clone().unwrap_or_default());
                     birth_calendar.set(format!("{:?}", ev.calendar));
                 }
                 EventType::Death => {
@@ -355,7 +355,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     death_qualifier.set(format!("{:?}", ev.date_qualifier));
                     death_date2.set(ev.date_value2.clone().unwrap_or_default());
                     death_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
-                    death_note.set(ev.description.clone().unwrap_or_default());
+                    death_source.set(ev.description.clone().unwrap_or_default());
                     death_calendar.set(format!("{:?}", ev.calendar));
                 }
                 _ => {}
@@ -369,10 +369,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         && !bd_ns_loaded()
         && let Some((birth, death)) = &*bd_ns_resource.read()
     {
-        birth_notes.set(birth.notes.clone());
+        birth_sources.set(birth.notes.clone());
         birth_source.set(birth.source_title.clone());
         birth_ns.set(birth.clone());
-        death_notes.set(death.notes.clone());
+        death_sources.set(death.notes.clone());
         death_source.set(death.source_title.clone());
         death_ns.set(death.clone());
         bd_ns_loaded.set(true);
@@ -730,19 +730,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             let b_qual = birth_qualifier();
             let b_date2 = birth_date2().trim().to_string();
             let b_place = birth_place_id();
-            let b_note = birth_note().trim().to_string();
+            let b_note = birth_source().trim().to_string();
             let b_cal = birth_calendar();
             let d_date = death_date().trim().to_string();
             let d_qual = death_qualifier();
             let d_date2 = death_date2().trim().to_string();
             let d_place = death_place_id();
-            let d_note = death_note().trim().to_string();
+            let d_note = death_source().trim().to_string();
             let d_cal = death_calendar();
             // Notes + source for both events and for the person.
-            let b_notes = birth_notes();
+            let b_notes = birth_sources();
             let b_source = birth_source();
             let b_ns = birth_ns();
-            let d_notes = death_notes();
+            let d_notes = death_sources();
             let d_source = death_source();
             let d_ns = death_ns();
             let p_source = person_source();
@@ -1787,12 +1787,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 label { {i18n.t("person_form.description")} }
                                 input {
                                     r#type: "text",
-                                    value: "{birth_note}",
-                                    oninput: move |e: Event<FormData>| { birth_note.set(e.value()); has_changes.set(true); },
+                                    value: "{birth_source}",
+                                    oninput: move |e: Event<FormData>| { birth_source.set(e.value()); has_changes.set(true); },
                                 }
                             }
                         }
-                        {render_notes_source_fields(&i18n, birth_notes, birth_source, move || has_changes.set(true))}
+                        {render_notes_source_fields(&i18n, birth_sources, birth_source, move || has_changes.set(true))}
                     }
 
                     hr { class: "pf-section-divider" }
@@ -1846,12 +1846,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 label { {i18n.t("person_form.description")} }
                                 input {
                                     r#type: "text",
-                                    value: "{death_note}",
-                                    oninput: move |e: Event<FormData>| { death_note.set(e.value()); has_changes.set(true); },
+                                    value: "{death_source}",
+                                    oninput: move |e: Event<FormData>| { death_source.set(e.value()); has_changes.set(true); },
                                 }
                             }
                         }
-                        {render_notes_source_fields(&i18n, death_notes, death_source, move || has_changes.set(true))}
+                        {render_notes_source_fields(&i18n, death_sources, death_source, move || has_changes.set(true))}
                     }
 
                     // ── Privacy ──
