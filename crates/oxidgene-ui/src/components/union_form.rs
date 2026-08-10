@@ -12,11 +12,14 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{AddChildBody, ApiClient, CreateEventBody, UpdateEventBody};
-use crate::components::person_form::PersonForm;
+use crate::components::date_input::{DateInput, DateParts};
+use crate::components::person_form::{
+    EventEditor, NotesSource, PersonForm, render_notes_source_fields, save_notes_source,
+};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
 use crate::utils::{opt_str, resolve_name};
-use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType};
+use oxidgene_core::{ChildType, EventType};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -48,16 +51,21 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let mut save_error = use_signal(|| None::<String>);
 
     // Marriage event state (primary/first union event).
-    let mut marriage_date = use_signal(String::new);
+    let mut marriage_parts = use_signal(DateParts::default);
     let mut marriage_place_id = use_signal(String::new);
     let mut marriage_desc = use_signal(String::new);
     let mut marriage_event_id = use_signal(|| None::<Uuid>);
     let mut marriage_loaded = use_signal(|| false);
 
+    // Which union event row is expanded into its full editor.
+    let mut open_union_event = use_signal(|| None::<Uuid>);
+
     // Add union event state.
     let mut show_add_union_event = use_signal(|| false);
     let mut new_union_type = use_signal(|| "Marriage".to_string());
-    let mut new_union_date = use_signal(String::new);
+    let mut new_union_parts = use_signal(DateParts::default);
+    let mut new_union_notes = use_signal(String::new);
+    let mut new_union_source = use_signal(String::new);
     let mut new_union_place = use_signal(String::new);
     let mut new_union_desc = use_signal(String::new);
 
@@ -158,7 +166,12 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     | EventType::MarriageSettlement
             ) {
                 marriage_event_id.set(Some(ev.id));
-                marriage_date.set(ev.date_value.clone().unwrap_or_default());
+                marriage_parts.set(DateParts::from_fields(
+                    ev.calendar,
+                    ev.date_qualifier,
+                    ev.date_value.as_deref(),
+                    ev.date_value2.as_deref(),
+                ));
                 marriage_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
                 marriage_desc.set(ev.description.clone().unwrap_or_default());
                 break;
@@ -260,11 +273,15 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let on_saved_marriage = props.on_saved;
     let on_save_marriage = move |_| {
         let api = api_save_marriage.clone();
-        let date = marriage_date().trim().to_string();
+        let parts = marriage_parts();
         let place_str = marriage_place_id();
         let desc = marriage_desc().trim().to_string();
         let existing_id = marriage_event_id();
         spawn(async move {
+            if let Some(key) = parts.validate() {
+                save_error.set(Some(i18n.t(key)));
+                return;
+            }
             let place_id = if place_str.is_empty() {
                 None
             } else {
@@ -273,11 +290,11 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             if let Some(eid) = existing_id {
                 let body = UpdateEventBody {
                     event_type: Some(EventType::Marriage),
-                    date_value: Some(opt_str(&date)),
-                    date_sort: None,
-                    date_qualifier: None,
-                    date_value2: None,
-                    calendar: None,
+                    date_value: Some(parts.date_value()),
+                    date_sort: Some(parts.date_sort()),
+                    date_qualifier: Some(parts.qualifier),
+                    date_value2: Some(parts.date_value2()),
+                    calendar: Some(parts.calendar),
                     cause: None,
                     place_id: Some(place_id),
                     description: Some(opt_str(&desc)),
@@ -293,11 +310,11 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             } else {
                 let body = CreateEventBody {
                     event_type: EventType::Marriage,
-                    date_value: opt_str(&date),
-                    date_sort: None,
-                    date_qualifier: DateQualifier::default(),
-                    date_value2: None,
-                    calendar: Calendar::default(),
+                    date_value: parts.date_value(),
+                    date_sort: parts.date_sort(),
+                    date_qualifier: parts.qualifier,
+                    date_value2: parts.date_value2(),
+                    calendar: parts.calendar,
                     cause: None,
                     place_id,
                     person_id: None,
@@ -323,10 +340,16 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let on_create_union_event = move |_| {
         let api = api_create_union.clone();
         let evt_type_str = new_union_type();
-        let date = new_union_date().trim().to_string();
+        let parts = new_union_parts();
         let place_str = new_union_place();
         let desc = new_union_desc().trim().to_string();
+        let notes = new_union_notes().trim().to_string();
+        let source = new_union_source();
         spawn(async move {
+            if let Some(key) = parts.validate() {
+                save_error.set(Some(i18n.t(key)));
+                return;
+            }
             let event_type = crate::utils::parse_event_type(&evt_type_str);
             let place_id = if place_str.is_empty() {
                 None
@@ -335,11 +358,11 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             };
             let body = CreateEventBody {
                 event_type,
-                date_value: opt_str(&date),
-                date_sort: None,
-                date_qualifier: DateQualifier::default(),
-                date_value2: None,
-                calendar: Calendar::default(),
+                date_value: parts.date_value(),
+                date_sort: parts.date_sort(),
+                date_qualifier: parts.qualifier,
+                date_value2: parts.date_value2(),
+                calendar: parts.calendar,
                 cause: None,
                 place_id,
                 person_id: None,
@@ -347,11 +370,25 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 description: opt_str(&desc),
             };
             match api.create_event(tid, &body).await {
-                Ok(_) => {
+                Ok(new_event) => {
+                    // Family events carry no person: their notes and source
+                    // are reached through the event itself.
+                    let _ = save_notes_source(
+                        &api,
+                        tid,
+                        None,
+                        Some(new_event.id),
+                        &notes,
+                        &source,
+                        &NotesSource::default(),
+                    )
+                    .await;
                     show_add_union_event.set(false);
-                    new_union_date.set(String::new());
+                    new_union_parts.set(DateParts::default());
                     new_union_place.set(String::new());
                     new_union_desc.set(String::new());
+                    new_union_notes.set(String::new());
+                    new_union_source.set(String::new());
                     save_error.set(None);
                     on_saved_create_union.call(());
                     refresh += 1;
@@ -508,12 +545,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             div { style: "margin-bottom: 12px; padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border);",
                                 div { class: "form-group",
                                     label { {i18n.t("person_form.date")} }
-                                    input {
-                                        r#type: "text",
-                                        placeholder: "{i18n.t(\"union_form.date_placeholder\")}",
-                                        value: "{marriage_date}",
-                                        oninput: move |e: Event<FormData>| marriage_date.set(e.value()),
-                                    }
+                                    DateInput { parts: marriage_parts, i18n, on_change: move |()| {} }
                                 }
                                 div { class: "form-group",
                                     label { {i18n.t("person_form.place")} }
@@ -551,14 +583,22 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     let et = format!("{:?}", evt.event_type);
                                     let date = evt.date_value.clone().unwrap_or_default();
                                     let desc = evt.description.clone().unwrap_or_default();
+                                    let open = open_union_event() == Some(eid);
                                     rsx! {
-                                        div { class: "person-form-item",
+                                        div {
+                                            class: if open { "person-form-item pf-ns-open" } else { "person-form-item" },
                                             div { class: "person-form-item-info",
                                                 span { class: "badge", "{et}" }
-                                                if !date.is_empty() { span { "{date}" } }
-                                                if !desc.is_empty() { span { class: "text-muted", "— {desc}" } }
+                                                if !desc.is_empty() { span { "{desc}" } }
+                                                if !date.is_empty() { span { class: "text-muted", "{date}" } }
                                             }
                                             div { class: "person-form-item-actions",
+                                                button {
+                                                    class: if open { "pf-row-btn is-active" } else { "pf-row-btn" },
+                                                    r#type: "button",
+                                                    onclick: move |_| open_union_event.set(if open { None } else { Some(eid) }),
+                                                    {i18n.t("common.edit")}
+                                                }
                                                 button {
                                                     class: "btn btn-danger btn-sm",
                                                     onclick: {
@@ -578,6 +618,16 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                     },
                                                     {i18n.t("common.remove")}
                                                 }
+                                            }
+                                        }
+                                        if open {
+                                            EventEditor {
+                                                tree_id: tid,
+                                                person_id: None,
+                                                event: evt.clone(),
+                                                description_label: i18n.t("person_form.description"),
+                                                place_options: place_options.clone(),
+                                                on_saved: move |_| { on_saved_del_union.call(()); refresh += 1; },
                                             }
                                         }
                                     }
@@ -620,12 +670,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     }
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.date")} }
-                                        input {
-                                            r#type: "text",
-                                            placeholder: "{i18n.t(\"union_form.date_placeholder\")}",
-                                            value: "{new_union_date}",
-                                            oninput: move |e: Event<FormData>| new_union_date.set(e.value()),
-                                        }
+                                        DateInput { parts: new_union_parts, i18n, on_change: move |()| {} }
                                     }
                                 }
                                 div { class: "form-row",
@@ -649,6 +694,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                         }
                                     }
                                 }
+                                {render_notes_source_fields(&i18n, new_union_notes, new_union_source, || {})}
                                 button {
                                     class: "btn btn-primary btn-sm",
                                     onclick: on_create_union_event,

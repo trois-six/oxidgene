@@ -9,7 +9,6 @@
 use chrono::NaiveDate;
 use dioxus::prelude::*;
 use oxidgene_core::enums::{Calendar, DateQualifier};
-use std::str::FromStr;
 
 use crate::i18n::I18n;
 
@@ -220,6 +219,8 @@ pub fn qualifier_value(q: DateQualifier) -> &'static str {
     match q {
         DateQualifier::Exact => "Exact",
         DateQualifier::About => "About",
+        DateQualifier::Calculated => "Calculated",
+        DateQualifier::Estimated => "Estimated",
         DateQualifier::Perhaps => "Perhaps",
         DateQualifier::Before => "Before",
         DateQualifier::After => "After",
@@ -239,10 +240,39 @@ pub fn calendar_value(c: Calendar) -> &'static str {
     }
 }
 
+/// Inverse of [`qualifier_value`]. Unknown values fall back to the default
+/// rather than erroring: the only producer is our own `<option>` list.
+fn qualifier_from_value(s: &str) -> DateQualifier {
+    match s {
+        "About" => DateQualifier::About,
+        "Calculated" => DateQualifier::Calculated,
+        "Estimated" => DateQualifier::Estimated,
+        "Perhaps" => DateQualifier::Perhaps,
+        "Before" => DateQualifier::Before,
+        "After" => DateQualifier::After,
+        "Or" => DateQualifier::Or,
+        "Between" => DateQualifier::Between,
+        "FromAge" => DateQualifier::FromAge,
+        _ => DateQualifier::Exact,
+    }
+}
+
+/// Inverse of [`calendar_value`].
+fn calendar_from_value(s: &str) -> Calendar {
+    match s {
+        "Julian" => Calendar::Julian,
+        "Hebrew" => Calendar::Hebrew,
+        "FrenchRepublican" => Calendar::FrenchRepublican,
+        _ => Calendar::Gregorian,
+    }
+}
+
 pub fn qualifier_options(i18n: &I18n) -> Element {
     let keys = [
         ("Exact", "exact"),
         ("About", "about"),
+        ("Calculated", "calculated"),
+        ("Estimated", "estimated"),
         ("Perhaps", "perhaps"),
         ("Before", "before"),
         ("After", "after"),
@@ -254,7 +284,7 @@ pub fn qualifier_options(i18n: &I18n) -> Element {
         for (value, key) in keys {
             option {
                 value: "{value}",
-                {i18n.t_args(&format!("date_qualifier.{key}"), &[])}
+                {i18n.t(&format!("date_qualifier.{key}"))}
             }
         }
     }
@@ -271,7 +301,7 @@ pub fn calendar_options(i18n: &I18n) -> Element {
         for (value, key) in keys {
             option {
                 value: "{value}",
-                {i18n.t_args(&format!("calendar.{key}"), &[])}
+                {i18n.t(&format!("calendar.{key}"))}
             }
         }
     }
@@ -292,7 +322,12 @@ fn parse_u8(s: &str) -> Option<u8> {
 }
 
 /// The day / month / year triplet (or its `Or` / `Between` counterpart).
-fn part_inputs(mut parts: Signal<DateParts>, second: bool, i18n: I18n) -> Element {
+fn part_inputs(
+    mut parts: Signal<DateParts>,
+    second: bool,
+    i18n: I18n,
+    on_change: EventHandler<()>,
+) -> Element {
     let p = parts();
     let (d, m, y) = if second {
         (p.day2, p.month2, p.year2)
@@ -312,6 +347,7 @@ fn part_inputs(mut parts: Signal<DateParts>, second: bool, i18n: I18n) -> Elemen
                 let v = parse_u8(&e.value()).filter(|d| (1..=31).contains(d));
                 if second { np.day2 = v; } else { np.day = v; }
                 parts.set(np);
+                on_change.call(());
             },
         }
         input {
@@ -326,6 +362,7 @@ fn part_inputs(mut parts: Signal<DateParts>, second: bool, i18n: I18n) -> Elemen
                 let v = parse_u8(&e.value()).filter(|m| (1..=12).contains(m));
                 if second { np.month2 = v; } else { np.month = v; }
                 parts.set(np);
+                on_change.call(());
             },
         }
         input {
@@ -340,6 +377,7 @@ fn part_inputs(mut parts: Signal<DateParts>, second: bool, i18n: I18n) -> Elemen
                 let v = parse_i32(&e.value());
                 if second { np.year2 = v; } else { np.year = v; }
                 parts.set(np);
+                on_change.call(());
             },
         }
     }
@@ -348,7 +386,13 @@ fn part_inputs(mut parts: Signal<DateParts>, second: bool, i18n: I18n) -> Elemen
 /// Date editor: calendar + qualifier + day/month/year (+ optional second date),
 /// with a localized literal preview underneath.
 #[component]
-pub fn DateInput(parts: Signal<DateParts>, i18n: I18n) -> Element {
+pub fn DateInput(
+    parts: Signal<DateParts>,
+    i18n: I18n,
+    /// Fired on every edit, so the host form can flag itself dirty.
+    on_change: EventHandler<()>,
+) -> Element {
+    let mut parts = parts;
     let p = parts();
     let literal = p.literal(&i18n);
     let sep = if p.qualifier == DateQualifier::Or {
@@ -364,8 +408,9 @@ pub fn DateInput(parts: Signal<DateParts>, i18n: I18n) -> Element {
                     value: calendar_value(p.calendar),
                     onchange: move |e| {
                         let mut np = parts();
-                        np.calendar = Calendar::from_str(&e.value()).unwrap_or_default();
+                        np.calendar = calendar_from_value(&e.value());
                         parts.set(np);
+                        on_change.call(());
                     },
                     {calendar_options(&i18n)}
                 }
@@ -374,15 +419,16 @@ pub fn DateInput(parts: Signal<DateParts>, i18n: I18n) -> Element {
                     value: qualifier_value(p.qualifier),
                     onchange: move |e| {
                         let mut np = parts();
-                        np.qualifier = DateQualifier::from_str(&e.value()).unwrap_or_default();
+                        np.qualifier = qualifier_from_value(&e.value());
                         parts.set(np);
+                        on_change.call(());
                     },
                     {qualifier_options(&i18n)}
                 }
-                {part_inputs(parts, false, i18n)}
+                {part_inputs(parts, false, i18n, on_change)}
                 if p.needs_second_date() {
                     span { class: "pf-date-separator", "{sep}" }
-                    {part_inputs(parts, true, i18n)}
+                    {part_inputs(parts, true, i18n, on_change)}
                 }
             }
             if !literal.is_empty() {
@@ -398,11 +444,11 @@ mod tests {
     use crate::i18n::Language;
 
     fn en() -> I18n {
-        I18n(Language::English)
+        I18n(Language::En)
     }
 
     fn fr() -> I18n {
-        I18n(Language::French)
+        I18n(Language::Fr)
     }
 
     #[test]
@@ -459,8 +505,10 @@ mod tests {
 
     #[test]
     fn date_value_partial() {
-        let mut p = DateParts::default();
-        p.year = Some(1947);
+        let mut p = DateParts {
+            year: Some(1947),
+            ..Default::default()
+        };
         assert_eq!(p.date_value().as_deref(), Some("1947"));
         p.month = Some(2);
         assert_eq!(p.date_value().as_deref(), Some("FEB 1947"));
@@ -468,8 +516,10 @@ mod tests {
 
     #[test]
     fn date_sort_defaults_missing_components() {
-        let mut p = DateParts::default();
-        p.year = Some(1947);
+        let mut p = DateParts {
+            year: Some(1947),
+            ..Default::default()
+        };
         assert_eq!(p.date_sort(), NaiveDate::from_ymd_opt(1947, 1, 1));
         p.month = Some(2);
         assert_eq!(p.date_sort(), NaiveDate::from_ymd_opt(1947, 2, 1));
@@ -477,8 +527,10 @@ mod tests {
 
     #[test]
     fn validate_year_required() {
-        let mut p = DateParts::default();
-        p.month = Some(2);
+        let mut p = DateParts {
+            month: Some(2),
+            ..Default::default()
+        };
         assert_eq!(p.validate(), Some("date.error.year_required"));
         p.year = Some(1947);
         assert_eq!(p.validate(), None);
@@ -486,9 +538,11 @@ mod tests {
 
     #[test]
     fn validate_day_requires_month() {
-        let mut p = DateParts::default();
-        p.year = Some(1947);
-        p.day = Some(23);
+        let mut p = DateParts {
+            year: Some(1947),
+            day: Some(23),
+            ..Default::default()
+        };
         assert_eq!(p.validate(), Some("date.error.day_requires_month"));
         p.month = Some(2);
         assert_eq!(p.validate(), None);
@@ -496,9 +550,11 @@ mod tests {
 
     #[test]
     fn validate_second_date_year_required() {
-        let mut p = DateParts::default();
-        p.qualifier = DateQualifier::Between;
-        p.year = Some(1940);
+        let mut p = DateParts {
+            qualifier: DateQualifier::Between,
+            year: Some(1940),
+            ..Default::default()
+        };
         assert_eq!(p.validate(), Some("date.error.year_required"));
         p.year2 = Some(1950);
         assert_eq!(p.validate(), None);
@@ -506,21 +562,25 @@ mod tests {
 
     #[test]
     fn literal_localized() {
-        let mut p = DateParts::default();
-        p.year = Some(1947);
-        p.month = Some(2);
-        p.day = Some(23);
+        let p = DateParts {
+            year: Some(1947),
+            month: Some(2),
+            day: Some(23),
+            ..Default::default()
+        };
         assert_eq!(p.literal(&en()), "23 Feb 1947");
         assert_eq!(p.literal(&fr()), "23 févr. 1947");
     }
 
     #[test]
     fn literal_between_includes_second_date() {
-        let mut p = DateParts::default();
-        p.qualifier = DateQualifier::Between;
-        p.year = Some(1940);
-        p.year2 = Some(1950);
-        p.month2 = Some(6);
+        let p = DateParts {
+            qualifier: DateQualifier::Between,
+            year: Some(1940),
+            year2: Some(1950),
+            month2: Some(6),
+            ..Default::default()
+        };
         assert_eq!(p.literal(&en()), "1940 and Jun 1950");
     }
 }

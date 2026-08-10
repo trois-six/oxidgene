@@ -190,6 +190,8 @@ impl From<GqlChildType> for oxidgene_core::ChildType {
 pub enum GqlDateQualifier {
     Exact,
     About,
+    Calculated,
+    Estimated,
     Perhaps,
     Before,
     After,
@@ -203,6 +205,8 @@ impl From<oxidgene_core::DateQualifier> for GqlDateQualifier {
         match d {
             oxidgene_core::DateQualifier::Exact => Self::Exact,
             oxidgene_core::DateQualifier::About => Self::About,
+            oxidgene_core::DateQualifier::Calculated => Self::Calculated,
+            oxidgene_core::DateQualifier::Estimated => Self::Estimated,
             oxidgene_core::DateQualifier::Perhaps => Self::Perhaps,
             oxidgene_core::DateQualifier::Before => Self::Before,
             oxidgene_core::DateQualifier::After => Self::After,
@@ -218,6 +222,8 @@ impl From<GqlDateQualifier> for oxidgene_core::DateQualifier {
         match d {
             GqlDateQualifier::Exact => Self::Exact,
             GqlDateQualifier::About => Self::About,
+            GqlDateQualifier::Calculated => Self::Calculated,
+            GqlDateQualifier::Estimated => Self::Estimated,
             GqlDateQualifier::Perhaps => Self::Perhaps,
             GqlDateQualifier::Before => Self::Before,
             GqlDateQualifier::After => Self::After,

@@ -124,6 +124,8 @@ pub fn parse_event_type(s: &str) -> EventType {
 pub fn parse_date_qualifier(s: &str) -> DateQualifier {
     match s {
         "About" => DateQualifier::About,
+        "Calculated" => DateQualifier::Calculated,
+        "Estimated" => DateQualifier::Estimated,
         "Perhaps" => DateQualifier::Perhaps,
         "Before" => DateQualifier::Before,
         "After" => DateQualifier::After,

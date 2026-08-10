@@ -2079,52 +2079,25 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .pf-date-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .pf-date-qualifier-select { flex: 0 0 130px; }
+    /* Only sizing here: the box itself (background, border, height, radius,
+       and the select chevron) comes from the shared .person-form-modal
+       input/select rules above, so these fields cannot drift from the rest
+       of the modal. */
     .pf-date-widget {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.pf-date-calendar {
-    flex: 0 0 150px;
-    padding: 7px 10px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 13px;
-}
-.pf-date-calendar:focus {
-    outline: none;
-    border-color: var(--accent-gold);
-}
-.pf-date-part {
-    padding: 7px 8px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 13px;
-    text-align: center;
-}
-.pf-date-part:focus {
-    outline: none;
-    border-color: var(--accent-gold);
-}
-.pf-date-dd,
-.pf-date-mm {
-    flex: 0 0 48px;
-}
-.pf-date-yyyy {
-    flex: 0 0 64px;
-}
-.pf-date-literal {
-    font-size: 11px;
-    color: var(--text-secondary);
-    padding-left: 2px;
-}
-.pf-date-input { flex: 1; min-width: 100px; }
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .pf-date-calendar { flex: 0 0 150px; }
+    .pf-date-part { text-align: center; }
+    .pf-date-dd,
+    .pf-date-mm { flex: 0 0 56px; }
+    .pf-date-yyyy { flex: 0 0 72px; }
+    .pf-date-literal {
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        padding-left: 2px;
+    }
     /* Centred with the 38px controls it sits between, rather than pinned to
        the top of the row by a hand-tuned line-height. */
     .pf-date-separator {
@@ -2179,43 +2152,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     .pf-witness-remove:hover { border-color: #e05050; color: #e05050; }
 
-    /* ── Collapsible additional fields ─────────────────────────────── */
-
-    .pf-collapsible-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        cursor: pointer;
-        user-select: none;
-    }
-    .pf-collapsible-toggle {
-        background: none;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-size: 0.75rem;
-        padding: 2px 10px;
-        line-height: 1.6;
-        transition: border-color 0.15s, color 0.15s;
-    }
-    .pf-collapsible-toggle:hover { border-color: var(--orange); color: var(--orange); }
-
-    .pf-additional-body { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
-    .pf-additional-group {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 12px 14px;
-    }
-    .pf-additional-group-title {
-        font-size: 0.72rem;
-        font-weight: 700;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin-bottom: 10px;
-    }
 
     /* ── Delete person section ─────────────────────────────────────── */
 

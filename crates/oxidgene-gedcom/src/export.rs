@@ -747,8 +747,16 @@ fn to_ged_detail(
     warnings: &mut Vec<String>,
 ) -> GedDetail {
     let event = convert_event_type(evt.event_type);
-    let date = evt.date_value.as_ref().map(|dv| Date {
-        value: Some(dv.clone()),
+    // Recompose the calendar escape and qualifier tag the columns were split
+    // from on import — see `crate::date`.
+    let date = crate::date::format(
+        evt.calendar,
+        evt.date_qualifier,
+        evt.date_value.as_deref(),
+        evt.date_value2.as_deref(),
+    )
+    .map(|value| Date {
+        value: Some(value),
         ..Default::default()
     });
 
@@ -928,8 +936,16 @@ fn to_ged_attribute_detail(
     source_xref: &HashMap<Uuid, String>,
     warnings: &mut Vec<String>,
 ) -> GedAttributeDetail {
-    let date = evt.date_value.as_ref().map(|dv| Date {
-        value: Some(dv.clone()),
+    // Recompose the calendar escape and qualifier tag the columns were split
+    // from on import — see `crate::date`.
+    let date = crate::date::format(
+        evt.calendar,
+        evt.date_qualifier,
+        evt.date_value.as_deref(),
+        evt.date_value2.as_deref(),
+    )
+    .map(|value| Date {
+        value: Some(value),
         ..Default::default()
     });
 
