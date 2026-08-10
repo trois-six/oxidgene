@@ -943,6 +943,8 @@ fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
         ("slgs", EventType::SealingSpouse),
         ("scellent parent lds", EventType::SealingParent),
         ("family link lds", EventType::FamilyLinkLds),
+        ("bapl", EventType::LdsBaptism),
+        ("conl", EventType::LdsConfirmation),
         ("unmarried", EventType::NoMarriage),
         ("nomen", EventType::NoMention),
     ];
@@ -1663,6 +1665,8 @@ mod event_type_text_tests {
             ("Military promotion", EventType::MilitaryPromotion),
             ("Military mobilization", EventType::MilitaryMobilization),
             ("Property sale", EventType::PropertySale),
+            ("BAPL", EventType::LdsBaptism),
+            ("CONL", EventType::LdsConfirmation),
             ("ENDL", EventType::Endowment),
             ("DotationLDS", EventType::LdsDotation),
             ("SLGC", EventType::SealingChild),

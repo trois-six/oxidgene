@@ -271,7 +271,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let ctx_person_name: String = {
         let ctx = context_menu_person();
         match ctx {
-            Some((pid, _, _)) => resolve_name(pid, &name_map),
+            Some((pid, _, _)) => resolve_name(pid, &name_map, &i18n),
             None => String::new(),
         }
     };

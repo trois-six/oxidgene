@@ -712,6 +712,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("event.type.family_link_lds", "Lien familial (LDS)"),
         ("event.type.no_marriage", "Sans mariage"),
         ("event.type.no_mention", "Sans mention"),
+                ("event.type.lds_baptism", "Bapt\u{00EA}me LDS"),
+        ("event.type.lds_confirmation", "Confirmation LDS"),
         ("event.type.fact", "Fait"),
         ("event.type.other", "\u{00C9}v\u{00E9}nement"),
         // ── Pedigree event short labels ─────────────────────────────

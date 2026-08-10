@@ -406,7 +406,7 @@ fn TreeRootsSection(
                             .push(name.clone());
                     }
                     let rid = current_sosa_root.unwrap();
-                    Some(resolve_name(rid, &name_map))
+                    Some(resolve_name(rid, &name_map, &i18n))
                 }
                 Some(None) => Some(i18n.t("common.unknown")),
                 None => Some(i18n.t("common.loading")),

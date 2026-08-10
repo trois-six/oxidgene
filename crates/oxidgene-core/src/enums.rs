@@ -331,6 +331,10 @@ pub enum EventType {
     NoMarriage,
     /// GeneWeb generic `EVEN` labelled `nomen`.
     NoMention,
+    /// GeneWeb generic `EVEN` labelled `BAPL`.
+    LdsBaptism,
+    /// GeneWeb generic `EVEN` labelled `CONL`.
+    LdsConfirmation,
     // Generic
     Other,
 }
@@ -471,6 +475,8 @@ impl std::fmt::Display for EventType {
             Self::FamilyLinkLds => write!(f, "family_link_lds"),
             Self::NoMarriage => write!(f, "no_marriage"),
             Self::NoMention => write!(f, "no_mention"),
+            Self::LdsBaptism => write!(f, "lds_baptism"),
+            Self::LdsConfirmation => write!(f, "lds_confirmation"),
             Self::Other => write!(f, "other"),
         }
     }

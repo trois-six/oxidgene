@@ -2595,8 +2595,9 @@ dependencies = [
 
 [[package]]
 name = "geneweb"
-version = "0.1.1"
-source = "git+https://github.com/trois-six/rust-geneweb?branch=main#dac7981953ecd92fea64d67bc7a86ad1d0a35916"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06bb95e5129675eb6e0cb2bd4ef42bbbf3479ab97857227ac6bb0ab50085cc36"
 dependencies = [
  "ged_io",
 ]
@@ -6998,7 +6999,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
