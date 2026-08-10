@@ -2230,6 +2230,8 @@ fn event_type_options(i18n: &crate::i18n::I18n) -> Element {
             option { value: "SealingParent", {i18n.t("event.type.sealing_parent")} }
             option { value: "FamilyLinkLds", {i18n.t("event.type.family_link_lds")} }
             option { value: "NoMarriage", {i18n.t("event.type.no_marriage")} }
+            option { value: "LdsBaptism", {i18n.t("event.type.lds_baptism")} }
+            option { value: "LdsConfirmation", {i18n.t("event.type.lds_confirmation")} }
             option { value: "NoMention", {i18n.t("event.type.no_mention")} }
         }
         optgroup { label: "{i18n.t(\"person_form.legal\")}",

@@ -747,6 +747,8 @@ fn convert_event_type(et: EventType) -> GedEvent {
         | EventType::SealingParent
         | EventType::FamilyLinkLds
         | EventType::NoMarriage
+        | EventType::LdsBaptism
+        | EventType::LdsConfirmation
         | EventType::NoMention => GedEvent::Event,
     }
 }
@@ -786,6 +788,8 @@ fn gedcom_type_label(et: EventType) -> Option<&'static str> {
         EventType::SealingParent => Some("Scellent parent LDS"),
         EventType::FamilyLinkLds => Some("Family link LDS"),
         EventType::NoMarriage => Some("unmarried"),
+        EventType::LdsBaptism => Some("BAPL"),
+        EventType::LdsConfirmation => Some("CONL"),
         EventType::NoMention => Some("nomen"),
         _ => None,
     }
