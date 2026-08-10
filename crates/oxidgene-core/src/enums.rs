@@ -141,6 +141,10 @@ pub enum DateQualifier {
     #[default]
     Exact,
     About,
+    /// Worked out from other facts (GEDCOM `CAL`).
+    Calculated,
+    /// Guessed from indirect evidence (GEDCOM `EST`).
+    Estimated,
     Perhaps,
     Before,
     After,
@@ -154,6 +158,8 @@ impl std::fmt::Display for DateQualifier {
         match self {
             Self::Exact => write!(f, "exact"),
             Self::About => write!(f, "about"),
+            Self::Calculated => write!(f, "calculated"),
+            Self::Estimated => write!(f, "estimated"),
             Self::Perhaps => write!(f, "perhaps"),
             Self::Before => write!(f, "before"),
             Self::After => write!(f, "after"),

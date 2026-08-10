@@ -1,10 +1,13 @@
 //! Modal-based person edit form — single scrollable body with section dividers.
 //!
-//! Sections: Civil Status · Birth · Death · Privacy · Additional Fields ·
-//!           Other Events · Notes.
+//! Sections: Civil Status · Birth · Death · Privacy · Other Events · Notes.
 //! A single footer Save button persists sex + privacy + birth event + death event
-//! (including qualifier, calendar, witnesses) and closes the modal.
-//! Name, event, and note CRUD use inline per-item saves.
+//! and closes the modal. Name, event, and note CRUD use inline per-item saves.
+//!
+//! Every date in the form — birth, death, professions, other events — is edited
+//! through the one [`DateInput`] widget, so calendar and qualifier sit with the
+//! date they qualify rather than in a panel of their own. Witnesses likewise
+//! live in the event's own block.
 
 use dioxus::prelude::*;
 use uuid::Uuid;
@@ -14,16 +17,15 @@ use crate::api::{
     CreateNoteBody, CreatePersonBody, CreatePersonNameBody, CreateSourceBody, UpdateCitationBody,
     UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
+use crate::components::date_input::{DateInput, DateParts};
 use crate::i18n::use_i18n;
 use crate::utils::{
-    name_type_label_key, name_type_value, opt_str, parse_calendar, parse_date_qualifier,
-    parse_event_type, parse_name_type, parse_privacy, parse_sex,
+    name_type_label_key, name_type_value, opt_str, parse_event_type, parse_name_type,
+    parse_privacy, parse_sex,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle, split_surname_with};
-use oxidgene_core::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, SpouseRole,
-};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, SpouseRole};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -111,22 +113,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut edit_name_error = use_signal(|| None::<String>);
 
     // ── Birth state ──
-    let mut birth_date = use_signal(String::new);
-    let mut birth_qualifier = use_signal(|| "Exact".to_string());
-    let mut birth_date2 = use_signal(String::new);
+    // Calendar, qualifier and the day/month/year triplet all live in DateParts,
+    // which is what the DateInput widget edits.
+    let mut birth_parts = use_signal(DateParts::default);
     let mut birth_place_id = use_signal(String::new);
-    let mut birth_source = use_signal(String::new);
-    let mut birth_calendar = use_signal(|| "Gregorian".to_string());
     let mut birth_event_id = use_signal(|| None::<Uuid>);
     let birth_witnesses_tick = use_signal(|| 0u32);
 
     // ── Death state ──
-    let mut death_date = use_signal(String::new);
-    let mut death_qualifier = use_signal(|| "Exact".to_string());
-    let mut death_date2 = use_signal(String::new);
+    let mut death_parts = use_signal(DateParts::default);
     let mut death_place_id = use_signal(String::new);
-    let mut death_source = use_signal(String::new);
-    let mut death_calendar = use_signal(|| "Gregorian".to_string());
     let mut death_event_id = use_signal(|| None::<Uuid>);
     let death_witnesses_tick = use_signal(|| 0u32);
 
@@ -136,10 +132,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // Birth and death ride the footer Save like the rest of their section;
     // the person-level pair only exposes a source, since the person's notes
     // are the list under Civil Status.
-    let mut birth_sources = use_signal(String::new);
+    let mut birth_notes = use_signal(String::new);
     let mut birth_source = use_signal(String::new);
     let mut birth_ns = use_signal(NotesSource::default);
-    let mut death_sources = use_signal(String::new);
+    let mut death_notes = use_signal(String::new);
     let mut death_source = use_signal(String::new);
     let mut death_ns = use_signal(NotesSource::default);
     let mut bd_ns_loaded = use_signal(|| false);
@@ -150,13 +146,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // panel open — at most one at a time.
     let mut open_event_notes = use_signal(|| None::<Uuid>);
 
-    // ── Additional fields panel ──
-    let mut show_additional = use_signal(|| false);
-
     // ── Profession(s) CRUD state ──
     let mut show_profession_form = use_signal(|| false);
     let mut profession_form_label = use_signal(String::new);
-    let mut profession_form_date = use_signal(String::new);
+    let mut profession_form_parts = use_signal(DateParts::default);
     let mut profession_form_place_id = use_signal(String::new);
     let mut profession_form_notes = use_signal(String::new);
     let mut profession_form_source = use_signal(String::new);
@@ -165,9 +158,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // ── Other event CRUD state ──
     let mut show_event_form = use_signal(|| false);
     let mut event_form_type = use_signal(|| "Baptism".to_string());
-    let mut event_form_date = use_signal(String::new);
+    let mut event_form_parts = use_signal(DateParts::default);
     let mut event_form_place_id = use_signal(String::new);
-    let mut event_form_note = use_signal(String::new);
+    let mut event_form_description = use_signal(String::new);
     let mut event_form_cause = use_signal(String::new);
     let mut event_form_notes = use_signal(String::new);
     let mut event_form_source = use_signal(String::new);
@@ -282,11 +275,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 }
             }
             let birth = match birth_eid {
-                Some(eid) => load_notes_source(&api, tid, pid, Some(eid)).await,
+                Some(eid) => load_notes_source(&api, tid, Some(pid), Some(eid)).await,
                 None => NotesSource::default(),
             };
             let death = match death_eid {
-                Some(eid) => load_notes_source(&api, tid, pid, Some(eid)).await,
+                Some(eid) => load_notes_source(&api, tid, Some(pid), Some(eid)).await,
                 None => NotesSource::default(),
             };
             (birth, death)
@@ -301,7 +294,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             if is_create {
                 return NotesSource::default();
             }
-            load_notes_source(&api, tid, pid, None).await
+            load_notes_source(&api, tid, Some(pid), None).await
         }
     });
 
@@ -342,21 +335,23 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             match ev.event_type {
                 EventType::Birth => {
                     birth_event_id.set(Some(ev.id));
-                    birth_date.set(ev.date_value.clone().unwrap_or_default());
-                    birth_qualifier.set(format!("{:?}", ev.date_qualifier));
-                    birth_date2.set(ev.date_value2.clone().unwrap_or_default());
+                    birth_parts.set(DateParts::from_fields(
+                        ev.calendar,
+                        ev.date_qualifier,
+                        ev.date_value.as_deref(),
+                        ev.date_value2.as_deref(),
+                    ));
                     birth_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
-                    birth_source.set(ev.description.clone().unwrap_or_default());
-                    birth_calendar.set(format!("{:?}", ev.calendar));
                 }
                 EventType::Death => {
                     death_event_id.set(Some(ev.id));
-                    death_date.set(ev.date_value.clone().unwrap_or_default());
-                    death_qualifier.set(format!("{:?}", ev.date_qualifier));
-                    death_date2.set(ev.date_value2.clone().unwrap_or_default());
+                    death_parts.set(DateParts::from_fields(
+                        ev.calendar,
+                        ev.date_qualifier,
+                        ev.date_value.as_deref(),
+                        ev.date_value2.as_deref(),
+                    ));
                     death_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
-                    death_source.set(ev.description.clone().unwrap_or_default());
-                    death_calendar.set(format!("{:?}", ev.calendar));
                 }
                 _ => {}
             }
@@ -369,10 +364,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         && !bd_ns_loaded()
         && let Some((birth, death)) = &*bd_ns_resource.read()
     {
-        birth_sources.set(birth.notes.clone());
+        birth_notes.set(birth.notes.clone());
         birth_source.set(birth.source_title.clone());
         birth_ns.set(birth.clone());
-        death_sources.set(death.notes.clone());
+        death_notes.set(death.notes.clone());
         death_source.set(death.source_title.clone());
         death_ns.set(death.clone());
         bd_ns_loaded.set(true);
@@ -494,16 +489,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
     };
 
-    // Whether qualifier needs a second date input.
-    let birth_needs_date2 = matches!(
-        parse_date_qualifier(&birth_qualifier()),
-        DateQualifier::Or | DateQualifier::Between
-    );
-    let death_needs_date2 = matches!(
-        parse_date_qualifier(&death_qualifier()),
-        DateQualifier::Or | DateQualifier::Between
-    );
-
     // ── Handlers ──
 
     let api_create_name = api.clone();
@@ -552,13 +537,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let on_create_event = move |_| {
         let api = api_create_event.clone();
         let event_type_str = event_form_type();
-        let date = event_form_date().trim().to_string();
+        let parts = event_form_parts();
         let place_str = event_form_place_id();
-        let note = event_form_note().trim().to_string();
+        let desc = event_form_description().trim().to_string();
         let cause = event_form_cause().trim().to_string();
         let notes = event_form_notes().trim().to_string();
         let source = event_form_source();
         spawn(async move {
+            if let Some(key) = parts.validate() {
+                event_form_error.set(Some(i18n.t(key)));
+                return;
+            }
             let place_id = if place_str.is_empty() {
                 None
             } else {
@@ -566,23 +555,23 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             };
             let body = CreateEventBody {
                 event_type: parse_event_type(&event_type_str),
-                date_value: opt_str(&date),
-                date_sort: None,
-                date_qualifier: DateQualifier::default(),
-                date_value2: None,
-                calendar: Calendar::default(),
+                date_value: parts.date_value(),
+                date_sort: parts.date_sort(),
+                date_qualifier: parts.qualifier,
+                date_value2: parts.date_value2(),
+                calendar: parts.calendar,
                 cause: opt_str(&cause),
                 place_id,
                 person_id: Some(pid),
                 family_id: None,
-                description: opt_str(&note),
+                description: opt_str(&desc),
             };
             match api.create_event(tid, &body).await {
                 Ok(new_event) => {
                     let _ = save_notes_source(
                         &api,
                         tid,
-                        pid,
+                        Some(pid),
                         Some(new_event.id),
                         &notes,
                         &source,
@@ -591,9 +580,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     .await;
                     show_event_form.set(false);
                     event_form_type.set("Baptism".to_string());
-                    event_form_date.set(String::new());
+                    event_form_parts.set(DateParts::default());
                     event_form_place_id.set(String::new());
-                    event_form_note.set(String::new());
+                    event_form_description.set(String::new());
                     event_form_cause.set(String::new());
                     event_form_notes.set(String::new());
                     event_form_source.set(String::new());
@@ -614,13 +603,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let on_create_profession = move |_| {
         let api = api_create_profession.clone();
         let label = profession_form_label().trim().to_string();
-        let date = profession_form_date().trim().to_string();
+        let parts = profession_form_parts();
         let place_str = profession_form_place_id();
         let notes = profession_form_notes().trim().to_string();
         let source = profession_form_source();
         spawn(async move {
             if label.is_empty() {
                 profession_form_error.set(Some(i18n.t("person_form.profession_required")));
+                return;
+            }
+            if let Some(key) = parts.validate() {
+                profession_form_error.set(Some(i18n.t(key)));
                 return;
             }
             let place_id = if place_str.is_empty() {
@@ -630,11 +623,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             };
             let body = CreateEventBody {
                 event_type: EventType::Occupation,
-                date_value: opt_str(&date),
-                date_sort: None,
-                date_qualifier: DateQualifier::default(),
-                date_value2: None,
-                calendar: Calendar::default(),
+                date_value: parts.date_value(),
+                date_sort: parts.date_sort(),
+                date_qualifier: parts.qualifier,
+                date_value2: parts.date_value2(),
+                calendar: parts.calendar,
                 cause: None,
                 place_id,
                 person_id: Some(pid),
@@ -646,7 +639,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     let _ = save_notes_source(
                         &api,
                         tid,
-                        pid,
+                        Some(pid),
                         Some(new_event.id),
                         &notes,
                         &source,
@@ -655,7 +648,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     .await;
                     show_profession_form.set(false);
                     profession_form_label.set(String::new());
-                    profession_form_date.set(String::new());
+                    profession_form_parts.set(DateParts::default());
                     profession_form_place_id.set(String::new());
                     profession_form_notes.set(String::new());
                     profession_form_source.set(String::new());
@@ -726,23 +719,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             // Event form values
             let birth_eid = birth_event_id();
             let death_eid = death_event_id();
-            let b_date = birth_date().trim().to_string();
-            let b_qual = birth_qualifier();
-            let b_date2 = birth_date2().trim().to_string();
+            let b_parts = birth_parts();
             let b_place = birth_place_id();
-            let b_note = birth_source().trim().to_string();
-            let b_cal = birth_calendar();
-            let d_date = death_date().trim().to_string();
-            let d_qual = death_qualifier();
-            let d_date2 = death_date2().trim().to_string();
+            let d_parts = death_parts();
             let d_place = death_place_id();
-            let d_note = death_source().trim().to_string();
-            let d_cal = death_calendar();
             // Notes + source for both events and for the person.
-            let b_notes = birth_sources();
+            let b_notes = birth_notes();
             let b_source = birth_source();
             let b_ns = birth_ns();
-            let d_notes = death_sources();
+            let d_notes = death_notes();
             let d_source = death_source();
             let d_ns = death_ns();
             let p_source = person_source();
@@ -758,6 +743,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             spawn(async move {
                 if bn_given.is_empty() || bn_surname.is_empty() {
                     save_error.set(Some(i18n.t("person_form.birth_identity_required")));
+                    return;
+                }
+                if let Some(key) = b_parts.validate().or_else(|| d_parts.validate()) {
+                    save_error.set(Some(i18n.t(key)));
                     return;
                 }
 
@@ -809,26 +798,26 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     } else {
                         b_place.parse::<Uuid>().ok()
                     };
-                    if !b_date.is_empty() || b_place_id.is_some() {
+                    if !b_parts.is_empty() || b_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Birth,
-                            date_value: opt_str(&b_date),
-                            date_sort: None,
-                            date_qualifier: parse_date_qualifier(&b_qual),
-                            date_value2: opt_str(&b_date2),
-                            calendar: parse_calendar(&b_cal),
+                            date_value: b_parts.date_value(),
+                            date_sort: b_parts.date_sort(),
+                            date_qualifier: b_parts.qualifier,
+                            date_value2: b_parts.date_value2(),
+                            calendar: b_parts.calendar,
                             cause: None,
                             place_id: b_place_id,
                             person_id: Some(new_pid),
                             family_id: None,
-                            description: opt_str(&b_note),
+                            description: None,
                         };
                         match api.create_event(tid, &body).await {
                             Ok(ev) => {
                                 let _ = save_notes_source(
                                     &api,
                                     tid,
-                                    new_pid,
+                                    Some(new_pid),
                                     Some(ev.id),
                                     &b_notes,
                                     &b_source,
@@ -850,26 +839,26 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     } else {
                         d_place.parse::<Uuid>().ok()
                     };
-                    if !d_date.is_empty() || d_place_id.is_some() {
+                    if !d_parts.is_empty() || d_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Death,
-                            date_value: opt_str(&d_date),
-                            date_sort: None,
-                            date_qualifier: parse_date_qualifier(&d_qual),
-                            date_value2: opt_str(&d_date2),
-                            calendar: parse_calendar(&d_cal),
+                            date_value: d_parts.date_value(),
+                            date_sort: d_parts.date_sort(),
+                            date_qualifier: d_parts.qualifier,
+                            date_value2: d_parts.date_value2(),
+                            calendar: d_parts.calendar,
                             cause: None,
                             place_id: d_place_id,
                             person_id: Some(new_pid),
                             family_id: None,
-                            description: opt_str(&d_note),
+                            description: None,
                         };
                         match api.create_event(tid, &body).await {
                             Ok(ev) => {
                                 let _ = save_notes_source(
                                     &api,
                                     tid,
-                                    new_pid,
+                                    Some(new_pid),
                                     Some(ev.id),
                                     &d_notes,
                                     &d_source,
@@ -889,7 +878,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     let _ = save_notes_source(
                         &api,
                         tid,
-                        new_pid,
+                        Some(new_pid),
                         None,
                         "",
                         &p_source,
@@ -997,19 +986,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     } else {
                         b_place.parse::<Uuid>().ok()
                     };
-                    let b_qualifier_enum = parse_date_qualifier(&b_qual);
-                    let b_calendar_enum = parse_calendar(&b_cal);
                     let b_saved_eid = if let Some(eid) = birth_eid {
                         let body = UpdateEventBody {
                             event_type: Some(EventType::Birth),
-                            date_value: Some(opt_str(&b_date)),
-                            date_sort: None,
-                            date_qualifier: Some(b_qualifier_enum),
-                            date_value2: Some(opt_str(&b_date2)),
-                            calendar: Some(b_calendar_enum),
+                            date_value: Some(b_parts.date_value()),
+                            date_sort: Some(b_parts.date_sort()),
+                            date_qualifier: Some(b_parts.qualifier),
+                            date_value2: Some(b_parts.date_value2()),
+                            calendar: Some(b_parts.calendar),
                             cause: None,
                             place_id: Some(b_place_id),
-                            description: Some(opt_str(&b_note)),
+                            description: None,
                         };
                         if let Err(e) = api.update_event(tid, eid, &body).await {
                             save_error.set(Some(format!("{e}")));
@@ -1017,19 +1004,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             return;
                         }
                         Some(eid)
-                    } else if !b_date.is_empty() || b_place_id.is_some() {
+                    } else if !b_parts.is_empty() || b_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Birth,
-                            date_value: opt_str(&b_date),
-                            date_sort: None,
-                            date_qualifier: b_qualifier_enum,
-                            date_value2: opt_str(&b_date2),
-                            calendar: b_calendar_enum,
+                            date_value: b_parts.date_value(),
+                            date_sort: b_parts.date_sort(),
+                            date_qualifier: b_parts.qualifier,
+                            date_value2: b_parts.date_value2(),
+                            calendar: b_parts.calendar,
                             cause: None,
                             place_id: b_place_id,
                             person_id: Some(pid),
                             family_id: None,
-                            description: opt_str(&b_note),
+                            description: None,
                         };
                         match api.create_event(tid, &body).await {
                             Ok(ev) => Some(ev.id),
@@ -1045,9 +1032,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     // Notes and source need an event to hang off; with no
                     // birth recorded at all there is nothing to attach to.
                     if let Some(eid) = b_saved_eid
-                        && let Ok(stored) =
-                            save_notes_source(&api, tid, pid, Some(eid), &b_notes, &b_source, &b_ns)
-                                .await
+                        && let Ok(stored) = save_notes_source(
+                            &api,
+                            tid,
+                            Some(pid),
+                            Some(eid),
+                            &b_notes,
+                            &b_source,
+                            &b_ns,
+                        )
+                        .await
                     {
                         birth_ns.set(stored);
                     }
@@ -1058,19 +1052,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     } else {
                         d_place.parse::<Uuid>().ok()
                     };
-                    let d_qualifier_enum = parse_date_qualifier(&d_qual);
-                    let d_calendar_enum = parse_calendar(&d_cal);
                     let d_saved_eid = if let Some(eid) = death_eid {
                         let body = UpdateEventBody {
                             event_type: Some(EventType::Death),
-                            date_value: Some(opt_str(&d_date)),
-                            date_sort: None,
-                            date_qualifier: Some(d_qualifier_enum),
-                            date_value2: Some(opt_str(&d_date2)),
-                            calendar: Some(d_calendar_enum),
+                            date_value: Some(d_parts.date_value()),
+                            date_sort: Some(d_parts.date_sort()),
+                            date_qualifier: Some(d_parts.qualifier),
+                            date_value2: Some(d_parts.date_value2()),
+                            calendar: Some(d_parts.calendar),
                             cause: None,
                             place_id: Some(d_place_id),
-                            description: Some(opt_str(&d_note)),
+                            description: None,
                         };
                         if let Err(e) = api.update_event(tid, eid, &body).await {
                             save_error.set(Some(format!("{e}")));
@@ -1078,19 +1070,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             return;
                         }
                         Some(eid)
-                    } else if !d_date.is_empty() || d_place_id.is_some() {
+                    } else if !d_parts.is_empty() || d_place_id.is_some() {
                         let body = CreateEventBody {
                             event_type: EventType::Death,
-                            date_value: opt_str(&d_date),
-                            date_sort: None,
-                            date_qualifier: d_qualifier_enum,
-                            date_value2: opt_str(&d_date2),
-                            calendar: d_calendar_enum,
+                            date_value: d_parts.date_value(),
+                            date_sort: d_parts.date_sort(),
+                            date_qualifier: d_parts.qualifier,
+                            date_value2: d_parts.date_value2(),
+                            calendar: d_parts.calendar,
                             cause: None,
                             place_id: d_place_id,
                             person_id: Some(pid),
                             family_id: None,
-                            description: opt_str(&d_note),
+                            description: None,
                         };
                         match api.create_event(tid, &body).await {
                             Ok(ev) => Some(ev.id),
@@ -1104,9 +1096,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         None
                     };
                     if let Some(eid) = d_saved_eid
-                        && let Ok(stored) =
-                            save_notes_source(&api, tid, pid, Some(eid), &d_notes, &d_source, &d_ns)
-                                .await
+                        && let Ok(stored) = save_notes_source(
+                            &api,
+                            tid,
+                            Some(pid),
+                            Some(eid),
+                            &d_notes,
+                            &d_source,
+                            &d_ns,
+                        )
+                        .await
                     {
                         death_ns.set(stored);
                     }
@@ -1114,7 +1113,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     // 4. Person-level source (its notes are the list under
                     //    Civil Status, saved row by row).
                     if let Ok(stored) =
-                        save_notes_source(&api, tid, pid, None, "", &p_source, &p_ns).await
+                        save_notes_source(&api, tid, Some(pid), None, "", &p_source, &p_ns).await
                     {
                         // The person's notes are the list above, not this
                         // pair — keep them out of the state it reconciles
@@ -1247,23 +1246,20 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         if let Some(err) = profession_form_error() {
                                             div { class: "error-msg", "{err}" }
                                         }
-                                        div { class: "form-row",
-                                            div { class: "form-group",
-                                                label { {i18n.t("person_form.profession")} }
-                                                input {
-                                                    r#type: "text",
-                                                    value: "{profession_form_label}",
-                                                    oninput: move |e: Event<FormData>| profession_form_label.set(e.value()),
-                                                }
+                                        div { class: "form-group",
+                                            label { {i18n.t("person_form.profession")} }
+                                            input {
+                                                r#type: "text",
+                                                value: "{profession_form_label}",
+                                                oninput: move |e: Event<FormData>| profession_form_label.set(e.value()),
                                             }
-                                            div { class: "form-group",
-                                                label { {i18n.t("person_form.date")} }
-                                                input {
-                                                    r#type: "text",
-                                                    placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
-                                                    value: "{profession_form_date}",
-                                                    oninput: move |e: Event<FormData>| profession_form_date.set(e.value()),
-                                                }
+                                        }
+                                        div { class: "form-group",
+                                            label { {i18n.t("person_form.date")} }
+                                            DateInput {
+                                                parts: profession_form_parts,
+                                                i18n,
+                                                on_change: move |()| {},
                                             }
                                         }
                                         div { class: "form-group",
@@ -1310,7 +1306,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                             class: if notes_open { "pf-row-btn is-active" } else { "pf-row-btn" },
                                                             r#type: "button",
                                                             onclick: move |_| open_event_notes.set(if notes_open { None } else { Some(eid) }),
-                                                            {i18n.t("person_form.notes_source")}
+                                                            {i18n.t("common.edit")}
                                                         }
                                                         button {
                                                             class: "pf-row-btn is-danger",
@@ -1332,10 +1328,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                     }
                                                 }
                                                 if notes_open {
-                                                    EventNotesSource {
+                                                    EventEditor {
                                                         tree_id: tid,
-                                                        person_id: pid,
-                                                        event_id: eid,
+                                                        person_id: Some(pid),
+                                                        event: ev.clone(),
+                                                        description_label: i18n.t("person_form.profession"),
+                                                        place_options: place_options.clone(),
                                                         on_saved: move |_| { on_saved_profession_del.call(()); refresh += 1; },
                                                     }
                                                 }
@@ -1740,59 +1738,28 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         div { class: "pf-section-title", {i18n.t("person_form.birth")} }
                         div { class: "form-group",
                             label { {i18n.t("person_form.date")} }
-                            div { class: "pf-date-row",
-                                select {
-                                    class: "pf-date-qualifier-select",
-                                    value: "{birth_qualifier}",
-                                    oninput: move |e: Event<FormData>| { birth_qualifier.set(e.value()); has_changes.set(true); },
-                                    {qualifier_options(&i18n)}
-                                }
-                                input {
-                                    class: "pf-date-input",
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
-                                    value: "{birth_date}",
-                                    oninput: move |e: Event<FormData>| { birth_date.set(e.value()); has_changes.set(true); },
-                                }
-                                if birth_needs_date2 {
-                                    span { class: "pf-date-separator",
-                                        if birth_qualifier() == "Between" { {i18n.t("person_form.date2_label_between")} } else { {i18n.t("person_form.date2_label_or")} }
-                                    }
-                                    input {
-                                        class: "pf-date-input",
-                                        r#type: "text",
-                                        placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
-                                        value: "{birth_date2}",
-                                        oninput: move |e: Event<FormData>| { birth_date2.set(e.value()); has_changes.set(true); },
-                                    }
+                            DateInput {
+                                parts: birth_parts,
+                                i18n,
+                                on_change: move |()| has_changes.set(true),
+                            }
+                        }
+                        div { class: "form-group",
+                            label { {i18n.t("person_form.place")} }
+                            select {
+                                value: "{birth_place_id}",
+                                oninput: move |e: Event<FormData>| { birth_place_id.set(e.value()); has_changes.set(true); },
+                                option { value: "", {i18n.t("person_form.no_place")} }
+                                for (pid_opt, pname) in place_options.iter() {
+                                    option { value: "{pid_opt}", "{pname}" }
                                 }
                             }
                         }
-                        div { class: "form-row",
-                            div { class: "form-group",
-                                label { {i18n.t("person_form.place")} }
-                                select {
-                                    value: "{birth_place_id}",
-                                    oninput: move |e: Event<FormData>| { birth_place_id.set(e.value()); has_changes.set(true); },
-                                    option { value: "", {i18n.t("person_form.no_place")} }
-                                    for (pid_opt, pname) in place_options.iter() {
-                                        option { value: "{pid_opt}", "{pname}" }
-                                    }
-                                }
-                            }
-                            div { class: "form-group",
-                                // The event's own one-line description, kept
-                                // distinct from the Notes below (which are
-                                // Note rows, not a field on the event).
-                                label { {i18n.t("person_form.description")} }
-                                input {
-                                    r#type: "text",
-                                    value: "{birth_source}",
-                                    oninput: move |e: Event<FormData>| { birth_source.set(e.value()); has_changes.set(true); },
-                                }
-                            }
+                        {render_notes_source_fields(&i18n, birth_notes, birth_source, move || has_changes.set(true))}
+                        div { class: "form-group",
+                            label { {i18n.t("person_form.witnesses")} }
+                            {render_event_witnesses(&i18n, &api, tid, birth_event_id(), birth_witnesses_tick)}
                         }
-                        {render_notes_source_fields(&i18n, birth_sources, birth_source, move || has_changes.set(true))}
                     }
 
                     hr { class: "pf-section-divider" }
@@ -1802,56 +1769,28 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         div { class: "pf-section-title", {i18n.t("person_form.death")} }
                         div { class: "form-group",
                             label { {i18n.t("person_form.date")} }
-                            div { class: "pf-date-row",
-                                select {
-                                    class: "pf-date-qualifier-select",
-                                    value: "{death_qualifier}",
-                                    oninput: move |e: Event<FormData>| { death_qualifier.set(e.value()); has_changes.set(true); },
-                                    {qualifier_options(&i18n)}
-                                }
-                                input {
-                                    class: "pf-date-input",
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"person_form.death_date_placeholder\")}",
-                                    value: "{death_date}",
-                                    oninput: move |e: Event<FormData>| { death_date.set(e.value()); has_changes.set(true); },
-                                }
-                                if death_needs_date2 {
-                                    span { class: "pf-date-separator",
-                                        if death_qualifier() == "Between" { {i18n.t("person_form.date2_label_between")} } else { {i18n.t("person_form.date2_label_or")} }
-                                    }
-                                    input {
-                                        class: "pf-date-input",
-                                        r#type: "text",
-                                        placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
-                                        value: "{death_date2}",
-                                        oninput: move |e: Event<FormData>| { death_date2.set(e.value()); has_changes.set(true); },
-                                    }
+                            DateInput {
+                                parts: death_parts,
+                                i18n,
+                                on_change: move |()| has_changes.set(true),
+                            }
+                        }
+                        div { class: "form-group",
+                            label { {i18n.t("person_form.place")} }
+                            select {
+                                value: "{death_place_id}",
+                                oninput: move |e: Event<FormData>| { death_place_id.set(e.value()); has_changes.set(true); },
+                                option { value: "", {i18n.t("person_form.no_place")} }
+                                for (pid_opt, pname) in place_options.iter() {
+                                    option { value: "{pid_opt}", "{pname}" }
                                 }
                             }
                         }
-                        div { class: "form-row",
-                            div { class: "form-group",
-                                label { {i18n.t("person_form.place")} }
-                                select {
-                                    value: "{death_place_id}",
-                                    oninput: move |e: Event<FormData>| { death_place_id.set(e.value()); has_changes.set(true); },
-                                    option { value: "", {i18n.t("person_form.no_place")} }
-                                    for (pid_opt, pname) in place_options.iter() {
-                                        option { value: "{pid_opt}", "{pname}" }
-                                    }
-                                }
-                            }
-                            div { class: "form-group",
-                                label { {i18n.t("person_form.description")} }
-                                input {
-                                    r#type: "text",
-                                    value: "{death_source}",
-                                    oninput: move |e: Event<FormData>| { death_source.set(e.value()); has_changes.set(true); },
-                                }
-                            }
+                        {render_notes_source_fields(&i18n, death_notes, death_source, move || has_changes.set(true))}
+                        div { class: "form-group",
+                            label { {i18n.t("person_form.witnesses")} }
+                            {render_event_witnesses(&i18n, &api, tid, death_event_id(), death_witnesses_tick)}
                         }
-                        {render_notes_source_fields(&i18n, death_sources, death_source, move || has_changes.set(true))}
                     }
 
                     // ── Privacy ──
@@ -1884,57 +1823,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         }
                     }
 
-                    // ── Additional Fields (collapsible) ──
-                    div { class: "person-form-section",
-                        div { class: "pf-collapsible-header",
-                            div { class: "pf-section-title has-action",
-                                {i18n.t("person_form.additional_fields_show")}
-                            }
-                            button {
-                                class: "pf-collapsible-toggle",
-                                r#type: "button",
-                                onclick: move |_| show_additional.toggle(),
-                                if show_additional() { "\u{2212}" } else { "+" }
-                            }
-                        }
-
-                        if show_additional() {
-                            div { class: "pf-additional-body",
-                                div { class: "pf-additional-group",
-                                    div { class: "pf-additional-group-title", {i18n.t("person_form.birth")} }
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.calendar")} }
-                                        select {
-                                            value: "{birth_calendar}",
-                                            oninput: move |e: Event<FormData>| { birth_calendar.set(e.value()); has_changes.set(true); },
-                                            {calendar_options(&i18n)}
-                                        }
-                                    }
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.witnesses")} }
-                                        {render_event_witnesses(&i18n, &api, tid, birth_event_id(), birth_witnesses_tick)}
-                                    }
-                                }
-
-                                div { class: "pf-additional-group",
-                                    div { class: "pf-additional-group-title", {i18n.t("person_form.death")} }
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.calendar")} }
-                                        select {
-                                            value: "{death_calendar}",
-                                            oninput: move |e: Event<FormData>| { death_calendar.set(e.value()); has_changes.set(true); },
-                                            {calendar_options(&i18n)}
-                                        }
-                                    }
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.witnesses")} }
-                                        {render_event_witnesses(&i18n, &api, tid, death_event_id(), death_witnesses_tick)}
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     // ── Other Events (edit mode only) ──
                     if !is_create { div { class: "person-form-section",
                         div { class: "section-header",
@@ -1961,14 +1849,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             {event_type_options(&i18n)}
                                         }
                                     }
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.date")} }
-                                        input {
-                                            r#type: "text",
-                                            placeholder: "{i18n.t(\"person_form.date_placeholder\")}",
-                                            value: "{event_form_date}",
-                                            oninput: move |e: Event<FormData>| event_form_date.set(e.value()),
-                                        }
+                                }
+                                // The event's own value — a profession, a title,
+                                // a residence. Carried by GEDCOM on the tag
+                                // itself, so it round-trips as such.
+                                div { class: "form-group",
+                                    label { {i18n.t("person_form.description")} }
+                                    input {
+                                        r#type: "text",
+                                        value: "{event_form_description}",
+                                        oninput: move |e: Event<FormData>| event_form_description.set(e.value()),
+                                    }
+                                }
+                                div { class: "form-group",
+                                    label { {i18n.t("person_form.date")} }
+                                    DateInput {
+                                        parts: event_form_parts,
+                                        i18n,
+                                        on_change: move |()| {},
                                     }
                                 }
                                 div { class: "form-row",
@@ -1992,14 +1890,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         }
                                     }
                                 }
-                                div { class: "form-group",
-                                    label { {i18n.t("person_form.description")} }
-                                    input {
-                                        r#type: "text",
-                                        value: "{event_form_note}",
-                                        oninput: move |e: Event<FormData>| event_form_note.set(e.value()),
-                                    }
-                                }
                                 {render_notes_source_fields(&i18n, event_form_notes, event_form_source, || {})}
                                 button {
                                     class: "pf-confirm-btn",
@@ -2017,6 +1907,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 {
                                     let eid = ev.id;
                                     let et = format!("{}", ev.event_type);
+                                    // The event's own value (a `TITL`, `RESI`, ... payload
+                                    // on import) — without it the row shows only its type.
+                                    let desc = ev.description.clone().unwrap_or_default();
                                     let date = ev.date_value.clone().unwrap_or_default();
                                     let place = ev.place_id.map(&place_name).unwrap_or_default();
                                     let notes_open = open_event_notes() == Some(eid);
@@ -2025,7 +1918,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             class: if notes_open { "person-form-item pf-ns-open" } else { "person-form-item" },
                                             div { class: "person-form-item-info",
                                                 span { class: "badge", "{et}" }
-                                                if !date.is_empty() { span { "{date}" } }
+                                                if !desc.is_empty() { span { "{desc}" } }
+                                                if !date.is_empty() { span { class: "text-muted", "{date}" } }
                                                 if !place.is_empty() { span { class: "text-muted", "@ {place}" } }
                                             }
                                             div { class: "person-form-item-actions",
@@ -2033,7 +1927,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                     class: if notes_open { "pf-row-btn is-active" } else { "pf-row-btn" },
                                                     r#type: "button",
                                                     onclick: move |_| open_event_notes.set(if notes_open { None } else { Some(eid) }),
-                                                    {i18n.t("person_form.notes_source")}
+                                                    {i18n.t("common.edit")}
                                                 }
                                                 button {
                                                     class: "pf-row-btn is-danger",
@@ -2055,10 +1949,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             }
                                         }
                                         if notes_open {
-                                            EventNotesSource {
+                                            EventEditor {
                                                 tree_id: tid,
-                                                person_id: pid,
-                                                event_id: eid,
+                                                person_id: Some(pid),
+                                                event: ev.clone(),
+                                                description_label: i18n.t("person_form.description"),
+                                                place_options: place_options.clone(),
                                                 on_saved: move |_| { on_saved_event_del.call(()); refresh += 1; },
                                             }
                                         }
@@ -2207,29 +2103,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 }
 
 // ── Shared option builders ────────────────────────────────────────────────
-
-fn qualifier_options(i18n: &crate::i18n::I18n) -> Element {
-    let i18n = *i18n;
-    rsx! {
-        option { value: "Exact",   {i18n.t("date_qualifier.exact")} }
-        option { value: "About",   {i18n.t("date_qualifier.about")} }
-        option { value: "Perhaps", {i18n.t("date_qualifier.perhaps")} }
-        option { value: "Before",  {i18n.t("date_qualifier.before")} }
-        option { value: "After",   {i18n.t("date_qualifier.after")} }
-        option { value: "Or",      {i18n.t("date_qualifier.or")} }
-        option { value: "Between", {i18n.t("date_qualifier.between")} }
-    }
-}
-
-fn calendar_options(i18n: &crate::i18n::I18n) -> Element {
-    let i18n = *i18n;
-    rsx! {
-        option { value: "Gregorian",         {i18n.t("calendar.gregorian")} }
-        option { value: "Julian",            {i18n.t("calendar.julian")} }
-        option { value: "Hebrew",            {i18n.t("calendar.hebrew")} }
-        option { value: "FrenchRepublican",  {i18n.t("calendar.french_republican")} }
-    }
-}
 
 fn event_type_options(i18n: &crate::i18n::I18n) -> Element {
     let i18n = *i18n;
@@ -2432,7 +2305,7 @@ fn render_event_witnesses(
 /// The notes + source pair attached to one target, together with the row ids
 /// needed to update them in place on the next save.
 #[derive(Clone, Debug, Default, PartialEq)]
-struct NotesSource {
+pub(crate) struct NotesSource {
     notes: String,
     /// The source as the user types it — a plain line of text, empty for
     /// none. `Source` rows are an implementation detail behind it: the title
@@ -2497,12 +2370,12 @@ async fn resolve_source(
 async fn load_notes_source(
     api: &ApiClient,
     tree_id: Uuid,
-    person_id: Uuid,
+    person_id: Option<Uuid>,
     event_id: Option<Uuid>,
 ) -> NotesSource {
     let (person_filter, event_filter) = match event_id {
         Some(eid) => (None, Some(eid)),
-        None => (Some(person_id), None),
+        None => (person_id, None),
     };
     // A person-scoped query also returns whatever hangs off that person's
     // events, so the person-level target has to drop those itself.
@@ -2554,10 +2427,10 @@ async fn load_notes_source(
 /// caller must keep as its new `current`: saving twice against a stale
 /// `current` would take the "nothing there yet" branch a second time and
 /// leave a duplicate row behind.
-async fn save_notes_source(
+pub(crate) async fn save_notes_source(
     api: &ApiClient,
     tree_id: Uuid,
-    person_id: Uuid,
+    person_id: Option<Uuid>,
     event_id: Option<Uuid>,
     notes: &str,
     source_title: &str,
@@ -2565,11 +2438,7 @@ async fn save_notes_source(
 ) -> Result<NotesSource, ApiError> {
     // An event-scoped row is reachable through its event, and stamping the
     // person on it too would pull it into the person's own note list.
-    let owner = if event_id.is_some() {
-        None
-    } else {
-        Some(person_id)
-    };
+    let owner = if event_id.is_some() { None } else { person_id };
     let notes = notes.trim();
 
     let note_id = match (current.note_id, notes.is_empty()) {
@@ -2713,7 +2582,7 @@ async fn save_notes_source(
 /// thousands of sources, and re-diffing that many `<option>` nodes on every
 /// keystroke made the field unusable. Completion belongs on a debounced
 /// prefix query (`dictionary_sources`), not a list of everything.
-fn render_notes_source_fields(
+pub(crate) fn render_notes_source_fields(
     i18n: &crate::i18n::I18n,
     mut notes: Signal<String>,
     mut source_title: Signal<String>,
@@ -2743,21 +2612,43 @@ fn render_notes_source_fields(
     }
 }
 
-/// Notes + source editor for an already-saved event, with its own Save
-/// button — the surrounding lists (professions, other events) have no footer
-/// of their own.
+/// Full editor for an already-saved event: its description, date, place, notes
+/// and source, with its own Save button — the surrounding lists (professions,
+/// other events) have no footer of their own.
+///
+/// The description is the event's own value: for a profession it is the trade
+/// itself, and for a GEDCOM attribute (`TITL`, `RESI`, `EDUC`, ...) it is the
+/// tag's value. `description_label` names it accordingly.
 ///
 /// Mounted only while its row is expanded, so a long list of events costs
 /// nothing until one is opened.
 #[component]
-fn EventNotesSource(
+pub fn EventEditor(
     tree_id: Uuid,
-    person_id: Uuid,
-    event_id: Uuid,
+    /// The person the event hangs off, when it has one. Family events (a
+    /// marriage and its kin) pass `None`: an event's notes and source are
+    /// reached through the event itself, never through a person.
+    person_id: Option<Uuid>,
+    event: CoreEvent,
+    description_label: String,
+    place_options: Vec<(String, String)>,
     on_saved: EventHandler<()>,
 ) -> Element {
     let api = use_context::<ApiClient>();
     let i18n = use_i18n();
+
+    let event_id = event.id;
+
+    let mut description = use_signal(|| event.description.clone().unwrap_or_default());
+    let parts = use_signal(|| {
+        DateParts::from_fields(
+            event.calendar,
+            event.date_qualifier,
+            event.date_value.as_deref(),
+            event.date_value2.as_deref(),
+        )
+    });
+    let mut place_id = use_signal(|| event.place_id.map(|id| id.to_string()).unwrap_or_default());
 
     let mut notes = use_signal(String::new);
     let mut source_title = use_signal(String::new);
@@ -2785,9 +2676,38 @@ fn EventNotesSource(
         let Some(current) = loaded() else { return };
         let notes_val = notes();
         let source = source_title();
+        let desc = description().trim().to_string();
+        let date = parts();
+        let place = place_id();
         spawn(async move {
+            if let Some(key) = date.validate() {
+                error.set(Some(i18n.t(key)));
+                return;
+            }
             saving.set(true);
             error.set(None);
+
+            let body = UpdateEventBody {
+                event_type: None,
+                date_value: Some(date.date_value()),
+                date_sort: Some(date.date_sort()),
+                date_qualifier: Some(date.qualifier),
+                date_value2: Some(date.date_value2()),
+                calendar: Some(date.calendar),
+                cause: None,
+                place_id: Some(if place.is_empty() {
+                    None
+                } else {
+                    place.parse::<Uuid>().ok()
+                }),
+                description: Some(opt_str(&desc)),
+            };
+            if let Err(e) = api.update_event(tree_id, event_id, &body).await {
+                error.set(Some(format!("{e}")));
+                saving.set(false);
+                return;
+            }
+
             match save_notes_source(
                 &api,
                 tree_id,
@@ -2820,6 +2740,29 @@ fn EventNotesSource(
             if loaded().is_none() {
                 div { class: "loading", {i18n.t("common.loading")} }
             } else {
+                div { class: "form-group",
+                    label { "{description_label}" }
+                    input {
+                        r#type: "text",
+                        value: "{description}",
+                        oninput: move |e: Event<FormData>| description.set(e.value()),
+                    }
+                }
+                div { class: "form-group",
+                    label { {i18n.t("person_form.date")} }
+                    DateInput { parts, i18n, on_change: move |()| {} }
+                }
+                div { class: "form-group",
+                    label { {i18n.t("person_form.place")} }
+                    select {
+                        value: "{place_id}",
+                        oninput: move |e: Event<FormData>| place_id.set(e.value()),
+                        option { value: "", {i18n.t("person_form.no_place")} }
+                        for (pid_opt , pname) in place_options.iter() {
+                            option { value: "{pid_opt}", "{pname}" }
+                        }
+                    }
+                }
                 {render_notes_source_fields(&i18n, notes, source_title, || {})}
                 div { class: "pf-ns-actions",
                     button {

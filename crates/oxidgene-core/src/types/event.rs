@@ -5,12 +5,15 @@ use uuid::Uuid;
 use crate::enums::{Calendar, DateQualifier, EventType};
 
 /// A genealogical event (birth, death, marriage, etc.).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub id: Uuid,
     pub tree_id: Uuid,
     pub event_type: EventType,
-    /// GEDCOM date phrase (free text, e.g. "ABT 1842", "BET 1800 AND 1810").
+    /// The date alone, without qualifier or calendar escape (e.g. "1842",
+    /// "23 FEB 1947"). The qualifier lives in `date_qualifier`, the calendar in
+    /// `calendar`, and a range's second date in `date_value2`; GEDCOM packs all
+    /// four into one line, which `oxidgene_gedcom::date` splits and rebuilds.
     pub date_value: Option<String>,
     /// Normalized date for sorting and filtering.
     pub date_sort: Option<NaiveDate>,

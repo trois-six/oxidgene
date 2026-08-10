@@ -410,6 +410,10 @@ pub enum DateQualifier {
     Exact,
     #[sea_orm(string_value = "about")]
     About,
+    #[sea_orm(string_value = "calculated")]
+    Calculated,
+    #[sea_orm(string_value = "estimated")]
+    Estimated,
     #[sea_orm(string_value = "perhaps")]
     Perhaps,
     #[sea_orm(string_value = "before")]
@@ -429,6 +433,8 @@ impl From<enums::DateQualifier> for DateQualifier {
         match v {
             enums::DateQualifier::Exact => Self::Exact,
             enums::DateQualifier::About => Self::About,
+            enums::DateQualifier::Calculated => Self::Calculated,
+            enums::DateQualifier::Estimated => Self::Estimated,
             enums::DateQualifier::Perhaps => Self::Perhaps,
             enums::DateQualifier::Before => Self::Before,
             enums::DateQualifier::After => Self::After,
@@ -444,6 +450,8 @@ impl From<DateQualifier> for enums::DateQualifier {
         match v {
             DateQualifier::Exact => Self::Exact,
             DateQualifier::About => Self::About,
+            DateQualifier::Calculated => Self::Calculated,
+            DateQualifier::Estimated => Self::Estimated,
             DateQualifier::Perhaps => Self::Perhaps,
             DateQualifier::Before => Self::Before,
             DateQualifier::After => Self::After,
