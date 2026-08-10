@@ -76,7 +76,7 @@ impl Language {
 /// Holds the current language and provides lookup methods.
 /// Because it reads from a reactive signal, any component using it
 /// will re-render when the language changes.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct I18n(pub Language);
 
 impl I18n {

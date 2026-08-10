@@ -5,6 +5,7 @@
 //! which it converts to the same `ged_io` model, so both formats share one
 //! mapping into the domain model.
 
+pub mod date;
 pub mod export;
 pub mod geneweb;
 pub mod import;

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{NaiveDate, Utc};
+use chrono::Utc;
 use ged_io::GedcomBuilder;
 use ged_io::types::GedcomData;
 use ged_io::types::event::Event as GedEvent;
@@ -17,9 +17,7 @@ use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
     Person, PersonName, Place, Source, split_surname_particle, split_surname_with,
 };
-use oxidgene_core::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
-};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
 use crate::ImportResult;
 
@@ -927,82 +925,6 @@ fn convert_quay(quay: Option<&ged_io::types::source::quay::CertaintyAssessment>)
     }
 }
 
-/// Try to parse a GEDCOM date string into a `NaiveDate` for sorting.
-///
-/// Handles common formats:
-/// - `DD MMM YYYY` (e.g. `15 JAN 1842`)
-/// - `MMM YYYY` (e.g. `JAN 1842`) → first of month
-/// - `YYYY` (e.g. `1842`) → first of year
-/// - Prefixes like `ABT`, `BEF`, `AFT`, `CAL`, `EST` are stripped
-/// - Range formats `BET ... AND ...` → first date
-fn parse_gedcom_date(s: &str) -> Option<NaiveDate> {
-    let s = s.trim();
-    if s.is_empty() {
-        return None;
-    }
-
-    // Strip common prefixes
-    let stripped = s
-        .strip_prefix("ABT ")
-        .or_else(|| s.strip_prefix("BEF "))
-        .or_else(|| s.strip_prefix("AFT "))
-        .or_else(|| s.strip_prefix("CAL "))
-        .or_else(|| s.strip_prefix("EST "))
-        .or_else(|| s.strip_prefix("FROM "))
-        .or_else(|| s.strip_prefix("TO "))
-        .unwrap_or(s);
-
-    // Handle BET ... AND ... → take first date
-    let stripped = if let Some(rest) = stripped.strip_prefix("BET ") {
-        rest.split(" AND ").next().unwrap_or(rest)
-    } else {
-        stripped
-    };
-
-    let stripped = stripped.trim();
-    let parts: Vec<&str> = stripped.split_whitespace().collect();
-
-    match parts.len() {
-        3 => {
-            // DD MMM YYYY
-            let day: u32 = parts[0].parse().ok()?;
-            let month = gedcom_month(parts[1])?;
-            let year: i32 = parts[2].parse().ok()?;
-            NaiveDate::from_ymd_opt(year, month, day)
-        }
-        2 => {
-            // MMM YYYY
-            let month = gedcom_month(parts[0])?;
-            let year: i32 = parts[1].parse().ok()?;
-            NaiveDate::from_ymd_opt(year, month, 1)
-        }
-        1 => {
-            // YYYY
-            let year: i32 = parts[0].parse().ok()?;
-            NaiveDate::from_ymd_opt(year, 1, 1)
-        }
-        _ => None,
-    }
-}
-
-fn gedcom_month(s: &str) -> Option<u32> {
-    match s.to_uppercase().as_str() {
-        "JAN" => Some(1),
-        "FEB" => Some(2),
-        "MAR" => Some(3),
-        "APR" => Some(4),
-        "MAY" => Some(5),
-        "JUN" => Some(6),
-        "JUL" => Some(7),
-        "AUG" => Some(8),
-        "SEP" => Some(9),
-        "OCT" => Some(10),
-        "NOV" => Some(11),
-        "DEC" => Some(12),
-        _ => None,
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════════
 // Import sub-record helpers
 // ═══════════════════════════════════════════════════════════════════════
@@ -1023,9 +945,13 @@ fn import_event_detail(
 ) {
     let event_type = convert_event_type(&detail.event, detail.event_type.as_deref());
 
-    // Date
-    let date_value = detail.date.as_ref().and_then(|d| d.value.clone());
-    let date_sort = date_value.as_deref().and_then(parse_gedcom_date);
+    // Date — split into calendar / qualifier / value(s), see `crate::date`.
+    let date = detail
+        .date
+        .as_ref()
+        .and_then(|d| d.value.as_deref())
+        .map(crate::date::parse)
+        .unwrap_or_default();
 
     // Place
     let place_id = detail.place.as_ref().and_then(|p| {
@@ -1067,11 +993,11 @@ fn import_event_detail(
         id: event_id,
         tree_id,
         event_type,
-        date_value,
-        date_sort,
-        date_qualifier: DateQualifier::default(),
-        date_value2: None,
-        calendar: Calendar::default(),
+        date_value: date.value,
+        date_sort: date.sort,
+        date_qualifier: date.qualifier,
+        date_value2: date.value2,
+        calendar: date.calendar,
         cause,
         place_id,
         person_id,
@@ -1163,9 +1089,13 @@ fn import_attribute_detail(
 ) {
     let event_type = convert_individual_attribute(&detail.attribute);
 
-    // Date
-    let date_value = detail.date.as_ref().and_then(|d| d.value.clone());
-    let date_sort = date_value.as_deref().and_then(parse_gedcom_date);
+    // Date — split into calendar / qualifier / value(s), see `crate::date`.
+    let date = detail
+        .date
+        .as_ref()
+        .and_then(|d| d.value.as_deref())
+        .map(crate::date::parse)
+        .unwrap_or_default();
 
     // Place
     let place_id = detail.place.as_ref().and_then(|p| {
@@ -1214,11 +1144,11 @@ fn import_attribute_detail(
             id: event_id,
             tree_id,
             event_type,
-            date_value: date_value.clone(),
-            date_sort,
-            date_qualifier: DateQualifier::default(),
-            date_value2: None,
-            calendar: Calendar::default(),
+            date_value: date.value.clone(),
+            date_sort: date.sort,
+            date_qualifier: date.qualifier,
+            date_value2: date.value2.clone(),
+            calendar: date.calendar,
             cause: cause.clone(),
             place_id,
             person_id: Some(person_id),
