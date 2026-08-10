@@ -269,10 +269,10 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let couple_title: String = match (&spouse1, &spouse2) {
         (Some(s1), Some(s2)) => format!(
             "{} & {}",
-            resolve_name(s1.person_id, &name_map_for_display),
-            resolve_name(s2.person_id, &name_map_for_display)
+            resolve_name(s1.person_id, &name_map_for_display, &i18n),
+            resolve_name(s2.person_id, &name_map_for_display, &i18n)
         ),
-        (Some(s1), None) => resolve_name(s1.person_id, &name_map_for_display),
+        (Some(s1), None) => resolve_name(s1.person_id, &name_map_for_display, &i18n),
         _ => i18n.t("union_form.title"),
     };
 
@@ -536,7 +536,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     if let Some(s1) = &spouse1 {
                         {
                             let pid1 = s1.person_id;
-                            let name1 = resolve_name(pid1, &name_map_for_display);
+                            let name1 = resolve_name(pid1, &name_map_for_display, &i18n);
                             rsx! {
                                 div { class: "pf-section",
                                     div { class: "pf-section-head",
@@ -566,7 +566,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     if let Some(s2) = &spouse2 {
                         {
                             let pid2 = s2.person_id;
-                            let name2 = resolve_name(pid2, &name_map_for_display);
+                            let name2 = resolve_name(pid2, &name_map_for_display, &i18n);
                             rsx! {
                                 div { class: "pf-section",
                                     div { class: "pf-section-head",
@@ -829,7 +829,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                         {
                                             let cid = child.person_id;
                                             let ct = format!("{:?}", child.child_type);
-                                            let name = resolve_name(cid, &name_map_for_display);
+                                            let name = resolve_name(cid, &name_map_for_display, &i18n);
                                             let is_pending = pending_detach().contains(&cid);
                                             let is_confirming = confirm_detach_id() == Some(cid);
                                             rsx! {

@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
+use crate::i18n::I18n;
+
 use oxidgene_core::{Calendar, Confidence, DateQualifier, EventType, NameType, Privacy, Sex};
 
 // ── Enum parsers ────────────────────────────────────────────────────────
@@ -109,6 +111,8 @@ pub fn event_type_label_key(et: EventType) -> &'static str {
         EventType::SocialSecurityNumber => "event.type.social_security_number",
         EventType::NobilityTitle => "event.type.nobility_title",
         EventType::Fact => "event.type.fact",
+        EventType::LdsBaptism => "event.type.lds_baptism",
+        EventType::LdsConfirmation => "event.type.lds_confirmation",
         EventType::Blessing => "event.type.blessing",
         EventType::Ordination => "event.type.ordination",
         EventType::Christening => "event.type.christening",
@@ -190,6 +194,8 @@ pub fn parse_event_type(s: &str) -> EventType {
         "SocialSecurityNumber" => EventType::SocialSecurityNumber,
         "NobilityTitle" => EventType::NobilityTitle,
         "Fact" => EventType::Fact,
+        "LdsBaptism" => EventType::LdsBaptism,
+        "LdsConfirmation" => EventType::LdsConfirmation,
         "Blessing" => EventType::Blessing,
         "Ordination" => EventType::Ordination,
         "Christening" => EventType::Christening,
@@ -302,23 +308,20 @@ pub fn opt_str(s: &str) -> Option<String> {
 pub fn resolve_name(
     person_id: Uuid,
     name_map: &HashMap<Uuid, Vec<oxidgene_core::types::PersonName>>,
+    i18n: &I18n,
 ) -> String {
-    match name_map.get(&person_id) {
-        Some(names) => {
-            let primary = names.iter().find(|n| n.is_primary).or(names.first());
-            match primary {
-                Some(name) => {
-                    let dn = name.display_name();
-                    if dn.is_empty() {
-                        "Unnamed".to_string()
-                    } else {
-                        dn
-                    }
-                }
-                None => "Unnamed".to_string(),
-            }
-        }
-        None => "Unnamed".to_string(),
+    let unnamed = || i18n.t("common.unnamed");
+    let Some(names) = name_map.get(&person_id) else {
+        return unnamed();
+    };
+    let Some(primary) = names.iter().find(|n| n.is_primary).or(names.first()) else {
+        return unnamed();
+    };
+    let display = primary.display_name();
+    if display.is_empty() {
+        unnamed()
+    } else {
+        display
     }
 }
 
@@ -618,5 +621,7 @@ mod event_type_label_tests {
         "FamilyLinkLds",
         "NoMarriage",
         "NoMention",
+        "LdsBaptism",
+        "LdsConfirmation",
     ];
 }

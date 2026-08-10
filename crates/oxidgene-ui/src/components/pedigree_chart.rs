@@ -23,7 +23,7 @@ use oxidgene_core::types::{
 };
 use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
 
-use crate::i18n::use_i18n;
+use crate::i18n::{I18n, use_i18n};
 
 use crate::utils::{event_type_label_key, truncate_text_to_fit};
 
@@ -694,8 +694,11 @@ impl PedigreeData {
     }
 
     /// Resolve a full display name for a person.
-    pub fn display_name(&self, person_id: Uuid) -> String {
-        crate::utils::resolve_name(person_id, &self.names)
+    ///
+    /// Takes `i18n` because the fallback for a person with no usable name is
+    /// itself a translated string.
+    pub fn display_name(&self, person_id: Uuid, i18n: &I18n) -> String {
+        crate::utils::resolve_name(person_id, &self.names, i18n)
     }
 
     fn birth_date(&self, person_id: Uuid) -> Option<String> {
@@ -3835,14 +3838,14 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                         .unwrap_or_default();
                                                     // Build context label for events from related persons.
                                                     let context_name: Option<String> = if evt.person_id.is_some() && evt.person_id != Some(sel_pid) {
-                                                        evt.person_id.map(|pid| props.data.display_name(pid))
+                                                        evt.person_id.map(|pid| props.data.display_name(pid, &i18n))
                                                     } else if evt.family_id.is_some() && evt.person_id.is_none() {
                                                         // Family event (marriage, divorce…) — show partner name.
                                                         evt.family_id.and_then(|fid| {
                                                             props.data.spouses_by_family.get(&fid).and_then(|spouses| {
                                                                 spouses.iter()
                                                                     .find(|s| s.person_id != sel_pid)
-                                                                    .map(|s| props.data.display_name(s.person_id))
+                                                                    .map(|s| props.data.display_name(s.person_id, &i18n))
                                                             })
                                                         })
                                                     } else {

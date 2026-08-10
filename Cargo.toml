@@ -76,10 +76,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ged_io = { version = "0.16.1", features = ["json", "gedzip", "calendar"] }
 
 # GeneWeb .gw reader (converts to the same ged_io model as above)
-# 0.1.1 is pushed but not yet on crates.io — it splits `#educ` from `#grad`,
-# which the event-type import relies on. Swap back to the registry version
-# (`geneweb = "0.1.1"`) once it is published.
-geneweb = { git = "https://github.com/trois-six/rust-geneweb", branch = "main" }
+geneweb = "0.1.2"
 
 # Unicode folding (Geneanet media keys are unaccented — see oxidgene-cli::geneanet::key)
 unicode-normalization = "0.1"

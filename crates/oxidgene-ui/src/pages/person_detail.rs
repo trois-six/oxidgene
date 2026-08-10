@@ -753,7 +753,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Helper to resolve person name from all_names or names_resource
     let resolve_person_name = |pid: Uuid| -> String {
         if let Some(name_map) = &*all_names.read() {
-            return resolve_name(pid, name_map);
+            return resolve_name(pid, name_map, &i18n);
         }
         i18n.t("common.unknown")
     };
