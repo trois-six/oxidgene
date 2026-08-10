@@ -849,33 +849,194 @@ fn convert_event_type(evt: &GedEvent, type_text: Option<&str>) -> EventType {
         GedEvent::Separated => EventType::Separation,
         GedEvent::DivorceFiled => EventType::DivorceFiled,
         GedEvent::Adoption => EventType::Adoption,
-        GedEvent::Event if is_civil_union_type(type_text) => EventType::CivilUnion,
+        GedEvent::Blessing => EventType::Blessing,
+        GedEvent::Ordination => EventType::Ordination,
+        GedEvent::Christening => EventType::Christening,
+        GedEvent::AdultChristening => EventType::AdultChristening,
+        // A generic `EVEN` carries its meaning in its free-text `TYPE`.
+        GedEvent::Event => event_type_from_type_text(type_text).unwrap_or(EventType::Other),
         _ => EventType::Other,
     }
 }
 
-/// Recognizes free-text GEDCOM `TYPE` values describing an unmarried
-/// partnership. GEDCOM has no dedicated tag for civil unions, PACS, or
-/// cohabitation — genealogy software records them as a generic `EVEN`
-/// family event with a descriptive `TYPE` sub-tag.
-fn is_civil_union_type(type_text: Option<&str>) -> bool {
-    const KEYWORDS: &[&str] = &[
-        "civil union",
-        "civil partnership",
-        "domestic partnership",
-        "registered partnership",
-        "cohabitation",
-        "common-law",
-        "common law",
-        "pacs",
-        "union libre",
-        "concubinage",
-    ];
-    let Some(t) = type_text else {
-        return false;
+/// Reads a generic `EVEN`'s free-text `TYPE` sub-tag as an [`EventType`].
+///
+/// Exporters record anything GEDCOM has no tag for as `EVEN` plus a `TYPE`
+/// describing it — a civil union, but also plain restatements of tags they
+/// chose not to use ("PROP", "Military service"). Left unread, all of it
+/// imported as [`EventType::Other`], so a whole shelf of events showed up
+/// under one meaningless label.
+///
+/// The `TYPE` text is still kept as the event's description: it may carry more
+/// than the type does ("Property sale" is a sale, not just a possession).
+fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
+    let t = type_text?.trim().to_lowercase();
+    if t.is_empty() {
+        return None;
+    }
+
+    // A `TYPE` that is exactly a GEDCOM tag means that tag. Matched whole, so
+    // "will" here is the tag and not the "will" inside another word.
+    let by_tag = match t.as_str() {
+        "adop" => Some(EventType::Adoption),
+        "bapm" => Some(EventType::Baptism),
+        "barm" | "basm" => Some(EventType::BarBatMitzvah),
+        "buri" => Some(EventType::Burial),
+        "cast" => Some(EventType::CasteName),
+        "cens" => Some(EventType::Census),
+        "chra" => Some(EventType::AdultChristening),
+        "conf" => Some(EventType::Confirmation),
+        "crem" => Some(EventType::Cremation),
+        "dscr" => Some(EventType::PhysicalDescription),
+        "educ" => Some(EventType::Education),
+        "emig" => Some(EventType::Emigration),
+        "fcom" => Some(EventType::FirstCommunion),
+        "grad" => Some(EventType::Graduation),
+        "idno" => Some(EventType::NationalId),
+        "immi" => Some(EventType::Immigration),
+        "mili" => Some(EventType::MilitaryService),
+        "nati" => Some(EventType::NationalOrigin),
+        "natu" => Some(EventType::Naturalization),
+        "nchi" => Some(EventType::ChildrenCount),
+        "nmr" => Some(EventType::MarriagesCount),
+        "occu" => Some(EventType::Occupation),
+        "prob" => Some(EventType::Probate),
+        "prop" => Some(EventType::Property),
+        "reli" => Some(EventType::Religion),
+        "resi" => Some(EventType::Residence),
+        "reti" => Some(EventType::Retirement),
+        "ssn" => Some(EventType::SocialSecurityNumber),
+        "titl" => Some(EventType::NobilityTitle),
+        "will" => Some(EventType::Will),
+        _ => None,
     };
-    let t = t.to_lowercase();
-    KEYWORDS.iter().any(|k| t.contains(k))
+    if by_tag.is_some() {
+        return by_tag;
+    }
+
+    // The labels the `geneweb` crate writes for events GEDCOM cannot express
+    // (see its src/gedcom/event.rs). Matched whole: these are a fixed
+    // vocabulary, so recognising them by substring would only add false hits.
+    const GENEWEB_LABELS: &[(&str, EventType)] = &[
+        ("accomplishment", EventType::Accomplishment),
+        ("acquisition", EventType::Acquisition),
+        ("membership", EventType::Membership),
+        ("change name", EventType::ChangeName),
+        ("circumcision", EventType::Circumcision),
+        ("award", EventType::Award),
+        ("military discharge", EventType::MilitaryDischarge),
+        ("degree", EventType::Degree),
+        ("distinction", EventType::Distinction),
+        ("election", EventType::Election),
+        ("excommunication", EventType::Excommunication),
+        ("funeral", EventType::Funeral),
+        ("hospitalization", EventType::Hospitalization),
+        ("illness", EventType::Illness),
+        ("passenger list", EventType::PassengerList),
+        ("military distinction", EventType::MilitaryDistinction),
+        ("military promotion", EventType::MilitaryPromotion),
+        ("military mobilization", EventType::MilitaryMobilization),
+        ("property sale", EventType::PropertySale),
+        ("endl", EventType::Endowment),
+        ("dotationlds", EventType::LdsDotation),
+        ("slgc", EventType::SealingChild),
+        ("slgs", EventType::SealingSpouse),
+        ("scellent parent lds", EventType::SealingParent),
+        ("family link lds", EventType::FamilyLinkLds),
+        ("unmarried", EventType::NoMarriage),
+        ("nomen", EventType::NoMention),
+    ];
+    if let Some((_, et)) = GENEWEB_LABELS.iter().find(|(l, _)| *l == t) {
+        return Some(*et);
+    }
+
+    // Otherwise a descriptive phrase, in English or French. Order matters: the
+    // first match wins, so anything that is a substring of another entry comes
+    // after it. Only phrases specific enough to be unambiguous appear — a bare
+    // "title" or "will" would swallow "job title" and "Williams".
+    const KEYWORDS: &[(&str, EventType)] = &[
+        // Unmarried partnerships: GEDCOM has no tag, so this is always EVEN.
+        ("civil union", EventType::CivilUnion),
+        ("civil partnership", EventType::CivilUnion),
+        ("domestic partnership", EventType::CivilUnion),
+        ("registered partnership", EventType::CivilUnion),
+        ("cohabitation", EventType::CivilUnion),
+        ("common-law", EventType::CivilUnion),
+        ("common law", EventType::CivilUnion),
+        ("pacs", EventType::CivilUnion),
+        ("union libre", EventType::CivilUnion),
+        ("concubinage", EventType::CivilUnion),
+        // Tags an exporter restated in words.
+        ("military", EventType::MilitaryService),
+        ("service militaire", EventType::MilitaryService),
+        ("physical description", EventType::PhysicalDescription),
+        ("description physique", EventType::PhysicalDescription),
+        ("national origin", EventType::NationalOrigin),
+        ("origine nationale", EventType::NationalOrigin),
+        ("nationalit", EventType::NationalOrigin),
+        ("national id", EventType::NationalId),
+        ("identity number", EventType::NationalId),
+        ("social security", EventType::SocialSecurityNumber),
+        ("sécurité sociale", EventType::SocialSecurityNumber),
+        ("securite sociale", EventType::SocialSecurityNumber),
+        ("number of children", EventType::ChildrenCount),
+        ("nombre d'enfants", EventType::ChildrenCount),
+        ("number of marriages", EventType::MarriagesCount),
+        ("nombre de mariages", EventType::MarriagesCount),
+        ("nobility", EventType::NobilityTitle),
+        ("noblesse", EventType::NobilityTitle),
+        ("first communion", EventType::FirstCommunion),
+        ("première communion", EventType::FirstCommunion),
+        ("premiere communion", EventType::FirstCommunion),
+        ("bar mitzvah", EventType::BarBatMitzvah),
+        ("bat mitzvah", EventType::BarBatMitzvah),
+        ("confirmation", EventType::Confirmation),
+        ("naturalisation", EventType::Naturalization),
+        ("naturalization", EventType::Naturalization),
+        ("immigration", EventType::Immigration),
+        ("emigration", EventType::Emigration),
+        ("émigration", EventType::Emigration),
+        ("graduation", EventType::Graduation),
+        ("diplôme", EventType::Graduation),
+        ("diplome", EventType::Graduation),
+        ("occupation", EventType::Occupation),
+        ("profession", EventType::Occupation),
+        ("métier", EventType::Occupation),
+        ("residence", EventType::Residence),
+        ("résidence", EventType::Residence),
+        ("domicile", EventType::Residence),
+        ("retirement", EventType::Retirement),
+        ("retraite", EventType::Retirement),
+        ("property", EventType::Property),
+        ("possessions", EventType::Property),
+        ("propriété", EventType::Property),
+        ("religion", EventType::Religion),
+        ("religious", EventType::Religion),
+        ("education", EventType::Education),
+        ("éducation", EventType::Education),
+        ("scholastic", EventType::Education),
+        ("caste", EventType::CasteName),
+        ("census", EventType::Census),
+        ("recensement", EventType::Census),
+        ("baptism", EventType::Baptism),
+        ("baptême", EventType::Baptism),
+        ("bapteme", EventType::Baptism),
+        ("burial", EventType::Burial),
+        ("inhumation", EventType::Burial),
+        ("enterrement", EventType::Burial),
+        ("cremation", EventType::Cremation),
+        ("crémation", EventType::Cremation),
+        ("incinération", EventType::Cremation),
+        ("probate", EventType::Probate),
+        ("homologation", EventType::Probate),
+        ("last will", EventType::Will),
+        ("testament", EventType::Will),
+        ("adoption", EventType::Adoption),
+    ];
+    KEYWORDS
+        .iter()
+        .find(|(k, _)| t.contains(k))
+        .map(|(_, et)| *et)
 }
 
 /// Maps a GEDCOM `INDIVIDUAL_ATTRIBUTE_STRUCTURE` tag (OCCU, RESI, TITL, ...)
@@ -1410,5 +1571,122 @@ mod tests {
         let (g, s) = parse_name_value(Some("John //"));
         assert_eq!(g, Some("John".to_string()));
         assert_eq!(s, None);
+    }
+}
+
+#[cfg(test)]
+mod event_type_text_tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_gedcom_tag_names_its_own_type() {
+        for (text, expected) in [
+            ("PROP", EventType::Property),
+            ("prop", EventType::Property),
+            ("  MILI  ", EventType::MilitaryService),
+            ("OCCU", EventType::Occupation),
+            ("TITL", EventType::NobilityTitle),
+            ("WILL", EventType::Will),
+        ] {
+            assert_eq!(
+                event_type_from_type_text(Some(text)),
+                Some(expected),
+                "for {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_described_type_is_recognised_in_either_language() {
+        for (text, expected) in [
+            ("Military service", EventType::MilitaryService),
+            ("Service militaire", EventType::MilitaryService),
+            // Its own type now that GeneWeb's vocabulary is modelled — a sale
+            // is not merely a possession.
+            ("Property sale", EventType::PropertySale),
+            ("Vente de propriété", EventType::Property),
+            ("Recensement", EventType::Census),
+            ("Nombre d'enfants", EventType::ChildrenCount),
+        ] {
+            assert_eq!(
+                event_type_from_type_text(Some(text)),
+                Some(expected),
+                "for {text}"
+            );
+        }
+    }
+
+    /// The behaviour this table replaced, kept working.
+    #[test]
+    fn civil_unions_still_win_over_everything_else() {
+        for text in ["PACS", "Union libre", "Common law marriage", "Cohabitation"] {
+            assert_eq!(
+                event_type_from_type_text(Some(text)),
+                Some(EventType::CivilUnion),
+                "for {text}"
+            );
+        }
+    }
+
+    /// Guessing wrong is worse than not guessing: an unrecognised type must
+    /// stay `Other` rather than be forced into a neighbouring meaning.
+    #[test]
+    fn an_unrecognised_type_is_not_guessed() {
+        for text in ["", "   ", "Bought a horse", "Sold the farm", "Divers"] {
+            assert_eq!(event_type_from_type_text(Some(text)), None, "for {text}");
+        }
+        assert_eq!(event_type_from_type_text(None), None);
+    }
+
+    /// Every label the `geneweb` crate emits must come back as its own type:
+    /// this is the join between the two crates, and a typo on either side
+    /// silently lands the event in `Other`.
+    #[test]
+    fn every_geneweb_label_is_recognised() {
+        for (label, expected) in [
+            ("Accomplishment", EventType::Accomplishment),
+            ("Acquisition", EventType::Acquisition),
+            ("Membership", EventType::Membership),
+            ("Change name", EventType::ChangeName),
+            ("Circumcision", EventType::Circumcision),
+            ("Award", EventType::Award),
+            ("Military discharge", EventType::MilitaryDischarge),
+            ("Degree", EventType::Degree),
+            ("Distinction", EventType::Distinction),
+            ("Election", EventType::Election),
+            ("Excommunication", EventType::Excommunication),
+            ("Funeral", EventType::Funeral),
+            ("Hospitalization", EventType::Hospitalization),
+            ("Illness", EventType::Illness),
+            ("Passenger list", EventType::PassengerList),
+            ("Military distinction", EventType::MilitaryDistinction),
+            ("Military promotion", EventType::MilitaryPromotion),
+            ("Military mobilization", EventType::MilitaryMobilization),
+            ("Property sale", EventType::PropertySale),
+            ("ENDL", EventType::Endowment),
+            ("DotationLDS", EventType::LdsDotation),
+            ("SLGC", EventType::SealingChild),
+            ("SLGS", EventType::SealingSpouse),
+            ("Scellent parent LDS", EventType::SealingParent),
+            ("Family link LDS", EventType::FamilyLinkLds),
+            ("unmarried", EventType::NoMarriage),
+            ("nomen", EventType::NoMention),
+            ("OCCU", EventType::Occupation),
+            ("PROP", EventType::Property),
+        ] {
+            assert_eq!(
+                event_type_from_type_text(Some(label)),
+                Some(expected),
+                "geneweb label {label}"
+            );
+        }
+    }
+
+    /// Substrings that would misfire if the table used looser keywords.
+    #[test]
+    fn a_word_containing_a_tag_is_not_that_tag() {
+        // "Williams" contains "will"; "job title" contains "title".
+        assert_eq!(event_type_from_type_text(Some("Estate of Williams")), None);
+        assert_eq!(event_type_from_type_text(Some("Job title change")), None);
     }
 }

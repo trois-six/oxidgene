@@ -17,7 +17,7 @@ use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::utils::{note_html_for_display, resolve_name};
+use crate::utils::{event_type_label_key, note_html_for_display, resolve_name};
 use oxidgene_core::Sex;
 
 const SHOW_MANUAL_REFRESH: bool = cfg!(target_arch = "wasm32");
@@ -1543,8 +1543,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                 {
                                     let event = &ee.event;
                                     let eid = event.id;
-                                    let event_type_key = format!("event.type.{}", event.event_type);
-                                    let event_type_label = i18n.t(&event_type_key);
+                                    let event_type_key = event_type_label_key(event.event_type);
+                                    let event_type_label = i18n.t(event_type_key);
                                     let desc = event.description.clone().unwrap_or_default();
                                     let place_display = event.place_id.map(&place_name);
 

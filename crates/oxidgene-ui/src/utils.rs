@@ -70,6 +70,91 @@ pub fn name_type_label_key(nt: NameType) -> &'static str {
     }
 }
 
+/// i18n key naming an [`EventType`], for the badges and labels that show one.
+///
+/// Rendering an event type meant `format!("{}", …)` or `{:?}` in places, which
+/// printed the Rust spelling — an untranslated "other" or "MarriageBann" in the
+/// middle of a translated form.
+pub fn event_type_label_key(et: EventType) -> &'static str {
+    match et {
+        EventType::Birth => "event.type.birth",
+        EventType::Death => "event.type.death",
+        EventType::Baptism => "event.type.baptism",
+        EventType::Confirmation => "event.type.confirmation",
+        EventType::FirstCommunion => "event.type.first_communion",
+        EventType::BarBatMitzvah => "event.type.bar_bat_mitzvah",
+        EventType::Burial => "event.type.burial",
+        EventType::Cremation => "event.type.cremation",
+        EventType::Graduation => "event.type.graduation",
+        EventType::Immigration => "event.type.immigration",
+        EventType::Emigration => "event.type.emigration",
+        EventType::Naturalization => "event.type.naturalization",
+        EventType::Census => "event.type.census",
+        EventType::Occupation => "event.type.occupation",
+        EventType::Residence => "event.type.residence",
+        EventType::Retirement => "event.type.retirement",
+        EventType::MilitaryService => "event.type.military_service",
+        EventType::Will => "event.type.will",
+        EventType::Probate => "event.type.probate",
+        EventType::Adoption => "event.type.adoption",
+        EventType::CasteName => "event.type.caste_name",
+        EventType::PhysicalDescription => "event.type.physical_description",
+        EventType::Education => "event.type.education",
+        EventType::NationalId => "event.type.national_id",
+        EventType::NationalOrigin => "event.type.national_origin",
+        EventType::ChildrenCount => "event.type.children_count",
+        EventType::MarriagesCount => "event.type.marriages_count",
+        EventType::Property => "event.type.property",
+        EventType::Religion => "event.type.religion",
+        EventType::SocialSecurityNumber => "event.type.social_security_number",
+        EventType::NobilityTitle => "event.type.nobility_title",
+        EventType::Fact => "event.type.fact",
+        EventType::Blessing => "event.type.blessing",
+        EventType::Ordination => "event.type.ordination",
+        EventType::Christening => "event.type.christening",
+        EventType::AdultChristening => "event.type.adult_christening",
+        EventType::Accomplishment => "event.type.accomplishment",
+        EventType::Acquisition => "event.type.acquisition",
+        EventType::Membership => "event.type.membership",
+        EventType::ChangeName => "event.type.change_name",
+        EventType::Circumcision => "event.type.circumcision",
+        EventType::Award => "event.type.award",
+        EventType::MilitaryDischarge => "event.type.military_discharge",
+        EventType::Degree => "event.type.degree",
+        EventType::Distinction => "event.type.distinction",
+        EventType::Election => "event.type.election",
+        EventType::Excommunication => "event.type.excommunication",
+        EventType::Funeral => "event.type.funeral",
+        EventType::Hospitalization => "event.type.hospitalization",
+        EventType::Illness => "event.type.illness",
+        EventType::PassengerList => "event.type.passenger_list",
+        EventType::MilitaryDistinction => "event.type.military_distinction",
+        EventType::MilitaryPromotion => "event.type.military_promotion",
+        EventType::MilitaryMobilization => "event.type.military_mobilization",
+        EventType::PropertySale => "event.type.property_sale",
+        EventType::Endowment => "event.type.endowment",
+        EventType::LdsDotation => "event.type.lds_dotation",
+        EventType::SealingChild => "event.type.sealing_child",
+        EventType::SealingSpouse => "event.type.sealing_spouse",
+        EventType::SealingParent => "event.type.sealing_parent",
+        EventType::FamilyLinkLds => "event.type.family_link_lds",
+        EventType::NoMarriage => "event.type.no_marriage",
+        EventType::NoMention => "event.type.no_mention",
+        EventType::Marriage => "event.type.marriage",
+        EventType::Divorce => "event.type.divorce",
+        EventType::Annulment => "event.type.annulment",
+        EventType::Engagement => "event.type.engagement",
+        EventType::MarriageBann => "event.type.marriage_bann",
+        EventType::MarriageContract => "event.type.marriage_contract",
+        EventType::MarriageLicense => "event.type.marriage_license",
+        EventType::MarriageSettlement => "event.type.marriage_settlement",
+        EventType::CivilUnion => "event.type.civil_union",
+        EventType::Separation => "event.type.separation",
+        EventType::DivorceFiled => "event.type.divorce_filed",
+        EventType::Other => "event.type.other",
+    }
+}
+
 /// Parse a string value from a `<select>` into an [`EventType`] enum.
 pub fn parse_event_type(s: &str) -> EventType {
     match s {
@@ -105,6 +190,37 @@ pub fn parse_event_type(s: &str) -> EventType {
         "SocialSecurityNumber" => EventType::SocialSecurityNumber,
         "NobilityTitle" => EventType::NobilityTitle,
         "Fact" => EventType::Fact,
+        "Blessing" => EventType::Blessing,
+        "Ordination" => EventType::Ordination,
+        "Christening" => EventType::Christening,
+        "AdultChristening" => EventType::AdultChristening,
+        "Accomplishment" => EventType::Accomplishment,
+        "Acquisition" => EventType::Acquisition,
+        "Membership" => EventType::Membership,
+        "ChangeName" => EventType::ChangeName,
+        "Circumcision" => EventType::Circumcision,
+        "Award" => EventType::Award,
+        "MilitaryDischarge" => EventType::MilitaryDischarge,
+        "Degree" => EventType::Degree,
+        "Distinction" => EventType::Distinction,
+        "Election" => EventType::Election,
+        "Excommunication" => EventType::Excommunication,
+        "Funeral" => EventType::Funeral,
+        "Hospitalization" => EventType::Hospitalization,
+        "Illness" => EventType::Illness,
+        "PassengerList" => EventType::PassengerList,
+        "MilitaryDistinction" => EventType::MilitaryDistinction,
+        "MilitaryPromotion" => EventType::MilitaryPromotion,
+        "MilitaryMobilization" => EventType::MilitaryMobilization,
+        "PropertySale" => EventType::PropertySale,
+        "Endowment" => EventType::Endowment,
+        "LdsDotation" => EventType::LdsDotation,
+        "SealingChild" => EventType::SealingChild,
+        "SealingSpouse" => EventType::SealingSpouse,
+        "SealingParent" => EventType::SealingParent,
+        "FamilyLinkLds" => EventType::FamilyLinkLds,
+        "NoMarriage" => EventType::NoMarriage,
+        "NoMention" => EventType::NoMention,
         "Marriage" => EventType::Marriage,
         "Divorce" => EventType::Divorce,
         "Annulment" => EventType::Annulment,
@@ -384,4 +500,123 @@ mod preview_tests {
     fn leaves_short_text_untouched() {
         assert_eq!(html_to_preview("court", 120), "court");
     }
+}
+
+#[cfg(test)]
+mod event_type_label_tests {
+    use super::*;
+    use crate::i18n::Language;
+
+    /// Every event type a row can carry must name a key that both locales
+    /// translate. Types used to be rendered through `Display`/`Debug`, so a
+    /// missing translation showed as "other" or "MarriageBann" in a French
+    /// form; going through a key only helps if the key actually resolves.
+    #[test]
+    fn every_event_type_is_translated_in_both_locales() {
+        // Round-tripping the picker values covers every variant the UI can
+        // reach, and `parse_event_type` maps anything else to `Other`.
+        let mut types: Vec<EventType> = PICKER_VALUES.iter().map(|v| parse_event_type(v)).collect();
+        types.push(EventType::Other);
+
+        for et in types {
+            let key = event_type_label_key(et);
+            for lang in [Language::En, Language::Fr] {
+                let translated = lang.translations().get(key).cloned();
+                assert!(
+                    translated.is_some_and(|t| !t.is_empty()),
+                    "{lang:?} has no translation for {key} ({et:?})"
+                );
+            }
+        }
+    }
+
+    /// The picker's values and the label keys must describe the same set: a
+    /// value that parses to `Other` is a typo, not a new type.
+    #[test]
+    fn picker_values_all_parse_to_their_own_type() {
+        for v in PICKER_VALUES {
+            assert_ne!(
+                parse_event_type(v),
+                EventType::Other,
+                "{v} falls through to Other"
+            );
+        }
+    }
+
+    const PICKER_VALUES: &[&str] = &[
+        "Birth",
+        "Death",
+        "Baptism",
+        "Confirmation",
+        "FirstCommunion",
+        "BarBatMitzvah",
+        "Burial",
+        "Cremation",
+        "Graduation",
+        "Immigration",
+        "Emigration",
+        "Naturalization",
+        "Census",
+        "Occupation",
+        "Residence",
+        "Retirement",
+        "MilitaryService",
+        "Will",
+        "Probate",
+        "Adoption",
+        "CasteName",
+        "PhysicalDescription",
+        "Education",
+        "NationalId",
+        "NationalOrigin",
+        "ChildrenCount",
+        "MarriagesCount",
+        "Property",
+        "Religion",
+        "SocialSecurityNumber",
+        "NobilityTitle",
+        "Fact",
+        "Marriage",
+        "Divorce",
+        "Annulment",
+        "Engagement",
+        "MarriageBann",
+        "MarriageContract",
+        "MarriageLicense",
+        "MarriageSettlement",
+        "CivilUnion",
+        "Separation",
+        "DivorceFiled",
+        "Blessing",
+        "Ordination",
+        "Christening",
+        "AdultChristening",
+        "Accomplishment",
+        "Acquisition",
+        "Membership",
+        "ChangeName",
+        "Circumcision",
+        "Award",
+        "MilitaryDischarge",
+        "Degree",
+        "Distinction",
+        "Election",
+        "Excommunication",
+        "Funeral",
+        "Hospitalization",
+        "Illness",
+        "PassengerList",
+        "MilitaryDistinction",
+        "MilitaryPromotion",
+        "MilitaryMobilization",
+        "PropertySale",
+        "Endowment",
+        "LdsDotation",
+        "SealingChild",
+        "SealingSpouse",
+        "SealingParent",
+        "FamilyLinkLds",
+        "NoMarriage",
+        "NoMention",
+    ];
 }

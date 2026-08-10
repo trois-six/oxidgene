@@ -20,8 +20,8 @@ use crate::api::{
 use crate::components::date_input::{DateInput, DateParts};
 use crate::i18n::use_i18n;
 use crate::utils::{
-    name_type_label_key, name_type_value, opt_str, parse_event_type, parse_name_type,
-    parse_privacy, parse_sex,
+    event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
+    parse_name_type, parse_privacy, parse_sex,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
@@ -1977,7 +1977,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             for ev in other_events.iter() {
                                 {
                                     let eid = ev.id;
-                                    let et = format!("{}", ev.event_type);
+                                    let et = i18n.t(event_type_label_key(ev.event_type));
                                     // The event's own value (a `TITL`, `RESI`, ... payload
                                     // on import) — without it the row shows only its type.
                                     let desc = ev.description.clone().unwrap_or_default();
@@ -2198,6 +2198,39 @@ fn event_type_options(i18n: &crate::i18n::I18n) -> Element {
             option { value: "Residence",       {i18n.t("event.type.residence")} }
             option { value: "Retirement",      {i18n.t("event.type.retirement")} }
             option { value: "MilitaryService", {i18n.t("event.type.military_service")} }
+        }
+        optgroup { label: "{i18n.t(\"person_form.geneweb\")}",
+            option { value: "Blessing", {i18n.t("event.type.blessing")} }
+            option { value: "Ordination", {i18n.t("event.type.ordination")} }
+            option { value: "Christening", {i18n.t("event.type.christening")} }
+            option { value: "AdultChristening", {i18n.t("event.type.adult_christening")} }
+            option { value: "Accomplishment", {i18n.t("event.type.accomplishment")} }
+            option { value: "Acquisition", {i18n.t("event.type.acquisition")} }
+            option { value: "Membership", {i18n.t("event.type.membership")} }
+            option { value: "ChangeName", {i18n.t("event.type.change_name")} }
+            option { value: "Circumcision", {i18n.t("event.type.circumcision")} }
+            option { value: "Award", {i18n.t("event.type.award")} }
+            option { value: "MilitaryDischarge", {i18n.t("event.type.military_discharge")} }
+            option { value: "Degree", {i18n.t("event.type.degree")} }
+            option { value: "Distinction", {i18n.t("event.type.distinction")} }
+            option { value: "Election", {i18n.t("event.type.election")} }
+            option { value: "Excommunication", {i18n.t("event.type.excommunication")} }
+            option { value: "Funeral", {i18n.t("event.type.funeral")} }
+            option { value: "Hospitalization", {i18n.t("event.type.hospitalization")} }
+            option { value: "Illness", {i18n.t("event.type.illness")} }
+            option { value: "PassengerList", {i18n.t("event.type.passenger_list")} }
+            option { value: "MilitaryDistinction", {i18n.t("event.type.military_distinction")} }
+            option { value: "MilitaryPromotion", {i18n.t("event.type.military_promotion")} }
+            option { value: "MilitaryMobilization", {i18n.t("event.type.military_mobilization")} }
+            option { value: "PropertySale", {i18n.t("event.type.property_sale")} }
+            option { value: "Endowment", {i18n.t("event.type.endowment")} }
+            option { value: "LdsDotation", {i18n.t("event.type.lds_dotation")} }
+            option { value: "SealingChild", {i18n.t("event.type.sealing_child")} }
+            option { value: "SealingSpouse", {i18n.t("event.type.sealing_spouse")} }
+            option { value: "SealingParent", {i18n.t("event.type.sealing_parent")} }
+            option { value: "FamilyLinkLds", {i18n.t("event.type.family_link_lds")} }
+            option { value: "NoMarriage", {i18n.t("event.type.no_marriage")} }
+            option { value: "NoMention", {i18n.t("event.type.no_mention")} }
         }
         optgroup { label: "{i18n.t(\"person_form.legal\")}",
             option { value: "Will",    {i18n.t("event.type.will")} }

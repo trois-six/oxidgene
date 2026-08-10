@@ -25,7 +25,7 @@ use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, Privacy, Sex,
 
 use crate::i18n::use_i18n;
 
-use crate::utils::truncate_text_to_fit;
+use crate::utils::{event_type_label_key, truncate_text_to_fit};
 
 // ── Layout constants (matching the JS reference implementation) ──────────
 
@@ -243,11 +243,11 @@ fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
         ),
         EventType::NobilityTitle => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.nobility_title"),
         EventType::Fact => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.fact"),
-        EventType::Other => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
-        EventType::Confirmation
-        | EventType::FirstCommunion
-        | EventType::BarBatMitzvah
-        | EventType::MilitaryService => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.other"),
+        // Everything else takes the neutral icon but still names itself, from
+        // the same key table the rest of the UI uses. These used to collapse
+        // onto "event.type.other", so a Confirmation or a Military service
+        // showed up in the panel labelled "Other".
+        _ => ("\u{25C6}", "ev-ic ev-ic-other", event_type_label_key(et)),
     }
 }
 

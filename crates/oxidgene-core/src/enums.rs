@@ -266,6 +266,71 @@ pub enum EventType {
     Separation,
     /// Divorce petition filed but not finalized (GEDCOM `DIVF` tag).
     DivorceFiled,
+    // GeneWeb's own vocabulary — see `oxidgene_gedcom::import`. GEDCOM has
+    // no tag for most of these, so they travel as a generic `EVEN` whose
+    // `TYPE` names them.
+    /// GEDCOM `Blessing`.
+    Blessing,
+    /// GEDCOM `Ordination`.
+    Ordination,
+    /// GEDCOM `Christening`.
+    Christening,
+    /// GEDCOM `AdultChristening`.
+    AdultChristening,
+    /// GeneWeb generic `EVEN` labelled `Accomplishment`.
+    Accomplishment,
+    /// GeneWeb generic `EVEN` labelled `Acquisition`.
+    Acquisition,
+    /// GeneWeb generic `EVEN` labelled `Membership`.
+    Membership,
+    /// GeneWeb generic `EVEN` labelled `Change name`.
+    ChangeName,
+    /// GeneWeb generic `EVEN` labelled `Circumcision`.
+    Circumcision,
+    /// GeneWeb generic `EVEN` labelled `Award`.
+    Award,
+    /// GeneWeb generic `EVEN` labelled `Military discharge`.
+    MilitaryDischarge,
+    /// GeneWeb generic `EVEN` labelled `Degree`.
+    Degree,
+    /// GeneWeb generic `EVEN` labelled `Distinction`.
+    Distinction,
+    /// GeneWeb generic `EVEN` labelled `Election`.
+    Election,
+    /// GeneWeb generic `EVEN` labelled `Excommunication`.
+    Excommunication,
+    /// GeneWeb generic `EVEN` labelled `Funeral`.
+    Funeral,
+    /// GeneWeb generic `EVEN` labelled `Hospitalization`.
+    Hospitalization,
+    /// GeneWeb generic `EVEN` labelled `Illness`.
+    Illness,
+    /// GeneWeb generic `EVEN` labelled `Passenger list`.
+    PassengerList,
+    /// GeneWeb generic `EVEN` labelled `Military distinction`.
+    MilitaryDistinction,
+    /// GeneWeb generic `EVEN` labelled `Military promotion`.
+    MilitaryPromotion,
+    /// GeneWeb generic `EVEN` labelled `Military mobilization`.
+    MilitaryMobilization,
+    /// GeneWeb generic `EVEN` labelled `Property sale`.
+    PropertySale,
+    /// GeneWeb generic `EVEN` labelled `ENDL`.
+    Endowment,
+    /// GeneWeb generic `EVEN` labelled `DotationLDS`.
+    LdsDotation,
+    /// GeneWeb generic `EVEN` labelled `SLGC`.
+    SealingChild,
+    /// GeneWeb generic `EVEN` labelled `SLGS`.
+    SealingSpouse,
+    /// GeneWeb generic `EVEN` labelled `Scellent parent LDS`.
+    SealingParent,
+    /// GeneWeb generic `EVEN` labelled `Family link LDS`.
+    FamilyLinkLds,
+    /// GeneWeb generic `EVEN` labelled `unmarried`.
+    NoMarriage,
+    /// GeneWeb generic `EVEN` labelled `nomen`.
+    NoMention,
     // Generic
     Other,
 }
@@ -375,6 +440,37 @@ impl std::fmt::Display for EventType {
             Self::CivilUnion => write!(f, "civil_union"),
             Self::Separation => write!(f, "separation"),
             Self::DivorceFiled => write!(f, "divorce_filed"),
+            Self::Blessing => write!(f, "blessing"),
+            Self::Ordination => write!(f, "ordination"),
+            Self::Christening => write!(f, "christening"),
+            Self::AdultChristening => write!(f, "adult_christening"),
+            Self::Accomplishment => write!(f, "accomplishment"),
+            Self::Acquisition => write!(f, "acquisition"),
+            Self::Membership => write!(f, "membership"),
+            Self::ChangeName => write!(f, "change_name"),
+            Self::Circumcision => write!(f, "circumcision"),
+            Self::Award => write!(f, "award"),
+            Self::MilitaryDischarge => write!(f, "military_discharge"),
+            Self::Degree => write!(f, "degree"),
+            Self::Distinction => write!(f, "distinction"),
+            Self::Election => write!(f, "election"),
+            Self::Excommunication => write!(f, "excommunication"),
+            Self::Funeral => write!(f, "funeral"),
+            Self::Hospitalization => write!(f, "hospitalization"),
+            Self::Illness => write!(f, "illness"),
+            Self::PassengerList => write!(f, "passenger_list"),
+            Self::MilitaryDistinction => write!(f, "military_distinction"),
+            Self::MilitaryPromotion => write!(f, "military_promotion"),
+            Self::MilitaryMobilization => write!(f, "military_mobilization"),
+            Self::PropertySale => write!(f, "property_sale"),
+            Self::Endowment => write!(f, "endowment"),
+            Self::LdsDotation => write!(f, "lds_dotation"),
+            Self::SealingChild => write!(f, "sealing_child"),
+            Self::SealingSpouse => write!(f, "sealing_spouse"),
+            Self::SealingParent => write!(f, "sealing_parent"),
+            Self::FamilyLinkLds => write!(f, "family_link_lds"),
+            Self::NoMarriage => write!(f, "no_marriage"),
+            Self::NoMention => write!(f, "no_mention"),
             Self::Other => write!(f, "other"),
         }
     }

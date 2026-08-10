@@ -63,7 +63,10 @@ impl Language {
             .unwrap_or(Self::En)
     }
 
-    fn translations(self) -> &'static HashMap<String, String> {
+    /// The raw table for this language, with no fallback. `I18n::t` is what
+    /// callers want; this exists so a test can assert a locale really carries
+    /// a key, which `t` would hide behind its fallback to English.
+    pub(crate) fn translations(self) -> &'static HashMap<String, String> {
         match self {
             Self::En => en::translations(),
             Self::Fr => fr::translations(),
