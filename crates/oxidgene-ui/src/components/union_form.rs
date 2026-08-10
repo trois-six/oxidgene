@@ -18,7 +18,7 @@ use crate::components::person_form::{
 };
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
-use crate::utils::{opt_str, resolve_name};
+use crate::utils::{event_type_label_key, opt_str, resolve_name};
 use oxidgene_core::{ChildType, EventType};
 
 // ── Props ────────────────────────────────────────────────────────────────
@@ -660,7 +660,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             if Some(evt.id) != marriage_event_id() {
                                 {
                                     let eid = evt.id;
-                                    let et = format!("{:?}", evt.event_type);
+                                    let et = i18n.t(event_type_label_key(evt.event_type));
                                     let date = evt.date_value.clone().unwrap_or_default();
                                     let desc = evt.description.clone().unwrap_or_default();
                                     let open = open_union_event() == Some(eid);

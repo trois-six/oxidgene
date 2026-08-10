@@ -694,6 +694,10 @@ fn convert_event_type(et: EventType) -> GedEvent {
         // `description` (see `to_ged_detail`).
         EventType::CivilUnion => GedEvent::Event,
         EventType::Adoption => GedEvent::Adoption,
+        EventType::Blessing => GedEvent::Blessing,
+        EventType::Ordination => GedEvent::Ordination,
+        EventType::Christening => GedEvent::Christening,
+        EventType::AdultChristening => GedEvent::AdultChristening,
         EventType::Other | EventType::Occupation => GedEvent::Other,
         // The individual-attribute variants (CasteName, PhysicalDescription,
         // Education, ...) always round-trip through `to_ged_attribute_detail`
@@ -715,6 +719,75 @@ fn convert_event_type(et: EventType) -> GedEvent {
         | EventType::SocialSecurityNumber
         | EventType::NobilityTitle
         | EventType::Fact => GedEvent::Other,
+        // GeneWeb's vocabulary: no GEDCOM tag, so a generic EVEN whose TYPE
+        // names the event (see `gedcom_type_label`).
+        EventType::Accomplishment
+        | EventType::Acquisition
+        | EventType::Membership
+        | EventType::ChangeName
+        | EventType::Circumcision
+        | EventType::Award
+        | EventType::MilitaryDischarge
+        | EventType::Degree
+        | EventType::Distinction
+        | EventType::Election
+        | EventType::Excommunication
+        | EventType::Funeral
+        | EventType::Hospitalization
+        | EventType::Illness
+        | EventType::PassengerList
+        | EventType::MilitaryDistinction
+        | EventType::MilitaryPromotion
+        | EventType::MilitaryMobilization
+        | EventType::PropertySale
+        | EventType::Endowment
+        | EventType::LdsDotation
+        | EventType::SealingChild
+        | EventType::SealingSpouse
+        | EventType::SealingParent
+        | EventType::FamilyLinkLds
+        | EventType::NoMarriage
+        | EventType::NoMention => GedEvent::Event,
+    }
+}
+
+/// The `TYPE` label a generic `EVEN` must carry to name this event type.
+///
+/// `None` for types that are a GEDCOM tag of their own, and for `Other` and
+/// `CivilUnion`, whose classification lives in the event's description.
+///
+/// This is the inverse of the table `oxidgene_gedcom::import` reads, so an
+/// event exported here is recognised as the same type when read back.
+fn gedcom_type_label(et: EventType) -> Option<&'static str> {
+    match et {
+        EventType::Accomplishment => Some("Accomplishment"),
+        EventType::Acquisition => Some("Acquisition"),
+        EventType::Membership => Some("Membership"),
+        EventType::ChangeName => Some("Change name"),
+        EventType::Circumcision => Some("Circumcision"),
+        EventType::Award => Some("Award"),
+        EventType::MilitaryDischarge => Some("Military discharge"),
+        EventType::Degree => Some("Degree"),
+        EventType::Distinction => Some("Distinction"),
+        EventType::Election => Some("Election"),
+        EventType::Excommunication => Some("Excommunication"),
+        EventType::Funeral => Some("Funeral"),
+        EventType::Hospitalization => Some("Hospitalization"),
+        EventType::Illness => Some("Illness"),
+        EventType::PassengerList => Some("Passenger list"),
+        EventType::MilitaryDistinction => Some("Military distinction"),
+        EventType::MilitaryPromotion => Some("Military promotion"),
+        EventType::MilitaryMobilization => Some("Military mobilization"),
+        EventType::PropertySale => Some("Property sale"),
+        EventType::Endowment => Some("ENDL"),
+        EventType::LdsDotation => Some("DotationLDS"),
+        EventType::SealingChild => Some("SLGC"),
+        EventType::SealingSpouse => Some("SLGS"),
+        EventType::SealingParent => Some("Scellent parent LDS"),
+        EventType::FamilyLinkLds => Some("Family link LDS"),
+        EventType::NoMarriage => Some("unmarried"),
+        EventType::NoMention => Some("nomen"),
+        _ => None,
     }
 }
 
@@ -819,9 +892,13 @@ fn to_ged_detail(
         note,
         family_link: None,
         family_event_details: Vec::new(),
-        // Round-trips the free-text classification (e.g. "PACS") back into
-        // the GEDCOM TYPE sub-tag it was read from on import.
-        event_type: evt.description.clone(),
+        // Round-trips the classification back into the GEDCOM TYPE sub-tag it
+        // was read from. A type that names itself writes its own label; the
+        // rest (Other, CivilUnion) fall back to the free-text description,
+        // which is where their classification lives.
+        event_type: gedcom_type_label(evt.event_type)
+            .map(str::to_owned)
+            .or_else(|| evt.description.clone()),
         citations,
         multimedia,
         sort_date: None,

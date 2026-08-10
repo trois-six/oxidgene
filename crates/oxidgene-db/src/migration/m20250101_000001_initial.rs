@@ -701,71 +701,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 15. person_ancestry (closure table, FK → tree, person x2)
-        manager
-            .create_table(
-                Table::create()
-                    .table(PersonAncestry::Table)
-                    .if_not_exists()
-                    .col(uuid(PersonAncestry::Id).primary_key())
-                    .col(uuid(PersonAncestry::TreeId))
-                    .col(uuid(PersonAncestry::AncestorId))
-                    .col(uuid(PersonAncestry::DescendantId))
-                    .col(integer(PersonAncestry::Depth))
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_person_ancestry_tree")
-                            .from(PersonAncestry::Table, PersonAncestry::TreeId)
-                            .to(Tree::Table, Tree::Id)
-                            .on_delete(ForeignKeyAction::Cascade),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_person_ancestry_ancestor")
-                            .from(PersonAncestry::Table, PersonAncestry::AncestorId)
-                            .to(Person::Table, Person::Id)
-                            .on_delete(ForeignKeyAction::Cascade),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_person_ancestry_descendant")
-                            .from(PersonAncestry::Table, PersonAncestry::DescendantId)
-                            .to(Person::Table, Person::Id)
-                            .on_delete(ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_person_ancestry_ancestor")
-                    .table(PersonAncestry::Table)
-                    .col(PersonAncestry::AncestorId)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_person_ancestry_descendant")
-                    .table(PersonAncestry::Table)
-                    .col(PersonAncestry::DescendantId)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_person_ancestry_tree_desc_depth")
-                    .table(PersonAncestry::Table)
-                    .col(PersonAncestry::TreeId)
-                    .col(PersonAncestry::DescendantId)
-                    .col(PersonAncestry::Depth)
-                    .to_owned(),
-            )
-            .await?;
-
         // 16. person_search_fts (Sprint E.6): a real FTS5 virtual table on
         // SQLite (desktop), or a plain table + index on PostgreSQL (web,
         // where FTS5 isn't available — matching falls back to LIKE on
@@ -825,6 +760,246 @@ impl MigrationTrait for Migration {
             }
         }
 
+        // ── folded in from m20260724_000001_search_display_names ──
+
+        let conn = manager.get_connection();
+        conn.execute(Statement::from_string(
+            manager.get_database_backend(),
+            "DROP TABLE IF EXISTS person_search_fts".to_owned(),
+        ))
+        .await?;
+
+        match manager.get_database_backend() {
+            DbBackend::Sqlite => {
+                conn.execute(Statement::from_string(
+                    DbBackend::Sqlite,
+                    r#"
+                    CREATE VIRTUAL TABLE IF NOT EXISTS person_search_fts USING fts5(
+                        surname,
+                        given_names,
+                        maiden_name,
+                        birth_year,
+                        death_year,
+                        person_id UNINDEXED,
+                        tree_id UNINDEXED,
+                        sex UNINDEXED,
+                        display_name UNINDEXED,
+                        surname_display UNINDEXED,
+                        given_names_display UNINDEXED,
+                        birth_place UNINDEXED,
+                        date_sort UNINDEXED
+                    )
+                    "#
+                    .to_owned(),
+                ))
+                .await?;
+            }
+            backend => {
+                conn.execute(Statement::from_string(
+                    backend,
+                    r#"
+                    CREATE TABLE IF NOT EXISTS person_search_fts (
+                        person_id TEXT NOT NULL PRIMARY KEY,
+                        tree_id TEXT NOT NULL,
+                        surname TEXT NOT NULL DEFAULT '',
+                        given_names TEXT NOT NULL DEFAULT '',
+                        maiden_name TEXT,
+                        birth_year TEXT,
+                        death_year TEXT,
+                        sex TEXT NOT NULL DEFAULT 'unknown',
+                        display_name TEXT NOT NULL DEFAULT '',
+                        surname_display TEXT NOT NULL DEFAULT '',
+                        given_names_display TEXT NOT NULL DEFAULT '',
+                        birth_place TEXT,
+                        date_sort TEXT
+                    )
+                    "#
+                    .to_owned(),
+                ))
+                .await?;
+                conn.execute(Statement::from_string(
+                    backend,
+                    "CREATE INDEX IF NOT EXISTS idx_person_search_fts_tree_id \
+                     ON person_search_fts (tree_id)"
+                        .to_owned(),
+                ))
+                .await?;
+            }
+        }
+
+        // ── folded in from m20260724_000002_citation_media_link_fk_indexes ──
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_citation_person_id")
+                    .table(Citation::Table)
+                    .col(Citation::PersonId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_citation_event_id")
+                    .table(Citation::Table)
+                    .col(Citation::EventId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_citation_family_id")
+                    .table(Citation::Table)
+                    .col(Citation::FamilyId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_media_link_person_id")
+                    .table(MediaLink::Table)
+                    .col(MediaLink::PersonId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_media_link_event_id")
+                    .table(MediaLink::Table)
+                    .col(MediaLink::EventId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_media_link_source_id")
+                    .table(MediaLink::Table)
+                    .col(MediaLink::SourceId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_media_link_family_id")
+                    .table(MediaLink::Table)
+                    .col(MediaLink::FamilyId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── folded in from m20260728_000001_person_denorm ──
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(PersonDenorm::Table)
+                    .if_not_exists()
+                    .col(uuid(PersonDenorm::PersonId).primary_key())
+                    .col(uuid(PersonDenorm::TreeId))
+                    .col(text(PersonDenorm::Payload))
+                    .col(timestamp_with_time_zone(PersonDenorm::UpdatedAt))
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_person_denorm_person")
+                            .from(PersonDenorm::Table, PersonDenorm::PersonId)
+                            .to(Person::Table, Person::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_person_denorm_tree")
+                            .from(PersonDenorm::Table, PersonDenorm::TreeId)
+                            .to(Tree::Table, Tree::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_person_denorm_tree_id")
+                    .table(PersonDenorm::Table)
+                    .col(PersonDenorm::TreeId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── folded in from m20260803_000001_drop_person_ancestry ──
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_event_place_id")
+                    .table(Event::Table)
+                    .col(Event::PlaceId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_note_person_id")
+                    .table(Note::Table)
+                    .col(Note::PersonId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_note_event_id")
+                    .table(Note::Table)
+                    .col(Note::EventId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_note_family_id")
+                    .table(Note::Table)
+                    .col(Note::FamilyId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_note_source_id")
+                    .table(Note::Table)
+                    .col(Note::SourceId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── folded in from m20260804_000001_person_name_surname_prefix ──
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(PersonName::Table)
+                    .add_column(string_null(PersonName::SurnamePrefix))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(PersonName::Table)
+                    .add_column(integer(PersonName::SortOrder).default(0))
+                    .to_owned(),
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -836,9 +1011,11 @@ impl MigrationTrait for Migration {
         ))
         .await?;
 
-        // Drop in reverse dependency order.
+        // Drop in reverse dependency order. `person_denorm` leads: it is a
+        // projection with foreign keys onto `person` and `tree`, so it has to
+        // go before either of them.
         let tables = [
-            PersonAncestry::Table.into_table_ref(),
+            PersonDenorm::Table.into_table_ref(),
             Note::Table.into_table_ref(),
             MediaLink::Table.into_table_ref(),
             Media::Table.into_table_ref(),
@@ -894,6 +1071,8 @@ enum Person {
 #[derive(DeriveIden)]
 enum PersonName {
     Table,
+    SurnamePrefix,
+    SortOrder,
     Id,
     PersonId,
     NameType,
@@ -1059,11 +1238,10 @@ enum Note {
 }
 
 #[derive(DeriveIden)]
-enum PersonAncestry {
+enum PersonDenorm {
     Table,
-    Id,
+    PersonId,
     TreeId,
-    AncestorId,
-    DescendantId,
-    Depth,
+    Payload,
+    UpdatedAt,
 }

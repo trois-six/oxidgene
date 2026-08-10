@@ -240,6 +240,68 @@ pub enum EventType {
     NobilityTitle,
     #[sea_orm(string_value = "fact")]
     Fact,
+    #[sea_orm(string_value = "blessing")]
+    Blessing,
+    #[sea_orm(string_value = "ordination")]
+    Ordination,
+    #[sea_orm(string_value = "christening")]
+    Christening,
+    #[sea_orm(string_value = "adult_christening")]
+    AdultChristening,
+    #[sea_orm(string_value = "accomplishment")]
+    Accomplishment,
+    #[sea_orm(string_value = "acquisition")]
+    Acquisition,
+    #[sea_orm(string_value = "membership")]
+    Membership,
+    #[sea_orm(string_value = "change_name")]
+    ChangeName,
+    #[sea_orm(string_value = "circumcision")]
+    Circumcision,
+    #[sea_orm(string_value = "award")]
+    Award,
+    #[sea_orm(string_value = "military_discharge")]
+    MilitaryDischarge,
+    #[sea_orm(string_value = "degree")]
+    Degree,
+    #[sea_orm(string_value = "distinction")]
+    Distinction,
+    #[sea_orm(string_value = "election")]
+    Election,
+    #[sea_orm(string_value = "excommunication")]
+    Excommunication,
+    #[sea_orm(string_value = "funeral")]
+    Funeral,
+    #[sea_orm(string_value = "hospitalization")]
+    Hospitalization,
+    #[sea_orm(string_value = "illness")]
+    Illness,
+    #[sea_orm(string_value = "passenger_list")]
+    PassengerList,
+    #[sea_orm(string_value = "military_distinction")]
+    MilitaryDistinction,
+    #[sea_orm(string_value = "military_promotion")]
+    MilitaryPromotion,
+    #[sea_orm(string_value = "military_mobilization")]
+    MilitaryMobilization,
+    #[sea_orm(string_value = "property_sale")]
+    PropertySale,
+    #[sea_orm(string_value = "endowment")]
+    Endowment,
+    #[sea_orm(string_value = "lds_dotation")]
+    LdsDotation,
+    #[sea_orm(string_value = "sealing_child")]
+    SealingChild,
+    #[sea_orm(string_value = "sealing_spouse")]
+    SealingSpouse,
+    #[sea_orm(string_value = "sealing_parent")]
+    SealingParent,
+    #[sea_orm(string_value = "family_link_lds")]
+    FamilyLinkLds,
+    #[sea_orm(string_value = "no_marriage")]
+    NoMarriage,
+    #[sea_orm(string_value = "no_mention")]
+    NoMention,
     // Family events
     #[sea_orm(string_value = "marriage")]
     Marriage,
@@ -303,6 +365,37 @@ impl From<enums::EventType> for EventType {
             enums::EventType::SocialSecurityNumber => Self::SocialSecurityNumber,
             enums::EventType::NobilityTitle => Self::NobilityTitle,
             enums::EventType::Fact => Self::Fact,
+            enums::EventType::Blessing => Self::Blessing,
+            enums::EventType::Ordination => Self::Ordination,
+            enums::EventType::Christening => Self::Christening,
+            enums::EventType::AdultChristening => Self::AdultChristening,
+            enums::EventType::Accomplishment => Self::Accomplishment,
+            enums::EventType::Acquisition => Self::Acquisition,
+            enums::EventType::Membership => Self::Membership,
+            enums::EventType::ChangeName => Self::ChangeName,
+            enums::EventType::Circumcision => Self::Circumcision,
+            enums::EventType::Award => Self::Award,
+            enums::EventType::MilitaryDischarge => Self::MilitaryDischarge,
+            enums::EventType::Degree => Self::Degree,
+            enums::EventType::Distinction => Self::Distinction,
+            enums::EventType::Election => Self::Election,
+            enums::EventType::Excommunication => Self::Excommunication,
+            enums::EventType::Funeral => Self::Funeral,
+            enums::EventType::Hospitalization => Self::Hospitalization,
+            enums::EventType::Illness => Self::Illness,
+            enums::EventType::PassengerList => Self::PassengerList,
+            enums::EventType::MilitaryDistinction => Self::MilitaryDistinction,
+            enums::EventType::MilitaryPromotion => Self::MilitaryPromotion,
+            enums::EventType::MilitaryMobilization => Self::MilitaryMobilization,
+            enums::EventType::PropertySale => Self::PropertySale,
+            enums::EventType::Endowment => Self::Endowment,
+            enums::EventType::LdsDotation => Self::LdsDotation,
+            enums::EventType::SealingChild => Self::SealingChild,
+            enums::EventType::SealingSpouse => Self::SealingSpouse,
+            enums::EventType::SealingParent => Self::SealingParent,
+            enums::EventType::FamilyLinkLds => Self::FamilyLinkLds,
+            enums::EventType::NoMarriage => Self::NoMarriage,
+            enums::EventType::NoMention => Self::NoMention,
             enums::EventType::Marriage => Self::Marriage,
             enums::EventType::Divorce => Self::Divorce,
             enums::EventType::Annulment => Self::Annulment,
@@ -354,6 +447,37 @@ impl From<EventType> for enums::EventType {
             EventType::SocialSecurityNumber => Self::SocialSecurityNumber,
             EventType::NobilityTitle => Self::NobilityTitle,
             EventType::Fact => Self::Fact,
+            EventType::Blessing => Self::Blessing,
+            EventType::Ordination => Self::Ordination,
+            EventType::Christening => Self::Christening,
+            EventType::AdultChristening => Self::AdultChristening,
+            EventType::Accomplishment => Self::Accomplishment,
+            EventType::Acquisition => Self::Acquisition,
+            EventType::Membership => Self::Membership,
+            EventType::ChangeName => Self::ChangeName,
+            EventType::Circumcision => Self::Circumcision,
+            EventType::Award => Self::Award,
+            EventType::MilitaryDischarge => Self::MilitaryDischarge,
+            EventType::Degree => Self::Degree,
+            EventType::Distinction => Self::Distinction,
+            EventType::Election => Self::Election,
+            EventType::Excommunication => Self::Excommunication,
+            EventType::Funeral => Self::Funeral,
+            EventType::Hospitalization => Self::Hospitalization,
+            EventType::Illness => Self::Illness,
+            EventType::PassengerList => Self::PassengerList,
+            EventType::MilitaryDistinction => Self::MilitaryDistinction,
+            EventType::MilitaryPromotion => Self::MilitaryPromotion,
+            EventType::MilitaryMobilization => Self::MilitaryMobilization,
+            EventType::PropertySale => Self::PropertySale,
+            EventType::Endowment => Self::Endowment,
+            EventType::LdsDotation => Self::LdsDotation,
+            EventType::SealingChild => Self::SealingChild,
+            EventType::SealingSpouse => Self::SealingSpouse,
+            EventType::SealingParent => Self::SealingParent,
+            EventType::FamilyLinkLds => Self::FamilyLinkLds,
+            EventType::NoMarriage => Self::NoMarriage,
+            EventType::NoMention => Self::NoMention,
             EventType::Marriage => Self::Marriage,
             EventType::Divorce => Self::Divorce,
             EventType::Annulment => Self::Annulment,
