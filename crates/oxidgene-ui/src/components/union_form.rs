@@ -72,7 +72,11 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // Add child linking mode.
     let mut show_add_child = use_signal(|| false);
 
-    // Person block expand/collapse (collapsed by default).
+    // Section fold state. The union's own blocks open with the form; the two
+    // person blocks stay closed, since each mounts a whole PersonForm with its
+    // own fetches — opening both by default would load the couple twice over.
+    let mut open_union = use_signal(|| true);
+    let mut open_children = use_signal(|| true);
     let mut show_person1 = use_signal(|| false);
     let mut show_person2 = use_signal(|| false);
 
@@ -120,30 +124,37 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let places_resource = use_resource(move || {
         let api = api_places.clone();
         let _tick = refresh();
-        async move { api.list_places(tid, Some(200), None, None).await }
+        // Every page: an event may sit on any place in the tree, and a place
+        // missing from this list has no name to show.
+        async move { api.list_all_places(tid).await }
     });
 
-    // All persons + names (for display names)
-    let api_persons = api.clone();
-    let _persons_resource = use_resource(move || {
-        let api = api_persons.clone();
-        let _tick = refresh();
-        async move { api.list_persons(tid, Some(500), None).await }
-    });
-
+    // Display names for the people this modal actually shows: the two spouses
+    // and the children. It used to list the first 500 persons of the tree and
+    // then request the names of every one of them — hundreds of sequential
+    // round trips to render seven names, which left the map empty (and every
+    // name reading "Unnamed") for as long as it ran, and missed anyone past
+    // the 500th outright.
     let api_names_res = api.clone();
     let names_resource = use_resource(move || {
         let api = api_names_res.clone();
         let _tick = refresh();
         async move {
-            let persons = api.list_persons(tid, Some(500), None).await?;
+            let mut ids: Vec<Uuid> = Vec::new();
+            if let Ok(spouses) = api.list_family_spouses(tid, fid).await {
+                ids.extend(spouses.iter().map(|s| s.person_id));
+            }
+            if let Ok(children) = api.list_family_children(tid, fid).await {
+                ids.extend(children.iter().map(|c| c.person_id));
+            }
+
             let mut name_map: std::collections::HashMap<
                 Uuid,
                 Vec<oxidgene_core::types::PersonName>,
             > = std::collections::HashMap::new();
-            for edge in &persons.edges {
-                if let Ok(names) = api.list_person_names(tid, edge.node.id).await {
-                    name_map.insert(edge.node.id, names);
+            for id in ids {
+                if let Ok(names) = api.list_person_names(tid, id).await {
+                    name_map.insert(id, names);
                 }
             }
             Ok::<_, crate::api::ApiError>(name_map)
@@ -220,10 +231,9 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let place_options: Vec<(String, String)> = {
         let data = places_resource.read();
         match &*data {
-            Some(Ok(conn)) => conn
-                .edges
+            Some(Ok(places)) => places
                 .iter()
-                .map(|e| (e.node.id.to_string(), e.node.name.clone()))
+                .map(|p| (p.id.to_string(), p.name.clone()))
                 .collect(),
             _ => vec![],
         }
@@ -522,17 +532,87 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 }
 
                 div { class: "union-form-body",
+                    // ── Person 1 block ──
+                    if let Some(s1) = &spouse1 {
+                        {
+                            let pid1 = s1.person_id;
+                            let name1 = resolve_name(pid1, &name_map_for_display);
+                            rsx! {
+                                div { class: "pf-section",
+                                    div { class: "pf-section-head",
+                                        button {
+                                            class: "pf-section-toggle",
+                                            r#type: "button",
+                                            onclick: move |_| show_person1.toggle(),
+                                            span { class: if show_person1() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                            {i18n.t_args("union_form.person1", &[("name", &name1)])}
+                                        }
+                                    }
+                                    if show_person1() { div { class: "pf-section-body",
+                                        PersonForm {
+                                            tree_id: tid,
+                                            person_id: Some(pid1),
+                                            embedded: true,
+                                            on_close: move |_| {},
+                                            on_saved: move |_| refresh += 1,
+                                        }
+                                    } }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Person 2 block ──
+                    if let Some(s2) = &spouse2 {
+                        {
+                            let pid2 = s2.person_id;
+                            let name2 = resolve_name(pid2, &name_map_for_display);
+                            rsx! {
+                                div { class: "pf-section",
+                                    div { class: "pf-section-head",
+                                        button {
+                                            class: "pf-section-toggle",
+                                            r#type: "button",
+                                            onclick: move |_| show_person2.toggle(),
+                                            span { class: if show_person2() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                            {i18n.t_args("union_form.person2", &[("name", &name2)])}
+                                        }
+                                    }
+                                    if show_person2() { div { class: "pf-section-body",
+                                        PersonForm {
+                                            tree_id: tid,
+                                            person_id: Some(pid2),
+                                            embedded: true,
+                                            on_close: move |_| {},
+                                            on_saved: move |_| refresh += 1,
+                                        }
+                                    } }
+                                }
+                            }
+                        }
+                    }
+
                     // ── Union block ──
-                    div { class: "union-form-section",
-                        div { class: "section-header",
-                            h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.events")} }
+                    div { class: "pf-section",
+                        div { class: "pf-section-head",
                             button {
-                                class: "btn btn-primary btn-sm",
-                                onclick: move |_| show_add_union_event.toggle(),
-                                if show_add_union_event() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_event")} }
+                                class: "pf-section-toggle",
+                                r#type: "button",
+                                onclick: move |_| open_union.toggle(),
+                                span { class: if open_union() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                {i18n.t("union_form.events")}
+                            }
+                            if open_union() {
+                                button {
+                                    class: if show_add_union_event() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                    r#type: "button",
+                                    onclick: move |_| show_add_union_event.toggle(),
+                                    if show_add_union_event() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_event")} }
+                                }
                             }
                         }
 
+                        if open_union() { div { class: "pf-section-body",
                         // Existing union events
                         if union_events.is_empty() && marriage_event_id().is_none() {
                             div { class: "empty-state",
@@ -702,19 +782,30 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 }
                             }
                         }
+                        } }
                     }
 
                     // ── Children block ──
-                    div { class: "union-form-section",
-                        div { class: "section-header",
-                            h3 { style: "font-size: 0.95rem;", {i18n.t("union_form.children")} }
+                    div { class: "pf-section",
+                        div { class: "pf-section-head",
                             button {
-                                class: "btn btn-primary btn-sm",
-                                onclick: move |_| show_add_child.toggle(),
-                                if show_add_child() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_child")} }
+                                class: "pf-section-toggle",
+                                r#type: "button",
+                                onclick: move |_| open_children.toggle(),
+                                span { class: if open_children() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                {i18n.t("union_form.children")}
+                            }
+                            if open_children() {
+                                button {
+                                    class: if show_add_child() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                    r#type: "button",
+                                    onclick: move |_| show_add_child.toggle(),
+                                    if show_add_child() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_child")} }
+                                }
                             }
                         }
 
+                        if open_children() { div { class: "pf-section-body",
                         if show_add_child() {
                             div { class: "linking-panel",
                                 p { class: "linking-panel-title", {i18n.t("union_form.link_or_create")} }
@@ -806,65 +897,12 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 div { class: "loading", {i18n.t("union_form.loading_children")} }
                             },
                         }
-                    }
-
-                    // ── Person 1 block ──
-                    if let Some(s1) = &spouse1 {
-                        {
-                            let pid1 = s1.person_id;
-                            let name1 = resolve_name(pid1, &name_map_for_display);
-                            rsx! {
-                                div { class: "uf-person-block",
-                                    button {
-                                        class: "uf-section-toggle",
-                                        r#type: "button",
-                                        onclick: move |_| show_person1.toggle(),
-                                        div { class: "pf-section-title", {i18n.t_args("union_form.person1", &[("name", &name1)])} }
-                                        span { class: if show_person1() { "uf-chevron open" } else { "uf-chevron" }, "\u{276F}" }
-                                    }
-                                    if show_person1() {
-                                        PersonForm {
-                                            tree_id: tid,
-                                            person_id: Some(pid1),
-                                            embedded: true,
-                                            on_close: move |_| {},
-                                            on_saved: move |_| refresh += 1,
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── Person 2 block ──
-                    if let Some(s2) = &spouse2 {
-                        {
-                            let pid2 = s2.person_id;
-                            let name2 = resolve_name(pid2, &name_map_for_display);
-                            rsx! {
-                                div { class: "uf-person-block",
-                                    button {
-                                        class: "uf-section-toggle",
-                                        r#type: "button",
-                                        onclick: move |_| show_person2.toggle(),
-                                        div { class: "pf-section-title", {i18n.t_args("union_form.person2", &[("name", &name2)])} }
-                                        span { class: if show_person2() { "uf-chevron open" } else { "uf-chevron" }, "\u{276F}" }
-                                    }
-                                    if show_person2() {
-                                        PersonForm {
-                                            tree_id: tid,
-                                            person_id: Some(pid2),
-                                            embedded: true,
-                                            on_close: move |_| {},
-                                            on_saved: move |_| refresh += 1,
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        } }
                     }
 
                     // ── Delete couple ──
+                    // No section header and no rule above it, as in person_form:
+                    // the button already says what it does.
                     div { class: "pf-delete-section",
                         if show_delete_confirm() {
                             div { class: "pf-delete-confirm",
@@ -889,7 +927,6 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 }
                             }
                         } else {
-                            hr { class: "pf-delete-divider" }
                             button {
                                 class: "pf-delete-person-btn",
                                 r#type: "button",

@@ -24,7 +24,7 @@ use crate::utils::{
     parse_privacy, parse_sex,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
-use oxidgene_core::types::{split_surname_at_head, split_surname_particle, split_surname_with};
+use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, SpouseRole};
 
 // ── Props ────────────────────────────────────────────────────────────────
@@ -105,7 +105,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut edit_name_type = use_signal(|| "Birth".to_string());
     let mut edit_name_given = use_signal(String::new);
     let mut edit_name_surname = use_signal(String::new);
-    let mut edit_name_surname_prefix = use_signal(String::new);
+    // Same contract as `birth_particle_override`: `None` trusts detection,
+    // `Some(p)` is the user's call (empty = "no particle here").
+    let mut edit_name_particle_override = use_signal(|| None::<String>);
     let mut edit_name_prefix = use_signal(String::new);
     let mut edit_name_suffix = use_signal(String::new);
     let mut edit_name_nickname = use_signal(String::new);
@@ -174,6 +176,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut edit_note_text = use_signal(String::new);
     let mut edit_note_error = use_signal(|| None::<String>);
 
+    // ── Section fold state ──
+    // Every section opens with the form; folding one is a way to get it out of
+    // the way, not a step to go through before the fields are reachable.
+    let mut open_civil = use_signal(|| true);
+    let mut open_birth = use_signal(|| true);
+    let mut open_death = use_signal(|| true);
+    let mut open_privacy = use_signal(|| true);
+    let mut open_events = use_signal(|| true);
+
     // ── UI state ──
     let mut saving = use_signal(|| false);
     let mut save_error = use_signal(|| None::<String>);
@@ -232,7 +243,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let places_resource = use_resource(move || {
         let api = api_places.clone();
         let _tick = refresh();
-        async move { api.list_places(tid, Some(200), None, None).await }
+        // Every page: an event may sit on any place in the tree, and a place
+        // missing from this list has no name to show.
+        async move { api.list_all_places(tid).await }
     });
 
     let api_notes = api.clone();
@@ -464,26 +477,27 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         _ => vec![],
     };
 
+    // An unknown or not-yet-loaded place resolves to nothing rather than to a
+    // slice of its UUID: callers hide the place when this is empty, and a bare
+    // "019fccf3" told the reader less than showing no place at all.
     let place_name = |place_id: Uuid| -> String {
         let data = places_resource.read();
         match &*data {
-            Some(Ok(conn)) => conn
-                .edges
+            Some(Ok(places)) => places
                 .iter()
-                .find(|e| e.node.id == place_id)
-                .map(|e| e.node.name.clone())
-                .unwrap_or_else(|| place_id.to_string()[..8].to_string()),
-            _ => place_id.to_string()[..8].to_string(),
+                .find(|p| p.id == place_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
         }
     };
 
     let place_options: Vec<(String, String)> = {
         let data = places_resource.read();
         match &*data {
-            Some(Ok(conn)) => conn
-                .edges
+            Some(Ok(places)) => places
                 .iter()
-                .map(|e| (e.node.id.to_string(), e.node.name.clone()))
+                .map(|p| (p.id.to_string(), p.name.clone()))
                 .collect(),
             _ => vec![],
         }
@@ -1171,8 +1185,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 div { class: "person-form-body",
 
                     // ── Civil Status ──
-                    div { class: "person-form-section",
-                        div { class: "pf-section-title", {i18n.t("person_form.tab_civil")} }
+                    div { class: "pf-section",
+                        div { class: "pf-section-head",
+                            button {
+                                class: "pf-section-toggle",
+                                r#type: "button",
+                                onclick: move |_| open_civil.toggle(),
+                                span { class: if open_civil() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                {i18n.t("person_form.tab_civil")}
+                            }
+                        }
+                        if open_civil() { div { class: "pf-section-body",
 
                         // Birth name + given names — mandatory, always visible.
                         div { class: "form-row",
@@ -1230,7 +1253,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
                         // ── Profession(s) (edit mode only) ──
                         if !is_create {
-                            div { style: "margin-top: 16px;",
+                            div { class: "pf-subblock",
                                 div { class: "pf-block-label",
                                     {i18n.t("person_form.professions")}
                                     button {
@@ -1346,7 +1369,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
                         // ── Additional information (edit mode only) ──
                         if !is_create {
-                        div { style: "margin-top: 16px;",
+                        div { class: "pf-subblock",
                             div { class: "pf-block-label",
                                 {i18n.t("person_form.tab_more_information")}
                                 button {
@@ -1386,17 +1409,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             let nt = name_type_value(name.name_type).to_string();
                                             let nt_label = i18n.t(name_type_label_key(name.name_type));
                                             let gn = name.given_names.clone().unwrap_or_default();
-                                            // This editor exposes the particle as its own field,
-                                            // so the surname box holds the root alone.
-                                            let sn = name.surname.clone().unwrap_or_default();
                                             let spfx = name.surname_prefix.clone().unwrap_or_default();
-                                            // The collapsed row is display, so it shows the
-                                            // particle reattached.
+                                            // Edited and displayed as one field, particle
+                                            // included — re-split on save.
                                             let sn_display = name.full_surname().unwrap_or_default();
                                             let pfx = name.prefix.clone().unwrap_or_default();
                                             let sfx = name.suffix.clone().unwrap_or_default();
                                             let nick = name.nickname.clone().unwrap_or_default();
                                             let prim = name.is_primary;
+                                            // The collapsed row has to show whichever piece the
+                                            // entry actually fills: an information may be a prefix
+                                            // or a suffix alone, and rendering only given names and
+                                            // surname left such a row blank.
+                                            let display = [&pfx, &gn, &sn_display, &sfx]
+                                                .iter()
+                                                .filter(|p| !p.is_empty())
+                                                .map(|p| p.as_str())
+                                                .collect::<Vec<_>>()
+                                                .join(" ");
                                             if is_editing {
                                                 rsx! {
                                                     div { class: "person-form-item editing",
@@ -1437,12 +1467,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 input { r#type: "text", value: "{edit_name_given}", oninput: move |e: Event<FormData>| edit_name_given.set(e.value()) }
                                                             }
                                                             div { class: "form-group",
-                                                                label { {i18n.t("person_form.particle")} }
-                                                                input { r#type: "text", placeholder: "{i18n.t(\"person_form.particle_placeholder\")}", value: "{edit_name_surname_prefix}", oninput: move |e: Event<FormData>| edit_name_surname_prefix.set(e.value()) }
-                                                            }
-                                                            div { class: "form-group",
                                                                 label { {i18n.t("person_form.surname")} }
                                                                 input { r#type: "text", value: "{edit_name_surname}", oninput: move |e: Event<FormData>| edit_name_surname.set(e.value().to_uppercase()) }
+                                                                {render_particle_row(&i18n, &edit_name_surname(), &mut edit_name_particle_override)}
                                                             }
                                                         }
                                                         div { class: "form-row",
@@ -1470,18 +1497,22 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                         let Some(nid) = editing_name_id() else { return; };
                                                                         let given = edit_name_given().trim().to_string();
                                                                         let surname = edit_name_surname().trim().to_string();
-                                                                        let surname_prefix = edit_name_surname_prefix().trim().to_string();
+                                                                        let particle_override = edit_name_particle_override();
                                                                         let prefix = edit_name_prefix().trim().to_string();
                                                                         let suffix = edit_name_suffix().trim().to_string();
                                                                         let nickname = edit_name_nickname().trim().to_string();
                                                                         let name_type_str = edit_name_type();
                                                                         let is_primary = edit_name_primary();
                                                                         spawn(async move {
-                                                                            // Both parts are typed explicitly here, so
-                                                                            // nothing is guessed — but still reconcile in
-                                                                            // case the root was pasted in with its particle.
+                                                                            // The surname is entered whole, particle
+                                                                            // included — detected here, and overridable,
+                                                                            // exactly as the main name is.
+                                                                            let split = resolve_particle(
+                                                                                &surname,
+                                                                                particle_override.as_deref(),
+                                                                            );
                                                                             let (particle, root) =
-                                                                                split_surname_with(&surname, &surname_prefix);
+                                                                                (split.particle, split.root);
                                                                             let body = UpdatePersonNameBody {
                                                                                 name_type: Some(parse_name_type(&name_type_str)),
                                                                                 given_names: Some(opt_str(&given)),
@@ -1521,9 +1552,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                     div { class: "person-form-item pf-compact-item",
                                                         div { class: "person-form-item-info",
                                                             span { class: "badge", "{nt_label}" }
-                                                            strong {
-                                                                if !gn.is_empty() { "{gn} " }
-                                                                "{sn_display}"
+                                                            if !display.is_empty() {
+                                                                strong { "{display}" }
+                                                            }
+                                                            if !nick.is_empty() {
+                                                                span { class: "text-muted", "\u{201C}{nick}\u{201D}" }
                                                             }
                                                             if prim {
                                                                 span { class: "badge badge-primary", {i18n.t("person_form.primary")} }
@@ -1537,8 +1570,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                     editing_name_id.set(Some(nid));
                                                                     edit_name_type.set(nt.clone());
                                                                     edit_name_given.set(gn.clone());
-                                                                    edit_name_surname.set(sn.clone());
-                                                                    edit_name_surname_prefix.set(spfx.clone());
+                                                                    edit_name_surname.set(sn_display.clone());
+                                                                    edit_name_particle_override.set(
+                                                                        override_for_stored(&sn_display, opt_str(&spfx).as_deref()),
+                                                                    );
                                                                     edit_name_prefix.set(pfx.clone());
                                                                     edit_name_suffix.set(sfx.clone());
                                                                     edit_name_nickname.set(nick.clone());
@@ -1582,7 +1617,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         // Notes about the person as such — the ones tied to a
                         // single event live in that event's own panel.
                         if !is_create {
-                            div { style: "margin-top: 16px;",
+                            div { class: "pf-subblock",
                                 div { class: "pf-block-label",
                                     {i18n.t("person_form.notes")}
                                     button {
@@ -1718,7 +1753,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
                                 // Where the civil-status information itself
                                 // came from; saved with the footer button.
-                                div { class: "form-group", style: "margin-top: 16px;",
+                                div { class: "form-group pf-subblock",
                                     label { {i18n.t("person_form.source")} }
                                     input {
                                         r#type: "text",
@@ -1729,13 +1764,21 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         }
+                        } }
                     }
 
-                    hr { class: "pf-section-divider" }
-
                     // ── Birth ──
-                    div { class: "person-form-section",
-                        div { class: "pf-section-title", {i18n.t("person_form.birth")} }
+                    div { class: "pf-section",
+                        div { class: "pf-section-head",
+                            button {
+                                class: "pf-section-toggle",
+                                r#type: "button",
+                                onclick: move |_| open_birth.toggle(),
+                                span { class: if open_birth() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                {i18n.t("person_form.birth")}
+                            }
+                        }
+                        if open_birth() { div { class: "pf-section-body",
                         div { class: "form-group",
                             label { {i18n.t("person_form.date")} }
                             DateInput {
@@ -1760,13 +1803,21 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             label { {i18n.t("person_form.witnesses")} }
                             {render_event_witnesses(&i18n, &api, tid, birth_event_id(), birth_witnesses_tick)}
                         }
+                        } }
                     }
 
-                    hr { class: "pf-section-divider" }
-
                     // ── Death ──
-                    div { class: "person-form-section",
-                        div { class: "pf-section-title", {i18n.t("person_form.death")} }
+                    div { class: "pf-section",
+                        div { class: "pf-section-head",
+                            button {
+                                class: "pf-section-toggle",
+                                r#type: "button",
+                                onclick: move |_| open_death.toggle(),
+                                span { class: if open_death() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                {i18n.t("person_form.death")}
+                            }
+                        }
+                        if open_death() { div { class: "pf-section-body",
                         div { class: "form-group",
                             label { {i18n.t("person_form.date")} }
                             DateInput {
@@ -1791,11 +1842,21 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             label { {i18n.t("person_form.witnesses")} }
                             {render_event_witnesses(&i18n, &api, tid, death_event_id(), death_witnesses_tick)}
                         }
+                        } }
                     }
 
                     // ── Privacy ──
-                    div { class: "person-form-section",
-                        div { class: "pf-section-title", {i18n.t("person_form.privacy")} }
+                    div { class: "pf-section",
+                        div { class: "pf-section-head",
+                            button {
+                                class: "pf-section-toggle",
+                                r#type: "button",
+                                onclick: move |_| open_privacy.toggle(),
+                                span { class: if open_privacy() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                {i18n.t("person_form.privacy")}
+                            }
+                        }
+                        if open_privacy() { div { class: "pf-section-body",
                         div { class: "pf-gender-group",
                             {
                                 let privacy_opts = [
@@ -1821,20 +1882,30 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         }
+                        } }
                     }
 
                     // ── Other Events (edit mode only) ──
-                    if !is_create { div { class: "person-form-section",
-                        div { class: "section-header",
-                            div { class: "pf-section-title has-action", {i18n.t("person_form.other_events")} }
+                    if !is_create { div { class: "pf-section",
+                        div { class: "pf-section-head",
                             button {
-                                class: if show_event_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                class: "pf-section-toggle",
                                 r#type: "button",
-                                onclick: move |_| show_event_form.toggle(),
-                                if show_event_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_event")} }
+                                onclick: move |_| open_events.toggle(),
+                                span { class: if open_events() { "pf-chevron is-open" } else { "pf-chevron" } }
+                                {i18n.t("person_form.other_events")}
+                            }
+                            if open_events() {
+                                button {
+                                    class: if show_event_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                                    r#type: "button",
+                                    onclick: move |_| show_event_form.toggle(),
+                                    if show_event_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_event")} }
+                                }
                             }
                         }
 
+                        if open_events() { div { class: "pf-section-body",
                         if show_event_form() {
                             div { class: "pf-subform",
                                 if let Some(err) = event_form_error() {
@@ -1962,9 +2033,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         }
+                        } }
                     } } // end Other Events if !is_create
 
                     // ── Delete Person (edit mode only) ──
+                    // No section header: the button says what it does, and a
+                    // heading repeating it above would be the same word twice.
                     if !is_create && !is_embedded { div { class: "pf-delete-section",
                         if show_delete_confirm() {
                             div { class: "pf-delete-confirm",
@@ -1995,7 +2069,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         } else {
-                            hr { class: "pf-delete-divider" }
                             button {
                                 class: "pf-delete-person-btn",
                                 r#type: "button",

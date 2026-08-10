@@ -440,8 +440,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 .iter()
                 .find(|p| p.id == place_id)
                 .map(|p| p.name.clone())
-                .unwrap_or_else(|| place_id.to_string()[..8].to_string()),
-            _ => place_id.to_string()[..8].to_string(),
+                .unwrap_or_default(),
+            _ => String::new(),
         }
     };
 

@@ -1743,7 +1743,6 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 16px 20px;
     }
 
-    .person-form-section { }
 
     .person-form-item {
         display: flex;
@@ -1870,26 +1869,74 @@ pub const LAYOUT_STYLES: &str = r#"
        competing with the save CTA was the orange spent on *buttons* — the
        add actions are now monochrome (see the button-hierarchy block below),
        so orange-on-a-control means "press this" and nothing else. */
-    .pf-section-title {
-        font-size: 0.68rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--orange);
-        margin-bottom: 14px;
+    /* ── Collapsible sections ──────────────────────────────────────────
+       Every block in the modal is built the same way: a header row that
+       toggles it, then a body. The header carries the section's own rule
+       (the line trailing the title), which is why the standalone <hr>
+       separators are gone — two lines for one boundary read as a gap in
+       the form rather than as a division of it.
+
+       Spacing is owned here and nowhere else: sections are separated by
+       one rhythm (--pf-gap-section), sub-blocks inside a section by
+       another (--pf-gap-block), so no block carries an inline margin of
+       its own. */
+
+    .pf-section { --pf-gap-section: 22px; --pf-gap-block: 16px; }
+    .pf-section + .pf-section { margin-top: var(--pf-gap-section); }
+
+    .pf-section-head {
         display: flex;
         align-items: center;
         gap: 10px;
     }
 
-    .pf-section-title::after {
+    /* The toggle is the section's title, and a real button, so the heading is
+       reachable by keyboard rather than being a div you must click. */
+    .pf-section-toggle {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 0;
+        background: none;
+        border: none;
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--font-sans);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--orange);
+    }
+
+    .pf-section-toggle::after {
         content: "";
         flex: 1;
         height: 1px;
         background: var(--border);
     }
 
-    .pf-section-title.has-action::after { display: none; }
+    /* Two borders of a square, rotated: points right when the section is
+       closed, down when it is open. */
+    .pf-chevron {
+        flex: none;
+        width: 6px;
+        height: 6px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(-45deg);
+        transition: transform 0.15s;
+    }
+
+    .pf-chevron.is-open { transform: rotate(45deg); }
+
+    .pf-section-body { margin-top: 14px; }
+
+    /* Sub-blocks within a section (Profession(s), Autres informations,
+       Notes) — one rhythm, replacing the inline margins these carried. */
+    .pf-subblock { margin-top: var(--pf-gap-block); }
 
     /* Heading for a sub-block inside a section (Profession(s), Autres
        informations, Notes). Deliberately the same weight, size and colour as
@@ -2156,11 +2203,9 @@ pub const LAYOUT_STYLES: &str = r#"
     /* ── Delete person section ─────────────────────────────────────── */
 
     .pf-delete-section { margin-top: 8px; }
-    .pf-delete-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
     /* Same line as .person-form-header's border-bottom, with the same
        ~16px breathing room on each side as the header/body padding gives
        it above "État civil". */
-    .pf-section-divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
     .pf-delete-person-btn {
         margin-top: 12px;
         background: none;
@@ -2260,14 +2305,6 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 16px 20px;
     }
 
-    .union-form-section {
-        margin-bottom: 24px;
-    }
-
-    .union-form-section:last-child {
-        margin-bottom: 0;
-    }
-
     /* ── Couple modal — person blocks, children, footer ───────────── */
 
     .uf-footer {
@@ -2286,42 +2323,7 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-left: auto;
     }
 
-    .uf-section-toggle {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 0;
-        font-family: var(--font-sans);
-        text-align: left;
-    }
-
-    .uf-section-toggle .pf-section-title {
-        flex: 1;
-        margin-bottom: 0;
-    }
-
-    .uf-chevron {
-        font-size: 0.7rem;
-        color: var(--text-secondary);
-        transition: transform 0.15s;
-        margin-left: 8px;
-    }
-
-    .uf-chevron.open {
-        transform: rotate(90deg);
-    }
-
-    .uf-person-block {
-        margin-bottom: 24px;
-        padding-bottom: 4px;
-    }
-
-    .uf-person-block .pf-embedded {
-        margin-top: 12px;
+    .pf-section .pf-embedded {
         padding: 14px;
         background: var(--bg-card);
         border: 1px solid var(--border);
