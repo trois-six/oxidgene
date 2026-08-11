@@ -6,7 +6,9 @@ use uuid::Uuid;
 
 use crate::i18n::I18n;
 
-use oxidgene_core::{Calendar, Confidence, DateQualifier, EventType, NameType, Privacy, Sex};
+use oxidgene_core::{
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex,
+};
 
 // ── Enum parsers ────────────────────────────────────────────────────────
 
@@ -69,6 +71,21 @@ pub fn name_type_label_key(nt: NameType) -> &'static str {
         NameType::Maiden => "name_type.maiden",
         NameType::Religious => "name_type.religious",
         NameType::Other => "name_type.other",
+    }
+}
+
+/// The i18n key labelling how a child is attached to their family.
+///
+/// Shown on the child rows of the couple modal, which printed the Rust
+/// spelling (`{:?}`) there — an untranslated "Biological" in the middle of a
+/// translated form.
+pub fn child_type_label_key(ct: ChildType) -> &'static str {
+    match ct {
+        ChildType::Biological => "child_type.biological",
+        ChildType::Adopted => "child_type.adopted",
+        ChildType::Foster => "child_type.foster",
+        ChildType::Step => "child_type.step",
+        ChildType::Unknown => "child_type.unknown",
     }
 }
 
@@ -296,6 +313,18 @@ pub fn opt_str(s: &str) -> Option<String> {
         None
     } else {
         Some(s.to_string())
+    }
+}
+
+/// Read a place `<select>`'s value back as a place id.
+///
+/// The empty option means "no place"; anything unparseable is treated the same
+/// way, since the only values the picker ever emits are ids it wrote itself.
+pub fn parse_place_id(value: &str) -> Option<Uuid> {
+    if value.is_empty() {
+        None
+    } else {
+        value.parse::<Uuid>().ok()
     }
 }
 
