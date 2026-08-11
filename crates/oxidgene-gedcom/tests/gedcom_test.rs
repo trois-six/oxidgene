@@ -1602,3 +1602,70 @@ fn test_export_result_serialization() {
 
     assert_eq!(deserialized.gedcom, export.gedcom);
 }
+
+/// What the `geneweb` crate writes for a `.gw` personal event GEDCOM has no
+/// tag for: a generic `EVEN` whose `TYPE` names the tag it would have used,
+/// plus a `_GWTAG` line appended to the note's *text* recording the original
+/// `.gw` tag. Both are bookkeeping for that crate's own reverse direction.
+const GENEWEB_CONVERTED_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Jean /BRANCH-A/
+1 EVEN
+2 TYPE EDUC
+2 DATE 1932
+2 NOTE Institution Sainte-Marie
+3 CONT _GWTAG #educ
+1 EVEN
+2 TYPE OCCU
+2 NOTE _GWTAG #occu
+1 EVEN
+2 TYPE Tutelle apres un deces
+2 NOTE Acte non numerise
+3 CONT _GWTAG #Tutelle apres un deces
+0 TRLR
+";
+
+#[test]
+fn test_import_drops_geneweb_bookkeeping_from_events() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(GENEWEB_CONVERTED_GEDCOM, tree_id).unwrap();
+
+    let event_of = |et: oxidgene_core::EventType| {
+        result
+            .events
+            .iter()
+            .find(|e| e.event_type == et)
+            .unwrap_or_else(|| panic!("no {et:?} event imported"))
+    };
+    let note_of = |event_id| {
+        result
+            .notes
+            .iter()
+            .find(|n| n.event_id == Some(event_id))
+            .map(|n| n.text.as_str())
+    };
+
+    // `TYPE EDUC` is what typed this event; repeating it as the description
+    // only put a bare "EDUC" in the form next to the translated type.
+    let education = event_of(oxidgene_core::EventType::Education);
+    assert_eq!(education.description, None);
+    assert_eq!(education.date_value.as_deref(), Some("1932"));
+    // The note keeps what was written about the event, and nothing else.
+    assert_eq!(note_of(education.id), Some("Institution Sainte-Marie"));
+
+    // A note that was only the marker leaves no note at all.
+    let occupation = event_of(oxidgene_core::EventType::Occupation);
+    assert_eq!(occupation.description, None);
+    assert_eq!(note_of(occupation.id), None);
+
+    // A user-defined GeneWeb event name is not bookkeeping: it is the only
+    // record of what the event was, so it stays as the description — and is
+    // dropped from the note, where it was a verbatim duplicate of it.
+    let other = event_of(oxidgene_core::EventType::Other);
+    assert_eq!(other.description.as_deref(), Some("Tutelle apres un deces"));
+    assert_eq!(note_of(other.id), Some("Acte non numerise"));
+}

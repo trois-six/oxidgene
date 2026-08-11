@@ -859,25 +859,15 @@ fn convert_event_type(evt: &GedEvent, type_text: Option<&str>) -> EventType {
     }
 }
 
-/// Reads a generic `EVEN`'s free-text `TYPE` sub-tag as an [`EventType`].
+/// Reads a `TYPE` that is exactly a GEDCOM tag name, matched whole so that
+/// "will" here is the tag and not the "will" inside another word.
 ///
-/// Exporters record anything GEDCOM has no tag for as `EVEN` plus a `TYPE`
-/// describing it — a civil union, but also plain restatements of tags they
-/// chose not to use ("PROP", "Military service"). Left unread, all of it
-/// imported as [`EventType::Other`], so a whole shelf of events showed up
-/// under one meaningless label.
-///
-/// The `TYPE` text is still kept as the event's description: it may carry more
-/// than the type does ("Property sale" is a sale, not just a possession).
-fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
-    let t = type_text?.trim().to_lowercase();
-    if t.is_empty() {
-        return None;
-    }
-
-    // A `TYPE` that is exactly a GEDCOM tag means that tag. Matched whole, so
-    // "will" here is the tag and not the "will" inside another word.
-    let by_tag = match t.as_str() {
+/// Kept apart from the descriptive phrases [`event_type_from_type_text`] also
+/// recognises, because these two kinds of `TYPE` deserve opposite treatment as
+/// a description: see [`type_text_restates_event_type`]. `t` is expected
+/// trimmed and lowercased.
+fn event_type_from_gedcom_tag(t: &str) -> Option<EventType> {
+    match t {
         "adop" => Some(EventType::Adoption),
         "bapm" => Some(EventType::Baptism),
         "barm" | "basm" => Some(EventType::BarBatMitzvah),
@@ -909,11 +899,43 @@ fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
         "titl" => Some(EventType::NobilityTitle),
         "will" => Some(EventType::Will),
         _ => None,
-    };
-    if by_tag.is_some() {
-        return by_tag;
+    }
+}
+
+/// Whether a `TYPE` says nothing the resolved [`EventType`] does not already
+/// say, and so should not also become the event's description.
+///
+/// A descriptive `TYPE` is worth keeping: several of them collapse onto one
+/// `EventType`, so "PACS" and "Concubinage" both arrive as `CivilUnion` and
+/// only the description tells them apart, and "Property sale" is a sale
+/// rather than just a possession. A `TYPE` that is a bare GEDCOM tag name is
+/// not: `2 TYPE EDUC` under an event already typed `Education` is the same
+/// fact twice, the second time in a spelling nobody typed — which surfaced as
+/// a profession labelled "OCCU" and an education labelled "EDUC" in the
+/// person form, and as `1 EDUC EDUC` on the way back out.
+fn type_text_restates_event_type(type_text: &str, event_type: EventType) -> bool {
+    event_type_from_gedcom_tag(&type_text.trim().to_lowercase()) == Some(event_type)
+}
+
+/// Reads a generic `EVEN`'s free-text `TYPE` sub-tag as an [`EventType`].
+///
+/// Exporters record anything GEDCOM has no tag for as `EVEN` plus a `TYPE`
+/// describing it — a civil union, but also plain restatements of tags they
+/// chose not to use ("PROP", "Military service"). Left unread, all of it
+/// imported as [`EventType::Other`], so a whole shelf of events showed up
+/// under one meaningless label.
+///
+/// The `TYPE` text is still kept as the event's description: it may carry more
+/// than the type does ("Property sale" is a sale, not just a possession).
+fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
+    let t = type_text?.trim().to_lowercase();
+    if t.is_empty() {
+        return None;
     }
 
+    if let Some(et) = event_type_from_gedcom_tag(&t) {
+        return Some(et);
+    }
     // The labels the `geneweb` crate writes for events GEDCOM cannot express
     // (see its src/gedcom/event.rs). Matched whole: these are a fixed
     // vocabulary, so recognising them by substring would only add false hits.
@@ -1139,8 +1161,12 @@ fn import_event_detail(
     // The GEDCOM `TYPE` sub-tag classifies a generic `EVEN`/`FACT` event
     // (e.g. "PACS", "Concubinage") — preserve it as the description so the
     // original wording survives even when several TYPE values map to the
-    // same EventType (see `is_civil_union_type`).
-    let description = detail.event_type.clone();
+    // same EventType (see `is_civil_union_type`). Unless it only restates the
+    // type it was just read as, which is not wording anyone chose.
+    let description = detail
+        .event_type
+        .clone()
+        .filter(|t| !type_text_restates_event_type(t, event_type));
 
     // An individual `ADOP` event may carry its own nested `FAMC`, pointing
     // at the adoptive family. It is NOT captured: `Event.family_id` is used
@@ -1280,11 +1306,13 @@ fn import_attribute_detail(
     let cause = detail.cause.clone();
 
     // Preserve the tag's own value (e.g. "Acccount Manager", "Presales, Trainer"
-    // for OCCU) or, failing that, its TYPE sub-tag.
+    // for OCCU) or, failing that, its TYPE sub-tag — but not either of them
+    // when all it says is the name of the tag it sits under.
     let description = detail
         .value
         .clone()
-        .or_else(|| detail.attribute_type.clone());
+        .or_else(|| detail.attribute_type.clone())
+        .filter(|t| !type_text_restates_event_type(t, event_type));
 
     // Some exporters (e.g. Geneanet) pack several professions into a single
     // OCCU value ("Presales, Trainer") because they only support one
@@ -1428,6 +1456,46 @@ fn import_citation(
     });
 }
 
+/// The marker the `geneweb` crate appends to an event's note text when it
+/// converts `.gw` to GEDCOM.
+///
+/// GEDCOM has no tag for most of GeneWeb's event vocabulary, so those events
+/// are emitted as a generic `EVEN` with a `TYPE`. To keep its own
+/// GEDCOM → `.gw` direction reversible, the crate records which `.gw` tag the
+/// event came from — but writes it *into the note's text*, as a trailing
+/// `_GWTAG #educ` line, rather than as a GEDCOM custom sub-tag. Read back, it
+/// is a line of machine bookkeeping sitting in the middle of what the user
+/// wrote about the event.
+const GENEWEB_EVENT_TAG_MARKER: &str = "_GWTAG";
+
+/// Drops that marker from a note body.
+///
+/// Nothing is lost: a `.gw` tag GeneWeb itself defines (`#educ`, `#occu`, …)
+/// has already become the `EventType` this event carries, and a user-defined
+/// one is already the event's description, verbatim — the marker only ever
+/// restates one of the two.
+///
+/// Deliberately not extended to the crate's other in-note marker,
+/// `_GWDEATH`: that one carries a death reason ("died young", "presumed
+/// dead", a cause label) which nothing else in the import captures, so
+/// dropping it would lose the only copy.
+fn strip_geneweb_event_marker(text: &str) -> String {
+    if !text.contains(GENEWEB_EVENT_TAG_MARKER) {
+        return text.to_string();
+    }
+    text.lines()
+        .filter(|line| {
+            let line = line.trim_start();
+            !line
+                .strip_prefix(GENEWEB_EVENT_TAG_MARKER)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn import_note(
     value: &Option<String>,
@@ -1439,8 +1507,10 @@ fn import_note(
     source_id: Option<Uuid>,
     result: &mut ImportResult,
 ) {
-    let text = match value {
-        Some(t) if !t.is_empty() => t.clone(),
+    // A note that held nothing but the marker leaves no note at all, rather
+    // than an empty row for the UI to render as a blank entry.
+    let text = match value.as_deref().map(strip_geneweb_event_marker) {
+        Some(t) if !t.is_empty() => t,
         _ => return,
     };
 
@@ -1573,6 +1643,138 @@ mod tests {
         let (g, s) = parse_name_value(Some("John //"));
         assert_eq!(g, Some("John".to_string()));
         assert_eq!(s, None);
+    }
+}
+
+#[cfg(test)]
+mod type_text_description_tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_tag_name_is_not_kept_as_a_description() {
+        // `geneweb` emits every event GEDCOM cannot express as `EVEN` + a
+        // `TYPE` naming the tag it would have used. Read back, the type is
+        // already `Education`, so keeping "EDUC" beside it said nothing and
+        // showed up in the form as a bare "EDUC".
+        assert!(type_text_restates_event_type("EDUC", EventType::Education));
+        assert!(type_text_restates_event_type("OCCU", EventType::Occupation));
+        // Case and surrounding space are the exporter's business, not a
+        // difference in meaning.
+        assert!(type_text_restates_event_type(
+            "  prop ",
+            EventType::Property
+        ));
+    }
+
+    #[test]
+    fn a_descriptive_type_is_kept() {
+        // Several of these collapse onto one EventType, so the description is
+        // the only thing telling them apart.
+        assert!(!type_text_restates_event_type(
+            "PACS",
+            EventType::CivilUnion
+        ));
+        assert!(!type_text_restates_event_type(
+            "Concubinage",
+            EventType::CivilUnion
+        ));
+        // And a phrase can say more than its type: a sale, not a possession.
+        assert!(!type_text_restates_event_type(
+            "Property sale",
+            EventType::PropertySale
+        ));
+        // A user-defined GeneWeb event name is the whole point of the field.
+        assert!(!type_text_restates_event_type(
+            "Succession",
+            EventType::Other
+        ));
+    }
+
+    #[test]
+    fn a_tag_naming_some_other_type_is_kept() {
+        // The rule is "says what this event already is", not "looks like a
+        // tag" — an OCCU sitting on a Residence still carries information.
+        assert!(!type_text_restates_event_type("OCCU", EventType::Residence));
+    }
+
+    #[test]
+    fn every_recognised_tag_round_trips_through_the_full_reader() {
+        // `event_type_from_type_text` must keep answering for bare tags now
+        // that the table lives in its own function.
+        for (text, expected) in [
+            ("EDUC", EventType::Education),
+            ("occu", EventType::Occupation),
+            ("WILL", EventType::Will),
+            ("nmr", EventType::MarriagesCount),
+        ] {
+            assert_eq!(
+                event_type_from_type_text(Some(text)),
+                Some(expected),
+                "for {text}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod geneweb_marker_tests {
+    use super::*;
+
+    #[test]
+    fn the_trailing_tag_marker_is_dropped() {
+        // The reported shape: one line the user wrote, one line of the
+        // converter's own bookkeeping.
+        assert_eq!(
+            strip_geneweb_event_marker("Institution Saint-Joseph\n_GWTAG #educ"),
+            "Institution Saint-Joseph"
+        );
+    }
+
+    #[test]
+    fn a_note_that_was_only_the_marker_becomes_empty() {
+        // Which stops `import_note` creating a row at all.
+        assert_eq!(strip_geneweb_event_marker("_GWTAG #occu"), "");
+    }
+
+    #[test]
+    fn a_user_defined_event_label_goes_with_it() {
+        // GeneWeb lets an event be named freely, and the marker then repeats
+        // that whole label — it is already the event's description.
+        assert_eq!(
+            strip_geneweb_event_marker(
+                "Document non officiellement numérisé\n_GWTAG #Tutelle après un décès"
+            ),
+            "Document non officiellement numérisé"
+        );
+    }
+
+    #[test]
+    fn the_rest_of_a_multi_line_note_is_kept_intact() {
+        assert_eq!(
+            strip_geneweb_event_marker("Matricule: 559\nRéformé pour maladie\n_GWTAG #mser"),
+            "Matricule: 559\nRéformé pour maladie"
+        );
+    }
+
+    #[test]
+    fn a_note_merely_mentioning_the_word_is_left_alone() {
+        // Only a line that *is* the marker counts, so prose that happens to
+        // name it — or a URL containing it — survives.
+        for text in [
+            "The exporter writes _GWTAG lines into notes.",
+            "_GWTAGGED is not the marker",
+            "https://example.org/_GWTAG",
+        ] {
+            assert_eq!(strip_geneweb_event_marker(text), text);
+        }
+    }
+
+    #[test]
+    fn the_death_reason_marker_is_not_touched() {
+        // `_GWDEATH` is the only copy of that information — see the doc on
+        // `strip_geneweb_event_marker`.
+        let text = "Mort au combat\n_GWDEATH killed";
+        assert_eq!(strip_geneweb_event_marker(text), text);
     }
 }
 
