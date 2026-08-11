@@ -17,7 +17,7 @@ use crate::api::{
     CreateNoteBody, CreatePersonBody, CreatePersonNameBody, CreateSourceBody, UpdateCitationBody,
     UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
-use crate::components::date_input::{DateInput, DateParts};
+use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::i18n::use_i18n;
 use crate::utils::{
     event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
@@ -1107,7 +1107,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         {
                                             let eid = ev.id;
                                             let label = ev.description.clone().unwrap_or_default();
-                                            let date = ev.date_value.clone().unwrap_or_default();
+                                            let date = format_event_date(&i18n, ev);
                                             let place = ev.place_id.map(&place_name).unwrap_or_default();
                                             let notes_open = open_event_notes() == Some(eid);
                                             rsx! {
@@ -1683,7 +1683,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     // The event's own value (a `TITL`, `RESI`, ... payload
                                     // on import) — without it the row shows only its type.
                                     let desc = ev.description.clone().unwrap_or_default();
-                                    let date = ev.date_value.clone().unwrap_or_default();
+                                    let date = format_event_date(&i18n, ev);
                                     let place = ev.place_id.map(&place_name).unwrap_or_default();
                                     let notes_open = open_event_notes() == Some(eid);
                                     rsx! {
@@ -2109,6 +2109,9 @@ pub(crate) fn focus_next_field_js(modal_class: &str) -> String {
 // Every event this app writes carries the same five date columns, read off
 // one `DateParts`. Spelling them out per call site meant a dozen near-copies
 // that could — and did — drift from one another.
+//
+// The qualifier comes from `stored_qualifier`, not the raw field: "from an
+// age" is an entry mode that resolves to the `About` year it implies.
 
 /// What an event hangs off: a person, or the family (a marriage and its kin).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2133,7 +2136,7 @@ pub(crate) fn create_event_body(
         event_type,
         date_value: parts.date_value(),
         date_sort: parts.date_sort(),
-        date_qualifier: parts.qualifier,
+        date_qualifier: parts.stored_qualifier(),
         date_value2: parts.date_value2(),
         calendar: parts.calendar,
         cause,
@@ -2156,7 +2159,7 @@ pub(crate) fn update_event_body(
         event_type,
         date_value: Some(parts.date_value()),
         date_sort: Some(parts.date_sort()),
-        date_qualifier: Some(parts.qualifier),
+        date_qualifier: Some(parts.stored_qualifier()),
         date_value2: Some(parts.date_value2()),
         calendar: Some(parts.calendar),
         cause: None,

@@ -14,6 +14,7 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
+use crate::components::date_input::format_event_date;
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
@@ -3150,15 +3151,31 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         });
     }
 
+    // Re-fit the graph when the window is actually resized.
+    //
+    // The size check is not an optimisation. A refit throws away the pan and
+    // zoom the reader set up, so it must only happen when the viewport really
+    // changed shape — and a `resize` event is not proof of that. WebKitGTK
+    // fires one whenever the window is remapped, so alt-tabbing away and back
+    // used to snap the tree home for no visible reason, which reads as the
+    // whole app having reloaded itself.
     use_effect(move || {
         document::eval(
             r#"
             if (!window.__oxidgenePedigreeResizeFit) {
                 window.__oxidgenePedigreeResizeFit = {
                     timer: null,
+                    w: window.innerWidth,
+                    h: window.innerHeight,
                     handler: function () {
-                        clearTimeout(window.__oxidgenePedigreeResizeFit.timer);
-                        window.__oxidgenePedigreeResizeFit.timer = setTimeout(function () {
+                        const state = window.__oxidgenePedigreeResizeFit;
+                        clearTimeout(state.timer);
+                        state.timer = setTimeout(function () {
+                            if (window.innerWidth === state.w && window.innerHeight === state.h) {
+                                return;
+                            }
+                            state.w = window.innerWidth;
+                            state.h = window.innerHeight;
                             document.querySelector('.pedigree-resize-fit-trigger')?.click();
                         }, 120);
                     }
@@ -3782,7 +3799,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                                 {
                                                     let (icon, ic_class, label_key) = event_ui(evt.event_type);
                                                     let label = i18n.t(label_key);
-                                                    let date_s = evt.date_value.clone().unwrap_or_default();
+                                                    let date_s = format_event_date(&i18n, evt);
                                                     let place_s = evt.place_id
                                                         .and_then(|pid| props.data.place_name(pid).map(String::from))
                                                         .or_else(|| evt.description.clone())

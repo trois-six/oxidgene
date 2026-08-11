@@ -12,7 +12,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{AddChildBody, ApiClient};
-use crate::components::date_input::{DateInput, DateParts};
+use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::person_form::{
     DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
     create_event_body, focus_next_field_js, render_add_toggle, render_notes_source_fields,
@@ -572,7 +572,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 {
                                     let eid = evt.id;
                                     let et = i18n.t(event_type_label_key(evt.event_type));
-                                    let date = evt.date_value.clone().unwrap_or_default();
+                                    let date = format_event_date(&i18n, evt);
                                     let desc = evt.description.clone().unwrap_or_default();
                                     let open = open_union_event() == Some(eid);
                                     rsx! {
