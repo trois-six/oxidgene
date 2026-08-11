@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::date_input::format_event_date;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::reference_tooltip::{GivenNamesHover, ReferenceHover, ReferenceKind};
 use crate::components::topbar_search::TopbarSearch;
@@ -17,7 +18,7 @@ use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::utils::{event_type_label_key, note_html_for_display, resolve_name};
+use crate::utils::{event_type_label_key, note_html_for_display, opt_str, resolve_name};
 use oxidgene_core::Sex;
 
 const SHOW_MANUAL_REFRESH: bool = cfg!(target_arch = "wasm32");
@@ -456,6 +457,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Birth/death vitals clauses shown under the header name, e.g.
     // "Born on **10 December 1700** in Paris — **43 years old**."
+    let event_date = |e: &DomainEvent| format_event_date(&i18n, e);
     let vital_clauses: Vec<VitalClause> = match &*events_resource.read() {
         Some(Ok(conn)) => {
             let birth = conn
@@ -472,13 +474,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             let mut clauses = Vec::new();
             if let Some(b) = birth {
                 clauses.push(VitalClause::Born {
-                    date: b.date_value.clone().unwrap_or_default(),
+                    date: event_date(b),
                     place: b.place_id.map(&place_name),
                 });
             }
             if let Some(d) = death {
                 clauses.push(VitalClause::Died {
-                    date: d.date_value.clone().unwrap_or_default(),
+                    date: event_date(d),
                     place: d.place_id.map(&place_name),
                 });
             }
@@ -545,11 +547,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             for e in sorted {
                 match e.event_type {
                     EventType::Marriage if marriage_date.is_none() => {
-                        marriage_date = e.date_value.clone();
+                        marriage_date = opt_str(&event_date(e));
                         marriage_place = e.place_id.map(&place_name);
                     }
                     EventType::Divorce if divorce_date.is_none() => {
-                        divorce_date = e.date_value.clone();
+                        divorce_date = opt_str(&event_date(e));
                     }
                     _ => {}
                 }
@@ -1571,7 +1573,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                     rsx! {
                                         li { key: "{eid}", class: "{li_class}",
                                             span { class: "pd-ev-date",
-                                                {event.date_value.as_deref().unwrap_or("--")}
+                                                {opt_str(&format_event_date(&i18n, event)).unwrap_or_else(|| "--".to_string())}
                                             }
                                             div { class: "pd-ev-body",
                                                 div { class: "pd-ev-row",

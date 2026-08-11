@@ -2146,9 +2146,17 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-date-dd,
     .pf-date-mm { flex: 0 0 56px; }
     .pf-date-yyyy { flex: 0 0 72px; }
+    /* "From an age" mode: an age, then the year it was observed in. */
+    .pf-date-age { flex: 0 0 64px; }
     .pf-date-literal {
         font-size: 0.72rem;
         color: var(--text-secondary);
+        padding-left: 2px;
+    }
+    /* Sits exactly where the literal preview would, so the row never jumps. */
+    .pf-date-error {
+        font-size: 0.72rem;
+        color: var(--red);
         padding-left: 2px;
     }
     /* Centred with the 38px controls it sits between, rather than pinned to

@@ -326,6 +326,43 @@ Rationale: enhance the flat dictionary index with nested descent trees showing s
 
 ---
 
+### Sprint E.11 — Date Entry & Display ✅ (Aug 2026)
+
+> Rationale: `DateQualifier::FromAge` shipped as a `<select>` entry with no behaviour behind it,
+> and the widget wrote Gregorian month abbreviations whatever calendar was selected — so a
+> Republican date left as `2 FEB 14` under a `@#DFRENCH R@` escape, which no reader can take back.
+> Dates were also displayed as their bare stored value, dropping the qualifier that gives them
+> their meaning.
+
+- [x] "From an age" is a real entry mode: it swaps the day/month/year triplet for an age and the
+  year it was observed in, and `DateParts::resolved` collapses the pair into the `About
+  <year − age>` it stands for. Never persisted as `FromAge` — no schema, GEDCOM or GeneWeb form
+  can record "aged 14 in 2026" — so a stored row reads back as the `About` date it always meant.
+- [x] One `format_date` / `format_event_date` renders every date the reader sees (person profile
+  vitals, unions and event list, both edit modals' event rows, the pedigree events panel), so a
+  date reads « vers 2012 » rather than "2012" and reads the same way everywhere. The editor's
+  literal preview goes through it too, so preview and page cannot disagree.
+- [x] Per-calendar month vocabularies (`VEND…COMP`, `TSH…ELL`, thirteenth month included) for both
+  the canonical stored value and the localized display, replacing a hardcoded Gregorian table.
+  Fixes both directions: a Republican date is now written `2 BRUM 14`, and an imported one keeps
+  its month instead of dropping it.
+- [x] BCE years, stored the GEDCOM way (`15 MAR 44 BCE`, not `-44`) so exports stay readable, and
+  parsed back from `BCE` / `BC` / `B.C.` / a leading minus. Year range 9999 BCE – 2999, excluding
+  year 0.
+- [x] Input protection: a keystroke guard turns away non-digits (a leading minus is allowed in
+  year fields), paste and IME are caught by digit-stripping, and validation rejects dates that
+  never existed — 30 February, a thirteenth Gregorian month, a backwards `Between` range, an age
+  past 130. Leap rules follow the calendar, so 29 Feb 1900 is valid Julian and invalid Gregorian.
+  Out-of-range entries are kept and explained inline rather than silently blanked.
+
+**Known gap:** `date_sort` is still derived by reading a non-Gregorian month number as if it were
+Gregorian, so Republican and Hebrew events sort wrongly (and a thirteenth month yields no sort key
+at all). The fix belongs server-side — recompute `date_sort` from `(calendar, date_value)` via
+`oxidgene-gedcom`, which already converts through `ged_io` — and moves ownership of the column
+from the client to the API.
+
+---
+
 ## EPIC F — Media Management (New, Sprints F.1–F.4)
 
 Comprehensive media workflow: upload, storage, thumbnails, multi-page documents, image cropping (vignettes), event linking.
