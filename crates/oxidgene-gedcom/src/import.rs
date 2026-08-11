@@ -902,43 +902,17 @@ fn event_type_from_gedcom_tag(t: &str) -> Option<EventType> {
     }
 }
 
-/// Whether a `TYPE` says nothing the resolved [`EventType`] does not already
-/// say, and so should not also become the event's description.
+/// A `TYPE` that is nothing but a name of an event type, in whichever language
+/// the exporter wrote it. Matched whole: these are fixed vocabularies, so
+/// recognising them by substring would only add false hits, and a `TYPE` that
+/// merely *contains* one ("Military service in Algeria") says more than the
+/// name alone and is not one of these.
 ///
-/// A descriptive `TYPE` is worth keeping: several of them collapse onto one
-/// `EventType`, so "PACS" and "Concubinage" both arrive as `CivilUnion` and
-/// only the description tells them apart, and "Property sale" is a sale
-/// rather than just a possession. A `TYPE` that is a bare GEDCOM tag name is
-/// not: `2 TYPE EDUC` under an event already typed `Education` is the same
-/// fact twice, the second time in a spelling nobody typed — which surfaced as
-/// a profession labelled "OCCU" and an education labelled "EDUC" in the
-/// person form, and as `1 EDUC EDUC` on the way back out.
-fn type_text_restates_event_type(type_text: &str, event_type: EventType) -> bool {
-    event_type_from_gedcom_tag(&type_text.trim().to_lowercase()) == Some(event_type)
-}
-
-/// Reads a generic `EVEN`'s free-text `TYPE` sub-tag as an [`EventType`].
-///
-/// Exporters record anything GEDCOM has no tag for as `EVEN` plus a `TYPE`
-/// describing it — a civil union, but also plain restatements of tags they
-/// chose not to use ("PROP", "Military service"). Left unread, all of it
-/// imported as [`EventType::Other`], so a whole shelf of events showed up
-/// under one meaningless label.
-///
-/// The `TYPE` text is still kept as the event's description: it may carry more
-/// than the type does ("Property sale" is a sale, not just a possession).
-fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
-    let t = type_text?.trim().to_lowercase();
-    if t.is_empty() {
-        return None;
-    }
-
-    if let Some(et) = event_type_from_gedcom_tag(&t) {
-        return Some(et);
-    }
-    // The labels the `geneweb` crate writes for events GEDCOM cannot express
-    // (see its src/gedcom/event.rs). Matched whole: these are a fixed
-    // vocabulary, so recognising them by substring would only add false hits.
+/// Two vocabularies feed it. `GENEWEB_LABELS` are the labels the `geneweb`
+/// crate writes for events GEDCOM cannot express (see its
+/// `src/gedcom/event.rs`); `RESTATED_TAGS` are the ordinary GEDCOM tags an
+/// exporter chose to spell out in words instead of using.
+fn type_name_phrase(t: &str) -> Option<EventType> {
     const GENEWEB_LABELS: &[(&str, EventType)] = &[
         ("accomplishment", EventType::Accomplishment),
         ("acquisition", EventType::Acquisition),
@@ -970,8 +944,125 @@ fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
         ("unmarried", EventType::NoMarriage),
         ("nomen", EventType::NoMention),
     ];
-    if let Some((_, et)) = GENEWEB_LABELS.iter().find(|(l, _)| *l == t) {
-        return Some(*et);
+    // Deliberately absent: the civil-union wordings. "PACS", "Concubinage"
+    // and "Cohabitation" all resolve to `CivilUnion`, so there the phrase is
+    // the only thing telling one union from another and must survive as the
+    // description.
+    const RESTATED_TAGS: &[(&str, EventType)] = &[
+        ("military service", EventType::MilitaryService),
+        ("service militaire", EventType::MilitaryService),
+        ("physical description", EventType::PhysicalDescription),
+        ("description physique", EventType::PhysicalDescription),
+        ("national origin", EventType::NationalOrigin),
+        ("origine nationale", EventType::NationalOrigin),
+        ("nationality", EventType::NationalOrigin),
+        ("nationalité", EventType::NationalOrigin),
+        ("national id", EventType::NationalId),
+        ("identity number", EventType::NationalId),
+        ("social security number", EventType::SocialSecurityNumber),
+        (
+            "numéro de sécurité sociale",
+            EventType::SocialSecurityNumber,
+        ),
+        ("number of children", EventType::ChildrenCount),
+        ("nombre d'enfants", EventType::ChildrenCount),
+        ("number of marriages", EventType::MarriagesCount),
+        ("nombre de mariages", EventType::MarriagesCount),
+        ("nobility title", EventType::NobilityTitle),
+        ("titre de noblesse", EventType::NobilityTitle),
+        ("first communion", EventType::FirstCommunion),
+        ("première communion", EventType::FirstCommunion),
+        ("premiere communion", EventType::FirstCommunion),
+        ("bar mitzvah", EventType::BarBatMitzvah),
+        ("bat mitzvah", EventType::BarBatMitzvah),
+        ("confirmation", EventType::Confirmation),
+        ("naturalization", EventType::Naturalization),
+        ("naturalisation", EventType::Naturalization),
+        ("immigration", EventType::Immigration),
+        ("emigration", EventType::Emigration),
+        ("émigration", EventType::Emigration),
+        ("graduation", EventType::Graduation),
+        ("diplôme", EventType::Graduation),
+        ("diplome", EventType::Graduation),
+        ("occupation", EventType::Occupation),
+        ("profession", EventType::Occupation),
+        ("métier", EventType::Occupation),
+        ("residence", EventType::Residence),
+        ("résidence", EventType::Residence),
+        ("domicile", EventType::Residence),
+        ("retirement", EventType::Retirement),
+        ("retraite", EventType::Retirement),
+        ("property", EventType::Property),
+        ("propriété", EventType::Property),
+        ("possessions", EventType::Property),
+        ("religion", EventType::Religion),
+        ("education", EventType::Education),
+        ("éducation", EventType::Education),
+        ("caste", EventType::CasteName),
+        ("caste name", EventType::CasteName),
+        ("census", EventType::Census),
+        ("recensement", EventType::Census),
+        ("baptism", EventType::Baptism),
+        ("baptême", EventType::Baptism),
+        ("bapteme", EventType::Baptism),
+        ("burial", EventType::Burial),
+        ("inhumation", EventType::Burial),
+        ("enterrement", EventType::Burial),
+        ("cremation", EventType::Cremation),
+        ("crémation", EventType::Cremation),
+        ("probate", EventType::Probate),
+        ("homologation", EventType::Probate),
+        ("last will", EventType::Will),
+        ("testament", EventType::Will),
+        ("adoption", EventType::Adoption),
+    ];
+    GENEWEB_LABELS
+        .iter()
+        .chain(RESTATED_TAGS)
+        .find(|(l, _)| *l == t)
+        .map(|(_, et)| *et)
+}
+
+/// Whether a `TYPE` says nothing the resolved [`EventType`] does not already
+/// say, and so should not also become the event's description.
+///
+/// Two shapes say nothing. A bare GEDCOM tag name — `2 TYPE EDUC` under an
+/// event already typed `Education` is the same fact twice, in a spelling
+/// nobody typed, which surfaced as a profession labelled "OCCU" in the person
+/// form and as `1 EDUC EDUC` on the way back out. And the type's own name
+/// spelled out — a `Military service` description beside a badge that already
+/// reads « Service militaire » repeats it, and repeats it in the exporter's
+/// language rather than the reader's.
+///
+/// A `TYPE` that says more is still kept: "PACS" and "Concubinage" both arrive
+/// as `CivilUnion` and only the description tells them apart, and "Military
+/// service in Algeria" carries a fact the type does not.
+fn type_text_restates_event_type(type_text: &str, event_type: EventType) -> bool {
+    let t = type_text.trim().to_lowercase();
+    event_type_from_gedcom_tag(&t) == Some(event_type) || type_name_phrase(&t) == Some(event_type)
+}
+
+/// Reads a generic `EVEN`'s free-text `TYPE` sub-tag as an [`EventType`].
+///
+/// Exporters record anything GEDCOM has no tag for as `EVEN` plus a `TYPE`
+/// describing it — a civil union, but also plain restatements of tags they
+/// chose not to use ("PROP", "Military service"). Left unread, all of it
+/// imported as [`EventType::Other`], so a whole shelf of events showed up
+/// under one meaningless label.
+///
+/// The `TYPE` text is kept as the event's description only when it carries
+/// more than the type does — see [`type_text_restates_event_type`].
+fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
+    let t = type_text?.trim().to_lowercase();
+    if t.is_empty() {
+        return None;
+    }
+
+    if let Some(et) = event_type_from_gedcom_tag(&t) {
+        return Some(et);
+    }
+    if let Some(et) = type_name_phrase(&t) {
+        return Some(et);
     }
 
     // Otherwise a descriptive phrase, in English or French. Order matters: the
@@ -1678,15 +1769,45 @@ mod type_text_description_tests {
             "Concubinage",
             EventType::CivilUnion
         ));
-        // And a phrase can say more than its type: a sale, not a possession.
+        // A phrase that says more than the type does.
         assert!(!type_text_restates_event_type(
-            "Property sale",
-            EventType::PropertySale
+            "Military service in Algeria",
+            EventType::MilitaryService
         ));
         // A user-defined GeneWeb event name is the whole point of the field.
         assert!(!type_text_restates_event_type(
             "Succession",
             EventType::Other
+        ));
+    }
+
+    /// A `TYPE` spelling out the very type it resolved to is the badge again,
+    /// in the exporter's language — which is how a French tree ended up with
+    /// an event badged « Service militaire » described "Military service".
+    #[test]
+    fn a_type_spelled_out_in_words_is_not_kept_as_a_description() {
+        for (text, event_type) in [
+            ("Military service", EventType::MilitaryService),
+            ("service militaire", EventType::MilitaryService),
+            ("  Occupation  ", EventType::Occupation),
+            ("Recensement", EventType::Census),
+            // Now that a sale has its own type, the phrase adds nothing.
+            ("Property sale", EventType::PropertySale),
+            ("Funeral", EventType::Funeral),
+        ] {
+            assert!(
+                type_text_restates_event_type(text, event_type),
+                "for {text}"
+            );
+        }
+    }
+
+    /// The rule is "names *this* type", not "names some type".
+    #[test]
+    fn a_phrase_naming_another_type_is_kept() {
+        assert!(!type_text_restates_event_type(
+            "Military service",
+            EventType::Occupation
         ));
     }
 
