@@ -204,49 +204,27 @@ fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
         EventType::CivilUnion => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.type.civil_union"),
         EventType::Separation => ("\u{2696}", "ev-ic ev-ic-other", "event.type.separation"),
         EventType::DivorceFiled => ("\u{2696}", "ev-ic ev-ic-other", "event.type.divorce_filed"),
-        EventType::Graduation => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.graduation"),
-        EventType::Immigration => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.immigration"),
-        EventType::Emigration => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.emigration"),
-        EventType::Naturalization => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.naturalization"),
         EventType::Census => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.census"),
         EventType::Occupation => ("\u{2692}", "ev-ic ev-ic-other", "event.type.occupation"),
         EventType::Residence => ("\u{1F3E1}", "ev-ic ev-ic-other", "event.type.residence"),
-        EventType::Retirement => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.retirement"),
         EventType::Will => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.will"),
         EventType::Probate => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.probate"),
         EventType::Adoption => ("\u{1FAC2}", "ev-ic ev-ic-other", "event.type.adoption"),
-        EventType::CasteName => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.caste_name"),
-        EventType::PhysicalDescription => (
-            "\u{25C6}",
-            "ev-ic ev-ic-other",
-            "event.type.physical_description",
-        ),
         EventType::Education => ("\u{1F393}", "ev-ic ev-ic-other", "event.type.education"),
-        EventType::NationalId => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.national_id"),
-        EventType::NationalOrigin => (
-            "\u{25C6}",
-            "ev-ic ev-ic-other",
-            "event.type.national_origin",
-        ),
-        EventType::ChildrenCount => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.children_count"),
         EventType::MarriagesCount => (
             "\u{1F48D}",
             "ev-ic ev-ic-other",
             "event.type.marriages_count",
         ),
-        EventType::Property => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.property"),
         EventType::Religion => ("\u{271F}", "ev-ic ev-ic-other", "event.type.religion"),
-        EventType::SocialSecurityNumber => (
-            "\u{25C6}",
-            "ev-ic ev-ic-other",
-            "event.type.social_security_number",
-        ),
-        EventType::NobilityTitle => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.nobility_title"),
-        EventType::Fact => ("\u{25C6}", "ev-ic ev-ic-other", "event.type.fact"),
         // Everything else takes the neutral icon but still names itself, from
         // the same key table the rest of the UI uses. These used to collapse
         // onto "event.type.other", so a Confirmation or a Military service
         // showed up in the panel labelled "Other".
+        //
+        // Only spell out an event type above when it earns an icon of its own:
+        // an arm reading `("\u{25C6}", "ev-ic ev-ic-other", "event.type.x")`
+        // is what this line already produces.
         _ => ("\u{25C6}", "ev-ic ev-ic-other", event_type_label_key(et)),
     }
 }
@@ -965,9 +943,6 @@ fn build_ascending_tree(
 ) -> Vec<TreeNode> {
     let mut arena: Vec<TreeNode> = Vec::new();
 
-    // Helper: get parents of a person (father, mother).
-    let get_parents = |pid: Uuid| -> (Option<Uuid>, Option<Uuid>) { data.parents_of(pid) };
-
     // Check if root has siblings (children of same parent family).
     let (before_sibling, after_sibling) = {
         let siblings = get_siblings(root_id, data);
@@ -1003,7 +978,7 @@ fn build_ascending_tree(
             Some(p) => p,
             None => continue,
         };
-        let (father_id, mother_id) = get_parents(pid);
+        let (father_id, mother_id) = data.parents_of(pid);
         let child_depth = depth - 1;
 
         let mut child_indices = Vec::new();
@@ -1316,15 +1291,13 @@ fn tree_shift(wrap: &mut [WrapNode], node: usize) {
     }
 }
 
-fn tree_separation(
-    wrap: &[WrapNode],
-    arena: &[TreeNode],
-    a: usize,
-    _b: usize,
-    last_level: i32,
-) -> f64 {
-    let a_depth = arena[wrap[a].orig].depth;
-    if a_depth == last_level { 0.5 } else { 1.0 }
+/// Horizontal separation, in card widths, between two nodes on the same row.
+///
+/// Only the current node's depth decides it (matching the JS reference this
+/// is ported from): the compact deepest ancestor row packs at half a card,
+/// every other row at a full one.
+fn tree_separation(depth: i32, last_level: i32) -> f64 {
+    if depth == last_level { 0.5 } else { 1.0 }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1374,7 +1347,7 @@ fn apportion(
             sibling_z += wrap[si].z;
         }
 
-        let sep = tree_separation(wrap, arena, vim_next, vip_next, last_level);
+        let sep = tree_separation(arena[wrap[vim_next].orig].depth, last_level);
         let shift = wrap[vim_next].z + sim + sibling_z - wrap[vip_next].z - sip + sep;
         if shift > 0.0 {
             let anc = tree_ancestor(wrap, vim_next, v, ancestor);
@@ -1494,15 +1467,9 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             match prev_sibling {
                 Some(w) => {
                     let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
-                    // Consecutive siblings share the same parent: separation is 0.5 at
-                    // last_level (compact deepest ancestors), 1 everywhere else.
-                    let v_orig = wrap[v].orig;
-                    // JS treeSeparation only checks a.depth (the current node), not b.depth.
-                    let sep = if arena[v_orig].depth == last_level {
-                        0.5
-                    } else {
-                        1.0
-                    };
+                    // Consecutive siblings share the same parent, so they sit
+                    // exactly one separation apart.
+                    let sep = tree_separation(arena[wrap[v].orig].depth, last_level);
                     wrap[v].z = wrap[w].z + w_sib_z + sep;
                     wrap[v].m = wrap[v].z - midpoint;
                 }
@@ -1512,13 +1479,7 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             }
         } else if let Some(w) = prev_sibling {
             let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
-            let v_orig = wrap[v].orig;
-            // JS treeSeparation only checks a.depth (the current node), not b.depth.
-            let sep = if arena[v_orig].depth == last_level {
-                0.5
-            } else {
-                1.0
-            };
+            let sep = tree_separation(arena[wrap[v].orig].depth, last_level);
             wrap[v].z = wrap[w].z + w_sib_z + sep;
         }
 
@@ -1797,12 +1758,12 @@ fn collect_max_x(arena: &[TreeNode], node: usize, max_x: &mut f64) {
     if arena[node].x > *max_x {
         *max_x = arena[node].x;
     }
-    for &si in &arena[node].siblings.clone() {
+    for &si in &arena[node].siblings {
         if arena[si].x > *max_x {
             *max_x = arena[si].x;
         }
     }
-    for &ci in &arena[node].children.clone() {
+    for &ci in &arena[node].children {
         collect_max_x(arena, ci, max_x);
     }
 }
@@ -1811,12 +1772,12 @@ fn collect_min_x(arena: &[TreeNode], node: usize, min_x: &mut f64) {
     if arena[node].x < *min_x {
         *min_x = arena[node].x;
     }
-    for &si in &arena[node].siblings.clone() {
+    for &si in &arena[node].siblings {
         if arena[si].x < *min_x {
             *min_x = arena[si].x;
         }
     }
-    for &ci in &arena[node].children.clone() {
+    for &ci in &arena[node].children {
         collect_min_x(arena, ci, min_x);
     }
 }
@@ -2157,13 +2118,8 @@ fn diagonal_child(
 
 // ── Link/path collection ──────────────────────────────────────────────────
 
-/// An SVG path for a connector between nodes.
-#[derive(Clone, Debug)]
-struct ConnectorPath {
-    d: String,
-}
-
-fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
+/// Collects the `d` attribute of every SVG connector between placed nodes.
+fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<String> {
     let mut links = Vec::new();
     let mut stack = vec![0usize];
     let mut visited: HashSet<usize> = HashSet::new();
@@ -2192,9 +2148,13 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
                 };
 
                 // Spouse connector.
-                links.push(ConnectorPath {
-                    d: diagonal_spouse_link(node.x, node.y, arena[sib_ni].x, arena[sib_ni].y, y),
-                });
+                links.push(diagonal_spouse_link(
+                    node.x,
+                    node.y,
+                    arena[sib_ni].x,
+                    arena[sib_ni].y,
+                    y,
+                ));
 
                 // Children of this spouse. A child with no recorded second
                 // parent (`parent2 == None`) is attributed to the empty
@@ -2212,17 +2172,15 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
 
                 for (ci, &child_ni) in children_of_sib.iter().enumerate() {
                     let is_edge = ci == 0 || ci == children_of_sib.len() - 1;
-                    links.push(ConnectorPath {
-                        d: diagonal_child(
-                            sib_node.x,
-                            sib_node.y,
-                            arena[child_ni].x,
-                            arena[child_ni].y,
-                            node.after,
-                            y,
-                            is_edge,
-                        ),
-                    });
+                    links.push(diagonal_child(
+                        sib_node.x,
+                        sib_node.y,
+                        arena[child_ni].x,
+                        arena[child_ni].y,
+                        node.after,
+                        y,
+                        is_edge,
+                    ));
                     // Push child onto stack.
                     stack.push(child_ni);
                 }
@@ -2232,30 +2190,26 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<ConnectorPath> {
             for (ci, &child_ni) in node.children.iter().enumerate() {
                 if arena[child_ni].depth < 0 {
                     // Ascending: child → ancestor.
-                    links.push(ConnectorPath {
-                        d: diagonal_parent(
-                            node.x,
-                            node.y,
-                            node.before_sibling,
-                            node.after_sibling,
-                            arena[child_ni].x,
-                            arena[child_ni].y,
-                            node.depth,
-                            arena[child_ni].depth,
-                            last_level,
-                        ),
-                    });
+                    links.push(diagonal_parent(
+                        node.x,
+                        node.y,
+                        node.before_sibling,
+                        node.after_sibling,
+                        arena[child_ni].x,
+                        arena[child_ni].y,
+                        node.depth,
+                        arena[child_ni].depth,
+                        last_level,
+                    ));
                 } else {
                     let is_edge = ci == 0 || ci == node.children.len() - 1;
-                    links.push(ConnectorPath {
-                        d: diagonal_simple_child(
-                            node.x,
-                            node.y,
-                            arena[child_ni].x,
-                            arena[child_ni].y,
-                            is_edge,
-                        ),
-                    });
+                    links.push(diagonal_simple_child(
+                        node.x,
+                        node.y,
+                        arena[child_ni].x,
+                        arena[child_ni].y,
+                        is_edge,
+                    ));
                 }
                 stack.push(child_ni);
             }
@@ -2302,9 +2256,9 @@ struct PedigreeLayout {
     /// Descending tree nodes in descending-tree coordinate space.
     desc_nodes: Vec<LayoutNode>,
     /// SVG connector paths for the ascending tree (in ascending coordinate space).
-    asc_links: Vec<ConnectorPath>,
+    asc_links: Vec<String>,
     /// SVG connector paths for the descending tree (in descending coordinate space).
-    desc_links: Vec<ConnectorPath>,
+    desc_links: Vec<String>,
     /// X translate applied to the outer SVG group (shifts content so x ≥ 0).
     main_tx: f64,
     /// Y translate applied to the outer SVG group (shifts content so y ≥ 0).
@@ -2482,19 +2436,17 @@ fn compute_layout(
                 if let Some((fx, fy, fd)) = father_data {
                     let rev_idx = len_before - i - 1;
                     let simple = sib_x >= fx;
-                    asc_links.push(ConnectorPath {
-                        d: diagonal_sibling(
-                            fx,
-                            fy,
-                            fd,
-                            sib_x,
-                            sib_y,
-                            rev_idx,
-                            len_before,
-                            simple,
-                            last_asc_level,
-                        ),
-                    });
+                    asc_links.push(diagonal_sibling(
+                        fx,
+                        fy,
+                        fd,
+                        sib_x,
+                        sib_y,
+                        rev_idx,
+                        len_before,
+                        simple,
+                        last_asc_level,
+                    ));
                 }
             }
 
@@ -2522,19 +2474,17 @@ fn compute_layout(
                 // Link from mother (or father if no mother).
                 if let Some((px, py, pd)) = mother_data {
                     let simple = sib_x <= px;
-                    asc_links.push(ConnectorPath {
-                        d: diagonal_sibling(
-                            px,
-                            py,
-                            pd,
-                            sib_x,
-                            sib_y,
-                            i,
-                            len_after,
-                            simple,
-                            last_asc_level,
-                        ),
-                    });
+                    asc_links.push(diagonal_sibling(
+                        px,
+                        py,
+                        pd,
+                        sib_x,
+                        sib_y,
+                        i,
+                        len_after,
+                        simple,
+                        last_asc_level,
+                    ));
                 }
             }
         }
@@ -2658,6 +2608,68 @@ fn compute_layout(
         root_cx,
         root_cy,
     }
+}
+
+// ── Fit to viewport ──────────────────────────────────────────────────────
+
+/// Measures the canvas area actually free of the event panel.
+///
+/// Returns `(width, height, left)` in viewport pixels. The panel overlaps the
+/// canvas rather than shrinking it below 900px, where it is a drawer — so
+/// there the whole rect is fair game and only the wider layout has to carve
+/// the panel out.
+const MEASURE_PEDIGREE_VIEWPORT_JS: &str = r#"
+    const viewport = document.querySelector('.pedigree-viewport');
+    if (!viewport) return [800, 600, 0];
+    const rect = viewport.getBoundingClientRect();
+    const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
+    const isNarrow = window.innerWidth <= 900;
+    let availableLeft = 0;
+    let availableRight = rect.width;
+    if (panel && !isNarrow) {
+        const panelRect = panel.getBoundingClientRect();
+        const overlapsX = panelRect.left < rect.right && panelRect.right > rect.left;
+        if (overlapsX) {
+            availableRight = Math.min(availableRight, panelRect.left - rect.left);
+        }
+    }
+    return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft];
+"#;
+
+/// Scales and pans the canvas so the whole graph sits inside the free area.
+///
+/// Shared by the initial/root-change fit and by the fit-screen button, which
+/// held byte-identical copies of the measurement script and the arithmetic
+/// below.
+async fn fit_graph_in_viewport(
+    mut scale: Signal<f64>,
+    mut offset_x: Signal<f64>,
+    mut offset_y: Signal<f64>,
+    content_cx: f64,
+    content_cy: f64,
+    content_w: f64,
+    content_h: f64,
+) {
+    let Ok(val) = document::eval(MEASURE_PEDIGREE_VIEWPORT_JS).await else {
+        return;
+    };
+    let vw = val
+        .get(0)
+        .and_then(|v| v.as_f64())
+        .unwrap_or(VIEWPORT_DEFAULT_W);
+    let vh = val
+        .get(1)
+        .and_then(|v| v.as_f64())
+        .unwrap_or(VIEWPORT_DEFAULT_H);
+    let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let side_padding = vw * FIT_SIDE_PADDING_RATIO;
+    let fit_w = (vw - 2.0 * side_padding).max(1.0);
+    let fit_scale = (fit_w / content_w)
+        .min(vh / content_h)
+        .clamp(ZOOM_MIN, ZOOM_MAX);
+    scale.set(fit_scale);
+    offset_x.set(vx + vw / 2.0 - content_cx * fit_scale);
+    offset_y.set(vh / 2.0 - content_cy * fit_scale);
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -2795,7 +2807,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                     g { transform: "translate({layout.main_tx},{layout.main_ty})",
                         g {
                             for (si, path) in layout.asc_links.iter().enumerate() {
-                                path { key: "al-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                                path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
                             }
                             for (ni, node) in layout.asc_nodes.iter().enumerate() {
                                 {render_pedigree_card(
@@ -2814,7 +2826,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                         g {
                             transform: "translate({layout.desc_tx},{layout.desc_ty})",
                             for (si, path) in layout.desc_links.iter().enumerate() {
-                                path { key: "dl-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                                path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
                             }
                             for (ni, node) in layout.desc_nodes.iter().enumerate() {
                                 {render_pedigree_card(
@@ -2919,7 +2931,6 @@ fn render_pedigree_card(
     match node.id {
         Some(pid) => {
             let is_focus = pid == root_person_id;
-            // let is_selected = selected_person_id() == pid;
             let bg = card_bg(is_focus, node.is_sibling);
             let text_fill = if is_focus {
                 "var(--white)"
@@ -2985,9 +2996,6 @@ fn render_pedigree_card(
                         on_person_click.call((pid, coords.x, coords.y));
                     },
                     rect { class: "ped-card-rect", x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
-                    // if is_selected || is_focus {
-                    //     rect { x: "4", y: "4", rx: "6", ry: "6", width: "{rw+2.0}", height: "{rh+2.0}", style: "fill:none;stroke:var(--orange);stroke-width:2;pointer-events:none" }
-                    //}
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
                     rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:var(--white)" }
                     image { "href": "{portrait_src}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
@@ -3236,45 +3244,16 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         spawn(async move {
             // Small delay so the DOM has rendered the viewport element.
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-            if let Ok(val) = document::eval(
-                r#"
-                const viewport = document.querySelector('.pedigree-viewport');
-                if (!viewport) return [800, 600, 0];
-                const rect = viewport.getBoundingClientRect();
-                const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
-                const isNarrow = window.innerWidth <= 900;
-                let availableLeft = 0;
-                let availableRight = rect.width;
-                if (panel && !isNarrow) {
-                    const panelRect = panel.getBoundingClientRect();
-                    const overlapsX = panelRect.left < rect.right && panelRect.right > rect.left;
-                    if (overlapsX) {
-                        availableRight = Math.min(availableRight, panelRect.left - rect.left);
-                    }
-                }
-                return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft];
-                "#,
+            fit_graph_in_viewport(
+                scale,
+                offset_x,
+                offset_y,
+                fit_content_cx,
+                fit_content_cy,
+                fit_content_w,
+                fit_content_h,
             )
-            .await
-            {
-                let vw = val
-                    .get(0)
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(VIEWPORT_DEFAULT_W);
-                let vh = val
-                    .get(1)
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(VIEWPORT_DEFAULT_H);
-                let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let side_padding = vw * FIT_SIDE_PADDING_RATIO;
-                let fit_w = (vw - 2.0 * side_padding).max(1.0);
-                let fit_scale = (fit_w / fit_content_w)
-                    .min(vh / fit_content_h)
-                    .clamp(ZOOM_MIN, ZOOM_MAX);
-                scale.set(fit_scale);
-                offset_x.set(vx + vw / 2.0 - fit_content_cx * fit_scale);
-                offset_y.set(vh / 2.0 - fit_content_cy * fit_scale);
-            }
+            .await;
             // Re-enable animation after fitting.
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             animating.set(true);
@@ -3318,15 +3297,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // ── Event panel data (selected person) ──
     let sel_pid = selected_person_id();
-    let (sel_given, sel_surname, _) = props.data.name_parts(sel_pid);
-    let sel_given_s = sel_given.unwrap_or_default();
-    let sel_surname_s = sel_surname.unwrap_or_default();
-    let sel_full_name = match (sel_given_s.is_empty(), sel_surname_s.is_empty()) {
-        (true, true) => "Unknown".to_string(),
-        (false, true) => sel_given_s.clone(),
-        (true, false) => sel_surname_s.clone(),
-        _ => format!("{} {}", sel_given_s, sel_surname_s),
-    };
+    // The same resolver every other surface uses, so the no-name fallback is
+    // the translated one rather than a hardcoded "Unknown".
+    let sel_full_name = props.data.display_name(sel_pid, &i18n);
     let sel_portrait_src = props
         .data
         .photos
@@ -3591,37 +3564,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.fit_screen\")}",
                     onclick: move |_| {
-                        spawn(async move {
-                            if let Ok(val) = document::eval(
-                                r#"
-                                const viewport = document.querySelector('.pedigree-viewport');
-                                if (!viewport) return [800, 600, 0];
-                                const rect = viewport.getBoundingClientRect();
-                                const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
-                                const isNarrow = window.innerWidth <= 900;
-                                let availableLeft = 0;
-                                let availableRight = rect.width;
-                                if (panel && !isNarrow) {
-                                    const panelRect = panel.getBoundingClientRect();
-                                    const overlapsX = panelRect.left < rect.right && panelRect.right > rect.left;
-                                    if (overlapsX) {
-                                        availableRight = Math.min(availableRight, panelRect.left - rect.left);
-                                    }
-                                }
-                                return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft];
-                                "#
-                            ).await {
-                                let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_W);
-                                let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(VIEWPORT_DEFAULT_H);
-                                let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                let side_padding = vw * FIT_SIDE_PADDING_RATIO;
-                                let fit_w = (vw - 2.0 * side_padding).max(1.0);
-                                let fit_scale = (fit_w / fit_content_w).min(vh / fit_content_h).clamp(ZOOM_MIN, ZOOM_MAX);
-                                scale.set(fit_scale);
-                                offset_x.set(vx + vw / 2.0 - fit_content_cx * fit_scale);
-                                offset_y.set(vh / 2.0 - fit_content_cy * fit_scale);
-                            }
-                        });
+                        spawn(fit_graph_in_viewport(
+                            scale,
+                            offset_x,
+                            offset_y,
+                            fit_content_cx,
+                            fit_content_cy,
+                            fit_content_w,
+                            fit_content_h,
+                        ));
                     },
                     svg {
                         width: "16",
@@ -3740,7 +3691,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                 // ── Ascending tree ──
                                 g {
                                     for (si, path) in layout.asc_links.iter().enumerate() {
-                                        path { key: "al-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                                        path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
                                     }
                                     for (ni, node) in layout.asc_nodes.iter().enumerate() {
                                         {render_pedigree_card(
@@ -3761,7 +3712,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                 g {
                                     transform: "translate({layout.desc_tx},{layout.desc_ty})",
                                     for (si, path) in layout.desc_links.iter().enumerate() {
-                                        path { key: "dl-{si}", d: "{path.d}", class: "pedigree-connector-path", fill: "none" }
+                                        path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
                                     }
                                     for (ni, node) in layout.desc_nodes.iter().enumerate() {
                                         {render_pedigree_card(

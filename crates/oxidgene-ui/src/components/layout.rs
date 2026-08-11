@@ -1181,6 +1181,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .pedigree-tree {
+        position: relative;
         display: flex;
         flex-direction: column;
         align-items: stretch;
@@ -1513,12 +1514,6 @@ pub const LAYOUT_STYLES: &str = r#"
         transform-origin: 0 0;
     }
 
-    /* ── SVG person group hover ──────────────────────────────────────*/
-
-    .pedigree-tree {
-        position: relative;
-    }
-
     /* ── Animated transitions ──────────────────────────────────── */
 
     .pedigree-animated .pedigree-inner {
@@ -1569,7 +1564,8 @@ pub const LAYOUT_STYLES: &str = r#"
     /* ── Responsive: event panel below 900px ────────────────────── */
 
     @media (max-width: 900px) {
-        /* Event panel as drawer on mobile */
+        /* Event panel as drawer on mobile — the collapsed width is the same
+           as at any other size, so it is not restated here. */
         .ev-panel {
             position: absolute;
             right: 0;
@@ -1577,10 +1573,6 @@ pub const LAYOUT_STYLES: &str = r#"
             bottom: 0;
             z-index: 50;
             box-shadow: var(--shadow-md);
-        }
-        .ev-panel-collapsed {
-            width: 28px;
-            min-width: 28px;
         }
     }
 
@@ -1686,28 +1678,30 @@ pub const LAYOUT_STYLES: &str = r#"
     .search-person-result.male { border-left: 3px solid rgba(74,144,217,0.4); }
     .search-person-result.female { border-left: 3px solid rgba(196,88,122,0.4); }
 
-    /* ── Person form modal ────────────────────────────────────────── */
+    /* ── Edit modals (person, couple) ──────────────────────────────────
+       Both are the same object — a panel that fills its own height, a fixed
+       header, a scrolling body, a fixed footer — so the chrome is described
+       once and each modal only states where it differs (its width and how
+       tall it is allowed to grow). They had a copy each, which is how the
+       couple modal's fields ended up missing the control sizing below. */
 
-    .person-form-backdrop {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .person-form-modal {
+    .person-form-modal,
+    .union-form-modal {
         background: var(--bg-panel);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         box-shadow: var(--shadow-md);
-        width: 700px;
         max-width: 95vw;
-        max-height: 85vh;
         display: flex;
         flex-direction: column;
         overflow: hidden;
     }
 
-    .person-form-header {
+    .person-form-modal { width: 700px; max-height: 85vh; }
+    .union-form-modal  { width: 720px; max-height: 90vh; }
+
+    .person-form-header,
+    .union-form-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -1715,10 +1709,42 @@ pub const LAYOUT_STYLES: &str = r#"
         border-bottom: 1px solid var(--border);
     }
 
-    .person-form-header h2 {
+    .person-form-header h2,
+    .union-form-header h2 {
         margin: 0;
         font-size: 1.1rem;
         color: var(--text-primary);
+    }
+
+    .person-form-body,
+    .union-form-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 20px;
+    }
+
+    .pf-footer,
+    .uf-footer {
+        padding: 14px 20px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
+    .pf-footer-right,
+    .uf-footer-right {
+        display: flex;
+        gap: 8px;
+        margin-left: auto;
+    }
+
+    .pf-footer .error-msg {
+        flex: 1;
+        margin: 0;
+        font-size: 0.8rem;
     }
 
     .person-form-close {
@@ -1736,13 +1762,6 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
         color: var(--text-primary);
     }
-
-    .person-form-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 16px 20px;
-    }
-
 
     .person-form-item {
         display: flex;
@@ -1763,6 +1782,9 @@ pub const LAYOUT_STYLES: &str = r#"
     .person-form-modal input,
     .person-form-modal select,
     .person-form-modal textarea,
+    .union-form-modal input,
+    .union-form-modal select,
+    .union-form-modal textarea,
     .pf-embedded input,
     .pf-embedded select,
     .pf-embedded textarea {
@@ -1783,6 +1805,8 @@ pub const LAYOUT_STYLES: &str = r#"
        next to the date field. 20px = 38px − 2×8px padding − 2×1px border. */
     .person-form-modal input,
     .person-form-modal select,
+    .union-form-modal input,
+    .union-form-modal select,
     .pf-embedded input,
     .pf-embedded select {
         height: 38px;
@@ -1796,6 +1820,7 @@ pub const LAYOUT_STYLES: &str = r#"
        field. With appearance:none the select is an ordinary box that obeys
        both, and the arrow becomes ours to place. */
     .person-form-modal select,
+    .union-form-modal select,
     .pf-embedded select {
         appearance: none;
         -webkit-appearance: none;
@@ -1810,6 +1835,7 @@ pub const LAYOUT_STYLES: &str = r#"
     /* The arrow is baked into a data URI, so it cannot read a CSS variable —
        the dark palette needs its own copy. */
     :root.dark .person-form-modal select,
+    :root.dark .union-form-modal select,
     :root.dark .pf-embedded select {
         background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%237a8da8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     }
@@ -2057,13 +2083,15 @@ pub const LAYOUT_STYLES: &str = r#"
        --bg-panel — the box had no edge and its fields read as part of the
        surrounding form. Card background + border makes it a distinct
        container you can see the boundaries of. */
-    .pf-subform {
+    .pf-subform,
+    .pf-section .pf-embedded {
         padding: 14px;
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        margin-bottom: 12px;
     }
+
+    .pf-subform { margin-bottom: 12px; }
 
     .badge-primary {
         background: rgba(224,120,32,0.12);
@@ -2098,28 +2126,6 @@ pub const LAYOUT_STYLES: &str = r#"
         border-color: var(--orange);
         color: var(--orange);
         background: rgba(224,120,32,0.10);
-    }
-
-    .pf-footer {
-        padding: 14px 20px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        flex-shrink: 0;
-    }
-
-    .pf-footer-right {
-        display: flex;
-        gap: 8px;
-        margin-left: auto;
-    }
-
-    .pf-footer .error-msg {
-        flex: 1;
-        margin: 0;
-        font-size: 0.8rem;
     }
 
     /* ── Date qualifier row ────────────────────────────────────────── */
@@ -2175,7 +2181,6 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card);
     }
     .pf-ns-actions { display: flex; gap: 8px; align-items: center; }
-    .pf-ns-status { font-size: 0.8rem; color: var(--text-secondary); }
 
     /* ── Witnesses list ────────────────────────────────────────────── */
 
@@ -2220,9 +2225,13 @@ pub const LAYOUT_STYLES: &str = r#"
         text-align: center;
     }
     .pf-delete-person-btn:hover { border-color: #e05050; background: rgba(224, 80, 80, 0.08); }
-    .pf-delete-confirm {
+    .pf-delete-confirm,
+    .uf-child-detach-confirm {
         background: rgba(224, 80, 80, 0.07);
         border: 1px solid rgba(224, 80, 80, 0.3);
+    }
+
+    .pf-delete-confirm {
         border-radius: 6px;
         padding: 16px;
         margin-top: 8px;
@@ -2268,67 +2277,7 @@ pub const LAYOUT_STYLES: &str = r#"
         margin: 12px 0;
     }
 
-    /* ── Union form modal ─────────────────────────────────────────── */
-
-    .union-form-backdrop { }
-
-    .union-form-modal {
-        background: var(--bg-panel);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        box-shadow: var(--shadow-md);
-        width: 720px;
-        max-width: 95vw;
-        max-height: 90vh;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-
-    .union-form-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px 20px;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .union-form-header h2 {
-        margin: 0;
-        font-size: 1.1rem;
-        color: var(--text-primary);
-    }
-
-    .union-form-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 16px 20px;
-    }
-
-    /* ── Couple modal — person blocks, children, footer ───────────── */
-
-    .uf-footer {
-        padding: 14px 20px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        flex-shrink: 0;
-    }
-
-    .uf-footer-right {
-        display: flex;
-        gap: 8px;
-        margin-left: auto;
-    }
-
-    .pf-section .pf-embedded {
-        padding: 14px;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-    }
+    /* ── Couple modal — person blocks, children ───────────────────── */
 
     .uf-child-row {
         display: flex;
@@ -2370,8 +2319,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .uf-child-detach-confirm {
-        background: rgba(224, 80, 80, 0.07);
-        border: 1px solid rgba(224, 80, 80, 0.3);
         border-radius: var(--radius);
         padding: 10px 12px;
         margin-bottom: 6px;
@@ -2888,9 +2835,6 @@ pub const LAYOUT_STYLES: &str = r#"
         border: 1px solid var(--border);
         border-radius: 6px;
         background: var(--bg-card);
-    }
-
-    .dict-row {
         cursor: pointer;
     }
 
@@ -3005,11 +2949,6 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .dict-pin {
         color: var(--green);
-    }
-
-    .dict-pin-outline {
-        color: var(--text-muted);
-        opacity: 0.5;
     }
 
     .dict-accordion {
