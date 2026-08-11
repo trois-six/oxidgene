@@ -11,14 +11,16 @@ use std::collections::HashSet;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{AddChildBody, ApiClient, CreateEventBody, UpdateEventBody};
+use crate::api::{AddChildBody, ApiClient};
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::person_form::{
-    EventEditor, NotesSource, PersonForm, render_notes_source_fields, save_notes_source,
+    DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
+    create_event_body, focus_next_field_js, render_add_toggle, render_notes_source_fields,
+    render_place_select, save_notes_source, update_event_body,
 };
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
-use crate::utils::{event_type_label_key, opt_str, resolve_name};
+use crate::utils::{child_type_label_key, event_type_label_key, opt_str, resolve_name};
 use oxidgene_core::{ChildType, EventType};
 
 // ── Props ────────────────────────────────────────────────────────────────
@@ -75,17 +77,16 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // Section fold state. The union's own blocks open with the form; the two
     // person blocks stay closed, since each mounts a whole PersonForm with its
     // own fetches — opening both by default would load the couple twice over.
-    let mut open_union = use_signal(|| true);
-    let mut open_children = use_signal(|| true);
-    let mut show_person1 = use_signal(|| false);
-    let mut show_person2 = use_signal(|| false);
+    let open_union = use_signal(|| true);
+    let open_children = use_signal(|| true);
+    let show_person1 = use_signal(|| false);
+    let show_person2 = use_signal(|| false);
 
     // Staged child detach (applied on Save).
     let mut pending_detach = use_signal(HashSet::<Uuid>::new);
     let mut confirm_detach_id = use_signal(|| None::<Uuid>);
 
-    // Delete couple state.
-    let mut show_delete_confirm = use_signal(|| false);
+    // Delete couple state (the confirmation itself lives in DeleteSection).
     let mut delete_error = use_signal(|| None::<String>);
     let mut deleting = use_signal(|| false);
     let mut saving = use_signal(|| false);
@@ -292,23 +293,13 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 save_error.set(Some(i18n.t(key)));
                 return;
             }
-            let place_id = if place_str.is_empty() {
-                None
-            } else {
-                place_str.parse::<Uuid>().ok()
-            };
             if let Some(eid) = existing_id {
-                let body = UpdateEventBody {
-                    event_type: Some(EventType::Marriage),
-                    date_value: Some(parts.date_value()),
-                    date_sort: Some(parts.date_sort()),
-                    date_qualifier: Some(parts.qualifier),
-                    date_value2: Some(parts.date_value2()),
-                    calendar: Some(parts.calendar),
-                    cause: None,
-                    place_id: Some(place_id),
-                    description: Some(opt_str(&desc)),
-                };
+                let body = update_event_body(
+                    Some(EventType::Marriage),
+                    &parts,
+                    &place_str,
+                    Some(opt_str(&desc)),
+                );
                 match api.update_event(tid, eid, &body).await {
                     Ok(_) => {
                         save_error.set(None);
@@ -318,19 +309,14 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     Err(e) => save_error.set(Some(format!("{e}"))),
                 }
             } else {
-                let body = CreateEventBody {
-                    event_type: EventType::Marriage,
-                    date_value: parts.date_value(),
-                    date_sort: parts.date_sort(),
-                    date_qualifier: parts.qualifier,
-                    date_value2: parts.date_value2(),
-                    calendar: parts.calendar,
-                    cause: None,
-                    place_id,
-                    person_id: None,
-                    family_id: Some(fid),
-                    description: opt_str(&desc),
-                };
+                let body = create_event_body(
+                    EventType::Marriage,
+                    &parts,
+                    &place_str,
+                    EventOwner::Family(fid),
+                    opt_str(&desc),
+                    None,
+                );
                 match api.create_event(tid, &body).await {
                     Ok(ev) => {
                         marriage_event_id.set(Some(ev.id));
@@ -360,25 +346,14 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 save_error.set(Some(i18n.t(key)));
                 return;
             }
-            let event_type = crate::utils::parse_event_type(&evt_type_str);
-            let place_id = if place_str.is_empty() {
-                None
-            } else {
-                place_str.parse::<Uuid>().ok()
-            };
-            let body = CreateEventBody {
-                event_type,
-                date_value: parts.date_value(),
-                date_sort: parts.date_sort(),
-                date_qualifier: parts.qualifier,
-                date_value2: parts.date_value2(),
-                calendar: parts.calendar,
-                cause: None,
-                place_id,
-                person_id: None,
-                family_id: Some(fid),
-                description: opt_str(&desc),
-            };
+            let body = create_event_body(
+                crate::utils::parse_event_type(&evt_type_str),
+                &parts,
+                &place_str,
+                EventOwner::Family(fid),
+                opt_str(&desc),
+                None,
+            );
             match api.create_event(tid, &body).await {
                 Ok(new_event) => {
                     // Family events carry no person: their notes and source
@@ -487,7 +462,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // ── Render ──
 
     rsx! {
-        div { class: "modal-backdrop union-form-backdrop",
+        div { class: "modal-backdrop",
             // Dismiss on press (not click): a click fires on the common ancestor of
             // mousedown/mouseup, so selecting text then releasing outside would close.
             onmousedown: move |_| props.on_close.call(()),
@@ -499,16 +474,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     match e.key() {
                         Key::Escape => props.on_close.call(()),
                         Key::Enter => {
-                            document::eval(
-                                "var a=document.activeElement;\
-                                if(a&&a.tagName==='INPUT'&&a.type!=='button'&&a.type!=='submit'){\
-                                    var m=a.closest('.union-form-modal');\
-                                    if(!m)return;\
-                                    var fs=[...m.querySelectorAll('input:not([type=button]):not([type=submit]),select,textarea')];\
-                                    var i=fs.indexOf(a);\
-                                    if(i>=0&&i<fs.length-1)fs[i+1].focus();\
-                                }"
-                            );
+                            document::eval(&focus_next_field_js("union-form-modal"));
                         }
                         _ => {}
                     }
@@ -532,87 +498,42 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 }
 
                 div { class: "union-form-body",
-                    // ── Person 1 block ──
-                    if let Some(s1) = &spouse1 {
-                        {
-                            let pid1 = s1.person_id;
-                            let name1 = resolve_name(pid1, &name_map_for_display, &i18n);
-                            rsx! {
-                                div { class: "pf-section",
-                                    div { class: "pf-section-head",
-                                        button {
-                                            class: "pf-section-toggle",
-                                            r#type: "button",
-                                            onclick: move |_| show_person1.toggle(),
-                                            span { class: if show_person1() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                            {i18n.t_args("union_form.person1", &[("name", &name1)])}
-                                        }
-                                    }
-                                    if show_person1() { div { class: "pf-section-body",
+                    // ── Person 1 / Person 2 blocks ──
+                    // Each mounts a whole PersonForm with its own fetches, so
+                    // both stay closed by default — opening them eagerly would
+                    // load the couple twice over.
+                    for (spouse , key , open) in [
+                        (&spouse1, "union_form.person1", show_person1),
+                        (&spouse2, "union_form.person2", show_person2),
+                    ] {
+                        if let Some(spouse) = spouse {
+                            {
+                                let spouse_id = spouse.person_id;
+                                let name = resolve_name(spouse_id, &name_map_for_display, &i18n);
+                                rsx! {
+                                    FormSection { title: i18n.t_args(key, &[("name", &name)]), open,
                                         PersonForm {
                                             tree_id: tid,
-                                            person_id: Some(pid1),
+                                            person_id: Some(spouse_id),
                                             embedded: true,
                                             on_close: move |_| {},
                                             on_saved: move |_| refresh += 1,
                                         }
-                                    } }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── Person 2 block ──
-                    if let Some(s2) = &spouse2 {
-                        {
-                            let pid2 = s2.person_id;
-                            let name2 = resolve_name(pid2, &name_map_for_display, &i18n);
-                            rsx! {
-                                div { class: "pf-section",
-                                    div { class: "pf-section-head",
-                                        button {
-                                            class: "pf-section-toggle",
-                                            r#type: "button",
-                                            onclick: move |_| show_person2.toggle(),
-                                            span { class: if show_person2() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                            {i18n.t_args("union_form.person2", &[("name", &name2)])}
-                                        }
                                     }
-                                    if show_person2() { div { class: "pf-section-body",
-                                        PersonForm {
-                                            tree_id: tid,
-                                            person_id: Some(pid2),
-                                            embedded: true,
-                                            on_close: move |_| {},
-                                            on_saved: move |_| refresh += 1,
-                                        }
-                                    } }
                                 }
                             }
                         }
                     }
 
                     // ── Union block ──
-                    div { class: "pf-section",
-                        div { class: "pf-section-head",
-                            button {
-                                class: "pf-section-toggle",
-                                r#type: "button",
-                                onclick: move |_| open_union.toggle(),
-                                span { class: if open_union() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                {i18n.t("union_form.events")}
-                            }
-                            if open_union() {
-                                button {
-                                    class: if show_add_union_event() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                                    r#type: "button",
-                                    onclick: move |_| show_add_union_event.toggle(),
-                                    if show_add_union_event() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_event")} }
-                                }
-                            }
-                        }
-
-                        if open_union() { div { class: "pf-section-body",
+                    FormSection {
+                        title: i18n.t("union_form.events"),
+                        open: open_union,
+                        action: render_add_toggle(
+                            i18n.t("union_form.add_event"),
+                            i18n.t("common.cancel"),
+                            show_add_union_event,
+                        ),
                         // Existing union events
                         if union_events.is_empty() && marriage_event_id().is_none() {
                             div { class: "empty-state",
@@ -622,33 +543,23 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
                         // Primary union date/place/note shorthand (mapped to the marriage event).
                         if marriage_event_id().is_some() || union_events.is_empty() {
-                            div { style: "margin-bottom: 12px; padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border);",
+                            div { class: "pf-subform",
                                 div { class: "form-group",
                                     label { {i18n.t("person_form.date")} }
                                     DateInput { parts: marriage_parts, i18n, on_change: move |()| {} }
                                 }
-                                div { class: "form-group",
-                                    label { {i18n.t("person_form.place")} }
-                                    select {
-                                        value: "{marriage_place_id}",
-                                        oninput: move |e: Event<FormData>| marriage_place_id.set(e.value()),
-                                        option { value: "", {i18n.t("person_form.no_place")} }
-                                        for (pid, pname) in place_options.iter() {
-                                            option { value: "{pid}", "{pname}" }
-                                        }
-                                    }
-                                }
+                                {render_place_select(&i18n, marriage_place_id, &place_options, || {})}
                                 div { class: "form-group",
                                     label { {i18n.t("person_form.description")} }
                                     input {
                                         r#type: "text",
-                                        placeholder: "",
                                         value: "{marriage_desc}",
                                         oninput: move |e: Event<FormData>| marriage_desc.set(e.value()),
                                     }
                                 }
                                 button {
-                                    class: "btn btn-primary",
+                                    class: "pf-confirm-btn",
+                                    r#type: "button",
                                     onclick: on_save_marriage,
                                     if marriage_event_id().is_some() { {i18n.t("union_form.update_marriage")} } else { {i18n.t("union_form.save_marriage")} }
                                 }
@@ -680,7 +591,8 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                     {i18n.t("common.edit")}
                                                 }
                                                 button {
-                                                    class: "btn btn-danger btn-sm",
+                                                    class: "pf-row-btn is-danger",
+                                                    r#type: "button",
                                                     onclick: {
                                                         let api = api_del_union.clone();
                                                         move |_| {
@@ -717,7 +629,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
                         // Add union event form
                         if show_add_union_event() {
-                            div { style: "padding: 12px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); margin-top: 8px;",
+                            div { class: "pf-subform",
                                 div { class: "form-row",
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.type")} }
@@ -754,17 +666,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     }
                                 }
                                 div { class: "form-row",
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.place")} }
-                                        select {
-                                            value: "{new_union_place}",
-                                            oninput: move |e: Event<FormData>| new_union_place.set(e.value()),
-                                            option { value: "", {i18n.t("person_form.no_place")} }
-                                            for (pid, pname) in place_options.iter() {
-                                                option { value: "{pid}", "{pname}" }
-                                            }
-                                        }
-                                    }
+                                    {render_place_select(&i18n, new_union_place, &place_options, || {})}
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.description")} }
                                         input {
@@ -776,36 +678,24 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 }
                                 {render_notes_source_fields(&i18n, new_union_notes, new_union_source, || {})}
                                 button {
-                                    class: "btn btn-primary btn-sm",
+                                    class: "pf-confirm-btn",
+                                    r#type: "button",
                                     onclick: on_create_union_event,
                                     {i18n.t("person.create_event")}
                                 }
                             }
                         }
-                        } }
                     }
 
                     // ── Children block ──
-                    div { class: "pf-section",
-                        div { class: "pf-section-head",
-                            button {
-                                class: "pf-section-toggle",
-                                r#type: "button",
-                                onclick: move |_| open_children.toggle(),
-                                span { class: if open_children() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                {i18n.t("union_form.children")}
-                            }
-                            if open_children() {
-                                button {
-                                    class: if show_add_child() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                                    r#type: "button",
-                                    onclick: move |_| show_add_child.toggle(),
-                                    if show_add_child() { {i18n.t("common.cancel")} } else { {i18n.t("union_form.add_child")} }
-                                }
-                            }
-                        }
-
-                        if open_children() { div { class: "pf-section-body",
+                    FormSection {
+                        title: i18n.t("union_form.children"),
+                        open: open_children,
+                        action: render_add_toggle(
+                            i18n.t("union_form.add_child"),
+                            i18n.t("common.cancel"),
+                            show_add_child,
+                        ),
                         if show_add_child() {
                             div { class: "linking-panel",
                                 p { class: "linking-panel-title", {i18n.t("union_form.link_or_create")} }
@@ -828,7 +718,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     for child in children.iter() {
                                         {
                                             let cid = child.person_id;
-                                            let ct = format!("{:?}", child.child_type);
+                                            let ct = i18n.t(child_type_label_key(child.child_type));
                                             let name = resolve_name(cid, &name_map_for_display, &i18n);
                                             let is_pending = pending_detach().contains(&cid);
                                             let is_confirming = confirm_detach_id() == Some(cid);
@@ -897,43 +787,20 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                 div { class: "loading", {i18n.t("union_form.loading_children")} }
                             },
                         }
-                        } }
                     }
 
                     // ── Delete couple ──
                     // No section header and no rule above it, as in person_form:
                     // the button already says what it does.
-                    div { class: "pf-delete-section",
-                        if show_delete_confirm() {
-                            div { class: "pf-delete-confirm",
-                                p { class: "pf-delete-confirm-name", {i18n.t("union_form.delete_confirm_title")} }
-                                p { class: "pf-delete-confirm-message", {i18n.t("union_form.delete_confirm_message")} }
-                                if let Some(err) = delete_error() { div { class: "error-msg", "{err}" } }
-                                div { class: "pf-delete-confirm-actions",
-                                    button {
-                                        class: "btn btn-outline btn-sm",
-                                        r#type: "button",
-                                        disabled: deleting(),
-                                        onclick: move |_| { show_delete_confirm.set(false); delete_error.set(None); },
-                                        {i18n.t("common.cancel")}
-                                    }
-                                    button {
-                                        class: "btn btn-danger btn-sm",
-                                        r#type: "button",
-                                        disabled: deleting(),
-                                        onclick: on_confirm_delete_couple,
-                                        if deleting() { {i18n.t("union_form.deleting")} } else { {i18n.t("union_form.delete_confirm_button")} }
-                                    }
-                                }
-                            }
-                        } else {
-                            button {
-                                class: "pf-delete-person-btn",
-                                r#type: "button",
-                                onclick: move |_| show_delete_confirm.set(true),
-                                {i18n.t("union_form.delete_couple")}
-                            }
-                        }
+                    DeleteSection {
+                        button_label: i18n.t("union_form.delete_couple"),
+                        title: i18n.t("union_form.delete_confirm_title"),
+                        message: i18n.t("union_form.delete_confirm_message"),
+                        confirm_label: i18n.t("union_form.delete_confirm_button"),
+                        busy_label: i18n.t("union_form.deleting"),
+                        deleting: deleting(),
+                        error: delete_error(),
+                        on_confirm: on_confirm_delete_couple,
                     }
                 }
 

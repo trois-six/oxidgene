@@ -21,7 +21,7 @@ use crate::components::date_input::{DateInput, DateParts};
 use crate::i18n::use_i18n;
 use crate::utils::{
     event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
-    parse_name_type, parse_privacy, parse_sex,
+    parse_name_type, parse_place_id, parse_privacy, parse_sex,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
@@ -120,13 +120,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut birth_parts = use_signal(DateParts::default);
     let mut birth_place_id = use_signal(String::new);
     let mut birth_event_id = use_signal(|| None::<Uuid>);
-    let birth_witnesses_tick = use_signal(|| 0u32);
 
     // ── Death state ──
     let mut death_parts = use_signal(DateParts::default);
     let mut death_place_id = use_signal(String::new);
     let mut death_event_id = use_signal(|| None::<Uuid>);
-    let death_witnesses_tick = use_signal(|| 0u32);
 
     let mut birth_death_loaded = use_signal(|| false);
 
@@ -179,18 +177,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // ── Section fold state ──
     // Every section opens with the form; folding one is a way to get it out of
     // the way, not a step to go through before the fields are reachable.
-    let mut open_civil = use_signal(|| true);
-    let mut open_birth = use_signal(|| true);
-    let mut open_death = use_signal(|| true);
-    let mut open_privacy = use_signal(|| true);
-    let mut open_events = use_signal(|| true);
+    let open_civil = use_signal(|| true);
+    let open_birth = use_signal(|| true);
+    let open_death = use_signal(|| true);
+    let open_privacy = use_signal(|| true);
+    let open_events = use_signal(|| true);
 
     // ── UI state ──
     let mut saving = use_signal(|| false);
     let mut save_error = use_signal(|| None::<String>);
     let mut has_changes = use_signal(|| false);
     let mut show_discard_confirm = use_signal(|| false);
-    let mut show_delete_confirm = use_signal(|| false);
     let mut delete_error = use_signal(|| None::<String>);
     let mut deleting = use_signal(|| false);
 
@@ -562,24 +559,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 event_form_error.set(Some(i18n.t(key)));
                 return;
             }
-            let place_id = if place_str.is_empty() {
-                None
-            } else {
-                place_str.parse::<Uuid>().ok()
-            };
-            let body = CreateEventBody {
-                event_type: parse_event_type(&event_type_str),
-                date_value: parts.date_value(),
-                date_sort: parts.date_sort(),
-                date_qualifier: parts.qualifier,
-                date_value2: parts.date_value2(),
-                calendar: parts.calendar,
-                cause: opt_str(&cause),
-                place_id,
-                person_id: Some(pid),
-                family_id: None,
-                description: opt_str(&desc),
-            };
+            let body = create_event_body(
+                parse_event_type(&event_type_str),
+                &parts,
+                &place_str,
+                EventOwner::Person(pid),
+                opt_str(&desc),
+                opt_str(&cause),
+            );
             match api.create_event(tid, &body).await {
                 Ok(new_event) => {
                     let _ = save_notes_source(
@@ -630,24 +617,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 profession_form_error.set(Some(i18n.t(key)));
                 return;
             }
-            let place_id = if place_str.is_empty() {
-                None
-            } else {
-                place_str.parse::<Uuid>().ok()
-            };
-            let body = CreateEventBody {
-                event_type: EventType::Occupation,
-                date_value: parts.date_value(),
-                date_sort: parts.date_sort(),
-                date_qualifier: parts.qualifier,
-                date_value2: parts.date_value2(),
-                calendar: parts.calendar,
-                cause: None,
-                place_id,
-                person_id: Some(pid),
-                family_id: None,
-                description: opt_str(&label),
-            };
+            let body = create_event_body(
+                EventType::Occupation,
+                &parts,
+                &place_str,
+                EventOwner::Person(pid),
+                opt_str(&label),
+                None,
+            );
             match api.create_event(tid, &body).await {
                 Ok(new_event) => {
                     let _ = save_notes_source(
@@ -806,89 +783,32 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         return;
                     }
 
-                    // 3. Birth event.
-                    let b_place_id = if b_place.is_empty() {
-                        None
-                    } else {
-                        b_place.parse::<Uuid>().ok()
-                    };
-                    if !b_parts.is_empty() || b_place_id.is_some() {
-                        let body = CreateEventBody {
-                            event_type: EventType::Birth,
-                            date_value: b_parts.date_value(),
-                            date_sort: b_parts.date_sort(),
-                            date_qualifier: b_parts.qualifier,
-                            date_value2: b_parts.date_value2(),
-                            calendar: b_parts.calendar,
-                            cause: None,
-                            place_id: b_place_id,
-                            person_id: Some(new_pid),
-                            family_id: None,
-                            description: None,
-                        };
-                        match api.create_event(tid, &body).await {
-                            Ok(ev) => {
-                                let _ = save_notes_source(
-                                    &api,
-                                    tid,
-                                    Some(new_pid),
-                                    Some(ev.id),
-                                    &b_notes,
-                                    &b_source,
-                                    &NotesSource::default(),
-                                )
-                                .await;
-                            }
-                            Err(e) => {
-                                save_error.set(Some(format!("{e}")));
-                                saving.set(false);
-                                return;
-                            }
+                    // 3. Birth and death events, each with its notes + source.
+                    for (event_type, parts, place, notes, source) in [
+                        (EventType::Birth, &b_parts, &b_place, &b_notes, &b_source),
+                        (EventType::Death, &d_parts, &d_place, &d_notes, &d_source),
+                    ] {
+                        if let Err(e) = save_vital_event(
+                            &api,
+                            tid,
+                            new_pid,
+                            event_type,
+                            None,
+                            parts,
+                            place,
+                            notes,
+                            source,
+                            &NotesSource::default(),
+                        )
+                        .await
+                        {
+                            save_error.set(Some(format!("{e}")));
+                            saving.set(false);
+                            return;
                         }
                     }
 
-                    // 4. Death event.
-                    let d_place_id = if d_place.is_empty() {
-                        None
-                    } else {
-                        d_place.parse::<Uuid>().ok()
-                    };
-                    if !d_parts.is_empty() || d_place_id.is_some() {
-                        let body = CreateEventBody {
-                            event_type: EventType::Death,
-                            date_value: d_parts.date_value(),
-                            date_sort: d_parts.date_sort(),
-                            date_qualifier: d_parts.qualifier,
-                            date_value2: d_parts.date_value2(),
-                            calendar: d_parts.calendar,
-                            cause: None,
-                            place_id: d_place_id,
-                            person_id: Some(new_pid),
-                            family_id: None,
-                            description: None,
-                        };
-                        match api.create_event(tid, &body).await {
-                            Ok(ev) => {
-                                let _ = save_notes_source(
-                                    &api,
-                                    tid,
-                                    Some(new_pid),
-                                    Some(ev.id),
-                                    &d_notes,
-                                    &d_source,
-                                    &NotesSource::default(),
-                                )
-                                .await;
-                            }
-                            Err(e) => {
-                                save_error.set(Some(format!("{e}")));
-                                saving.set(false);
-                                return;
-                            }
-                        }
-                    }
-
-                    // 4b. Person-level source.
+                    // 4. Person-level source.
                     let _ = save_notes_source(
                         &api,
                         tid,
@@ -994,137 +914,48 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         }
                     }
 
-                    // 2. Birth event.
-                    let b_place_id = if b_place.is_empty() {
-                        None
-                    } else {
-                        b_place.parse::<Uuid>().ok()
-                    };
-                    let b_saved_eid = if let Some(eid) = birth_eid {
-                        let body = UpdateEventBody {
-                            event_type: Some(EventType::Birth),
-                            date_value: Some(b_parts.date_value()),
-                            date_sort: Some(b_parts.date_sort()),
-                            date_qualifier: Some(b_parts.qualifier),
-                            date_value2: Some(b_parts.date_value2()),
-                            calendar: Some(b_parts.calendar),
-                            cause: None,
-                            place_id: Some(b_place_id),
-                            description: None,
-                        };
-                        if let Err(e) = api.update_event(tid, eid, &body).await {
-                            save_error.set(Some(format!("{e}")));
-                            saving.set(false);
-                            return;
-                        }
-                        Some(eid)
-                    } else if !b_parts.is_empty() || b_place_id.is_some() {
-                        let body = CreateEventBody {
-                            event_type: EventType::Birth,
-                            date_value: b_parts.date_value(),
-                            date_sort: b_parts.date_sort(),
-                            date_qualifier: b_parts.qualifier,
-                            date_value2: b_parts.date_value2(),
-                            calendar: b_parts.calendar,
-                            cause: None,
-                            place_id: b_place_id,
-                            person_id: Some(pid),
-                            family_id: None,
-                            description: None,
-                        };
-                        match api.create_event(tid, &body).await {
-                            Ok(ev) => Some(ev.id),
-                            Err(e) => {
-                                save_error.set(Some(format!("{e}")));
-                                saving.set(false);
-                                return;
-                            }
-                        }
-                    } else {
-                        None
-                    };
-                    // Notes and source need an event to hang off; with no
-                    // birth recorded at all there is nothing to attach to.
-                    if let Some(eid) = b_saved_eid
-                        && let Ok(stored) = save_notes_source(
-                            &api,
-                            tid,
-                            Some(pid),
-                            Some(eid),
+                    // 2. Birth and death events, each with its notes + source.
+                    //    The stored state comes back so that pressing Save
+                    //    again reconciles against those rows rather than
+                    //    creating a second set.
+                    for (event_type, existing, parts, place, notes, source, ns, mut target) in [
+                        (
+                            EventType::Birth,
+                            birth_eid,
+                            &b_parts,
+                            &b_place,
                             &b_notes,
                             &b_source,
                             &b_ns,
+                            birth_ns,
+                        ),
+                        (
+                            EventType::Death,
+                            death_eid,
+                            &d_parts,
+                            &d_place,
+                            &d_notes,
+                            &d_source,
+                            &d_ns,
+                            death_ns,
+                        ),
+                    ] {
+                        match save_vital_event(
+                            &api, tid, pid, event_type, existing, parts, place, notes, source, ns,
                         )
                         .await
-                    {
-                        birth_ns.set(stored);
-                    }
-
-                    // 3. Death event.
-                    let d_place_id = if d_place.is_empty() {
-                        None
-                    } else {
-                        d_place.parse::<Uuid>().ok()
-                    };
-                    let d_saved_eid = if let Some(eid) = death_eid {
-                        let body = UpdateEventBody {
-                            event_type: Some(EventType::Death),
-                            date_value: Some(d_parts.date_value()),
-                            date_sort: Some(d_parts.date_sort()),
-                            date_qualifier: Some(d_parts.qualifier),
-                            date_value2: Some(d_parts.date_value2()),
-                            calendar: Some(d_parts.calendar),
-                            cause: None,
-                            place_id: Some(d_place_id),
-                            description: None,
-                        };
-                        if let Err(e) = api.update_event(tid, eid, &body).await {
-                            save_error.set(Some(format!("{e}")));
-                            saving.set(false);
-                            return;
-                        }
-                        Some(eid)
-                    } else if !d_parts.is_empty() || d_place_id.is_some() {
-                        let body = CreateEventBody {
-                            event_type: EventType::Death,
-                            date_value: d_parts.date_value(),
-                            date_sort: d_parts.date_sort(),
-                            date_qualifier: d_parts.qualifier,
-                            date_value2: d_parts.date_value2(),
-                            calendar: d_parts.calendar,
-                            cause: None,
-                            place_id: d_place_id,
-                            person_id: Some(pid),
-                            family_id: None,
-                            description: None,
-                        };
-                        match api.create_event(tid, &body).await {
-                            Ok(ev) => Some(ev.id),
+                        {
+                            Ok(Some(stored)) => target.set(stored),
+                            Ok(None) => {}
                             Err(e) => {
                                 save_error.set(Some(format!("{e}")));
                                 saving.set(false);
                                 return;
                             }
                         }
-                    } else {
-                        None
-                    };
-                    if let Some(eid) = d_saved_eid
-                        && let Ok(stored) = save_notes_source(
-                            &api,
-                            tid,
-                            Some(pid),
-                            Some(eid),
-                            &d_notes,
-                            &d_source,
-                            &d_ns,
-                        )
-                        .await
-                    {
-                        death_ns.set(stored);
                     }
 
-                    // 4. Person-level source (its notes are the list under
+                    // 3. Person-level source (its notes are the list under
                     //    Civil Status, saved row by row).
                     if let Ok(stored) =
                         save_notes_source(&api, tid, Some(pid), None, "", &p_source, &p_ns).await
@@ -1185,17 +1016,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 div { class: "person-form-body",
 
                     // ── Civil Status ──
-                    div { class: "pf-section",
-                        div { class: "pf-section-head",
-                            button {
-                                class: "pf-section-toggle",
-                                r#type: "button",
-                                onclick: move |_| open_civil.toggle(),
-                                span { class: if open_civil() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                {i18n.t("person_form.tab_civil")}
-                            }
-                        }
-                        if open_civil() { div { class: "pf-section-body",
+                    FormSection { title: i18n.t("person_form.tab_civil"), open: open_civil,
 
                         // Birth name + given names — mandatory, always visible.
                         div { class: "form-row",
@@ -1209,7 +1030,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                                 // Surface the split the save path will apply, and
                                 // let the user correct it — detection is a guess.
-                                {render_particle_row(&i18n, &birth_surname(), &mut birth_particle_override)}
+                                {render_particle_row(&i18n, &birth_surname(), birth_particle_override)}
                             }
                             div { class: "form-group",
                                 label { {i18n.t("person_form.given_names")} " *" }
@@ -1224,31 +1045,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
                         div { class: "form-group",
                             label { {i18n.t("person_form.sex")} }
-                            div { class: "pf-gender-group",
-                                {
-                                    let gender_opts = [
-                                        ("Male",    i18n.t("sex.male")),
-                                        ("Female",  i18n.t("sex.female")),
-                                        ("Unknown", i18n.t("sex.unknown")),
-                                    ];
-                                    rsx! {
-                                        for (val, label) in gender_opts {
-                                            {
-                                                let v = val;
-                                                let is_active = sex_val() == v;
-                                                rsx! {
-                                                    button {
-                                                        class: if is_active { "pf-gender-btn active" } else { "pf-gender-btn" },
-                                                        r#type: "button",
-                                                        onclick: move |_| { sex_val.set(v.to_string()); has_changes.set(true); },
-                                                        "{label}"
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            {render_choice_group(
+                                &[
+                                    ("Male",    i18n.t("sex.male")),
+                                    ("Female",  i18n.t("sex.female")),
+                                    ("Unknown", i18n.t("sex.unknown")),
+                                ],
+                                sex_val,
+                                move || has_changes.set(true),
+                            )}
                         }
 
                         // ── Profession(s) (edit mode only) ──
@@ -1256,12 +1061,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             div { class: "pf-subblock",
                                 div { class: "pf-block-label",
                                     {i18n.t("person_form.professions")}
-                                    button {
-                                        class: if show_profession_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                                        r#type: "button",
-                                        onclick: move |_| show_profession_form.toggle(),
-                                        if show_profession_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_profession")} }
-                                    }
+                                    {render_add_toggle(
+                                        i18n.t("person_form.add_profession"),
+                                        i18n.t("common.cancel"),
+                                        show_profession_form,
+                                    )}
                                 }
 
                                 if show_profession_form() {
@@ -1285,17 +1089,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                 on_change: move |()| {},
                                             }
                                         }
-                                        div { class: "form-group",
-                                            label { {i18n.t("person_form.place")} }
-                                            select {
-                                                value: "{profession_form_place_id}",
-                                                oninput: move |e: Event<FormData>| profession_form_place_id.set(e.value()),
-                                                option { value: "", {i18n.t("person_form.no_place")} }
-                                                for (pid_opt, pname) in place_options.iter() {
-                                                    option { value: "{pid_opt}", "{pname}" }
-                                                }
-                                            }
-                                        }
+                                        {render_place_select(&i18n, profession_form_place_id, &place_options, || {})}
                                         {render_notes_source_fields(&i18n, profession_form_notes, profession_form_source, || {})}
                                         button {
                                             class: "pf-confirm-btn",
@@ -1372,20 +1166,20 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         div { class: "pf-subblock",
                             div { class: "pf-block-label",
                                 {i18n.t("person_form.tab_more_information")}
-                                button {
-                                    class: if show_name_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                                    r#type: "button",
-                                    onclick: move |_| show_name_form.toggle(),
-                                    if show_name_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_information")} }
-                                }
+                                {render_add_toggle(
+                                    i18n.t("person_form.add_information"),
+                                    i18n.t("common.cancel"),
+                                    show_name_form,
+                                )}
                             }
 
                             if show_name_form() {
                                 {render_information_form(
                                     &i18n,
-                                    &name_form_error,
-                                    &mut name_form_type, &mut name_form_value,
-                                    &mut name_form_particle_override,
+                                    name_form_error,
+                                    name_form_type,
+                                    name_form_value,
+                                    name_form_particle_override,
                                     on_create_name,
                                 )}
                             }
@@ -1469,7 +1263,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                             div { class: "form-group",
                                                                 label { {i18n.t("person_form.surname")} }
                                                                 input { r#type: "text", value: "{edit_name_surname}", oninput: move |e: Event<FormData>| edit_name_surname.set(e.value().to_uppercase()) }
-                                                                {render_particle_row(&i18n, &edit_name_surname(), &mut edit_name_particle_override)}
+                                                                {render_particle_row(&i18n, &edit_name_surname(), edit_name_particle_override)}
                                                             }
                                                         }
                                                         div { class: "form-row",
@@ -1620,12 +1414,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             div { class: "pf-subblock",
                                 div { class: "pf-block-label",
                                     {i18n.t("person_form.notes")}
-                                    button {
-                                        class: if show_note_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                                        r#type: "button",
-                                        onclick: move |_| show_note_form.toggle(),
-                                        if show_note_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_note")} }
-                                    }
+                                    {render_add_toggle(
+                                        i18n.t("person_form.add_note"),
+                                        i18n.t("common.cancel"),
+                                        show_note_form,
+                                    )}
                                 }
 
                                 if show_note_form() {
@@ -1764,21 +1557,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         }
-                        } }
                     }
 
                     // ── Birth ──
-                    div { class: "pf-section",
-                        div { class: "pf-section-head",
-                            button {
-                                class: "pf-section-toggle",
-                                r#type: "button",
-                                onclick: move |_| open_birth.toggle(),
-                                span { class: if open_birth() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                {i18n.t("person_form.birth")}
-                            }
-                        }
-                        if open_birth() { div { class: "pf-section-body",
+                    FormSection { title: i18n.t("person_form.birth"), open: open_birth,
                         div { class: "form-group",
                             label { {i18n.t("person_form.date")} }
                             DateInput {
@@ -1787,37 +1569,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 on_change: move |()| has_changes.set(true),
                             }
                         }
-                        div { class: "form-group",
-                            label { {i18n.t("person_form.place")} }
-                            select {
-                                value: "{birth_place_id}",
-                                oninput: move |e: Event<FormData>| { birth_place_id.set(e.value()); has_changes.set(true); },
-                                option { value: "", {i18n.t("person_form.no_place")} }
-                                for (pid_opt, pname) in place_options.iter() {
-                                    option { value: "{pid_opt}", "{pname}" }
-                                }
-                            }
-                        }
+                        {render_place_select(&i18n, birth_place_id, &place_options, move || has_changes.set(true))}
                         {render_notes_source_fields(&i18n, birth_notes, birth_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
-                            {render_event_witnesses(&i18n, &api, tid, birth_event_id(), birth_witnesses_tick)}
+                            EventWitnesses { tree_id: tid, event_id: birth_event_id() }
                         }
-                        } }
                     }
 
                     // ── Death ──
-                    div { class: "pf-section",
-                        div { class: "pf-section-head",
-                            button {
-                                class: "pf-section-toggle",
-                                r#type: "button",
-                                onclick: move |_| open_death.toggle(),
-                                span { class: if open_death() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                {i18n.t("person_form.death")}
-                            }
-                        }
-                        if open_death() { div { class: "pf-section-body",
+                    FormSection { title: i18n.t("person_form.death"), open: open_death,
                         div { class: "form-group",
                             label { {i18n.t("person_form.date")} }
                             DateInput {
@@ -1826,86 +1587,37 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 on_change: move |()| has_changes.set(true),
                             }
                         }
-                        div { class: "form-group",
-                            label { {i18n.t("person_form.place")} }
-                            select {
-                                value: "{death_place_id}",
-                                oninput: move |e: Event<FormData>| { death_place_id.set(e.value()); has_changes.set(true); },
-                                option { value: "", {i18n.t("person_form.no_place")} }
-                                for (pid_opt, pname) in place_options.iter() {
-                                    option { value: "{pid_opt}", "{pname}" }
-                                }
-                            }
-                        }
+                        {render_place_select(&i18n, death_place_id, &place_options, move || has_changes.set(true))}
                         {render_notes_source_fields(&i18n, death_notes, death_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
-                            {render_event_witnesses(&i18n, &api, tid, death_event_id(), death_witnesses_tick)}
+                            EventWitnesses { tree_id: tid, event_id: death_event_id() }
                         }
-                        } }
                     }
 
                     // ── Privacy ──
-                    div { class: "pf-section",
-                        div { class: "pf-section-head",
-                            button {
-                                class: "pf-section-toggle",
-                                r#type: "button",
-                                onclick: move |_| open_privacy.toggle(),
-                                span { class: if open_privacy() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                {i18n.t("person_form.privacy")}
-                            }
-                        }
-                        if open_privacy() { div { class: "pf-section-body",
-                        div { class: "pf-gender-group",
-                            {
-                                let privacy_opts = [
-                                    ("Default", i18n.t("privacy.default")),
-                                    ("Public",  i18n.t("privacy.public")),
-                                    ("Private", i18n.t("privacy.private")),
-                                ];
-                                rsx! {
-                                    for (val, label) in privacy_opts {
-                                        {
-                                            let v = val;
-                                            let is_active = privacy_val() == v;
-                                            rsx! {
-                                                button {
-                                                    class: if is_active { "pf-gender-btn active" } else { "pf-gender-btn" },
-                                                    r#type: "button",
-                                                    onclick: move |_| { privacy_val.set(v.to_string()); has_changes.set(true); },
-                                                    "{label}"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        } }
+                    FormSection { title: i18n.t("person_form.privacy"), open: open_privacy,
+                        {render_choice_group(
+                            &[
+                                ("Default", i18n.t("privacy.default")),
+                                ("Public",  i18n.t("privacy.public")),
+                                ("Private", i18n.t("privacy.private")),
+                            ],
+                            privacy_val,
+                            move || has_changes.set(true),
+                        )}
                     }
 
                     // ── Other Events (edit mode only) ──
-                    if !is_create { div { class: "pf-section",
-                        div { class: "pf-section-head",
-                            button {
-                                class: "pf-section-toggle",
-                                r#type: "button",
-                                onclick: move |_| open_events.toggle(),
-                                span { class: if open_events() { "pf-chevron is-open" } else { "pf-chevron" } }
-                                {i18n.t("person_form.other_events")}
-                            }
-                            if open_events() {
-                                button {
-                                    class: if show_event_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                                    r#type: "button",
-                                    onclick: move |_| show_event_form.toggle(),
-                                    if show_event_form() { {i18n.t("common.cancel")} } else { {i18n.t("person_form.add_event")} }
-                                }
-                            }
-                        }
-
-                        if open_events() { div { class: "pf-section-body",
+                    if !is_create {
+                        FormSection {
+                            title: i18n.t("person_form.other_events"),
+                            open: open_events,
+                            action: render_add_toggle(
+                                i18n.t("person_form.add_event"),
+                                i18n.t("common.cancel"),
+                                show_event_form,
+                            ),
                         if show_event_form() {
                             div { class: "pf-subform",
                                 if let Some(err) = event_form_error() {
@@ -1941,17 +1653,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                 }
                                 div { class: "form-row",
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.place")} }
-                                        select {
-                                            value: "{event_form_place_id}",
-                                            oninput: move |e: Event<FormData>| event_form_place_id.set(e.value()),
-                                            option { value: "", {i18n.t("person_form.no_place")} }
-                                            for (pid_opt, pname) in place_options.iter() {
-                                                option { value: "{pid_opt}", "{pname}" }
-                                            }
-                                        }
-                                    }
+                                    {render_place_select(&i18n, event_form_place_id, &place_options, || {})}
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.cause")} }
                                         input {
@@ -2033,50 +1735,24 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                             }
                         }
-                        } }
-                    } } // end Other Events if !is_create
+                        }
+                    } // end Other Events if !is_create
 
                     // ── Delete Person (edit mode only) ──
                     // No section header: the button says what it does, and a
                     // heading repeating it above would be the same word twice.
-                    if !is_create && !is_embedded { div { class: "pf-delete-section",
-                        if show_delete_confirm() {
-                            div { class: "pf-delete-confirm",
-                                p { class: "pf-delete-confirm-name",
-                                    {format!("{} {}?", i18n.t("person_form.delete_confirm_title"), display_name)}
-                                }
-                                p { class: "pf-delete-confirm-message",
-                                    {i18n.t("person_form.delete_confirm_message")}
-                                }
-                                if let Some(err) = delete_error() {
-                                    div { class: "error-msg", "{err}" }
-                                }
-                                div { class: "pf-delete-confirm-actions",
-                                    button {
-                                        class: "btn btn-outline btn-sm",
-                                        r#type: "button",
-                                        disabled: deleting(),
-                                        onclick: move |_| { show_delete_confirm.set(false); delete_error.set(None); },
-                                        {i18n.t("common.cancel")}
-                                    }
-                                    button {
-                                        class: "btn btn-danger btn-sm",
-                                        r#type: "button",
-                                        disabled: deleting(),
-                                        onclick: on_confirm_delete,
-                                        if deleting() { {i18n.t("person_form.deleting")} } else { {i18n.t("person_form.delete_confirm_button")} }
-                                    }
-                                }
-                            }
-                        } else {
-                            button {
-                                class: "pf-delete-person-btn",
-                                r#type: "button",
-                                onclick: move |_| show_delete_confirm.set(true),
-                                {i18n.t("person_form.delete_person")}
-                            }
+                    if !is_create && !is_embedded {
+                        DeleteSection {
+                            button_label: i18n.t("person_form.delete_person"),
+                            title: format!("{} {}?", i18n.t("person_form.delete_confirm_title"), display_name),
+                            message: i18n.t("person_form.delete_confirm_message"),
+                            confirm_label: i18n.t("person_form.delete_confirm_button"),
+                            busy_label: i18n.t("person_form.deleting"),
+                            deleting: deleting(),
+                            error: delete_error(),
+                            on_confirm: on_confirm_delete,
                         }
-                    } } // end Delete if !is_create && !is_embedded
+                    }
                 }
     };
 
@@ -2115,7 +1791,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     }
 
     rsx! {
-        div { class: "modal-backdrop person-form-backdrop",
+        div { class: "modal-backdrop",
             // Dismiss on press (not click): a click fires on the common ancestor of
             // mousedown/mouseup, so selecting text then releasing outside would close.
             onmousedown: try_close,
@@ -2130,16 +1806,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             else { props.on_close.call(()); }
                         }
                         Key::Enter => {
-                            document::eval(
-                                "var a=document.activeElement;\
-                                if(a&&a.tagName==='INPUT'&&a.type!=='button'&&a.type!=='submit'){\
-                                    var m=a.closest('.person-form-modal');\
-                                    if(!m)return;\
-                                    var fs=[...m.querySelectorAll('input:not([type=button]):not([type=submit]),select,textarea')];\
-                                    var i=fs.indexOf(a);\
-                                    if(i>=0&&i<fs.length-1)fs[i+1].focus();\
-                                }"
-                            );
+                            document::eval(&focus_next_field_js("person-form-modal"));
                         }
                         _ => {}
                     }
@@ -2259,6 +1926,313 @@ fn event_type_options(i18n: &crate::i18n::I18n) -> Element {
     }
 }
 
+// ── Shared form building blocks ───────────────────────────────────────────
+//
+// The person modal and the couple modal are built out of the same parts —
+// collapsible sections, place pickers, event bodies, a delete confirmation.
+// They live here because `person_form` owns the `pf-` styles they render
+// against, and `union_form` uses them through this module.
+
+/// One collapsible block: a header row that toggles it, then its body.
+///
+/// `action` rides on the right of the header (add an event, add a child) and
+/// is only shown while the section is open — a closed section offers nothing
+/// to add to.
+#[component]
+pub fn FormSection(
+    title: String,
+    open: Signal<bool>,
+    #[props(default)] action: Option<Element>,
+    children: Element,
+) -> Element {
+    let mut open = open;
+    rsx! {
+        div { class: "pf-section",
+            div { class: "pf-section-head",
+                button {
+                    class: "pf-section-toggle",
+                    r#type: "button",
+                    onclick: move |_| open.toggle(),
+                    span { class: if open() { "pf-chevron is-open" } else { "pf-chevron" } }
+                    "{title}"
+                }
+                if open() && let Some(action) = action {
+                    {action}
+                }
+            }
+            if open() {
+                div { class: "pf-section-body", {children} }
+            }
+        }
+    }
+}
+
+/// The "add / cancel" button that opens a sub-form, in the two states it has.
+pub(crate) fn render_add_toggle(
+    label: String,
+    cancel_label: String,
+    mut open: Signal<bool>,
+) -> Element {
+    rsx! {
+        button {
+            class: if open() { "pf-add-btn is-open" } else { "pf-add-btn" },
+            r#type: "button",
+            onclick: move |_| open.toggle(),
+            if open() { "{cancel_label}" } else { "{label}" }
+        }
+    }
+}
+
+/// A labelled place picker over the tree's places, with a "no place" entry.
+pub(crate) fn render_place_select(
+    i18n: &crate::i18n::I18n,
+    mut selected: Signal<String>,
+    options: &[(String, String)],
+    mut on_change: impl FnMut() + 'static,
+) -> Element {
+    let i18n = *i18n;
+    let options = options.to_vec();
+    rsx! {
+        div { class: "form-group",
+            label { {i18n.t("person_form.place")} }
+            select {
+                value: "{selected}",
+                oninput: move |e: Event<FormData>| { selected.set(e.value()); on_change(); },
+                option { value: "", {i18n.t("person_form.no_place")} }
+                for (place_id , place_name) in options.iter() {
+                    option { value: "{place_id}", "{place_name}" }
+                }
+            }
+        }
+    }
+}
+
+/// A row of mutually exclusive buttons bound to one string signal (sex,
+/// privacy) — a radio group that reads as a segmented control.
+pub(crate) fn render_choice_group(
+    options: &[(&'static str, String)],
+    mut selected: Signal<String>,
+    on_change: impl FnMut() + Clone + 'static,
+) -> Element {
+    let options = options.to_vec();
+    rsx! {
+        div { class: "pf-gender-group",
+            for (value , label) in options {
+                {
+                    let mut on_change = on_change.clone();
+                    rsx! {
+                        button {
+                            class: if selected() == value { "pf-gender-btn active" } else { "pf-gender-btn" },
+                            r#type: "button",
+                            onclick: move |_| { selected.set(value.to_string()); on_change(); },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The destructive action at the foot of a modal: one button that expands
+/// into its own confirmation, rather than a dialog stacked on a dialog.
+#[component]
+pub fn DeleteSection(
+    button_label: String,
+    title: String,
+    message: String,
+    confirm_label: String,
+    busy_label: String,
+    deleting: bool,
+    error: Option<String>,
+    on_confirm: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let mut confirming = use_signal(|| false);
+    rsx! {
+        div { class: "pf-delete-section",
+            if confirming() {
+                div { class: "pf-delete-confirm",
+                    p { class: "pf-delete-confirm-name", "{title}" }
+                    p { class: "pf-delete-confirm-message", "{message}" }
+                    if let Some(err) = error {
+                        div { class: "error-msg", "{err}" }
+                    }
+                    div { class: "pf-delete-confirm-actions",
+                        button {
+                            class: "btn btn-outline btn-sm",
+                            r#type: "button",
+                            disabled: deleting,
+                            onclick: move |_| confirming.set(false),
+                            {i18n.t("common.cancel")}
+                        }
+                        button {
+                            class: "btn btn-danger btn-sm",
+                            r#type: "button",
+                            disabled: deleting,
+                            onclick: move |_| on_confirm.call(()),
+                            if deleting { "{busy_label}" } else { "{confirm_label}" }
+                        }
+                    }
+                }
+            } else {
+                button {
+                    class: "pf-delete-person-btn",
+                    r#type: "button",
+                    onclick: move |_| confirming.set(true),
+                    "{button_label}"
+                }
+            }
+        }
+    }
+}
+
+/// Enter advances to the next field instead of doing nothing.
+///
+/// Scoped to `modal_class` so a modal embedded in another one (the person
+/// fields inside the couple modal) still walks its own field list.
+pub(crate) fn focus_next_field_js(modal_class: &str) -> String {
+    format!(
+        "var a=document.activeElement;\
+        if(a&&a.tagName==='INPUT'&&a.type!=='button'&&a.type!=='submit'){{\
+            var m=a.closest('.{modal_class}');\
+            if(!m)return;\
+            var fs=[...m.querySelectorAll('input:not([type=button]):not([type=submit]),select,textarea')];\
+            var i=fs.indexOf(a);\
+            if(i>=0&&i<fs.length-1)fs[i+1].focus();\
+        }}"
+    )
+}
+
+// ── Event request bodies ──────────────────────────────────────────────────
+//
+// Every event this app writes carries the same five date columns, read off
+// one `DateParts`. Spelling them out per call site meant a dozen near-copies
+// that could — and did — drift from one another.
+
+/// What an event hangs off: a person, or the family (a marriage and its kin).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EventOwner {
+    Person(Uuid),
+    Family(Uuid),
+}
+
+pub(crate) fn create_event_body(
+    event_type: EventType,
+    parts: &DateParts,
+    place: &str,
+    owner: EventOwner,
+    description: Option<String>,
+    cause: Option<String>,
+) -> CreateEventBody {
+    let (person_id, family_id) = match owner {
+        EventOwner::Person(pid) => (Some(pid), None),
+        EventOwner::Family(fid) => (None, Some(fid)),
+    };
+    CreateEventBody {
+        event_type,
+        date_value: parts.date_value(),
+        date_sort: parts.date_sort(),
+        date_qualifier: parts.qualifier,
+        date_value2: parts.date_value2(),
+        calendar: parts.calendar,
+        cause,
+        place_id: parse_place_id(place),
+        person_id,
+        family_id,
+        description,
+    }
+}
+
+/// `description: None` leaves the stored value alone; `Some(value)` writes it
+/// (with `Some(None)` clearing it), matching the DTO's own contract.
+pub(crate) fn update_event_body(
+    event_type: Option<EventType>,
+    parts: &DateParts,
+    place: &str,
+    description: Option<Option<String>>,
+) -> UpdateEventBody {
+    UpdateEventBody {
+        event_type,
+        date_value: Some(parts.date_value()),
+        date_sort: Some(parts.date_sort()),
+        date_qualifier: Some(parts.qualifier),
+        date_value2: Some(parts.date_value2()),
+        calendar: Some(parts.calendar),
+        cause: None,
+        place_id: Some(parse_place_id(place)),
+        description,
+    }
+}
+
+/// Writes a person's birth or death — the two events the modal owns outright
+/// — together with the notes and source hanging off it.
+///
+/// Creates the event when the person has none recorded and there is now
+/// something to record, updates it when there is one, and leaves an empty
+/// section alone: notes and a source need an event to hang off, so a person
+/// with no birth at all has nothing to attach them to.
+///
+/// Returns the notes/source state now stored, which the caller must adopt as
+/// its new `current` — saving twice against a stale one would take the
+/// "nothing there yet" branch again and leave a duplicate row behind.
+#[allow(clippy::too_many_arguments)]
+async fn save_vital_event(
+    api: &ApiClient,
+    tree_id: Uuid,
+    person_id: Uuid,
+    event_type: EventType,
+    existing_id: Option<Uuid>,
+    parts: &DateParts,
+    place: &str,
+    notes: &str,
+    source: &str,
+    current: &NotesSource,
+) -> Result<Option<NotesSource>, ApiError> {
+    let event_id = match existing_id {
+        Some(eid) => {
+            api.update_event(
+                tree_id,
+                eid,
+                &update_event_body(Some(event_type), parts, place, None),
+            )
+            .await?;
+            Some(eid)
+        }
+        None if !parts.is_empty() || parse_place_id(place).is_some() => Some(
+            api.create_event(
+                tree_id,
+                &create_event_body(
+                    event_type,
+                    parts,
+                    place,
+                    EventOwner::Person(person_id),
+                    None,
+                    None,
+                ),
+            )
+            .await?
+            .id,
+        ),
+        None => None,
+    };
+
+    match event_id {
+        Some(eid) => save_notes_source(
+            api,
+            tree_id,
+            Some(person_id),
+            Some(eid),
+            notes,
+            source,
+            current,
+        )
+        .await
+        .map(Some),
+        None => Ok(None),
+    }
+}
+
 // ── Witnesses widget ──────────────────────────────────────────────────────
 
 /// Resolves each witness's display name via its primary `PersonName`.
@@ -2296,30 +2270,30 @@ async fn resolve_witness_names(
 /// persisted immediately via the API (mirrors the inline per-item saves
 /// used elsewhere in this form), so it's only usable once the event has
 /// been saved (`event_id.is_some()`).
-fn render_event_witnesses(
-    i18n: &crate::i18n::I18n,
-    api: &ApiClient,
-    tree_id: Uuid,
-    event_id: Option<Uuid>,
-    mut refresh_tick: Signal<u32>,
-) -> Element {
-    let i18n = *i18n;
-    let api = api.clone();
-
-    let Some(event_id) = event_id else {
-        return rsx! {
-            p { class: "text-muted", {i18n.t("person_form.witnesses_save_first")} }
-        };
-    };
+///
+/// A component rather than a plain render helper because it owns hooks while
+/// both of its guards move under it: `event_id` only arrives once the events
+/// resource resolves, and the whole widget sits inside a collapsible section.
+/// Rendered inline, either transition changed how many hooks its caller
+/// registered between two renders — a hook-order mismatch. Its own scope
+/// keeps that count stable.
+#[component]
+fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
+    let api = use_context::<ApiClient>();
+    let i18n = use_i18n();
 
     let mut adding = use_signal(|| false);
     let mut relation_input = use_signal(String::new);
+    let mut refresh_tick = use_signal(|| 0u32);
 
     let api_list = api.clone();
     let witnesses_resource = use_resource(move || {
         let api = api_list.clone();
         let _tick = refresh_tick();
         async move {
+            let Some(event_id) = event_id else {
+                return Vec::new();
+            };
             let witnesses = api
                 .list_event_witnesses(tree_id, event_id)
                 .await
@@ -2327,6 +2301,12 @@ fn render_event_witnesses(
             resolve_witness_names(&api, tree_id, witnesses).await
         }
     });
+
+    let Some(event_id) = event_id else {
+        return rsx! {
+            p { class: "text-muted", {i18n.t("person_form.witnesses_save_first")} }
+        };
+    };
     let entries = witnesses_resource.read().clone().unwrap_or_default();
 
     rsx! {
@@ -2756,7 +2736,7 @@ pub fn EventEditor(
             event.date_value2.as_deref(),
         )
     });
-    let mut place_id = use_signal(|| event.place_id.map(|id| id.to_string()).unwrap_or_default());
+    let place_id = use_signal(|| event.place_id.map(|id| id.to_string()).unwrap_or_default());
 
     let mut notes = use_signal(String::new);
     let mut source_title = use_signal(String::new);
@@ -2795,21 +2775,7 @@ pub fn EventEditor(
             saving.set(true);
             error.set(None);
 
-            let body = UpdateEventBody {
-                event_type: None,
-                date_value: Some(date.date_value()),
-                date_sort: Some(date.date_sort()),
-                date_qualifier: Some(date.qualifier),
-                date_value2: Some(date.date_value2()),
-                calendar: Some(date.calendar),
-                cause: None,
-                place_id: Some(if place.is_empty() {
-                    None
-                } else {
-                    place.parse::<Uuid>().ok()
-                }),
-                description: Some(opt_str(&desc)),
-            };
+            let body = update_event_body(None, &date, &place, Some(opt_str(&desc)));
             if let Err(e) = api.update_event(tree_id, event_id, &body).await {
                 error.set(Some(format!("{e}")));
                 saving.set(false);
@@ -2860,17 +2826,7 @@ pub fn EventEditor(
                     label { {i18n.t("person_form.date")} }
                     DateInput { parts, i18n, on_change: move |()| {} }
                 }
-                div { class: "form-group",
-                    label { {i18n.t("person_form.place")} }
-                    select {
-                        value: "{place_id}",
-                        oninput: move |e: Event<FormData>| place_id.set(e.value()),
-                        option { value: "", {i18n.t("person_form.no_place")} }
-                        for (pid_opt , pname) in place_options.iter() {
-                            option { value: "{pid_opt}", "{pname}" }
-                        }
-                    }
-                }
+                {render_place_select(&i18n, place_id, &place_options, || {})}
                 {render_notes_source_fields(&i18n, notes, source_title, || {})}
                 div { class: "pf-ns-actions",
                     button {
@@ -2885,12 +2841,6 @@ pub fn EventEditor(
         }
     }
 }
-
-// ── Information form helper ───────────────────────────────────────────────
-//
-// Adds a single piece of "additional information" backed by a PersonName
-// row. Every information type is one value; they differ only in which piece
-// of the name that value fills — see `info_piece`.
 
 // ── Surname particle row ──────────────────────────────────────────────────
 
@@ -2978,10 +2928,9 @@ fn particle_row_is_useful(raw: &str, particle: Option<&str>, override_active: bo
 fn render_particle_row(
     i18n: &crate::i18n::I18n,
     raw: &str,
-    override_mut: &mut Signal<Option<String>>,
+    mut override_sig: Signal<Option<String>>,
 ) -> Element {
     let i18n = *i18n;
-    let mut override_sig = *override_mut;
     let raw = raw.trim().to_string();
     let current = override_sig();
     let split = resolve_particle(&raw, current.as_deref());
@@ -3118,15 +3067,13 @@ fn build_information_body(
 
 fn render_information_form(
     i18n: &crate::i18n::I18n,
-    error: &Signal<Option<String>>,
-    info_type_mut: &mut Signal<String>,
-    value_mut: &mut Signal<String>,
-    particle_override_mut: &mut Signal<Option<String>>,
+    error: Signal<Option<String>>,
+    mut info_type_sig: Signal<String>,
+    mut value_sig: Signal<String>,
+    particle_override: Signal<Option<String>>,
     on_create: impl FnMut(Event<MouseData>) + 'static,
 ) -> Element {
     let i18n = *i18n;
-    let mut info_type_sig = *info_type_mut;
-    let mut value_sig = *value_mut;
     let piece = info_piece(&info_type_sig());
     let value_label = match piece {
         InfoPiece::Nickname => i18n.t("person_form.nickname"),
@@ -3167,7 +3114,7 @@ fn render_information_form(
                         oninput: move |e: Event<FormData>| value_sig.set(e.value()),
                     }
                     if piece == InfoPiece::Surname {
-                        {render_particle_row(&i18n, &value_sig(), particle_override_mut)}
+                        {render_particle_row(&i18n, &value_sig(), particle_override)}
                     }
                 }
             }
