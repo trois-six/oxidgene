@@ -1992,15 +1992,20 @@ pub(crate) fn render_place_select(
 ) -> Element {
     let i18n = *i18n;
     let options = options.to_vec();
+    let current = selected();
     rsx! {
         div { class: "form-group",
             label { {i18n.t("person_form.place")} }
             select {
-                value: "{selected}",
                 oninput: move |e: Event<FormData>| { selected.set(e.value()); on_change(); },
-                option { value: "", {i18n.t("person_form.no_place")} }
+                // `selected` on the options, not `value` on the select: the
+                // list is built by a loop and lands after the element's own
+                // attributes, so a `value` set on a select with no options yet
+                // selects nothing — an event would open on "no place" whatever
+                // place it actually carries.
+                option { value: "", selected: current.is_empty(), {i18n.t("person_form.no_place")} }
                 for (place_id , place_name) in options.iter() {
-                    option { value: "{place_id}", "{place_name}" }
+                    option { value: "{place_id}", selected: *place_id == current, "{place_name}" }
                 }
             }
         }
