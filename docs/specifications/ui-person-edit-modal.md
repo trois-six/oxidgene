@@ -318,6 +318,38 @@ Collapsed by default. Revealed by clicking **"+ Show supplementary fields"**. On
 | Hebrew |
 | French Republican |
 
+The calendar governs how the rest of the date row behaves:
+
+- **Month entry** — Gregorian and Julian months are typed as a number, since
+  everyone reads those. Hebrew and Republican months are picked from a
+  dropdown listing their own names (vendémiaire … fructidor, plus the jours
+  complémentaires; Tishrei … Elul), because a bare "3" says nothing in a
+  calendar nobody counts in. The list opens with a **blank entry**: a date
+  known to the year alone — « an VI », no month in the record — is ordinary,
+  and must stay enterable exactly as leaving MM empty allows in Gregorian.
+  Adar II is offered only in a Hebrew leap year, the only kind that has one
+  (a month already entered is always listed, so the control never shows blank
+  over a month the date still carries).
+- **Switching calendars converts the date.** The selector says which calendar
+  a date was *recorded* in, so an existing entry is renumbered onto the new
+  one rather than relabelled: 11 March 1796 becomes 21 ventôse an IV, not
+  11 frimaire 1796 (a different day, three years later). Both ends of an
+  `Or` / `Between` range move together. A date the target calendar cannot
+  express — anything before 22 September 1792 for the Republican one — is
+  left exactly as typed.
+- **Validation follows the calendar** — month count and month length come from
+  the calendar itself, so 6 complémentaires is a date only in a sextile year
+  and Adar II only in a leap one. The plausible-year window is counted in each
+  calendar's own era too (Hebrew 1–6800, Republican 1–1210, both framing the
+  same span as the Gregorian −9999…2999): judged on the Gregorian numbers, a
+  Hebrew year would be rejected as a typo for every date that calendar can
+  express.
+
+Conversion lives in `oxidgene_core::calendar` (every calendar mapped onto the
+Julian Day Number), not in `oxidgene-gedcom`: the editor runs in WASM, where
+`ged_io` — which the server uses to derive `date_sort` — cannot be reached.
+Both are pinned to the same documented Republican dates so they agree.
+
 **Witnesses** — dynamic list of text inputs (free text, one per witness). An **"+ Add a witness"** button appends a new entry.
 
 ### Death supplements

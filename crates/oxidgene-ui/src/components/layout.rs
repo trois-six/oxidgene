@@ -2215,6 +2215,9 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-date-part { text-align: center; }
     .pf-date-dd,
     .pf-date-mm { flex: 0 0 56px; }
+    /* Wide enough for the longest month a calendar names — « vendémiaire »,
+       « jour compl. » — since these are read, not typed. */
+    .pf-date-month-select { flex: 0 0 140px; }
     .pf-date-yyyy { flex: 0 0 72px; }
     /* "From an age" mode: an age, then the year it was observed in. */
     .pf-date-age { flex: 0 0 64px; }
