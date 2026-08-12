@@ -18,6 +18,7 @@
 use chrono::{Datelike, NaiveDate};
 use dioxus::html::input_data::keyboard_types::Key;
 use dioxus::prelude::*;
+use oxidgene_core::calendar::{convert as convert_components, days_in_month, months_in_year};
 use oxidgene_core::enums::{Calendar, DateQualifier};
 use oxidgene_core::types::Event as DomainEvent;
 
@@ -56,6 +57,32 @@ fn month_names(calendar: Calendar) -> &'static [&'static str] {
     }
 }
 
+/// Whether a month is picked from a list rather than typed as a number.
+///
+/// "3" is a month everyone can read in the calendar they live by, and typing it
+/// is faster than opening a list. In a calendar nobody counts in it is just a
+/// number: nothing on the screen says whether it means frimaire or ventôse, and
+/// there is no reason to expect the reader to know the order by heart.
+fn uses_named_months(calendar: Calendar) -> bool {
+    !matches!(calendar, Calendar::Gregorian | Calendar::Julian)
+}
+
+/// The months to offer for a year, in order.
+///
+/// A year does not always have all of them: the Hebrew Adar II falls only in a
+/// leap year, so offering it in a common one invites a date that never existed.
+/// The month already entered is always kept in the list, whatever the year says
+/// — a list that silently drops the selected value leaves the control showing
+/// blank over a month the date still carries, and lying about the data is worse
+/// than showing an impossible month that [`DateParts::validate`] explains.
+///
+/// Without a year nothing can be ruled out, so everything is offered.
+fn month_options(calendar: Calendar, year: Option<i32>, current: Option<u8>) -> Vec<u8> {
+    (1..=months_in_year(calendar))
+        .filter(|m| current == Some(*m) || year.is_none_or(|y| days_in_month(calendar, y, *m) > 0))
+        .collect()
+}
+
 /// i18n key for a month's readable name in its own calendar.
 fn month_label_key(calendar: Calendar, month: u8) -> String {
     match calendar {
@@ -72,6 +99,21 @@ fn month_label_key(calendar: Calendar, month: u8) -> String {
 /// Year 0 is excluded: there is none. 1 BCE is followed by 1 CE.
 const MIN_YEAR: i32 = -9999;
 const MAX_YEAR: i32 = 2999;
+
+/// That same window, counted the way each calendar counts it.
+///
+/// A calendar with its own era needs its own numbers for the same span of
+/// history, or every date it can express is turned away: the Hebrew year 5784
+/// is 2023, not a slip for 578, and an XIV is 1805 rather than antiquity.
+fn year_bounds(calendar: Calendar) -> std::ops::RangeInclusive<i32> {
+    match calendar {
+        Calendar::Gregorian | Calendar::Julian => MIN_YEAR..=MAX_YEAR,
+        // Year 1 opens in 3761 BCE; 6800 lands just past [`MAX_YEAR`].
+        Calendar::Hebrew => 1..=6800,
+        // An I opens in 1792; 1210 lands just past [`MAX_YEAR`].
+        Calendar::FrenchRepublican => 1..=1210,
+    }
+}
 
 /// Ceiling on an age entered in `FromAge` mode. The verified human record is
 /// 122 years; anything past this is a typo, not a centenarian.
@@ -127,6 +169,49 @@ impl DateParts {
             day2,
             age: None,
             age_ref_year: None,
+        }
+    }
+
+    /// The same date, renumbered in another calendar.
+    ///
+    /// Changing the calendar says what a date *is*, not what it should become:
+    /// « 11 mars 1796 » relabelled Republican is 21 ventôse an IV, not
+    /// 11 frimaire an 1796 — which is a different day entirely, three years
+    /// later. Every date the widget holds moves together, both ends of a range
+    /// included, so a `Between` never ends up with one foot in each calendar.
+    ///
+    /// A date the target calendar cannot express — anything before the Republic
+    /// for the Republican one — is left exactly as typed. Better to hand back
+    /// what the user wrote and let [`DateParts::validate`] have its say than to
+    /// replace it with a date we made up.
+    pub fn in_calendar(&self, to: Calendar) -> Self {
+        if to == self.calendar {
+            return *self;
+        }
+        let renumber = |year: Option<i32>, month: Option<u8>, day: Option<u8>| {
+            let Some(y) = year else {
+                return (year, month, day);
+            };
+            match convert_components(self.calendar, to, y, month, day) {
+                Some((y, m, d)) => (Some(y), m, d),
+                None => (year, month, day),
+            }
+        };
+        let (year, month, day) = renumber(self.year, self.month, self.day);
+        let (year2, month2, day2) = renumber(self.year2, self.month2, self.day2);
+        // An age is a count of years, which every calendar here measures the
+        // same way; only the year it was observed in is calendar-bound.
+        let (age_ref_year, _, _) = renumber(self.age_ref_year, None, None);
+        Self {
+            calendar: to,
+            year,
+            month,
+            day,
+            year2,
+            month2,
+            day2,
+            age_ref_year,
+            ..*self
         }
     }
 
@@ -194,7 +279,7 @@ impl DateParts {
                 (Some(_), None) => Some("date.error.age_year_required"),
                 (None, Some(_)) => Some("date.error.age_required"),
                 (Some(age), _) if age > MAX_AGE => Some("date.error.age_out_of_range"),
-                (_, Some(y)) if !(MIN_YEAR..=MAX_YEAR).contains(&y) => {
+                (_, Some(y)) if !year_bounds(self.calendar).contains(&y) => {
                     Some("date.error.year_out_of_range")
                 }
                 _ => None,
@@ -440,33 +525,6 @@ fn format_value(
     })
 }
 
-/// How many months a calendar has, and how long a given month runs.
-///
-/// Only the Gregorian and Julian calendars get an exact answer: the Hebrew and
-/// Republican years are shaped differently enough that checking them against
-/// Gregorian rules would reject dates that are perfectly real, so they are
-/// range-checked loosely and trusted otherwise.
-fn month_count(calendar: Calendar) -> u8 {
-    month_names(calendar).len() as u8
-}
-
-fn days_in_month(calendar: Calendar, year: i32, month: u8) -> u8 {
-    let leap = match calendar {
-        // Julian leap years are simply every fourth; Gregorian dropped three
-        // of them per four centuries.
-        Calendar::Julian => year % 4 == 0,
-        _ => year % 4 == 0 && (year % 100 != 0 || year % 400 == 0),
-    };
-    match (calendar, month) {
-        // The longest month either of these has — see `month_count`.
-        (Calendar::Hebrew | Calendar::FrenchRepublican, _) => 30,
-        (_, 2) if leap => 29,
-        (_, 2) => 28,
-        (_, 4 | 6 | 9 | 11) => 30,
-        _ => 31,
-    }
-}
-
 /// Checks one day/month/year triplet, from "is anything even here" through to
 /// "did that day exist". Returns an i18n error key, or `None` when it holds up.
 fn validate_triplet(
@@ -478,14 +536,17 @@ fn validate_triplet(
     let Some(y) = year else {
         return (month.is_some() || day.is_some()).then_some("date.error.year_required");
     };
-    if y == 0 || !(MIN_YEAR..=MAX_YEAR).contains(&y) {
+    if y == 0 || !year_bounds(calendar).contains(&y) {
         return Some("date.error.year_out_of_range");
     }
     if day.is_some() && month.is_none() {
         return Some("date.error.day_requires_month");
     }
     let m = month?;
-    if m < 1 || m > month_count(calendar) {
+    // Out of the calendar's range, or a month that year does not have: Adar II
+    // is the thirteenth month of a Hebrew leap year and of no other, so
+    // « 5783 ADS » names a month that never came round.
+    if m < 1 || m > months_in_year(calendar) || days_in_month(calendar, y, m) == 0 {
         return Some("date.error.month_out_of_range");
     }
     let d = day?;
@@ -521,7 +582,7 @@ fn literal_components(
 ) -> String {
     let Some(y) = year else { return String::new() };
     let name = month
-        .filter(|m| *m >= 1 && *m <= month_count(calendar))
+        .filter(|m| *m >= 1 && *m <= months_in_year(calendar))
         .map(|m| i18n.t(&month_label_key(calendar, m)));
     let day = day.filter(|d| (1..=31).contains(d));
     let era = if y < 0 {
@@ -756,21 +817,56 @@ fn part_inputs(
                 on_change.call(());
             },
         }
-        input {
-            class: "pf-date-part pf-date-mm",
-            r#type: "text",
-            inputmode: "numeric",
-            maxlength: 2,
-            placeholder: "{i18n.t(\"date.ph_month\")}",
-            value: opt_num(m),
-            onkeydown: |e| numeric_keydown(&e, false),
-            oninput: move |e| {
-                let mut np = parts();
-                let v = parse_u8(&e.value());
-                if second { np.month2 = v; } else { np.month = v; }
-                parts.set(np);
-                on_change.call(());
-            },
+        if uses_named_months(p.calendar) {
+            // Named months are chosen, not typed: see `uses_named_months`.
+            select {
+                class: "pf-date-month-select",
+                onchange: move |e| {
+                    let mut np = parts();
+                    let v = parse_u8(&e.value());
+                    if second { np.month2 = v; } else { np.month = v; }
+                    parts.set(np);
+                    on_change.call(());
+                },
+                // Bound through `selected` on each option rather than `value`
+                // on the select: the list is built by a loop, so it is
+                // appended *after* the element's own attributes are applied,
+                // and a value set on a select that has no options yet selects
+                // nothing at all — which is how a converted date came back
+                // showing "MM" over a month it knew perfectly well.
+                //
+                // The empty entry carries no word: a date known to the year
+                // alone is ordinary — « an VI », with no month in the record —
+                // and blank says that better than any label could. It holds a
+                // non-breaking space only so the row keeps its height and stays
+                // clickable, an empty <option> collapsing to nothing in some
+                // engines.
+                option { value: "", selected: m.is_none(), "\u{00A0}" }
+                for idx in month_options(p.calendar, y, m) {
+                    option {
+                        value: "{idx}",
+                        selected: m == Some(idx),
+                        {i18n.t(&month_label_key(p.calendar, idx))}
+                    }
+                }
+            }
+        } else {
+            input {
+                class: "pf-date-part pf-date-mm",
+                r#type: "text",
+                inputmode: "numeric",
+                maxlength: 2,
+                placeholder: "{i18n.t(\"date.ph_month\")}",
+                value: opt_num(m),
+                onkeydown: |e| numeric_keydown(&e, false),
+                oninput: move |e| {
+                    let mut np = parts();
+                    let v = parse_u8(&e.value());
+                    if second { np.month2 = v; } else { np.month = v; }
+                    parts.set(np);
+                    on_change.call(());
+                },
+            }
         }
         input {
             class: "pf-date-part pf-date-yyyy",
@@ -816,8 +912,9 @@ pub fn DateInput(
                     class: "pf-date-calendar",
                     value: calendar_value(p.calendar),
                     onchange: move |e| {
-                        let mut np = parts();
-                        np.calendar = calendar_from_value(&e.value());
+                        // The date already entered is re-expressed, not
+                        // relabelled — see `DateParts::in_calendar`.
+                        let np = parts().in_calendar(calendar_from_value(&e.value()));
                         parts.set(np);
                         on_change.call(());
                     },
@@ -1145,6 +1242,160 @@ mod tests {
         let p = republican(14, 2, 2);
         assert_eq!(p.date_value().as_deref(), Some("2 BRUM 14"));
         assert_eq!(p.literal(&fr()), "2 brumaire 14");
+    }
+
+    /// Picking another calendar says which one the date was recorded in, so
+    /// the date has to be renumbered into it — the day does not move.
+    #[test]
+    fn changing_calendar_renumbers_the_date() {
+        let gregorian = DateParts {
+            year: Some(1796),
+            month: Some(3),
+            day: Some(11),
+            ..Default::default()
+        };
+        let p = gregorian.in_calendar(Calendar::FrenchRepublican);
+        assert_eq!((p.year, p.month, p.day), (Some(4), Some(6), Some(21)));
+        assert_eq!(p.date_value().as_deref(), Some("21 VENT 4"));
+        assert_eq!(p.literal(&fr()), "21 ventôse 4");
+        // And back again, unchanged.
+        let back = p.in_calendar(Calendar::Gregorian);
+        assert_eq!(
+            (back.year, back.month, back.day),
+            (Some(1796), Some(3), Some(11))
+        );
+    }
+
+    #[test]
+    fn changing_calendar_moves_both_ends_of_a_range() {
+        let p = DateParts {
+            qualifier: DateQualifier::Between,
+            year: Some(1799),
+            month: Some(11),
+            day: Some(9),
+            year2: Some(1805),
+            month2: Some(10),
+            day2: Some(24),
+            ..Default::default()
+        }
+        .in_calendar(Calendar::FrenchRepublican);
+        assert_eq!((p.year, p.month, p.day), (Some(8), Some(2), Some(18)));
+        assert_eq!((p.year2, p.month2, p.day2), (Some(14), Some(2), Some(2)));
+    }
+
+    /// A date the target calendar has no way to express is left exactly as
+    /// typed rather than replaced by an invention.
+    #[test]
+    fn a_date_the_new_calendar_cannot_express_is_left_alone() {
+        let p = DateParts {
+            year: Some(1750),
+            month: Some(3),
+            day: Some(11),
+            ..Default::default()
+        }
+        .in_calendar(Calendar::FrenchRepublican);
+        assert_eq!((p.year, p.month, p.day), (Some(1750), Some(3), Some(11)));
+        assert_eq!(p.calendar, Calendar::FrenchRepublican);
+    }
+
+    /// A year on its own is a period, not a day: it converts to the year it
+    /// overlaps rather than the one its first day grazes.
+    #[test]
+    fn a_year_alone_keeps_its_precision_across_calendars() {
+        let p = DateParts {
+            year: Some(1796),
+            ..Default::default()
+        }
+        .in_calendar(Calendar::FrenchRepublican);
+        assert_eq!((p.year, p.month, p.day), (Some(4), None, None));
+    }
+
+    /// The Republican year closes with five (six in a sextile year) jours
+    /// complémentaires, which the thirteenth month slot holds.
+    #[test]
+    fn the_complementary_days_are_a_month_of_their_own() {
+        let p = DateParts {
+            calendar: Calendar::FrenchRepublican,
+            year: Some(4),
+            month: Some(13),
+            day: Some(5),
+            ..Default::default()
+        };
+        assert_eq!(p.validate(), None);
+        assert_eq!(p.date_value().as_deref(), Some("5 COMP 4"));
+        // An IV was not sextile: it had no sixth complementary day.
+        let sixth = DateParts { day: Some(6), ..p };
+        assert_eq!(sixth.validate(), Some("date.error.invalid_date"));
+    }
+
+    /// Adar II only comes round in a Hebrew leap year, so it is neither
+    /// offered nor accepted in a common one — but a month already entered is
+    /// still listed, so the control never shows blank over a date that has one.
+    #[test]
+    fn adar_ii_belongs_to_a_leap_year_alone() {
+        assert!(month_options(Calendar::Hebrew, Some(5784), None).contains(&7));
+        assert!(!month_options(Calendar::Hebrew, Some(5783), None).contains(&7));
+        assert!(month_options(Calendar::Hebrew, Some(5783), Some(7)).contains(&7));
+        assert!(month_options(Calendar::Hebrew, None, None).contains(&7));
+
+        let p = DateParts {
+            calendar: Calendar::Hebrew,
+            year: Some(5783),
+            month: Some(7),
+            ..Default::default()
+        };
+        assert_eq!(p.validate(), Some("date.error.month_out_of_range"));
+        assert_eq!(
+            DateParts {
+                year: Some(5784),
+                ..p
+            }
+            .validate(),
+            None
+        );
+    }
+
+    /// Each calendar counts the same span of history its own way, so the
+    /// plausible window has to be counted its way too.
+    #[test]
+    fn a_year_is_judged_by_its_own_calendars_era() {
+        let hebrew = DateParts {
+            calendar: Calendar::Hebrew,
+            year: Some(5784),
+            ..Default::default()
+        };
+        assert_eq!(hebrew.validate(), None, "5784 is 2023, not a typo");
+        // The same number under an era that has not reached it.
+        assert_eq!(
+            DateParts {
+                calendar: Calendar::Gregorian,
+                ..hebrew
+            }
+            .validate(),
+            Some("date.error.year_out_of_range")
+        );
+        assert_eq!(
+            DateParts {
+                calendar: Calendar::FrenchRepublican,
+                year: Some(14),
+                ..Default::default()
+            }
+            .validate(),
+            None
+        );
+    }
+
+    /// The month is optional, exactly as it is in the numeric field: a record
+    /// that gives only « an VI » must stay enterable.
+    #[test]
+    fn a_named_calendar_still_takes_a_year_on_its_own() {
+        let p = DateParts {
+            calendar: Calendar::FrenchRepublican,
+            year: Some(6),
+            ..Default::default()
+        };
+        assert_eq!(p.validate(), None);
+        assert_eq!(p.date_value().as_deref(), Some("6"));
     }
 
     #[test]
