@@ -373,7 +373,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("calendar.gregorian", "Gregorian"),
         ("calendar.julian", "Julian"),
         ("calendar.hebrew", "Hebrew"),
-        ("calendar.french_republican", "French Republican"),
+        ("calendar.french_republican", "Republican"),
         // ── Date input ───────────────────────────────────────────────
         // Abbreviated month names, used only by the date widget's literal
         // preview. Keyed by month number so a numeric field maps straight to
