@@ -355,11 +355,21 @@ Rationale: enhance the flat dictionary index with nested descent trees showing s
   past 130. Leap rules follow the calendar, so 29 Feb 1900 is valid Julian and invalid Gregorian.
   Out-of-range entries are kept and explained inline rather than silently blanked.
 
-**Known gap:** `date_sort` is still derived by reading a non-Gregorian month number as if it were
-Gregorian, so Republican and Hebrew events sort wrongly (and a thirteenth month yields no sort key
-at all). The fix belongs server-side — recompute `date_sort` from `(calendar, date_value)` via
-`oxidgene-gedcom`, which already converts through `ged_io` — and moves ownership of the column
-from the client to the API.
+- [x] `date_sort` is derived by the API, not sent by the client. Normalising a Julian, Hebrew or
+  Republican date onto the Gregorian calendar needs `ged_io`, which a WASM frontend cannot reach,
+  so the frontend had been reading the month number as if it were Gregorian: a Republican
+  `2 BRUM 14` sorted in year 14, and a thirteenth month produced no key at all.
+  `oxidgene_gedcom::date::sort_key` exposes the conversion the import path already used, and
+  `service::event_date` wraps it for both write surfaces — including a patch, where whichever of
+  calendar/value the request leaves alone is read back off the stored event, the two being
+  meaningless apart. The field is gone from both request shapes.
+- [x] French Republican dates corrected by one day. `ged_io` converts from the *start* of the
+  Republican day, and that calendar is anchored to Paris, so the instant falls 9m21s inside the
+  previous Gregorian day and every Republican date came back a day early — its epoch,
+  1 Vendémiaire An I, is 22 September 1792 and it answered the 21st. The shift is *measured*
+  against that epoch rather than hardcoded, so it reads zero and stops applying if the conversion
+  is ever fixed upstream, where a literal "+1 day" would start overshooting instead. Julian and
+  Hebrew were checked against known dates and are correct; they are left alone.
 
 ---
 
