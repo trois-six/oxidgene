@@ -382,7 +382,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("calendar.gregorian", "Gr\u{00E9}gorien"),
         ("calendar.julian", "Julien"),
         ("calendar.hebrew", "H\u{00E9}breu"),
-        ("calendar.french_republican", "R\u{00E9}publicain fran\u{00E7}ais"),
+        ("calendar.french_republican", "R\u{00E9}publicain"),
         // ── Date input ───────────────────────────────────────────────
         // Abr\u{00E9}viations de mois, utilis\u{00E9}es uniquement par l'aper\u{00E7}u
         // litt\u{00E9}ral du widget de date.
