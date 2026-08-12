@@ -52,6 +52,41 @@ pub fn use_init_theme() -> Signal<bool> {
     is_dark
 }
 
+/// Stop a resized `<textarea>` from stranding its own text.
+///
+/// A textarea keeps the scroll offset it had while the user drags its grip
+/// taller. Once the note is shorter than the new box there is nothing left to
+/// scroll back with — no scrollbar, no wheel travel — so the offset can never
+/// be undone and the first lines stay clipped above the top edge. That reads
+/// as lost text. Re-clamping the offset on every size change puts it back.
+///
+/// The observer is attached the first time the user focuses a given textarea
+/// rather than to all of them up front: the modals mount their fields lazily,
+/// and re-scanning the DOM on every Dioxus mutation would cost far more than
+/// the handful of fields anyone actually edits.
+pub fn use_init_textarea_resize_clamp() {
+    use_effect(move || {
+        document::eval(
+            r#"
+            if (!window.__oxTextareaClamp) {
+                window.__oxTextareaClamp = true;
+                document.addEventListener('focusin', function (e) {
+                    var t = e.target;
+                    if (!t || t.tagName !== 'TEXTAREA' || t.dataset.oxClamp) return;
+                    t.dataset.oxClamp = '1';
+                    try {
+                        new ResizeObserver(function () {
+                            var max = Math.max(0, t.scrollHeight - t.clientHeight);
+                            if (t.scrollTop > max) t.scrollTop = max;
+                        }).observe(t);
+                    } catch (err) {}
+                });
+            }
+            "#,
+        );
+    });
+}
+
 /// Persist and apply a theme change.
 pub fn set_theme(mut is_dark: Signal<bool>, dark: bool) {
     is_dark.set(dark);
@@ -75,6 +110,7 @@ pub fn Layout() -> Element {
     let _lang_signal = i18n::use_init_language();
     let _sort_particles = crate::prefs::use_init_sort_particles();
     let _theme_signal = use_init_theme();
+    use_init_textarea_resize_clamp();
     let _tree_cache = tree_cache::use_init_tree_cache();
     let _view_cache = tree_cache::use_init_view_state_cache();
 
@@ -1789,6 +1825,40 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-embedded select,
     .pf-embedded textarea {
         background: var(--bg-card);
+    }
+
+    /* A note copied off a parish register is routinely longer than the three
+       rows it lands in, so the grip stays — but vertically only. Widening a
+       textarea past its form column breaks the layout, and narrowing it just
+       re-wraps the very text the user is trying to read.
+
+       The scrollbar is spelled out and widened past the app-wide 6px: with a
+       thumb the same colour as the field's own border, an overflowing note
+       looked like it had simply lost its first lines. */
+    .person-form-modal textarea,
+    .union-form-modal textarea,
+    .pf-embedded textarea {
+        resize: vertical;
+        min-height: 76px;
+        overflow-y: auto;
+    }
+
+    .person-form-modal textarea::-webkit-scrollbar,
+    .union-form-modal textarea::-webkit-scrollbar,
+    .pf-embedded textarea::-webkit-scrollbar {
+        width: 10px;
+    }
+    .person-form-modal textarea::-webkit-scrollbar-track,
+    .union-form-modal textarea::-webkit-scrollbar-track,
+    .pf-embedded textarea::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .person-form-modal textarea::-webkit-scrollbar-thumb,
+    .union-form-modal textarea::-webkit-scrollbar-thumb,
+    .pf-embedded textarea::-webkit-scrollbar-thumb {
+        background: var(--text-muted);
+        border-radius: 5px;
+        border: 2px solid var(--bg-card);
     }
 
     /* <select> reserves extra native chrome height beyond its padding in
