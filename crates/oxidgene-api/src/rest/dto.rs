@@ -205,7 +205,6 @@ pub struct EventListQuery {
 pub struct CreateEventRequest {
     pub event_type: EventType,
     pub date_value: Option<String>,
-    pub date_sort: Option<chrono::NaiveDate>,
     #[serde(default)]
     pub date_qualifier: DateQualifier,
     #[serde(default)]
@@ -226,8 +225,6 @@ pub struct UpdateEventRequest {
     pub event_type: Option<EventType>,
     #[serde(default, deserialize_with = "double_option")]
     pub date_value: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub date_sort: Option<Option<chrono::NaiveDate>>,
     pub date_qualifier: Option<DateQualifier>,
     #[serde(default, deserialize_with = "double_option")]
     pub date_value2: Option<Option<String>>,

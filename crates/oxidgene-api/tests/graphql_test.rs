@@ -415,11 +415,12 @@ async fn test_event_with_place() {
     assert_eq!(place["name"], "Paris");
     let place_id = place["id"].as_str().unwrap().to_string();
 
-    // Create event linked to person and place
+    // Create event linked to person and place. `dateSort` is not an input:
+    // the server derives it from the date value and its calendar.
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: BIRTH, dateValue: "1 Jan 1900", dateSort: "1900-01-01", placeId: "{place_id}", personId: "{person_id}" }}) {{ id eventType dateValue dateSort }} }}"#
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: BIRTH, dateValue: "1 Jan 1900", placeId: "{place_id}", personId: "{person_id}" }}) {{ id eventType dateValue dateSort }} }}"#
         ),
         None,
     )
@@ -462,6 +463,70 @@ async fn test_event_with_place() {
     )
     .await;
     assert_eq!(data(&resp)["deleteEvent"], true);
+}
+
+// ── date_sort is the server's to derive ───────────────────────────────
+
+/// A date written in another calendar has to be normalised to Gregorian
+/// before it can be sorted against the rest, and only the server can do that.
+/// A Republican `2 BRUM 14` read at face value files under year 14 — thirteen
+/// centuries adrift — which is what the frontend used to send.
+#[tokio::test]
+async fn a_republican_date_is_sorted_where_it_belongs() {
+    let app = setup_app().await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "R" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: BIRTH, dateValue: "2 BRUM 14", calendar: FRENCH_REPUBLICAN }}) {{ id dateValue dateSort }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let event = &data(&resp)["createEvent"];
+    // The value is stored as written; only the sort key is converted.
+    assert_eq!(event["dateValue"], "2 BRUM 14");
+    let sort = event["dateSort"].as_str().expect("a sort key was derived");
+    assert!(sort.starts_with("1805-10"), "sorted as {sort}");
+    let event_id = event["id"].as_str().unwrap().to_string();
+
+    // Re-deriving on update: the patch touches only the calendar, so the
+    // stored value has to be read back to make sense of it. The same digits
+    // now mean an ordinary Gregorian day in year 14.
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateEvent(id: "{event_id}", input: {{ calendar: GREGORIAN }}) {{ dateSort }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let sort = data(&resp)["updateEvent"]["dateSort"].as_str();
+    assert_ne!(sort, Some("1805-10-23"), "the sort key was not re-derived");
+
+    // And clearing the date clears the key with it.
+    let resp = graphql(
+        app,
+        &format!(
+            r#"mutation {{ updateEvent(id: "{event_id}", input: {{ dateValue: null }}) {{ dateValue dateSort }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let event = &data(&resp)["updateEvent"];
+    assert!(event["dateValue"].is_null());
+    assert!(event["dateSort"].is_null());
 }
 
 // ── Source + Citation CRUD ────────────────────────────────────────────

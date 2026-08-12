@@ -1,6 +1,7 @@
 //! REST handlers for Event CRUD operations.
 
 use crate::profile::invalidation;
+use crate::service::event_date;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -39,6 +40,8 @@ pub async fn create_event(
     Json(body): Json<CreateEventRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
+    // Derived here, never taken from the request — see `service::event_date`.
+    let date_sort = event_date::derive(body.calendar, body.date_value.as_deref());
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     let event = EventRepo::create(
         &txn,
@@ -46,7 +49,7 @@ pub async fn create_event(
         tree_id,
         body.event_type,
         body.date_value,
-        body.date_sort,
+        date_sort,
         body.place_id,
         body.person_id,
         body.family_id,
@@ -103,12 +106,23 @@ pub async fn update_event(
     Json(body): Json<UpdateEventRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    // Derived from the patched state, reading whichever half the patch leaves
+    // alone off the stored event — see `service::event_date`.
+    let stored = EventRepo::get(&txn, event_id)
+        .await
+        .map_err(ApiError::from)?;
+    let date_sort = Some(event_date::derive_patch(
+        stored.calendar,
+        stored.date_value.as_deref(),
+        body.calendar,
+        body.date_value.as_ref().map(Option::as_deref),
+    ));
     let event = EventRepo::update(
         &txn,
         event_id,
         body.event_type,
         body.date_value,
-        body.date_sort,
+        date_sort,
         body.place_id,
         body.description,
         body.date_qualifier,

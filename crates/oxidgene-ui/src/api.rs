@@ -247,7 +247,6 @@ pub struct AddChildBody {
 pub struct CreateEventBody {
     pub event_type: EventType,
     pub date_value: Option<String>,
-    pub date_sort: Option<chrono::NaiveDate>,
     pub date_qualifier: DateQualifier,
     pub date_value2: Option<String>,
     pub calendar: Calendar,
@@ -264,8 +263,6 @@ pub struct UpdateEventBody {
     pub event_type: Option<EventType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_value: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date_sort: Option<Option<chrono::NaiveDate>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_qualifier: Option<DateQualifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
