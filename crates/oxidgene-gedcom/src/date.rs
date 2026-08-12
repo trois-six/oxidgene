@@ -113,6 +113,24 @@ fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
     )
 }
 
+/// The sortable Gregorian date a stored date value stands for.
+///
+/// `date_sort` is what orders events against one another, so it has to be
+/// Gregorian whatever calendar the date was *written* in: a Republican
+/// `2 BRUM 14` sorts as 24 October 1805, not as the second day of a second
+/// month in year 14. Doing that conversion needs `ged_io`'s calendar support,
+/// which is why this lives here rather than anywhere a client could reach.
+///
+/// Returns `None` for a missing, empty or unparseable value — an event whose
+/// date is a free-text phrase simply has no place in a chronological order.
+///
+/// Caveat: `ged_io` converts Republican dates one day early — see
+/// [`tests::the_republican_conversion_is_a_day_early_upstream`].
+pub fn sort_key(calendar: Calendar, value: Option<&str>) -> Option<NaiveDate> {
+    let value = value.map(str::trim).filter(|v| !v.is_empty())?;
+    sort_date(value, calendar)
+}
+
 /// Splits a raw GEDCOM `DATE` value into the domain's date columns.
 ///
 /// Anything that cannot be recognised is preserved verbatim in `value`, so an
@@ -343,6 +361,63 @@ mod tests {
         );
         assert_eq!(
             format(Calendar::Gregorian, DateQualifier::Exact, Some("  "), None),
+            None
+        );
+    }
+
+    /// The whole point of `sort_key`: a date written in another calendar has
+    /// to land where it belongs among Gregorian ones.
+    #[test]
+    fn sort_key_normalises_other_calendars() {
+        // Julian 15 Mar 1582 is 25 Mar 1582 Gregorian.
+        assert_eq!(
+            sort_key(Calendar::Julian, Some("15 MAR 1582")),
+            NaiveDate::from_ymd_opt(1582, 3, 25)
+        );
+        assert_eq!(
+            sort_key(Calendar::Gregorian, Some("23 FEB 1947")),
+            NaiveDate::from_ymd_opt(1947, 2, 23)
+        );
+        // 2 Brumaire XIV is late 1805, not "month 2 of year 14" — which is
+        // where its own numbering would file it, in antiquity, if nothing
+        // converted it.
+        let republican = sort_key(Calendar::FrenchRepublican, Some("2 BRUM 14"))
+            .expect("a Republican date converts");
+        assert_eq!(republican.format("%Y-%m").to_string(), "1805-10");
+    }
+
+    /// `ged_io` places the Republican calendar one day early: its epoch,
+    /// 1 Vendémiaire An I, is 22 September 1792, and it answers the 21st. The
+    /// shift is systematic, so Republican dates order correctly among
+    /// themselves and land within a day of the right spot among Gregorian
+    /// ones — which is why this is recorded rather than corrected for here.
+    /// Correcting it locally would silently double the error the day upstream
+    /// fixes it.
+    ///
+    /// This test fails when that happens, which is the point: fix the dates
+    /// below and delete the note.
+    #[test]
+    fn the_republican_conversion_is_a_day_early_upstream() {
+        for (raw, observed) in [
+            ("1 VEND 1", (1792, 9, 21)),   // true date: 22 Sep 1792
+            ("1 VEND 14", (1805, 9, 22)),  // true date: 23 Sep 1805
+            ("2 BRUM 14", (1805, 10, 23)), // true date: 24 Oct 1805
+        ] {
+            let (y, m, d) = observed;
+            assert_eq!(
+                sort_key(Calendar::FrenchRepublican, Some(raw)),
+                NaiveDate::from_ymd_opt(y, m, d),
+                "for {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn sort_key_of_nothing_sortable_is_none() {
+        assert_eq!(sort_key(Calendar::Gregorian, None), None);
+        assert_eq!(sort_key(Calendar::Gregorian, Some("   ")), None);
+        assert_eq!(
+            sort_key(Calendar::Gregorian, Some("sometime around the war")),
             None
         );
     }

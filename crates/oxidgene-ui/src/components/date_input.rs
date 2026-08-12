@@ -239,12 +239,6 @@ impl DateParts {
         }
     }
 
-    /// Normalized sortable date (missing month/day default to 1).
-    pub fn date_sort(&self) -> Option<NaiveDate> {
-        let r = self.resolved();
-        sort_date(r.year, r.month, r.day)
-    }
-
     /// Localized preview of the date as it will be saved and later displayed
     /// (e.g. « vers 2012 » for an age of 14 observed in 2026).
     ///
@@ -501,6 +495,15 @@ fn validate_triplet(
     None
 }
 
+/// A comparable date, used only to tell whether a `Between` range runs
+/// backwards.
+///
+/// Deliberately *not* the event's `date_sort` column, which the API derives
+/// for itself — normalising a Julian or Republican date onto the Gregorian
+/// calendar needs `ged_io`, which a WASM frontend cannot reach. Ordering the
+/// two ends of one range is a weaker question: both are in the same calendar,
+/// so reading their components at face value ranks them correctly with no
+/// conversion at all.
 fn sort_date(year: Option<i32>, month: Option<u8>, day: Option<u8>) -> Option<NaiveDate> {
     let y = year?;
     let m = month.filter(|m| (1..=12).contains(m)).unwrap_or(1) as u32;
@@ -919,7 +922,6 @@ mod tests {
         assert_eq!(p.month, Some(2));
         assert_eq!(p.day, Some(23));
         assert_eq!(p.date_value().as_deref(), Some("23 FEB 1947"));
-        assert_eq!(p.date_sort(), NaiveDate::from_ymd_opt(1947, 2, 23));
     }
 
     #[test]
@@ -933,15 +935,18 @@ mod tests {
         assert_eq!(p.date_value().as_deref(), Some("FEB 1947"));
     }
 
+    /// Only used to order the two ends of a `Between` range, so a partial
+    /// date takes the first of its period.
     #[test]
-    fn date_sort_defaults_missing_components() {
-        let mut p = DateParts {
-            year: Some(1947),
-            ..Default::default()
-        };
-        assert_eq!(p.date_sort(), NaiveDate::from_ymd_opt(1947, 1, 1));
-        p.month = Some(2);
-        assert_eq!(p.date_sort(), NaiveDate::from_ymd_opt(1947, 2, 1));
+    fn a_partial_date_compares_from_the_start_of_its_period() {
+        assert_eq!(
+            sort_date(Some(1947), None, None),
+            NaiveDate::from_ymd_opt(1947, 1, 1)
+        );
+        assert_eq!(
+            sort_date(Some(1947), Some(2), None),
+            NaiveDate::from_ymd_opt(1947, 2, 1)
+        );
     }
 
     #[test]
@@ -1035,7 +1040,6 @@ mod tests {
         assert_eq!(p.stored_qualifier(), DateQualifier::About);
         assert_eq!(p.date_value().as_deref(), Some("2012"));
         assert_eq!(p.date_value2(), None);
-        assert_eq!(p.date_sort(), NaiveDate::from_ymd_opt(2012, 1, 1));
         assert_eq!(p.literal(&fr()), "vers 2012");
         assert_eq!(p.literal(&en()), "about 2012");
     }
