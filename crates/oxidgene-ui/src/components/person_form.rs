@@ -1674,7 +1674,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         }
 
                         if other_events.is_empty() {
-                            div { class: "empty-state", p { {i18n.t("person_form.no_other_events")} } }
+                            div { class: "pf-empty-item", p { {i18n.t("person_form.no_other_events")} } }
                         } else {
                             for ev in other_events.iter() {
                                 {
