@@ -2135,7 +2135,6 @@ pub(crate) fn create_event_body(
     CreateEventBody {
         event_type,
         date_value: parts.date_value(),
-        date_sort: parts.date_sort(),
         date_qualifier: parts.stored_qualifier(),
         date_value2: parts.date_value2(),
         calendar: parts.calendar,
@@ -2158,7 +2157,6 @@ pub(crate) fn update_event_body(
     UpdateEventBody {
         event_type,
         date_value: Some(parts.date_value()),
-        date_sort: Some(parts.date_sort()),
         date_qualifier: Some(parts.stored_qualifier()),
         date_value2: Some(parts.date_value2()),
         calendar: Some(parts.calendar),

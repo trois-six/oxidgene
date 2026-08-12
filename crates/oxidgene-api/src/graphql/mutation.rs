@@ -2,8 +2,8 @@
 
 use crate::profile::invalidation;
 use crate::rest::state::{begin_tx, commit_tx};
+use crate::service::event_date;
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
-use chrono::NaiveDate;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
@@ -471,12 +471,9 @@ impl MutationRoot {
             .as_deref()
             .map(Uuid::parse_str)
             .transpose()?;
-        let date_sort = input
-            .date_sort
-            .as_deref()
-            .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
-            .transpose()
-            .map_err(|e| async_graphql::Error::new(format!("Invalid date_sort: {e}")))?;
+        let calendar = input.calendar.map(Into::into).unwrap_or_default();
+        // Derived here, never taken from the input — see `service::event_date`.
+        let date_sort = event_date::derive(calendar, input.date_value.as_deref());
         let txn = begin_tx(db).await?;
         let event = EventRepo::create(
             &txn,
@@ -491,7 +488,7 @@ impl MutationRoot {
             input.description,
             input.date_qualifier.map(Into::into).unwrap_or_default(),
             input.date_value2,
-            input.calendar.map(Into::into).unwrap_or_default(),
+            calendar,
             input.cause,
         )
         .await?;
@@ -522,23 +519,29 @@ impl MutationRoot {
         let profiles = profiles_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         let place_id = patch_parse(input.place_id, |s| Uuid::parse_str(&s), "place_id")?;
-        let date_sort = patch_parse(
-            input.date_sort,
-            |s| NaiveDate::parse_from_str(&s, "%Y-%m-%d"),
-            "date_sort",
-        )?;
+        let date_value = patch(input.date_value);
+        let calendar = patch_scalar(input.calendar);
         let txn = begin_tx(db).await?;
+        // Derived from the patched state, reading whichever half the patch
+        // leaves alone off the stored event — see `service::event_date`.
+        let stored = EventRepo::get(&txn, uuid).await?;
+        let date_sort = Some(event_date::derive_patch(
+            stored.calendar,
+            stored.date_value.as_deref(),
+            calendar,
+            date_value.as_ref().map(Option::as_deref),
+        ));
         let event = EventRepo::update(
             &txn,
             uuid,
             input.event_type.map(|et| et.into()),
-            patch(input.date_value),
+            date_value,
             date_sort,
             place_id,
             patch(input.description),
             patch_scalar(input.date_qualifier),
             patch(input.date_value2),
-            patch_scalar(input.calendar),
+            calendar,
             patch(input.cause),
         )
         .await?;

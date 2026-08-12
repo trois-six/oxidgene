@@ -116,8 +116,6 @@ pub struct AddChildInput {
 pub struct CreateEventInput {
     pub event_type: GqlEventType,
     pub date_value: Option<String>,
-    /// Date for sorting, in YYYY-MM-DD format.
-    pub date_sort: Option<String>,
     pub date_qualifier: Option<GqlDateQualifier>,
     pub date_value2: Option<String>,
     pub calendar: Option<GqlCalendar>,
@@ -133,8 +131,6 @@ pub struct CreateEventInput {
 pub struct UpdateEventInput {
     pub event_type: Option<GqlEventType>,
     pub date_value: MaybeUndefined<String>,
-    /// Date for sorting, in YYYY-MM-DD format.
-    pub date_sort: MaybeUndefined<String>,
     pub date_qualifier: MaybeUndefined<GqlDateQualifier>,
     pub date_value2: MaybeUndefined<String>,
     pub calendar: MaybeUndefined<GqlCalendar>,
