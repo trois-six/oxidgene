@@ -23,12 +23,14 @@ Related: [Architecture](architecture.md) · [Data Model](data-model.md) ·
 > imported straight into a tree as `Media` + `MediaLink` rows, and anyone who
 > wants a `.gdz` exports one afterwards.
 >
-> **Blocked on Sprint F.1.** `Media` is a metadata-only entity today — the
-> GraphQL mutation still says *"no actual file upload in MVP"* — so there is
-> nowhere to put image bytes until [F.1 Media Storage](roadmap.md) decides
-> between filesystem and object storage. This import is F.1's natural first
-> consumer: it arrives with 378 real files, multi-page PDFs, and photos shared
-> by several people.
+> **Unblocked by Sprint F.1.** `Media` used to be metadata-only, with nowhere
+> to put image bytes. [F.1](roadmap.md) settled that: files are stored on the
+> filesystem, content-addressed and scoped per tree, behind a `MediaStore`
+> trait, and reach the server through `POST /trees/{id}/media/upload`. Two
+> properties matter to this import in particular — the same photo shared by
+> several people is stored once and linked many times, and multi-page PDFs
+> carry a real page count — so what remains here is wiring the write step to
+> that endpoint.
 
 ---
 
@@ -448,8 +450,9 @@ else joins.
 - **No incremental re-import.** Nothing here reconciles a second Geneanet
   export against a tree already imported. That is
   [Person Merge](ui-merge.md) territory.
-- **Media storage does not exist yet.** See the note at the top: `Media` is
-  metadata-only until Sprint F.1.
+- **The write step is not wired to the upload endpoint.** Storage exists as of
+  Sprint F.1 (see the note at the top); this import still stops at building a
+  `.gdz`.
 - **The API is undocumented.** `apps/oxidgene-cli/src/geneanet/model.rs` holds a
   test pinning the live wire shape; it is the first thing to fail if Geneanet
   reshapes the payloads.

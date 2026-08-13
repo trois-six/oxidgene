@@ -379,15 +379,25 @@ Comprehensive media workflow: upload, storage, thumbnails, multi-page documents,
 
 **First consumer:** the [Geneanet import](ui-geneanet-import.md) is blocked on this sprint — it arrives with hundreds of real files, multi-page PDFs and photos shared between several people, which makes it a better shakedown of the storage design than manual upload. Its steps 1–4 can be built before F.1; only the write step depends on it.
 
-### Sprint F.1 — Media Storage & Serving
+### Sprint F.1 — Media Storage & Serving 🔄
 
-- [ ] Media storage architecture (filesystem vs. S3 decision + implementation)
-- [ ] `POST /media/upload` endpoint (multipart form, file validation, size limits)
-- [ ] `GET /media/{id}` download endpoint (binary, caching headers)
-- [ ] Thumbnail generation on upload
-- [ ] Multi-page document parsing (PDF, TIFF)
-- [ ] Database schema: Media, MediaLink, Vignette entities
-- [ ] Test against both PostgreSQL and SQLite
+- [x] Media storage architecture — a `MediaStore` trait with one `FsStore` implementation, content-addressed as `{tree_id}/{aa}/{bb}/{sha256}.{ext}` under `OXIDGENE_MEDIA_ROOT` (default: the platform user-data directory, `~/.local/share/oxidgene/media` on Linux). Keys are scoped per tree so a purge is one directory removal, with no reference counting and no chance of pulling a file out from under another tree. Uploading the same scan twice writes one file and two rows — what a census page documenting eight siblings needs.
+- [ ] **S3 backend for the server deployment.** The trait seam is in place and is the only thing a second implementation has to satisfy; the implementation itself, its credential/region/bucket configuration and its error mapping are not written. The web server runs on `FsStore` today, which needs a persistent volume.
+- [x] `POST /trees/{id}/media/upload` (multipart; type decided by magic bytes, not by the declared MIME or the extension; 64 MiB ceiling; the body limit is lifted on that one route)
+- [x] `GET .../media/{id}/file` and `.../thumbnail` (binary, `Content-Type`, RFC 6266 `Content-Disposition` that survives an accented name, SHA-256 as a strong `ETag`, `304` on `If-None-Match`)
+- [x] Thumbnail generation on upload (longest edge 400 px, EXIF orientation applied, alpha preserved as PNG, decode-bomb limit; PDFs get none — see below)
+- [x] Multi-page document parsing — page counts for PDF (via `lopdf`) and TIFF (IFD-chain walk, classic and BigTIFF)
+- [x] Database schema — `media` gains `storage_key`, `sha256`, `thumbnail_key`, `width`, `height`, `page_count`; new `vignette` table with REST + GraphQL CRUD and a crop-on-read image endpoint
+- [x] Tested on SQLite (69 unit + 23 media integration + 28 GraphQL tests)
+- [ ] **PostgreSQL.** The migration test runs against a real server when `OXIDGENE_TEST_DATABASE_URL` is set, but no server was available in the sprint and there is no container harness in the repo, so the PostgreSQL path is still unexercised — as it has been since E.9.
+
+**Deliberately out of scope, and why**
+
+- **PDF thumbnails.** Rasterising a page needs pdfium or mupdf, a C dependency on a project that ships a desktop binary for three platforms. `thumbnail_key` is null for PDFs and the thumbnail endpoint answers `404`, so the UI branches on a status code rather than on a format list.
+- **Audio and video.** Serving them usefully means `Range` requests and streaming, which belongs with EPIC H's chunked uploads.
+- **GEDZIP bundling.** `export_gedzip` still writes the GEDCOM alone; wiring the store into it now that bytes exist is a small follow-up.
+
+**Two paths, on purpose.** `media.file_path` stays the GEDCOM `OBJE.FILE` value — the producer's own path, preserved verbatim so an export round-trips. `media.storage_key` is where OxidGene's copy lives, and is null for every GEDCOM-imported record until someone uploads the file; `POST .../media/upload` with a `media_id` is how that gap gets filled.
 
 ### Sprint F.2 — Media UI & Image Cropper
 
@@ -395,7 +405,7 @@ Comprehensive media workflow: upload, storage, thumbnails, multi-page documents,
 - [ ] ImageCropper component (interactive crop, save vignette)
 - [ ] MediaGallery component (thumbnail grid, multi-page carousel)
 - [ ] VignetteLinker (bind cropped region to event)
-- [ ] Integration with Person Edit Modal (V2 from Sprint 1)
+- [ ] Integration with Person and Union Edit Modals
 
 ### Sprint F.3 — Event Linking & Desktop Support
 

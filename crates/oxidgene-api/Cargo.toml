@@ -29,15 +29,23 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 flate2 = { workspace = true }
+# Media storage (Sprint F.1)
+async-trait = "0.1"
+dirs = { workspace = true }
+image = { workspace = true }
+lopdf = { workspace = true }
+sha2 = { workspace = true }
 
 [build-dependencies]
 flate2 = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
-tokio = { workspace = true }
+image = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 tower = { workspace = true }
+uuid = { workspace = true }
 http-body-util = "0.1"

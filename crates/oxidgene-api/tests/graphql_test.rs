@@ -24,7 +24,9 @@ async fn setup_db() -> DatabaseConnection {
 /// Helper: build a router with a fresh DB.
 async fn setup_app() -> axum::Router {
     let db = setup_db().await;
-    let state = AppState::new(db);
+    // Media lands in a throwaway directory: these tests never upload,
+    // but `AppState` needs a root and it must not be the developer's.
+    let state = AppState::new(db, std::env::temp_dir().join("oxidgene-test-media"));
     build_router(state)
 }
 
@@ -1516,4 +1518,201 @@ async fn test_update_can_clear_a_nullable_field() {
     // ...while an omitted field still means "leave unchanged".
     assert_eq!(name["nickname"], "Jeannot");
     assert_eq!(name["surname"], "MARTIN");
+}
+
+// ── Media & vignettes (Sprint F.1) ───────────────────────────────────
+
+/// A media directory that removes itself when the test ends.
+struct TempMediaRoot(std::path::PathBuf);
+
+impl Drop for TempMediaRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A router whose media store is its own throwaway directory.
+///
+/// The shared `setup_app` root is fine for the tests that never write; these
+/// do, and one test's uploads must not be another's.
+async fn setup_app_with_media() -> (axum::Router, TempMediaRoot) {
+    let db = setup_db().await;
+    let root = TempMediaRoot(
+        std::env::temp_dir().join(format!("oxidgene-gql-media-{}", uuid::Uuid::now_v7())),
+    );
+    std::fs::create_dir_all(&root.0).expect("create media root");
+    (build_router(AppState::new(db, &root.0)), root)
+}
+
+/// A small PNG, base64-encoded, as `uploadMediaFile` wants it.
+fn png_base64(width: u32, height: u32) -> String {
+    use base64::Engine as _;
+    let img = image::RgbImage::new(width, height);
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(img)
+        .write_to(&mut out, image::ImageFormat::Png)
+        .unwrap();
+    base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+}
+
+async fn tree_id_for(app: &axum::Router) -> String {
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Media tree" }) { id } }"#,
+        None,
+    )
+    .await;
+    data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[tokio::test]
+async fn test_upload_media_file_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
+                 fileName: "portrait.png",
+                 contentBase64: "{}",
+                 title: "A portrait"
+               }}) {{ id fileName mimeType width height pageCount sha256 storageKey thumbnailKey title }} }}"#,
+            png_base64(640, 480)
+        ),
+        None,
+    )
+    .await;
+
+    let media = &data(&resp)["uploadMediaFile"];
+    assert_eq!(media["fileName"], "portrait.png");
+    assert_eq!(media["mimeType"], "image/png");
+    assert_eq!(media["width"], 640);
+    assert_eq!(media["height"], 480);
+    assert_eq!(media["pageCount"], 1);
+    assert_eq!(media["title"], "A portrait");
+    assert_eq!(media["sha256"].as_str().unwrap().len(), 64);
+    assert!(media["storageKey"].is_string());
+    assert!(media["thumbnailKey"].is_string());
+}
+
+#[tokio::test]
+async fn test_upload_media_file_rejects_content_that_is_not_base64() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
+                 fileName: "x.png", contentBase64: "not base64 at all!!"
+               }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+
+    let errors = resp.get("errors").expect("should have errored");
+    assert!(
+        errors.to_string().contains("base64"),
+        "the message should name the problem: {errors}"
+    );
+}
+
+#[tokio::test]
+async fn test_vignette_lifecycle_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
+                 fileName: "register.png", contentBase64: "{}"
+               }}) {{ id }} }}"#,
+            png_base64(800, 600)
+        ),
+        None,
+    )
+    .await;
+    let media_id = data(&resp)["uploadMediaFile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Create
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createVignette(input: {{
+                 mediaId: "{media_id}", x: 10, y: 20, width: 200, height: 150, title: "Entry 1"
+               }}) {{ id x y width height title page }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let vignette = &data(&resp)["createVignette"];
+    assert_eq!(vignette["x"], 10);
+    assert_eq!(vignette["page"], 0);
+    let vignette_id = vignette["id"].as_str().unwrap().to_string();
+
+    // Query by media
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"{{ mediaVignettes(treeId: "{tree_id}", mediaId: "{media_id}") {{ id }} }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["mediaVignettes"].as_array().unwrap().len(), 1);
+
+    // Move it
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateVignette(id: "{vignette_id}", input: {{
+                 x: 100, y: 100, width: 300, height: 200
+               }}) {{ x y width height title }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let moved = &data(&resp)["updateVignette"];
+    assert_eq!(moved["x"], 100);
+    assert_eq!(moved["title"], "Entry 1", "the title should be untouched");
+
+    // Off the edge
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateVignette(id: "{vignette_id}", input: {{
+                 x: 700, y: 500, width: 300, height: 200
+               }}) {{ x }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert!(
+        resp.get("errors").is_some(),
+        "a crop leaving the scan must be refused: {resp}"
+    );
+
+    // Delete
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"mutation {{ deleteVignette(id: "{vignette_id}") }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["deleteVignette"], true);
+
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"{{ vignette(treeId: "{tree_id}", id: "{vignette_id}") {{ id }} }}"#),
+        None,
+    )
+    .await;
+    assert!(data(&resp)["vignette"].is_null());
 }

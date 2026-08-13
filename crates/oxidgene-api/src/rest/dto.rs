@@ -368,6 +368,47 @@ pub struct UpdateMediaRequest {
     pub description: Option<Option<String>>,
 }
 
+// ── Vignette DTOs ───────────────────────────────────────────────────
+
+/// Query parameters for listing vignettes by what they are attributed to.
+#[derive(Debug, Deserialize)]
+pub struct VignetteListQuery {
+    pub person_id: Option<uuid::Uuid>,
+    pub event_id: Option<uuid::Uuid>,
+}
+
+/// Request body for cropping a region out of a media file.
+#[derive(Debug, Deserialize)]
+pub struct CreateVignetteRequest {
+    /// Zero-based page of a multi-page document; defaults to `0`.
+    pub page: Option<i32>,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub title: Option<String>,
+    pub person_id: Option<uuid::Uuid>,
+    pub event_id: Option<uuid::Uuid>,
+}
+
+/// Request body for moving, retitling or re-attributing a vignette.
+///
+/// The four rectangle fields travel together: send all of them or none.
+#[derive(Debug, Deserialize)]
+pub struct UpdateVignetteRequest {
+    pub page: Option<i32>,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub title: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub person_id: Option<Option<uuid::Uuid>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub event_id: Option<Option<uuid::Uuid>>,
+}
+
 // ── MediaLink DTOs ──────────────────────────────────────────────────
 
 /// Row returned by the bulk media-links endpoint.

@@ -16,3 +16,4 @@ pub mod place;
 pub mod sea_enums;
 pub mod source;
 pub mod tree;
+pub mod vignette;

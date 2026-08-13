@@ -24,7 +24,9 @@ async fn setup_db() -> DatabaseConnection {
 /// Helper: build a router with a fresh DB.
 async fn setup_app() -> axum::Router {
     let db = setup_db().await;
-    let state = AppState::new(db);
+    // Media lands in a throwaway directory: these tests never upload,
+    // but `AppState` needs a root and it must not be the developer's.
+    let state = AppState::new(db, std::env::temp_dir().join("oxidgene-test-media"));
     build_router(state)
 }
 

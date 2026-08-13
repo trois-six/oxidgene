@@ -74,7 +74,7 @@ Dioxus. Components in `src/components/`, pages in `src/pages/`.
 
 ## Backend (oxidgene-api)
 
-- `rest/` — one handler file per resource (tree, person, family, event, place, source, citation, media, media_link, note, gedcom, geneweb, family_member)
+- `rest/` — one handler file per resource (tree, person, family, event, place, source, citation, media, media_link, vignette, note, gedcom, geneweb, family_member)
 - `graphql/` — query.rs, mutation.rs, types.rs, inputs.rs
 - `service/` — business logic (gedcom + geneweb import services; persistence shared via `gedcom::persist_import_result`)
 - `profile/` — read projections: `service.rs` (ProfileService), `builder.rs`, `invalidation.rs`
@@ -101,6 +101,8 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). Next: **EPIC F — Media Management**.
+EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). **EPIC F — Media Management** in progress: F.1 (storage + serving) shipped, F.2 (media UI + image cropper) next.
+
+Media storage lives in `crates/oxidgene-api/src/media/` — `store.rs` (the `MediaStore` trait and the content-addressed `FsStore`), `thumbnail.rs`, `pages.rs`. Files default to the platform user-data directory (`~/.local/share/oxidgene/media` on Linux); `OXIDGENE_MEDIA_ROOT` overrides. Two open F.1 items: the S3 backend for the server deployment, and PostgreSQL verification.
 
 See [`docs/specifications/general.md` §8b](docs/specifications/general.md) for the EPIC status table and recently shipped work, and [`docs/specifications/roadmap.md`](docs/specifications/roadmap.md) for full sprint details. Update both files each time a new feature is developed.

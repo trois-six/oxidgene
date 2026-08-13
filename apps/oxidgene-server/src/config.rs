@@ -9,9 +9,16 @@
 //! | `OXIDGENE_DATABASE_URL` | `postgres://oxidgene:oxidgene@localhost/oxidgene` | Database connection URL |
 //! | `OXIDGENE_LOG_LEVEL`    | `info`                                     | Tracing filter         |
 //! | `OXIDGENE_CORS_ORIGIN`  | `*`                                        | Allowed CORS origin    |
+//! | `OXIDGENE_MEDIA_ROOT`   | platform data dir (see below)              | Media file storage root |
+//!
+//! `OXIDGENE_MEDIA_ROOT` defaults to the platform's user-data directory —
+//! `~/.local/share/oxidgene/media` on Linux. A containerised deployment
+//! normally overrides it with the mount point of a persistent volume.
 //!
 //! An optional config file can be placed at `oxidgene.toml` in the working
 //! directory. Environment variables always override file values.
+
+use std::path::PathBuf;
 
 use config::{Config, Environment, File};
 use serde::Deserialize;
@@ -38,6 +45,10 @@ pub struct ServerConfig {
     /// Allowed CORS origin (default: `*`).
     #[serde(default = "default_cors_origin")]
     pub cors_origin: String,
+
+    /// Directory uploaded media files are stored under.
+    #[serde(default = "default_media_root")]
+    pub media_root: PathBuf,
 }
 
 fn default_host() -> String {
@@ -58,6 +69,10 @@ fn default_log_level() -> String {
 
 fn default_cors_origin() -> String {
     "*".to_string()
+}
+
+fn default_media_root() -> PathBuf {
+    oxidgene_api::media::default_root()
 }
 
 impl ServerConfig {

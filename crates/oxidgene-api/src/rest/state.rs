@@ -2,8 +2,10 @@
 
 use oxidgene_core::error::OxidGeneError;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
 use crate::service::purge::{self, PurgeQueue};
 
@@ -15,10 +17,12 @@ pub struct AppState {
     pub profiles: Arc<ProfileService>,
     /// Hands soft-deleted trees to the background purge worker.
     pub purge: PurgeQueue,
+    /// Where uploaded files and their thumbnails live.
+    pub media: Arc<dyn MediaStore>,
 }
 
 impl AppState {
-    /// Create a new `AppState`.
+    /// Create a new `AppState` storing media under `media_root`.
     ///
     /// There is no cache backend to select any more: projections live in the
     /// `person_denorm` table of the same database, so desktop (SQLite) and
@@ -26,18 +30,23 @@ impl AppState {
     ///
     /// Spawns the purge worker, which also sweeps trees left soft-deleted by a
     /// previous run — so this must be called from within a Tokio runtime.
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: DatabaseConnection, media_root: impl Into<PathBuf>) -> Self {
         let profiles = Arc::new(ProfileService::new(db.clone()));
-        Self::with_profiles(db, profiles)
+        Self::with_parts(db, profiles, Arc::new(FsStore::new(media_root)))
     }
 
-    /// Create a new `AppState` with an explicit profile service (for testing).
-    pub fn with_profiles(db: DatabaseConnection, profiles: Arc<ProfileService>) -> Self {
-        let purge = purge::spawn_worker(db.clone(), Arc::clone(&profiles));
+    /// Create a new `AppState` with explicit collaborators (for testing).
+    pub fn with_parts(
+        db: DatabaseConnection,
+        profiles: Arc<ProfileService>,
+        media: Arc<dyn MediaStore>,
+    ) -> Self {
+        let purge = purge::spawn_worker(db.clone(), Arc::clone(&profiles), Arc::clone(&media));
         Self {
             db,
             profiles,
             purge,
+            media,
         }
     }
 }

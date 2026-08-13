@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::media::MediaStore;
 use crate::profile::ProfileService;
 
 /// Handle used by request handlers to hand a soft-deleted tree to the worker.
@@ -54,7 +55,11 @@ impl PurgeQueue {
 /// The worker first sweeps trees left over from a previous run, then serves
 /// the queue. It owns its own connection, so a purge never borrows a request's
 /// transaction and can outlive the request that triggered it.
-pub fn spawn_worker(db: DatabaseConnection, profiles: Arc<ProfileService>) -> PurgeQueue {
+pub fn spawn_worker(
+    db: DatabaseConnection,
+    profiles: Arc<ProfileService>,
+    media: Arc<dyn MediaStore>,
+) -> PurgeQueue {
     let (tx, mut rx) = mpsc::unbounded_channel::<Uuid>();
 
     tokio::spawn(async move {
@@ -62,7 +67,7 @@ pub fn spawn_worker(db: DatabaseConnection, profiles: Arc<ProfileService>) -> Pu
             Ok(ids) if !ids.is_empty() => {
                 info!(count = ids.len(), "resuming purge of soft-deleted trees");
                 for id in ids {
-                    purge_tree(&db, &profiles, id).await;
+                    purge_tree(&db, &profiles, &*media, id).await;
                 }
             }
             Ok(_) => {}
@@ -70,7 +75,7 @@ pub fn spawn_worker(db: DatabaseConnection, profiles: Arc<ProfileService>) -> Pu
         }
 
         while let Some(tree_id) = rx.recv().await {
-            purge_tree(&db, &profiles, tree_id).await;
+            purge_tree(&db, &profiles, &*media, tree_id).await;
         }
     });
 
@@ -87,12 +92,28 @@ pub fn spawn_worker(db: DatabaseConnection, profiles: Arc<ProfileService>) -> Pu
 ///
 /// Errors are logged, not propagated — there is no caller left to handle them,
 /// and the tree stays flagged so the next sweep retries.
-async fn purge_tree(db: &DatabaseConnection, profiles: &ProfileService, tree_id: Uuid) {
+async fn purge_tree(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+) {
     let started = Instant::now();
 
     // Projections first: `person_search_fts` has no FK to cascade through.
     if let Err(e) = profiles.invalidate_tree(db, tree_id).await {
         error!(%tree_id, %e, "could not drop projections; retrying at next start");
+        return;
+    }
+
+    // Files before rows. Media keys are scoped per tree, so this is one
+    // directory removal and nothing outside the tree can reference what it
+    // holds. Doing it first is what keeps a crash mid-purge recoverable: the
+    // tree row survives, so the next sweep finds it again and finishes the
+    // job. The reverse order would drop the row and strand the bytes with
+    // nothing left pointing at them.
+    if let Err(e) = media.delete_tree(tree_id).await {
+        error!(%tree_id, %e, "could not remove media files; retrying at next start");
         return;
     }
 

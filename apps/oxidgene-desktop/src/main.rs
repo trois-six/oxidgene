@@ -129,7 +129,10 @@ fn main() {
                 std::process::exit(1);
             });
 
-            let state = AppState::new(db);
+            // Same platform data directory the web server defaults to, so a
+            // desktop tree exported and re-imported on the server finds its
+            // files in the expected place.
+            let state = AppState::new(db, oxidgene_api::media::default_root());
             let api_router = build_router(state);
 
             let app = Router::new()

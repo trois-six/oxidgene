@@ -9,22 +9,23 @@ use uuid::Uuid;
 use oxidgene_db::repo::{
     CitationRepo, DictionaryRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo,
     FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonNamePieces, PersonNamePiecesPatch,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
+    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput,
+    VignettePatch, VignetteRepo,
 };
 
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
-    CreateTreeInput, ImportGedcomInput, ImportGenewebInput, PersonNameInput,
+    CreateTreeInput, CreateVignetteInput, ImportGedcomInput, ImportGenewebInput, PersonNameInput,
     SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput,
     UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput,
-    UpdateTreeInput, UploadMediaInput,
+    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
 };
 use super::types::{
     GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilyNameParticleUpdate,
     GqlFamilySpouse, GqlImportResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta,
     GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource,
-    GqlTree, db_from_ctx, profiles_from_ctx, purge_from_ctx,
+    GqlTree, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, purge_from_ctx,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -820,6 +821,51 @@ impl MutationRoot {
         Ok(media.into())
     }
 
+    /// Upload a file's bytes, base64-encoded.
+    ///
+    /// Creates a media record, or fills in an existing one when `mediaId` is
+    /// given. Mirrors `POST /trees/{treeId}/media/upload`; see
+    /// [`UploadMediaFileInput`] for why the content is base64 rather than an
+    /// `Upload` scalar.
+    async fn upload_media_file(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: UploadMediaFileInput,
+    ) -> Result<GqlMedia> {
+        use base64::Engine as _;
+
+        let db = db_from_ctx(ctx);
+        let store = media_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&input.content_base64)
+            .map_err(|e| async_graphql::Error::new(format!("contentBase64 is not base64: {e}")))?;
+
+        let ingested = crate::media::ingest(&**store, tid, &input.file_name, bytes).await?;
+        let upload = UploadedMedia {
+            file_name: ingested.file_name,
+            mime_type: ingested.mime_type,
+            storage_key: ingested.storage_key,
+            sha256: ingested.sha256,
+            file_size: ingested.file_size,
+            thumbnail_key: ingested.thumbnail_key,
+            width: ingested.width,
+            height: ingested.height,
+            page_count: ingested.page_count,
+            title: input.title,
+            description: input.description,
+        };
+
+        let media = match input.media_id {
+            Some(media_id) => {
+                MediaRepo::attach_file(db, Uuid::parse_str(&media_id)?, upload).await?
+            }
+            None => MediaRepo::create_uploaded(db, Uuid::now_v7(), tid, upload).await?,
+        };
+        Ok(media.into())
+    }
+
     /// Update media metadata.
     async fn update_media(
         &self,
@@ -839,6 +885,100 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         MediaRepo::delete(db, uuid).await?;
+        Ok(true)
+    }
+
+    // ── Vignette Mutations ───────────────────────────────────────────
+
+    /// Crop a named region out of a media file.
+    async fn create_vignette(
+        &self,
+        ctx: &Context<'_>,
+        input: CreateVignetteInput,
+    ) -> Result<GqlVignette> {
+        let db = db_from_ctx(ctx);
+        let media_id = Uuid::parse_str(&input.media_id)?;
+        let media = MediaRepo::get(db, media_id).await?;
+        crate::media::validate_crop(
+            &media,
+            input.page,
+            input.x,
+            input.y,
+            input.width,
+            input.height,
+        )?;
+
+        let vignette = VignetteRepo::create(
+            db,
+            Uuid::now_v7(),
+            VignetteInput {
+                media_id,
+                page: input.page,
+                x: input.x,
+                y: input.y,
+                width: input.width,
+                height: input.height,
+                title: input.title,
+                person_id: input
+                    .person_id
+                    .as_deref()
+                    .map(Uuid::parse_str)
+                    .transpose()?,
+                event_id: input.event_id.as_deref().map(Uuid::parse_str).transpose()?,
+            },
+        )
+        .await?;
+        Ok(vignette.into())
+    }
+
+    /// Move, retitle or re-attribute a vignette.
+    async fn update_vignette(
+        &self,
+        ctx: &Context<'_>,
+        id: ID,
+        input: UpdateVignetteInput,
+    ) -> Result<GqlVignette> {
+        let db = db_from_ctx(ctx);
+        let uuid = Uuid::parse_str(id.as_str())?;
+        let existing = VignetteRepo::get(db, uuid).await?;
+
+        let rect = match (input.x, input.y, input.width, input.height) {
+            (None, None, None, None) => None,
+            (Some(x), Some(y), Some(width), Some(height)) => Some((x, y, width, height)),
+            _ => {
+                return Err(async_graphql::Error::new(
+                    "x, y, width and height must be sent together",
+                ));
+            }
+        };
+
+        if rect.is_some() || input.page.is_some() {
+            let media = MediaRepo::get(db, existing.media_id).await?;
+            let page = input.page.unwrap_or(existing.page);
+            let (x, y, width, height) =
+                rect.unwrap_or((existing.x, existing.y, existing.width, existing.height));
+            crate::media::validate_crop(&media, page, x, y, width, height)?;
+        }
+
+        let vignette = VignetteRepo::update(
+            db,
+            uuid,
+            VignettePatch {
+                page: input.page,
+                rect,
+                title: patch(input.title),
+                person_id: patch_parse(input.person_id, |s| Uuid::parse_str(&s), "personId")?,
+                event_id: patch_parse(input.event_id, |s| Uuid::parse_str(&s), "eventId")?,
+            },
+        )
+        .await?;
+        Ok(vignette.into())
+    }
+
+    /// Delete a vignette. The media it cropped is untouched.
+    async fn delete_vignette(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+        let db = db_from_ctx(ctx);
+        VignetteRepo::delete(db, Uuid::parse_str(id.as_str())?).await?;
         Ok(true)
     }
 

@@ -3,6 +3,7 @@
 //! Each domain type is wrapped in a GraphQL object with resolvers for
 //! nested relationships (e.g., Person -> names, events, families).
 
+use crate::media::MediaStore;
 use crate::profile::ProfileService;
 use crate::service::purge::PurgeQueue;
 use async_graphql::{ComplexObject, Context, Enum, ID, Result, SimpleObject};
@@ -561,6 +562,10 @@ pub(crate) fn profiles_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<ProfileServ
 
 pub(crate) fn purge_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a PurgeQueue {
     ctx.data_unchecked::<PurgeQueue>()
+}
+
+pub(crate) fn media_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<dyn MediaStore> {
+    ctx.data_unchecked::<Arc<dyn MediaStore>>()
 }
 
 // ── PageInfo ─────────────────────────────────────────────────────────
@@ -1439,7 +1444,21 @@ pub struct GqlMedia {
     pub tree_id: ID,
     pub file_name: String,
     pub mime_type: String,
+    /// Path as it appears in GEDCOM. Not a URL and not where our copy lives —
+    /// fetch the bytes from `/api/v1/trees/{treeId}/media/{id}/file`.
     pub file_path: String,
+    /// Key of the stored bytes, or null when the record names a file we have
+    /// never received (every GEDCOM-imported row starts that way).
+    pub storage_key: Option<String>,
+    /// Hex SHA-256 of the stored bytes.
+    pub sha256: Option<String>,
+    /// Key of the generated thumbnail; null for PDFs and byte-less records.
+    pub thumbnail_key: Option<String>,
+    /// Intrinsic pixel size, after applying any EXIF orientation.
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    /// Pages in the document; 1 for photos and single-page files.
+    pub page_count: i32,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -1458,6 +1477,12 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             file_name: m.file_name,
             mime_type: m.mime_type,
             file_path: m.file_path,
+            storage_key: m.storage_key,
+            sha256: m.sha256,
+            thumbnail_key: m.thumbnail_key,
+            width: m.width,
+            height: m.height,
+            page_count: m.page_count,
             file_size: m.file_size,
             title: m.title,
             description: m.description,
@@ -1466,6 +1491,50 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             place_id: m.place_id.map(|id| ID(id.to_string())),
             created_at: m.created_at,
             updated_at: m.updated_at,
+        }
+    }
+}
+
+// ── Vignette ─────────────────────────────────────────────────────────
+
+/// A rectangular region of a media file, kept as coordinates rather than as a
+/// second copy of the pixels.
+///
+/// Fetch the cropped image itself from
+/// `/api/v1/trees/{treeId}/vignettes/{id}/image`.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlVignette {
+    pub id: ID,
+    pub media_id: ID,
+    /// Zero-based page of a multi-page document; 0 for a photo.
+    pub page: i32,
+    /// Crop rectangle, in the source image's own pixel coordinates.
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub title: Option<String>,
+    pub person_id: Option<ID>,
+    pub event_id: Option<ID>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<oxidgene_core::types::Vignette> for GqlVignette {
+    fn from(v: oxidgene_core::types::Vignette) -> Self {
+        Self {
+            id: ID(v.id.to_string()),
+            media_id: ID(v.media_id.to_string()),
+            page: v.page,
+            x: v.x,
+            y: v.y,
+            width: v.width,
+            height: v.height,
+            title: v.title,
+            person_id: v.person_id.map(|id| ID(id.to_string())),
+            event_id: v.event_id.map(|id| ID(id.to_string())),
+            created_at: v.created_at,
+            updated_at: v.updated_at,
         }
     }
 }

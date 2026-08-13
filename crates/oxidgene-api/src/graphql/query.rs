@@ -5,14 +5,14 @@ use uuid::Uuid;
 
 use oxidgene_db::repo::{
     AncestryRepo, EventFilter, EventRepo, FamilyRepo, MediaRepo, PaginationParams, PersonRepo,
-    PlaceRepo, SourceRepo, TreeRepo,
+    PlaceRepo, SourceRepo, TreeRepo, VignetteRepo,
 };
 
 use super::types::{
     GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult, GqlFamily,
     GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlPedigree, GqlPerson, GqlPersonConnection,
     GqlPersonProfile, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlSearchResult, GqlSource,
-    GqlSourceConnection, GqlTree, GqlTreeConnection, db_from_ctx, profiles_from_ctx,
+    GqlSourceConnection, GqlTree, GqlTreeConnection, GqlVignette, db_from_ctx, profiles_from_ctx,
 };
 
 /// The root query type.
@@ -298,6 +298,68 @@ impl QueryRoot {
         let uuid = Uuid::parse_str(id.as_str())?;
         match MediaRepo::get(db, uuid).await {
             Ok(m) => Ok(Some(m.into())),
+            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    // ── Vignettes ────────────────────────────────────────────────────
+
+    /// Vignettes on a media file, in page order.
+    async fn media_vignettes(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        media_id: ID,
+    ) -> Result<Vec<GqlVignette>> {
+        let db = db_from_ctx(ctx);
+        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let mid = Uuid::parse_str(media_id.as_str())?;
+        let vignettes = VignetteRepo::list_for_media(db, mid).await?;
+        Ok(vignettes.into_iter().map(Into::into).collect())
+    }
+
+    /// Vignettes attributed to a person, or standing as evidence for an event.
+    ///
+    /// Exactly one of `personId` or `eventId` is required — an unfiltered list
+    /// of every crop in a tree is not a view anything needs.
+    async fn vignettes(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: Option<ID>,
+        event_id: Option<ID>,
+    ) -> Result<Vec<GqlVignette>> {
+        let db = db_from_ctx(ctx);
+        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let vignettes = match (person_id, event_id) {
+            (Some(person_id), None) => {
+                VignetteRepo::list_for_person(db, Uuid::parse_str(person_id.as_str())?).await?
+            }
+            (None, Some(event_id)) => {
+                VignetteRepo::list_for_event(db, Uuid::parse_str(event_id.as_str())?).await?
+            }
+            _ => {
+                return Err(async_graphql::Error::new(
+                    "exactly one of personId or eventId is required",
+                ));
+            }
+        };
+        Ok(vignettes.into_iter().map(Into::into).collect())
+    }
+
+    /// Get a single vignette by ID.
+    async fn vignette(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+    ) -> Result<Option<GqlVignette>> {
+        let db = db_from_ctx(ctx);
+        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let uuid = Uuid::parse_str(id.as_str())?;
+        match VignetteRepo::get(db, uuid).await {
+            Ok(v) => Ok(Some(v.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
