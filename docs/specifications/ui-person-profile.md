@@ -222,9 +222,21 @@ Displayed as a full-width card below the two-column layout.
 +--------------------------------------------------------------+
 ```
 
-Same thumbnail grid as the [Person Edit Modal](ui-person-edit-modal.md) media section, but read-only by default. The star badge marks the profile image. Clicking a thumbnail opens a **lightbox overlay** with the full-size image, title, description, and associated event.
+**Implemented in Sprint F.2.** Literally the same component as the
+[Person Edit Modal](ui-person-edit-modal.md) media section, rendered with
+`read_only: true` — not a second grid that looks similar. A reader who then
+clicks Edit finds the gallery they were just looking at, with controls, rather
+than a different arrangement of the same files. The ★ badge marks the profile
+image; a tile's ↗ opens the file.
 
-The **"+ Add"** button opens the [Person Edit Modal](ui-person-edit-modal.md), scrolled to the media section.
+The section **hides itself** when the person has no media, rather than leaving
+an empty frame on every profile in the tree. Deciding that needs the list, so
+the page fetches it — the client's response cache answers the gallery's
+identical request, making it one round trip rather than two.
+
+> **Not yet built:** the `[+ Add]` button, and the **lightbox overlay** on a
+> thumbnail. Both are follow-ups; today a tile's ↗ opens the file in a new tab,
+> and adding media means opening the edit modal by hand.
 
 ---
 

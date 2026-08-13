@@ -3128,6 +3128,417 @@ pub const LAYOUT_STYLES: &str = r#"
         letter-spacing: 0.04em;
     }
 
+    /* ── Media gallery (Sprint F.2) ───────────────────────────────── */
+
+    /* One row of tiles that reflows rather than scrolls: a person with
+       twenty scans should read as a contact sheet, not as a filmstrip the
+       user has to drag through to know how much is there. */
+    .media-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+        gap: 12px;
+    }
+
+    .media-tile {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .media-thumb {
+        position: relative;
+        aspect-ratio: 1;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        background: var(--bg-deep);
+    }
+
+    .media-tile.is-open .media-thumb { border-color: var(--orange); }
+
+    .media-thumb img {
+        width: 100%;
+        height: 100%;
+        /* Cover, not contain: a grid of letterboxed scans is mostly
+           background, and the tile is a way in, not the document. */
+        object-fit: cover;
+        display: block;
+    }
+
+    .media-thumb-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+    }
+
+    /* What a PDF gets instead of a thumbnail — the server could not
+       rasterise it, so the file type is the picture. */
+    .media-kind {
+        font-family: var(--font-heading);
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 3px 7px;
+    }
+
+    .media-star {
+        position: absolute;
+        top: 4px;
+        right: 5px;
+        color: var(--orange);
+        font-size: 0.95rem;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+        pointer-events: none;
+    }
+
+    .media-pages {
+        position: absolute;
+        bottom: 4px;
+        left: 4px;
+        font-size: 0.65rem;
+        letter-spacing: 0.03em;
+        background: rgba(0,0,0,0.62);
+        color: #fff;
+        border-radius: 3px;
+        padding: 1px 5px;
+        pointer-events: none;
+    }
+
+    /* Controls appear on hover and, crucially, on keyboard focus — a row of
+       buttons reachable only by pointer is unreachable on a touch screen and
+       invisible to a keyboard. */
+    .media-tile-actions {
+        position: absolute;
+        inset: auto 0 0 0;
+        display: flex;
+        justify-content: center;
+        gap: 2px;
+        padding: 4px;
+        background: linear-gradient(transparent, rgba(0,0,0,0.72));
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+
+    .media-thumb:hover .media-tile-actions,
+    .media-tile-actions:focus-within { opacity: 1; }
+
+    .media-act {
+        background: none;
+        border: none;
+        color: #e8e3d8;
+        font-size: 0.82rem;
+        line-height: 1;
+        padding: 4px 5px;
+        border-radius: 3px;
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .media-act:hover { background: rgba(255,255,255,0.16); }
+    .media-act.is-on { color: var(--orange); }
+    .media-act.is-danger:hover { background: var(--red, #b8342a); color: #fff; }
+    .media-act:disabled { opacity: 0.45; cursor: default; }
+
+    .media-confirm {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 8px;
+        text-align: center;
+        font-size: 0.72rem;
+        background: rgba(10,11,13,0.9);
+        color: var(--text-primary);
+    }
+
+    .media-confirm-actions { display: flex; gap: 6px; }
+
+    .media-caption {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        /* One line, ellipsised: file names run long and a two-line caption
+           makes neighbouring tiles sit at different heights. */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .media-empty {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        padding: 8px 0;
+    }
+
+    /* ── Upload cell ──────────────────────────────────────────────── */
+
+    .media-drop { aspect-ratio: 1; }
+
+    .media-drop-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        width: 100%;
+        height: 100%;
+        padding: 8px;
+        text-align: center;
+        background: none;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius);
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .media-drop-btn:hover:not(:disabled) {
+        border-color: var(--orange);
+        color: var(--orange);
+    }
+
+    .media-drop.is-dragging .media-drop-btn {
+        border-color: var(--orange);
+        border-style: solid;
+        color: var(--orange);
+        background: rgba(224,120,32,0.08);
+    }
+
+    .media-drop-btn:disabled { cursor: default; }
+    .media-drop-icon { font-size: 1.3rem; line-height: 1; }
+    .media-drop-label { font-size: 0.74rem; }
+    .media-drop-hint {
+        font-size: 0.63rem;
+        opacity: 0.75;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+
+    /* ── Inline media edit panel ──────────────────────────────────── */
+
+    .media-panel {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid var(--orange);
+        border-radius: var(--radius);
+        background: var(--bg-panel);
+    }
+
+    .media-panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 4px;
+    }
+
+    .media-panel-title {
+        font-family: var(--font-heading);
+        font-size: 0.92rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .media-panel-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 12px;
+        font-size: 0.7rem;
+        color: var(--text-muted);
+    }
+
+    .media-panel-section { margin-top: 12px; }
+    .media-panel-section > label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+    }
+
+    .media-panel-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 12px;
+    }
+
+    /* ── Vignette list ────────────────────────────────────────────── */
+
+    .vg-list { display: flex; flex-direction: column; gap: 8px; }
+    .vg-empty { font-size: 0.75rem; color: var(--text-muted); }
+
+    .vg-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+
+    .vg-thumb {
+        width: 56px;
+        height: 42px;
+        object-fit: cover;
+        border-radius: 3px;
+        flex: 0 0 auto;
+        background: var(--bg-deep);
+    }
+
+    .vg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .vg-name {
+        font-size: 0.78rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vg-select { font-size: 0.72rem; padding: 3px 6px; }
+    .vg-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+
+    /* ── Image cropper ────────────────────────────────────────────── */
+
+    .cropper-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(6,7,9,0.78);
+    }
+
+    .cropper-panel {
+        display: flex;
+        flex-direction: column;
+        max-width: min(1000px, 100%);
+        max-height: 100%;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+    }
+
+    .cropper-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .cropper-title {
+        font-family: var(--font-heading);
+        font-size: 0.92rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cropper-close {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.3rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 4px;
+    }
+    .cropper-close:hover { color: var(--text-primary); }
+
+    /* The drag surface. `position: relative` is load-bearing: every overlay
+       rectangle is positioned against this box, and the coordinates the
+       handlers read are relative to it. */
+    .cropper-stage {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        background: var(--bg-deep);
+        cursor: crosshair;
+        /* Without this the engine starts its own text/image drag partway
+           through, which cancels the crop. */
+        user-select: none;
+    }
+
+    .cropper-image {
+        display: block;
+        max-width: 100%;
+        max-height: 62vh;
+        margin: 0 auto;
+    }
+
+    .cropper-selection {
+        position: absolute;
+        border: 2px solid var(--orange);
+        background: rgba(224,120,32,0.14);
+        pointer-events: none;
+    }
+
+    /* Crops already recorded, so the user can see what is covered while
+       drawing the next one. Dashed and muted so the live selection stays
+       the thing the eye goes to. */
+    .cropper-existing {
+        position: absolute;
+        border: 1px dashed rgba(232,223,200,0.65);
+        background: rgba(232,223,200,0.06);
+        pointer-events: none;
+    }
+
+    .cropper-existing-label {
+        position: absolute;
+        top: 0;
+        left: 0;
+        font-size: 0.62rem;
+        padding: 1px 4px;
+        background: rgba(0,0,0,0.6);
+        color: #fff;
+        white-space: nowrap;
+    }
+
+    .cropper-foot {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px 14px;
+        border-top: 1px solid var(--border);
+    }
+
+    .cropper-hint, .cropper-readout {
+        font-size: 0.74rem;
+        color: var(--text-muted);
+    }
+
+    .cropper-fields {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+    .cropper-fields .form-group { flex: 1 1 200px; margin: 0; }
+
+    .cropper-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    .cropper-empty {
+        padding: 24px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+    }
+
     /* ── Scrollbar ────────────────────────────────────────────────── */
 
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -3151,5 +3562,10 @@ pub const LAYOUT_STYLES: &str = r#"
             padding-bottom: 4px;
         }
         .dict-letter-btn { flex: 0 0 auto; }
+        .media-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+        .cropper-backdrop { padding: 0; }
+        .cropper-panel { max-height: 100vh; border-radius: 0; }
+        /* Controls that only appear on hover are unreachable by touch. */
+        .media-tile-actions { opacity: 1; }
     }
 "#;

@@ -888,6 +888,34 @@ impl MutationRoot {
         Ok(true)
     }
 
+    /// Make a media link the person's profile image, or clear the flag.
+    ///
+    /// Setting one clears the person's others in the same statement, so the
+    /// tree never shows two stars. Rebuilds the person's projection, since the
+    /// portrait is embedded in it.
+    async fn set_profile_media_link(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        is_profile: bool,
+    ) -> Result<GqlMediaLink> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let link_id = Uuid::parse_str(id.as_str())?;
+
+        let link = if is_profile {
+            MediaLinkRepo::set_profile(db, link_id).await?
+        } else {
+            MediaLinkRepo::clear_profile(db, link_id).await?
+        };
+        if let Some(person_id) = link.person_id {
+            profiles.rebuild_person(db, tid, person_id).await?;
+        }
+        Ok(link.into())
+    }
+
     // ── Vignette Mutations ───────────────────────────────────────────
 
     /// Crop a named region out of a media file.

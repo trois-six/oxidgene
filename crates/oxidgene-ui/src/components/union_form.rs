@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::api::{AddChildBody, ApiClient};
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
+use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::person_form::{
     DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
     create_event_body, focus_next_field_js, render_add_toggle, render_notes_source_fields,
@@ -79,6 +80,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // own fetches — opening both by default would load the couple twice over.
     let open_union = use_signal(|| true);
     let open_children = use_signal(|| true);
+    let open_media = use_signal(|| true);
     let show_person1 = use_signal(|| false);
     let show_person2 = use_signal(|| false);
 
@@ -227,6 +229,22 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             _ => vec![],
         }
     };
+
+    // The union's events as (id, label) pairs — what the media gallery offers
+    // when asking which event a certificate documents.
+    let union_event_choices: Vec<(Uuid, String)> = union_events
+        .iter()
+        .map(|ev| {
+            let kind = i18n.t(event_type_label_key(ev.event_type));
+            let date = format_event_date(&i18n, ev);
+            let label = if date.is_empty() {
+                kind
+            } else {
+                format!("{kind} — {date}")
+            };
+            (ev.id, label)
+        })
+        .collect();
 
     // Place options.
     let place_options: Vec<(String, String)> = {
@@ -786,6 +804,20 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             None => rsx! {
                                 div { class: "loading", {i18n.t("union_form.loading_children")} }
                             },
+                        }
+                    }
+
+                    // ── Media ──
+                    // The couple's own files: the marriage certificate, the
+                    // photograph of the wedding party. A file showing one
+                    // spouse alone belongs on that person's block above.
+                    FormSection {
+                        title: i18n.t("media.section"),
+                        open: open_media,
+                        MediaGallery {
+                            tree_id: tid,
+                            owner: MediaOwner::Family(fid),
+                            events: union_event_choices.clone(),
                         }
                     }
 

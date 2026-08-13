@@ -285,7 +285,7 @@ impl MediaRepo {
     }
 }
 
-fn into_domain(m: media::Model) -> Media {
+pub(crate) fn into_domain(m: media::Model) -> Media {
     Media {
         id: m.id,
         tree_id: m.tree_id,

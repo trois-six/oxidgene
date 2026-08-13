@@ -214,6 +214,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/media-links/{link_id}",
             delete(media_link::delete_media_link),
+        )
+        .route(
+            "/{tree_id}/media-links/{link_id}/profile",
+            put(media_link::set_profile_media_link),
         );
 
     let note_routes = Router::new()

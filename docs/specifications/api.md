@@ -165,9 +165,11 @@ A rectangle that does not fit the media it crops is a `400` at write time, so a 
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/media-links` | List media links (filterable by target) |
-| `POST` | `/trees/{tree_id}/media-links` | Create a media link |
-| `DELETE` | `/trees/{tree_id}/media-links/{link_id}` | Delete a media link |
+| `GET` | `/trees/{tree_id}/media-links` | Unfiltered: every person↔media link in the tree, flat — what the pedigree canvas reads to find each card's photo |
+| `GET` | `/trees/{tree_id}/media-links?entity_type=person\|family\|event\|source&entity_id={id}` | One entity's gallery. Each row is the link (`link_id`, `sort_order`, `is_profile`) with the **media flattened in**, so a grid of twenty scans is one request rather than twenty-one — a tile cannot be drawn without the MIME type and whether a thumbnail exists |
+| `POST` | `/trees/{tree_id}/media-links` | Attach a media to an entity |
+| `PUT` | `/trees/{tree_id}/media-links/{link_id}/profile` | `{"is_profile": true\|false}` — make this the person's profile photo, or clear it. Setting one clears the person's others in the same statement, so the tree never shows two stars. Only a link to a *person* may be one; a couple's card shows its spouses' portraits. Rebuilds the person's projection, since the portrait is embedded in `person_denorm` |
+| `DELETE` | `/trees/{tree_id}/media-links/{link_id}` | Detach. The media itself is untouched — the file may document three other people |
 
 ### Notes
 
@@ -331,6 +333,9 @@ type Query {
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
   media(treeId: ID!, id: ID!): Media
 
+  # Media galleries
+  entityMedia(treeId: ID!, entityType: String!, entityId: ID!): [MediaWithLink!]!
+
   # Vignettes
   mediaVignettes(treeId: ID!, mediaId: ID!): [Vignette!]!
   vignettes(treeId: ID!, personId: ID, eventId: ID): [Vignette!]!   # exactly one filter
@@ -406,6 +411,7 @@ type Mutation {
   updateMedia(treeId: ID!, id: ID!, input: UpdateMediaInput!): Media!
   deleteMedia(treeId: ID!, id: ID!): Boolean!
   createMediaLink(treeId: ID!, input: CreateMediaLinkInput!): MediaLink!
+  setProfileMediaLink(treeId: ID!, id: ID!, isProfile: Boolean!): MediaLink!
   deleteMediaLink(treeId: ID!, id: ID!): Boolean!
 
   # Vignettes

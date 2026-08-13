@@ -399,20 +399,23 @@ Comprehensive media workflow: upload, storage, thumbnails, multi-page documents,
 
 **Two paths, on purpose.** `media.file_path` stays the GEDCOM `OBJE.FILE` value — the producer's own path, preserved verbatim so an export round-trips. `media.storage_key` is where OxidGene's copy lives, and is null for every GEDCOM-imported record until someone uploads the file; `POST .../media/upload` with a `media_id` is how that gap gets filled.
 
-### Sprint F.2 — Media UI & Image Cropper
+### Sprint F.2 — Media UI & Image Cropper 🔄
 
-- [ ] MediaInput component (file picker, preview)
-- [ ] ImageCropper component (interactive crop, save vignette)
-- [ ] MediaGallery component (thumbnail grid, multi-page carousel)
-- [ ] VignetteLinker (bind cropped region to event)
-- [ ] Integration with Person and Union Edit Modals
+- [x] **MediaInput** (`components/media_input.rs`) — the upload cell that ends every gallery. Click for the platform file dialog, or drop files onto it; both land in the same loop. Uploads run **one at a time**: a user sending a folder of scans over a connection they do not control gets "3 of 12", which reads as progress, instead of twelve stalled requests finishing in an unpredictable order. One rejected file does not abandon the batch, and its message names the file — a folder containing a `.DS_Store` still delivers the other eleven.
+- [x] **ImageCropper** (`components/image_cropper.rs`) — drag a rectangle on a scan, save it as a vignette. The whole component is about keeping **two coordinate systems apart**: the user drags in whatever pixels the image occupies on screen, a vignette is stored in the source image's own pixels, and the ratio comes from `media.width`/`media.height` (recorded at upload precisely so the frontend never decodes an image to find out how big it is) against the element's measured client rect. Crops already on the page are drawn while you draw the next one — without them the same entry gets cropped twice. Saving clears the draft but keeps the cropper open, since a register page is four crops in a row.
+- [x] **MediaGallery** (`components/media_gallery.rs`) — thumbnail grid, ★ profile badge, hover controls, inline edit panel. One request per gallery, not one per tile: the `media-links?entity_type=…` endpoint returns the media alongside its link, because a tile cannot be drawn without the MIME type and whether a thumbnail exists. A missing `thumbnail_key` is the server saying it could not rasterise the file, so the tile draws a labelled icon rather than the broken image an `<img>` onto a 404 gives you. The edit panel opens **inline under the grid**, not as a second modal — the gallery already lives in one, and stacking leaves the user with two Cancel buttons.
+- [x] **VignetteLinker** (`components/vignette_linker.rs`) — the crops on a media, each with the event it documents. Deliberately not part of the cropper: attribution is decided after the fact, looking at several crops at once, and forcing the choice while drawing turns "crop the page" into four interrupted tasks.
+- [x] Integration with the **Person** and **Union** edit modals, and — read-only — with the **person profile page**. The profile shows the same grid with its controls withheld, so a reader who then clicks Edit finds the gallery they were just looking at; the section hides itself when the person has no files rather than leaving an empty frame on every profile in the tree.
+- [x] Backend gaps F.1 left, filled here because the UI cannot have the features otherwise: `GET /media-links?entity_type=&entity_id=` (one entity's gallery, media included) and `PUT /media-links/{id}/profile` (the ★, which clears the person's others in the same statement so the tree never shows two). Both mirrored in GraphQL as `entityMedia` and `setProfileMediaLink`. Setting the flag rebuilds the person's projection, since the portrait is embedded in `person_denorm`.
+- [ ] **Multi-page carousel.** A document's page count is known and shown on the tile, but there is no page-by-page viewer: `GET .../file` serves the whole PDF or TIFF, and rendering page 7 of one needs the rasteriser F.1 declined to take on. Cropping a document is refused for the same reason.
+- [ ] **Date and place on a media.** The columns exist (`date_value`, `date_sort`, `place_id`) and [`ui-person-edit-modal.md` §10](ui-person-edit-modal.md) asks for them; the edit panel currently offers title and description only.
+- [ ] Verified by compiling and by the API integration tests (32 in `media_test.rs`), **not by running the desktop app** — the gallery, the drag-to-crop interaction and the drop target have not been exercised by hand.
 
 ### Sprint F.3 — Event Linking & Desktop Support
 
 - [ ] Event evidence linking (show media supporting event)
 - [ ] Vignette assignment (use cropped image as event illustration)
 - [ ] Desktop file picker (native dialog)
-- [ ] SQLite blob vs. filesystem decision for desktop
 
 ### Sprint F.4 — Performance & Polish
 

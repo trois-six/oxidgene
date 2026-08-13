@@ -58,6 +58,7 @@ Dioxus. Components in `src/components/`, pages in `src/pages/`.
 
 **Key files**:
 - `layout.rs` — app shell, navbar, all shared CSS
+- `media_gallery.rs` / `media_input.rs` / `image_cropper.rs` / `vignette_linker.rs` — media grid, upload cell, drag-to-crop, crop↔event linking
 - `pedigree_chart.rs` — vertical bidirectional pan/zoom tree canvas
 - `tree_detail.rs` — page orchestrator: data fetching, topbar, modals, GEDCOM I/O
 - `person_detail.rs` — full person profile page
@@ -101,8 +102,10 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). **EPIC F — Media Management** in progress: F.1 (storage + serving) shipped, F.2 (media UI + image cropper) next.
+EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). **EPIC F — Media Management** in progress: F.1 (storage + serving) and F.2 (media UI + image cropper) shipped, F.3 (event linking + desktop) next.
 
-Media storage lives in `crates/oxidgene-api/src/media/` — `store.rs` (the `MediaStore` trait and the content-addressed `FsStore`), `thumbnail.rs`, `pages.rs`. Files default to the platform user-data directory (`~/.local/share/oxidgene/media` on Linux); `OXIDGENE_MEDIA_ROOT` overrides. Two open F.1 items: the S3 backend for the server deployment, and PostgreSQL verification.
+Media storage lives in `crates/oxidgene-api/src/media/` — `store.rs` (the `MediaStore` trait and the content-addressed `FsStore`), `thumbnail.rs`, `pages.rs`. Files default to the platform user-data directory (`~/.local/share/oxidgene/media` on Linux); `OXIDGENE_MEDIA_ROOT` overrides. The UI side is `components/media_gallery.rs` (grid, tiles, inline edit panel), `media_input.rs` (upload cell), `image_cropper.rs` (drag-to-crop) and `vignette_linker.rs`, used by `person_form`, `union_form` and — read-only — `person_detail`.
+
+Open EPIC F items: the S3 backend for the server deployment, PostgreSQL verification, a multi-page document viewer (needs a PDF rasteriser, deliberately declined in F.1), and media date/place editing.
 
 See [`docs/specifications/general.md` §8b](docs/specifications/general.md) for the EPIC status table and recently shipped work, and [`docs/specifications/roadmap.md`](docs/specifications/roadmap.md) for full sprint details. Update both files each time a new feature is developed.

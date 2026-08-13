@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::date_input::format_event_date;
+use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::reference_tooltip::{GivenNamesHover, ReferenceHover, ReferenceKind};
 use crate::components::topbar_search::TopbarSearch;
@@ -566,6 +567,28 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         Some(Ok(person)) => Some(person.sex),
         _ => None,
     };
+
+    // Whether this person has any media at all — the section is hidden
+    // otherwise rather than shown empty on every profile in the tree. The
+    // gallery below issues the same GET, which the client's response cache
+    // answers, so asking here costs one request rather than two.
+    let media_resource = use_resource({
+        let api = api.clone();
+        let person_id = person_id.clone();
+        move || {
+            let api = api.clone();
+            let tid = tree_id_parsed();
+            let pid = Uuid::parse_str(&person_id).ok();
+            async move {
+                match (tid, pid) {
+                    (Some(tid), Some(pid)) => api.list_entity_media(tid, "person", pid).await.ok(),
+                    _ => None,
+                }
+            }
+        }
+    });
+    let has_media =
+        move || matches!(&*media_resource.read_unchecked(), Some(Some(list)) if !list.is_empty());
 
     // ── Handlers ─────────────────────────────────────────────────────
 
@@ -1347,6 +1370,26 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 div { class: "error-msg", {i18n.t_args("person.load_notes_error", &[("error", &e.to_string())])} }
             },
             _ => rsx! {},
+        }
+
+        // ── Media section ─────────────────────────────────────────────
+        // Read-only: the same grid the edit modal shows, with its controls
+        // withheld. A tile opens its file; changing anything is a click on
+        // Edit away. The section hides itself when the person has no files,
+        // rather than leaving an empty frame on every profile in the tree.
+        if let (Some(media_tid), Ok(pid), true) = (
+            tree_id_parsed(),
+            Uuid::parse_str(&person_id),
+            has_media(),
+        ) {
+            div { class: "card", style: "margin-bottom: 24px;",
+                h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t("media.section")} }
+                MediaGallery {
+                    tree_id: media_tid,
+                    owner: MediaOwner::Person(pid),
+                    read_only: true,
+                }
+            }
         }
 
         // ── Family section (narrative) ────────────────────────────────

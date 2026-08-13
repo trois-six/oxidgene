@@ -441,18 +441,39 @@ A media gallery grid showing all media attached to this person, followed by an u
 
 The ★ badge marks the current **profile image** (used to illustrate the person's card in the tree).
 
+> **Implemented in Sprint F.2** (`components/media_gallery.rs`), with two
+> gaps: a multi-page document shows its page count but has no page-by-page
+> viewer, and the Date / Place fields below are not yet in the edit panel.
+
 ### Upload Zone
 
-The last cell in the grid is always the upload trigger. Clicking it or dragging files onto it opens the system file picker. Accepted formats: JPEG, PNG, WebP, GIF, PDF, and common document formats. Multiple files can be uploaded at once.
+The last cell in the grid is always the upload trigger. Clicking it opens the
+system file picker; dropping files onto it does the same thing without the
+dialog. Accepted formats are decided by the file's magic bytes, not by its
+extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF. Multiple files can be
+sent at once, and they upload **sequentially** — a folder of scans reads as
+"3 of 12" rather than as twelve simultaneous stalls — with one rejected file
+naming itself and the rest of the batch continuing.
 
 ### Media Item — Display
 
 Each media item is shown as a thumbnail tile:
 - **Images**: rendered as a cropped square thumbnail
-- **PDFs / documents**: generic icon with file type label (e.g. "PDF")
+- **PDFs / documents**: generic icon with file type label (e.g. "PDF"). The tile
+  branches on the server saying it has no thumbnail — a `404` from
+  `.../thumbnail` — rather than on a list of formats, so a format we later learn
+  to rasterise needs no change here
 - **Profile badge** ★: orange star overlay on the active profile image tile
+- **Page badge**: a multi-page document shows its page count in the corner
 
-Hovering a tile reveals two icon buttons: **Edit** (pencil) and **Remove** (trash).
+Hovering a tile reveals its controls: ★ (set as profile image, images only),
+✂ (crop a region), ✎ (edit), ↗ (open the file) and 🗑 (remove from this record).
+They also appear on keyboard focus, and are always visible on narrow screens —
+a control revealed only on hover is unreachable by touch.
+
+The trash **detaches**, it does not delete: the file may document three other
+people, and "not this person's" is what the button on a person's tile can
+honestly mean.
 
 ### Media Item — Edit Panel
 
@@ -473,7 +494,8 @@ Clicking the edit button on a tile expands an inline edit panel below the tile (
 
 | Field | Type | Notes |
 |---|---|---|
-| Set as profile image | Toggle / button | Marks this image as the person's profile photo; removes the ★ from the previous one |
+| Set as profile image | ★ button on the tile | Marks this image as the person's profile photo; clears the ★ from the previous one in the same statement, so two stars are never briefly visible. Only a person may have one — a couple's card shows its spouses' portraits |
+| Crop a region | ✂ button on the tile | Opens the cropper: drag a rectangle, label it, and optionally say which event it documents. Regions already cropped on the file are drawn while you draw the next one. Coordinates are stored in the source image's own pixels, so a better scan can replace this one without orphaning them |
 
 **For PDFs / documents:**
 
