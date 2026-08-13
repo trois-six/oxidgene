@@ -40,7 +40,7 @@ pub use event_witness::EventWitnessRepo;
 pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;
 pub use family_spouse::FamilySpouseRepo;
-pub use media::{MediaRepo, UploadedMedia};
+pub use media::{MediaPatch, MediaRepo, UploadedMedia};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 pub use note::NoteRepo;
 pub use pagination::PaginationParams;

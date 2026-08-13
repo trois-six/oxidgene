@@ -130,7 +130,11 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media` | List media (cursor-paginated) |
 | `POST` | `/trees/{tree_id}/media` | Create a media record from JSON metadata — names a file without holding it |
-| `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one |
+| `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
+| `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
+| `GET` | `/trees/{tree_id}/media/{media_id}/pages` | A document's pages, in order |
+| `PUT` | `/trees/{tree_id}/media/{media_id}/pages` | Set the page order (`{page_ids: [...]}`). Must name exactly this document's pages, once each — a partial list is refused rather than guessed at |
+| `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Detach a page. It survives as an ordinary media, and the remaining pages close the gap |
 | `GET` | `/trees/{tree_id}/media/{media_id}` | Get media metadata |
 | `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
 | `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px). `404` when the format cannot be rasterised — PDFs — so a gallery can fall back to an icon on the status alone |
@@ -139,7 +143,11 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 
 **Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 64 MiB — larger files are EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
 
-**Two paths, two purposes.** `file_path` is the GEDCOM `OBJE.FILE` value — the producer's own path, preserved verbatim so an export round-trips. `storage_key` is where OxidGene's copy lives, and is null for every GEDCOM-imported record until someone uploads the file. `POST .../media/upload` with a `media_id` is how that gap gets filled.
+**Three kinds of media.** *Stored* — `storage_key` is set, we serve the bytes, there is a thumbnail and crops can be drawn. *Remote* — `file_path` is an `http(s)` URL: recorded, never fetched by us, so no thumbnail and no crop, and the browser goes to the origin directly. *Unheld* — a record naming a file nobody uploaded, which is where every GEDCOM import starts. `PUT .../media/{id}` may edit `file_path` for the last two and **refuses it for a stored one**: there `file_path` is the value a GEDCOM export writes back, and repointing it would make the export describe a file we are serving something else for. A remote `mime_type` is guessed from the URL's extension when not given — the only evidence available without fetching, and it decides whether a viewer embeds the file or offers it as a download.
+
+**A media carries what a fact carries.** `PUT .../media/{id}` takes `title`, `description`, `date_value`, `date_value2`, `date_qualifier`, `calendar` and `place_id`, so "a photograph taken around 1890 at Nantes" is written the way a birth around 1890 is. `date_sort` is **not** accepted: the server derives it from `calendar` + `date_value`, exactly as for an event. Notes about a document go on `note.media_id` (`POST /notes` with `media_id`, `GET /notes?media_id=`). There is deliberately **no source field** — a media *is* a source document.
+
+**Multi-page documents.** F.1's `page_count` counts pages *inside* one file (a PDF, a TIFF). A register scanned to a folder of JPEGs is a different thing: a `media` with `is_document`, whose pages are `media` rows carrying `parent_media_id` + `page_index`. A page is a media in its own right — bytes, thumbnail, dimensions, crops — so upload, storage, thumbnailing and serving are the endpoints above, unchanged. Listings filter `parent_media_id IS NULL`, so a nine-page act is one entry rather than ten. The document carries the title, date, place, description and note; `page_count` is recomputed from the pages that exist.
 
 **Storage.** Files live on the filesystem, content-addressed under `{tree_id}/{aa}/{bb}/{sha256}.{ext}`, rooted at `OXIDGENE_MEDIA_ROOT` (default: the platform user-data directory, `~/.local/share/oxidgene/media` on Linux). Keys are scoped per tree so deleting a tree is one directory removal. Object storage slots in behind the same `MediaStore` trait in EPIC H.
 
@@ -335,6 +343,8 @@ type Query {
 
   # Media galleries
   entityMedia(treeId: ID!, entityType: String!, entityId: ID!): [MediaWithLink!]!
+  mediaLinks(treeId: ID!, mediaId: ID!): [MediaLink!]!       # what one file is attached to
+  mediaPages(treeId: ID!, mediaId: ID!): [Media!]!           # a document's pages, in order
 
   # Vignettes
   mediaVignettes(treeId: ID!, mediaId: ID!): [Vignette!]!
@@ -412,6 +422,12 @@ type Mutation {
   deleteMedia(treeId: ID!, id: ID!): Boolean!
   createMediaLink(treeId: ID!, input: CreateMediaLinkInput!): MediaLink!
   setProfileMediaLink(treeId: ID!, id: ID!, isProfile: Boolean!): MediaLink!
+
+  # Multi-page documents
+  createMediaDocument(treeId: ID!, title: String): Media!
+  appendMediaPage(documentId: ID!, mediaId: ID!): Media!
+  reorderMediaPages(documentId: ID!, pageIds: [ID!]!): [Media!]!
+  detachMediaPage(pageId: ID!): Media!
   deleteMediaLink(treeId: ID!, id: ID!): Boolean!
 
   # Vignettes

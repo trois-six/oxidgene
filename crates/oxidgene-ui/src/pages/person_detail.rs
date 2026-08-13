@@ -176,7 +176,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: i18n.t("common.invalid_ids"),
                 });
             };
-            api.list_notes(tid, Some(pid), None, None, None).await
+            api.list_notes(tid, Some(pid), None, None, None, None).await
         }
     });
 
@@ -568,6 +568,29 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         _ => None,
     };
 
+    // Which media document which event, for the whole tree, from the one
+    // media-links call already in flight. Per-event fetching would be forty
+    // requests on a full life; this is none.
+    let evidence_by_event = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let tid = tree_id_parsed();
+            async move {
+                let Some(tid) = tid else {
+                    return HashMap::new();
+                };
+                let mut map: HashMap<Uuid, Vec<crate::api::MediaLinkRow>> = HashMap::new();
+                if let Ok(rows) = api.list_media_links_for_tree(tid).await {
+                    for row in rows.into_iter().filter(|r| r.entity_type == "event") {
+                        map.entry(row.entity_id).or_default().push(row);
+                    }
+                }
+                map
+            }
+        }
+    });
+
     // Whether this person has any media at all — the section is hidden
     // otherwise rather than shown empty on every profile in the tree. The
     // gallery below issues the same GET, which the client's response cache
@@ -863,6 +886,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
         }
     };
+
+    /// Where a media-link row's file can actually be opened.
+    ///
+    /// A stored file goes through our endpoint; a remote one is the URL itself,
+    /// which is the only copy there is.
+    fn media_href(api: &ApiClient, tree_id: Uuid, row: &crate::api::MediaLinkRow) -> String {
+        if row.file_path.starts_with("http://") || row.file_path.starts_with("https://") {
+            row.file_path.clone()
+        } else {
+            api.media_file_url(tree_id, row.media_id)
+        }
+    }
 
     // ── Build enriched event list ───────────────────────────────────
     //
@@ -1635,6 +1670,40 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                     div { class: "pd-ev-sources",
                                                         {i18n.t("person.sources_section")}
                                                         ": {sources.join(\"; \")}"
+                                                    }
+                                                }
+                                                // The documents that prove this
+                                                // event. A thumbnail where the
+                                                // server made one, an icon
+                                                // where it could not.
+                                                if let Some(tid) = tree_id_parsed()
+                                                    && let Some(evidence) = evidence_by_event
+                                                        .read_unchecked()
+                                                        .as_ref()
+                                                        .and_then(|m| m.get(&eid))
+                                                        .filter(|rows| !rows.is_empty())
+                                                {
+                                                    div { class: "pd-ev-evidence",
+                                                        for row in evidence.iter() {
+                                                            a {
+                                                                key: "{row.media_id}",
+                                                                class: "pd-ev-doc",
+                                                                href: media_href(&api, tid, row),
+                                                                target: "_blank",
+                                                                title: "{row.file_name}",
+                                                                if row.has_thumbnail {
+                                                                    img {
+                                                                        src: api.media_thumbnail_url(tid, row.media_id),
+                                                                        alt: "{row.file_name}",
+                                                                        loading: "lazy",
+                                                                    }
+                                                                } else {
+                                                                    span { class: "media-glyph",
+                                                                        {crate::api::media_kind(&row.mime_type).icon()}
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }

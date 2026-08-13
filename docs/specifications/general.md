@@ -273,7 +273,7 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 | C | Tree Editing (Frontend) | ✅ Complete |
 | D | UX, Languages, Performance | ✅ Complete |
 | E | Read Projections & Search | ✅ E.9 Complete; 🔄 E.8 (dictionary descent view) planned |
-| F | Media Management | 🔄 F.1 storage + serving and F.2 media UI shipped (S3 backend, PostgreSQL verification, multi-page viewer outstanding); F.3–F.4 planned |
+| F | Media Management | 🔄 F.1–F.3 shipped (S3 backend, PostgreSQL verification, PDF page rendering outstanding); F.4 planned |
 | G | Security & Deployment | ⏳ Post-Media |
 | H | Asynchronous Pipeline | ⏳ Post-MVP |
 

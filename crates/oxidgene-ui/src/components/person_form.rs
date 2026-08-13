@@ -258,7 +258,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     body: String::new(),
                 });
             }
-            api.list_notes(tid, Some(pid), None, None, None).await
+            api.list_notes(tid, Some(pid), None, None, None, None).await
         }
     });
 
@@ -689,6 +689,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 return;
             }
             let body = CreateNoteBody {
+                media_id: None,
                 text,
                 person_id: Some(pid),
                 event_id: None,
@@ -2515,7 +2516,7 @@ async fn load_notes_source(
     let person_level_only = event_id.is_none();
 
     let note = api
-        .list_notes(tree_id, person_filter, event_filter, None, None)
+        .list_notes(tree_id, person_filter, event_filter, None, None, None)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -2596,6 +2597,7 @@ pub(crate) async fn save_notes_source(
             api.create_note(
                 tree_id,
                 &CreateNoteBody {
+                    media_id: None,
                     text: notes.to_string(),
                     person_id: owner,
                     event_id,
@@ -2880,6 +2882,25 @@ pub fn EventEditor(
                         disabled: saving(),
                         onclick: on_save,
                         if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                    }
+                }
+
+                // ── Evidence ──
+                // The documents that prove this event, hung off the event
+                // itself rather than off the person. The same scan may be a
+                // person's photograph *and* an event's proof, and they are two
+                // different claims: only the second belongs beside a citation.
+                //
+                // Outside the Save button above, because these are their own
+                // writes — a file is uploaded and attached the moment it is
+                // chosen, and making it wait for a form save would mean an
+                // upload silently lost by a Cancel.
+                div { class: "pf-ns-block",
+                    label { class: "pf-ns-label", {i18n.t("media.evidence")} }
+                    p { class: "pf-ns-hint", {i18n.t("media.evidence_hint")} }
+                    MediaGallery {
+                        tree_id,
+                        owner: MediaOwner::Event(event_id),
                     }
                 }
             }

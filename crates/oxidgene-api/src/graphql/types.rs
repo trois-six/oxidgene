@@ -794,7 +794,7 @@ impl GqlPerson {
         let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
         let person_id = Uuid::parse_str(self.id.as_str())?;
         let notes =
-            NoteRepo::list_by_entity(db, tree_id, Some(person_id), None, None, None).await?;
+            NoteRepo::list_by_entity(db, tree_id, Some(person_id), None, None, None, None).await?;
         Ok(notes.into_iter().map(GqlNote::from).collect())
     }
 }
@@ -1150,7 +1150,8 @@ impl GqlEvent {
         let db = db_from_ctx(ctx);
         let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
         let event_id = Uuid::parse_str(self.id.as_str())?;
-        let notes = NoteRepo::list_by_entity(db, tree_id, None, Some(event_id), None, None).await?;
+        let notes =
+            NoteRepo::list_by_entity(db, tree_id, None, Some(event_id), None, None, None).await?;
         Ok(notes.into_iter().map(GqlNote::from).collect())
     }
 
@@ -1457,8 +1458,17 @@ pub struct GqlMedia {
     /// Intrinsic pixel size, after applying any EXIF orientation.
     pub width: Option<i32>,
     pub height: Option<i32>,
-    /// Pages in the document; 1 for photos and single-page files.
+    /// Pages in the document; 1 for photos and single-page files. For an
+    /// `isDocument` row it is the number of page images assembled into it.
     pub page_count: i32,
+    /// The document this is a page of, if it is one.
+    pub parent_media_id: Option<ID>,
+    /// Zero-based position within that document.
+    pub page_index: i32,
+    /// True when this row *is* a multi-page document rather than a file. Such
+    /// a row carries the title, date, place, description and note that
+    /// describe the document as a whole, and holds no bytes.
+    pub is_document: bool,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -1483,6 +1493,9 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             width: m.width,
             height: m.height,
             page_count: m.page_count,
+            parent_media_id: m.parent_media_id.map(|id| ID(id.to_string())),
+            page_index: m.page_index,
+            is_document: m.is_document,
             file_size: m.file_size,
             title: m.title,
             description: m.description,

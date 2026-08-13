@@ -102,10 +102,12 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). **EPIC F — Media Management** in progress: F.1 (storage + serving) and F.2 (media UI + image cropper) shipped, F.3 (event linking + desktop) next.
+EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). **EPIC F — Media Management** in progress: F.1–F.3 shipped, F.4 (performance & polish) next.
 
 Media storage lives in `crates/oxidgene-api/src/media/` — `store.rs` (the `MediaStore` trait and the content-addressed `FsStore`), `thumbnail.rs`, `pages.rs`. Files default to the platform user-data directory (`~/.local/share/oxidgene/media` on Linux); `OXIDGENE_MEDIA_ROOT` overrides. The UI side is `components/media_gallery.rs` (grid, tiles, inline edit panel), `media_input.rs` (upload cell), `image_cropper.rs` (drag-to-crop) and `vignette_linker.rs`, used by `person_form`, `union_form` and — read-only — `person_detail`.
 
-Open EPIC F items: the S3 backend for the server deployment, PostgreSQL verification, a multi-page document viewer (needs a PDF rasteriser, deliberately declined in F.1), and media date/place editing.
+A media is one of three things and every view tells them apart: **stored** (bytes in our store, thumbnail, croppable), **remote** (`file_path` is an http(s) URL we record and never fetch), **unheld** (a GEDCOM record naming a file nobody uploaded). A **multi-page document** is a `media` with `is_document` whose pages are `media` rows carrying `parent_media_id` + `page_index` — a page is a media, so upload/storage/thumbnails/cropping need no second path; listings filter `parent_media_id IS NULL`.
+
+Open EPIC F items: the S3 backend for the server deployment, PostgreSQL verification, PDF page rendering (needs a C rasteriser, deliberately declined), and showing a vignette as an event's illustration on the timeline.
 
 See [`docs/specifications/general.md` §8b](docs/specifications/general.md) for the EPIC status table and recently shipped work, and [`docs/specifications/roadmap.md`](docs/specifications/roadmap.md) for full sprint details. Update both files each time a new feature is developed.

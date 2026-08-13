@@ -44,7 +44,9 @@ impl NoteRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
-    /// List notes for a specific entity (person, event, family, or source) in a tree.
+    /// List notes for a specific entity (person, event, family, source, or
+    /// media) in a tree.
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_by_entity(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -52,6 +54,7 @@ impl NoteRepo {
         event_id: Option<Uuid>,
         family_id: Option<Uuid>,
         source_id: Option<Uuid>,
+        media_id: Option<Uuid>,
     ) -> Result<Vec<Note>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
@@ -65,6 +68,9 @@ impl NoteRepo {
         }
         if let Some(fid) = family_id {
             query = query.filter(Column::FamilyId.eq(fid));
+        }
+        if let Some(mid) = media_id {
+            query = query.filter(Column::MediaId.eq(mid));
         }
         if let Some(sid) = source_id {
             query = query.filter(Column::SourceId.eq(sid));
@@ -88,6 +94,7 @@ impl NoteRepo {
         event_id: Option<Uuid>,
         family_id: Option<Uuid>,
         source_id: Option<Uuid>,
+        media_id: Option<Uuid>,
     ) -> Result<Note, OxidGeneError> {
         let now = Utc::now();
         let model = note::ActiveModel {
@@ -98,6 +105,7 @@ impl NoteRepo {
             event_id: Set(event_id),
             family_id: Set(family_id),
             source_id: Set(source_id),
+            media_id: Set(media_id),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -163,6 +171,7 @@ fn into_domain(m: note::Model) -> Note {
         event_id: m.event_id,
         family_id: m.family_id,
         source_id: m.source_id,
+        media_id: m.media_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
