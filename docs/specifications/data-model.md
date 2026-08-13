@@ -12,7 +12,7 @@ timestamp: 2026-07-16T00:00:00Z
 > Part of the [OxidGene Specifications](index.md).
 > See also: [Architecture](architecture.md) · [API Contract](api.md)
 
-Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `crates/oxidgene-core/src/enums.rs` (enums), `crates/oxidgene-db/src/entities/` (SeaORM entities), `crates/oxidgene-db/src/migration/m20250101_000001_initial.rs` (single consolidated migration).
+Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `crates/oxidgene-core/src/enums.rs` (enums), `crates/oxidgene-db/src/entities/` (SeaORM entities), `crates/oxidgene-db/src/migration/` (`m20250101_000001_initial.rs` is the consolidated base schema; later `mYYYYMMDD_*` files add to it).
 
 ---
 
@@ -211,8 +211,14 @@ The `name` is a single string. The recommended format is comma-separated from mo
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree |
 | `file_name` | String | Original filename |
-| `mime_type` | String | MIME type |
-| `file_path` | String | Storage path |
+| `mime_type` | String | MIME type, decided from the file's magic bytes at upload |
+| `file_path` | String | GEDCOM `OBJE.FILE` value — the producer's own path, kept verbatim so an export round-trips. Not where our copy lives |
+| `storage_key` | String? | Key of the stored bytes in the media store. Null for a record that names a file we have never received — every GEDCOM import starts that way |
+| `sha256` | String? | Hex SHA-256 of the stored bytes. Doubles as the HTTP `ETag` and as the deduplication key |
+| `thumbnail_key` | String? | Key of the generated thumbnail. Null for PDFs and for byte-less records |
+| `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation |
+| `height` | i32? | Intrinsic pixel height |
+| `page_count` | i32 | Pages in the document; `1` for photos and single-page files |
 | `file_size` | i64 | Bytes |
 | `title` | String? | |
 | `description` | String? | |
@@ -224,6 +230,40 @@ The `name` is a single string. The recommended format is comma-separated from mo
 | `deleted_at` | DateTime? | Soft delete |
 
 Displayed in: [Person Edit Modal](ui-person-edit-modal.md) (media section)
+
+**Storage.** Files live on the filesystem, content-addressed under
+`{tree_id}/{aa}/{bb}/{sha256}.{ext}` beneath `OXIDGENE_MEDIA_ROOT` (default: the
+platform user-data directory). Uploading the same scan twice writes one file and
+two rows — what a census page documenting eight siblings needs. Keys are scoped
+per tree rather than globally: deduplication stops at the tree boundary, which is
+the price of purging a tree by removing one directory, with no reference counting.
+
+### Vignette
+
+A rectangular region of a media file, kept as coordinates rather than as a second
+copy of the pixels. One parish-register page routinely documents several unrelated
+families; each entry is a vignette on the single stored scan, so a better scan can
+replace it without orphaning anything, and the crop is still served as if it were
+its own image.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `media_id` | UUID v7 | FK → Media (cascade) |
+| `page` | i32 | Zero-based page of a multi-page document; `0` for a photo |
+| `x` | i32 | Crop origin, in the source image's own pixel coordinates |
+| `y` | i32 | |
+| `width` | i32 | |
+| `height` | i32 | |
+| `title` | String? | |
+| `person_id` | UUID v7? | FK → Person — who the region shows, if attributed |
+| `event_id` | UUID v7? | FK → Event — the event this region is evidence for |
+| `created_at` | DateTime | Auto |
+| `updated_at` | DateTime | Auto |
+
+No soft delete: a vignette is a coordinate annotation, not a record anyone cites,
+and a rectangle that does not fit its media is refused at write time — so a stored
+vignette always describes a region that exists.
 
 ### MediaLink
 
@@ -456,5 +496,8 @@ erDiagram
     Source ||--o{ Note : "has notes"
 
     Media ||--o{ MediaLink : "linked to"
+    Media ||--o{ Vignette : "cropped into"
+    Person ||--o{ Vignette : "shown in"
+    Event ||--o{ Vignette : "illustrated by"
 
 ```

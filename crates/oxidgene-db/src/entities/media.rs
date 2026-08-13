@@ -11,6 +11,12 @@ pub struct Model {
     pub file_name: String,
     pub mime_type: String,
     pub file_path: String,
+    pub storage_key: Option<String>,
+    pub sha256: Option<String>,
+    pub thumbnail_key: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub page_count: i32,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -38,6 +44,8 @@ pub enum Relation {
     Place,
     #[sea_orm(has_many = "super::media_link::Entity")]
     MediaLink,
+    #[sea_orm(has_many = "super::vignette::Entity")]
+    Vignette,
 }
 
 impl Related<super::tree::Entity> for Entity {
@@ -55,6 +63,12 @@ impl Related<super::place::Entity> for Entity {
 impl Related<super::media_link::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::MediaLink.def()
+    }
+}
+
+impl Related<super::vignette::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Vignette.def()
     }
 }
 

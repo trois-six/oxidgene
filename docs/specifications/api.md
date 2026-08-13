@@ -129,14 +129,37 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media` | List media (cursor-paginated) |
-| `POST` | `/trees/{tree_id}/media` | Create a media record (JSON metadata) |
+| `POST` | `/trees/{tree_id}/media` | Create a media record from JSON metadata — names a file without holding it |
+| `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one |
 | `GET` | `/trees/{tree_id}/media/{media_id}` | Get media metadata |
+| `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
+| `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px). `404` when the format cannot be rasterised — PDFs — so a gallery can fall back to an icon on the status alone |
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata |
-| `DELETE` | `/trees/{tree_id}/media/{media_id}` | Soft-delete media |
+| `DELETE` | `/trees/{tree_id}/media/{media_id}` | Soft-delete media. The bytes stay: content addressing means another record may share them, and a tree purge removes the directory |
 
-> **Planned (E.7 media management):** binary upload (`POST` multipart) and file download (`GET .../file`) endpoints are not implemented yet — today only metadata records exist; media binaries referenced by GEDZIP export must already be on disk at `file_path`.
+**Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 64 MiB — larger files are EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
+
+**Two paths, two purposes.** `file_path` is the GEDCOM `OBJE.FILE` value — the producer's own path, preserved verbatim so an export round-trips. `storage_key` is where OxidGene's copy lives, and is null for every GEDCOM-imported record until someone uploads the file. `POST .../media/upload` with a `media_id` is how that gap gets filled.
+
+**Storage.** Files live on the filesystem, content-addressed under `{tree_id}/{aa}/{bb}/{sha256}.{ext}`, rooted at `OXIDGENE_MEDIA_ROOT` (default: the platform user-data directory, `~/.local/share/oxidgene/media` on Linux). Keys are scoped per tree so deleting a tree is one directory removal. Object storage slots in behind the same `MediaStore` trait in EPIC H.
 
 Used by: [Person Edit Modal](ui-person-edit-modal.md) (media section)
+
+### Vignettes
+
+A vignette is a rectangle on a stored media file — one parish-register page carries entries for several unrelated families, and each is a crop rather than a copy. Coordinates are in the source image's own pixels, so re-scanning at a higher resolution does not orphan them.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/media/{media_id}/vignettes` | Vignettes on a media file, in page order |
+| `POST` | `/trees/{tree_id}/media/{media_id}/vignettes` | Create one. Body: `x`, `y`, `width`, `height` (required), `page`, `title`, `person_id`, `event_id` |
+| `GET` | `/trees/{tree_id}/vignettes?person_id=…` / `?event_id=…` | Vignettes attributed to a person, or standing as evidence for an event. Exactly one filter is required |
+| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}` | Get one |
+| `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move, retitle or re-attribute. The four rectangle fields travel together — all or none |
+| `DELETE` | `/trees/{tree_id}/vignettes/{vignette_id}` | Delete it. Hard delete; the media is untouched |
+| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read. `400` for a PDF — rasterising one needs a rendering engine OxidGene does not ship |
+
+A rectangle that does not fit the media it crops is a `400` at write time, so a stored vignette always describes a region that exists.
 
 ### Media Links
 
@@ -308,6 +331,11 @@ type Query {
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
   media(treeId: ID!, id: ID!): Media
 
+  # Vignettes
+  mediaVignettes(treeId: ID!, mediaId: ID!): [Vignette!]!
+  vignettes(treeId: ID!, personId: ID, eventId: ID): [Vignette!]!   # exactly one filter
+  vignette(treeId: ID!, id: ID!): Vignette
+
   # GEDCOM (export is a read — it lives on Query, not Mutation)
   exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedcomResult!
 
@@ -373,11 +401,17 @@ type Mutation {
   deleteCitation(treeId: ID!, id: ID!): Boolean!
 
   # Media
-  uploadMedia(treeId: ID!, input: UploadMediaInput!): Media!
+  uploadMedia(treeId: ID!, input: UploadMediaInput!): Media!          # metadata only
+  uploadMediaFile(treeId: ID!, input: UploadMediaFileInput!): Media!  # bytes, base64
   updateMedia(treeId: ID!, id: ID!, input: UpdateMediaInput!): Media!
   deleteMedia(treeId: ID!, id: ID!): Boolean!
   createMediaLink(treeId: ID!, input: CreateMediaLinkInput!): MediaLink!
   deleteMediaLink(treeId: ID!, id: ID!): Boolean!
+
+  # Vignettes
+  createVignette(input: CreateVignetteInput!): Vignette!
+  updateVignette(id: ID!, input: UpdateVignetteInput!): Vignette!
+  deleteVignette(id: ID!): Boolean!
 
   # Notes
   createNote(treeId: ID!, input: CreateNoteInput!): Note!
@@ -672,7 +706,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import |
 | Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Full | Page, text, confidence level |
-| Media (OBJE) | Metadata only | Metadata only | File path, MIME type, title. GEDZIP export bundles the referenced files |
+| Media (OBJE) | Metadata only | Metadata only | File path, MIME type, title. Binaries are uploaded and served separately (see Media above); GEDZIP export writes the GEDCOM alone — bundling the stored files is a Sprint F.1 follow-up |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes |
 | Cause (CAUS) | Full | Full | On any event |

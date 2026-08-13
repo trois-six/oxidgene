@@ -45,6 +45,7 @@ async fn main() {
         host = %cfg.host,
         port = %cfg.port,
         log_level = %cfg.log_level,
+        media_root = %cfg.media_root.display(),
         "Starting OxidGene server"
     );
 
@@ -61,7 +62,7 @@ async fn main() {
     });
 
     // ── Build application router ─────────────────────────────────────
-    let state = AppState::new(db);
+    let state = AppState::new(db, &cfg.media_root);
     let api_router = build_router(state);
 
     // CORS

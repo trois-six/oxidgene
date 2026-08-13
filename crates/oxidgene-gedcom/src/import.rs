@@ -209,6 +209,14 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             file_name,
             mime_type,
             file_path,
+            // A GEDCOM names a file; it does not carry one. Everything below
+            // stays empty until the bytes are uploaded and attached.
+            storage_key: None,
+            sha256: None,
+            thumbnail_key: None,
+            width: None,
+            height: None,
+            page_count: 1,
             file_size: 0, // Unknown from GEDCOM
             title: mm.title.clone(),
             description: None,
@@ -1662,6 +1670,12 @@ fn resolve_or_create_media(
             file_name,
             mime_type,
             file_path,
+            storage_key: None,
+            sha256: None,
+            thumbnail_key: None,
+            width: None,
+            height: None,
+            page_count: 1,
             file_size: 0,
             title: mm.title.clone(),
             description: None,
