@@ -793,3 +793,278 @@ async fn deleting_a_tree_takes_its_media_files_with_it() {
         "a purged tree should not leave its scans on disk"
     );
 }
+
+// ── Gallery listing & profile photo (Sprint F.2) ────────────────────
+
+/// Create a person and return its id.
+async fn person(h: &Harness) -> String {
+    let (status, person) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/persons", h.tree_id),
+        Some(json!({"sex": "female"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{person}");
+    person["id"].as_str().unwrap().to_string()
+}
+
+/// Upload a photo, attach it to `person_id`, and return (media_id, link_id).
+async fn attach_photo(h: &Harness, person_id: &str, name: &str) -> (String, String) {
+    let (_, media) = upload(&h.app, h.tree_id, &[("file", Some(name), &png(240, 180))]).await;
+    let media_id = media["id"].as_str().unwrap().to_string();
+
+    let (status, link) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media-links", h.tree_id),
+        Some(json!({"media_id": media_id, "person_id": person_id, "sort_order": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{link}");
+    (media_id, link["id"].as_str().unwrap().to_string())
+}
+
+#[tokio::test]
+async fn one_request_returns_a_person_gallery_with_everything_a_tile_needs() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (media_id, link_id) = attach_photo(&h, &person_id, "portrait.png").await;
+
+    let (status, listed) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media-links?entity_type=person&entity_id={person_id}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let rows = listed.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{listed}");
+    let row = &rows[0];
+    assert_eq!(row["link_id"], link_id.as_str());
+    assert_eq!(row["id"], media_id.as_str(), "the media is flattened in");
+    assert_eq!(row["is_profile"], false);
+    // The three things a tile cannot be drawn without.
+    assert_eq!(row["mime_type"], "image/png");
+    assert!(row["thumbnail_key"].is_string());
+    assert_eq!(row["page_count"], 1);
+}
+
+#[tokio::test]
+async fn a_gallery_does_not_show_another_persons_photos() {
+    let h = setup().await;
+    let a = person(&h).await;
+    let b = person(&h).await;
+    attach_photo(&h, &a, "a.png").await;
+
+    let (_, listed) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media-links?entity_type=person&entity_id={b}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert!(listed.as_array().unwrap().is_empty(), "{listed}");
+}
+
+#[tokio::test]
+async fn a_soft_deleted_media_leaves_the_gallery() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
+
+    let (status, _) = json_request(
+        &h.app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, listed) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media-links?entity_type=person&entity_id={person_id}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert!(
+        listed.as_array().unwrap().is_empty(),
+        "the link survives the soft delete; the tile must not: {listed}"
+    );
+}
+
+#[tokio::test]
+async fn setting_a_profile_photo_unsets_the_previous_one() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (_, first) = attach_photo(&h, &person_id, "first.png").await;
+    let (_, second) = attach_photo(&h, &person_id, "second.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    for link in [&first, &second] {
+        let (status, body) = json_request(
+            &h.app,
+            Method::PUT,
+            &format!("{base}/media-links/{link}/profile"),
+            Some(json!({"is_profile": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    let (_, listed) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/media-links?entity_type=person&entity_id={person_id}"),
+        None,
+    )
+    .await;
+    let starred: Vec<&Value> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["is_profile"] == true)
+        .collect();
+    assert_eq!(starred.len(), 1, "at most one star per person: {listed}");
+    assert_eq!(starred[0]["link_id"], second.as_str());
+}
+
+#[tokio::test]
+async fn a_profile_photo_can_be_cleared() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (_, link) = attach_photo(&h, &person_id, "photo.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/media-links/{link}/profile"),
+        Some(json!({"is_profile": true})),
+    )
+    .await;
+    let (status, cleared) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/media-links/{link}/profile"),
+        Some(json!({"is_profile": false})),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(cleared["is_profile"], false);
+}
+
+#[tokio::test]
+async fn a_media_attached_to_nobody_cannot_be_a_profile_photo() {
+    let h = setup().await;
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("orphan.png"), &png(100, 100))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    // A link to a family, not a person: a couple's card shows its spouses'
+    // portraits, so there is no family profile photo to set.
+    let (status, family) =
+        json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
+    assert_eq!(status, StatusCode::CREATED, "{family}");
+    let (_, link) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media-links"),
+        Some(json!({"media_id": media_id, "family_id": family["id"], "sort_order": 0})),
+    )
+    .await;
+
+    let (status, body) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!(
+            "{base}/media-links/{}/profile",
+            link["id"].as_str().unwrap()
+        ),
+        Some(json!({"is_profile": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn an_unknown_entity_type_is_refused() {
+    let h = setup().await;
+    let (status, body) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media-links?entity_type=elephant&entity_id={}",
+            h.tree_id, h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn the_unfiltered_list_is_still_the_tree_wide_one() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    attach_photo(&h, &person_id, "photo.png").await;
+
+    let (status, listed) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media-links", h.tree_id),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let rows = listed.as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0]["entity_type"], "person",
+        "the pedigree canvas reads this shape: {listed}"
+    );
+}
+
+#[tokio::test]
+async fn detaching_a_media_leaves_the_file_alone() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (media_id, link_id) = attach_photo(&h, &person_id, "shared.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (status, _) = json_request(
+        &h.app,
+        Method::DELETE,
+        &format!("{base}/media-links/{link_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _, _) = raw(&h.app, &format!("{base}/media/{media_id}/file"), &[]).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the file may document three other people"
+    );
+}

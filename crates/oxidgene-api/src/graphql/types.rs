@@ -1495,6 +1495,15 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
     }
 }
 
+/// A media together with the link that attached it — one gallery tile.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaWithLink {
+    pub link_id: ID,
+    pub sort_order: i32,
+    pub is_profile: bool,
+    pub media: GqlMedia,
+}
+
 // ── Vignette ─────────────────────────────────────────────────────────
 
 /// A rectangular region of a media file, kept as coordinates rather than as a

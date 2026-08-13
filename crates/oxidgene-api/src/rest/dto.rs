@@ -421,6 +421,31 @@ pub struct MediaLinkListRow {
     pub file_name: String,
 }
 
+/// Query parameters for listing one entity's media.
+#[derive(Debug, Deserialize)]
+pub struct MediaLinkListQuery {
+    /// `person`, `family`, `event` or `source`. Absent means the tree-wide
+    /// list, which is what the pedigree canvas asks for.
+    pub entity_type: Option<String>,
+    pub entity_id: Option<uuid::Uuid>,
+}
+
+/// Request body for setting or clearing a link's profile flag.
+#[derive(Debug, Deserialize)]
+pub struct SetProfileMediaLinkRequest {
+    pub is_profile: bool,
+}
+
+/// A media together with the link that attached it — one gallery tile.
+#[derive(Debug, Serialize)]
+pub struct MediaWithLink {
+    pub link_id: uuid::Uuid,
+    pub sort_order: i32,
+    pub is_profile: bool,
+    #[serde(flatten)]
+    pub media: oxidgene_core::types::Media,
+}
+
 /// Request body for creating a media link.
 #[derive(Debug, Deserialize)]
 pub struct CreateMediaLinkRequest {

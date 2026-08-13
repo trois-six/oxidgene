@@ -8,7 +8,7 @@
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, SearchResult};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse,
-    Note, Person, PersonName, Place, Source, Tree,
+    Media, Note, Person, PersonName, Place, Source, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
@@ -383,6 +383,113 @@ pub struct MediaLinkRow {
     pub media_id: uuid::Uuid,
     pub file_path: String,
     pub file_name: String,
+}
+
+/// A media together with the link that attached it — one gallery tile.
+///
+/// Mirrors `MediaWithLink` on the API side, which flattens the media, so the
+/// media's own fields sit at the top level here too.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MediaWithLink {
+    pub link_id: uuid::Uuid,
+    pub sort_order: i32,
+    pub is_profile: bool,
+    #[serde(flatten)]
+    pub media: Media,
+}
+
+impl MediaWithLink {
+    /// Whether this tile can be shown as a picture rather than a file icon.
+    pub fn is_image(&self) -> bool {
+        self.media.mime_type.starts_with("image/")
+    }
+
+    /// A short badge for the file type — "PDF", "JPEG", "TIFF".
+    pub fn kind_label(&self) -> String {
+        self.media
+            .mime_type
+            .rsplit('/')
+            .next()
+            .unwrap_or("file")
+            .trim_start_matches("x-")
+            .to_uppercase()
+    }
+
+    /// What to write under a tile: the title if there is one, else the file name.
+    pub fn caption(&self) -> &str {
+        match self.media.title.as_deref() {
+            Some(title) if !title.trim().is_empty() => title,
+            _ => &self.media.file_name,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateMediaLinkBody {
+    pub media_id: uuid::Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SetProfileMediaLinkBody {
+    pub is_profile: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateMediaBody {
+    /// `Some(None)` clears the field, absent leaves it alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<Option<String>>,
+}
+
+// ── Vignette DTOs ────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct CreateVignetteBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<i32>,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<uuid::Uuid>,
+}
+
+/// The four rectangle fields travel together — send all or none.
+#[derive(Debug, Default, Serialize)]
+pub struct UpdateVignetteBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_id: Option<Option<uuid::Uuid>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<Option<uuid::Uuid>>,
 }
 
 // ── Import / export DTOs ────────────────────────────────────────────
@@ -1717,6 +1824,89 @@ impl ApiClient {
         Ok(())
     }
 
+    // ── Media ───────────────────────────────────────────────────────
+
+    /// Absolute URL of a media's stored bytes.
+    ///
+    /// Returned as a URL rather than as bytes because these go straight into
+    /// an `<img src>`: letting the engine fetch them means it also gets the
+    /// `ETag` revalidation the endpoint offers, which pulling them through
+    /// this client would throw away.
+    pub fn media_file_url(&self, tree_id: Uuid, media_id: Uuid) -> String {
+        self.url(&format!("/api/v1/trees/{tree_id}/media/{media_id}/file"))
+    }
+
+    /// Absolute URL of a media's generated thumbnail.
+    pub fn media_thumbnail_url(&self, tree_id: Uuid, media_id: Uuid) -> String {
+        self.url(&format!(
+            "/api/v1/trees/{tree_id}/media/{media_id}/thumbnail"
+        ))
+    }
+
+    /// Absolute URL of a vignette's cropped image.
+    pub fn vignette_image_url(&self, tree_id: Uuid, vignette_id: Uuid) -> String {
+        self.url(&format!(
+            "/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"
+        ))
+    }
+
+    /// Upload a file and record it.
+    ///
+    /// `attach_to` fills in an existing record that named a file without
+    /// holding it — the state every GEDCOM import leaves behind — instead of
+    /// creating a new one.
+    pub async fn upload_media(
+        &self,
+        tree_id: Uuid,
+        file_name: &str,
+        bytes: Vec<u8>,
+        title: Option<&str>,
+        description: Option<&str>,
+        attach_to: Option<Uuid>,
+    ) -> Result<Media, ApiError> {
+        let url = self.url(&format!("/api/v1/trees/{tree_id}/media/upload"));
+        tracing::debug!("POST {url} ({} bytes, {file_name})", bytes.len());
+
+        let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name.to_string());
+        let mut form = reqwest::multipart::Form::new().part("file", part);
+        if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
+            form = form.text("title", title.to_string());
+        }
+        if let Some(description) = description.map(str::trim).filter(|d| !d.is_empty()) {
+            form = form.text("description", description.to_string());
+        }
+        if let Some(media_id) = attach_to {
+            form = form.text("media_id", media_id.to_string());
+        }
+
+        let resp = self.client.post(&url).multipart(form).send().await?;
+        let media = Self::handle_response(&url, "POST", resp).await?;
+        self.invalidate_tree(tree_id);
+        Ok(media)
+    }
+
+    /// Update a media's title and description.
+    pub async fn update_media(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        body: &UpdateMediaBody,
+    ) -> Result<Media, ApiError> {
+        let media = self
+            .put(&format!("/api/v1/trees/{tree_id}/media/{media_id}"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(media)
+    }
+
+    /// Soft-delete a media record. The stored bytes stay.
+    pub async fn delete_media(&self, tree_id: Uuid, media_id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/media/{media_id}"))
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
+    }
+
     // ── MediaLinks ──────────────────────────────────────────────────
 
     /// Fetch all media links for persons in a tree (for photo display).
@@ -1726,6 +1916,135 @@ impl ApiClient {
     ) -> Result<Vec<MediaLinkRow>, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/media-links"))
             .await
+    }
+
+    /// Every media attached to one entity — a person, a family, an event or a
+    /// source — with the link that attached it.
+    pub async fn list_entity_media(
+        &self,
+        tree_id: Uuid,
+        entity_type: &str,
+        entity_id: Uuid,
+    ) -> Result<Vec<MediaWithLink>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/media-links?entity_type={entity_type}&entity_id={entity_id}"
+        ))
+        .await
+    }
+
+    /// Attach a media to an entity.
+    pub async fn create_media_link(
+        &self,
+        tree_id: Uuid,
+        body: &CreateMediaLinkBody,
+    ) -> Result<serde_json::Value, ApiError> {
+        let link = self
+            .post(&format!("/api/v1/trees/{tree_id}/media-links"), body)
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(link)
+    }
+
+    /// Detach a media from an entity. The media itself is untouched.
+    pub async fn delete_media_link(&self, tree_id: Uuid, link_id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/media-links/{link_id}"))
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
+    }
+
+    /// Make a link the person's profile image, or clear the flag.
+    pub async fn set_profile_media_link(
+        &self,
+        tree_id: Uuid,
+        link_id: Uuid,
+        is_profile: bool,
+    ) -> Result<serde_json::Value, ApiError> {
+        let link = self
+            .put(
+                &format!("/api/v1/trees/{tree_id}/media-links/{link_id}/profile"),
+                &SetProfileMediaLinkBody { is_profile },
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(link)
+    }
+
+    // ── Vignettes ───────────────────────────────────────────────────
+
+    /// Every crop recorded on a media file, in page order.
+    pub async fn list_media_vignettes(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<Vec<Vignette>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/media/{media_id}/vignettes"
+        ))
+        .await
+    }
+
+    /// Crops attributed to a person.
+    pub async fn list_person_vignettes(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<Vec<Vignette>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/vignettes?person_id={person_id}"
+        ))
+        .await
+    }
+
+    /// Crops standing as evidence for an event.
+    pub async fn list_event_vignettes(
+        &self,
+        tree_id: Uuid,
+        event_id: Uuid,
+    ) -> Result<Vec<Vignette>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/vignettes?event_id={event_id}"
+        ))
+        .await
+    }
+
+    pub async fn create_vignette(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        body: &CreateVignetteBody,
+    ) -> Result<Vignette, ApiError> {
+        let vignette = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/media/{media_id}/vignettes"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(vignette)
+    }
+
+    pub async fn update_vignette(
+        &self,
+        tree_id: Uuid,
+        vignette_id: Uuid,
+        body: &UpdateVignetteBody,
+    ) -> Result<Vignette, ApiError> {
+        let vignette = self
+            .put(
+                &format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}"),
+                body,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(vignette)
+    }
+
+    pub async fn delete_vignette(&self, tree_id: Uuid, vignette_id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}"))
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     // ── Import / export ─────────────────────────────────────────────

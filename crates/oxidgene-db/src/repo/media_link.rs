@@ -1,12 +1,34 @@
 //! Repository for `MediaLink` junction table (create/delete only).
 
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::MediaLink;
+use oxidgene_core::types::{Media, MediaLink};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ConnectionTrait, QueryFilter, Set};
+use sea_orm::{ConnectionTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::media_link::{self, Column, Entity};
+
+/// Which of a media link's four nullable targets to match on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaLinkTarget {
+    Person,
+    Family,
+    Event,
+    Source,
+}
+
+impl MediaLinkTarget {
+    /// Parse the wire spelling used by REST query parameters and GraphQL.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "person" => Some(Self::Person),
+            "family" => Some(Self::Family),
+            "event" => Some(Self::Event),
+            "source" => Some(Self::Source),
+            _ => None,
+        }
+    }
+}
 
 /// Flat row for the bulk media-links query.
 #[derive(Debug)]
@@ -131,6 +153,108 @@ impl MediaLinkRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         Ok(models.into_iter().map(into_domain).collect())
+    }
+
+    /// Every media attached to one entity, with the media itself.
+    ///
+    /// The gallery needs the link (for its id, order and profile flag) *and*
+    /// the media (for its MIME type, title and whether a thumbnail exists) at
+    /// once; fetching them separately would be two round trips to render one
+    /// grid. `entity` is the column to match — `person_id`, `family_id`,
+    /// `event_id` or `source_id`.
+    pub async fn list_with_media(
+        db: &impl ConnectionTrait,
+        entity: MediaLinkTarget,
+        entity_id: Uuid,
+    ) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
+        let column = match entity {
+            MediaLinkTarget::Person => Column::PersonId,
+            MediaLinkTarget::Family => Column::FamilyId,
+            MediaLinkTarget::Event => Column::EventId,
+            MediaLinkTarget::Source => Column::SourceId,
+        };
+        let rows = Entity::find()
+            .filter(column.eq(entity_id))
+            .find_also_related(crate::entities::media::Entity)
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::Id)
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(link, media)| {
+                // A soft-deleted media keeps its links; the gallery should not
+                // show it, and dropping it here beats every caller remembering.
+                let media = media.filter(|m| m.deleted_at.is_none())?;
+                Some((into_domain(link), crate::repo::media::into_domain(media)))
+            })
+            .collect())
+    }
+
+    /// Make one link the profile image for whatever it is attached to.
+    ///
+    /// Clears the flag on the entity's other links in the same breath — the
+    /// invariant is "at most one per person", and leaving that to two calls
+    /// means a failure between them shows two stars in the tree. Callers pass a
+    /// transaction when the surrounding write must be atomic with it.
+    pub async fn set_profile(
+        db: &impl ConnectionTrait,
+        link_id: Uuid,
+    ) -> Result<MediaLink, OxidGeneError> {
+        let link = Entity::find_by_id(link_id)
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .ok_or(OxidGeneError::NotFound {
+                entity: "MediaLink",
+                id: link_id,
+            })?;
+
+        let Some(person_id) = link.person_id else {
+            return Err(OxidGeneError::Validation(
+                "only a link to a person can be a profile image".into(),
+            ));
+        };
+
+        Entity::update_many()
+            .col_expr(Column::IsProfile, sea_orm::sea_query::Expr::value(false))
+            .filter(Column::PersonId.eq(person_id))
+            .filter(Column::Id.ne(link_id))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        let mut active: media_link::ActiveModel = link.into();
+        active.is_profile = Set(true);
+        let result = active
+            .update(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(into_domain(result))
+    }
+
+    /// Clear the profile flag on a link, leaving the person without one.
+    pub async fn clear_profile(
+        db: &impl ConnectionTrait,
+        link_id: Uuid,
+    ) -> Result<MediaLink, OxidGeneError> {
+        let link = Entity::find_by_id(link_id)
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .ok_or(OxidGeneError::NotFound {
+                entity: "MediaLink",
+                id: link_id,
+            })?;
+        let mut active: media_link::ActiveModel = link.into();
+        active.is_profile = Set(false);
+        let result = active
+            .update(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(into_domain(result))
     }
 
     /// Create a media link.

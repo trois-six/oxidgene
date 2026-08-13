@@ -4,15 +4,16 @@ use async_graphql::{Context, ID, Object, Result};
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    AncestryRepo, EventFilter, EventRepo, FamilyRepo, MediaRepo, PaginationParams, PersonRepo,
-    PlaceRepo, SourceRepo, TreeRepo, VignetteRepo,
+    AncestryRepo, EventFilter, EventRepo, FamilyRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo,
+    PaginationParams, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, VignetteRepo,
 };
 
 use super::types::{
     GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult, GqlFamily,
-    GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlPedigree, GqlPerson, GqlPersonConnection,
-    GqlPersonProfile, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlSearchResult, GqlSource,
-    GqlSourceConnection, GqlTree, GqlTreeConnection, GqlVignette, db_from_ctx, profiles_from_ctx,
+    GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlMediaWithLink, GqlPedigree, GqlPerson,
+    GqlPersonConnection, GqlPersonProfile, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
+    GqlSearchResult, GqlSource, GqlSourceConnection, GqlTree, GqlTreeConnection, GqlVignette,
+    db_from_ctx, profiles_from_ctx,
 };
 
 /// The root query type.
@@ -301,6 +302,37 @@ impl QueryRoot {
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Every media attached to one entity, with its link.
+    ///
+    /// `entityType` is `person`, `family`, `event` or `source`. Mirrors
+    /// `GET /trees/{treeId}/media-links?entity_type=…&entity_id=…`.
+    async fn entity_media(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        entity_type: String,
+        entity_id: ID,
+    ) -> Result<Vec<GqlMediaWithLink>> {
+        let db = db_from_ctx(ctx);
+        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let target = MediaLinkTarget::parse(&entity_type).ok_or_else(|| {
+            async_graphql::Error::new(format!(
+                "unknown entityType `{entity_type}`; expected person, family, event or source"
+            ))
+        })?;
+        let rows = MediaLinkRepo::list_with_media(db, target, Uuid::parse_str(entity_id.as_str())?)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(link, media)| GqlMediaWithLink {
+                link_id: ID(link.id.to_string()),
+                sort_order: link.sort_order,
+                is_profile: link.is_profile,
+                media: media.into(),
+            })
+            .collect())
     }
 
     // ── Vignettes ────────────────────────────────────────────────────

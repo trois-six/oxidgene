@@ -18,6 +18,7 @@ use crate::api::{
     UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
+use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::i18n::use_i18n;
 use crate::utils::{
     event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
@@ -182,6 +183,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let open_death = use_signal(|| true);
     let open_privacy = use_signal(|| true);
     let open_events = use_signal(|| true);
+    let open_media = use_signal(|| true);
 
     // ── UI state ──
     let mut saving = use_signal(|| false);
@@ -448,6 +450,27 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 )
             })
             .map(|e| e.node.clone())
+            .collect(),
+        _ => vec![],
+    };
+
+    // Every event of this person, as (id, label) pairs — what the media
+    // gallery offers when asking which event a file or a crop documents.
+    let event_choices: Vec<(Uuid, String)> = match &*events_resource.read() {
+        Some(Ok(conn)) => conn
+            .edges
+            .iter()
+            .map(|e| {
+                let ev = &e.node;
+                let kind = i18n.t(event_type_label_key(ev.event_type));
+                let date = format_event_date(&i18n, ev);
+                let label = if date.is_empty() {
+                    kind
+                } else {
+                    format!("{kind} — {date}")
+                };
+                (ev.id, label)
+            })
             .collect(),
         _ => vec![],
     };
@@ -1737,6 +1760,22 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         }
                         }
                     } // end Other Events if !is_create
+
+                    // ── Media (edit mode only) ──
+                    // Create mode has no person id yet, and therefore nothing
+                    // a media link could point at. The section appears on the
+                    // first save.
+                    if !is_create {
+                        FormSection {
+                            title: i18n.t("media.section"),
+                            open: open_media,
+                            MediaGallery {
+                                tree_id: tid,
+                                owner: MediaOwner::Person(pid),
+                                events: event_choices.clone(),
+                            }
+                        }
+                    }
 
                     // ── Delete Person (edit mode only) ──
                     // No section header: the button says what it does, and a
