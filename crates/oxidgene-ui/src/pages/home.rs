@@ -232,7 +232,7 @@ pub fn Home() -> Element {
 
                         // Sort
                         match sort.as_str() {
-                            "name" => filtered.sort_by_key(|a| a.node.name.to_lowercase()),
+                            "name" => filtered.sort_by_cached_key(|a| a.node.name.to_lowercase()),
                             _ => filtered.sort_by_key(|b| std::cmp::Reverse(b.node.updated_at)),
                         }
 

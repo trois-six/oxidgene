@@ -9,7 +9,17 @@
 /// This is a simple implementation that handles common Latin diacritics.
 /// For more comprehensive accent folding, consider using the `deunicode` crate.
 pub fn normalize_for_search(s: &str) -> String {
-    s.to_lowercase().chars().map(fold_accent).collect()
+    // One pass instead of `to_lowercase()` followed by a fold: the intermediate
+    // lowercased `String` was pure overhead. `char::to_lowercase` yields an
+    // iterator because a few characters lowercase to several (`İ` becomes `i`
+    // plus a combining dot), hence the `flat_map`.
+    //
+    // Unlike `str::to_lowercase` this does not special-case Greek final sigma
+    // (`Σ` folds to `σ` here rather than `ς`). Harmless: stored tokens and query
+    // tokens both come through this function, so the two sides still agree.
+    let mut out = String::with_capacity(s.len());
+    out.extend(s.chars().flat_map(char::to_lowercase).map(fold_accent));
+    out
 }
 
 /// Fold a single accented character to its ASCII equivalent.
