@@ -190,7 +190,7 @@ impl DictionaryRepo {
                 (into_source(m), count)
             })
             .collect();
-        out.sort_by_key(|(a, _)| a.title.to_lowercase());
+        out.sort_by_cached_key(|(a, _)| a.title.to_lowercase());
         Ok(out)
     }
 
@@ -352,7 +352,7 @@ impl DictionaryRepo {
                 (into_place(m), count)
             })
             .collect();
-        out.sort_by_key(|(a, _)| a.name.to_lowercase());
+        out.sort_by_cached_key(|(a, _)| a.name.to_lowercase());
         Ok(out)
     }
 
@@ -641,11 +641,7 @@ impl DictionaryRepo {
                 }
             })
             .collect();
-        out.sort_by(|a, b| {
-            let ka = a.given_names.as_deref().unwrap_or("").to_lowercase();
-            let kb = b.given_names.as_deref().unwrap_or("").to_lowercase();
-            ka.cmp(&kb)
-        });
+        out.sort_by_cached_key(|p| p.given_names.as_deref().unwrap_or("").to_lowercase());
         Ok(out)
     }
 }
@@ -675,7 +671,7 @@ fn sorted_entries_with(
             count: ids.len() as i64,
         })
         .collect();
-    out.sort_by_key(|a| a.value.to_lowercase());
+    out.sort_by_cached_key(|a| a.value.to_lowercase());
     out
 }
 
