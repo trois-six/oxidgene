@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A media file (image, PDF, video, etc.).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `PartialEq` so Dioxus props holding one can diff — a gallery tile is keyed
+/// on the media it shows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Media {
     pub id: Uuid,
     pub tree_id: Uuid,
@@ -41,7 +44,7 @@ pub struct Media {
 }
 
 /// A link between a media item and a person, event, source, or family.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaLink {
     pub id: Uuid,
     pub media_id: Uuid,
@@ -62,7 +65,7 @@ pub struct MediaLink {
 /// Recording each entry as a rectangle on the single stored scan means the
 /// scan is stored once, a better scan can replace it without orphaning
 /// anything, and the crop can still be served as if it were its own image.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Vignette {
     pub id: Uuid,
     /// The media this is a region of.

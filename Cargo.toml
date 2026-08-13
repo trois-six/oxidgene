@@ -115,7 +115,7 @@ config = "0.15"
 dioxus = "0.7"
 
 # HTTP client
-reqwest = { version = "0.13", features = ["json", "query"] }
+reqwest = { version = "0.13", features = ["json", "multipart", "query"] }
 
 # Platform directories
 dirs = "6"

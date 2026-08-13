@@ -41,7 +41,7 @@ pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;
 pub use family_spouse::FamilySpouseRepo;
 pub use media::{MediaRepo, UploadedMedia};
-pub use media_link::{MediaLinkRepo, MediaLinkRow};
+pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 pub use note::NoteRepo;
 pub use pagination::PaginationParams;
 pub use person::PersonRepo;
