@@ -258,9 +258,17 @@ pub fn surname_sort_key(particle: Option<&str>, root: &str, include_particle: bo
 /// [`HEAD_PARTICLES`] token already opened the run, which is the only position
 /// where a bare article counts.
 fn is_particle(token: &str, after_head: bool) -> bool {
-    let lowered = token.to_lowercase();
-    HEAD_PARTICLES.contains(&lowered.as_str())
-        || (after_head && TAIL_PARTICLES.contains(&lowered.as_str()))
+    list_contains(HEAD_PARTICLES, token) || (after_head && list_contains(TAIL_PARTICLES, token))
+}
+
+/// Case-insensitive membership test against one of the particle lists.
+///
+/// Every entry in those lists is ASCII, so an ASCII-only fold decides this
+/// exactly: a token holding a non-ASCII byte cannot equal any entry, and
+/// `eq_ignore_ascii_case` already reports that. This replaces a
+/// `token.to_lowercase()` that allocated once per token examined.
+fn list_contains(list: &[&str], token: &str) -> bool {
+    list.iter().any(|entry| entry.eq_ignore_ascii_case(token))
 }
 
 /// Splits `l'Étang` into `("l'", "Étang")`, or returns `None` when the token
@@ -274,9 +282,8 @@ fn split_elided(token: &str, after_head: bool) -> Option<(&str, &str)> {
     // `rest` starts with the apostrophe, which belongs to the particle.
     let apostrophe_len = rest.chars().next()?.len_utf8();
     let (apostrophe, root) = rest.split_at(apostrophe_len);
-    let lowered = head.to_lowercase();
-    let is_elided_particle = HEAD_ELIDED_PARTICLES.contains(&lowered.as_str())
-        || (after_head && TAIL_ELIDED_PARTICLES.contains(&lowered.as_str()));
+    let is_elided_particle = list_contains(HEAD_ELIDED_PARTICLES, head)
+        || (after_head && list_contains(TAIL_ELIDED_PARTICLES, head));
     if root.is_empty() || !is_elided_particle {
         return None;
     }
@@ -413,6 +420,21 @@ mod tests {
         assert_eq!(
             split_surname_particle("de la"),
             (Some("de".into()), "la".into())
+        );
+    }
+
+    #[test]
+    fn an_accented_lookalike_is_not_a_particle() {
+        // Guards the ASCII-only fold in `list_contains`: matching must stay
+        // exact, so a token that merely resembles a particle once its accents
+        // are stripped keeps its place in the root.
+        assert_eq!(
+            split_surname_particle("Dé Branch"),
+            (None, "Dé Branch".into())
+        );
+        assert_eq!(
+            split_surname_particle("Vàn Branch"),
+            (None, "Vàn Branch".into())
         );
     }
 
