@@ -10,10 +10,10 @@ use oxidgene_db::repo::{
 
 use super::types::{
     GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult, GqlFamily,
-    GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlMediaWithLink, GqlPedigree, GqlPerson,
-    GqlPersonConnection, GqlPersonProfile, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
-    GqlSearchResult, GqlSource, GqlSourceConnection, GqlTree, GqlTreeConnection, GqlVignette,
-    db_from_ctx, profiles_from_ctx,
+    GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlMediaLink, GqlMediaWithLink, GqlPedigree,
+    GqlPerson, GqlPersonConnection, GqlPersonProfile, GqlPersonWithDepth, GqlPlace,
+    GqlPlaceConnection, GqlSearchResult, GqlSource, GqlSourceConnection, GqlTree,
+    GqlTreeConnection, GqlVignette, db_from_ctx, profiles_from_ctx,
 };
 
 /// The root query type.
@@ -333,6 +333,36 @@ impl QueryRoot {
                 media: media.into(),
             })
             .collect())
+    }
+
+    /// Everything one media file is attached to.
+    ///
+    /// The other direction from `entityMedia`: what lets a media's own panel
+    /// say which events it documents. Mirrors
+    /// `GET /trees/{treeId}/media-links?media_id=…`.
+    async fn media_links(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        media_id: ID,
+    ) -> Result<Vec<GqlMediaLink>> {
+        let db = db_from_ctx(ctx);
+        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let links = MediaLinkRepo::list_by_media(db, Uuid::parse_str(media_id.as_str())?).await?;
+        Ok(links.into_iter().map(Into::into).collect())
+    }
+
+    /// The pages of a multi-page document, in order.
+    async fn media_pages(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        media_id: ID,
+    ) -> Result<Vec<GqlMedia>> {
+        let db = db_from_ctx(ctx);
+        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let pages = MediaRepo::list_pages(db, Uuid::parse_str(media_id.as_str())?).await?;
+        Ok(pages.into_iter().map(Into::into).collect())
     }
 
     // ── Vignettes ────────────────────────────────────────────────────

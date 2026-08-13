@@ -360,12 +360,50 @@ pub struct CreateMediaRequest {
 }
 
 /// Request body for updating media metadata.
+///
+/// A media carries the same descriptive fields a fact does — a date with its
+/// qualifier and calendar, a place, a description — because "a photograph taken
+/// around 1890 at Nantes" is the same kind of statement as an event. There is
+/// deliberately **no source field**: a media *is* a source document, and asking
+/// which source backs a scan of a parish register asks it to cite itself.
+///
+/// `date_sort` is absent on purpose: the server derives it from `calendar` +
+/// `date_value`, exactly as it does for an event.
 #[derive(Debug, Deserialize)]
 pub struct UpdateMediaRequest {
     #[serde(default, deserialize_with = "double_option")]
     pub title: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub date_value: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub date_value2: Option<Option<String>>,
+    pub date_qualifier: Option<DateQualifier>,
+    pub calendar: Option<Calendar>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub place_id: Option<Option<uuid::Uuid>>,
+    /// Where the file is. For a remote media this is the URL, and editing it is
+    /// how a broken link gets fixed. Ignored for a media whose bytes we hold —
+    /// there `file_path` is the GEDCOM value an export writes back, and
+    /// repointing it would make the export lie about a file we are serving.
+    pub file_path: Option<String>,
+    /// Only meaningful alongside a `file_path` we cannot sniff. Left out, the
+    /// server guesses from the URL's extension.
+    pub mime_type: Option<String>,
+}
+
+/// Request body for creating an empty multi-page document.
+#[derive(Debug, Deserialize)]
+pub struct CreateDocumentRequest {
+    pub title: Option<String>,
+}
+
+/// Request body for setting a document's page order.
+#[derive(Debug, Deserialize)]
+pub struct ReorderPagesRequest {
+    /// Exactly this document's pages, once each, in the wanted order.
+    pub page_ids: Vec<uuid::Uuid>,
 }
 
 // ── Vignette DTOs ───────────────────────────────────────────────────
@@ -414,20 +452,31 @@ pub struct UpdateVignetteRequest {
 /// Row returned by the bulk media-links endpoint.
 #[derive(Debug, Serialize)]
 pub struct MediaLinkListRow {
+    pub link_id: uuid::Uuid,
     pub entity_id: uuid::Uuid,
+    /// `person` or `event` — which of the link's targets this row is about.
     pub entity_type: String,
     pub media_id: uuid::Uuid,
     pub file_path: String,
     pub file_name: String,
+    pub mime_type: String,
+    /// Whether a thumbnail was generated; the caller draws an icon otherwise.
+    pub has_thumbnail: bool,
 }
 
-/// Query parameters for listing one entity's media.
+/// Query parameters for the media-links list, which answers three questions.
+///
+/// With neither filter it is the tree-wide list the pedigree canvas and the
+/// profile timeline read. With `entity_type` + `entity_id` it is one entity's
+/// gallery. With `media_id` it is the other direction — everything one file is
+/// attached to, which is what lets a media say which events it documents.
 #[derive(Debug, Deserialize)]
 pub struct MediaLinkListQuery {
-    /// `person`, `family`, `event` or `source`. Absent means the tree-wide
-    /// list, which is what the pedigree canvas asks for.
+    /// `person`, `family`, `event` or `source`.
     pub entity_type: Option<String>,
     pub entity_id: Option<uuid::Uuid>,
+    /// Look the other way round: the links of one media.
+    pub media_id: Option<uuid::Uuid>,
 }
 
 /// Request body for setting or clearing a link's profile flag.
@@ -467,6 +516,7 @@ pub struct NoteListQuery {
     pub event_id: Option<uuid::Uuid>,
     pub family_id: Option<uuid::Uuid>,
     pub source_id: Option<uuid::Uuid>,
+    pub media_id: Option<uuid::Uuid>,
 }
 
 /// Request body for creating a note.
@@ -477,6 +527,9 @@ pub struct CreateNoteRequest {
     pub event_id: Option<uuid::Uuid>,
     pub family_id: Option<uuid::Uuid>,
     pub source_id: Option<uuid::Uuid>,
+    /// The media this note is about — distinct from the media's own
+    /// description, which is the caption shown under its tile.
+    pub media_id: Option<uuid::Uuid>,
 }
 
 /// Request body for updating a note.

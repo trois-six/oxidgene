@@ -10,12 +10,16 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::Media;
-use oxidgene_db::repo::{MediaRepo, PaginationParams, UploadedMedia};
+use oxidgene_db::repo::{MediaPatch, MediaRepo, PaginationParams, UploadedMedia};
 use uuid::Uuid;
 
 use crate::media::{self, MAX_UPLOAD_BYTES};
+use crate::service::event_date;
 
-use super::dto::{CreateMediaRequest, PaginationQuery, UpdateMediaRequest};
+use super::dto::{
+    CreateDocumentRequest, CreateMediaRequest, PaginationQuery, ReorderPagesRequest,
+    UpdateMediaRequest,
+};
 use super::error::ApiError;
 use super::state::AppState;
 
@@ -83,10 +87,142 @@ pub async fn update_media(
     Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMediaRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let media = MediaRepo::update(&state.db, media_id, body.title, body.description)
+    let stored = MediaRepo::get(&state.db, media_id)
+        .await
+        .map_err(ApiError::from)?;
+    let patch = media_patch(&stored, body)?;
+    let media = MediaRepo::update(&state.db, media_id, patch)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(media).unwrap()))
+}
+
+/// Turn an update request into a repo patch, deriving what the client may not
+/// set and rejecting what it may not change.
+pub(crate) fn media_patch(
+    stored: &Media,
+    body: UpdateMediaRequest,
+) -> Result<MediaPatch, ApiError> {
+    // A media is one of three things, and only one of them owns its path.
+    //
+    //  - stored:  we hold the bytes (`storage_key` set). `file_path` is the
+    //             GEDCOM value an export writes back; repointing it would make
+    //             the export describe a file we are not serving.
+    //  - remote:  `file_path` is an http(s) URL, the bytes are somebody else's,
+    //             and editing it is how a dead link gets fixed.
+    //  - unheld:  a GEDCOM record naming a local file nobody uploaded. Editing
+    //             the path is how it gets pointed at a URL instead.
+    let mut file_path = None;
+    let mut mime_type = None;
+    if let Some(requested) = body.file_path {
+        let requested = requested.trim().to_string();
+        if stored.storage_key.is_some() {
+            return Err(ApiError(OxidGeneError::Validation(
+                "cannot repoint a media whose file is stored here; upload a replacement instead"
+                    .into(),
+            )));
+        }
+        if requested.is_empty() {
+            return Err(ApiError(OxidGeneError::Validation(
+                "file_path must not be empty".into(),
+            )));
+        }
+        // No sniffing is possible for a URL — fetching it is exactly what a
+        // remote media exists to avoid — so the extension is the only evidence
+        // there is. It decides whether the profile embeds the media or offers
+        // it as a download, so a wrong guess costs a click.
+        mime_type = body
+            .mime_type
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty())
+            .or_else(|| media::guess_mime(&requested).map(str::to_string));
+        file_path = Some(requested);
+    } else if let Some(requested) = body.mime_type {
+        let requested = requested.trim().to_string();
+        if !requested.is_empty() {
+            mime_type = Some(requested);
+        }
+    }
+
+    // The calendar and the value are only meaningful together, so a patch that
+    // moves one re-reads the other from the stored row before converting.
+    let date_sort = Some(event_date::derive_patch(
+        stored.calendar,
+        stored.date_value.as_deref(),
+        body.calendar,
+        body.date_value.as_ref().map(|v| v.as_deref()),
+    ));
+
+    Ok(MediaPatch {
+        title: body.title,
+        description: body.description,
+        date_value: body.date_value,
+        date_value2: body.date_value2,
+        date_qualifier: body.date_qualifier,
+        calendar: body.calendar,
+        place_id: body.place_id,
+        file_path,
+        mime_type,
+        date_sort,
+    })
+}
+
+/// POST /api/v1/trees/:tree_id/media/document
+///
+/// Create an empty multi-page document. Pages are added by uploading images
+/// with a `document_id` part.
+pub async fn create_document(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<CreateDocumentRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let media = MediaRepo::create_document(&state.db, Uuid::now_v7(), tree_id, body.title)
+        .await
+        .map_err(ApiError::from)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(media).unwrap()),
+    ))
+}
+
+/// GET /api/v1/trees/:tree_id/media/:media_id/pages
+pub async fn list_pages(
+    State(state): State<AppState>,
+    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let pages = MediaRepo::list_pages(&state.db, media_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(pages).unwrap()))
+}
+
+/// PUT /api/v1/trees/:tree_id/media/:media_id/pages
+///
+/// Set the page order. The body lists exactly this document's pages, once
+/// each — a partial list is refused rather than guessed at.
+pub async fn reorder_pages(
+    State(state): State<AppState>,
+    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ReorderPagesRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let pages = MediaRepo::reorder_pages(&state.db, media_id, &body.page_ids)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(pages).unwrap()))
+}
+
+/// DELETE /api/v1/trees/:tree_id/media/:media_id/pages/:page_id
+///
+/// Detach a page. The page survives as an ordinary media — it is a scan
+/// somebody made, and removing it from a document is not a reason to lose it.
+pub async fn detach_page(
+    State(state): State<AppState>,
+    Path((_tree_id, _media_id, page_id)): Path<(Uuid, Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let page = MediaRepo::detach_page(&state.db, page_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(page).unwrap()))
 }
 
 /// DELETE /api/v1/trees/:tree_id/media/:media_id
@@ -150,6 +286,16 @@ pub async fn upload_media(
                 .await
                 .map_err(ApiError::from)?,
         ),
+    };
+
+    // A page belongs to its document from the moment it lands: an upload that
+    // succeeded but was not attached would sit in the tree as a loose scan
+    // nobody meant to create.
+    let media = match form.document_id {
+        Some(document_id) => MediaRepo::append_page(&state.db, document_id, media.id)
+            .await
+            .map_err(ApiError::from)?,
+        None => media,
     };
 
     Ok((status, Json(serde_json::to_value(media).unwrap())))
@@ -218,6 +364,8 @@ struct UploadForm {
     title: Option<String>,
     description: Option<String>,
     media_id: Option<Uuid>,
+    /// Append the uploaded file as the next page of this document.
+    document_id: Option<Uuid>,
 }
 
 async fn read_upload_form(mut multipart: Multipart) -> Result<UploadForm, ApiError> {
@@ -243,7 +391,7 @@ async fn read_upload_form(mut multipart: Multipart) -> Result<UploadForm, ApiErr
                     bytes.to_vec(),
                 ));
             }
-            "title" | "description" | "media_id" => {
+            "title" | "description" | "media_id" | "document_id" => {
                 let text = field.text().await.map_err(|e| {
                     ApiError(OxidGeneError::Validation(format!(
                         "could not read `{name}` field: {e}"
@@ -256,12 +404,17 @@ async fn read_upload_form(mut multipart: Multipart) -> Result<UploadForm, ApiErr
                 match name.as_str() {
                     "title" => form.title = Some(text),
                     "description" => form.description = Some(text),
-                    _ => {
-                        form.media_id = Some(Uuid::parse_str(&text).map_err(|_| {
-                            ApiError(OxidGeneError::Validation(
-                                "`media_id` is not a UUID".to_string(),
-                            ))
-                        })?)
+                    other => {
+                        let id = Uuid::parse_str(&text).map_err(|_| {
+                            ApiError(OxidGeneError::Validation(format!(
+                                "`{other}` is not a UUID"
+                            )))
+                        })?;
+                        if other == "document_id" {
+                            form.document_id = Some(id);
+                        } else {
+                            form.media_id = Some(id);
+                        }
                     }
                 }
             }

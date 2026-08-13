@@ -14,6 +14,7 @@ pub struct Model {
     pub event_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub source_id: Option<Uuid>,
+    pub media_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

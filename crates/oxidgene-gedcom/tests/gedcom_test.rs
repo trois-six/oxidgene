@@ -643,6 +643,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         event_id: None,
         family_id: None,
         source_id: None,
+        media_id: None,
         created_at: now,
         updated_at: now,
         deleted_at: None,

@@ -2,6 +2,8 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::enums::{Calendar, DateQualifier};
+
 /// A media file (image, PDF, video, etc.).
 ///
 /// `PartialEq` so Dioxus props holding one can diff — a gallery tile is keyed
@@ -27,15 +29,38 @@ pub struct Media {
     /// Intrinsic pixel size, after applying any EXIF orientation.
     pub width: Option<i32>,
     pub height: Option<i32>,
-    /// Pages in the document; `1` for photos and single-page files.
+    /// Pages in the document; `1` for photos and single-page files. For a
+    /// [`Media::is_document`] row it is the number of page images assembled
+    /// into it.
     pub page_count: i32,
+    /// The document this is a page of, if it is one. A page is a media in its
+    /// own right — it has bytes, a thumbnail and crops — and only this field
+    /// says it belongs to something larger.
+    pub parent_media_id: Option<Uuid>,
+    /// Zero-based position within that document.
+    #[serde(default)]
+    pub page_index: i32,
+    /// `true` when this row *is* a multi-page document assembled from page
+    /// images rather than a file of its own. Such a row carries the title,
+    /// date, place, description and note that describe the document as a
+    /// whole, and usually holds no bytes.
+    #[serde(default)]
+    pub is_document: bool,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
-    /// Date the media was created or applies to (free-text, same shape as event dates).
+    /// Date the media was created or applies to — the same shape as an event's,
+    /// down to the qualifier and calendar, so one date widget edits both.
     pub date_value: Option<String>,
-    /// Normalized date for sorting and filtering.
+    /// Normalized Gregorian date for sorting. Derived server-side from
+    /// `calendar` + `date_value`; never accepted from a client.
     pub date_sort: Option<NaiveDate>,
+    #[serde(default)]
+    pub date_qualifier: DateQualifier,
+    /// The second date of a range (`Between`, `From`/`To`).
+    pub date_value2: Option<String>,
+    #[serde(default)]
+    pub calendar: Calendar,
     /// Location where the media was created or applies to.
     pub place_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,

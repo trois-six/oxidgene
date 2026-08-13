@@ -8,7 +8,7 @@ use oxidgene_core::enums::{
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo,
-    FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams,
+    FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo, NoteRepo, PaginationParams,
     PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
     TreeRepo, connect, run_migrations,
 };
@@ -725,6 +725,7 @@ async fn source_is_only_collected_once_nothing_points_at_it() {
         None,
         None,
         Some(noted),
+        None,
     )
     .await
     .unwrap();
@@ -781,9 +782,16 @@ async fn media_and_media_link_lifecycle() {
     assert_eq!(fetched.title.as_deref(), Some("Family Photo"));
 
     // Update
-    let updated = MediaRepo::update(&db, media_id, None, Some(Some("A family gathering".into())))
-        .await
-        .unwrap();
+    let updated = MediaRepo::update(
+        &db,
+        media_id,
+        MediaPatch {
+            description: Some(Some("A family gathering".into())),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(updated.description.as_deref(), Some("A family gathering"));
 
     // Create media link
@@ -832,6 +840,7 @@ async fn note_crud() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -843,13 +852,13 @@ async fn note_crud() {
     assert_eq!(fetched.text, "Some important note");
 
     // List by entity (person)
-    let notes = NoteRepo::list_by_entity(&db, tree_id, Some(person_id), None, None, None)
+    let notes = NoteRepo::list_by_entity(&db, tree_id, Some(person_id), None, None, None, None)
         .await
         .unwrap();
     assert_eq!(notes.len(), 1);
 
     // List by entity (no filter = all in tree)
-    let notes_all = NoteRepo::list_by_entity(&db, tree_id, None, None, None, None)
+    let notes_all = NoteRepo::list_by_entity(&db, tree_id, None, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(notes_all.len(), 1);

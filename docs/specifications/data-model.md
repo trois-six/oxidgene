@@ -288,6 +288,7 @@ vignette always describes a region that exists.
 | `event_id` | UUID v7? | FK → Event |
 | `family_id` | UUID v7? | FK → Family |
 | `source_id` | UUID v7? | FK → Source |
+| `media_id` | UUID v7? | FK → Media — a note *about a document* ("the left-hand column is water-damaged"), distinct from `Media.description`, which is the caption under its tile |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

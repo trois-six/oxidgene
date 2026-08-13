@@ -1068,3 +1068,340 @@ async fn detaching_a_media_leaves_the_file_alone() {
         "the file may document three other people"
     );
 }
+
+// ── Multi-page documents (Sprint F.3) ───────────────────────────────
+
+/// Create a document and return its id.
+async fn document(h: &Harness, title: &str) -> String {
+    let (status, doc) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media/document", h.tree_id),
+        Some(json!({ "title": title })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{doc}");
+    assert_eq!(doc["is_document"], true);
+    assert_eq!(doc["page_count"], 0, "a new document has no pages yet");
+    doc["id"].as_str().unwrap().to_string()
+}
+
+/// Upload an image as the next page of `document_id`.
+async fn add_page(h: &Harness, document_id: &str, name: &str) -> String {
+    let (status, page) = upload(
+        &h.app,
+        h.tree_id,
+        &[
+            ("file", Some(name), &png(300, 400)),
+            ("document_id", None, document_id.as_bytes()),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+    page["id"].as_str().unwrap().to_string()
+}
+
+async fn pages_of(h: &Harness, document_id: &str) -> Vec<Value> {
+    let (status, pages) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/{document_id}/pages", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    pages.as_array().unwrap().clone()
+}
+
+#[tokio::test]
+async fn pages_arrive_in_upload_order_and_count_themselves() {
+    let h = setup().await;
+    let doc = document(&h, "Parish register 1872").await;
+    for name in ["p1.png", "p2.png", "p3.png"] {
+        add_page(&h, &doc, name).await;
+    }
+
+    let pages = pages_of(&h, &doc).await;
+    assert_eq!(pages.len(), 3);
+    let names: Vec<&str> = pages
+        .iter()
+        .map(|p| p["file_name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["p1.png", "p2.png", "p3.png"]);
+    let indexes: Vec<i64> = pages
+        .iter()
+        .map(|p| p["page_index"].as_i64().unwrap())
+        .collect();
+    assert_eq!(indexes, [0, 1, 2]);
+
+    let (_, doc_row) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/{doc}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(
+        doc_row["page_count"], 3,
+        "the count is derived, not guessed"
+    );
+}
+
+#[tokio::test]
+async fn a_gallery_shows_the_document_not_its_pages() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let doc = document(&h, "Notarial act").await;
+    add_page(&h, &doc, "a.png").await;
+    add_page(&h, &doc, "b.png").await;
+
+    json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media-links", h.tree_id),
+        Some(json!({"media_id": doc, "person_id": person_id, "sort_order": 0})),
+    )
+    .await;
+
+    let (_, listed) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media-links?entity_type=person&entity_id={person_id}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(
+        listed.as_array().unwrap().len(),
+        1,
+        "a two-page act is one tile, not three: {listed}"
+    );
+
+    // The tree-wide media list must not show the pages loose either.
+    let (_, all) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(all["edges"].as_array().unwrap().len(), 1, "{all}");
+}
+
+#[tokio::test]
+async fn pages_can_be_reordered() {
+    let h = setup().await;
+    let doc = document(&h, "Register").await;
+    let first = add_page(&h, &doc, "first.png").await;
+    let second = add_page(&h, &doc, "second.png").await;
+
+    let (status, reordered) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{doc}/pages", h.tree_id),
+        Some(json!({ "page_ids": [second, first] })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{reordered}");
+    let names: Vec<&str> = reordered
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["file_name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["second.png", "first.png"]);
+}
+
+#[tokio::test]
+async fn a_partial_page_order_is_refused() {
+    let h = setup().await;
+    let doc = document(&h, "Register").await;
+    let first = add_page(&h, &doc, "a.png").await;
+    add_page(&h, &doc, "b.png").await;
+
+    let (status, body) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{doc}/pages", h.tree_id),
+        Some(json!({ "page_ids": [first] })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "half an order would silently drop a page: {body}"
+    );
+}
+
+#[tokio::test]
+async fn detaching_a_page_closes_the_gap_and_keeps_the_scan() {
+    let h = setup().await;
+    let doc = document(&h, "Register").await;
+    add_page(&h, &doc, "a.png").await;
+    let middle = add_page(&h, &doc, "b.png").await;
+    add_page(&h, &doc, "c.png").await;
+
+    let (status, detached) = json_request(
+        &h.app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{}/media/{doc}/pages/{middle}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detached}");
+    assert!(detached["parent_media_id"].is_null());
+
+    let pages = pages_of(&h, &doc).await;
+    let indexes: Vec<i64> = pages
+        .iter()
+        .map(|p| p["page_index"].as_i64().unwrap())
+        .collect();
+    assert_eq!(indexes, [0, 1], "page 3 of a 2-page document is not a page");
+
+    // The scan itself survives: it is a document somebody made.
+    let (status, _, _) = raw(
+        &h.app,
+        &format!("/api/v1/trees/{}/media/{middle}/file", h.tree_id),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+// ── Media fields: date, place, URL, note ────────────────────────────
+
+#[tokio::test]
+async fn a_media_carries_a_date_with_its_qualifier_and_calendar() {
+    let h = setup().await;
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("portrait.png"), &png(200, 200))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        Some(json!({
+            "date_value": "1890",
+            "date_qualifier": "about",
+            "calendar": "gregorian",
+            "description": "In the garden"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["date_value"], "1890");
+    assert_eq!(updated["date_qualifier"], "about");
+    assert_eq!(
+        updated["date_sort"], "1890-01-01",
+        "the server derives the sort key; the client never sends it"
+    );
+}
+
+#[tokio::test]
+async fn a_record_with_no_bytes_can_be_repointed_at_a_url() {
+    let h = setup().await;
+    let (_, stub) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "file_name": "unknown.jpg",
+            "mime_type": "application/octet-stream",
+            "file_path": "media/unknown.jpg",
+            "file_size": 0
+        })),
+    )
+    .await;
+    let media_id = stub["id"].as_str().unwrap();
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        Some(json!({ "file_path": "https://archives.example.org/scan/42.jpg" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(
+        updated["file_path"],
+        "https://archives.example.org/scan/42.jpg"
+    );
+    assert_eq!(
+        updated["mime_type"], "image/jpeg",
+        "guessed from the URL, since we never fetch it"
+    );
+    assert_eq!(
+        updated["file_name"], "42.jpg",
+        "the caption follows the path when the path is all we have"
+    );
+}
+
+#[tokio::test]
+async fn a_stored_media_cannot_be_repointed_elsewhere() {
+    let h = setup().await;
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("ours.png"), &png(80, 80))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+
+    let (status, body) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        Some(json!({ "file_path": "https://example.org/other.jpg" })),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "the GEDCOM export would then describe a file we are not serving: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_note_can_be_about_a_document_rather_than_a_person() {
+    let h = setup().await;
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("scan.png"), &png(100, 100))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (status, note) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/notes"),
+        Some(json!({
+            "text": "The left-hand column is water-damaged.",
+            "media_id": media_id
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{note}");
+
+    let (_, listed) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/notes?media_id={media_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(listed.as_array().unwrap().len(), 1, "{listed}");
+}

@@ -180,6 +180,16 @@ pub fn build_router(state: AppState) -> Router {
                 .put(media::update_media)
                 .delete(media::delete_media),
         )
+        // Before `/{media_id}`, same reason as `upload`.
+        .route("/{tree_id}/media/document", post(media::create_document))
+        .route(
+            "/{tree_id}/media/{media_id}/pages",
+            get(media::list_pages).put(media::reorder_pages),
+        )
+        .route(
+            "/{tree_id}/media/{media_id}/pages/{page_id}",
+            delete(media::detach_page),
+        )
         .route(
             "/{tree_id}/media/{media_id}/file",
             get(media::download_media),

@@ -2,6 +2,8 @@
 
 pub mod m20250101_000001_initial;
 pub mod m20260813_000001_media_storage;
+pub mod m20260813_000002_media_event_fields;
+pub mod m20260813_000003_media_pages;
 
 use sea_orm_migration::prelude::*;
 
@@ -13,6 +15,8 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(m20250101_000001_initial::Migration),
             Box::new(m20260813_000001_media_storage::Migration),
+            Box::new(m20260813_000002_media_event_fields::Migration),
+            Box::new(m20260813_000003_media_pages::Migration),
         ]
     }
 }

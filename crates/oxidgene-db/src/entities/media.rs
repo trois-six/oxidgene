@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::sea_enums::{Calendar, DateQualifier};
+
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "media")]
 pub struct Model {
@@ -17,11 +19,20 @@ pub struct Model {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub page_count: i32,
+    /// The document this is a page of, if it is one.
+    pub parent_media_id: Option<Uuid>,
+    /// Zero-based position within that document.
+    pub page_index: i32,
+    /// `true` when this row *is* a multi-page document rather than a file.
+    pub is_document: bool,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
     pub date_value: Option<String>,
     pub date_sort: Option<Date>,
+    pub date_qualifier: DateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: Calendar,
     pub place_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

@@ -49,17 +49,30 @@ pub async fn list_media_links(
         )));
     }
 
+    // The other direction: what one file is attached to. Answering this is
+    // what lets a media's own panel say which events it documents, without
+    // the caller having to walk every event's gallery to find out.
+    if let Some(media_id) = query.media_id {
+        let links = MediaLinkRepo::list_by_media(&state.db, media_id)
+            .await
+            .map_err(ApiError::from)?;
+        return Ok(Json(serde_json::to_value(links).unwrap()));
+    }
+
     let db_rows = MediaLinkRepo::list_for_tree(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
     let response: Vec<MediaLinkListRow> = db_rows
         .into_iter()
         .map(|r| MediaLinkListRow {
+            link_id: r.link_id,
             entity_id: r.entity_id,
             entity_type: r.entity_type,
             media_id: r.media_id,
             file_path: r.file_path,
             file_name: r.file_name,
+            mime_type: r.mime_type,
+            has_thumbnail: r.has_thumbnail,
         })
         .collect();
     Ok(Json(serde_json::to_value(response).unwrap()))

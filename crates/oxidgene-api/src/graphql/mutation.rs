@@ -875,8 +875,25 @@ impl MutationRoot {
     ) -> Result<GqlMedia> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let media =
-            MediaRepo::update(db, uuid, patch(input.title), patch(input.description)).await?;
+        let stored = MediaRepo::get(db, uuid).await?;
+
+        // Built as the REST request shape and handed to the REST patch
+        // builder, so the two surfaces cannot drift: the rules about which
+        // media may be repointed, and how `date_sort` is derived, live once.
+        let request = crate::rest::dto::UpdateMediaRequest {
+            title: patch(input.title),
+            description: patch(input.description),
+            date_value: patch(input.date_value),
+            date_value2: patch(input.date_value2),
+            date_qualifier: input.date_qualifier.map(Into::into),
+            calendar: input.calendar.map(Into::into),
+            place_id: patch_parse(input.place_id, |s| Uuid::parse_str(&s), "placeId")?,
+            file_path: input.file_path,
+            mime_type: input.mime_type,
+        };
+        let media_patch = crate::rest::media::media_patch(&stored, request)
+            .map_err(|e| async_graphql::Error::new(e.0.to_string()))?;
+        let media = MediaRepo::update(db, uuid, media_patch).await?;
         Ok(media.into())
     }
 
@@ -914,6 +931,60 @@ impl MutationRoot {
             profiles.rebuild_person(db, tid, person_id).await?;
         }
         Ok(link.into())
+    }
+
+    /// Create an empty multi-page document.
+    async fn create_media_document(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        title: Option<String>,
+    ) -> Result<GqlMedia> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let media = MediaRepo::create_document(db, Uuid::now_v7(), tid, title).await?;
+        Ok(media.into())
+    }
+
+    /// Append an already-uploaded media as the next page of a document.
+    async fn append_media_page(
+        &self,
+        ctx: &Context<'_>,
+        document_id: ID,
+        media_id: ID,
+    ) -> Result<GqlMedia> {
+        let db = db_from_ctx(ctx);
+        let page = MediaRepo::append_page(
+            db,
+            Uuid::parse_str(document_id.as_str())?,
+            Uuid::parse_str(media_id.as_str())?,
+        )
+        .await?;
+        Ok(page.into())
+    }
+
+    /// Set a document's page order. The list must name exactly its pages.
+    async fn reorder_media_pages(
+        &self,
+        ctx: &Context<'_>,
+        document_id: ID,
+        page_ids: Vec<ID>,
+    ) -> Result<Vec<GqlMedia>> {
+        let db = db_from_ctx(ctx);
+        let ids: Vec<Uuid> = page_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<_, _>>()?;
+        let pages =
+            MediaRepo::reorder_pages(db, Uuid::parse_str(document_id.as_str())?, &ids).await?;
+        Ok(pages.into_iter().map(Into::into).collect())
+    }
+
+    /// Detach a page, leaving it as an ordinary media.
+    async fn detach_media_page(&self, ctx: &Context<'_>, page_id: ID) -> Result<GqlMedia> {
+        let db = db_from_ctx(ctx);
+        let page = MediaRepo::detach_page(db, Uuid::parse_str(page_id.as_str())?).await?;
+        Ok(page.into())
     }
 
     // ── Vignette Mutations ───────────────────────────────────────────
@@ -1085,8 +1156,9 @@ impl MutationRoot {
             .as_deref()
             .map(Uuid::parse_str)
             .transpose()?;
+        let media_id = input.media_id.as_deref().map(Uuid::parse_str).transpose()?;
         let note = NoteRepo::create(
-            db, id, tid, input.text, person_id, event_id, family_id, source_id,
+            db, id, tid, input.text, person_id, event_id, family_id, source_id, media_id,
         )
         .await?;
         Ok(note.into())
