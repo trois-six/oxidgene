@@ -15,7 +15,7 @@ use dioxus::html::HasFileData;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, MediaUpload};
 use crate::i18n::use_i18n;
 
 /// How far along a batch of uploads is.
@@ -30,6 +30,13 @@ pub struct UploadProgress {
 #[derive(Props, Clone, PartialEq)]
 pub struct MediaInputProps {
     pub tree_id: Uuid,
+    /// When set, each uploaded file is appended as a page of this document
+    /// rather than becoming a media of its own.
+    #[props(default)]
+    pub document_id: Option<Uuid>,
+    /// Label shown on the cell. Defaults to the ordinary "Upload".
+    #[props(default)]
+    pub label: Option<String>,
     /// Called once per successfully uploaded file, with the new media's id.
     ///
     /// Per file rather than per batch so the caller can link and show each
@@ -51,6 +58,11 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
     let mut dragging = use_signal(|| false);
 
     let tree_id = props.tree_id;
+    let document_id = props.document_id;
+    let label = props
+        .label
+        .clone()
+        .unwrap_or_else(|| i18n.t("media.upload"));
     let on_uploaded = props.on_uploaded;
     let on_batch_done = props.on_batch_done;
 
@@ -84,6 +96,7 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
 
                 upload_files(
                     tree_id,
+                    document_id,
                     payloads,
                     progress,
                     error,
@@ -130,6 +143,7 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                     }
                     upload_files(
                         tree_id,
+                        document_id,
                         payloads,
                         progress,
                         error,
@@ -157,7 +171,7 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                     span { class: "media-drop-hint", "{p.current}" }
                 } else {
                     span { class: "media-drop-icon", "+" }
-                    span { class: "media-drop-label", {i18n.t("media.upload")} }
+                    span { class: "media-drop-label", "{label}" }
                     span { class: "media-drop-hint", {i18n.t("media.drop_hint")} }
                 }
             }
@@ -184,6 +198,7 @@ fn short_name(raw: &str) -> String {
 #[allow(clippy::too_many_arguments)]
 async fn upload_files(
     tree_id: Uuid,
+    document_id: Option<Uuid>,
     files: Vec<(String, Vec<u8>)>,
     mut progress: Signal<Option<UploadProgress>>,
     mut error: Signal<Option<String>>,
@@ -203,7 +218,17 @@ async fn upload_files(
             current: file_name.clone(),
         }));
         match api
-            .upload_media(tree_id, &file_name, bytes, None, None, None)
+            .upload_media(
+                tree_id,
+                MediaUpload {
+                    file_name: file_name.clone(),
+                    bytes,
+                    title: None,
+                    description: None,
+                    attach_to: None,
+                    as_page_of: document_id,
+                },
+            )
             .await
         {
             Ok(media) => on_uploaded.call(media.id),

@@ -2263,6 +2263,30 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     .pf-ns-actions { display: flex; gap: 8px; align-items: center; }
 
+    /* An event's evidence block. Separated by a rule rather than by a heading:
+       it sits below the event's own Save button and writes on its own, so the
+       line is there to say "past this point, changes are already saved". */
+    .pf-ns-block {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+    }
+
+    .pf-ns-label {
+        display: block;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--orange);
+        margin-bottom: 2px;
+    }
+
+    .pf-ns-hint {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin: 0 0 8px;
+    }
+
     /* ── Witnesses list ────────────────────────────────────────────── */
 
     .pf-witness-list { margin-bottom: 6px; }
@@ -3538,6 +3562,227 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.85rem;
         color: var(--text-muted);
     }
+
+    /* ── Media: kinds, remote, viewer (Sprint F.3) ────────────────── */
+
+    .media-thumb[role="button"] { cursor: pointer; }
+
+    .media-thumb-icon {
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .media-glyph { font-size: 1.5rem; line-height: 1; }
+    .media-glyph-large { font-size: 3rem; line-height: 1; }
+
+    /* A media whose bytes are somebody else's. Marked, because a broken tile
+       on a remote file means their server, not ours, and the reader needs to
+       be able to tell. */
+    .media-remote {
+        position: absolute;
+        top: 4px;
+        left: 5px;
+        font-size: 0.7rem;
+        opacity: 0.85;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+        pointer-events: none;
+    }
+
+    .media-events {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 180px;
+        overflow-y: auto;
+    }
+
+    .media-event-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.76rem;
+        cursor: pointer;
+    }
+
+    .media-event-row input { margin: 0; flex: 0 0 auto; }
+
+    .media-viewer {
+        display: flex;
+        flex-direction: column;
+        max-width: min(1100px, 100%);
+        max-height: 100%;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+    }
+
+    .media-viewer-stage {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        overflow: auto;
+        background: var(--bg-deep);
+    }
+
+    /* Contain, not cover: this is the view where the document is the point,
+       so nothing may be cropped out of it. */
+    .media-viewer-image {
+        max-width: 100%;
+        max-height: 70vh;
+        object-fit: contain;
+    }
+
+    .media-viewer-audio { width: min(520px, 100%); }
+
+    .media-viewer-fallback {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 32px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    .media-viewer-path {
+        font-size: 0.72rem;
+        word-break: break-all;
+        max-width: 40ch;
+    }
+
+    .media-viewer-desc { font-size: 0.8rem; margin: 0; }
+
+    /* ── Multi-page documents ─────────────────────────────────────── */
+
+    .doc-pages {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+        gap: 8px;
+    }
+
+    .doc-page {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .doc-page-thumb {
+        aspect-ratio: 3 / 4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        background: var(--bg-deep);
+    }
+
+    .doc-page-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+    .doc-page-number {
+        position: absolute;
+        top: 3px;
+        left: 4px;
+        z-index: 1;
+        font-size: 0.64rem;
+        padding: 0 5px;
+        border-radius: 3px;
+        background: rgba(0,0,0,0.66);
+        color: #fff;
+    }
+
+    .doc-page-actions { display: flex; justify-content: center; gap: 2px; }
+
+    /* The document's own upload cell sits in the same grid as its pages, so
+       "add a page" is the cell after the last one. */
+    .doc-pages .media-drop { aspect-ratio: 3 / 4; }
+
+    /* ── Page navigation ──────────────────────────────────────────── */
+
+    .media-pager {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+    }
+
+    .media-pager-btn {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        color: var(--text-primary);
+        font-size: 0.8rem;
+        line-height: 1;
+        padding: 5px 8px;
+        cursor: pointer;
+    }
+
+    .media-pager-btn:hover:not(:disabled) { border-color: var(--orange); color: var(--orange); }
+    .media-pager-btn:disabled { opacity: 0.35; cursor: default; }
+
+    /* Scrolls rather than wraps: a forty-page register must not push the
+       image out of the panel to make room for its own page numbers. */
+    .media-pager-numbers {
+        display: flex;
+        gap: 3px;
+        overflow-x: auto;
+        max-width: min(520px, 60vw);
+        padding: 2px;
+    }
+
+    .media-pager-num {
+        flex: 0 0 auto;
+        min-width: 26px;
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        color: var(--text-muted);
+        font-size: 0.74rem;
+        padding: 4px 6px;
+        cursor: pointer;
+    }
+
+    .media-pager-num:hover { color: var(--text-primary); border-color: var(--border); }
+    .media-pager-num.is-current {
+        color: var(--orange);
+        border-color: var(--orange);
+        background: rgba(224,120,32,0.12);
+    }
+
+    .media-pager-count { font-size: 0.74rem; color: var(--text-muted); }
+
+    /* ── Event evidence on the profile timeline ───────────────────── */
+
+    .pd-ev-evidence {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 6px;
+    }
+
+    .pd-ev-doc {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        overflow: hidden;
+        background: var(--bg-deep);
+        flex: 0 0 auto;
+    }
+
+    .pd-ev-doc:hover { border-color: var(--orange); }
+    .pd-ev-doc img { width: 100%; height: 100%; object-fit: cover; }
 
     /* ── Scrollbar ────────────────────────────────────────────────── */
 

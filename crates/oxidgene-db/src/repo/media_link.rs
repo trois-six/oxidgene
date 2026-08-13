@@ -33,19 +33,29 @@ impl MediaLinkTarget {
 /// Flat row for the bulk media-links query.
 #[derive(Debug)]
 pub struct MediaLinkRow {
+    pub link_id: Uuid,
     pub entity_id: Uuid,
+    /// `person` or `event` — which of the link's targets this row is about.
     pub entity_type: String,
     pub media_id: Uuid,
     pub file_path: String,
     pub file_name: String,
+    pub mime_type: String,
+    /// Whether a thumbnail was generated for this media.
+    pub has_thumbnail: bool,
 }
 
 /// Repository for media–entity links.
 pub struct MediaLinkRepo;
 
 impl MediaLinkRepo {
-    /// List all media links for persons belonging to a tree, joining media
-    /// to return file path and file name alongside the linked entity.
+    /// Every media link in a tree, flat, with the media's display fields.
+    ///
+    /// Two shapes in one query: person links, which the pedigree canvas reads
+    /// to put a portrait on each card, and event links, which the profile
+    /// timeline reads to show what documents each event. Both callers filter
+    /// on `entity_type`, and doing it in one round trip is what keeps a
+    /// timeline of forty events from being forty requests.
     pub async fn list_for_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -53,64 +63,78 @@ impl MediaLinkRepo {
         use sea_orm::DbBackend;
         use sea_orm::Statement;
 
-        // Use backend-appropriate parameter placeholder.
         let backend = db.get_database_backend();
-        let (sql, values): (&str, &[sea_orm::Value]) = match backend {
-            DbBackend::Sqlite => (
-                r#"
-                    SELECT ml.person_id, ml.media_id, m.file_path, m.file_name
-                    FROM media_link ml
-                    INNER JOIN media m ON m.id = ml.media_id
-                    INNER JOIN person p ON p.id = ml.person_id
-                    WHERE p.tree_id = ?
-                      AND p.deleted_at IS NULL
-                      AND m.deleted_at IS NULL
-                      AND ml.person_id IS NOT NULL
-                "#,
-                &[tree_id.into()],
-            ),
-            _ => (
-                r#"
-                    SELECT ml.person_id, ml.media_id, m.file_path, m.file_name
-                    FROM media_link ml
-                    INNER JOIN media m ON m.id = ml.media_id
-                    INNER JOIN person p ON p.id = ml.person_id
-                    WHERE p.tree_id = $1
-                      AND p.deleted_at IS NULL
-                      AND m.deleted_at IS NULL
-                      AND ml.person_id IS NOT NULL
-                "#,
-                &[tree_id.into()],
-            ),
+        // SQLite and PostgreSQL disagree only on the placeholder; the query is
+        // otherwise identical, so it is written once and the marker swapped.
+        let placeholders: [&str; 2] = match backend {
+            DbBackend::Sqlite => ["?", "?"],
+            _ => ["$1", "$2"],
         };
+        let sql = format!(
+            r#"
+                SELECT ml.id AS link_id,
+                       ml.person_id AS entity_id,
+                       'person' AS entity_type,
+                       ml.media_id,
+                       m.file_path, m.file_name, m.mime_type, m.thumbnail_key
+                FROM media_link ml
+                INNER JOIN media m ON m.id = ml.media_id
+                INNER JOIN person p ON p.id = ml.person_id
+                WHERE p.tree_id = {}
+                  AND p.deleted_at IS NULL
+                  AND m.deleted_at IS NULL
+                  AND ml.person_id IS NOT NULL
+                UNION ALL
+                SELECT ml.id AS link_id,
+                       ml.event_id AS entity_id,
+                       'event' AS entity_type,
+                       ml.media_id,
+                       m.file_path, m.file_name, m.mime_type, m.thumbnail_key
+                FROM media_link ml
+                INNER JOIN media m ON m.id = ml.media_id
+                INNER JOIN event e ON e.id = ml.event_id
+                WHERE e.tree_id = {}
+                  AND e.deleted_at IS NULL
+                  AND m.deleted_at IS NULL
+                  AND ml.event_id IS NOT NULL
+            "#,
+            placeholders[0], placeholders[1]
+        );
 
-        let stmt = Statement::from_sql_and_values(backend, sql, values.to_vec());
+        let stmt =
+            Statement::from_sql_and_values(backend, &sql, vec![tree_id.into(), tree_id.into()]);
 
         let query_results = db
             .query_all(stmt)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
-        let mut rows = Vec::new();
+        let mut rows = Vec::with_capacity(query_results.len());
         for row in query_results {
-            let person_id: Uuid = row
-                .try_get("", "person_id")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            let media_id: Uuid = row
-                .try_get("", "media_id")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            let file_path: String = row
-                .try_get("", "file_path")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            let file_name: String = row
-                .try_get("", "file_name")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            let get_string = |name: &str| -> Result<String, OxidGeneError> {
+                row.try_get("", name)
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))
+            };
             rows.push(MediaLinkRow {
-                entity_id: person_id,
-                entity_type: "person".to_string(),
-                media_id,
-                file_path,
-                file_name,
+                link_id: row
+                    .try_get("", "link_id")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                entity_id: row
+                    .try_get("", "entity_id")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                entity_type: get_string("entity_type")?,
+                media_id: row
+                    .try_get("", "media_id")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                file_path: get_string("file_path")?,
+                file_name: get_string("file_name")?,
+                mime_type: get_string("mime_type")?,
+                // Absent means the server could not rasterise this file, which
+                // is what the caller branches on to draw an icon instead.
+                has_thumbnail: row
+                    .try_get::<Option<String>>("", "thumbnail_key")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .is_some(),
             });
         }
         Ok(rows)

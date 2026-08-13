@@ -505,7 +505,7 @@ impl ProfileService {
             EventRepo::list_by_person(conn, person_id),
             EventRepo::list_by_families(conn, &family_ids),
             MediaLinkRepo::list_by_person(conn, person_id),
-            NoteRepo::list_by_entity(conn, tree_id, Some(person_id), None, None, None),
+            NoteRepo::list_by_entity(conn, tree_id, Some(person_id), None, None, None, None),
         )?;
 
         // 3. Related person rows + names, places, media.

@@ -23,6 +23,7 @@ pub async fn list_notes(
         query.event_id,
         query.family_id,
         query.source_id,
+        query.media_id,
     )
     .await
     .map_err(ApiError::from)?;
@@ -50,6 +51,7 @@ pub async fn create_note(
         body.event_id,
         body.family_id,
         body.source_id,
+        body.media_id,
     )
     .await
     .map_err(ApiError::from)?;

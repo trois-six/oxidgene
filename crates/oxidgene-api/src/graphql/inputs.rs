@@ -251,10 +251,22 @@ pub struct UploadMediaFileInput {
 }
 
 /// Input for updating media metadata.
+///
+/// A media carries the same descriptive fields a fact does. There is no source
+/// field on purpose: a media *is* a source document. `dateSort` is absent
+/// because the server derives it, exactly as it does for an event.
 #[derive(Debug, InputObject)]
 pub struct UpdateMediaInput {
     pub title: MaybeUndefined<String>,
     pub description: MaybeUndefined<String>,
+    pub date_value: MaybeUndefined<String>,
+    pub date_value2: MaybeUndefined<String>,
+    pub date_qualifier: Option<GqlDateQualifier>,
+    pub calendar: Option<GqlCalendar>,
+    pub place_id: MaybeUndefined<String>,
+    /// The URL of a remote media. Refused for a media whose bytes we hold.
+    pub file_path: Option<String>,
+    pub mime_type: Option<String>,
 }
 
 // ── Vignette Inputs ──────────────────────────────────────────────────
@@ -314,6 +326,9 @@ pub struct CreateNoteInput {
     pub event_id: Option<String>,
     pub family_id: Option<String>,
     pub source_id: Option<String>,
+    /// The media this note is about — distinct from the media's own
+    /// description, which is the caption shown under its tile.
+    pub media_id: Option<String>,
 }
 
 /// Input for updating a note.

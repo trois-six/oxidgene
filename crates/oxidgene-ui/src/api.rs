@@ -365,6 +365,8 @@ pub struct CreateNoteBody {
     pub event_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub source_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -376,13 +378,21 @@ pub struct UpdateNoteBody {
 // ── MediaLink DTOs ───────────────────────────────────────────────────
 
 /// A row from the bulk media-links endpoint.
+///
+/// Carries what a small preview needs — the MIME type and whether a thumbnail
+/// exists — so a timeline of forty events draws its evidence from the one call
+/// the pedigree canvas already makes.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MediaLinkRow {
+    pub link_id: uuid::Uuid,
     pub entity_id: uuid::Uuid,
+    /// `person` or `event`.
     pub entity_type: String,
     pub media_id: uuid::Uuid,
     pub file_path: String,
     pub file_name: String,
+    pub mime_type: String,
+    pub has_thumbnail: bool,
 }
 
 /// A media together with the link that attached it — one gallery tile.
@@ -398,13 +408,94 @@ pub struct MediaWithLink {
     pub media: Media,
 }
 
-impl MediaWithLink {
-    /// Whether this tile can be shown as a picture rather than a file icon.
-    pub fn is_image(&self) -> bool {
-        self.media.mime_type.starts_with("image/")
+/// Where a media's bytes actually are.
+///
+/// Three states, and every view has to tell them apart. A media OxidGene holds
+/// is served by us, has a thumbnail and can be cropped. A remote one is a URL
+/// someone else serves — worth recording, never fetched by us, and therefore
+/// without a thumbnail or a crop. A record naming a file nobody ever uploaded
+/// has no bytes at all, which is where every GEDCOM import starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaSource {
+    /// The bytes are in our store.
+    Stored,
+    /// `file_path` is an http(s) URL, served by whoever owns it.
+    Remote,
+    /// A path we were told about and never received.
+    Unheld,
+}
+
+/// How a media should be presented when there is room to show it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Image,
+    Video,
+    Audio,
+    Pdf,
+    Document,
+    Other,
+}
+
+impl MediaKind {
+    /// The glyph a tile draws when there is no picture to draw instead.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Image => "\u{1F5BC}",
+            Self::Video => "\u{1F3AC}",
+            Self::Audio => "\u{1F3B5}",
+            Self::Pdf => "\u{1F4C4}",
+            Self::Document => "\u{1F4C3}",
+            Self::Other => "\u{1F4C1}",
+        }
     }
 
-    /// A short badge for the file type — "PDF", "JPEG", "TIFF".
+    /// Whether the browser can render this inline, given a URL.
+    ///
+    /// Images, video and audio each have an element that takes a URL and
+    /// plays it. Everything else — a PDF, a Word document, an archive — is a
+    /// download, and pretending otherwise gives the reader an empty box.
+    pub fn is_embeddable(self) -> bool {
+        matches!(self, Self::Image | Self::Video | Self::Audio)
+    }
+}
+
+impl MediaWithLink {
+    /// Which of the three states this media is in.
+    pub fn source(&self) -> MediaSource {
+        if self.media.storage_key.is_some() {
+            MediaSource::Stored
+        } else if self.media.file_path.starts_with("http://")
+            || self.media.file_path.starts_with("https://")
+        {
+            MediaSource::Remote
+        } else {
+            MediaSource::Unheld
+        }
+    }
+
+    /// How to present it.
+    pub fn kind(&self) -> MediaKind {
+        media_kind(&self.media.mime_type)
+    }
+
+    /// Whether this tile can be shown as a picture rather than a file icon.
+    pub fn is_image(&self) -> bool {
+        self.kind() == MediaKind::Image
+    }
+
+    /// Whether a crop can be drawn on it.
+    ///
+    /// Only a stored raster: a crop is served by re-decoding our own copy, so
+    /// a remote URL has nothing to cut, and a record with no bytes has nothing
+    /// at all.
+    pub fn is_croppable(&self) -> bool {
+        self.source() == MediaSource::Stored
+            && self.is_image()
+            && self.media.width.is_some()
+            && self.media.height.is_some()
+    }
+
+    /// A short badge for the file type — "PDF", "JPEG", "MP4".
     pub fn kind_label(&self) -> String {
         self.media
             .mime_type
@@ -412,6 +503,9 @@ impl MediaWithLink {
             .next()
             .unwrap_or("file")
             .trim_start_matches("x-")
+            .split('+')
+            .next()
+            .unwrap_or("file")
             .to_uppercase()
     }
 
@@ -421,6 +515,28 @@ impl MediaWithLink {
             Some(title) if !title.trim().is_empty() => title,
             _ => &self.media.file_name,
         }
+    }
+}
+
+/// Classify a MIME type into what the UI can do with it.
+pub fn media_kind(mime_type: &str) -> MediaKind {
+    let mime = mime_type.trim().to_ascii_lowercase();
+    if mime.starts_with("image/") {
+        MediaKind::Image
+    } else if mime.starts_with("video/") {
+        MediaKind::Video
+    } else if mime.starts_with("audio/") {
+        MediaKind::Audio
+    } else if mime == "application/pdf" {
+        MediaKind::Pdf
+    } else if mime.starts_with("text/")
+        || mime.contains("word")
+        || mime.contains("opendocument")
+        || mime.contains("officedocument")
+    {
+        MediaKind::Document
+    } else {
+        MediaKind::Other
     }
 }
 
@@ -439,18 +555,53 @@ pub struct CreateMediaLinkBody {
     pub sort_order: i32,
 }
 
+/// One file on its way up, and what it should become on arrival.
+///
+/// A struct rather than six positional arguments: three of them are
+/// `Option<Uuid>`, and a call site that reads `(None, None, Some(id))` tells
+/// nobody which of "attach to this record" and "make it a page of this
+/// document" was meant.
+#[derive(Debug, Clone)]
+pub struct MediaUpload {
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    /// Fill in an existing record that named a file without holding it.
+    pub attach_to: Option<Uuid>,
+    /// Append as the next page of this multi-page document.
+    pub as_page_of: Option<Uuid>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SetProfileMediaLinkBody {
     pub is_profile: bool,
 }
 
-#[derive(Debug, Serialize)]
+/// A media carries the same descriptive fields a fact does — and no source
+/// field, because a media *is* a source document.
+#[derive(Debug, Default, Serialize)]
 pub struct UpdateMediaBody {
     /// `Some(None)` clears the field, absent leaves it alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_value: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_value2: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_qualifier: Option<DateQualifier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<Calendar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_id: Option<Option<uuid::Uuid>>,
+    /// The URL of a remote media. The server refuses it for a media it stores.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
 }
 
 // ── Vignette DTOs ────────────────────────────────────────────────────
@@ -825,6 +976,14 @@ impl ApiClient {
         }
         tracing::debug!("DELETE {url} -> {status}");
         Ok(status.as_u16())
+    }
+
+    /// Helper: send a DELETE whose response carries a body.
+    async fn delete_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+        let url = self.url(path);
+        tracing::debug!("DELETE {url}");
+        let resp = self.client.delete(&url).send().await?;
+        Self::handle_response(&url, "DELETE", resp).await
     }
 
     async fn delete_no_content(&self, path: &str) -> Result<(), ApiError> {
@@ -1774,8 +1933,12 @@ impl ApiClient {
         event_id: Option<Uuid>,
         family_id: Option<Uuid>,
         source_id: Option<Uuid>,
+        media_id: Option<Uuid>,
     ) -> Result<Vec<Note>, ApiError> {
         let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(mid) = media_id {
+            params.push(("media_id", mid.to_string()));
+        }
         if let Some(pid) = person_id {
             params.push(("person_id", pid.to_string()));
         }
@@ -1858,31 +2021,105 @@ impl ApiClient {
     pub async fn upload_media(
         &self,
         tree_id: Uuid,
-        file_name: &str,
-        bytes: Vec<u8>,
-        title: Option<&str>,
-        description: Option<&str>,
-        attach_to: Option<Uuid>,
+        upload: MediaUpload,
     ) -> Result<Media, ApiError> {
         let url = self.url(&format!("/api/v1/trees/{tree_id}/media/upload"));
+        let MediaUpload {
+            file_name,
+            bytes,
+            title,
+            description,
+            attach_to,
+            as_page_of,
+        } = upload;
         tracing::debug!("POST {url} ({} bytes, {file_name})", bytes.len());
 
-        let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name.to_string());
+        let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
         let mut form = reqwest::multipart::Form::new().part("file", part);
-        if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
+        if let Some(title) = title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
             form = form.text("title", title.to_string());
         }
-        if let Some(description) = description.map(str::trim).filter(|d| !d.is_empty()) {
+        if let Some(description) = description
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+        {
             form = form.text("description", description.to_string());
         }
         if let Some(media_id) = attach_to {
             form = form.text("media_id", media_id.to_string());
+        }
+        if let Some(document_id) = as_page_of {
+            form = form.text("document_id", document_id.to_string());
         }
 
         let resp = self.client.post(&url).multipart(form).send().await?;
         let media = Self::handle_response(&url, "POST", resp).await?;
         self.invalidate_tree(tree_id);
         Ok(media)
+    }
+
+    /// Create an empty multi-page document.
+    ///
+    /// Pages are added by uploading images with `document_id` set; the
+    /// document itself holds the title, date, place, description and note that
+    /// describe the whole thing.
+    pub async fn create_media_document(
+        &self,
+        tree_id: Uuid,
+        title: Option<&str>,
+    ) -> Result<Media, ApiError> {
+        let media = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/media/document"),
+                &serde_json::json!({ "title": title }),
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(media)
+    }
+
+    /// The pages of a document, in order.
+    pub async fn list_media_pages(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<Vec<Media>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/media/{media_id}/pages"))
+            .await
+    }
+
+    /// Set a document's page order. Must name exactly its pages, once each.
+    pub async fn reorder_media_pages(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        page_ids: &[Uuid],
+    ) -> Result<Vec<Media>, ApiError> {
+        let pages = self
+            .put(
+                &format!("/api/v1/trees/{tree_id}/media/{media_id}/pages"),
+                &serde_json::json!({ "page_ids": page_ids }),
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(pages)
+    }
+
+    /// Detach a page. It survives as an ordinary media.
+    pub async fn detach_media_page(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        page_id: Uuid,
+    ) -> Result<Media, ApiError> {
+        let page = self
+            .delete_json(&format!(
+                "/api/v1/trees/{tree_id}/media/{media_id}/pages/{page_id}"
+            ))
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(page)
     }
 
     /// Update a media's title and description.
@@ -1928,6 +2165,21 @@ impl ApiClient {
     ) -> Result<Vec<MediaWithLink>, ApiError> {
         self.get(&format!(
             "/api/v1/trees/{tree_id}/media-links?entity_type={entity_type}&entity_id={entity_id}"
+        ))
+        .await
+    }
+
+    /// Everything one media file is attached to.
+    ///
+    /// The other direction from [`Self::list_entity_media`]: what lets a
+    /// media's own panel say which events it documents.
+    pub async fn list_media_links_of(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<Vec<oxidgene_core::types::MediaLink>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/media-links?media_id={media_id}"
         ))
         .await
     }

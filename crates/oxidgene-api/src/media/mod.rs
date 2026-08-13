@@ -206,6 +206,66 @@ pub async fn ingest(
     })
 }
 
+/// Whether a media's `file_path` points at something on the web.
+///
+/// A media does not have to be a file we hold. A GEDCOM `OBJE.FILE` is
+/// routinely a URL — an archive's viewer, a photograph on a family site — and
+/// those are worth recording even though the bytes are somebody else's. Such a
+/// record has no `storage_key` and never will; the browser fetches it directly
+/// from the URL, which also means we never become a proxy for someone else's
+/// bandwidth.
+pub fn is_remote_url(file_path: &str) -> bool {
+    let path = file_path.trim();
+    path.starts_with("http://") || path.starts_with("https://")
+}
+
+/// Guess a MIME type from a file name or URL, for media we never receive.
+///
+/// Content sniffing is not available for a remote URL — we would have to fetch
+/// it, and the point of a remote media is that we do not. The extension is the
+/// only evidence there is. It decides one thing: whether the profile page
+/// embeds the media or offers it as a download, so a wrong guess costs a click,
+/// not a security property.
+pub fn guess_mime(file_name: &str) -> Option<&'static str> {
+    // Strip a query string and fragment first: `photo.jpg?size=large` is a jpg.
+    let path = file_name
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(file_name)
+        .trim_end_matches('/');
+    let extension = path.rsplit('.').next()?.to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "jpg" | "jpeg" | "jpe" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "heic" | "heif" => "image/heic",
+        "pdf" => "application/pdf",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "ogv" => "video/ogg",
+        "mov" => "video/quicktime",
+        "avi" => "video/x-msvideo",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "ogg" | "oga" => "audio/ogg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "txt" => "text/plain",
+        "html" | "htm" => "text/html",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "zip" => "application/zip",
+        _ => return None,
+    })
+}
+
 /// Reject a crop rectangle that does not fit the media it claims to crop.
 ///
 /// Catching it at write time means a vignette in the database always describes
@@ -315,11 +375,17 @@ mod tests {
             width: Some(800),
             height: Some(600),
             page_count: 1,
+            parent_media_id: None,
+            page_index: 0,
+            is_document: false,
             file_size: 1,
             title: None,
             description: None,
             date_value: None,
             date_sort: None,
+            date_qualifier: Default::default(),
+            date_value2: None,
+            calendar: Default::default(),
             place_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -371,6 +437,45 @@ mod tests {
         media.height = None;
         media.page_count = 4;
         validate_crop(&media, 3, 5000, 5000, 100, 100).expect("no dimensions, no bound check");
+    }
+
+    #[test]
+    fn a_url_is_recognised_as_remote_and_a_path_is_not() {
+        assert!(is_remote_url("https://archives.example.org/scan/42.jpg"));
+        assert!(is_remote_url("http://example.org/photo.png"));
+        assert!(is_remote_url("  https://example.org/x.jpg  "));
+        // What a GEDCOM more often carries: somebody else's local path.
+        assert!(!is_remote_url("D:\\Photos\\grandpere.jpg"));
+        assert!(!is_remote_url("media/photo.jpg"));
+        assert!(!is_remote_url("ftp://example.org/x.jpg"));
+        assert!(!is_remote_url(""));
+    }
+
+    #[test]
+    fn a_mime_type_is_guessed_from_the_extension() {
+        assert_eq!(guess_mime("scan.JPG"), Some("image/jpeg"));
+        assert_eq!(guess_mime("acte.pdf"), Some("application/pdf"));
+        assert_eq!(guess_mime("interview.mp4"), Some("video/mp4"));
+        assert_eq!(guess_mime("recording.mp3"), Some("audio/mpeg"));
+    }
+
+    #[test]
+    fn a_query_string_does_not_hide_the_extension() {
+        assert_eq!(
+            guess_mime("https://example.org/photo.jpg?size=large&v=2"),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            guess_mime("https://example.org/a.png#top"),
+            Some("image/png")
+        );
+    }
+
+    #[test]
+    fn an_extensionless_or_unknown_name_guesses_nothing() {
+        assert_eq!(guess_mime("https://example.org/viewer"), None);
+        assert_eq!(guess_mime("archive.xyz"), None);
+        assert_eq!(guess_mime(""), None);
     }
 
     #[test]
