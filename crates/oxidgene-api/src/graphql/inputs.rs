@@ -214,7 +214,10 @@ pub struct UpdateCitationInput {
 
 // ── Media Inputs ─────────────────────────────────────────────────────
 
-/// Input for uploading media metadata (no actual file upload in MVP).
+/// Input for recording a media file we do not hold the bytes of.
+///
+/// The metadata-only path, mirroring `POST /trees/{id}/media`. To send actual
+/// bytes, use `uploadMediaFile`.
 #[derive(Debug, InputObject)]
 pub struct UploadMediaInput {
     pub file_name: String,
@@ -225,11 +228,66 @@ pub struct UploadMediaInput {
     pub description: Option<String>,
 }
 
+/// Input for uploading a file's actual bytes.
+///
+/// The content travels base64-encoded in the request body, the same choice the
+/// GEDCOM and GeneWeb import mutations make: adding the `Upload` scalar would
+/// mean multipart GraphQL requests, a transport every client would then have
+/// to special-case for one field. REST's `POST .../media/upload` is the
+/// efficient path and is what the UI uses; this exists so no operation is
+/// reachable from only one of the two APIs.
+///
+/// Base64 inflates the payload by a third, so the effective size ceiling here
+/// is correspondingly lower than REST's.
+#[derive(Debug, InputObject)]
+pub struct UploadMediaFileInput {
+    pub file_name: String,
+    /// Base64-encoded file content.
+    pub content_base64: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    /// Attach the bytes to an existing record instead of creating one.
+    pub media_id: Option<String>,
+}
+
 /// Input for updating media metadata.
 #[derive(Debug, InputObject)]
 pub struct UpdateMediaInput {
     pub title: MaybeUndefined<String>,
     pub description: MaybeUndefined<String>,
+}
+
+// ── Vignette Inputs ──────────────────────────────────────────────────
+
+/// Input for cropping a region out of a media file.
+#[derive(Debug, InputObject)]
+pub struct CreateVignetteInput {
+    pub media_id: String,
+    /// Zero-based page of a multi-page document; defaults to 0.
+    #[graphql(default)]
+    pub page: i32,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub title: Option<String>,
+    pub person_id: Option<String>,
+    pub event_id: Option<String>,
+}
+
+/// Input for moving, retitling or re-attributing a vignette.
+///
+/// The four rectangle fields travel together: send all of them or none.
+#[derive(Debug, InputObject)]
+pub struct UpdateVignetteInput {
+    pub page: Option<i32>,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub title: MaybeUndefined<String>,
+    pub person_id: MaybeUndefined<String>,
+    pub event_id: MaybeUndefined<String>,
 }
 
 // ── MediaLink Inputs ─────────────────────────────────────────────────

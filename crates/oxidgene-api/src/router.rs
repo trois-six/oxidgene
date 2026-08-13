@@ -27,6 +27,7 @@ use crate::rest::source;
 use crate::rest::state::AppState;
 use crate::rest::tree;
 use crate::rest::tree_guard;
+use crate::rest::vignette;
 
 /// Build the complete API router.
 pub fn build_router(state: AppState) -> Router {
@@ -164,11 +165,45 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/media",
             get(media::list_media).post(media::create_media),
         )
+        // Declared before `/{media_id}` so `upload` is matched as the literal
+        // segment it is rather than parsed as a UUID and rejected.
+        .route(
+            "/{tree_id}/media/upload",
+            post(media::upload_media)
+                // Only this route lifts the body limit, and only to the
+                // upload ceiling — every other endpoint keeps Axum's default.
+                .layer(DefaultBodyLimit::max(media::UPLOAD_BODY_LIMIT)),
+        )
         .route(
             "/{tree_id}/media/{media_id}",
             get(media::get_media)
                 .put(media::update_media)
                 .delete(media::delete_media),
+        )
+        .route(
+            "/{tree_id}/media/{media_id}/file",
+            get(media::download_media),
+        )
+        .route(
+            "/{tree_id}/media/{media_id}/thumbnail",
+            get(media::download_thumbnail),
+        )
+        .route(
+            "/{tree_id}/media/{media_id}/vignettes",
+            get(vignette::list_media_vignettes).post(vignette::create_vignette),
+        );
+
+    let vignette_routes = Router::new()
+        .route("/{tree_id}/vignettes", get(vignette::list_vignettes))
+        .route(
+            "/{tree_id}/vignettes/{vignette_id}",
+            get(vignette::get_vignette)
+                .put(vignette::update_vignette)
+                .delete(vignette::delete_vignette),
+        )
+        .route(
+            "/{tree_id}/vignettes/{vignette_id}/image",
+            get(vignette::vignette_image),
         );
 
     let media_link_routes = Router::new()
@@ -286,6 +321,7 @@ pub fn build_router(state: AppState) -> Router {
         state.db.clone(),
         state.profiles.clone(),
         state.purge.clone(),
+        state.media.clone(),
     );
 
     let rest_router = Router::new()
@@ -302,6 +338,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(citation_routes)
                 .merge(media_routes)
                 .merge(media_link_routes)
+                .merge(vignette_routes)
                 .merge(note_routes)
                 .merge(snapshot_routes)
                 .merge(dictionary_routes)

@@ -30,7 +30,7 @@ oxidgene-ui = { path = "crates/oxidgene-ui" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 
 # Web framework
-axum = "0.8"
+axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "trace", "compression-gzip"] }
 
@@ -84,8 +84,26 @@ unicode-normalization = "0.1"
 # ZIP reader (Geneanet serves multi-page deposits as an archive)
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
-# Base64 (GraphQL transport for binary .gw payloads)
+# Base64 (GraphQL transport for binary .gw and media payloads)
 base64 = "0.22"
+
+# Media storage (Sprint F.1)
+# Content addressing: the SHA-256 of a file is both its store key and its ETag.
+sha2 = "0.10"
+# Thumbnails + intrinsic dimensions. `rayon` is off: thumbnailing already runs
+# on a blocking task, one file at a time, so a second thread pool buys nothing.
+image = { version = "0.25", default-features = false, features = [
+    "bmp",
+    "gif",
+    "ico",
+    "jpeg",
+    "png",
+    "tiff",
+    "webp",
+] }
+# PDF page counting. Default features drag in jiff/rayon/time for metadata and
+# rendering helpers we never call.
+lopdf = { version = "0.44", default-features = false, features = ["chrono"] }
 
 # HTML sanitizer for note bodies (see oxidgene-db::html)
 ammonia = "4"

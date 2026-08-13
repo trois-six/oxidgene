@@ -7,6 +7,7 @@
 
 #[cfg(feature = "graphql")]
 pub mod graphql;
+pub mod media;
 pub mod profile;
 pub mod reference;
 pub mod rest;
