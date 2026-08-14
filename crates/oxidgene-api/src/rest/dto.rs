@@ -775,3 +775,121 @@ impl From<oxidgene_db::repo::PersonUsageEntry> for PersonUsageEntryDto {
         }
     }
 }
+
+// ── Geneanet import wizard ──────────────────────────────────────────
+//
+// The wizard's steps each have a request/response pair here. Step 3 has none:
+// signing in and collecting the person↔photo mapping happens inside the login
+// WebView, so what reaches the server is its output, carried by the steps that
+// follow.
+
+/// What a `.gw` file turned out to hold. Step 1.
+#[derive(Debug, Serialize)]
+pub struct InspectGenewebResponse {
+    pub person_count: usize,
+    pub family_count: usize,
+    /// Blocks the lenient reader skipped — reported, never fatal.
+    pub skipped_blocks: usize,
+}
+
+/// Data archives to index, by path. Step 2.
+///
+/// Paths and not bytes: the archives run to gigabytes, and this step only
+/// exists on desktop, where the server is in-process and reads the same
+/// filesystem the user picked from.
+#[derive(Debug, Deserialize)]
+pub struct IndexArchivesRequest {
+    pub paths: Vec<String>,
+}
+
+/// One archive's central directory, read without extracting anything.
+#[derive(Debug, Serialize)]
+pub struct IndexedArchive {
+    pub path: String,
+    pub file_name: String,
+    pub file_count: usize,
+    /// Entries whose extension looks like a medium. Zero means "is this the
+    /// right download?" — a warning, not a rejection.
+    pub image_count: usize,
+    /// Set when this archive alone could not be read.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IndexArchivesResponse {
+    pub archives: Vec<IndexedArchive>,
+    pub file_count: usize,
+}
+
+/// Everything needed to say what an import would do, without doing it. Step 4.
+#[derive(Debug, Deserialize)]
+pub struct GeneanetPreviewRequest {
+    /// The `.gw` file, base64-encoded because JSON cannot carry raw bytes and
+    /// raw bytes are what the ISO-8859-1-or-UTF-8 reader needs.
+    pub gw_base64: String,
+    pub file_name: String,
+    /// The JSON the login window's collection script produced.
+    pub collection: String,
+    /// Byte length of each single-page deposit, gathered in the login window.
+    /// This is what decides whether a photo is already in the archives.
+    #[serde(default)]
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    #[serde(default)]
+    pub archive_paths: Vec<String>,
+}
+
+/// The stat row and the three explanatory lines of step 4.
+#[derive(Debug, Serialize)]
+pub struct GeneanetPreviewResponse {
+    pub person_count: usize,
+    pub photo_count: usize,
+    pub persons_with_photo: usize,
+    pub attachment_count: usize,
+    pub in_archives: usize,
+    pub to_download: usize,
+    pub group_photos: usize,
+    pub unlinked_views: usize,
+    pub outside_tree: usize,
+    pub ambiguous: usize,
+    pub outside_tree_names: Vec<String>,
+    pub ambiguous_names: Vec<String>,
+    /// `true` when almost no photo matched — the `.gw` and the account are
+    /// probably not the same tree, and the wizard blocks rather than importing.
+    pub mismatch: bool,
+}
+
+/// The same inputs as the preview, plus what it takes to fetch bytes. Step 5.
+#[derive(Debug, Deserialize)]
+pub struct GeneanetImportRequest {
+    pub gw_base64: String,
+    pub file_name: String,
+    pub collection: String,
+    #[serde(default)]
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    #[serde(default)]
+    pub archive_paths: Vec<String>,
+    /// Geneanet session cookie, taken from the login window. Absent when the
+    /// archives cover every photo, in which case nothing is downloaded and
+    /// nothing needs authenticating.
+    #[serde(default)]
+    pub cookie: Option<String>,
+}
+
+/// What the import actually did.
+#[derive(Debug, Serialize)]
+pub struct GeneanetImportResponse {
+    pub persons_count: usize,
+    pub families_count: usize,
+    pub events_count: usize,
+    pub sources_count: usize,
+    pub places_count: usize,
+    pub notes_count: usize,
+    /// Distinct photos stored.
+    pub media_count: usize,
+    /// Person↔photo rows; higher than `media_count` when a photo shows several
+    /// people, which is what the Geneanet export could not express at all.
+    pub links_count: usize,
+    /// Photos that could not be fetched, one line each.
+    pub skipped: Vec<String>,
+    pub warnings: Vec<String>,
+}

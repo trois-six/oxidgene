@@ -424,6 +424,24 @@ Comprehensive media workflow: upload, storage, thumbnails, multi-page documents,
 - [ ] **PDF page rendering.** A PDF still opens as a whole file: paging *inside* one needs the rasteriser F.1 declined to take on as a C dependency. Multi-page now works for documents assembled from images, which is the case a scanner produces.
 - [ ] Verified by compiling, by `clippy --all-targets --all-features` and by 41 API integration tests. **Not exercised by hand in the running app**: the pager, the drop target, the drag-to-crop and the native save dialog have not been used.
 
+### Sprint F.3b — Geneanet Import Wizard 🔄
+
+Specified in [ui-geneanet-import.md](ui-geneanet-import.md); the pipeline it
+drives is [geneanet-media-import.md](geneanet-media-import.md).
+
+- [x] **The pipeline moved out of the CLI into `crates/oxidgene-geneanet`.** `model`, `key`, `join`, `client`, `media` and the browser `script`s are now shared by the CLI and the API, so the headless and the interactive paths cannot drift apart on the join, the key folding or the size matching. `apps/oxidgene-cli/src/geneanet/` keeps the terminal driver and the `.gdz` writer; the app imports straight into a tree, so that container is a CLI affordance rather than the product's path.
+- [x] **`archive.rs` — data archives read where they lie.** A ZIP's central directory records every entry's uncompressed length, which is exactly what the size matching needs, so several gigabytes of export cost a few kilobytes to index and nothing is extracted. Generalised over `LocalOriginals` so the CLI's unzipped `--local-media` directory and the wizard's still-zipped archives answer the same question. A size clash between *different* files resolves to nothing and the caller downloads — detected rather than silently guessed, which is the property that matters when a third of a real archive is same-scanner dossier pages.
+- [x] **The import modal replaces the native file picker** on the tree card's `⋮` → Import. Two tabs: a file (`.ged`/`.gw`) and the Geneanet flow. The file tab also **fixes a real bug** — it read the picked file through `path()` + `tokio::fs::read`, which has no meaning in a browser, so the "shared web/desktop" import had in fact been desktop-only with nothing saying so.
+- [x] **Five steps, exactly one expanded**, each settled one collapsing to a one-line receipt and the unreachable ones dimmed but visible.
+- [x] **Step 3 opens a real `wry` login window** and issues the collection *inside it*: a probe on each page load reports whether the media API answers, then the ~19-request collection and a `HEAD` sizing pass run on the user's own session. This is the answer to the Cloudflare TLS fingerprinting that challenges the CLI — not a way around the check, but the thing the check is asking for. `oxidgene-ui` stays platform-free: it declares a `GeneanetCollector` trait that `oxidgene-desktop` implements and injects.
+- [x] **Step 4's mismatch guard.** Under 10 % of keyed references finding a person blocks the import behind "are the export and the account the same tree?", with *Go back to step 1* primary and *Import anyway* secondary.
+- [x] **Step 5 writes one `media` per photo and one `media_link` per person on it**, so a group photo is stored once and attached to everyone in it — what the export could not express and what `MediaLink`'s shape was always for. A photo that cannot be fetched is reported and skipped rather than aborting a run whose ten thousand people are already in.
+- [x] **Web/desktop boundary made visible.** Steps 2, 3 and the photo half of 5 need a filesystem path and a same-origin window, neither of which a browser has. Both render an explanation naming the desktop app; the `.gw` still imports on web.
+- [x] **en/fr parity test for the ~200 new strings.** A missing key does not fail to compile and does not fail to render — it renders as the key itself, mid-sentence, only for users of the other language. A second test pins that a `{placeholder}` in one language exists in the other.
+- [ ] **Instructional screenshots (§3).** Shipping with the numbered text instructions only. Cropping them needs a live account, and a screenshot of the wrong page is worse than none.
+- [ ] **Per-photo progress and cancellation in step 5.** The bar is indeterminate and the run cannot be interrupted; the person import is transactional but the photo pass that follows is not, so interrupting would leave a tree with some of its photos.
+- [ ] Verified by `cargo fmt`, `clippy --workspace --all-targets` (clean) and the full test suite (572 passing). **Not exercised against a live Geneanet account**: the login window, the collection, the sizing pass and the download fallback have not been run end to end.
+
 ### Sprint F.4 — Performance & Polish
 
 - [ ] Thumbnail caching

@@ -1,6 +1,6 @@
 //! Joins a media manifest onto the persons of a `.gw` export.
 //!
-//! The two sides meet on the GeneWeb key (see [`super::key`]). A person in the
+//! The two sides meet on the GeneWeb key (see [`crate::key`]). A person in the
 //! `.gw` file is identified by position: `GwDatabase::persons[i]` becomes
 //! `GedcomData::individuals[i]` with xref `@I{i+1}@`, which the conversion
 //! guarantees by construction.
@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use geneweb::database::GwDatabase;
 
-use super::key::geneanet_key;
-use super::model::{Manifest, ManifestDeposit, ManifestView};
+use crate::key::geneanet_key;
+use crate::model::{Manifest, ManifestDeposit, ManifestView};
 
 /// Maps a folded GeneWeb key to the persons that carry it.
 pub struct PersonIndex {
@@ -225,7 +225,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::geneanet::model::{ManifestReference, ManifestView};
+    use crate::model::{ManifestReference, ManifestView};
 
     fn view(id: i64, references: Vec<ManifestReference>) -> ManifestView {
         ManifestView {

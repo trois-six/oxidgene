@@ -22,6 +22,10 @@ glib = { version = "0.18", default-features = false }
 oxidgene-api = { workspace = true }
 oxidgene-db = { workspace = true }
 oxidgene-ui = { workspace = true }
+oxidgene-geneanet = { workspace = true }
+serde = { workspace = true }
+# The Geneanet login window reports back across the event loop boundary.
+futures-channel = "0.3"
 dioxus = { workspace = true, features = ["desktop", "router"] }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["net", "signal", "sync"] }

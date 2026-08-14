@@ -12,8 +12,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use ged_io::types::multimedia::{Multimedia, file::Reference, format::Format};
 
-use super::join::{Attachment, Join};
-use super::media::{MediaSource, Origin};
+use oxidgene_geneanet::join::{Attachment, Join};
+use oxidgene_geneanet::media::{MediaSource, Origin};
 
 /// Directory the media live in, inside the archive.
 const MEDIA_DIR: &str = "media";
@@ -25,7 +25,7 @@ pub async fn build(
     database: &geneweb::database::GwDatabase,
     join: &Join,
     source: &mut MediaSource,
-    manifest: &super::Manifest,
+    manifest: &oxidgene_geneanet::Manifest,
     out: &Path,
 ) -> Result<()> {
     let mut gedcom = database.to_gedcom();
@@ -39,7 +39,7 @@ pub async fn build(
     );
 
     // Look deposits and views up by id rather than re-walking the manifest.
-    let deposits: HashMap<i64, &super::model::ManifestDeposit> =
+    let deposits: HashMap<i64, &oxidgene_geneanet::model::ManifestDeposit> =
         manifest.deposits.iter().map(|d| (d.id, d)).collect();
 
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();

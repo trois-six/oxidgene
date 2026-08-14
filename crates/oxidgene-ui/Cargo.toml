@@ -10,6 +10,11 @@ repository.workspace = true
 [dependencies]
 oxidgene-core = { workspace = true }
 dioxus = { workspace = true, features = ["router"] }
+# The Geneanet login window runs on the platform event loop, not on Dioxus's,
+# so what it reports back crosses threads through a channel.
+futures-channel = "0.3"
+futures-util = "0.3"
+base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

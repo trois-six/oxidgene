@@ -17,8 +17,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::client::Client;
-use super::model::{ManifestDeposit, ManifestView};
+use crate::archive::LocalOriginals;
+use crate::client::Client;
+use crate::model::{ManifestDeposit, ManifestView};
 
 /// Local originals, indexed by exact byte length.
 #[derive(Debug, Default)]
@@ -55,16 +56,12 @@ impl LocalIndex {
         })
     }
 
-    pub fn file_count(&self) -> usize {
-        self.file_count
-    }
-
     /// Picks the local file of exactly this size, if that can be done safely.
     ///
     /// With several candidates, they are only interchangeable if their contents
     /// match — which is what a duplicate upload looks like. Otherwise this
     /// returns `None` and the caller downloads rather than picking one.
-    fn resolve(&self, size: u64) -> Result<Option<&Path>> {
+    fn locate(&self, size: u64) -> Result<Option<&Path>> {
         let candidates = self.by_size.get(&size).map_or(&[][..], Vec::as_slice);
 
         match candidates {
@@ -85,6 +82,21 @@ impl LocalIndex {
                 Ok(Some(first))
             }
         }
+    }
+}
+
+impl LocalOriginals for LocalIndex {
+    fn resolve(&self, size: u64) -> Result<Option<Vec<u8>>> {
+        match self.locate(size)? {
+            Some(path) => std::fs::read(path)
+                .map(Some)
+                .with_context(|| format!("reading {}", path.display())),
+            None => Ok(None),
+        }
+    }
+
+    fn file_count(&self) -> usize {
+        self.file_count
     }
 }
 
@@ -121,7 +133,10 @@ impl Sources {
 /// Resolves media bytes, reusing the local archive wherever it can.
 pub struct MediaSource {
     client: Client,
-    local: Option<LocalIndex>,
+    /// Originals the user already holds — a directory of loose files for the
+    /// CLI, a set of still-zipped archives for the wizard. Either answers the
+    /// one question asked of it: "have you got a file of exactly this length?"
+    local: Option<Box<dyn LocalOriginals + Send + Sync>>,
     sources: Sources,
     /// Fetch multi-page originals by pulling the whole deposit archive.
     multipage_originals: bool,
@@ -131,7 +146,11 @@ pub struct MediaSource {
 }
 
 impl MediaSource {
-    pub fn new(client: Client, local: Option<LocalIndex>, multipage_originals: bool) -> Self {
+    pub fn new(
+        client: Client,
+        local: Option<Box<dyn LocalOriginals + Send + Sync>>,
+        multipage_originals: bool,
+    ) -> Self {
         Self {
             client,
             local,
@@ -162,10 +181,8 @@ impl MediaSource {
         if single_page
             && let Some(local) = &self.local
             && let Some(size) = self.client.content_length(deposit.id).await?
-            && let Some(path) = local.resolve(size)?
+            && let Some(bytes) = local.resolve(size)?
         {
-            let bytes =
-                std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
             self.sources.record(Origin::Local);
             return Ok((bytes, Origin::Local));
         }
@@ -303,10 +320,7 @@ mod tests {
         let index = LocalIndex::build(dir.path()).expect("indexes");
 
         assert_eq!(index.file_count(), 2);
-        assert_eq!(
-            index.resolve(5).expect("resolves"),
-            Some(expected.as_path())
-        );
+        assert_eq!(index.locate(5).expect("resolves"), Some(expected.as_path()));
     }
 
     #[test]
@@ -316,7 +330,7 @@ mod tests {
 
         let index = LocalIndex::build(dir.path()).expect("indexes");
 
-        assert_eq!(index.resolve(999).expect("resolves"), None);
+        assert_eq!(index.locate(999).expect("resolves"), None);
     }
 
     #[test]
@@ -329,7 +343,7 @@ mod tests {
 
         let index = LocalIndex::build(dir.path()).expect("indexes");
 
-        assert!(index.resolve(10).expect("resolves").is_some());
+        assert!(index.locate(10).expect("resolves").is_some());
     }
 
     #[test]
@@ -343,7 +357,7 @@ mod tests {
 
         let index = LocalIndex::build(dir.path()).expect("indexes");
 
-        assert_eq!(index.resolve(10).expect("resolves"), None);
+        assert_eq!(index.locate(10).expect("resolves"), None);
     }
 
     #[test]
@@ -353,7 +367,7 @@ mod tests {
         let index = LocalIndex::build(dir.path()).expect("indexes");
 
         assert_eq!(index.file_count(), 0);
-        assert_eq!(index.resolve(0).expect("resolves"), None);
+        assert_eq!(index.locate(0).expect("resolves"), None);
     }
 
     fn view_with(files: &[(&str, &str)]) -> ManifestView {
