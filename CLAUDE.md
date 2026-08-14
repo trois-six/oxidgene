@@ -29,6 +29,7 @@ crates/
   oxidgene-core/    # Domain types, enums, errors, read projections — no internal deps
   oxidgene-db/      # SeaORM entities, migrations, repos
   oxidgene-gedcom/  # GEDCOM ↔ domain (wraps ged_io) + GeneWeb .gw → domain (wraps geneweb)
+  oxidgene-geneanet/# Geneanet person↔photo recovery: join, key folding, archive indexing
   oxidgene-api/     # Axum REST + async-graphql + service + profile layer
   oxidgene-ui/      # Dioxus components + pages
 apps/
@@ -37,7 +38,9 @@ apps/
   oxidgene-cli/     # CLI (import/export, migrations)
 ```
 
-Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `core` ← `ui`.
+Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `geneanet` ← `api`/`cli`/`desktop`; `core` ← `ui`.
+
+**`oxidgene-ui` must stay platform-free** — it compiles to wasm, so it depends on neither `dioxus-desktop` nor `oxidgene-geneanet`. Where it needs a desktop-only capability it declares a trait and the desktop binary injects an implementation as context (see `ui/src/geneanet.rs` ↔ `apps/oxidgene-desktop/src/geneanet.rs`).
 
 **No cache tier.** Denormalized read models are materialized in the DB (`person_denorm`, `person_search_fts`) and refreshed on every mutation; pedigrees are assembled per request from `person_ancestry` ⋈ `person_denorm`. See `docs/specifications/read-projections.md`.
 
@@ -58,6 +61,7 @@ Dioxus. Components in `src/components/`, pages in `src/pages/`.
 
 **Key files**:
 - `layout.rs` — app shell, navbar, all shared CSS
+- `import_modal.rs` — import modal: file tab (.ged/.gw) + the 5-step Geneanet flow
 - `media_gallery.rs` / `media_input.rs` / `image_cropper.rs` / `vignette_linker.rs` — media grid, upload cell, drag-to-crop, crop↔event linking
 - `pedigree_chart.rs` — vertical bidirectional pan/zoom tree canvas
 - `tree_detail.rs` — page orchestrator: data fetching, topbar, modals, GEDCOM I/O
@@ -102,12 +106,14 @@ Logo: `docs/assets/OxidGene.{png,svg}` — used in navbar and README.
 
 ## Current sprint
 
-EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). **EPIC F — Media Management** in progress: F.1–F.3 shipped, F.4 (performance & polish) next.
+EPICs A–D complete; EPIC E complete through Sprint E.9 (E.8 dictionary descent view still planned). **EPIC F — Media Management** in progress: F.1–F.3 and the Geneanet import wizard (F.3b) shipped, F.4 (performance & polish) next.
 
 Media storage lives in `crates/oxidgene-api/src/media/` — `store.rs` (the `MediaStore` trait and the content-addressed `FsStore`), `thumbnail.rs`, `pages.rs`. Files default to the platform user-data directory (`~/.local/share/oxidgene/media` on Linux); `OXIDGENE_MEDIA_ROOT` overrides. The UI side is `components/media_gallery.rs` (grid, tiles, inline edit panel), `media_input.rs` (upload cell), `image_cropper.rs` (drag-to-crop) and `vignette_linker.rs`, used by `person_form`, `union_form` and — read-only — `person_detail`.
 
 A media is one of three things and every view tells them apart: **stored** (bytes in our store, thumbnail, croppable), **remote** (`file_path` is an http(s) URL we record and never fetch), **unheld** (a GEDCOM record naming a file nobody uploaded). A **multi-page document** is a `media` with `is_document` whose pages are `media` rows carrying `parent_media_id` + `page_index` — a page is a media, so upload/storage/thumbnails/cropping need no second path; listings filter `parent_media_id IS NULL`.
 
-Open EPIC F items: the S3 backend for the server deployment, PostgreSQL verification, PDF page rendering (needs a C rasteriser, deliberately declined), and showing a vignette as an event's illustration on the timeline.
+**Geneanet import** (`docs/specifications/ui-geneanet-import.md`): the tree card's `⋮` → Import opens `components/import_modal.rs`, a modal with a file tab (.ged/.gw) and a five-step Geneanet tab. Its pipeline is `crates/oxidgene-geneanet`; the server side is `api/src/service/geneanet.rs` + `rest/geneanet.rs`; the login window is `apps/oxidgene-desktop/src/geneanet.rs`, reached through the `GeneanetCollector` trait so `oxidgene-ui` never sees `wry`. Steps 2 (archives), 3 (login) and the photo half of 5 are **desktop-only** — a browser has no path to read a multi-gigabyte ZIP by, and a window it opens is a different origin — and both steps render an explanation on web, where the `.gw` still imports.
+
+Open EPIC F items: the S3 backend for the server deployment, PostgreSQL verification, PDF page rendering (needs a C rasteriser, deliberately declined), showing a vignette as an event's illustration on the timeline, and — for the Geneanet wizard — the instructional screenshots (§3) plus per-photo progress and cancellation in step 5. The wizard has **not been run against a live Geneanet account**.
 
 See [`docs/specifications/general.md` §8b](docs/specifications/general.md) for the EPIC status table and recently shipped work, and [`docs/specifications/roadmap.md`](docs/specifications/roadmap.md) for full sprint details. Update both files each time a new feature is developed.

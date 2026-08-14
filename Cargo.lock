@@ -4633,6 +4633,7 @@ dependencies = [
  "oxidgene-core",
  "oxidgene-db",
  "oxidgene-gedcom",
+ "oxidgene-geneanet",
  "sea-orm",
  "serde",
  "serde_json",
@@ -4652,6 +4653,7 @@ dependencies = [
  "clap",
  "ged_io",
  "geneweb",
+ "oxidgene-geneanet",
  "reqwest",
  "serde",
  "serde_json",
@@ -4695,10 +4697,13 @@ dependencies = [
  "clap",
  "dioxus",
  "dirs",
+ "futures-channel",
  "glib",
  "oxidgene-api",
  "oxidgene-db",
+ "oxidgene-geneanet",
  "oxidgene-ui",
+ "serde",
  "serde_json",
  "tokio",
  "tower-http 0.7.0",
@@ -4721,6 +4726,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxidgene-geneanet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "geneweb",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
+ "zip",
+]
+
+[[package]]
 name = "oxidgene-server"
 version = "0.1.0"
 dependencies = [
@@ -4740,8 +4759,11 @@ dependencies = [
 name = "oxidgene-ui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "chrono",
  "dioxus",
+ "futures-channel",
+ "futures-util",
  "gloo-timers 0.4.0",
  "oxidgene-core",
  "reqwest",

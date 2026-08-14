@@ -11,6 +11,7 @@ repository.workspace = true
 anyhow.workspace = true
 clap = { workspace = true, features = ["env"] }
 ged_io.workspace = true
+oxidgene-geneanet.workspace = true
 geneweb.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 serde.workspace = true

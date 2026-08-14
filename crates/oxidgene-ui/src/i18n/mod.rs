@@ -240,3 +240,69 @@ mod language_detection_tests {
         assert_eq!(Language::from_preferences(["xx", "fr-FR"]), Language::Fr);
     }
 }
+
+#[cfg(test)]
+mod parity_tests {
+    use super::*;
+
+    /// Every key must exist in both tables.
+    ///
+    /// A missing key does not fail to compile and does not fail to render — it
+    /// renders as the key itself, in the middle of a sentence, only for users
+    /// of the other language. Adding a screenful of strings to one file and
+    /// forgetting the other is exactly how that happens.
+    #[test]
+    fn the_two_tables_carry_the_same_keys() {
+        let en = en::translations();
+        let fr = fr::translations();
+
+        let missing_from_fr: Vec<_> = en.keys().filter(|key| !fr.contains_key(*key)).collect();
+        let missing_from_en: Vec<_> = fr.keys().filter(|key| !en.contains_key(*key)).collect();
+
+        assert!(
+            missing_from_fr.is_empty(),
+            "keys present in English but not French: {missing_from_fr:?}"
+        );
+        assert!(
+            missing_from_en.is_empty(),
+            "keys present in French but not English: {missing_from_en:?}"
+        );
+    }
+
+    /// A `{placeholder}` in one language must exist in the other.
+    ///
+    /// `t_args` substitutes by name and leaves anything it was not given
+    /// alone, so a translation that renamed `{count}` to `{nombre}` shows the
+    /// literal braces to the user rather than a number.
+    #[test]
+    fn matching_keys_interpolate_the_same_names() {
+        let en = en::translations();
+        let fr = fr::translations();
+
+        for (key, english) in en {
+            let Some(french) = fr.get(key) else { continue };
+            let (english, french) = (placeholders(english), placeholders(french));
+            let mismatched: Vec<_> = english.symmetric_difference(&french).collect();
+            assert!(
+                mismatched.is_empty(),
+                "{key} interpolates different names in each language: {mismatched:?}"
+            );
+        }
+    }
+
+    fn placeholders(text: &str) -> std::collections::BTreeSet<String> {
+        let mut found = std::collections::BTreeSet::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('{') {
+            let after = &rest[start + 1..];
+            match after.find('}') {
+                Some(end) => {
+                    found.insert(after[..end].to_string());
+                    rest = &after[end + 1..];
+                }
+                None => break,
+            }
+        }
+        found
+    }
+}

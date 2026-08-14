@@ -37,6 +37,8 @@
 //!   `with_data_store_identifier` (macOS >= 14) is the closest available
 //!   knob, though it's an opaque store ID rather than a directory.
 
+mod geneanet;
+
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -192,6 +194,11 @@ fn main() {
     // person projections live in SQLite, written as part of each mutation.
     let window_icon: Option<Icon> = icon_from_memory(ICON_PNG).ok();
     let shutdown_tx_for_handler = Arc::clone(&shutdown_tx);
+
+    // The Geneanet import wizard's step 3 needs a second browser window on
+    // geneanet.org, which only the event loop can create — so the bridge the
+    // UI talks to and the handler that services it are installed together.
+    let (geneanet_bridge, mut geneanet_handler) = geneanet::install();
     let mut cfg = Config::new()
         .with_data_directory(data_dir.join("webview"))
         .with_menu(None::<dioxus::desktop::muda::Menu>)
@@ -205,7 +212,10 @@ fn main() {
     }
     dioxus::LaunchBuilder::new()
         .with_context(api_client)
-        .with_cfg(cfg.with_custom_event_handler(move |event, _target| {
+        .with_context(geneanet_bridge)
+        .with_cfg(cfg.with_custom_event_handler(move |event, target| {
+            geneanet_handler(event, target);
+
             if let Event::LoopDestroyed = event {
                 info!("Window closing, shutting the embedded server down…");
                 // Take the sender (only fires once).

@@ -1,44 +1,38 @@
-//! Recovers the person↔media links that a Geneanet export cannot carry.
+//! Headless driver for the Geneanet media pipeline.
 //!
-//! A Geneanet GEDCOM/`.gw` export emits at most one `OBJE`/`#image` per
-//! individual — the default portrait — as a URL that 403s for anyone not
-//! logged in. Everything else is lost: the other photos on a person's page,
-//! every group photo shared by several people, every scanned document.
-//!
-//! The media manager's API still has all of it, so we collect it separately
-//! and join it back onto the tree by GeneWeb key.
+//! The pipeline itself lives in [`oxidgene_geneanet`], shared with the API so
+//! the import wizard and the CLI cannot drift apart on the join, the key
+//! folding or the size matching. What stays here is what only a terminal
+//! needs: reading and checkpointing files, printing reports, and the `.gdz`
+//! writer — the app imports straight into a tree, so that container is a CLI
+//! affordance rather than the product's path.
 //!
 //! Run in two steps, because they carry very different weight:
 //!
-//! 1. [`manifest`] — roughly fifteen small JSON requests, thanks to a bulk
+//! 1. [`manifest`] — roughly nineteen small JSON requests, thanks to a bulk
 //!    endpoint that returns every link with its deposit inline. Cheap enough
 //!    to re-run, and enough to see the whole mapping before committing to
 //!    anything.
 //! 2. [`fetch`] — one request per deposit for the original files. Hundreds of
 //!    megabytes, so it is a separate, explicit decision.
 
-pub mod browser;
-pub mod client;
 pub mod gedzip;
-pub mod join;
-pub mod key;
-pub mod media;
-pub mod model;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use oxidgene_geneanet::archive::LocalOriginals;
+use oxidgene_geneanet::{join, media, script};
 
-pub use client::{Client, Throttle};
-pub use model::Manifest;
+pub use oxidgene_geneanet::{Client, Manifest, Throttle};
 
 /// Reports how much of a manifest joins onto a `.gw` file, without touching
 /// the network.
 ///
-/// Worth running before [`gedzip`]: it says exactly which media will land on
-/// which persons, and names everything that will not.
+/// Worth running before [`build_gedzip`]: it says exactly which media will land
+/// on which persons, and names everything that will not.
 pub async fn check(gw_path: &Path, manifest_path: &Path, verbose: bool) -> Result<join::Join> {
     let manifest = read_manifest(manifest_path).await?;
     let database = read_gw(gw_path).await?;
@@ -99,19 +93,11 @@ async fn read_gw(path: &Path) -> Result<geneweb::database::GwDatabase> {
         |n| n.to_string_lossy().into(),
     );
 
-    let (database, errors) = geneweb::database::GwDatabase::read_lenient(&bytes, &name);
+    let (database, skipped) = oxidgene_geneanet::parse_gw(&bytes, &name)?;
 
-    if database.persons.is_empty() {
-        bail!(
-            "no person could be read from {} ({} parse error(s))",
-            path.display(),
-            errors.len()
-        );
-    }
-    if !errors.is_empty() {
+    if skipped > 0 {
         eprintln!(
-            "{} block(s) of {} could not be parsed and were skipped",
-            errors.len(),
+            "{skipped} block(s) of {} could not be parsed and were skipped",
             path.display()
         );
     }
@@ -122,28 +108,30 @@ async fn read_gw(path: &Path) -> Result<geneweb::database::GwDatabase> {
 /// Builds a manifest from a collection gathered by the user's browser.
 ///
 /// Offline: no cookie, no network. This is the path that works when Cloudflare
-/// has decided the CLI looks automated — see [`browser`] for why using a real
+/// has decided the CLI looks automated — see [`script`] for why using a real
 /// browser is the honest answer rather than dressing this one up as one.
 pub async fn manifest_from_browser(input: &Path, out: &Path) -> Result<Manifest> {
     let json = tokio::fs::read_to_string(input)
         .await
         .with_context(|| format!("reading {}", input.display()))?;
-    let collection: model::BrowserCollection = serde_json::from_str(&json).with_context(|| {
+
+    let manifest = oxidgene_geneanet::manifest_from_collection(&json).with_context(|| {
         format!(
             "parsing {} — is it the file the browser script saved?",
             input.display()
         )
     })?;
 
-    let (deposits, references) = collection.into_references();
-    // The browser collection carries no host of its own, and the media manager
-    // it was gathered from only exists on the one host.
-    let manifest = Manifest::build(client::DEFAULT_BASE_URL.to_string(), deposits, references);
-
     write_manifest(&manifest, out).await?;
     report(&manifest, out);
 
     Ok(manifest)
+}
+
+/// Prints the script and the instructions for running it in a real browser.
+pub fn browser_script() {
+    println!("{}\n", script::INSTRUCTIONS);
+    println!("{}", script::collection_script());
 }
 
 /// Prints what the collected manifest holds.
@@ -162,90 +150,11 @@ fn report(manifest: &Manifest, out: &Path) {
     );
 }
 
-/// Pins each bulk-collected link to the view it belongs to.
-///
-/// A deposit with one page needs no work: the link can only be on that page.
-/// A deposit with several is the awkward case — the bulk endpoint lists every
-/// page without saying which — so its pages are probed one at a time, stopping
-/// as soon as every link the bulk pass reported for that deposit is accounted
-/// for. Links cluster on page 1 (the cover of a scanned dossier), so this
-/// almost always costs a single request per deposit rather than one per page.
-async fn locate(
-    client: &Client,
-    deposits: &[model::Deposit],
-    entries: Vec<model::ReferenceEntry>,
-) -> Result<model::LocatedReferences> {
-    let mut expected: BTreeMap<i64, usize> = BTreeMap::new();
-    let mut single_page = model::LocatedReferences::new();
-    let mut multi_page: Vec<i64> = Vec::new();
-
-    for entry in entries {
-        let deposit_id = entry.deposit.id;
-        *expected.entry(deposit_id).or_default() += 1;
-
-        match entry.deposit.views.as_slice() {
-            [only] => {
-                let view_id = only.id;
-                single_page
-                    .entry((deposit_id, view_id))
-                    .or_default()
-                    .push(entry.into_reference());
-            }
-            _ => {
-                if !multi_page.contains(&deposit_id) {
-                    multi_page.push(deposit_id);
-                }
-            }
-        }
-    }
-
-    if multi_page.is_empty() {
-        return Ok(single_page);
-    }
-
-    let pages: usize = deposits
-        .iter()
-        .filter(|d| multi_page.contains(&d.id))
-        .map(|d| d.views.len())
-        .sum();
-    eprintln!(
-        "Locating links inside {} multi-page deposit(s) ({pages} pages, probed until accounted \
-         for)…",
-        multi_page.len()
-    );
-
-    let mut located = single_page;
-    let mut probes = 0;
-
-    for deposit_id in multi_page {
-        let Some(deposit) = deposits.iter().find(|d| d.id == deposit_id) else {
-            continue;
-        };
-        let mut remaining = expected.get(&deposit_id).copied().unwrap_or(0);
-
-        for view in &deposit.views {
-            if remaining == 0 {
-                break;
-            }
-            let found = client.view_references(deposit_id, view.id).await?;
-            probes += 1;
-            if !found.is_empty() {
-                remaining = remaining.saturating_sub(found.len());
-                located.insert((deposit_id, view.id), found);
-            }
-        }
-    }
-
-    eprintln!("  {probes} extra request(s).");
-
-    Ok(located)
-}
-
 /// Builds a `.gdz` carrying the tree and every medium attached to a person.
 ///
-/// This is the endpoint of the whole exercise: a single file holding the
-/// genealogy *and* its photos, where a Geneanet export would have carried one
-/// unusable URL per person.
+/// A headless convenience, not the app's path: OxidGene imports straight into
+/// a tree and can export a `.gdz` from it afterwards, so producing one only to
+/// re-import it would be a detour.
 pub async fn build_gedzip(
     client: Client,
     gw_path: &Path,
@@ -276,7 +185,8 @@ pub async fn build_gedzip(
                 index.file_count(),
                 dir.display()
             );
-            Some(index)
+            let boxed: Box<dyn LocalOriginals + Send + Sync> = Box::new(index);
+            Some(boxed)
         }
         None => None,
     };
@@ -294,25 +204,12 @@ pub async fn build_gedzip(
 
 /// Collects the full deposit → view → person mapping and writes it as JSON.
 ///
-/// Cheap by construction. `/media/api/references` hands back every link with
-/// its deposit inline, so the bulk of the work is a handful of paginated calls;
-/// only links sitting inside a multi-page deposit need locating individually,
-/// because that endpoint lists all of a deposit's pages without saying which
-/// one the link is on.
-///
-/// On the reference tree this is ~15 requests where the naive per-view walk
-/// took 618 — which matters beyond speed, since request volume is what gets a
-/// client challenged.
+/// Cheap by construction — ~19 requests where the naive per-view walk took 618,
+/// which matters beyond speed, since request volume is what gets a client
+/// challenged.
 pub async fn manifest(client: Client, out: &Path) -> Result<Manifest> {
-    eprintln!("Listing deposits…");
-    let deposits = client.list_deposits().await?;
-
-    eprintln!("{} deposits. Fetching person links…", deposits.len());
-    let entries = client.list_references().await?;
-    eprintln!("{} links.", entries.len());
-
-    let references = locate(&client, &deposits, entries).await?;
-    let manifest = Manifest::build(client.base_url().to_string(), deposits, references);
+    eprintln!("Collecting the mapping…");
+    let manifest = oxidgene_geneanet::collect_manifest(&client).await?;
 
     write_manifest(&manifest, out).await?;
     report(&manifest, out);

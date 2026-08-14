@@ -4,6 +4,7 @@ pub mod confirm_dialog;
 pub mod context_menu;
 pub mod date_input;
 pub mod image_cropper;
+pub mod import_modal;
 pub mod layout;
 pub mod media_gallery;
 pub mod media_input;

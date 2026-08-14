@@ -27,68 +27,101 @@ decisive way: **the user has work to do on another website**, and most of them
 have never heard of a `.gw` file. The interface is therefore as much a set of
 instructions as a form.
 
-**Desktop only.** Step 3 needs an embedded browser window. The web build shows
-the flow with a note pointing at the desktop app or the CLI.
-
-**Depends on Sprint F.1.** There is nowhere to store image bytes until media
-storage exists. Steps 1–4 are buildable before F.1; step 5 is not.
+**Unblocked by Sprint F.1**, which shipped media storage. All five steps are
+built; see §2b for the three that only the desktop app can run.
 
 ---
 
-## 2. Shape: one page, one open step
+## 2. Shape: one modal, two tabs, one open step
 
-Not a modal wizard. A **single page** whose steps fill in from top to bottom.
+The import lives in a **modal** opened from a tree card's `⋮` menu, replacing
+the native file picker that menu used to open directly. It has two tabs:
 
-- Exactly **one step is expanded at a time** — the current one.
+- **A file** — the old behaviour. Drop or pick a `.ged`/`.gw`, import it.
+- **From Geneanet** — five steps, of which exactly **one is expanded** at a
+  time.
+
+> An earlier draft of this spec called for a dedicated page and said "not a
+> modal wizard". That was overturned deliberately: the two import routes are
+> one decision made at one moment, and splitting them across a modal and a page
+> made the cheap route feel like the real one and the complete route like an
+> excursion. The step-at-a-time discipline below is what mattered, and it
+> survives intact.
+
+Within the Geneanet tab:
+
 - A completed step **collapses to a one-line summary** with its result, a green
   check, and an "Edit" affordance to reopen it.
 - Reopening a step collapses whichever was open.
 - Steps not yet reachable are visible but dimmed, so the whole journey is
   legible from the first second.
 
-The point is that at any moment the page shows *one* thing to do, while the
+The point is that at any moment the modal shows *one* thing to do, while the
 lines above are a receipt of what has already been settled.
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│  Import from Geneanet                                      │
-├────────────────────────────────────────────────────────────┤
-│  ✓  1. Your family tree file      myaccount_2026-08-01.gw     │
-│        10 254 people                              [Edit]   │  ← collapsed
-├────────────────────────────────────────────────────────────┤
-│  ✓  2. Your photo archive         3 archives, 613 files    │
-│                                                   [Edit]   │  ← collapsed
-├────────────────────────────────────────────────────────────┤
-│  ▼  3. Connect to Geneanet                                 │  ← expanded
-│                                                            │
-│     Your photos are private. OxidGene opens a Geneanet      │
-│     login window — the same one as in your browser. Your    │
-│     password is never seen by OxidGene.                     │
-│                                                            │
-│     ┌──────────────────┐                                   │
-│     │  [ screenshot ]  │  Sign in as you normally would.    │
-│     └──────────────────┘                                   │
-│                                                            │
-│              [ Open the Geneanet login window ]            │
-├────────────────────────────────────────────────────────────┤
-│     4. What will be imported                        (dim)  │
-├────────────────────────────────────────────────────────────┤
-│     5. Import                                       (dim)  │
-└────────────────────────────────────────────────────────────┘
+┌─ Import into "Famille Dupont" ────────────────────────── [×] ─┐
+│  ○ A file        ● From Geneanet                              │
+├───────────────────────────────────────────────────────────────┤
+│  ✓  1. Your family tree file   myaccount_2026-08-01.gw        │
+│        10 254 people                                  [Edit]  │  ← collapsed
+├───────────────────────────────────────────────────────────────┤
+│  ✓  2. Your photo archive      3 archives · 613 files [Edit]  │  ← collapsed
+├───────────────────────────────────────────────────────────────┤
+│  3  3. Connect to Geneanet                                    │  ← expanded
+│                                                               │
+│     Your photos are private. OxidGene opens a Geneanet        │
+│     login window — the same one as in your browser. Your      │
+│     password is never seen by OxidGene.                       │
+│                                                               │
+│              [ Open the Geneanet login window ]               │
+├───────────────────────────────────────────────────────────────┤
+│  4  4. What will be imported                          (dim)   │
+├───────────────────────────────────────────────────────────────┤
+│  5  5. Import                                         (dim)   │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ### Entry points
 
-- [Homepage](ui-home.md) → **"+ New tree"** → *Import from Geneanet*
-- [Settings](ui-settings.md) → **Tools** → *Import from Geneanet* (into the
-  current tree)
+- [Homepage](ui-home.md) → a tree card's **`⋮`** → *Import*
+- [Settings](ui-settings.md) → **Tools** → *Import* (into the current tree)
+
+The modal never creates a tree: it is opened from a tree's own menu, so the
+destination is already chosen.
 
 ---
+
+## 2b. What the web build cannot do
+
+Three of the five steps need capabilities a browser does not have, and the tab
+says so rather than offering controls that cannot work.
+
+| Step | Web | Desktop | Why |
+|---|---|---|---|
+| 1. `.gw` file | ✅ | ✅ | Picked with the same file dialog and read the same way |
+| 2. Photo archive | ❌ | ✅ | Reads multi-gigabyte ZIPs **by path**, a few kilobytes each. A browser has no path and would have to upload the whole archive to learn what its central directory already states. |
+| 3. Connect to Geneanet | ❌ | ✅ | Needs a second browser window whose session this app can then issue requests through. A window a web page opens is a different origin: nothing comes back out of it. |
+| 4. Preview | ✅ | ✅ | Computed server-side from what the earlier steps produced |
+| 5. Import | `.gw` only | ✅ | The photo half needs 2 and 3 |
+
+On web, steps 2 and 3 render an explanation naming the desktop app, and the
+`.gw` still imports — **the genealogy arrives, the photos do not**. This is the
+same boundary the underlying pipeline already had; the tab makes it visible
+instead of letting a button fail.
 
 ## 3. Instructional screenshots
 
 Steps 1, 2 and 3 each carry a **mini-screenshot** of the Geneanet page being
 described, cropped to the relevant control, with a highlight on what to click.
+
+> **Not yet built.** The steps ship with their numbered text instructions
+> only. Cropping the screenshots requires a live Geneanet account and is
+> deliberately left until the flow has been run against one, since a
+> screenshot of the wrong page is worse than none. Everything below is the
+> contract they must meet when they are added — and §3's own rule, that no
+> step may be completable *only* by following an image, is what makes shipping
+> without them a degradation rather than a hole.
 
 - Stored as base64 next to the other embedded assets
   (`crates/oxidgene-ui/assets/geneanet-*.b64`, included with `include_str!`),
@@ -168,8 +201,13 @@ and it costs nothing.
 
 ### Input
 
-A multi-file picker (`.zip`). Drag-and-drop of several files at once. Selected
-archives are listed with a remove control each.
+A multi-file picker (`.zip`), desktop only. Selected archives are listed with a
+remove control each.
+
+**No drag-and-drop here**, unlike step 1. A dropped file reaches the app as
+bytes with no path, and the whole point of this step is to read a few kilobytes
+out of a file that may be several gigabytes — which needs the path. Step 1's
+`.gw` is small enough to take either way, so it accepts both.
 
 ### On selection
 
@@ -209,8 +247,10 @@ If skipped:
 
 ### Behaviour
 
-**[ Open the Geneanet login window ]** opens a second WebView window on
-Geneanet's login page.
+**[ Open the Geneanet login window ]** opens a second WebView window
+(`wry`, on the desktop app's own event loop) at
+`www.geneanet.org/media/manager`. Signed out, Geneanet redirects to login and
+back — the journey the user would take anyway.
 
 - The user authenticates interactively. If Geneanet shows a captcha or a
   Cloudflare check, it appears in that window and the user handles it — the
@@ -218,6 +258,19 @@ Geneanet's login page.
 - Once the session is established, the window closes on its own and collection
   starts.
 - The window can be closed at any time; the step returns to its initial state.
+
+**The requests are issued inside that window, not by OxidGene.** A small script
+runs on each page load and reports whether the media API answers yet; once it
+does, the collection and the size-matching pass run in the same window, on the
+same session. This is not a detail of convenience — it is the whole reason the
+window exists (see below), and it is why the metadata phase is out of reach of
+the Cloudflare fingerprinting that challenges the CLI. The scripts are the same
+ones `oxidgene-cli geneanet-media browser-script` prints for a user to paste
+into their own console, shared from one place so the two cannot drift.
+
+Afterwards the window's `gntsess5` cookie is read out for step 5 — and only if
+the archives do not cover every photo, because a run that downloads nothing
+needs no session at all.
 
 > **Why a real browser window rather than asking for a cookie.** Two reasons.
 > A normal user cannot copy a session cookie out of developer tools. And
@@ -239,9 +292,12 @@ Stage 2 — Matching photos against your archives
 ```
 
 - **Stage 1** collects the person↔photo mapping — roughly 19 requests, seconds.
-- **Stage 2** matches each photo to an entry in the archives by exact size. Runs
-  only if step 2 supplied archives; otherwise it is skipped and the downloading
-  happens in step 5 instead.
+- **Stage 2** asks Geneanet each single-page deposit's exact byte length with a
+  `HEAD` — no body transferred — and the server matches those lengths against
+  the archives' central directories. Runs only if step 2 supplied archives;
+  otherwise it is skipped and the downloading happens in step 5 instead.
+  Multi-page deposits are absent from this pass on purpose: their download is a
+  ZIP Geneanet streams with no `Content-Length`, so there is no length to match.
 
 ### On completion
 
@@ -298,7 +354,8 @@ with **[ Go back to step 1 ]** as the primary action and a secondary
 
 ## 8. Step 5 — Import
 
-Blocked on [F.1 Media Storage](roadmap.md); the rest of the flow is not.
+Writes through the same [F.1 Media Storage](roadmap.md) path as any upload, so
+a photo shared by several people is stored once and linked many times.
 
 ```
 Importing…
@@ -307,10 +364,18 @@ Importing…
      Attaching photos to people
 ```
 
-- Cancellable. Cancelling rolls the whole import back — a half-imported tree is
-  worse than none.
-- A photo that fails is reported and skipped; it does not abort the run.
-- Photos already downloaded are not fetched again if the step is re-run.
+- A photo that fails is reported and skipped; it does not abort the run. By the
+  time photos are being written the people are already in the database, and
+  losing one scan is not a reason to throw away ten thousand persons.
+- Photos already in the archives are never fetched.
+
+> **Not cancellable yet, and it does not roll back.** The person import is one
+> transaction and is all-or-nothing; the photo pass that follows is not, so
+> interrupting it leaves a tree with some of its photos. That is a real gap
+> against this spec's original wording, recorded here rather than quietly
+> dropped. Closing it means a progress/cancel channel the write step does not
+> have — the same missing piece as the per-photo progress bar below, which is
+> currently an indeterminate one.
 
 ### Result
 
@@ -339,6 +404,11 @@ Named here so nobody looks for them:
   an updated Geneanet export into an existing tree is [Person Merge](ui-merge.md)
   territory and is not attempted here.
 - **No writing to Geneanet.** Every request this flow makes is a read.
+- **No account name in the summary.** Geneanet does not put it anywhere this
+  flow reads, and scraping the page for it would be the first thing a redesign
+  broke — so step 3 collapses to "signed in · N photos found".
+- **One login window at a time.** A second sign-in while the first is still
+  collecting would fight over the same session.
 
 ---
 
@@ -359,8 +429,11 @@ Named here so nobody looks for them:
 ## 11. Responsive
 
 - **≥ 900 px** — screenshot on the left, instructions on the right, within each
-  expanded step.
-- **< 900 px** — screenshot above the instructions, full width.
-- Step summary lines truncate the filename from the middle
-  (`myaccount_2026…-01.gw`), never the count that follows it.
-- The stat row in step 4 wraps 4 → 2 → 1 per row.
+  expanded step (when §3's screenshots exist).
+- **< 900 px** — screenshot above the instructions, full width; the step body
+  loses the indent that lined it up under its title.
+- **< 560 px** — a collapsed step's summary drops onto its own line below the
+  title rather than competing with it for one that no longer fits both.
+- Step summary lines truncate at the end, and the counts are written last so
+  they survive — the filename is the part with room to spare.
+- The stat row in step 4 wraps 4 → 2 → 1 per row at 900 px and 560 px.

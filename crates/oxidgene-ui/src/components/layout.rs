@@ -518,6 +518,15 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 16px;
     }
 
+    .warning-msg {
+        background: rgba(224, 120, 32, 0.10);
+        border: 1px solid rgba(224, 120, 32, 0.35);
+        color: var(--orange-light);
+        padding: 12px 16px;
+        border-radius: var(--radius);
+        margin-bottom: 16px;
+    }
+
     input, select, textarea {
         font-family: var(--font-sans);
         font-size: 0.9rem;
@@ -3813,4 +3822,479 @@ pub const LAYOUT_STYLES: &str = r#"
         /* Controls that only appear on hover are unreachable by touch. */
         .media-tile-actions { opacity: 1; }
     }
+
+    /* ── Import modal (file + Geneanet wizard) ───────────────────── */
+
+    .import-modal {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        width: min(820px, 94vw);
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .import-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 18px 22px 14px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .import-modal-header h2 {
+        font-family: var(--font-heading);
+        font-size: 1.15rem;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .import-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 10px 22px 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .import-tab {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--text-muted);
+        font-family: var(--font-sans);
+        font-size: 0.86rem;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s;
+    }
+
+    .import-tab:hover { color: var(--text-secondary); }
+
+    .import-tab.is-active {
+        color: var(--orange);
+        border-bottom-color: var(--orange);
+    }
+
+    /* The one scroll container: the header and tabs stay put while five
+       steps of instructions move under them. */
+    .import-modal-body {
+        padding: 20px 22px 22px;
+        overflow-y: auto;
+    }
+
+    /* ── File tab ─────────────────────────────────────────────────── */
+
+    .import-drop {
+        border: 2px dashed var(--border);
+        border-radius: var(--radius);
+        padding: 34px 20px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+    }
+
+    .import-drop:hover,
+    .import-drop.is-dragging {
+        border-color: var(--orange);
+        background: rgba(224, 120, 32, 0.06);
+    }
+
+    .import-drop-icon { font-size: 1.9rem; line-height: 1; margin-bottom: 10px; }
+    .import-drop-label { color: var(--text-primary); font-size: 0.92rem; }
+    .import-drop-name {
+        color: var(--text-primary);
+        font-size: 0.92rem;
+        font-weight: 600;
+        /* A long export name truncates from the middle in the summary lines,
+           but here it has the width to sit whole. */
+        word-break: break-all;
+    }
+    .import-drop-hint {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        margin-top: 6px;
+    }
+
+    /* ── Shared: stat row, result, warnings ───────────────────────── */
+
+    .import-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin: 16px 0;
+    }
+
+    .import-stat {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 10px;
+        text-align: center;
+    }
+
+    .import-stat-value {
+        font-family: var(--font-heading);
+        font-size: 1.3rem;
+        color: var(--orange);
+        line-height: 1.1;
+    }
+
+    .import-stat-label {
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        margin-top: 4px;
+    }
+
+    .import-done { text-align: center; padding: 8px 0; }
+    .import-done-icon {
+        font-size: 2rem;
+        color: var(--green-light);
+        line-height: 1;
+    }
+    .import-done h3 {
+        font-family: var(--font-heading);
+        color: var(--text-primary);
+        margin: 8px 0 4px;
+    }
+
+    .import-warnings {
+        text-align: left;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 14px;
+        margin-top: 12px;
+    }
+    .import-warnings summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+    }
+    .import-warnings ul {
+        margin: 10px 0 0 18px;
+        max-height: 220px;
+        overflow-y: auto;
+        color: var(--text-muted);
+        font-size: 0.78rem;
+    }
+    .import-warnings li { margin-bottom: 4px; }
+
+    /* ── Geneanet steps ───────────────────────────────────────────── */
+
+    .gn-steps { display: flex; flex-direction: column; gap: 8px; }
+
+    .gn-step {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+    }
+
+    .gn-step.is-open { border-color: var(--orange); }
+
+    /* Not-yet-reachable steps stay visible so the whole journey is legible
+       from the first second — dimmed rather than hidden. */
+    .gn-step.is-dim { opacity: 0.45; }
+
+    /* A collapsed step is a button: Enter and Space reopen it. */
+    .gn-step-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        background: none;
+        border: none;
+        padding: 12px 14px;
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--font-sans);
+    }
+
+    .gn-step-head:disabled { cursor: default; }
+
+    .gn-step-mark {
+        flex: 0 0 auto;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: 0.74rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .gn-step-mark.is-done {
+        background: var(--green-accent);
+        border-color: var(--green-accent);
+        color: #fff;
+    }
+
+    .gn-step-title {
+        color: var(--text-primary);
+        font-size: 0.88rem;
+        flex: 0 0 auto;
+    }
+
+    /* The receipt of a settled step. Truncates from the end of the line, but
+       the counts sit last so they survive — the file name is the part with
+       room to spare. */
+    .gn-step-summary {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .gn-step-edit {
+        margin-left: auto;
+        color: var(--orange);
+        font-size: 0.76rem;
+        flex: 0 0 auto;
+    }
+
+    .gn-step-body {
+        padding: 4px 14px 16px 46px;
+        border-top: 1px solid var(--border);
+    }
+
+    .gn-lead {
+        color: var(--text-secondary);
+        font-size: 0.84rem;
+        line-height: 1.55;
+        margin: 12px 0;
+    }
+
+    .gn-note {
+        color: var(--text-muted);
+        font-size: 0.79rem;
+        line-height: 1.5;
+        margin: 8px 0;
+    }
+
+    .gn-howto {
+        margin: 10px 0 12px 18px;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+        line-height: 1.7;
+    }
+
+    .gn-aside {
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
+        margin: 12px 0;
+    }
+    .gn-aside summary {
+        cursor: pointer;
+        color: var(--orange);
+        font-size: 0.79rem;
+    }
+    .gn-aside p {
+        color: var(--text-muted);
+        font-size: 0.79rem;
+        line-height: 1.55;
+        margin-top: 8px;
+    }
+
+    .gn-warn-box {
+        background: rgba(224, 120, 32, 0.08);
+        border-left: 3px solid var(--orange);
+        border-radius: 4px;
+        padding: 10px 14px;
+        color: var(--text-secondary);
+        font-size: 0.81rem;
+        line-height: 1.5;
+        margin: 12px 0;
+    }
+
+    .gn-desktop-only {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        margin: 12px 0;
+    }
+    .gn-desktop-only strong {
+        color: var(--text-primary);
+        font-size: 0.86rem;
+        display: block;
+        margin-bottom: 6px;
+    }
+    .gn-desktop-only p {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        line-height: 1.55;
+        margin: 0;
+    }
+
+    /* ── Archive list ─────────────────────────────────────────────── */
+
+    .gn-archive-list {
+        list-style: none;
+        margin: 12px 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .gn-archive-list li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 8px 12px;
+    }
+
+    .gn-archive-name {
+        color: var(--text-primary);
+        font-size: 0.82rem;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .gn-archive-count {
+        color: var(--text-muted);
+        font-size: 0.76rem;
+        flex: 0 0 auto;
+    }
+
+    .gn-archive-remove {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+        padding: 2px 4px;
+        flex: 0 0 auto;
+    }
+    .gn-archive-remove:hover { color: var(--red); }
+
+    /* ── Progress ─────────────────────────────────────────────────── */
+
+    .gn-progress-block { margin: 14px 0; }
+
+    .gn-progress-label {
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+        margin-bottom: 8px;
+    }
+
+    .gn-progress {
+        height: 8px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .gn-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--orange), var(--orange-light));
+        transition: width 0.25s ease;
+    }
+
+    /* Neither bulk endpoint reports a total, so a bar that cannot know how
+       far along it is says so instead of inventing a percentage. */
+    .gn-progress-fill.is-indeterminate {
+        width: 35%;
+        animation: gn-slide 1.3s ease-in-out infinite;
+    }
+
+    @keyframes gn-slide {
+        0%   { margin-left: -35%; }
+        100% { margin-left: 100%; }
+    }
+
+    .gn-progress-count {
+        color: var(--text-muted);
+        font-size: 0.74rem;
+        margin-top: 6px;
+    }
+
+    /* ── Step 4 findings ──────────────────────────────────────────── */
+
+    .gn-findings {
+        list-style: none;
+        margin: 14px 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .gn-findings li {
+        font-size: 0.82rem;
+        line-height: 1.5;
+        padding-left: 22px;
+        position: relative;
+        color: var(--text-secondary);
+    }
+
+    .gn-findings li::before {
+        position: absolute;
+        left: 0;
+        top: 0;
+    }
+
+    .gn-findings li.is-good::before { content: "\2713"; color: var(--green-light); }
+    .gn-findings li.is-info::before { content: "\24D8"; color: var(--text-muted); }
+    .gn-findings li.is-warn::before { content: "\26A0"; color: var(--orange); }
+
+    .gn-findings summary {
+        cursor: pointer;
+        color: inherit;
+    }
+
+    .gn-findings details ul {
+        margin: 8px 0 0 16px;
+        max-height: 180px;
+        overflow-y: auto;
+        color: var(--text-muted);
+        font-size: 0.78rem;
+    }
+
+    .gn-mismatch {
+        background: rgba(224, 120, 32, 0.10);
+        border: 1px solid rgba(224, 120, 32, 0.35);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        margin-top: 14px;
+    }
+
+    .gn-mismatch p {
+        color: var(--text-primary);
+        font-size: 0.84rem;
+        line-height: 1.55;
+        margin: 0;
+    }
+
+    /* ── Responsive ───────────────────────────────────────────────── */
+
+    @media (max-width: 900px) {
+        .import-stats { grid-template-columns: repeat(2, 1fr); }
+        /* The step body loses the indent that lined it up under the title:
+           at this width the indent costs more than the alignment buys. */
+        .gn-step-body { padding-left: 14px; }
+    }
+
+    @media (max-width: 560px) {
+        .import-stats { grid-template-columns: 1fr; }
+        /* The summary drops below the title rather than competing with it
+           for a line that no longer fits both. */
+        .gn-step-head { flex-wrap: wrap; }
+        .gn-step-summary { flex-basis: 100%; padding-left: 32px; }
+        .gn-step-edit { margin-left: 0; }
+    }
+
 "#;

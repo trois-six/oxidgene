@@ -3,6 +3,14 @@
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
+
+/// Body limit for the Geneanet wizard's calls and the imports beside them.
+///
+/// Its preview and import bodies carry the base64 `.gw` *and* the collected
+/// person↔photo mapping in one JSON object: a 10 000-person tree is around
+/// 8 MiB encoded before the mapping is added, which puts it straight over the
+/// 10 MiB a plain import ran under.
+const GENEANET_BODY_LIMIT: usize = 64 * 1024 * 1024;
 use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]
@@ -13,6 +21,7 @@ use crate::rest::event;
 use crate::rest::family;
 use crate::rest::family_member;
 use crate::rest::gedcom;
+use crate::rest::geneanet;
 use crate::rest::geneweb;
 use crate::rest::media;
 use crate::rest::media_link;
@@ -322,7 +331,24 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/geneweb/import",
             post(geneweb::import_geneweb_handler),
         )
-        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)); // 10 MiB
+        .route("/{tree_id}/geneanet/import", post(geneanet::import_handler))
+        // The Geneanet wizard's bodies bundle the base64 `.gw` with the
+        // collected mapping, so they run several times larger than a bare
+        // import — a 10 000-person tree lands around 8 MiB before the
+        // collection is added.
+        .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
+
+    // The wizard's first steps run before a tree has been chosen — indeed
+    // before the user has decided whether to create one — so they cannot sit
+    // under the tree-scoped nest.
+    let geneanet_routes = Router::new()
+        .route("/archives", post(geneanet::index_archives_handler))
+        .route("/preview", post(geneanet::preview_handler))
+        .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
+
+    let geneweb_routes = Router::new()
+        .route("/inspect", post(geneanet::inspect_geneweb_handler))
+        .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
 
     // Static reference content (occupation sheets, given-name meanings) —
     // not tied to a tree, so kept out of the `/trees` nest.
@@ -365,6 +391,8 @@ pub fn build_router(state: AppState) -> Router {
                     tree_guard::require_live_tree,
                 )),
         )
+        .nest("/api/v1/geneanet", geneanet_routes)
+        .nest("/api/v1/geneweb", geneweb_routes)
         .nest("/api/v1/reference", reference_routes)
         .layer(CompressionLayer::new())
         .with_state(state);
