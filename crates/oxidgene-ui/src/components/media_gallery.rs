@@ -1203,18 +1203,7 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                     }
                     div { class: "cropper-actions",
                         if let Some(url) = url.clone() {
-                            a {
-                                class: "btn btn-outline",
-                                href: "{url}",
-                                target: "_blank",
-                                download: caption.clone(),
-                                {i18n.t("media.download_file")}
-                            }
-                            // Desktop only: the embedded WebView has no
-                            // download UI of its own, so `download` on a link
-                            // does nothing there. A native save dialog is the
-                            // only way a desktop user gets the file out.
-                            SaveMediaButton { url: url.clone(), file_name: caption.clone() }
+                            DownloadMediaButton { url, file_name: caption.clone() }
                         }
                         button {
                             class: "btn btn-primary",
@@ -1229,21 +1218,38 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
     }
 }
 
-/// "Save as\u{2026}" through the platform's own dialog. Desktop only.
+/// The one download control, implemented per platform.
 ///
-/// On the web build this renders nothing: the browser already owns downloading,
-/// and a second button next to its own would be worse than none.
+/// One button rather than two, because a reader looking at a photograph has
+/// exactly one intention and offering it twice under different names invites
+/// them to wonder what the difference is. There is none worth exposing — only
+/// two ways of achieving it:
+///
+///   - **Web**: an `<a download>`. The browser owns downloading, it knows
+///     where the user's downloads go, and duplicating that with our own dialog
+///     would be worse than none.
+///   - **Desktop**: the platform's save dialog. The embedded WebView has no
+///     download UI of its own, so a `download` attribute there does nothing at
+///     all — the link would look like a button and be inert.
 #[component]
-fn SaveMediaButton(url: String, file_name: String) -> Element {
+fn DownloadMediaButton(url: String, file_name: String) -> Element {
+    let i18n = use_i18n();
+
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (url, file_name);
-        rsx! {}
+        rsx! {
+            a {
+                class: "btn btn-outline",
+                href: "{url}",
+                target: "_blank",
+                download: file_name,
+                {i18n.t("media.download_file")}
+            }
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let i18n = use_i18n();
         let mut busy = use_signal(|| false);
         let mut error = use_signal(|| None::<String>);
 
@@ -1257,6 +1263,9 @@ fn SaveMediaButton(url: String, file_name: String) -> Element {
                 // and only then discovering the user cancelled is work thrown
                 // away, and a dialog that opens after a delay reads as a hang.
                 let target = rfd::AsyncFileDialog::new()
+                    // The button says "Download"; the OS dialog it opens is a
+                    // save dialog, and titling it as one is what the platform's
+                    // own conventions expect.
                     .set_title(i18n.t("media.save_as"))
                     .set_file_name(&file_name)
                     .save_file()
@@ -1286,7 +1295,7 @@ fn SaveMediaButton(url: String, file_name: String) -> Element {
                 r#type: "button",
                 disabled: busy(),
                 onclick: save,
-                if busy() { {i18n.t("common.saving")} } else { {i18n.t("media.save_as")} }
+                if busy() { {i18n.t("common.saving")} } else { {i18n.t("media.download_file")} }
             }
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
