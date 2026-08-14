@@ -474,6 +474,9 @@ impl MediaWithLink {
     }
 
     /// How to present it.
+    ///
+    /// Reads `mime_type` and trusts it: every write path normalises it, so a
+    /// second opinion here would only be a second place for the rule to live.
     pub fn kind(&self) -> MediaKind {
         media_kind(&self.media.mime_type)
     }

@@ -51,12 +51,26 @@ pub async fn create_media(
         )));
     }
     let id = Uuid::now_v7();
+    // The last write path that could still store `application/octet-stream`:
+    // this one takes the MIME type from the caller. Upload sniffs the bytes,
+    // GEDCOM import reads the `FORM` or the file name, and repointing at a URL
+    // guesses from its extension — normalising here means every row in the
+    // table has a MIME type worth believing, so no reader has to second-guess
+    // one.
+    let mime_type = oxidgene_core::types::normalize_mime(
+        Some(&body.mime_type),
+        if body.file_path.is_empty() {
+            &body.file_name
+        } else {
+            &body.file_path
+        },
+    );
     let media = MediaRepo::create(
         &state.db,
         id,
         tree_id,
         body.file_name,
-        body.mime_type,
+        mime_type,
         body.file_path,
         body.file_size,
         body.title,

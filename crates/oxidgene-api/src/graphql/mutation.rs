@@ -806,12 +806,22 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
+        // Normalised for the same reason as the REST twin: a MIME type the
+        // caller supplied is a claim, not evidence.
+        let mime_type = oxidgene_core::types::normalize_mime(
+            Some(&input.mime_type),
+            if input.file_path.is_empty() {
+                &input.file_name
+            } else {
+                &input.file_path
+            },
+        );
         let media = MediaRepo::create(
             db,
             id,
             tid,
             input.file_name,
-            input.mime_type,
+            mime_type,
             input.file_path,
             input.file_size,
             input.title,
