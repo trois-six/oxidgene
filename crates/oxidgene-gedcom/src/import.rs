@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source, split_surname_particle, split_surname_with,
+    Person, PersonName, Place, Source, normalize_mime, split_surname_particle, split_surname_with,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
@@ -185,13 +185,16 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         let id = media_map[xref];
 
         // Extract file info from the multimedia record
+        // GEDCOM's `FORM` is the "multimedia format", and what producers put
+        // there is an extension (`jpeg`) when they put anything at all — the
+        // sample exports carry `FORM application/octet-stream` or no FORM and
+        // a URL ending `.jpg`. Taking it verbatim as a MIME type is how a
+        // photograph that renders perfectly well in an `<img>` ends up
+        // labelled OCTET-STREAM in the gallery beside it.
         let (file_path, mime_type) = if let Some(ref file_ref) = mm.file {
             let path = file_ref.value.clone().unwrap_or_default();
-            let mime = file_ref
-                .form
-                .as_ref()
-                .and_then(|f| f.value.clone())
-                .unwrap_or_else(|| "application/octet-stream".into());
+            let declared = file_ref.form.as_ref().and_then(|f| f.value.as_deref());
+            let mime = normalize_mime(declared, &path);
             (path, mime)
         } else {
             (String::new(), "application/octet-stream".into())
@@ -1660,11 +1663,12 @@ fn resolve_or_create_media(
         if file_path.is_empty() {
             return None;
         }
-        let mime_type = file_ref
-            .form
-            .as_ref()
-            .and_then(|f| f.value.clone())
-            .unwrap_or_else(|| "application/octet-stream".into());
+        // Same as the top-level OBJE path above: the FORM is an extension at
+        // best, and absent at worst, so the file name is the better evidence.
+        let mime_type = normalize_mime(
+            file_ref.form.as_ref().and_then(|f| f.value.as_deref()),
+            &file_path,
+        );
         let file_name = file_path
             .rsplit('/')
             .next()

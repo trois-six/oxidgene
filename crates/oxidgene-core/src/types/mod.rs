@@ -18,7 +18,7 @@ mod tree;
 pub use citation::Citation;
 pub use event::{Event, EventWitness, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
-pub use media::{Media, MediaLink, Vignette};
+pub use media::{Media, MediaLink, Vignette, guess_mime, is_remote_url, normalize_mime};
 pub use note::Note;
 pub use pagination::{Connection, Edge, PageInfo};
 pub use person::{AncestryLink, Person, PersonName};
