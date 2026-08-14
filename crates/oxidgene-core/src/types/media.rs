@@ -110,3 +110,208 @@ pub struct Vignette {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+/// Whether a media's `file_path` points at something on the web.
+///
+/// A media does not have to be a file we hold. A GEDCOM `OBJE.FILE` is
+/// routinely a URL — an archive's viewer, a photograph on a family site — and
+/// those are worth recording even though the bytes are somebody else's. Such a
+/// record has no `storage_key` and never will; the browser fetches it directly
+/// from the URL, which also means we never become a proxy for someone else's
+/// bandwidth.
+pub fn is_remote_url(file_path: &str) -> bool {
+    let path = file_path.trim();
+    path.starts_with("http://") || path.starts_with("https://")
+}
+
+/// Guess a MIME type from a file name, a URL, or a bare extension.
+///
+/// Content sniffing is not available here — a remote media exists precisely so
+/// that we never fetch it, and a GEDCOM record names a file we do not have. The
+/// extension is the only evidence there is. It decides one thing: whether a
+/// viewer embeds the media or offers it as a download, so a wrong guess costs a
+/// click, not a security property.
+///
+/// A bare extension is accepted because that is what GEDCOM's `OBJE.FILE.FORM`
+/// actually carries — the 5.5.1 spec calls it the "multimedia format" and the
+/// values in the wild are `jpeg`, `bmp`, `png`, not MIME types.
+pub fn guess_mime(file_name: &str) -> Option<&'static str> {
+    // Strip a query string and fragment first: Geneanet serves
+    // `medium.jpg?t=1524948994`, which is a jpg.
+    let path = file_name
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(file_name)
+        .trim_end_matches('/');
+    // `rsplit('.')` on a string with no dot yields the whole string, which is
+    // what makes a bare "jpeg" resolve.
+    let extension = path
+        .rsplit(['.', '/', '\\'])
+        .next()
+        .filter(|e| !e.is_empty())?
+        .to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "jpg" | "jpeg" | "jpe" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "heic" | "heif" => "image/heic",
+        "pdf" => "application/pdf",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "ogv" => "video/ogg",
+        "mov" => "video/quicktime",
+        "avi" => "video/x-msvideo",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "ogg" | "oga" => "audio/ogg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "txt" => "text/plain",
+        "html" | "htm" => "text/html",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "zip" => "application/zip",
+        _ => return None,
+    })
+}
+
+/// Whether a string looks like a MIME type we can act on.
+///
+/// `application/octet-stream` answers `false`: it is the value a producer
+/// writes when it has nothing to say, so treating it as an answer is how a
+/// photograph ends up labelled "OCTET-STREAM" in a gallery while the very same
+/// file renders fine in an `<img>` elsewhere.
+fn is_informative_mime(mime: &str) -> bool {
+    let mime = mime.trim();
+    mime.contains('/') && !mime.eq_ignore_ascii_case("application/octet-stream")
+}
+
+/// The MIME type to believe for a media, given what its producer declared and
+/// what its file is called.
+///
+/// Order of evidence: a real MIME type if one was declared; otherwise whatever
+/// the declaration turns out to be an extension for (GEDCOM `FORM` says
+/// `jpeg`); otherwise the file name or URL; and `application/octet-stream` only
+/// when nothing says anything, which is then honest rather than a default
+/// wearing an answer's clothes.
+pub fn normalize_mime(declared: Option<&str>, file_name: &str) -> String {
+    if let Some(declared) = declared.map(str::trim).filter(|d| !d.is_empty()) {
+        if is_informative_mime(declared) {
+            return declared.to_string();
+        }
+        // A bare `FORM jpeg` is information, just not in the shape claimed.
+        if let Some(guessed) = guess_mime(declared) {
+            return guessed.to_string();
+        }
+    }
+    guess_mime(file_name)
+        .unwrap_or("application/octet-stream")
+        .to_string()
+}
+
+#[cfg(test)]
+mod mime_tests {
+    use super::*;
+
+    #[test]
+    fn a_url_is_recognised_as_remote_and_a_path_is_not() {
+        assert!(is_remote_url("https://archives.example.org/scan/42.jpg"));
+        assert!(is_remote_url("http://example.org/photo.png"));
+        assert!(is_remote_url("  https://example.org/x.jpg  "));
+        // What a GEDCOM more often carries: somebody else's local path.
+        assert!(!is_remote_url("D:\\Photos\\grandpere.jpg"));
+        assert!(!is_remote_url("media/photo.jpg"));
+        assert!(!is_remote_url("ftp://example.org/x.jpg"));
+        assert!(!is_remote_url(""));
+    }
+
+    #[test]
+    fn a_mime_type_is_guessed_from_the_extension() {
+        assert_eq!(guess_mime("scan.JPG"), Some("image/jpeg"));
+        assert_eq!(guess_mime("acte.pdf"), Some("application/pdf"));
+        assert_eq!(guess_mime("interview.mp4"), Some("video/mp4"));
+        assert_eq!(guess_mime("recording.mp3"), Some("audio/mpeg"));
+    }
+
+    #[test]
+    fn a_bare_extension_resolves_because_that_is_what_gedcom_form_carries() {
+        assert_eq!(guess_mime("jpeg"), Some("image/jpeg"));
+        assert_eq!(guess_mime("JPG"), Some("image/jpeg"));
+        assert_eq!(guess_mime("bmp"), Some("image/bmp"));
+    }
+
+    #[test]
+    fn a_query_string_does_not_hide_the_extension() {
+        // Exactly the shape Geneanet writes into `OBJE.FILE`.
+        assert_eq!(
+            guess_mime("http://gw.geneanet.org/public/img/media/medium.jpg?t=1785419513"),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            guess_mime("http://gw.geneanet.org/public/img/media/medium.PNG?t=1524949083"),
+            Some("image/png")
+        );
+        assert_eq!(
+            guess_mime("https://example.org/a.png#top"),
+            Some("image/png")
+        );
+    }
+
+    #[test]
+    fn a_dot_in_a_directory_does_not_become_the_extension() {
+        // `rsplit` also on the separators, or `site.org/viewer` would resolve
+        // its extension to "org/viewer".
+        assert_eq!(guess_mime("https://site.org/viewer"), None);
+        assert_eq!(guess_mime("archive.xyz"), None);
+        assert_eq!(guess_mime(""), None);
+    }
+
+    #[test]
+    fn a_declared_mime_type_is_believed() {
+        assert_eq!(
+            normalize_mime(Some("image/webp"), "photo.jpg"),
+            "image/webp"
+        );
+    }
+
+    #[test]
+    fn octet_stream_is_treated_as_no_answer() {
+        // Both real cases from the sample files: an exporter that wrote
+        // `FORM application/octet-stream`, and one that wrote no FORM at all.
+        assert_eq!(
+            normalize_mime(
+                Some("application/octet-stream"),
+                "http://gw.geneanet.org/public/img/media/medium.jpg?t=1"
+            ),
+            "image/jpeg"
+        );
+        assert_eq!(
+            normalize_mime(
+                None,
+                "http://gw.geneanet.org/public/img/media/medium.bmp?t=1"
+            ),
+            "image/bmp"
+        );
+    }
+
+    #[test]
+    fn a_gedcom_form_extension_is_read_as_one() {
+        assert_eq!(normalize_mime(Some("jpeg"), "unknown"), "image/jpeg");
+    }
+
+    #[test]
+    fn nothing_known_stays_honestly_unknown() {
+        assert_eq!(
+            normalize_mime(None, "https://example.org/viewer"),
+            "application/octet-stream"
+        );
+        assert_eq!(normalize_mime(Some(""), ""), "application/octet-stream");
+    }
+}
