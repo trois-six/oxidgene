@@ -229,6 +229,37 @@ projection rebuild of the tree.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
+### Geneanet import
+
+Backs the [Geneanet import wizard](ui-geneanet-import.md). The first three are
+**not tree-scoped**: they run before the user has committed to importing
+anything, which is the point — the wizard's whole design is that you find out
+whether the two halves belong together before a row is written.
+
+There is no endpoint for the wizard's step 3. Signing in and collecting the
+person↔photo mapping happens inside the desktop app's login window, because
+that is the only place a Geneanet session exists; what reaches the server is
+its output, carried by the steps that follow.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/geneweb/inspect?filename=name.gw` | **Step 1.** Parse a `.gw` and report `person_count`, `family_count` and `skipped_blocks`, writing nothing. Body is the raw file bytes, for the same encoding reason as the import above |
+| `POST` | `/geneanet/archives` | **Step 2.** JSON `{ "paths": [...] }`. Index each data archive's ZIP central directory **in place** — nothing is extracted and no bytes are uploaded. Returns per-archive `file_count`/`image_count`, and a per-archive `error` for one that could not be read, so the others still stand. Desktop only: it takes filesystem paths, which is sound because there the server is in-process |
+| `POST` | `/geneanet/preview` | **Step 4.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on |
+| `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Import the tree, then attach every photo that joins onto it — one `media` row per photo with one `media_link` per person on it. A photo that cannot be fetched is reported in `skipped` and the run continues. Triggers a full projection rebuild |
+
+The preview and import bodies carry the `.gw` **base64-encoded** (`gw_base64`)
+because they bundle it with other fields and JSON cannot hold raw bytes — the
+two endpoints that send nothing else take it as a raw body instead. They also
+carry `deposit_sizes`, the per-deposit byte lengths gathered in the login
+window, which is what decides whether a photo is already in the archives; and
+optionally `cookie`, needed only when the archives do not cover every photo.
+These four routes run under a **64 MiB body limit** rather than the 10 MiB of a
+plain import: a 10 000-person tree is around 8 MiB base64-encoded before the
+mapping is added.
+
+Used by: [Geneanet import wizard](ui-geneanet-import.md)
+
 ### Profiles & Pedigree
 
 Pre-built, denormalized read models for instant page rendering. Person profiles are materialized in the `person_denorm` table; pedigrees are assembled per request by walking the family links and joining the reached persons against those profiles. See [Read Projections](read-projections.md) for the full architecture.

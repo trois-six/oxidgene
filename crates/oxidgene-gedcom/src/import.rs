@@ -659,6 +659,10 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         }
     }
 
+    // Handed back so a caller holding links keyed by something outside the
+    // domain model can resolve them to person ids — see the field's docs.
+    result.person_by_xref = indi_map;
+
     Ok(result)
 }
 

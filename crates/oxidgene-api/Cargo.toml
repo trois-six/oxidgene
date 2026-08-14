@@ -11,19 +11,21 @@ repository.workspace = true
 default = []
 postgres = ["oxidgene-db/postgres"]
 # GraphQL endpoint — opt in for the server binary; desktop skips async-graphql entirely.
-# base64 rides along: it only decodes the `.gw` payload of the GeneWeb mutation,
-# which REST receives raw and so does not need.
-graphql = ["dep:async-graphql", "dep:async-graphql-axum", "dep:base64"]
+graphql = ["dep:async-graphql", "dep:async-graphql-axum"]
 
 [dependencies]
 oxidgene-core = { workspace = true }
 oxidgene-db = { workspace = true }
 oxidgene-gedcom = { workspace = true }
+oxidgene-geneanet = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
 async-graphql = { workspace = true, optional = true }
 async-graphql-axum = { workspace = true, optional = true }
-base64 = { workspace = true, optional = true }
+# Decodes the `.gw` payload of the GraphQL GeneWeb mutation and of the Geneanet
+# wizard's JSON bodies, which bundle the file with other fields. The plain
+# GeneWeb REST import receives it raw and needs none of this.
+base64 = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -43,7 +45,6 @@ sha2 = { workspace = true }
 flate2 = { workspace = true }
 
 [dev-dependencies]
-base64 = { workspace = true }
 image = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 tower = { workspace = true }

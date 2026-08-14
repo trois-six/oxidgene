@@ -192,8 +192,7 @@ async fn main() -> Result<()> {
             geneanet::manifest(session.into_client()?, &out).await?;
         }
         Command::GeneanetMedia(GeneanetMedia::BrowserScript) => {
-            println!("{}\n", geneanet::browser::INSTRUCTIONS);
-            println!("{}", geneanet::browser::COLLECTION_SCRIPT);
+            geneanet::browser_script();
         }
         Command::GeneanetMedia(GeneanetMedia::ManifestFromBrowser { input, out }) => {
             geneanet::manifest_from_browser(&input, &out).await?;

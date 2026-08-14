@@ -5,6 +5,7 @@ members = [
     "crates/oxidgene-db",
     "crates/oxidgene-api",
     "crates/oxidgene-gedcom",
+    "crates/oxidgene-geneanet",
     "crates/oxidgene-ui",
     "apps/oxidgene-server",
     "apps/oxidgene-desktop",
@@ -24,6 +25,7 @@ oxidgene-core = { path = "crates/oxidgene-core" }
 oxidgene-db = { path = "crates/oxidgene-db" }
 oxidgene-api = { path = "crates/oxidgene-api" }
 oxidgene-gedcom = { path = "crates/oxidgene-gedcom" }
+oxidgene-geneanet = { path = "crates/oxidgene-geneanet" }
 oxidgene-ui = { path = "crates/oxidgene-ui" }
 
 # Async runtime — minimal base; each crate adds only what it needs

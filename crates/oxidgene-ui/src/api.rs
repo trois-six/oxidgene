@@ -653,8 +653,105 @@ pub struct ImportGedcomBody {
     pub gedcom: String,
 }
 
+// ── Geneanet import wizard ──────────────────────────────────────────
+//
+// Mirrors `oxidgene_api::rest::dto`. Step 3 has no type here: signing in and
+// collecting the person↔photo mapping happens in the desktop login window, and
+// what it produces is carried by the steps that follow.
+
+/// What a `.gw` file turned out to hold. Step 1.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GwInspection {
+    pub person_count: usize,
+    pub family_count: usize,
+    /// Blocks the lenient reader skipped — reported, never fatal.
+    pub skipped_blocks: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IndexArchivesBody {
+    pub paths: Vec<String>,
+}
+
+/// One data archive's central directory, read without extracting anything.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct IndexedArchive {
+    pub path: String,
+    pub file_name: String,
+    pub file_count: usize,
+    pub image_count: usize,
+    /// Set when this archive alone could not be read; the others still stand.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ArchiveIndex {
+    pub archives: Vec<IndexedArchive>,
+    pub file_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GeneanetPreviewBody {
+    /// The `.gw`, base64-encoded: JSON cannot carry the raw bytes the
+    /// ISO-8859-1-or-UTF-8 reader needs, and this body carries other fields
+    /// alongside it.
+    pub gw_base64: String,
+    pub file_name: String,
+    pub collection: String,
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    pub archive_paths: Vec<String>,
+}
+
+/// The stat row and the explanatory lines of step 4.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct GeneanetPreview {
+    pub person_count: usize,
+    pub photo_count: usize,
+    pub persons_with_photo: usize,
+    pub attachment_count: usize,
+    pub in_archives: usize,
+    pub to_download: usize,
+    pub group_photos: usize,
+    pub unlinked_views: usize,
+    pub outside_tree: usize,
+    pub ambiguous: usize,
+    pub outside_tree_names: Vec<String>,
+    pub ambiguous_names: Vec<String>,
+    /// `true` when almost no photo matched — the wizard blocks rather than
+    /// importing a tree whose photos belong to a different one.
+    pub mismatch: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GeneanetImportBody {
+    pub gw_base64: String,
+    pub file_name: String,
+    pub collection: String,
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    pub archive_paths: Vec<String>,
+    /// Absent when the archives cover every photo — nothing is downloaded, so
+    /// nothing needs authenticating.
+    pub cookie: Option<String>,
+}
+
+/// What the Geneanet import actually did.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GeneanetImportResult {
+    pub persons_count: usize,
+    pub families_count: usize,
+    pub events_count: usize,
+    pub sources_count: usize,
+    pub places_count: usize,
+    pub notes_count: usize,
+    pub media_count: usize,
+    /// Higher than `media_count` when a photo shows several people.
+    pub links_count: usize,
+    pub skipped: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
 /// Summary returned by any import, whatever the source format.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ImportResult {
     pub persons_count: usize,
     pub families_count: usize,
@@ -2340,6 +2437,57 @@ impl ApiClient {
                 content,
                 &query,
             )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
+    }
+
+    // ── Geneanet import wizard ──────────────────────────────────────
+
+    /// Parse a `.gw` and report what it holds, writing nothing. Step 1.
+    ///
+    /// Runs on every selection because it costs nothing and is the first
+    /// moment the user learns whether they picked the right export — a `.ged`
+    /// fails here rather than four steps later.
+    pub async fn inspect_geneweb(
+        &self,
+        content: Vec<u8>,
+        file_name: &str,
+    ) -> Result<GwInspection, ApiError> {
+        let query = [("filename", file_name.to_string())];
+        self.post_bytes("/api/v1/geneweb/inspect", content, &query)
+            .await
+    }
+
+    /// Index the named data archives in place, extracting nothing. Step 2.
+    ///
+    /// Desktop only: it sends **paths**, which is sound because there the
+    /// server runs in-process on the same filesystem the user picked from.
+    pub async fn index_geneanet_archives(
+        &self,
+        paths: Vec<String>,
+    ) -> Result<ArchiveIndex, ApiError> {
+        self.post("/api/v1/geneanet/archives", &IndexArchivesBody { paths })
+            .await
+    }
+
+    /// Join the collected mapping onto the `.gw` and report what an import
+    /// would do, without doing it. Step 4.
+    pub async fn preview_geneanet_import(
+        &self,
+        body: &GeneanetPreviewBody,
+    ) -> Result<GeneanetPreview, ApiError> {
+        self.post("/api/v1/geneanet/preview", body).await
+    }
+
+    /// Import the tree and attach every photo that joins onto it. Step 5.
+    pub async fn import_geneanet(
+        &self,
+        tree_id: Uuid,
+        body: &GeneanetImportBody,
+    ) -> Result<GeneanetImportResult, ApiError> {
+        let result = self
+            .post(&format!("/api/v1/trees/{tree_id}/geneanet/import"), body)
             .await?;
         self.invalidate_tree(tree_id);
         Ok(result)

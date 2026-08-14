@@ -322,7 +322,7 @@ and `_`, `-` and `'` all become spaces. The occurrence is left empty when zero.
 | `SURNAME_B Charles.1` | `surname_b\|charles\|1` |
 
 The hyphen and the apostrophe were each found by a failing join, not by
-guessing — see `apps/oxidgene-cli/src/geneanet/key.rs`, where both have a
+guessing — see `crates/oxidgene-geneanet/src/key.rs`, where both have a
 regression test naming the case.
 
 Letters with a stroke (`ł`, `ø`, `đ`, `ß`, `æ`, `œ`, `þ`) have no canonical
@@ -337,6 +337,32 @@ the builder asserts before writing anything.
 
 A key matching **several** persons is never attached: it is reported as
 ambiguous, because putting the photo on one of them would be a coin toss.
+
+## 7b. Where this lives
+
+The pipeline is `crates/oxidgene-geneanet`, shared so the CLI and the app
+cannot drift apart on the join, the key folding or the size matching:
+
+| Module | What it holds |
+|---|---|
+| `model.rs` | The manifest and the live wire shapes, with a test pinning them |
+| `key.rs` | Folding a `.gw` name into a Geneanet reference (§6) |
+| `join.rs` | Attaching references to persons by position (§7) |
+| `client.rs` | The HTTP client, for the headless path |
+| `archive.rs` | Indexing data archives in place, by entry length (§5) |
+| `media.rs` | Choosing between a local original and a download |
+| `script.rs` | The scripts a *browser* runs — console (CLI) and IPC (app) |
+
+`apps/oxidgene-cli/src/geneanet/` keeps the terminal driver and the `.gdz`
+writer; `crates/oxidgene-api/src/service/geneanet.rs` keeps the write step.
+
+**The app takes the browser path, not the cookie path.** §8's `--cookie` flow
+is the headless one. The desktop wizard opens a real login window and evaluates
+`script.rs`'s IPC variants inside it, so the ~19 metadata requests and the
+`HEAD` sizing pass are issued by a browser on the user's own session — which is
+what §8's Cloudflare note says the honest answer is. The cookie is read out of
+that window afterwards, and only for the downloads in §5, which have no browser
+equivalent that would not push hundreds of megabytes through an IPC channel.
 
 ## 8. Usage
 
@@ -450,10 +476,10 @@ else joins.
 - **No incremental re-import.** Nothing here reconciles a second Geneanet
   export against a tree already imported. That is
   [Person Merge](ui-merge.md) territory.
-- **The write step is not wired to the upload endpoint.** Storage exists as of
-  Sprint F.1 (see the note at the top); this import still stops at building a
-  `.gdz`.
-- **The API is undocumented.** `apps/oxidgene-cli/src/geneanet/model.rs` holds a
+- **The CLI still stops at a `.gdz`.** The app's path does not: the wizard
+  imports straight into a tree through the same storage F.1 built. The `gedzip`
+  subcommand remains as a headless convenience.
+- **The API is undocumented.** `crates/oxidgene-geneanet/src/model.rs` holds a
   test pinning the live wire shape; it is the first thing to fail if Geneanet
   reshapes the payloads.
 - **Fallback if the deposits API disappears.** Each `?type=fiche` page embeds

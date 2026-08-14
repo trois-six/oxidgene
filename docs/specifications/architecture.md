@@ -136,10 +136,12 @@ oxidgene/
 │   ├── oxidgene-db/        # SeaORM entities + migrations
 │   ├── oxidgene-api/       # Axum handlers + GraphQL resolvers
 │   ├── oxidgene-gedcom/    # GEDCOM import/export + GeneWeb .gw import
+│   ├── oxidgene-geneanet/  # Geneanet person↔photo recovery (join, key, archives)
 │   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
 │   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + Dioxus WebView)
+│   ├── oxidgene-cli/       # CLI (import/export, migrations, geneanet-media)
 └── docker/                 # Docker files
 ```
 
@@ -151,14 +153,23 @@ oxidgene-core (no internal deps)
 oxidgene-db (depends on: oxidgene-core)
     ↑
 oxidgene-gedcom (depends on: oxidgene-core)
+oxidgene-geneanet (no internal deps)
     ↑
-oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-gedcom)
+oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-gedcom, oxidgene-geneanet)
     ↑
 oxidgene-server (depends on: oxidgene-api, oxidgene-db)
-oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui)
-oxidgene-cli (depends on: oxidgene-db, oxidgene-gedcom)
+oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui, oxidgene-geneanet)
+oxidgene-cli (depends on: oxidgene-db, oxidgene-gedcom, oxidgene-geneanet)
 
 oxidgene-ui (depends on: oxidgene-core)
 ```
 
-**Current layout:** All 6 crates are co-located in `crates/`. The base migration `m20250101_000001_initial.rs` holds the bulk of the schema (13 tables + the `person_search_fts` FTS5 index); later changes add their own files (`m20260724_*`, `m20260728_000001_person_denorm`). No incremental migration squashing.
+**`oxidgene-ui` stays platform-free.** It is compiled for wasm as well as for
+the desktop, so it depends on neither `dioxus-desktop` nor `oxidgene-geneanet`.
+Where it needs something only the desktop can do — the
+[Geneanet login window](ui-geneanet-import.md) — it declares a trait
+(`oxidgene_ui::geneanet::GeneanetCollector`) that `oxidgene-desktop` implements
+and injects as context. The web build simply finds none and renders the
+explanation instead of the control.
+
+**Current layout:** All 7 crates are co-located in `crates/`. The base migration `m20250101_000001_initial.rs` holds the bulk of the schema (13 tables + the `person_search_fts` FTS5 index); later changes add their own files (`m20260724_*`, `m20260728_000001_person_denorm`). No incremental migration squashing.

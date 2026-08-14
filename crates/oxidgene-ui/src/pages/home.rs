@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::import_modal::ImportModal;
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
 use crate::router::Route;
@@ -42,10 +43,13 @@ pub fn Home() -> Element {
     // spinner instead of sitting there looking hung.
     let mut deleting = use_signal(|| false);
 
-    // Import state.
-    let mut import_error = use_signal(|| None::<String>);
-    let mut import_result = use_signal(|| None::<(String, crate::api::ImportResult)>);
-    let mut importing_tree_id = use_signal(|| None::<Uuid>);
+    // Import state: which tree the modal is importing into, and its name for
+    // the modal's title. The modal owns everything else about the run.
+    let mut import_tree_id = use_signal(|| None::<Uuid>);
+    let mut import_tree_name = use_signal(String::new);
+
+    // Errors from the card actions that have nowhere of their own to show one.
+    let mut action_error = use_signal(|| None::<String>);
 
     // Rename state.
     let mut rename_tree_id = use_signal(|| None::<Uuid>);
@@ -283,9 +287,7 @@ pub fn Home() -> Element {
                                         let tree_name_dup = tree_name.clone();
                                         let desc = tree.description.clone().unwrap_or_default();
                                         let updated_at = tree.updated_at;
-                                        let is_importing = importing_tree_id() == Some(tid);
                                         let is_duplicating = duplicating_tree_id() == Some(tid);
-                                        let api_import = api.clone();
                                         let api_dup = api.clone();
                                         rsx! {
                                             TreeCard {
@@ -294,7 +296,6 @@ pub fn Home() -> Element {
                                                 description: desc,
                                                 updated_at,
                                                 tree_id: tid_str,
-                                                importing: is_importing,
                                                 duplicating: is_duplicating,
                                                 open_menu,
                                                 on_rename: move |_| {
@@ -315,7 +316,7 @@ pub fn Home() -> Element {
                                                             }
                                                             Err(e) => {
                                                                 duplicating_tree_id.set(None);
-                                                                import_error.set(Some(format!("{e}")));
+                                                                action_error.set(Some(format!("{e}")));
                                                             }
                                                         }
                                                     });
@@ -325,71 +326,13 @@ pub fn Home() -> Element {
                                                     confirm_delete_name.set(tree_name_del.clone());
                                                     delete_error.set(None);
                                                 },
+                                                // Opens the import modal rather than a native
+                                                // file picker: a Geneanet import needs three
+                                                // inputs and a login, none of which a file
+                                                // dialog can ask for.
                                                 on_import: move |_| {
-                                                    let api = api_import.clone();
-                                                    let name_for_result = tree_name_import.clone();
-                                                    spawn(async move {
-                                                        let file = rfd::AsyncFileDialog::new()
-                                                            .add_filter("GEDCOM / GeneWeb", &["ged", "gw"])
-                                                            .add_filter("GEDCOM", &["ged"])
-                                                            .add_filter("GeneWeb", &["gw"])
-                                                            .add_filter("All files", &["*"])
-                                                            .set_title(i18n.t("gedcom.select_file"))
-                                                            .pick_file()
-                                                            .await;
-                                                        let Some(file) = file else { return };
-
-                                                        importing_tree_id.set(Some(tid));
-                                                        import_error.set(None);
-                                                        import_result.set(None);
-
-                                                        let path = file.path().to_path_buf();
-                                                        let file_name = file.file_name();
-                                                        let is_geneweb = path
-                                                            .extension()
-                                                            .is_some_and(|e| e.eq_ignore_ascii_case("gw"));
-
-                                                        // Read bytes, not text: a `.gw` file is ISO-8859-1
-                                                        // unless it opts into UTF-8, and only its reader
-                                                        // knows which — decoding here would mangle accents.
-                                                        let bytes = match tokio::fs::read(&path).await {
-                                                            Ok(content) => content,
-                                                            Err(e) => {
-                                                                import_error.set(Some(i18n.t_args(
-                                                                    "import.read_error",
-                                                                    &[("error", &e.to_string())],
-                                                                )));
-                                                                importing_tree_id.set(None);
-                                                                return;
-                                                            }
-                                                        };
-
-                                                        let outcome = if is_geneweb {
-                                                            api.import_geneweb(tid, bytes, &file_name).await
-                                                        } else {
-                                                            match String::from_utf8(bytes) {
-                                                                Ok(gedcom) => api.import_gedcom(tid, &gedcom).await,
-                                                                Err(_) => {
-                                                                    import_error.set(Some(i18n.t("import.not_utf8")));
-                                                                    importing_tree_id.set(None);
-                                                                    return;
-                                                                }
-                                                            }
-                                                        };
-
-                                                        match outcome {
-                                                            Ok(result) => {
-                                                                import_result.set(Some((name_for_result, result)));
-                                                                importing_tree_id.set(None);
-                                                                tree_cache.invalidate();
-                                                                refresh_counter += 1;
-                                                            }
-                                                            Err(e) => {
-                                                                import_error.set(Some(format!("{e}")));
-                                                                importing_tree_id.set(None);
-                                                            }
-                                                        }
-                                                    });
+                                                    import_tree_id.set(Some(tid));
+                                                    import_tree_name.set(tree_name_import.clone());
                                                 },
                                             }
                                         }
@@ -588,13 +531,7 @@ pub fn Home() -> Element {
             }
         }
 
-        // ── Import / duplicate blocking overlay ──
-        if importing_tree_id().is_some() {
-            div { class: "import-overlay",
-                div { class: "import-spinner" }
-                div { class: "import-overlay-text", {i18n.t("common.importing_file")} }
-            }
-        }
+        // ── Duplicate blocking overlay ──
         if duplicating_tree_id().is_some() {
             div { class: "import-overlay",
                 div { class: "import-spinner" }
@@ -602,16 +539,25 @@ pub fn Home() -> Element {
             }
         }
 
-        // ── Import feedback ──
-        if let Some(err) = import_error() {
-            div { class: "home-import-banner error-msg", "{err}" }
-        }
-        if let Some((tree_name_imp, result)) = import_result() {
-            div { class: "home-import-banner success-msg",
-                "\"{tree_name_imp}\": {result.persons_count} persons, \
-                 {result.families_count} families, \
-                 {result.events_count} events imported."
+        // ── Import modal ────────────────────────────────────────────
+        if let Some(tid) = import_tree_id() {
+            ImportModal {
+                tree_id: tid,
+                tree_name: import_tree_name(),
+                on_close: move |_| import_tree_id.set(None),
+                // The modal stays open on its result screen; what Home has to
+                // do is forget the stale snapshot and re-read the list, since
+                // an import changes the tree's counts and its updated_at.
+                on_imported: move |_| {
+                    tree_cache.invalidate();
+                    refresh_counter += 1;
+                },
             }
+        }
+
+        // ── Card action feedback ──
+        if let Some(err) = action_error() {
+            div { class: "home-import-banner error-msg", "{err}" }
         }
 
         style { {HOME_STYLES} }
@@ -625,7 +571,6 @@ fn TreeCard(
     description: String,
     updated_at: chrono::DateTime<Utc>,
     tree_id: String,
-    importing: bool,
     duplicating: bool,
     /// Id of the card whose dropdown is open, owned by [`Home`] so the
     /// click-outside backdrop can be rendered outside the animated grid.
@@ -755,13 +700,12 @@ fn TreeCard(
                                 }
                                 button {
                                     class: "tree-card-dropdown-item",
-                                    disabled: importing,
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
                                         open_menu.set(None);
                                         on_import.call(());
                                     },
-                                    if importing { {i18n.t("common.importing")} } else { {i18n.t("common.import")} }
+                                    {i18n.t("common.import")}
                                 }
                                 Link {
                                     to: Route::Settings { tree_id: tree_id.clone() },
