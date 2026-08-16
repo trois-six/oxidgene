@@ -16,13 +16,14 @@ permissions:
 
 jobs:
   changes:
-    name: Detect CI image changes
+    name: Detect changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
     outputs:
       ci_image: ${{ steps.filter.outputs.ci_image }}
+      code: ${{ steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@v7
 
@@ -32,6 +33,12 @@ jobs:
           filters: |
             ci_image:
               - 'docker/Dockerfile.ci'
+              - '.github/workflows/build-ci-image.yml'
+            # Anything except documentation. Docs-only commits skip the cargo jobs.
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
 
   build-image:
     name: Rebuild CI image
@@ -46,8 +53,8 @@ jobs:
 
   check:
     name: Check
-    needs: build-image
-    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    needs: [changes, build-image]
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: sccache
@@ -71,8 +78,8 @@ jobs:
 
   fmt:
     name: Format
-    needs: build-image
-    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    needs: [changes, build-image]
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
@@ -87,8 +94,8 @@ jobs:
 
   clippy:
     name: Clippy
-    needs: build-image
-    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    needs: [changes, build-image]
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: sccache
@@ -112,8 +119,8 @@ jobs:
 
   test:
     name: Test
-    needs: build-image
-    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    needs: [changes, build-image]
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: sccache
