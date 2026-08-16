@@ -15,7 +15,10 @@ user-facing flow it feeds is specified in
 
 Related: [Architecture](architecture.md) · [Data Model](data-model.md) ·
 [Geneanet Import Wizard](ui-geneanet-import.md) ·
-[GEDCOM Import](ui-gedcom-import.md) · [General](general.md)
+[GEDCOM Import](ui-gedcom-import.md) · [General](general.md) ·
+[Geneanet Upload API](geneanet-upload-api.md) (the *other* Geneanet API —
+the upload app's — reverse-engineered 2026-08-16; Cloudflare/client findings
+live there too)
 
 > **Destination: a tree, not a file.** An earlier draft of this pipeline
 > emitted a `.gdz`. That was backwards — OxidGene can already *export* a tree to
@@ -72,6 +75,11 @@ Measured on a real 10 254-person tree:
 | group photos | inexpressible | **62 views** linked to several persons |
 
 The export loses roughly 55 % of the links and 100 % of the structure.
+
+A second account measured 2026-08-16 (10 196 persons, "sample_account") tells the same
+story: **387 deposits / 623 views**, 260 persons with media, **550
+person↔media links**, 235 views linked to nobody — and **92 % of views marked
+private**, which is why anonymous download routes are a dead end (§4).
 
 ## 2. The key insight
 
@@ -143,6 +151,37 @@ export GENEANET_COOKIE='gntsess5=<value>'
 
 The CLI refuses a cookie carrying neither name before making a single request,
 rather than emitting hundreds of identical `403`s.
+
+### 3.3 Getting a session: password login is dead (verified 2026-08-16)
+
+Do not design anything around automating the login form — both password paths
+are closed:
+
+- **The legacy endpoint** (`POST /connexion/verify.php?ctype=id`, the old
+  Android-app login) answers `-1` even with **valid** credentials. Trap: it
+  still *sets* a `gntsess5` cookie — an anonymous placeholder, random per
+  attempt, that authenticates nothing (`/media/api/references` → app-level
+  `403`, 34-byte body, same as no cookie). A `Set-Cookie` is not proof of
+  authentication; validate against an authenticated endpoint.
+- **The modern form** (`/connexion/login_check`, Symfony) enforces **reCAPTCHA
+  v2 server-side on every attempt** (flash: *"We couldn't confirm that you are
+  not a robot…"*). Not scriptable without a captcha solver.
+
+What remains:
+
+- **The desktop app's login window** — a real webview, a human solves whatever
+  challenge appears. This is the only automatable login, and §6 of the wizard
+  spec is built on it. The app pre-ticks and hides the form's `_remember_me`
+  checkbox so the (now hidden) collection window's session survives `gntsess5`
+  expiry; it still only *extracts* `gntsess5`.
+- **Cookie import for the CLI** (yt-dlp `--cookies` pattern): the user copies
+  `gntsess5` out of devtools once. `REMEMBERME` alone also authenticates
+  (§3.1) and lives ~1 year — which is exactly why we ask for `gntsess5`
+  instead.
+- One programmatic login does survive, on the *other* API: the Geneanet Upload
+  app's OAuth2 password grant on `api.geneanet.org` issues tokens with no
+  captcha. Useless here — that surface has no originals, no bulk references
+  and no `is_default` (§4b) — but worth knowing it exists.
 
 ### 3.2 One header is mandatory
 
@@ -228,6 +267,59 @@ The trailing slash is not decoration: `/media/download` without it answers `301`
 to the same path *with* one, so omitting it doubles the request count of the
 whole download phase.
 
+### `normal` is not the original — verified 2026-08-16
+
+`views[].files.{normal,medium,screen,thumbnail}` are all **generated
+renditions**, re-encoded and downsized. Proof, from known original/rendition
+pairs on the sample_account account:
+
+- Originals uploaded as uncompressed `.bmp` are served as `normal.jpg`; PDF
+  deposits hold one `.pdf` per page in the data archive but one `normal.jpg`
+  per page on the CDN. A format change is necessarily a re-encode.
+- `normal` > `medium` > `screen` > `thumbnail` is a four-size ladder; even a
+  220-px-wide original gets a `normal.jpg` — "normal" means "the largest
+  rendition", not "the file uploaded".
+- No API object carries a byte size or a content hash (verified by walking
+  every field of all 387 deposits), and the 40-hex component of CDN paths is
+  **not** the SHA-1 of the original content (0/25 pairs) — so neither size-
+  nor hash-matching against local files is possible from API data alone. That
+  is why §5's size matching needs a `HEAD` per deposit.
+
+### Public vs private renditions
+
+On the sample_account account: 34 deposits / 49 views public, 353 / 574 private.
+
+- **Public** CDN rendition URLs can be fetched **anonymously** — but only with
+  a TLS-fingerprint-impersonating client (`curl_cffi`/`wreq`, see §8); plain
+  curl gets Cloudflare's `403`.
+- **Private** rendition URLs answer `404` *even past the Cloudflare layer* —
+  Geneanet hides the asset itself; the session cookie is mandatory, and the
+  `api.geneanet.org` OAuth bearer is not accepted on `gw.geneanet.org`.
+
+### 4b. The other two API surfaces (and why they change nothing)
+
+**`api.geneanet.org` — the Geneanet Upload app's API** (full spec:
+[Geneanet Upload API](geneanet-upload-api.md)). A real third surface, with the
+one remaining programmatic login (embedded OAuth2 client, `password` grant, no
+captcha) — and nothing this pipeline needs:
+
+| | `api.geneanet.org` (upload app) | `www.geneanet.org/media/api` (this doc) |
+|---|---|---|
+| Auth | OAuth2 `Bearer`, password grant works | `gntsess5`/`REMEMBERME` cookie |
+| Deposits | `GET /media/deposits.json` — 10/page, `204` past end | 100/page |
+| References | per-view only (623 requests on sample_account) | **bulk** (~6 requests), `is_default` flag — **absent** from the app-API object (verified) |
+| Originals | none — 8 candidate routes `404` | `/media/download/`, byte-identical |
+| Sizes / hashes | none anywhere | `HEAD` → `Content-Length` |
+| Tree | **write-only** (upload; no export route) | — |
+
+**`geneweb-plugin-api` on `gw.geneanet.org`** — Geneanet's own open-source
+GeneWeb plugin. Invocation: `/<base>?m=<MODE>&data=<piqi payload>&input=json|pb|xml&output=json|pb|xml`
+(`output` mandatory; proto2 schemas in the repo's `src/assets/*.proto`). Its
+~50 modes include `API_ALL_PERSONS`/`API_ALL_FAMILIES` (paginated) — a full
+tree-data export channel, should the `.gw` export endpoint ever break. It
+still cannot help with media: one image string per person (§12), and
+`gw.geneanet.org` sits behind the same Cloudflare fingerprinting as www.
+
 ## 5. Matching originals you already have
 
 The data archive's filenames cannot be matched to deposits by name: they are
@@ -260,6 +352,38 @@ every one of the 6 collisions was the same file uploaded twice.
 Two properties worth keeping when this is reimplemented: an entry is never
 attached on a *probable* match, and a size clash is **detected** rather than
 silently resolved.
+
+### Site-free pre-matching by upload timestamp (verified 2026-08-16)
+
+The archive can be **pre-linked without any session**, which shrinks the
+`HEAD` pass to only the entries that need verification. On the sample_account account
+(623 archive entries ↔ 623 views, bijective):
+
+- **Join key**: the ZIP entry's DOS datetime equals the deposit's
+  `date_create` **to the minute** for ~98 % of entries (archive mtimes are
+  upload times; the exceptions are old files whose original mtimes survived).
+  The archive's global order tracks the deposit list in **reverse**, and a
+  multi-page deposit's pages are **consecutive entries in page order**.
+- **Method**: group entries and views by minute; equal-count groups pair by
+  order; leftovers pair by elimination. Each pair gets an `exact` flag:
+  **545 exact** (singleton minutes, or single-deposit groups) vs **78
+  order-only** (multi-deposit same-minute batches, where a swap cannot be
+  excluded locally). Of those 78, **17** would misattribute a file to a
+  different person if swapped — flagged, never silently trusted.
+- **Rejected**: filename↔title similarity as a join — it correlates on this
+  account but is not robust, and would misattribute silently in the general
+  case (same rule as above: detect clashes, never resolve them on probability).
+- **Use**: exact pairs need no `HEAD` at all; only the order-only remainder
+  does — or a pHash validation (below). On an account with no same-minute
+  batches the whole matching phase becomes session-free.
+
+> **pHash as a validator, not a matcher.** `imagehash.phash` of a downloaded
+> `normal.jpg` vs its archive original gives Hamming distance **0** — it
+> tolerates resize/re-encode/format change (render PDF pages first, e.g.
+> `pdftoppm`). But it stays a *validation* of pairs proposed by something
+> exact: ~240 of the reference account's views are near-white administrative
+> scans where a perceptual hash misattributes silently — the same reason §5
+> rejects it as a primary matcher.
 
 ### Why not one bulk download instead of one `HEAD` per deposit
 
@@ -431,15 +555,39 @@ The challenge is adaptive: the same binary collected a full 378-deposit
 manifest earlier the same day, then began to be challenged after a few hundred
 requests from the same address.
 
-**Defeating that fingerprinting is deliberately not implemented**, and should
-not be. It is bot detection, and dressing the client up as something else to
-get past it is evasion whoever owns the data. The supported responses are to
-run gently (a higher `--delay-ms`), to run when the challenge has lapsed, or to accept that this path is closed and use the
-per-fiche fallback in §10.
+**What the client does about it (changed 2026-08-16).** An earlier version of
+this section said fingerprint emulation was "deliberately not implemented, and
+should not be". That position was revisited once the download path had no
+honest alternative: the metadata phase runs inside the login webview (a real
+browser, a human present — out of reach of the check by construction), but the
+*downloads* have no webview equivalent that would not push hundreds of
+megabytes through an IPC channel. So the HTTP client in
+`crates/oxidgene-geneanet` now uses **`wreq` + `wreq-util` with a pinned
+current-Chrome emulation** (`Emulation::Chrome149` at time of writing), used
+only with the user's own session cookie, at a gentle one-request-at-a-time
+rate. The ethics are unchanged: the user logs in knowingly in a real window;
+the emulation only makes the download requests look like the browser that is
+already authenticated.
 
-The metadata phase is now cheap enough to be largely out of reach of this — 19
-requests — and the resulting manifest is reusable indefinitely, so it need only
-succeed once.
+Tested against the live site (2026-08-16, full matrix in
+[Geneanet Upload API §13](geneanet-upload-api.md)):
+
+| Stack | Result on www/gw data routes |
+|---|---|
+| plain libcurl / `requests` / rustls | `403` challenge |
+| `hyprcurl` (stock libcurl + cipher options) | `403` — **not** a curl_cffi equivalent |
+| `wreq` `Emulation::Chrome131` | `403` — stale profile |
+| **`wreq` `Emulation::Chrome146`+** | **passes everywhere** (incl. gw CDN) |
+| `curl_cffi` `impersonate="chrome"` (= Chrome 146) | passes |
+
+Two operational facts follow: the emulation version **must track current
+Chrome** (a 131 profile is already challenged; bump the pinned profile when
+updating `wreq-util`), and a challenge page is still not an expired cookie —
+the client's error message says so and points at the emulation version first.
+
+The metadata phase is cheap enough to be largely out of reach of this — 19
+requests, issued inside the webview anyway — and the resulting manifest is
+reusable indefinitely, so it need only succeed once.
 
 ## 9. Output
 
@@ -473,6 +621,13 @@ else joins.
   they are counted and reported, not imported. `geneanet-media fetch` retrieves
   them if wanted.
 - **Multi-page pages are downsized by default.** See §5.
+- **No API exposes original filenames, byte sizes, or content hashes** — not
+  the website API, not the upload app's API (§4b). Sizes come from a `HEAD`
+  per deposit; names exist only in the data archive. Matching is therefore
+  positional/temporal (site-free) or byte-size (session) — never nominal.
+- **Password login cannot be automated** (§3.3): reCAPTCHA on the modern form,
+  the legacy endpoint dead. The login window and cookie import are the only
+  session sources.
 - **No incremental re-import.** Nothing here reconciles a second Geneanet
   export against a tree already imported. That is
   [Person Merge](ui-merge.md) territory.
