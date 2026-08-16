@@ -21,6 +21,7 @@ This directory contains all functional, technical, and visual specifications for
 | [Roadmap](roadmap.md) | EPICs A–G, sprint breakdown, milestones, completion status |
 | [Read Projections](read-projections.md) | Denormalized read models in the database: person projections, pedigree assembly, search, refresh |
 | [Geneanet Media Import](geneanet-media-import.md) | Technical: recovering the person↔photo links a Geneanet export drops — the media API, the GeneWeb join key, size matching |
+| [Geneanet Upload API](geneanet-upload-api.md) | Reference: the upload app's `api.geneanet.org` surface, Cloudflare/HTTP-client matrix, originals vs renditions, login findings (reverse-engineered 2026-08-16) |
 
 ## Cross-cutting
 
@@ -74,7 +75,8 @@ index.md  <- you are here
 |  |- api.md               REST + GraphQL + GEDCOM compat
 |  |- roadmap.md           EPICs & sprints (with status)
 |  |- read-projections.md  Denormalized read models (no cache tier)
-|  '- geneanet-media-import.md  Geneanet media API, join key, size matching
+|  |- geneanet-media-import.md  Geneanet media API, join key, size matching
+|  '- geneanet-upload-api.md   Upload-app API reference, Cloudflare matrix
 |
 |- Cross-cutting
 |  |- i18n.md              Internationalization
