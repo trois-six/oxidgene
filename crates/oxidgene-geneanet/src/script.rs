@@ -115,6 +115,36 @@ pub const INSTRUCTIONS: &str = "\
      oxidgene-cli geneanet-media manifest-from-browser \\
        --input ~/Downloads/geneanet-collection.json";
 
+/// Pre-checks "Remember me" on the login form, and hides the checkbox.
+///
+/// Why: the collection runs in a hidden window after sign-in, and a hidden
+/// session the user cannot see should not die under them — with the
+/// remember-me cookie in the jar, the WebView silently re-authenticates when
+/// the short-lived session cookie expires. The checkbox is hidden because the
+/// wizard already made this choice on the user's behalf; unchecking it would
+/// be opting out of the design. The download step still only ever reads
+/// `gntsess5`: this changes how long the *window's* session lives, not what
+/// the rest of the app is handed.
+///
+/// The script runs at document start, before the form exists, so it watches
+/// for the checkbox rather than assuming it is there.
+pub const REMEMBER_ME: &str = r#"
+(() => {
+  const fix = () => {
+    const box = document.querySelector('input[name="_remember_me"]');
+    if (!box) return false;
+    box.checked = true;
+    const row = box.closest('.form-check') || box.closest('label') || box.parentElement;
+    if (row) row.style.display = 'none';
+    return true;
+  };
+  if (!fix()) {
+    const obs = new MutationObserver(() => { if (fix()) obs.disconnect(); });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+  }
+})();
+"#;
+
 /// Runs on every page the login WebView loads, and says whether the session is
 /// established yet.
 ///
