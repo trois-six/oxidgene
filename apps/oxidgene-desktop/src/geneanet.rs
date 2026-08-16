@@ -344,7 +344,7 @@ fn open<T: 'static>(
         .inspect_err(|e| warn!(%e, "could not create the Geneanet login window"))
         .ok()?;
 
-    let webview = WebViewBuilder::new()
+    let builder = WebViewBuilder::new()
         .with_url(START_URL)
         // Runs at document start on every navigation, including the ones a
         // login and a Cloudflare challenge cause. Each says only "does the
@@ -361,8 +361,45 @@ fn open<T: 'static>(
                 // cannot read is not ours.
                 Err(e) => debug!(%e, "ignoring an unrecognised IPC message"),
             }
-        })
-        .build(&window)
+        });
+
+    // Building onto the window handle only works where the platform's webview
+    // attaches to one. On WebKitGTK it does not: a tao window hands out an
+    // Xlib/Wayland handle, which wry rejects with "the window handle kind is
+    // not supported", and the webview has to go into a GTK container instead —
+    // the vertical box tao puts in every window as its sole child. This is the
+    // same split `dioxus-desktop` makes for its own windows, and it is kept
+    // identical on purpose: a login window that attached differently from the
+    // app's would be a second thing to keep working.
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    ))]
+    let built = builder.build(&window);
+
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    )))]
+    let built = {
+        use dioxus::desktop::tao::platform::unix::WindowExtUnix;
+        use dioxus::desktop::wry::WebViewBuilderExtUnix;
+
+        match window.default_vbox() {
+            Some(vbox) => builder.build_gtk(vbox),
+            // Only reachable if the default vbox was disabled at build time,
+            // which this window does not do — but adding straight to the
+            // window is the right fallback, since a GTK window is a container
+            // too.
+            None => builder.build_gtk(window.gtk_window()),
+        }
+    };
+
+    let webview = built
         .inspect_err(|e| warn!(%e, "could not create the Geneanet WebView"))
         .ok()?;
 
