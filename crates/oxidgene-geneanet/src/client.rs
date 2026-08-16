@@ -10,9 +10,9 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use tokio::time::sleep;
 use wreq::StatusCode;
 use wreq::header::{ACCEPT, COOKIE, HeaderMap, HeaderValue};
-use tokio::time::sleep;
 
 use crate::model::{Deposit, Reference, ReferenceEntry};
 
