@@ -1,13 +1,17 @@
 //! Throttled HTTP client for Geneanet's media API.
 //!
 //! Everything here needs a logged-in `www.geneanet.org` session cookie: the
-//! media are private, and the endpoints 403 without it.
+//! media are private, and the endpoints 403 without it. The transport
+//! impersonates a current Chrome (see [`EMULATION`]): Cloudflare fronts
+//! geneanet.org and challenges a client's TLS/HTTP2 fingerprint before the
+//! cookie is ever read, and a plain HTTP client is challenged whatever cookie
+//! it presents.
 
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use reqwest::StatusCode;
-use reqwest::header::{ACCEPT, COOKIE, HeaderMap, HeaderValue, USER_AGENT};
+use wreq::StatusCode;
+use wreq::header::{ACCEPT, COOKIE, HeaderMap, HeaderValue};
 use tokio::time::sleep;
 
 use crate::model::{Deposit, Reference, ReferenceEntry};
@@ -32,12 +36,21 @@ const DOWNLOAD_PATH: &str = "/media/download/";
 /// irrelevant to this API.
 const SESSION_COOKIES: [&str; 2] = ["gntsess5", "REMEMBERME"];
 
-/// Identifies us to Geneanet rather than pretending to be a browser.
-const AGENT: &str = concat!(
-    "oxidgene-cli/",
-    env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/trois-six/oxidgene)"
-);
+/// The browser profile the client presents, TLS and HTTP/2 fingerprints
+/// included.
+///
+/// Measured against the live site (2026-08): plain reqwest+rustls is
+/// challenged by Cloudflare on every data route whatever cookie it sends,
+/// Chrome 131 profiles are already challenged too, and a current-Chrome
+/// profile passes everything. So this pin must track current Chrome: bump it
+/// when `wreq-util` is updated, and keep that dependency current. There is no
+/// "latest" alias to defer to — `Profile::default()` is Chrome 100 and the
+/// enum is `#[non_exhaustive]` — so the pin is explicit on purpose.
+///
+/// The emulation also sets the matching User-Agent and header set. Overriding
+/// the agent with our own would pair a Chrome fingerprint with a non-Chrome
+/// agent string, which is the one combination that looks spoofed.
+const EMULATION: wreq_util::Profile = wreq_util::Emulation::Chrome149;
 
 /// How politely to hit the API.
 ///
@@ -58,11 +71,20 @@ impl Default for Throttle {
     }
 }
 
-#[derive(Debug)]
 pub struct Client {
-    http: reqwest::Client,
+    http: wreq::Client,
     base_url: String,
     throttle: Throttle,
+}
+
+// `wreq::Client` has no `Debug` impl, so format the fields that matter by hand.
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("base_url", &self.base_url)
+            .field("throttle", &self.throttle)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Client {
@@ -88,7 +110,6 @@ impl Client {
         cookie_value.set_sensitive(true);
         headers.insert(COOKIE, cookie_value);
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-        headers.insert(USER_AGENT, HeaderValue::from_static(AGENT));
         // The media API only answers JSON when it believes it is talking to the
         // manager's XHR layer.
         headers.insert(
@@ -96,7 +117,8 @@ impl Client {
             HeaderValue::from_static("XMLHttpRequest"),
         );
 
-        let http = reqwest::Client::builder()
+        let http = wreq::Client::builder()
+            .emulation(EMULATION)
             .default_headers(headers)
             .timeout(Duration::from_secs(120))
             .build()
@@ -237,7 +259,7 @@ impl Client {
         let response = check_status(response, &format!("size of deposit {deposit_id}"))?;
         let length = response
             .headers()
-            .get(reqwest::header::CONTENT_LENGTH)
+            .get(wreq::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse::<u64>().ok())
             .filter(|&n| n > 0);
@@ -291,7 +313,7 @@ impl Client {
 
         let filename = response
             .headers()
-            .get(reqwest::header::CONTENT_DISPOSITION)
+            .get(wreq::header::CONTENT_DISPOSITION)
             .and_then(|v| v.to_str().ok())
             .and_then(parse_content_disposition_filename);
 
@@ -325,25 +347,27 @@ fn carries_a_session(cookie: &str) -> bool {
 /// which looks exactly like an auth failure but has nothing to do with the
 /// cookie, and telling the user to refresh their cookie sends them chasing the
 /// wrong thing.
-fn is_cloudflare_challenge(response: &reqwest::Response) -> bool {
+fn is_cloudflare_challenge(response: &wreq::Response) -> bool {
     response.headers().contains_key("cf-mitigated")
         || response
             .headers()
-            .get(reqwest::header::CONTENT_TYPE)
+            .get(wreq::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("text/html"))
 }
 
 /// Turns an HTTP failure into a message that says what to do about it.
-fn check_status(response: reqwest::Response, what: &str) -> Result<reqwest::Response> {
+fn check_status(response: wreq::Response, what: &str) -> Result<wreq::Response> {
     match response.status() {
         s if s.is_success() => Ok(response),
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN if is_cloudflare_challenge(&response) => {
             bail!(
                 "Cloudflare challenged the {what} (HTTP {}, an HTML challenge page rather than \
                  Geneanet's answer). This is not an authentication problem and a fresh cookie \
-                 will not fix it: Cloudflare decided this client looks automated. Wait for the \
-                 challenge to lapse and re-run more gently (higher --delay-ms). Solving the challenge is deliberately not implemented.",
+                 will not fix it: Cloudflare decided this client looks automated. The emulated \
+                 browser profile may have gone stale — update the wreq-util dependency and the \
+                 EMULATION pin — or wait for the challenge to lapse and re-run more gently \
+                 (higher --delay-ms).",
                 response.status()
             )
         }

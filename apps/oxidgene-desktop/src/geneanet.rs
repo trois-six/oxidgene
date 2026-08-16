@@ -240,6 +240,30 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
                 return None;
             }
             open.collecting = true;
+            // The human part is over: everything from here is API traffic the
+            // scripts drive, so the window goes headless and the wizard's
+            // progress bars take over — but only if the session is
+            // self-sustaining, i.e. the remember-me cookie landed (the
+            // REMEMBER_ME init script pre-checks the box). If the site changed
+            // and no such cookie was set, keep the window visible so a
+            // mid-collection expiry leaves the user with a usable login page
+            // instead of an invisible dead session.
+            let has_remember_me = open
+                .webview
+                .cookies_for_url(COOKIE_ORIGIN)
+                .map(|cookies| {
+                    cookies
+                        .iter()
+                        .any(|cookie| cookie.name() == "REMEMBERME" && !cookie.value().is_empty())
+                })
+                .unwrap_or(false);
+            if has_remember_me {
+                open.window.set_visible(false);
+            } else {
+                tracing::info!(
+                    "no REMEMBERME cookie after login; keeping the login window visible"
+                );
+            }
             open.send(GeneanetEvent::SignedIn);
             open.eval(&script::ipc_collection());
             None
@@ -350,6 +374,10 @@ fn open<T: 'static>(
         // login and a Cloudflare challenge cause. Each says only "does the
         // media API answer yet", which is the one thing the next step needs.
         .with_initialization_script(script::PROBE)
+        // Pre-checks "Remember me" on the login form: the window goes
+        // headless once signed in, and a session nobody can see should not
+        // expire under the collection.
+        .with_initialization_script(script::REMEMBER_ME)
         .with_ipc_handler(move |request| {
             match serde_json::from_str::<Message>(request.body()) {
                 Ok(message) => {

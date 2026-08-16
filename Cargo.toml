@@ -118,6 +118,11 @@ dioxus = "0.7"
 
 # HTTP client
 reqwest = { version = "0.13", features = ["json", "multipart", "query"] }
+# Browser-emulating HTTP client — the only stack measured to pass Cloudflare's
+# TLS/HTTP2 fingerprint check on geneanet.org (plain reqwest+rustls is
+# challenged whatever the cookie). Keep wreq-util current: profiles go stale.
+wreq = { version = "6.0.0-rc.29", features = ["json", "query"] }
+wreq-util = "3.0.0-rc.14"
 
 # Platform directories
 dirs = "6"
@@ -137,3 +142,14 @@ lto = true           # cross-crate dead-code elimination
 codegen-units = 1    # required for full LTO
 strip = true         # remove debug symbols
 panic = "abort"      # no unwinding machinery
+
+[patch.crates-io]
+# tungstenite with its `native-tls` feature neutralised (empty feature, same API).
+# dioxus-desktop 0.7.9 hard-enables tungstenite/native-tls on desktop targets, which
+# pulls system OpenSSL into the binary; wreq (oxidgene-geneanet) links BoringSSL
+# (btls-sys), whose libssl.a/libcrypto.a shadow the system ones in the linker search
+# path → undefined OpenSSL-only symbols (SSL_ctrl, SSL_write_ex, …) at link time.
+# dioxus-desktop only uses plain ws:// streams (no TLS Connector), so dropping the
+# feature is functionally harmless. Re-vendor the matching tungstenite version when
+# dioxus bumps its requirement.
+tungstenite = { path = "vendor/tungstenite" }
