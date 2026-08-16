@@ -43,3 +43,15 @@ jobs:
           no-cache: ${{ github.event_name == 'schedule' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Housekeeping only after a successful push: keep just the freshly pushed
+      # version (:latest always points to it), delete older sha-tagged and
+      # untagged versions. Never fail the build on a prune error.
+      - name: Prune old image versions
+        uses: actions/delete-package-versions@v5
+        continue-on-error: true
+        with:
+          package-name: ci-runner
+          package-type: container
+          min-versions-to-keep: 1
+          num-old-versions-to-delete: 20
