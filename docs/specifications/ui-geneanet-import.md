@@ -243,7 +243,9 @@ If skipped:
 > login window to read that list.
 >
 > It is a real browser window. You sign in exactly as you would normally, and
-> **OxidGene never sees your password**.
+> **OxidGene never sees your password**. "Keep me signed in" is ticked for you
+> so the window can keep working once it hides itself; OxidGene only reads the
+> session cookie.
 
 ### Behaviour
 
@@ -254,10 +256,23 @@ back — the journey the user would take anyway.
 
 - The user authenticates interactively. If Geneanet shows a captcha or a
   Cloudflare check, it appears in that window and the user handles it — the
-  same as in any browser.
-- Once the session is established, the window closes on its own and collection
-  starts.
-- The window can be closed at any time; the step returns to its initial state.
+  same as in any browser. (It *will* show one: Geneanet's login enforces
+  reCAPTCHA on every attempt, which is exactly why the login cannot be
+  automated and this window exists — see
+  [Geneanet Media Import §3.3](geneanet-media-import.md).)
+- The login form's **"Remember me" checkbox is pre-ticked and hidden** by an
+  injected script. This is disclosed in the step's explanation, and it exists
+  for a mechanical reason: once signed in, **the window hides itself** and the
+  collection runs headless — a hidden window whose session expired would be an
+  invisible dead end, so the session must be allowed to outlive `gntsess5`.
+  OxidGene still only *reads* the session cookie, never the remember-me token.
+- If the checkbox cannot be found (Geneanet changed its form), nothing breaks:
+  the window simply **stays visible** during collection, so a mid-collection
+  expiry leaves the user a live login page to sign in again.
+- Once the session is established, the window disappears and collection
+  starts; it is destroyed when collection ends.
+- The window can be closed at any time while visible; the step returns to its
+  initial state.
 
 **The requests are issued inside that window, not by OxidGene.** A small script
 runs on each page load and reports whether the media API answers yet; once it
@@ -311,6 +326,7 @@ Stage 2 — Matching photos against your archives
 |---|---|
 | Window closed before signing in | Return to initial state, no error |
 | Session expires mid-collection | *"The Geneanet session ended. Sign in again to continue."* — collection resumes, already-collected data kept |
+| "Remember me" unavailable (form changed) | No error — the window stays visible during collection so an expiry remains recoverable in place |
 | Cloudflare challenge inside the window | Nothing to report — it is displayed and the user answers it |
 | Geneanet returns an error | Show the stage and the HTTP status; **[Retry]** |
 
@@ -404,6 +420,11 @@ Named here so nobody looks for them:
   an updated Geneanet export into an existing tree is [Person Merge](ui-merge.md)
   territory and is not attempted here.
 - **No writing to Geneanet.** Every request this flow makes is a read.
+- **No automated password login.** Geneanet enforces reCAPTCHA on every login
+  attempt and the legacy password endpoint is dead (verified 2026-08-16), so
+  the in-app browser window is the *only* login path — there is no
+  username/password field to offer instead. See
+  [Geneanet Media Import §3.3](geneanet-media-import.md).
 - **No account name in the summary.** Geneanet does not put it anywhere this
   flow reads, and scraping the page for it would be the first thing a redesign
   broke — so step 3 collapses to "signed in · N photos found".
