@@ -28,7 +28,7 @@ use crate::api::{
     ApiClient, CreateMediaLinkBody, CreateNoteBody, MediaKind, MediaSource, MediaWithLink,
     UpdateMediaBody, UpdateNoteBody,
 };
-use crate::components::date_input::{DateInput, DateParts};
+use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
 use crate::components::person_form::render_place_select;
@@ -261,6 +261,9 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             MediaViewer {
                 tree_id,
                 tile,
+                events: events.clone(),
+                read_only,
+                on_changed: move |()| revision += 1,
                 on_close: move |_| viewing.set(None),
             }
         }
@@ -300,6 +303,8 @@ fn MediaTile(
     let mut confirming = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    // Where the right-click menu sits, if it is open.
+    let mut menu_at = use_signal(|| None::<(f64, f64)>);
 
     let media_id = tile.media.id;
     let link_id = tile.link_id;
@@ -326,10 +331,12 @@ fn MediaTile(
         _ => None,
     };
 
-    let toggle_profile = {
+    // Called from two places — the hover button and the right-click menu —
+    // so it takes no ownership of anything it cannot clone.
+    let toggle_profile = use_callback({
         let api = api.clone();
         let currently = tile.is_profile;
-        move |_| {
+        move |()| {
             let api = api.clone();
             spawn(async move {
                 busy.set(true);
@@ -343,7 +350,7 @@ fn MediaTile(
                 busy.set(false);
             });
         }
-    };
+    });
 
     // Detach, not delete: the file may document three other people, and the
     // trash on a person's tile means "not this person's", never "gone".
@@ -366,6 +373,7 @@ fn MediaTile(
     };
 
     let tile_for_crop = tile.clone();
+    let is_profile = tile.is_profile;
 
     rsx! {
         div { class: if is_open { "media-tile is-open" } else { "media-tile" },
@@ -376,6 +384,20 @@ fn MediaTile(
                 onclick: {
                     let tile = tile.clone();
                     move |_| on_view.call(tile.clone())
+                },
+                // The portrait is set from here even on a profile page, where
+                // the gallery is otherwise read-only: choosing which
+                // photograph represents somebody is the one edit a reader
+                // makes while *looking* at their photographs, and sending
+                // them to the edit modal to do it means leaving the page that
+                // prompted it. Every other action stays behind the modal.
+                oncontextmenu: move |e: Event<MouseData>| {
+                    if !show_profile {
+                        return;
+                    }
+                    e.prevent_default();
+                    let point = e.client_coordinates();
+                    menu_at.set(Some((point.x, point.y)));
                 },
                 if let Some(preview) = preview_url.clone() {
                     img { src: "{preview}", alt: "{caption}", loading: "lazy" }
@@ -407,7 +429,7 @@ fn MediaTile(
                             r#type: "button",
                             disabled: busy(),
                             title: i18n.t("media.set_profile_image"),
-                            onclick: toggle_profile,
+                            onclick: move |_| toggle_profile.call(()),
                             "\u{2605}"
                         }
                     }
@@ -470,6 +492,33 @@ fn MediaTile(
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
             }
+
+            if let Some((x, y)) = menu_at() {
+                div {
+                    class: "context-menu-backdrop",
+                    onclick: move |_| menu_at.set(None),
+                    oncontextmenu: move |e: Event<MouseData>| {
+                        e.prevent_default();
+                        menu_at.set(None);
+                    },
+                }
+                div { class: "context-menu", style: "left: {x}px; top: {y}px;",
+                    button {
+                        class: "context-menu-item",
+                        r#type: "button",
+                        disabled: busy(),
+                        onclick: move |_| {
+                            menu_at.set(None);
+                            toggle_profile.call(());
+                        },
+                        if is_profile {
+                            {i18n.t("media.clear_profile_image")}
+                        } else {
+                            {i18n.t("media.set_profile_image")}
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -481,6 +530,11 @@ fn MediaEditPanel(
     tree_id: Uuid,
     tile: MediaWithLink,
     events: Vec<(Uuid, String)>,
+    /// Rendered inside the viewer's own frame, which already names the file
+    /// and offers a way out — so the panel's head would be a second title and
+    /// a second close button for the same thing.
+    #[props(default)]
+    embedded: bool,
     on_changed: EventHandler<()>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -718,14 +772,16 @@ fn MediaEditPanel(
     };
 
     rsx! {
-        div { class: "media-panel",
-            div { class: "media-panel-head",
-                span { class: "media-panel-title", "{tile.media.file_name}" }
-                button {
-                    class: "cropper-close",
-                    r#type: "button",
-                    onclick: move |_| on_close.call(()),
-                    "\u{00D7}"
+        div { class: if embedded { "media-panel is-embedded" } else { "media-panel" },
+            if !embedded {
+                div { class: "media-panel-head",
+                    span { class: "media-panel-title", "{tile.media.file_name}" }
+                    button {
+                        class: "cropper-close",
+                        r#type: "button",
+                        onclick: move |_| on_close.call(()),
+                        "\u{00D7}"
+                    }
                 }
             }
 
@@ -1088,10 +1144,190 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
 /// This is the same overlay for a stored file and a remote URL; the only
 /// difference is which URL goes into the element, which the tile has already
 /// decided.
+/// Everything known about a media, as prose rather than as a form.
+///
+/// The viewer's companion column. A scan is worth opening precisely because
+/// of what is written about it — when it was taken, where, which events it
+/// documents, who is identified on it — and until now that lived only inside
+/// an edit form, which a reader on a profile page never sees because the
+/// gallery there is read-only.
+///
+/// Fields with nothing in them are omitted rather than shown empty: a column
+/// of eight labels reading "—" tells the reader less than four that say
+/// something, and makes the ones that do harder to find.
 #[component]
-fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -> Element {
+fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let media_id = media.id;
+
+    let notes = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move {
+                api.list_notes(tree_id, None, None, None, None, Some(media_id))
+                    .await
+                    .ok()
+            }
+        }
+    });
+    let places = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move { api.list_all_places(tree_id).await.ok() }
+        }
+    });
+    // Who is identified on this scan, and what it stands as evidence for.
+    let vignettes = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move { api.list_media_vignettes(tree_id, media_id).await.ok() }
+        }
+    });
+
+    let date = format_date(
+        &i18n,
+        media.calendar,
+        media.date_qualifier,
+        media.date_value.as_deref(),
+        media.date_value2.as_deref(),
+    );
+    let place = media.place_id.and_then(|id| {
+        places
+            .read_unchecked()
+            .as_ref()?
+            .as_ref()?
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.name.clone())
+    });
+    let note = notes
+        .read_unchecked()
+        .as_ref()
+        .and_then(|n| n.as_ref())
+        .and_then(|list| list.first().map(|n| n.text.clone()));
+    let identified: Vec<String> = vignettes
+        .read_unchecked()
+        .as_ref()
+        .and_then(|v| v.as_ref())
+        .map(|list| {
+            list.iter()
+                .filter(|v| v.person_id.is_some())
+                .filter_map(|v| v.title.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    rsx! {
+        div { class: "media-facts",
+            if let Some(title) = media.title.as_ref().filter(|t| !t.trim().is_empty()) {
+                div { class: "media-fact",
+                    span { class: "media-fact-label", {i18n.t("media.title")} }
+                    span { class: "media-fact-value", "{title}" }
+                }
+            }
+            if !date.is_empty() {
+                div { class: "media-fact",
+                    span { class: "media-fact-label", {i18n.t("media.date")} }
+                    span { class: "media-fact-value", "{date}" }
+                }
+            }
+            if let Some(place) = place {
+                div { class: "media-fact",
+                    span { class: "media-fact-label", {i18n.t("media.place")} }
+                    span { class: "media-fact-value", "{place}" }
+                }
+            }
+            if let Some(category) = media.document_category {
+                div { class: "media-fact",
+                    span { class: "media-fact-label", {i18n.t("media.document_category")} }
+                    span { class: "media-fact-value",
+                        {i18n.t(&format!("media.category.{}", category.as_str()))}
+                    }
+                }
+            }
+            // The physical medium is only worth a line when it says something
+            // the reader did not already know from the category or the file.
+            if media.source_media_type != oxidgene_core::enums::SourceMediaType::Other
+                && media.document_category.map(|c| c.implied_medium())
+                    != Some(media.source_media_type)
+            {
+                div { class: "media-fact",
+                    span { class: "media-fact-label", {i18n.t("media.source_media_type")} }
+                    span { class: "media-fact-value",
+                        {i18n.t(&format!("media.medium.{}", media.source_media_type.as_str()))}
+                    }
+                }
+            }
+            if let Some(description) = media.description.as_ref().filter(|d| !d.trim().is_empty()) {
+                div { class: "media-fact is-prose",
+                    span { class: "media-fact-label", {i18n.t("media.description")} }
+                    p { class: "media-fact-value", "{description}" }
+                }
+            }
+            if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
+                div { class: "media-fact is-prose",
+                    span { class: "media-fact-label", {i18n.t("media.note")} }
+                    p { class: "media-fact-value", "{note}" }
+                }
+            }
+            if !identified.is_empty() {
+                div { class: "media-fact is-prose",
+                    span { class: "media-fact-label", {i18n.t("media.identified")} }
+                    div { class: "media-fact-tags",
+                        for name in identified.iter() {
+                            span { key: "{name}", class: "media-fact-tag", "{name}" }
+                        }
+                    }
+                }
+            }
+
+            // The technical facts last, and quietly: they answer "is this the
+            // good scan or the phone snapshot", which is a real question, but
+            // not the one the reader came with.
+            div { class: "media-fact-tech",
+                span {
+                    {
+                        media
+                            .mime_type
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("file")
+                            .trim_start_matches("x-")
+                            .split('+')
+                            .next()
+                            .unwrap_or("file")
+                            .to_uppercase()
+                    }
+                }
+                if let (Some(w), Some(h)) = (media.width, media.height) {
+                    span { "{w} \u{00D7} {h}" }
+                }
+                if media.file_size > 0 {
+                    span { {format_size(media.file_size)} }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MediaViewer(
+    tree_id: Uuid,
+    tile: MediaWithLink,
+    events: Vec<(Uuid, String)>,
+    read_only: bool,
+    on_changed: EventHandler<()>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    // The companion column starts as prose. A reader opened this to look at
+    // the document, not to fill in a form, so the form is a step they take.
+    let mut editing = use_signal(|| false);
 
     let source = tile.source();
     let caption = tile.caption().to_string();
@@ -1200,6 +1436,8 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                     }
                 }
 
+                div { class: "media-viewer-body",
+                div { class: "media-viewer-main",
                 div {
                     class: if zoom().is_some() { "media-viewer-stage is-zoomed" } else { "media-viewer-stage" },
                     match (url.clone(), kind) {
@@ -1327,6 +1565,34 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                             "\u{23ED}"
                         }
                     }
+                }
+                }
+
+                aside { class: "media-viewer-aside",
+                    if editing() {
+                        MediaEditPanel {
+                            tree_id,
+                            tile: tile.clone(),
+                            events: events.clone(),
+                            embedded: true,
+                            on_changed: move |()| on_changed.call(()),
+                            on_close: move |()| editing.set(false),
+                        }
+                    } else {
+                        MediaFacts {
+                            tree_id,
+                            media: shown.cloned().unwrap_or_else(|| tile.media.clone()),
+                        }
+                        if !read_only {
+                            button {
+                                class: "btn btn-outline media-facts-edit",
+                                r#type: "button",
+                                onclick: move |_| editing.set(true),
+                                {i18n.t("common.edit")}
+                            }
+                        }
+                    }
+                }
                 }
 
                 div { class: "cropper-foot",
