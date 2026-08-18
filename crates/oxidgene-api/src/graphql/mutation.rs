@@ -900,6 +900,12 @@ impl MutationRoot {
             place_id: patch_parse(input.place_id, |s| Uuid::parse_str(&s), "placeId")?,
             file_path: input.file_path,
             mime_type: input.mime_type,
+            source_media_type: input.source_media_type.map(Into::into),
+            document_category: match input.document_category {
+                MaybeUndefined::Undefined => None,
+                MaybeUndefined::Null => Some(None),
+                MaybeUndefined::Value(c) => Some(Some(c.into())),
+            },
         };
         let media_patch = crate::rest::media::media_patch(&stored, request)
             .map_err(|e| async_graphql::Error::new(e.0.to_string()))?;

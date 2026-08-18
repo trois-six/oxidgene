@@ -5,8 +5,12 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use std::collections::HashMap;
+use uuid::Uuid;
+
 use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
+use crate::service::geneanet::ImportProgress;
 use crate::service::purge::{self, PurgeQueue};
 
 /// Shared state available to all Axum handlers.
@@ -19,6 +23,12 @@ pub struct AppState {
     pub purge: PurgeQueue,
     /// Where uploaded files and their thumbnails live.
     pub media: Arc<dyn MediaStore>,
+    /// How far each running Geneanet import has got.
+    ///
+    /// An import holds its request open for minutes, so it cannot report
+    /// progress in its own response. The wizard names the run when it starts
+    /// it and asks a second endpoint how it is going.
+    pub imports: Arc<std::sync::Mutex<HashMap<Uuid, Arc<ImportProgress>>>>,
 }
 
 impl AppState {
@@ -47,6 +57,7 @@ impl AppState {
             profiles,
             purge,
             media,
+            imports: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 }

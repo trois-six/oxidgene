@@ -58,8 +58,8 @@ This directory contains all functional, technical, and visual specifications for
 |----------|-------------|----------------------|
 | [Person Edit Modal](ui-person-edit-modal.md) | Create & edit person (all context variants), couple/union edit, media, deletion | -> [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) |
 | [Person Merge](ui-merge.md) | 3-step wizard: select duplicate, compare side-by-side, confirm merge | -> [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) (duplicates tool) |
-| [GEDCOM Import](ui-gedcom-import.md) | Upload, preview, and import a GEDCOM file into a tree | -> [Tree View](ui-genealogy-tree.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) (export) |
-| [Geneanet Import](ui-geneanet-import.md) | Single-page accordion flow importing a Geneanet tree with its photos: `.gw`, photo archives, in-app login, preview | -> [Geneanet Media Import](geneanet-media-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) |
+| [Import](ui-import.md) | The import modal: the file tab (`.ged`/`.gw`) and the shell both tabs share | -> [Geneanet Import](ui-geneanet-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) (export) |
+| [Geneanet Import](ui-geneanet-import.md) | The modal's Geneanet tab: five steps importing a tree *with its media* — `.gw`, data archives, in-app login, preview, import | -> [Import](ui-import.md) · [Geneanet Media Import](geneanet-media-import.md) |
 
 ---
 
@@ -100,6 +100,6 @@ index.md  <- you are here
 	'- Modals & Flows
 		|- ui-person-edit-modal.md Person create/edit & couple edit modals
 		|- ui-merge.md             Person merge wizard
-		|- ui-gedcom-import.md     GEDCOM import wizard
-		'- ui-geneanet-import.md   Geneanet import (tree + photos)
+		|- ui-import.md            Import modal + file tab
+		'- ui-geneanet-import.md   Geneanet import (tree + media)
 ```

@@ -17,3 +17,5 @@ serde = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# Reading a produced GEDZIP back, to check the media actually travelled.
+zip = { workspace = true }

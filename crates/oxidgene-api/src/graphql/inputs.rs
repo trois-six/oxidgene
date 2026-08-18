@@ -12,8 +12,8 @@
 use async_graphql::{ID, InputObject, MaybeUndefined};
 
 use super::types::{
-    GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlEventType, GqlNameType,
-    GqlPrivacy, GqlSex, GqlSpouseRole,
+    GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
+    GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -267,6 +267,12 @@ pub struct UpdateMediaInput {
     /// The URL of a remote media. Refused for a media whose bytes we hold.
     pub file_path: Option<String>,
     pub mime_type: Option<String>,
+    /// What the medium physically is, in GEDCOM's own vocabulary.
+    pub source_media_type: Option<GqlSourceMediaType>,
+    /// What kind of record it is. Setting it without a `sourceMediaType` also
+    /// sets the medium it implies, so a census return does not export as
+    /// `OTHER`.
+    pub document_category: MaybeUndefined<GqlDocumentCategory>,
 }
 
 // ── Vignette Inputs ──────────────────────────────────────────────────

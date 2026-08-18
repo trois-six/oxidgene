@@ -244,7 +244,9 @@ pub struct PedigreeData {
     pub events_by_person: HashMap<Uuid, Vec<DomainEvent>>,
     pub events_by_family: HashMap<Uuid, Vec<DomainEvent>>,
     pub places: HashMap<Uuid, Place>,
-    /// person_id → photo URL (file_path from media table).
+    /// person_id → the URL their portrait is shown from, built by
+    /// [`ApiClient::portrait_map`]. Absent means no portrait: the card draws
+    /// the silhouette rather than asking for bytes that do not exist.
     pub photos: HashMap<Uuid, String>,
     /// Pre-computed SOSA ancestor set (persons who are ancestors of the SOSA root).
     pub sosa_ancestors: HashSet<Uuid>,

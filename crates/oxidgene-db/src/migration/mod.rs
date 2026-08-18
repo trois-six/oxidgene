@@ -4,6 +4,7 @@ pub mod m20250101_000001_initial;
 pub mod m20260813_000001_media_storage;
 pub mod m20260813_000002_media_event_fields;
 pub mod m20260813_000003_media_pages;
+pub mod m20260818_000001_media_type;
 
 use sea_orm_migration::prelude::*;
 
@@ -17,6 +18,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260813_000001_media_storage::Migration),
             Box::new(m20260813_000002_media_event_fields::Migration),
             Box::new(m20260813_000003_media_pages::Migration),
+            Box::new(m20260818_000001_media_type::Migration),
         ]
     }
 }

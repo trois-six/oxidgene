@@ -11,10 +11,10 @@
 //! when they click around it. Nothing is impersonated and no challenge is
 //! defeated, because there is nothing to defeat.
 //!
-//! Two hosts run this. The CLI prints [`COLLECTION_SCRIPT`] for the user to
-//! paste into their own browser's console. The desktop wizard opens a WebView
-//! on Geneanet and evaluates [`ipc_collection`] inside it once the user has
-//! signed in — same requests, same session, no paste.
+//! The desktop wizard opens a WebView on Geneanet and evaluates
+//! [`ipc_collection`] inside it once the user has signed in, then
+//! [`ipc_sizes`] and [`ipc_fetch`] for the media themselves. Same requests,
+//! same session, nothing pasted anywhere.
 
 /// Shared request helpers, so the console and IPC scripts cannot drift apart
 /// on the one detail that matters: the `X-Requested-With` header, without which
@@ -70,61 +70,27 @@ const LOCATE: &str = r"
   };
 ";
 
-/// Script the user pastes into their browser console.
+/// Pre-ticks "Remember me" on the login form, and changes nothing else.
 ///
-/// Deliberately readable rather than clever: someone is about to run it against
-/// their own account, and should be able to see what it does first.
-pub fn collection_script() -> String {
-    format!(
-        r"// OxidGene — collect the Geneanet media mapping.
-// Run this on https://www.geneanet.org/media/manager while logged in.
-// It only reads, and downloads one JSON file at the end.
-(async () => {{{HELPERS}{LOCATE}
-  console.log('Listing deposits...');
-  const deposits = await pages('/media/api/deposits');
-  console.log(deposits.length + ' deposits. Fetching links...');
-  const references = await pages('/media/api/references');
-  console.log(references.length + ' links.');
-
-  const view_references = await locate(deposits, references);
-  console.log('Located links in the multi-page deposits.');
-
-  const blob = new Blob([JSON.stringify({{ deposits, references, view_references }})],
-                        {{ type: 'application/json' }});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'geneanet-collection.json';
-  a.click();
-  console.log('Done. Saved geneanet-collection.json to your downloads.');
-}})();
-"
-    )
-}
-
-/// Step-by-step instructions printed alongside the script.
-pub const INSTRUCTIONS: &str = "\
-1. Log in to Geneanet and open https://www.geneanet.org/media/manager
-2. Open the developer console:
-     Linux / Windows   F12, then the Console tab
-     macOS             Cmd + Option + I, then the Console tab
-   Some browsers ask you to type 'allow pasting' once before they accept
-   pasted code. That warning is there for good reason — read the script first.
-3. Paste the script below and press Enter.
-4. It saves geneanet-collection.json to your downloads folder.
-5. Feed it back in:
-     oxidgene-cli geneanet-media manifest-from-browser \\
-       --input ~/Downloads/geneanet-collection.json";
-
-/// Pre-checks "Remember me" on the login form, and hides the checkbox.
+/// Why tick it: after sign-in the window stops being something the user
+/// watches, and a collection can run for a while. With the remember-me cookie
+/// in the jar the WebView silently re-authenticates when the short-lived
+/// session cookie expires, instead of the run dying halfway through.
 ///
-/// Why: the collection runs in a hidden window after sign-in, and a hidden
-/// session the user cannot see should not die under them — with the
-/// remember-me cookie in the jar, the WebView silently re-authenticates when
-/// the short-lived session cookie expires. The checkbox is hidden because the
-/// wizard already made this choice on the user's behalf; unchecking it would
-/// be opting out of the design. The download step still only ever reads
-/// `gntsess5`: this changes how long the *window's* session lives, not what
-/// the rest of the app is handed.
+/// Why the box is left visible and still works: an earlier version hid it, on
+/// the grounds that the wizard had already made the choice. That left the
+/// caption behind — a stray sentence with nothing to tick — and hiding it too
+/// meant guessing at a third-party page's markup, which breaks the moment
+/// Geneanet reshuffles a class name. Silently *overriding* the box instead
+/// would be worse again: a control that does nothing is a lie, and someone
+/// unticking this on a shared machine means it.
+///
+/// Leaving it honest costs nothing here, because the window runs in an
+/// **incognito web context** — the token is valid for months but dies with
+/// the window rather than reaching the app's cookie jar on disk (see
+/// `with_incognito` in `apps/oxidgene-desktop/src/geneanet.rs`). A user who
+/// unticks it simply gets the shorter session, and the probe that watches for
+/// a re-login already handles the expiry.
 ///
 /// The script runs at document start, before the form exists, so it watches
 /// for the checkbox rather than assuming it is there.
@@ -133,17 +99,98 @@ pub const REMEMBER_ME: &str = r#"
   const fix = () => {
     const box = document.querySelector('input[name="_remember_me"]');
     if (!box) return false;
+    // Ticked, not hidden and not forced: the user can still change it, and
+    // the form behaves exactly as Geneanet built it.
     box.checked = true;
-    const row = box.closest('.form-check') || box.closest('label') || box.parentElement;
-    if (row) row.style.display = 'none';
     return true;
   };
   if (!fix()) {
-    const obs = new MutationObserver(() => { if (fix()) obs.disconnect(); });
-    obs.observe(document.documentElement, { childList: true, subtree: true });
+    const observer = new MutationObserver(() => { if (fix()) observer.disconnect(); });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 })();
 "#;
+
+/// Covers the Geneanet page with OxidGene's own status panel.
+///
+/// The window is not hidden once the user has signed in, and not left showing
+/// Geneanet either. Hiding it breaks cancellation outright — a hidden window
+/// can never emit a close request, so a stalled collection becomes
+/// unrecoverable — and leaving the site visible tells the user nothing about
+/// what the app is doing or whether they may touch it.
+///
+/// Deliberately carries **no numbers**. The wizard's modal owns the progress
+/// bars; two counters for one operation can only disagree. This says what is
+/// happening in words and that closing the window cancels.
+///
+/// An overlay rather than a navigation: the collection runs on this page's
+/// origin, and navigating away would take its session cookie out of scope for
+/// the `fetch` calls that follow.
+pub fn status_overlay(heading: &str, message: &str, hint: &str) -> String {
+    // Everything user-visible is JSON-encoded rather than interpolated raw:
+    // these strings come from the UI's translations, and a quote in one of
+    // them would otherwise end the statement it sits in.
+    let heading = json_string(heading);
+    let message = json_string(message);
+    let hint = json_string(hint);
+
+    format!(
+        r#"
+(() => {{
+  const ID = 'oxidgene-status';
+  let panel = document.getElementById(ID);
+  if (!panel) {{
+    panel = document.createElement('div');
+    panel.id = ID;
+    panel.setAttribute('role', 'status');
+    panel.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:2147483647',
+      'display:flex', 'flex-direction:column',
+      'align-items:center', 'justify-content:center', 'gap:14px',
+      'background:#0a0b0d', 'color:#e8dfc8',
+      'font:400 15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif',
+      'text-align:center', 'padding:28px'
+    ].join(';');
+    panel.innerHTML =
+      '<div id="' + ID + '-h" style="font-size:17px;font-weight:600"></div>' +
+      '<div id="' + ID + '-m"></div>' +
+      '<div id="' + ID + '-s" style="width:180px;height:6px;border-radius:999px;' +
+        'background:#252d3d;overflow:hidden">' +
+        '<div style="width:35%;height:100%;background:#e07820;' +
+          'animation:oxg 1.3s ease-in-out infinite"></div></div>' +
+      '<div id="' + ID + '-t" style="font-size:13px;color:#8a8172"></div>' +
+      '<style>@keyframes oxg{{0%{{margin-left:-35%}}100%{{margin-left:100%}}}}</style>';
+    document.documentElement.appendChild(panel);
+  }}
+  document.getElementById(ID + '-h').textContent = {heading};
+  document.getElementById(ID + '-m').textContent = {message};
+  document.getElementById(ID + '-t').textContent = {hint};
+}})();
+"#
+    )
+}
+
+/// Minimal JSON string escaping, so a translated string can be embedded in a
+/// script without a quote in it ending the statement.
+fn json_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 || c == '\u{2028}' || c == '\u{2029}' => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
 
 /// Runs on every page the login WebView loads, and says whether the session is
 /// established yet.
@@ -202,6 +249,62 @@ pub fn ipc_collection() -> String {
     )
 }
 
+/// Fetches media bytes and hands them back over IPC, one at a time.
+///
+/// This exists because **no direct download works**: every request from an
+/// HTTP client is challenged by Cloudflare, whatever the cookie and whatever
+/// the stack, so the bytes have to come through the browser that is already
+/// authenticated. That is not a workaround for the check — a real browser on
+/// the user's own session is the thing it is asking for.
+///
+/// One message per file rather than one at the end, so a run of several
+/// hundred never assembles a single enormous IPC payload. `data` is base64
+/// because IPC carries text.
+///
+/// # Same-origin
+///
+/// Renditions live on `gw.geneanet.org` while the collection runs on
+/// `www.geneanet.org`, and a cross-origin `fetch` would be refused. The window
+/// is therefore navigated to the host it is about to read from before this is
+/// evaluated — the session cookie is set on `.geneanet.org`, so it covers both.
+pub fn ipc_fetch(urls_json: &str) -> String {
+    format!(
+        r"
+(async () => {{
+  const send = (m) => window.ipc.postMessage(JSON.stringify(m));
+  const urls = {urls_json};
+
+  const encode = (buffer) => {{
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    // Chunked: `apply` on a several-megabyte array overflows the call stack.
+    for (let i = 0; i < bytes.length; i += 0x8000) {{
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }}
+    return btoa(binary);
+  }};
+
+  for (let i = 0; i < urls.length; i += 1) {{
+    const url = urls[i];
+    try {{
+      const r = await fetch(url, {{ headers: {{ 'X-Requested-With': 'XMLHttpRequest' }} }});
+      if (!r.ok) {{
+        send({{ kind: 'fetched', url, error: 'HTTP ' + r.status }});
+      }} else {{
+        send({{ kind: 'fetched', url, data: encode(await r.arrayBuffer()) }});
+      }}
+    }} catch (e) {{
+      send({{ kind: 'fetched', url, error: String(e && e.message ? e.message : e) }});
+    }}
+    send({{ kind: 'fetching', done: i + 1, total: urls.length }});
+  }}
+
+  send({{ kind: 'fetch_done' }});
+}})();
+"
+    )
+}
+
 /// Asks Geneanet each single-page deposit's exact byte length.
 ///
 /// This is stage 2 of step 3, and the whole of the archive matching: a `HEAD`
@@ -247,6 +350,92 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_remember_me_box_is_ticked_but_left_alone_otherwise() {
+        // It stays visible, stays usable, and is not re-ticked behind the
+        // user's back. A control that ignores the person operating it is a
+        // lie, and this one guards a months-long credential.
+        assert!(REMEMBER_ME.contains("box.checked = true"));
+        assert!(
+            !REMEMBER_ME.contains("style.display"),
+            "the box and its caption must not be hidden"
+        );
+        assert!(
+            !REMEMBER_ME.contains("addEventListener('submit'"),
+            "the box must not be overridden at submit time"
+        );
+    }
+
+    #[test]
+    fn a_quote_in_a_translation_cannot_break_out_of_the_overlay_script() {
+        // The overlay's strings come from the UI's translation tables, which
+        // hold apostrophes and quotation marks in both languages. Interpolated
+        // raw, one of them would end the statement it sits in and the panel
+        // would silently fail to appear.
+        let script = status_overlay(
+            r#"He said "hello""#,
+            "L\u{2019}import est en cours",
+            "Backslash \\ and newline \n",
+        );
+
+        assert!(script.contains(r#"\"hello\""#), "quotes must be escaped");
+        assert!(!script.contains("\n\"") || script.contains("\\n"));
+        // The panel is still assembled: escaping must not mangle the script.
+        assert!(script.contains("oxidgene-status"));
+    }
+
+    #[test]
+    fn the_overlay_carries_no_progress_numbers() {
+        // The wizard's modal owns the counters. Two counters for one operation
+        // can only disagree, and the window is the one that cannot be kept in
+        // step with the import.
+        let script = status_overlay("Working", "Reading your photo list", "Close to cancel");
+
+        for numeric in ["done", "total", "%", "/ "] {
+            assert!(
+                !script.contains(&format!("textContent = {numeric}")),
+                "the overlay must not render {numeric}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_overlay_updates_in_place_rather_than_stacking() {
+        // It is evaluated again on every stage change, so it must find the
+        // panel it already made instead of appending a second one.
+        let script = status_overlay("a", "b", "c");
+        assert!(script.contains("getElementById(ID)"));
+        assert!(script.contains("if (!panel)"));
+    }
+
+    #[test]
+    fn the_fetch_script_streams_one_file_at_a_time() {
+        // A run can cover several hundred files. Collecting them into one IPC
+        // message would build an enormous string in the page before anything
+        // crossed the boundary.
+        let script = ipc_fetch(r#"["/a.jpg","/b.jpg"]"#);
+
+        assert!(script.contains("kind: 'fetched'"));
+        assert!(script.contains("kind: 'fetch_done'"));
+        assert!(script.contains("for (let i = 0"), "must loop, not batch");
+    }
+
+    #[test]
+    fn the_fetch_script_chunks_its_base64() {
+        // `String.fromCharCode.apply` over a multi-megabyte array overflows
+        // the call stack — a scan is exactly that size.
+        assert!(ipc_fetch("[]").contains("i += 0x8000"));
+    }
+
+    #[test]
+    fn a_failed_fetch_is_reported_per_file_not_thrown() {
+        // One unreachable medium must not abandon the several hundred after
+        // it; the import reports it as skipped and carries on.
+        let script = ipc_fetch("[]");
+        assert!(script.contains("error: 'HTTP ' + r.status"));
+        assert!(script.contains("catch (e)"));
+    }
+
+    #[test]
     fn the_sizing_pass_asks_for_no_body() {
         // The whole point: several hundred requests that transfer nothing. A
         // GET here would pull the entire account down to learn its lengths.
@@ -263,9 +452,9 @@ mod tests {
         // A user is going to run these against their own account. Nothing in
         // them should mutate anything, so no write verbs.
         for script in [
-            collection_script(),
             ipc_collection(),
             ipc_sizes("[]"),
+            ipc_fetch("[]"),
             PROBE.to_string(),
         ] {
             for verb in [
@@ -286,19 +475,13 @@ mod tests {
     fn every_script_sends_the_header_the_api_demands() {
         // Without this every call 403s, which would look like an auth problem.
         for script in [
-            collection_script(),
             ipc_collection(),
             ipc_sizes("[]"),
+            ipc_fetch("[]"),
             PROBE.to_string(),
         ] {
             assert!(script.contains("X-Requested-With"));
         }
-    }
-
-    #[test]
-    fn the_console_script_names_the_file_the_cli_expects() {
-        assert!(collection_script().contains("geneanet-collection.json"));
-        assert!(INSTRUCTIONS.contains("geneanet-collection.json"));
     }
 
     #[test]

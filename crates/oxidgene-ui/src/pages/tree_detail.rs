@@ -214,7 +214,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
-    // ── Fetch photo map for the tree (person_id → file_path) ──
+    // ── Fetch the portrait map for the tree (person_id → image URL) ──
     let api_photos = api.clone();
     let photos_resource = use_resource(move || {
         let api = api_photos.clone();
@@ -225,11 +225,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 return std::collections::HashMap::new();
             };
             match api.list_media_links_for_tree(tid).await {
-                Ok(rows) => rows
-                    .into_iter()
-                    .filter(|r| r.entity_type == "person")
-                    .map(|r| (r.entity_id, r.file_path))
-                    .collect::<std::collections::HashMap<Uuid, String>>(),
+                Ok(rows) => api.portrait_map(tid, &rows),
                 Err(_) => std::collections::HashMap::new(),
             }
         }

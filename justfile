@@ -52,9 +52,6 @@ desktop:
 build-desktop-release:
     cargo build --release --package oxidgene-desktop
 
-# Run the CLI tool
-cli *ARGS:
-    cargo run --package oxidgene-cli -- {{ARGS}}
 
 # Generate documentation
 doc:

@@ -20,6 +20,7 @@
 //! what an `<img>` onto a 404 gives you.
 
 use dioxus::prelude::*;
+use oxidgene_core::enums::{DocumentCategory, SourceMediaType};
 use oxidgene_core::types::Vignette;
 use uuid::Uuid;
 
@@ -105,11 +106,23 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let mut viewing = use_signal(|| None::<MediaWithLink>);
     let mut error = use_signal(|| None::<String>);
 
+    // Props are not reactive: a `use_resource` closure captures them once, so
+    // navigating straight from one person to another re-renders the gallery
+    // with a new `owner` and keeps showing the previous person's media. That
+    // is not only stale, it is somebody else's photographs. Mirroring the prop
+    // into a signal makes the read inside the resource reactive, which is what
+    // re-runs it — the same shape `person_detail` uses for its person id.
+    let mut showing = use_signal(|| (tree_id, owner));
+    if *showing.peek() != (tree_id, owner) {
+        showing.set((tree_id, owner));
+    }
+
     let tiles = use_resource({
         let api = api.clone();
         move || {
             let api = api.clone();
             let _ = revision();
+            let (tree_id, owner) = showing();
             async move {
                 api.list_entity_media(tree_id, owner.entity_type(), owner.id())
                     .await
@@ -303,11 +316,6 @@ fn MediaTile(
     //             image is previewed from the original and everything else
     //             falls back to its icon.
     //  - unheld:  nothing to open at all; the icon says what it would be.
-    let file_url = match source {
-        MediaSource::Stored => Some(api.media_file_url(tree_id, media_id)),
-        MediaSource::Remote => Some(tile.media.file_path.clone()),
-        MediaSource::Unheld => None,
-    };
     let preview_url = match (source, kind) {
         (MediaSource::Stored, _) if tile.media.thumbnail_key.is_some() => {
             Some(api.media_thumbnail_url(tree_id, media_id))
@@ -421,23 +429,11 @@ fn MediaTile(
                             "\u{270E}"
                         }
                     }
-                    if let Some(url) = file_url.clone() {
-                        a {
-                            class: "media-act",
-                            href: "{url}",
-                            target: "_blank",
-                            // `download` on a format the browser cannot render
-                            // saves the file instead of navigating to a page
-                            // that would show nothing.
-                            download: (!kind.is_embeddable()).then(|| caption.clone()),
-                            title: if kind.is_embeddable() {
-                                i18n.t("media.open_file")
-                            } else {
-                                i18n.t("media.download_file")
-                            },
-                            {if kind.is_embeddable() { "\u{2197}" } else { "\u{2913}" }}
-                        }
-                    }
+                    // No "open the file" link here any more. It navigated
+                    // straight to the API's own URL in a new tab, which put
+                    // the backend's surface in front of the user for something
+                    // the viewer already does better — and the viewer's own
+                    // download covers the formats a browser will not render.
                     if !read_only {
                         button {
                             class: "media-act is-danger",
@@ -510,6 +506,8 @@ fn MediaEditPanel(
             tile.media.date_value2.as_deref(),
         )
     });
+    let mut source_media_type = use_signal(|| tile.media.source_media_type);
+    let mut document_category = use_signal(|| tile.media.document_category);
     let mut note_text = use_signal(String::new);
     let mut note_id = use_signal(|| None::<Uuid>);
     let mut loaded_note = use_signal(|| false);
@@ -594,6 +592,8 @@ fn MediaEditPanel(
             let url_value = url().trim().to_string();
             let place_value = Uuid::parse_str(place_id().trim()).ok();
             let note_value = note_text().trim().to_string();
+            let medium_value = source_media_type();
+            let category_value = document_category();
             let existing_note = note_id();
             let resolved = date_parts().resolved();
             spawn(async move {
@@ -615,6 +615,8 @@ fn MediaEditPanel(
                     file_path: (source != MediaSource::Stored && !url_value.is_empty())
                         .then_some(url_value),
                     mime_type: None,
+                    source_media_type: Some(medium_value),
+                    document_category: Some(category_value),
                 };
                 let outcome = api.update_media(tree_id, media_id, &body).await;
 
@@ -783,6 +785,58 @@ fn MediaEditPanel(
                     value: "{description}",
                     oninput: move |e: Event<FormData>| description.set(e.value()),
                 }
+            }
+
+            // Two fields for what looks like one question, because it is two.
+            //
+            // The category is what a user can actually answer about a scan —
+            // "this is a census return" — and is the one they will reach for.
+            // The medium is GEDCOM's own vocabulary, which has no word for a
+            // census return and calls it a manuscript; it is what an export
+            // writes, and other genealogy software reads. Leaving the medium
+            // alone lets the category decide it, which is why the placeholder
+            // says so rather than reading as an empty required field.
+            div { class: "form-group",
+                label { {i18n.t("media.document_category")} }
+                select {
+                    class: "td-select",
+                    onchange: move |e: Event<FormData>| {
+                        document_category.set(DocumentCategory::parse(&e.value()));
+                    },
+                    option {
+                        value: "",
+                        selected: document_category().is_none(),
+                        {i18n.t("media.category_none")}
+                    }
+                    for category in DocumentCategory::all() {
+                        option {
+                            key: "{category.as_str()}",
+                            value: "{category.as_str()}",
+                            selected: document_category() == Some(*category),
+                            {i18n.t(&format!("media.category.{}", category.as_str()))}
+                        }
+                    }
+                }
+                p { class: "pf-ns-hint", {i18n.t("media.document_category_hint")} }
+            }
+            div { class: "form-group",
+                label { {i18n.t("media.source_media_type")} }
+                select {
+                    class: "td-select",
+                    onchange: move |e: Event<FormData>| {
+                        source_media_type
+                            .set(SourceMediaType::parse(&e.value()).unwrap_or_default());
+                    },
+                    for medium in SourceMediaType::all() {
+                        option {
+                            key: "{medium.as_str()}",
+                            value: "{medium.as_str()}",
+                            selected: source_media_type() == *medium,
+                            {i18n.t(&format!("media.medium.{}", medium.as_str()))}
+                        }
+                    }
+                }
+                p { class: "pf-ns-hint", {i18n.t("media.source_media_type_hint")} }
             }
 
             // The same date widget every fact uses, so a photograph taken
@@ -1043,6 +1097,11 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
     let caption = tile.caption().to_string();
     let is_document = tile.media.is_document;
     let mut page = use_signal(|| 0_usize);
+    // Zoom as a percentage of the natural size; `None` is "fit to the stage",
+    // which is where a viewer starts and what the stage's own CSS does. A
+    // scan's whole point is the handwriting in one corner, so this goes well
+    // past 100%.
+    let mut zoom = use_signal(|| None::<u32>);
 
     // A document has no bytes of its own: what is shown is its current page,
     // which is a media in its own right. Everything below therefore reads the
@@ -1107,10 +1166,58 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                     }
                 }
 
-                div { class: "media-viewer-stage",
+                // Zoom belongs to images alone: a video and an audio track
+                // have their own controls, and a fallback has nothing to
+                // magnify.
+                if matches!(kind, MediaKind::Image) && url.is_some() {
+                    div { class: "media-zoom",
+                        button {
+                            class: "media-zoom-btn",
+                            r#type: "button",
+                            title: i18n.t("media.zoom_out"),
+                            disabled: zoom().is_some_and(|z| z <= MIN_ZOOM),
+                            onclick: move |_| zoom.set(Some(zoom_out(zoom()))),
+                            "\u{2212}"
+                        }
+                        button {
+                            class: if zoom().is_none() { "media-zoom-level is-fit" } else { "media-zoom-level" },
+                            r#type: "button",
+                            title: i18n.t("media.zoom_fit"),
+                            onclick: move |_| zoom.set(None),
+                            match zoom() {
+                                Some(level) => format!("{level}\u{2009}%"),
+                                None => i18n.t("media.zoom_fit"),
+                            }
+                        }
+                        button {
+                            class: "media-zoom-btn",
+                            r#type: "button",
+                            title: i18n.t("media.zoom_in"),
+                            disabled: zoom().is_some_and(|z| z >= MAX_ZOOM),
+                            onclick: move |_| zoom.set(Some(zoom_in(zoom()))),
+                            "+"
+                        }
+                    }
+                }
+
+                div {
+                    class: if zoom().is_some() { "media-viewer-stage is-zoomed" } else { "media-viewer-stage" },
                     match (url.clone(), kind) {
                         (Some(url), MediaKind::Image) => rsx! {
-                            img { class: "media-viewer-image", src: "{url}", alt: "{caption}" }
+                            img {
+                                class: "media-viewer-image",
+                                src: "{url}",
+                                alt: "{caption}",
+                                // Fit is the stage's own CSS; a zoom level
+                                // overrides it and lets the stage scroll,
+                                // which is what makes a corner readable.
+                                style: match zoom() {
+                                    Some(level) => format!(
+                                        "width: {level}%; max-width: none; max-height: none;",
+                                    ),
+                                    None => String::new(),
+                                },
+                            }
                         },
                         (Some(url), MediaKind::Video) => rsx! {
                             video {
@@ -1152,7 +1259,10 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                             r#type: "button",
                             disabled: current == 0,
                             title: i18n.t("media.first_page"),
-                            onclick: move |_| page.set(0),
+                            onclick: move |_| {
+                                page.set(0);
+                                zoom.set(None);
+                            },
                             "\u{23EE}"
                         }
                         button {
@@ -1160,21 +1270,37 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                             r#type: "button",
                             disabled: current == 0,
                             title: i18n.t("media.previous_page"),
-                            onclick: move |_| page.set(current.saturating_sub(1)),
+                            onclick: move |_| {
+                                page.set(current.saturating_sub(1));
+                                zoom.set(None);
+                            },
                             "\u{25C0}"
                         }
                         div { class: "media-pager-numbers",
-                            for index in 0..total_pages {
-                                button {
-                                    key: "{index}",
-                                    class: if index == current {
-                                        "media-pager-num is-current"
-                                    } else {
-                                        "media-pager-num"
+                            for (slot_index , slot) in page_window(current, total_pages)
+                                .into_iter()
+                                .enumerate()
+                            {
+                                match slot {
+                                    PagerSlot::Page(index) => rsx! {
+                                        button {
+                                            key: "p{index}",
+                                            class: if index == current {
+                                                "media-pager-num is-current"
+                                            } else {
+                                                "media-pager-num"
+                                            },
+                                            r#type: "button",
+                                            onclick: move |_| {
+                                                page.set(index);
+                                                zoom.set(None);
+                                            },
+                                            "{index + 1}"
+                                        }
                                     },
-                                    r#type: "button",
-                                    onclick: move |_| page.set(index),
-                                    "{index + 1}"
+                                    PagerSlot::Gap => rsx! {
+                                        span { key: "g{slot_index}", class: "media-pager-gap", "\u{2026}" }
+                                    },
                                 }
                             }
                         }
@@ -1183,7 +1309,10 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                             r#type: "button",
                             disabled: current + 1 >= total_pages,
                             title: i18n.t("media.next_page"),
-                            onclick: move |_| page.set((current + 1).min(total_pages - 1)),
+                            onclick: move |_| {
+                                page.set((current + 1).min(total_pages - 1));
+                                zoom.set(None);
+                            },
                             "\u{25B6}"
                         }
                         button {
@@ -1191,7 +1320,10 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                             r#type: "button",
                             disabled: current + 1 >= total_pages,
                             title: i18n.t("media.last_page"),
-                            onclick: move |_| page.set(total_pages - 1),
+                            onclick: move |_| {
+                                page.set(total_pages - 1);
+                                zoom.set(None);
+                            },
                             "\u{23ED}"
                         }
                     }
@@ -1203,7 +1335,26 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
                     }
                     div { class: "cropper-actions",
                         if let Some(url) = url.clone() {
-                            DownloadMediaButton { url, file_name: caption.clone() }
+                            DownloadMediaButton {
+                                url,
+                                // The page's own name when looking at a page,
+                                // and either way one the file system can open:
+                                // a Geneanet deposit is titled, not named.
+                                file_name: match shown {
+                                    Some(page) => download_name(&page.file_name, &page.mime_type),
+                                    None => download_name(&tile.media.file_name, &tile.media.mime_type),
+                                },
+                            }
+                        }
+                        // Forty scans are one document to the reader and forty
+                        // save dialogs one at a time. The archive numbers them
+                        // so unzipping restores the reading order.
+                        if total_pages > 1 {
+                            DownloadMediaButton {
+                                url: api.media_archive_url(tree_id, tile.media.id),
+                                file_name: format!("{}.zip", archive_stem(&caption)),
+                                label: i18n.t("media.download_all_pages"),
+                            }
                         }
                         button {
                             class: "btn btn-primary",
@@ -1232,8 +1383,16 @@ fn MediaViewer(tree_id: Uuid, tile: MediaWithLink, on_close: EventHandler<()>) -
 ///     download UI of its own, so a `download` attribute there does nothing at
 ///     all — the link would look like a button and be inert.
 #[component]
-fn DownloadMediaButton(url: String, file_name: String) -> Element {
+fn DownloadMediaButton(
+    url: String,
+    file_name: String,
+    /// What the button says. Defaults to "Download file"; the archive button
+    /// passes its own, since two identical buttons side by side would leave
+    /// the reader guessing which is which.
+    label: Option<String>,
+) -> Element {
     let i18n = use_i18n();
+    let label = label.unwrap_or_else(|| i18n.t("media.download_file"));
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -1243,7 +1402,7 @@ fn DownloadMediaButton(url: String, file_name: String) -> Element {
                 href: "{url}",
                 target: "_blank",
                 download: file_name,
-                {i18n.t("media.download_file")}
+                {label}
             }
         }
     }
@@ -1295,7 +1454,7 @@ fn DownloadMediaButton(url: String, file_name: String) -> Element {
                 r#type: "button",
                 disabled: busy(),
                 onclick: save,
-                if busy() { {i18n.t("common.saving")} } else { {i18n.t("media.download_file")} }
+                if busy() { {i18n.t("common.saving")} } else { {label} }
             }
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
@@ -1349,6 +1508,153 @@ fn CropperHost(
     }
 }
 
+/// One slot in the pager strip: a page to jump to, or a gap where pages were
+/// left out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PagerSlot {
+    Page(usize),
+    Gap,
+}
+
+/// Which page numbers to show, for a document of `total` pages sitting on
+/// `current` (both zero-based).
+///
+/// A parish register runs to hundreds of pages, and drawing a button for each
+/// produces a strip longer than the image above it. This keeps the ends —
+/// "back to the start" and "how long is this" are both things a reader asks —
+/// plus a window around where they are, and elides the rest.
+///
+/// A gap is only worth drawing if it hides more than one page: replacing a
+/// single number with an ellipsis costs the same width and takes away a
+/// destination, so a lone skipped page is shown instead.
+pub(crate) fn page_window(current: usize, total: usize) -> Vec<PagerSlot> {
+    /// Pages either side of the current one.
+    const RADIUS: usize = 2;
+
+    if total == 0 {
+        return Vec::new();
+    }
+    let last = total - 1;
+    let current = current.min(last);
+    let window_start = current.saturating_sub(RADIUS);
+    let window_end = (current + RADIUS).min(last);
+
+    let mut slots = Vec::new();
+    let mut previous: Option<usize> = None;
+    for page in (0..total)
+        .filter(|page| *page == 0 || *page == last || (window_start..=window_end).contains(page))
+    {
+        match previous {
+            // Two pages apart means exactly one was skipped; show it rather
+            // than spend the same space on an ellipsis.
+            Some(prev) if page == prev + 2 => slots.push(PagerSlot::Page(prev + 1)),
+            Some(prev) if page > prev + 1 => slots.push(PagerSlot::Gap),
+            _ => {}
+        }
+        slots.push(PagerSlot::Page(page));
+        previous = Some(page);
+    }
+    slots
+}
+
+/// Zoom bounds and step, as percentages of natural size.
+///
+/// The ceiling is high on purpose: the reason to zoom a parish register is to
+/// read one word of secretary hand in a corner, and 200% does not get there.
+pub(crate) const MIN_ZOOM: u32 = 25;
+pub(crate) const MAX_ZOOM: u32 = 800;
+
+/// Where "fit" sits when the reader first steps away from it. Not 100%: on a
+/// scan larger than the stage, fit is already well below that, and jumping
+/// straight to full size would feel like a leap rather than a step.
+const FIT_ZOOM: u32 = 100;
+
+/// One step in, from the current level (`None` meaning "fit").
+pub(crate) fn zoom_in(current: Option<u32>) -> u32 {
+    match current {
+        None => FIT_ZOOM,
+        Some(level) => (level.saturating_mul(3) / 2).min(MAX_ZOOM),
+    }
+}
+
+/// One step out, from the current level (`None` meaning "fit").
+pub(crate) fn zoom_out(current: Option<u32>) -> u32 {
+    match current {
+        None => FIT_ZOOM * 2 / 3,
+        Some(level) => (level * 2 / 3).max(MIN_ZOOM),
+    }
+}
+
+/// A document's name with any extension trimmed, for naming its archive.
+///
+/// A document titled `Livret de famille` zips to `Livret de famille.zip`; one
+/// an import called `deposit_4713.jpg` should not zip to
+/// `deposit_4713.jpg.zip`.
+pub(crate) fn archive_stem(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return "document".to_string();
+    }
+    match trimmed.rsplit_once('.') {
+        Some((stem, ext))
+            if !stem.is_empty()
+                && !ext.is_empty()
+                && ext.len() <= 4
+                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
+        {
+            stem.to_string()
+        }
+        _ => trimmed.to_string(),
+    }
+}
+
+/// The name a media should be saved under.
+///
+/// `file_name` is what the record calls the file and is the right answer when
+/// it looks like a file name. It often is not: a Geneanet deposit is titled
+/// "Mariage de Pierre E\u{2026}", and a browser handed that as a download name
+/// saves a file the operating system will not open by double-click, because
+/// nothing says it is a JPEG. Where the name carries no usable extension, the
+/// MIME type supplies one.
+pub(crate) fn download_name(file_name: &str, mime_type: &str) -> String {
+    let trimmed = file_name.trim();
+    let stem = if trimmed.is_empty() { "media" } else { trimmed };
+    let has_extension = stem.rsplit_once('.').is_some_and(|(before, ext)| {
+        !before.is_empty()
+            && !ext.is_empty()
+            && ext.len() <= 4
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+    });
+    if has_extension {
+        return stem.to_string();
+    }
+    match extension_for_mime(mime_type) {
+        Some(ext) => format!("{stem}.{ext}"),
+        None => stem.to_string(),
+    }
+}
+
+/// The conventional extension for a MIME type.
+fn extension_for_mime(mime_type: &str) -> Option<&'static str> {
+    Some(match mime_type.split(';').next()?.trim() {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/tiff" => "tif",
+        "image/webp" => "webp",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
+        "application/pdf" => "pdf",
+        "video/mp4" => "mp4",
+        "video/quicktime" => "mov",
+        "audio/mpeg" => "mp3",
+        "audio/ogg" => "ogg",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "text/plain" => "txt",
+        _ => return None,
+    })
+}
+
 /// A file size a person can read at a glance.
 fn format_size(bytes: i64) -> String {
     const KIB: f64 = 1024.0;
@@ -1365,6 +1671,129 @@ fn format_size(bytes: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_short_document_shows_every_page() {
+        // Nothing to elide, so eliding would only take away destinations.
+        assert_eq!(
+            page_window(0, 4),
+            vec![
+                PagerSlot::Page(0),
+                PagerSlot::Page(1),
+                PagerSlot::Page(2),
+                PagerSlot::Page(3)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_register_of_hundreds_of_pages_stays_one_row() {
+        let slots = page_window(50, 300);
+        assert!(
+            slots.len() <= 9,
+            "the strip must not grow with the document: {slots:?}"
+        );
+        // Both ends stay reachable, and where the reader is stays visible.
+        assert_eq!(slots.first(), Some(&PagerSlot::Page(0)));
+        assert_eq!(slots.last(), Some(&PagerSlot::Page(299)));
+        assert!(slots.contains(&PagerSlot::Page(50)));
+        assert!(slots.contains(&PagerSlot::Gap));
+    }
+
+    #[test]
+    fn the_ends_have_no_gap_beside_them_when_the_reader_is_there() {
+        let slots = page_window(0, 300);
+        // At the start the window already reaches page 0, so a gap belongs
+        // only on the far side.
+        assert_eq!(slots[0], PagerSlot::Page(0));
+        assert_eq!(slots[1], PagerSlot::Page(1));
+        assert_eq!(slots.iter().filter(|s| **s == PagerSlot::Gap).count(), 1);
+
+        let slots = page_window(299, 300);
+        assert_eq!(slots.iter().filter(|s| **s == PagerSlot::Gap).count(), 1);
+    }
+
+    #[test]
+    fn a_single_skipped_page_is_shown_rather_than_elided() {
+        // An ellipsis hiding one page costs the same width as the page and
+        // takes away somewhere to go.
+        let slots = page_window(4, 8);
+        assert!(!slots.contains(&PagerSlot::Gap), "{slots:?}");
+        assert!(slots.contains(&PagerSlot::Page(1)));
+    }
+
+    #[test]
+    fn a_page_beyond_the_end_is_clamped_rather_than_panicking() {
+        // Detaching a page while the viewer is open leaves the signal past the
+        // end for one render.
+        assert_eq!(page_window(99, 3).last(), Some(&PagerSlot::Page(2)));
+        assert!(page_window(0, 0).is_empty());
+    }
+
+    #[test]
+    fn a_download_keeps_an_extension_it_already_has() {
+        assert_eq!(download_name("scan.jpg", "image/jpeg"), "scan.jpg");
+        assert_eq!(download_name("acte.PDF", "application/pdf"), "acte.PDF");
+    }
+
+    #[test]
+    fn a_titled_deposit_is_given_the_extension_its_type_implies() {
+        // What a Geneanet import produces: a caption, not a file name. Saved
+        // as-is, the file will not open by double-click.
+        assert_eq!(
+            download_name("Mariage de Pierre", "image/jpeg"),
+            "Mariage de Pierre.jpg"
+        );
+        assert_eq!(
+            download_name("Livret de famille", "application/pdf"),
+            "Livret de famille.pdf"
+        );
+    }
+
+    #[test]
+    fn a_full_stop_in_a_title_is_not_mistaken_for_an_extension() {
+        assert_eq!(
+            download_name("Acte n. 12 du registre", "image/jpeg"),
+            "Acte n. 12 du registre.jpg"
+        );
+    }
+
+    #[test]
+    fn a_type_we_have_no_extension_for_leaves_the_name_alone() {
+        assert_eq!(download_name("mystery", "application/x-thing"), "mystery");
+        assert_eq!(download_name("", "application/x-thing"), "media");
+    }
+
+    #[test]
+    fn zooming_in_and_out_stays_within_its_bounds() {
+        // From fit, the first step is a step and not a leap.
+        assert_eq!(zoom_in(None), 100);
+        assert_eq!(zoom_out(None), 66);
+        assert_eq!(zoom_in(Some(100)), 150);
+        assert_eq!(zoom_out(Some(150)), 100);
+        assert_eq!(zoom_in(Some(MAX_ZOOM)), MAX_ZOOM);
+        assert_eq!(zoom_out(Some(MIN_ZOOM)), MIN_ZOOM);
+        // No overflow at the ceiling, whatever it is set to.
+        assert_eq!(zoom_in(Some(u32::MAX)), MAX_ZOOM);
+    }
+
+    #[test]
+    fn zooming_reaches_far_enough_to_read_a_corner_of_a_scan() {
+        // The reason to zoom a register is one word of secretary hand.
+        let mut level = zoom_in(None);
+        for _ in 0..12 {
+            level = zoom_in(Some(level));
+        }
+        assert_eq!(level, MAX_ZOOM);
+        const { assert!(MAX_ZOOM >= 400) };
+    }
+
+    #[test]
+    fn an_archive_is_named_after_the_document_not_its_first_page() {
+        assert_eq!(archive_stem("Livret de famille"), "Livret de famille");
+        assert_eq!(archive_stem("deposit_4713.jpg"), "deposit_4713");
+        assert_eq!(archive_stem("  "), "document");
+    }
 
     #[test]
     fn sizes_read_in_the_unit_that_fits() {

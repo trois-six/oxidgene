@@ -43,6 +43,8 @@ pub struct MediaPatch {
     /// hold — a remote URL, or a GEDCOM record naming a file nobody uploaded.
     pub file_path: Option<String>,
     pub mime_type: Option<String>,
+    pub source_media_type: Option<oxidgene_core::enums::SourceMediaType>,
+    pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
     /// Derived by the caller, never sent by a client. See [`MediaRepo::update`].
     pub date_sort: Option<Option<chrono::NaiveDate>>,
 }
@@ -142,6 +144,8 @@ impl MediaRepo {
             page_index: Set(0),
             is_document: Set(false),
             file_size: Set(file_size),
+            source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
+            document_category: Set(None),
             title: Set(title),
             description: Set(description),
             date_value: Set(None),
@@ -190,6 +194,8 @@ impl MediaRepo {
             page_index: Set(0),
             is_document: Set(false),
             file_size: Set(upload.file_size),
+            source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
+            document_category: Set(None),
             title: Set(upload.title),
             description: Set(upload.description),
             date_value: Set(None),
@@ -284,6 +290,8 @@ impl MediaRepo {
             page_index: Set(0),
             is_document: Set(true),
             file_size: Set(0),
+            source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
+            document_category: Set(None),
             title: Set(title),
             description: Set(None),
             date_value: Set(None),
@@ -526,6 +534,22 @@ impl MediaRepo {
         if let Some(place_id) = patch.place_id {
             active.place_id = Set(place_id);
         }
+        if let Some(source_media_type) = patch.source_media_type {
+            active.source_media_type = Set(source_media_type.into());
+        }
+        if let Some(category) = patch.document_category {
+            active.document_category = Set(category.map(|c| c.as_str().to_string()));
+            // Choosing a category answers the GEDCOM question too. Setting
+            // both explicitly in one request keeps the caller's medium; it is
+            // only the unstated one that follows the category, so that a user
+            // who classified a scan as a census return does not silently
+            // export it as `OTHER`.
+            if patch.source_media_type.is_none()
+                && let Some(category) = category
+            {
+                active.source_media_type = Set(category.implied_medium().into());
+            }
+        }
         if let Some(file_path) = patch.file_path {
             // The name shown under a tile follows the path when the path is
             // all we have: a record repointed at a new URL should not keep
@@ -603,6 +627,13 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         date_value: m.date_value,
         date_sort: m.date_sort,
         date_qualifier: m.date_qualifier.into(),
+        source_media_type: m.source_media_type.into(),
+        // A value the enum does not know is a row written by something older
+        // than this column; treated as unclassified rather than guessed at.
+        document_category: m
+            .document_category
+            .as_deref()
+            .and_then(oxidgene_core::enums::DocumentCategory::parse),
         date_value2: m.date_value2,
         calendar: m.calendar.into(),
         place_id: m.place_id,

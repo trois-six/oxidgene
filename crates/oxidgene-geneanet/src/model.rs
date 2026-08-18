@@ -43,6 +43,57 @@ pub struct Reference {
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub reference_extra_geneweb: Option<GenewebReference>,
+    /// Where on the picture this person is, if the owner drew a box round them.
+    ///
+    /// Geneanet's media manager shows these as labelled rectangles, and they
+    /// are the only record of *which* face in a group photo is whom. On a real
+    /// account 245 of 550 links carry one.
+    #[serde(default)]
+    pub face: Option<Face>,
+}
+
+/// A rectangle drawn round somebody on a picture.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Face {
+    pub position: FacePosition,
+}
+
+/// The rectangle, as percentages of the picture's own width and height.
+///
+/// Strings in the payload, and percentages rather than pixels — which is
+/// convenient, because it means the box survives being matched to whichever
+/// rendition or original we ended up storing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FacePosition {
+    pub x1: String,
+    pub y1: String,
+    pub x2: String,
+    pub y2: String,
+}
+
+impl FacePosition {
+    /// The rectangle in the pixels of an image of this size.
+    ///
+    /// Returns `None` when the numbers do not parse or the box has no area —
+    /// a zero-width crop is not a region, and storing one would put an empty
+    /// rectangle on a photograph.
+    #[must_use]
+    pub fn to_pixels(&self, width: i32, height: i32) -> Option<(i32, i32, i32, i32)> {
+        let percent = |value: &str, of: i32| -> Option<i32> {
+            let fraction = value.parse::<f64>().ok()? / 100.0;
+            Some((fraction * f64::from(of)).round().clamp(0.0, f64::from(of)) as i32)
+        };
+
+        let x1 = percent(&self.x1, width)?;
+        let y1 = percent(&self.y1, height)?;
+        let x2 = percent(&self.x2, width)?;
+        let y2 = percent(&self.y2, height)?;
+
+        let (x, y) = (x1.min(x2), y1.min(y2));
+        let (w, h) = ((x1 - x2).abs(), (y1 - y2).abs());
+
+        (w > 0 && h > 0).then_some((x, y, w, h))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,6 +116,8 @@ pub struct ReferenceEntry {
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub reference_extra_geneweb: Option<GenewebReference>,
+    #[serde(default)]
+    pub face: Option<Face>,
 }
 
 impl ReferenceEntry {
@@ -74,6 +127,7 @@ impl ReferenceEntry {
             firstname: self.firstname,
             lastname: self.lastname,
             reference_extra_geneweb: self.reference_extra_geneweb,
+            face: self.face,
         }
     }
 }
@@ -212,6 +266,10 @@ pub struct ManifestReference {
     /// `lastname|firstname|occurrence`, or `None` for a person outside the tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geneweb_ref: Option<String>,
+    /// The box drawn round this person, as percentages. Kept so the import can
+    /// turn it into a vignette on the stored picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<FacePosition>,
 }
 
 impl Manifest {
@@ -258,6 +316,7 @@ impl Manifest {
                                     firstname: r.firstname,
                                     lastname: r.lastname,
                                     geneweb_ref,
+                                    face: r.face.map(|f| f.position),
                                 }
                             })
                             .collect();
@@ -323,6 +382,7 @@ mod tests {
             firstname: Some("person_a".to_string()),
             lastname: Some("BRANCH_A".to_string()),
             reference_extra_geneweb: key.map(|k| GenewebReference { key: k.to_string() }),
+            face: None,
         }
     }
 
@@ -428,6 +488,54 @@ mod tests {
         assert_eq!(manifest.linked_view_count, 0);
         assert_eq!(manifest.person_count, 0);
         assert!(manifest.deposits[0].views[0].references.is_empty());
+    }
+
+    #[test]
+    fn a_face_box_converts_from_percentages_to_pixels() {
+        // Geneanet gives percentages as strings; a vignette wants pixels of
+        // the picture we actually stored.
+        let face = FacePosition {
+            x1: "10.0".into(),
+            y1: "20.0".into(),
+            x2: "60.0".into(),
+            y2: "70.0".into(),
+        };
+
+        assert_eq!(face.to_pixels(1000, 800), Some((100, 160, 500, 400)));
+    }
+
+    #[test]
+    fn a_face_box_drawn_backwards_still_has_positive_size() {
+        // Dragged bottom-right to top-left, the corners arrive reversed. A
+        // negative width would be rejected by the crop validator, so the box
+        // is normalised rather than trusted.
+        let face = FacePosition {
+            x1: "60.0".into(),
+            y1: "70.0".into(),
+            x2: "10.0".into(),
+            y2: "20.0".into(),
+        };
+
+        assert_eq!(face.to_pixels(1000, 800), Some((100, 160, 500, 400)));
+    }
+
+    #[test]
+    fn a_face_box_with_no_area_is_not_a_region() {
+        let flat = FacePosition {
+            x1: "10.0".into(),
+            y1: "20.0".into(),
+            x2: "10.0".into(),
+            y2: "70.0".into(),
+        };
+        assert_eq!(flat.to_pixels(1000, 800), None);
+
+        let unparseable = FacePosition {
+            x1: "a".into(),
+            y1: "20.0".into(),
+            x2: "60.0".into(),
+            y2: "70.0".into(),
+        };
+        assert_eq!(unparseable.to_pixels(1000, 800), None);
     }
 
     #[test]

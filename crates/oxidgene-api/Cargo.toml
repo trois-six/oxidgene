@@ -34,8 +34,14 @@ chrono = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 flate2 = { workspace = true }
+# Packing a multi-page document's pages into one download. Same crate the
+# Geneanet session container uses.
+zip = { workspace = true }
 # Media storage (Sprint F.1)
 async-trait = "0.1"
+# Ingesting several media at once: decoding and thumbnailing is what an import
+# spends its minutes on, and each medium is independent of the others.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 dirs = { workspace = true }
 image = { workspace = true }
 lopdf = { workspace = true }

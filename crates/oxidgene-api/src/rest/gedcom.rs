@@ -58,17 +58,34 @@ pub async fn export_gedcom_handler(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<ExportGedcomQuery>,
 ) -> Result<Response, ApiError> {
+    let for_archive = query.format.as_deref() == Some("gedzip");
     let data = gedcom::load_and_export(
         &state.db,
         tree_id,
         query.merge_occupations.unwrap_or(false),
         query.merge_names.unwrap_or(false),
+        for_archive,
     )
     .await
     .map_err(ApiError::from)?;
 
-    if query.format.as_deref() == Some("gedzip") {
-        let bytes = oxidgene_gedcom::export::export_gedzip(&data.gedcom)
+    if for_archive {
+        // The whole reason to choose this format over `.ged`. A medium whose
+        // bytes have gone missing from the store is skipped rather than
+        // fatal: the rest of the archive is still a correct export, and
+        // refusing to produce one over a single absent file would be worse
+        // than producing one whose `FILE` names it.
+        let mut files = Vec::with_capacity(data.media_files.len());
+        for (key, path) in &data.media_files {
+            match state.media.get(key).await {
+                Ok(bytes) => files.push((path.clone(), bytes)),
+                Err(e) => {
+                    tracing::warn!(%key, error = %e, "media absent from the store; not packed")
+                }
+            }
+        }
+
+        let bytes = oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files)
             .map_err(OxidGeneError::Gedcom)
             .map_err(ApiError::from)?;
 

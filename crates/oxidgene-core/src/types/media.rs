@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::enums::{Calendar, DateQualifier};
+use crate::enums::{Calendar, DateQualifier, DocumentCategory, SourceMediaType};
 
 /// A media file (image, PDF, video, etc.).
 ///
@@ -61,6 +61,16 @@ pub struct Media {
     pub date_value2: Option<String>,
     #[serde(default)]
     pub calendar: Calendar,
+    /// What the medium physically is, in GEDCOM's own vocabulary. Exported as
+    /// `OBJE.FILE.FORM.TYPE` and read back from it, so this round-trips.
+    #[serde(default)]
+    pub source_media_type: SourceMediaType,
+    /// What kind of *record* it is — the distinction GEDCOM's enumeration
+    /// cannot draw, since a census return and a marriage contract are both
+    /// `Manuscript` to it. `None` when unclassified, which a photograph
+    /// ordinarily is.
+    #[serde(default)]
+    pub document_category: Option<DocumentCategory>,
     /// Location where the media was created or applies to.
     pub place_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,

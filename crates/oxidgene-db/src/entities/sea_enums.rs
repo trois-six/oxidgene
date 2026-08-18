@@ -594,6 +594,82 @@ impl From<DateQualifier> for enums::DateQualifier {
     }
 }
 
+/// GEDCOM's `SOURCE_MEDIA_TYPE` — stored as a string column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
+pub enum SourceMediaType {
+    #[sea_orm(string_value = "audio")]
+    Audio,
+    #[sea_orm(string_value = "book")]
+    Book,
+    #[sea_orm(string_value = "card")]
+    Card,
+    #[sea_orm(string_value = "electronic")]
+    Electronic,
+    #[sea_orm(string_value = "fiche")]
+    Fiche,
+    #[sea_orm(string_value = "film")]
+    Film,
+    #[sea_orm(string_value = "magazine")]
+    Magazine,
+    #[sea_orm(string_value = "manuscript")]
+    Manuscript,
+    #[sea_orm(string_value = "map")]
+    Map,
+    #[sea_orm(string_value = "newspaper")]
+    Newspaper,
+    #[sea_orm(string_value = "photo")]
+    Photo,
+    #[sea_orm(string_value = "tombstone")]
+    Tombstone,
+    #[sea_orm(string_value = "video")]
+    Video,
+    #[sea_orm(string_value = "other")]
+    Other,
+}
+
+impl From<enums::SourceMediaType> for SourceMediaType {
+    fn from(v: enums::SourceMediaType) -> Self {
+        match v {
+            enums::SourceMediaType::Audio => Self::Audio,
+            enums::SourceMediaType::Book => Self::Book,
+            enums::SourceMediaType::Card => Self::Card,
+            enums::SourceMediaType::Electronic => Self::Electronic,
+            enums::SourceMediaType::Fiche => Self::Fiche,
+            enums::SourceMediaType::Film => Self::Film,
+            enums::SourceMediaType::Magazine => Self::Magazine,
+            enums::SourceMediaType::Manuscript => Self::Manuscript,
+            enums::SourceMediaType::Map => Self::Map,
+            enums::SourceMediaType::Newspaper => Self::Newspaper,
+            enums::SourceMediaType::Photo => Self::Photo,
+            enums::SourceMediaType::Tombstone => Self::Tombstone,
+            enums::SourceMediaType::Video => Self::Video,
+            enums::SourceMediaType::Other => Self::Other,
+        }
+    }
+}
+
+impl From<SourceMediaType> for enums::SourceMediaType {
+    fn from(v: SourceMediaType) -> Self {
+        match v {
+            SourceMediaType::Audio => Self::Audio,
+            SourceMediaType::Book => Self::Book,
+            SourceMediaType::Card => Self::Card,
+            SourceMediaType::Electronic => Self::Electronic,
+            SourceMediaType::Fiche => Self::Fiche,
+            SourceMediaType::Film => Self::Film,
+            SourceMediaType::Magazine => Self::Magazine,
+            SourceMediaType::Manuscript => Self::Manuscript,
+            SourceMediaType::Map => Self::Map,
+            SourceMediaType::Newspaper => Self::Newspaper,
+            SourceMediaType::Photo => Self::Photo,
+            SourceMediaType::Tombstone => Self::Tombstone,
+            SourceMediaType::Video => Self::Video,
+            SourceMediaType::Other => Self::Other,
+        }
+    }
+}
+
 /// Calendar system used to record a date — stored as a string column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]

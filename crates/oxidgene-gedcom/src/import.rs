@@ -13,6 +13,7 @@ use ged_io::types::event::Event as GedEvent;
 use ged_io::types::source::citation::CitationSource;
 use uuid::Uuid;
 
+use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
     Person, PersonName, Place, Source, normalize_mime, split_surname_particle, split_surname_with,
@@ -191,13 +192,27 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         // a URL ending `.jpg`. Taking it verbatim as a MIME type is how a
         // photograph that renders perfectly well in an `<img>` ends up
         // labelled OCTET-STREAM in the gallery beside it.
-        let (file_path, mime_type) = if let Some(ref file_ref) = mm.file {
+        //
+        // `FORM.TYPE` is the separate question of what the thing physically
+        // is — `PHOTO`, `MANUSCRIPT`, `TOMBSTONE`. A value outside GEDCOM's
+        // enumeration is a producer writing its own vocabulary, and is kept
+        // as `Other` rather than guessed at.
+        let (file_path, mime_type, source_media_type) = if let Some(ref file_ref) = mm.file {
             let path = file_ref.value.clone().unwrap_or_default();
-            let declared = file_ref.form.as_ref().and_then(|f| f.value.as_deref());
+            let form = file_ref.form.as_ref();
+            let declared = form.and_then(|f| f.value.as_deref());
             let mime = normalize_mime(declared, &path);
-            (path, mime)
+            let medium = form
+                .and_then(|f| f.source_media_type.as_deref())
+                .and_then(SourceMediaType::parse)
+                .unwrap_or_default();
+            (path, mime, medium)
         } else {
-            (String::new(), "application/octet-stream".into())
+            (
+                String::new(),
+                "application/octet-stream".into(),
+                SourceMediaType::default(),
+            )
         };
 
         let file_name: String = file_path
@@ -231,6 +246,10 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
+            source_media_type,
+            // GEDCOM has no field for this; it stays unset until a user
+            // classifies the record or a Geneanet import supplies one.
+            document_category: None,
             place_id: None,
             created_at: now,
             updated_at: now,
@@ -617,19 +636,36 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
                     .iter()
                     .filter(|e| e.person_id == Some(owner_person_id))
                     .collect();
-                let target_event = candidates
+                // GEDCOM 5.5.1 puts `ASSO` on the individual, not on an event
+                // — Gramps rejects the event-nested form — so the event has to
+                // be inferred. Baptism first, because that is where a
+                // godparent belongs and godparents are most of what this tag
+                // carries; then birth, which stands in for a baptism nobody
+                // recorded.
+                let baptism = candidates
                     .iter()
                     .find(|e| e.event_type == EventType::Baptism)
-                    .or_else(|| candidates.iter().find(|e| e.event_type == EventType::Birth))
-                    .or_else(|| candidates.first())
                     .copied();
+                let birth = candidates
+                    .iter()
+                    .find(|e| e.event_type == EventType::Birth)
+                    .copied();
+                let target_event = baptism.or(birth).or_else(|| candidates.first().copied());
 
                 match target_event {
                     Some(evt) if seen_witnesses.contains(&(evt.id, role_holder_id)) => {}
                     Some(evt) => {
-                        if candidates.len() > 1 {
+                        // Only when the choice was genuinely arbitrary. An
+                        // earlier version warned whenever the person had more
+                        // than one event, which fired even where a baptism had
+                        // been found and the answer was simply right — so a
+                        // clean import reported warnings nobody could act on,
+                        // and the ones that mattered were lost among them.
+                        if baptism.is_none() && birth.is_none() && candidates.len() > 1 {
                             result.warnings.push(format!(
-                                "Individual {owner_xref}: ASSO {} attached to its {:?} event — {owner_xref} has several events, guessed the most likely one",
+                                "Individual {owner_xref}: ASSO {} attached to its {:?} event — \
+                                 {owner_xref} has several events and none of them is a birth or \
+                                 a baptism, so this is a guess",
                                 assoc.xref, evt.event_type
                             ));
                         }
@@ -1673,6 +1709,12 @@ fn resolve_or_create_media(
             file_ref.form.as_ref().and_then(|f| f.value.as_deref()),
             &file_path,
         );
+        let source_media_type = file_ref
+            .form
+            .as_ref()
+            .and_then(|f| f.source_media_type.as_deref())
+            .and_then(SourceMediaType::parse)
+            .unwrap_or_default();
         let file_name = file_path
             .rsplit('/')
             .next()
@@ -1703,6 +1745,8 @@ fn resolve_or_create_media(
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
+            source_media_type,
+            document_category: None,
             place_id: None,
             created_at: now,
             updated_at: now,

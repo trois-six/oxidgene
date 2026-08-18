@@ -6,11 +6,12 @@ use axum::routing::{delete, get, patch, post, put};
 
 /// Body limit for the Geneanet wizard's calls and the imports beside them.
 ///
-/// Its preview and import bodies carry the base64 `.gw` *and* the collected
-/// person↔photo mapping in one JSON object: a 10 000-person tree is around
-/// 8 MiB encoded before the mapping is added, which puts it straight over the
-/// 10 MiB a plain import ran under.
-const GENEANET_BODY_LIMIT: usize = 64 * 1024 * 1024;
+/// These bodies carry the base64 `.gw` and the collected person↔photo mapping:
+/// a 10 000-person tree is around 8 MiB encoded, plus a couple more for the
+/// mapping. 32 MiB is several times that and does not grow with how many
+/// photographs somebody owns — the media themselves are passed as paths, so
+/// this number depends on tree size alone.
+const GENEANET_BODY_LIMIT: usize = 32 * 1024 * 1024;
 use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]
@@ -204,6 +205,10 @@ pub fn build_router(state: AppState) -> Router {
             get(media::download_media),
         )
         .route(
+            "/{tree_id}/media/{media_id}/archive",
+            get(media::download_archive),
+        )
+        .route(
             "/{tree_id}/media/{media_id}/thumbnail",
             get(media::download_thumbnail),
         )
@@ -344,6 +349,13 @@ pub fn build_router(state: AppState) -> Router {
     let geneanet_routes = Router::new()
         .route("/archives", post(geneanet::index_archives_handler))
         .route("/preview", post(geneanet::preview_handler))
+        .route("/plan", post(geneanet::plan_handler))
+        .route("/session/encode", post(geneanet::encode_session_handler))
+        .route("/session/decode", post(geneanet::decode_session_handler))
+        .route(
+            "/import/{progress_id}",
+            get(geneanet::import_progress_handler),
+        )
         .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
 
     let geneweb_routes = Router::new()

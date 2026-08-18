@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use super::sea_enums::{Calendar, DateQualifier};
+use super::sea_enums::{Calendar, DateQualifier, SourceMediaType};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "media")]
@@ -33,6 +33,11 @@ pub struct Model {
     pub date_qualifier: DateQualifier,
     pub date_value2: Option<String>,
     pub calendar: Calendar,
+    /// GEDCOM's `SOURCE_MEDIA_TYPE` — what the medium physically is.
+    pub source_media_type: SourceMediaType,
+    /// What kind of record it is, where GEDCOM's vocabulary cannot say.
+    /// Stored as its snake_case spelling; `None` when unclassified.
+    pub document_category: Option<String>,
     pub place_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

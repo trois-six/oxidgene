@@ -10,7 +10,10 @@ timestamp: 2026-08-06T00:00:00Z
 # Visual & Functional Specifications — Geneanet Import
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Geneanet Media Import](geneanet-media-import.md) (the technical half) · [GEDCOM Import](ui-gedcom-import.md) · [Homepage](ui-home.md) · [Data Model](data-model.md)
+> See also: [Import](ui-import.md) (the modal this is a tab of, and the file
+> tab beside it) · [Geneanet Media Import](geneanet-media-import.md) (the
+> technical half) · [Geneanet Upload API](geneanet-upload-api.md) (reference) ·
+> [Homepage](ui-home.md) · [Data Model](data-model.md)
 
 ---
 
@@ -22,7 +25,7 @@ downloaded at all** — the link between a photo and a person exists only behind
 a logged-in session. See [Geneanet Media Import](geneanet-media-import.md) for
 why.
 
-That makes this flow different from [GEDCOM import](ui-gedcom-import.md) in one
+That makes this flow different from [the file tab beside it](ui-import.md) in one
 decisive way: **the user has work to do on another website**, and most of them
 have never heard of a `.gw` file. The interface is therefore as much a set of
 instructions as a form.
@@ -32,23 +35,18 @@ built; see §2b for the three that only the desktop app can run.
 
 ---
 
-## 2. Shape: one modal, two tabs, one open step
+## 2. Shape: five steps, one open at a time
 
-The import lives in a **modal** opened from a tree card's `⋮` menu, replacing
-the native file picker that menu used to open directly. It has two tabs:
+This is the **From Geneanet** tab of the import modal — the modal itself, its
+dismissal rules and the file tab beside it are in [Import](ui-import.md).
 
-- **A file** — the old behaviour. Drop or pick a `.ged`/`.gw`, import it.
-- **From Geneanet** — five steps, of which exactly **one is expanded** at a
-  time.
+> An earlier draft called for a dedicated page and said "not a modal wizard".
+> That was overturned deliberately: the two import routes are one decision made
+> at one moment, and splitting them made the cheap route feel like the real one
+> and the complete route like an excursion. The step-at-a-time discipline below
+> is what mattered, and it survives intact.
 
-> An earlier draft of this spec called for a dedicated page and said "not a
-> modal wizard". That was overturned deliberately: the two import routes are
-> one decision made at one moment, and splitting them across a modal and a page
-> made the cheap route feel like the real one and the complete route like an
-> excursion. The step-at-a-time discipline below is what mattered, and it
-> survives intact.
-
-Within the Geneanet tab:
+Within the tab:
 
 - A completed step **collapses to a one-line summary** with its result, a green
   check, and an "Edit" affordance to reopen it.
@@ -244,8 +242,8 @@ If skipped:
 >
 > It is a real browser window. You sign in exactly as you would normally, and
 > **OxidGene never sees your password**. "Keep me signed in" is ticked for you
-> so the window can keep working once it hides itself; OxidGene only reads the
-> session cookie.
+> so a long collection is not cut short — you can untick it — and the window
+> forgets everything when it closes.
 
 ### Behaviour
 
@@ -260,28 +258,51 @@ back — the journey the user would take anyway.
   reCAPTCHA on every attempt, which is exactly why the login cannot be
   automated and this window exists — see
   [Geneanet Media Import §3.3](geneanet-media-import.md).)
-- The login form's **"Remember me" checkbox is pre-ticked and hidden** by an
-  injected script. This is disclosed in the step's explanation, and it exists
-  for a mechanical reason: once signed in, **the window hides itself** and the
-  collection runs headless — a hidden window whose session expired would be an
-  invisible dead end, so the session must be allowed to outlive `gntsess5`.
-  OxidGene still only *reads* the session cookie, never the remember-me token.
-- If the checkbox cannot be found (Geneanet changed its form), nothing breaks:
-  the window simply **stays visible** during collection, so a mid-collection
-  expiry leaves the user a live login page to sign in again.
-- Once the session is established, the window disappears and collection
-  starts; it is destroyed when collection ends.
-- The window can be closed at any time while visible; the step returns to its
-  initial state.
+- The login form's **"Remember me" checkbox is pre-ticked** by an injected
+  script — and left visible, usable, and untickable. It is ticked for a
+  mechanical reason: a collection runs for a while after the user has stopped
+  watching, and a session that expires under it would end the run. It is not
+  *forced*, because a control that ignores the person operating it is a lie,
+  and someone unticking this on a shared machine means it. A user who unticks
+  simply gets the shorter session; the probe that watches for a re-login
+  already handles the expiry.
+- **The window runs in an incognito web context**, so the remember-me token —
+  valid for months, and able to mint fresh sessions on demand — dies with the
+  window instead of being left in the app's cookie jar on disk. That is what
+  makes pre-ticking it cost nothing. OxidGene only ever *reads* the session
+  cookie out of the window.
+- Once the session is established, the window **stops being a browser and
+  becomes a status panel**: it shrinks, is retitled, and is covered by
+  OxidGene's own overlay saying what is happening — in words. It carries **no
+  progress numbers**; the wizard's modal owns those, and two counters for one
+  operation could only disagree. It is not hidden, because a hidden window can
+  never emit a close request, which would make a stalled collection
+  unrecoverable.
+- The window can be closed at any time; closing it cancels, and the step
+  returns to its initial state.
+
+### When it closes itself
+
+Not when collection ends — the media that the archives cannot account for are
+fetched through the same session, so closing there would strand step 5. It goes
+at the **first moment it has no job left**, which is whichever of these comes
+first:
+
+| | |
+|---|---|
+| **End of step 4** | when the preview says nothing has to be fetched — every attached deposit single-page and every one of them size-matched. Common on an account with no scanned dossiers and a complete data archive. |
+| **End of step 5's fetch pass** | the usual case. Everything after it is local work and can take minutes; leaving the window up would have the user guarding something with nothing to do. |
+| **When the wizard is dismissed** | otherwise it would outlive the modal that opened it, with nothing left able to reach it. |
 
 **The requests are issued inside that window, not by OxidGene.** A small script
 runs on each page load and reports whether the media API answers yet; once it
 does, the collection and the size-matching pass run in the same window, on the
 same session. This is not a detail of convenience — it is the whole reason the
 window exists (see below), and it is why the metadata phase is out of reach of
-the Cloudflare fingerprinting that challenges the CLI. The scripts are the same
-ones `oxidgene-cli geneanet-media browser-script` prints for a user to paste
-into their own console, shared from one place so the two cannot drift.
+the Cloudflare fingerprinting that challenges the CLI. The scripts live in
+`crates/oxidgene-geneanet/src/script.rs`, sharing their request helpers so the
+collection, the sizing pass and the media fetch cannot drift apart on the one
+header the API refuses to answer without.
 
 Afterwards the window's `gntsess5` cookie is read out for step 5 — and only if
 the archives do not cover every photo, because a run that downloads nothing
@@ -326,7 +347,7 @@ Stage 2 — Matching photos against your archives
 |---|---|
 | Window closed before signing in | Return to initial state, no error |
 | Session expires mid-collection | *"The Geneanet session ended. Sign in again to continue."* — collection resumes, already-collected data kept |
-| "Remember me" unavailable (form changed) | No error — the window stays visible during collection so an expiry remains recoverable in place |
+| "Remember me" unavailable (form changed) | No error — the box is simply not pre-ticked; an expiry mid-collection returns the window to a live login page |
 | Cloudflare challenge inside the window | Nothing to report — it is displayed and the user answers it |
 | Geneanet returns an error | Show the stage and the HTTP status; **[Retry]** |
 
@@ -334,9 +355,21 @@ Stage 2 — Matching photos against your archives
 
 ## 7. Step 4 — What will be imported
 
-Computed with no further network access, from the `.gw` and the collected
-mapping. This is the moment the user finds out whether the two halves belong to
-each other, **before** anything is written.
+Two things happen here, and neither writes anything.
+
+First the **preview**, computed from the `.gw` and the collected mapping alone.
+This is the moment the user finds out whether the two halves belong to each
+other, before committing.
+
+Then the **gathering**: whatever the data archives could not account for is
+fetched through the login window. This is the last thing in the whole flow that
+touches Geneanet — deliberately, because it means the window can be shut before
+the user presses Import, and step 5 becomes purely local work. Nothing is
+written until they do press it.
+
+A run whose archives cover everything gathers nothing and the window closes
+here. A session loaded from a file that already carries the media gathers
+nothing either, and never opens a window at all.
 
 ```
 ┌──────────────┬──────────────┬──────────────┬──────────────┐
@@ -372,6 +405,43 @@ with **[ Go back to step 1 ]** as the primary action and a secondary
 
 Writes through the same [F.1 Media Storage](roadmap.md) path as any upload, so
 a photo shared by several people is stored once and linked many times.
+
+### Purely local, because step 4 already gathered everything
+
+Every direct request to Geneanet is challenged by Cloudflare, whatever the
+cookie and whatever the client, so the server never fetches anything itself.
+That work is done by step 4:
+
+1. **Plan** (step 4) — the server says which media it cannot produce from the
+   archives (`POST /geneanet/plan`). A single-page deposit whose byte length
+   matches an archive entry needs nothing; anything else names a URL.
+2. **Gather** (step 4) — the wizard asks the login window for exactly those
+   URLs, on the session the user signed in to.
+3. **Write** (step 5) — the bytes go with the import, and the server resolves
+   each medium from the archives by size, then by a perceptual match against
+   the gathered rendition, then from the gathered bytes themselves.
+
+So step 5 waits on nothing but the disk, and a medium the window could not
+retrieve is reported as skipped rather than ending the run.
+
+### A multi-page deposit is imported whole
+
+Links on Geneanet attach to *pages*, and someone who scans a dossier attaches
+its cover. Importing only linked pages would therefore import a cover and
+discard the document: measured on the second account, that is **235 of 623
+views** — every one of them an interior page of one of eight dossiers, one of
+which runs to 144 pages.
+
+So a deposit with any linked page becomes one **document** (`media.is_document`)
+with every page beneath it as a `media` carrying `parent_media_id` and
+`page_index`, and the people its pages named are linked to the document.
+
+**Page order is the deposit's own**, never the order pages were fetched in:
+pages are sorted by their Geneanet page number before any is written,
+`append_page` indexes them in that order, and the gallery reads back by that
+index. A page that could not be fetched is reported *with its number*, because
+the pages after it move up one and the document would otherwise appear
+complete.
 
 ```
 Importing…

@@ -41,7 +41,7 @@ use dioxus::desktop::wry::{WebView, WebViewBuilder};
 use dioxus::desktop::{LogicalSize, WindowBuilder};
 use futures_channel::mpsc::UnboundedSender;
 use oxidgene_geneanet::script;
-use oxidgene_ui::geneanet::{GeneanetBridge, GeneanetCollector, GeneanetEvent};
+use oxidgene_ui::geneanet::{GeneanetBridge, GeneanetCollector, GeneanetEvent, WindowStrings};
 use serde::Deserialize;
 use tracing::{debug, warn};
 
@@ -52,16 +52,29 @@ use tracing::{debug, warn};
 /// which is the journey the user would take anyway.
 const START_URL: &str = "https://www.geneanet.org/media/manager";
 
+/// The window's size while it is a status panel rather than a browser.
+///
+/// Shrinking it is most of what tells a user it has stopped being something
+/// they interact with — a full-size browser window that no longer responds to
+/// clicks reads as broken, a small panel reads as progress.
+const STATUS_SIZE: LogicalSize<f64> = LogicalSize::new(420.0, 260.0);
+
 /// The origin whose cookies authenticate the download step.
 const COOKIE_ORIGIN: &str = "https://www.geneanet.org";
 
-/// The session cookie. Measured against the live API: exactly this one and
-/// `REMEMBERME` authenticate, and nothing else a browser sends is read.
+/// The cookies that authenticate, in the order they are preferred.
 ///
-/// `gntsess5` is taken in preference on purpose — the remember-me token is
-/// valid for months and can mint fresh sessions on demand, so passing it to
-/// the download step would hand around far more than the job needs.
-const SESSION_COOKIE: &str = "gntsess5";
+/// Measured against the live API: exactly these two work, and nothing else a
+/// browser sends is read.
+///
+/// `gntsess5` leads on purpose — the remember-me token is valid for months and
+/// can mint fresh sessions on demand, so it is the worse of the two to hand
+/// around. But it cannot be the *only* one taken: the login window pre-ticks
+/// "remember me" precisely so a long collection survives a `gntsess5` expiry,
+/// and after such a refresh the jar may hold no live `gntsess5` at the moment
+/// this runs. Taking only that one then yields no session at all and every
+/// download fails with "there is no Geneanet session to download it with".
+const SESSION_COOKIES: [&str; 2] = ["gntsess5", "REMEMBERME"];
 
 /// One message from the scripts running inside the window.
 #[derive(Debug, Deserialize)]
@@ -88,13 +101,38 @@ enum Message {
     Sized {
         sizes: HashMap<String, u64>,
     },
+    /// One medium came back from [`script::ipc_fetch`].
+    Fetched {
+        url: String,
+        #[serde(default)]
+        data: Option<String>,
+        #[serde(default)]
+        error: Option<String>,
+    },
+    /// Progress through a fetch batch.
+    Fetching {
+        done: usize,
+        total: usize,
+    },
+    /// The batch is finished.
+    FetchDone,
     Error {
         message: String,
     },
 }
 
+/// Something the UI asked for, waiting for the event loop to pick it up.
+enum Request {
+    /// Open the window and collect.
+    Open(UnboundedSender<GeneanetEvent>, WindowStrings),
+    /// Fetch these media through the window that is already open.
+    Fetch(Vec<String>, UnboundedSender<GeneanetEvent>),
+    /// Done with the window — the import finished, or the wizard was dismissed.
+    Close,
+}
+
 /// Requests from the UI, waiting for the event loop to pick them up.
-type Pending = Arc<Mutex<Vec<UnboundedSender<GeneanetEvent>>>>;
+type Pending = Arc<Mutex<Vec<Request>>>;
 
 /// Messages from the window's scripts, waiting to be processed on the loop.
 type Inbox = Arc<Mutex<Vec<Message>>>;
@@ -106,9 +144,21 @@ type Inbox = Arc<Mutex<Vec<Message>>>;
 struct QueueingCollector(Pending);
 
 impl GeneanetCollector for QueueingCollector {
-    fn start(&self, events: UnboundedSender<GeneanetEvent>) {
+    fn start(&self, events: UnboundedSender<GeneanetEvent>, strings: WindowStrings) {
         if let Ok(mut pending) = self.0.lock() {
-            pending.push(events);
+            pending.push(Request::Open(events, strings));
+        }
+    }
+
+    fn fetch(&self, urls: Vec<String>, events: UnboundedSender<GeneanetEvent>) {
+        if let Ok(mut pending) = self.0.lock() {
+            pending.push(Request::Fetch(urls, events));
+        }
+    }
+
+    fn close(&self) {
+        if let Ok(mut pending) = self.0.lock() {
+            pending.push(Request::Close);
         }
     }
 }
@@ -123,6 +173,18 @@ struct Session {
     collecting: bool,
     /// Stage 1's output, held until stage 2 has measured the deposits.
     collection: Option<String>,
+    /// What to put on the status panel, already translated by the wizard.
+    strings: WindowStrings,
+    /// Where a fetch batch reports to. Separate from `events`, which belongs
+    /// to the collection: by the time media are being fetched the wizard has
+    /// moved on to its import step and is listening on a new channel.
+    fetching: Option<UnboundedSender<GeneanetEvent>>,
+    /// URLs still to fetch once the window has reached the right origin.
+    queued_fetch: Vec<String>,
+    /// Where this run's media are being written, once anything has been.
+    staging: Option<std::path::PathBuf>,
+    /// How many have been written, which is also how they are named.
+    written: usize,
 }
 
 impl Session {
@@ -130,6 +192,106 @@ impl Session {
         // A closed receiver means the modal went away; the window is torn down
         // by the caller either way.
         let _ = self.events.unbounded_send(event);
+    }
+
+    /// Decodes one fetched medium and writes it beside the others.
+    ///
+    /// Named by position rather than by URL: a URL is not a filename, and the
+    /// manifest the import receives is what maps one to the other. The
+    /// extension is kept only so the directory is browsable.
+    fn write_medium(&mut self, url: &str, encoded: &str) -> Result<String, String> {
+        use base64::Engine as _;
+
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| format!("{url}: {e}"))?;
+
+        let directory = self.staging()?;
+        let extension = url
+            .split('?')
+            .next()
+            .and_then(|path| path.rsplit('.').next())
+            .filter(|ext| {
+                ext.len() <= 5 && !ext.is_empty() && ext.chars().all(|c| c.is_ascii_alphanumeric())
+            })
+            .map_or_else(String::new, |ext| format!(".{}", ext.to_ascii_lowercase()));
+
+        let path = directory.join(format!("{:05}{extension}", self.written));
+        std::fs::write(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        self.written += 1;
+
+        Ok(path.display().to_string())
+    }
+
+    /// The directory this run's media are written to, created on first use.
+    ///
+    /// Under the OS temp directory rather than the app's data directory: these
+    /// are working files that exist only until the import has read them.
+    fn staging(&mut self) -> Result<std::path::PathBuf, String> {
+        if let Some(directory) = &self.staging {
+            return Ok(directory.clone());
+        }
+        let directory =
+            std::env::temp_dir().join(format!("oxidgene-geneanet-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| format!("{}: {e}", directory.display()))?;
+        self.staging = Some(directory.clone());
+        Ok(directory)
+    }
+
+    /// Puts a status line on the window's panel, creating it if needed.
+    fn status(&self, message: &str) {
+        self.eval(&script::status_overlay(
+            &self.strings.heading,
+            message,
+            &self.strings.cancel_hint,
+        ));
+    }
+
+    /// Starts a fetch batch, moving the window to the right origin first.
+    ///
+    /// Renditions live on `gw.geneanet.org` and the collection ran on
+    /// `www.geneanet.org`; a cross-origin `fetch` would simply be refused. So
+    /// the window is navigated to whichever host the batch reads from — the
+    /// session cookie is set on `.geneanet.org`, so it covers both — and the
+    /// URLs go out once that page has loaded.
+    fn begin_fetch(&mut self, urls: Vec<String>, events: UnboundedSender<GeneanetEvent>) {
+        self.fetching = Some(events);
+
+        let Some(origin) = urls.first().and_then(|url| origin_of(url)) else {
+            self.finish_fetch();
+            return;
+        };
+
+        self.queued_fetch = urls;
+        if let Err(e) = self.webview.load_url(&origin) {
+            warn!(%e, "could not move the Geneanet window to {origin}");
+            // Try from where we are; same-origin URLs still work.
+            self.run_queued_fetch();
+        }
+    }
+
+    /// Issues the queued batch. Called once the window has reached the origin.
+    fn run_queued_fetch(&mut self) {
+        if self.queued_fetch.is_empty() {
+            return;
+        }
+        let urls = std::mem::take(&mut self.queued_fetch);
+        let json = serde_json::to_string(&urls).unwrap_or_else(|_| "[]".into());
+        self.status(&self.strings.matching);
+        self.eval(&script::ipc_fetch(&json));
+    }
+
+    fn finish_fetch(&mut self) {
+        if let Some(events) = self.fetching.take() {
+            let _ = events.unbounded_send(GeneanetEvent::FetchDone);
+        }
+    }
+
+    /// Reports one fetched medium to whoever asked for the batch.
+    fn send_fetched(&mut self, event: GeneanetEvent) {
+        if let Some(events) = &self.fetching {
+            let _ = events.unbounded_send(event);
+        }
     }
 
     fn eval(&self, script: &str) {
@@ -145,10 +307,22 @@ impl Session {
     /// than failing.
     fn cookie(&self) -> Option<String> {
         let cookies = self.webview.cookies_for_url(COOKIE_ORIGIN).ok()?;
-        cookies
+
+        // Both when both are present: the pair is what a browser would send,
+        // and it means a `gntsess5` that expires between here and the download
+        // is re-minted from the remember-me token rather than ending the run.
+        let header = SESSION_COOKIES
             .iter()
-            .find(|cookie| cookie.name() == SESSION_COOKIE)
+            .filter_map(|wanted| {
+                cookies
+                    .iter()
+                    .find(|cookie| cookie.name() == *wanted && !cookie.value().is_empty())
+            })
             .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+            .collect::<Vec<_>>()
+            .join("; ");
+
+        (!header.is_empty()).then_some(header)
     }
 }
 
@@ -181,14 +355,30 @@ pub fn install<T: 'static>() -> (
             .map(|mut pending| pending.drain(..).collect())
             .unwrap_or_default();
 
-        for events in queued {
-            if session.is_some() {
-                let _ = events.unbounded_send(GeneanetEvent::Failed(
-                    "a Geneanet window is already open".into(),
-                ));
-                continue;
+        for request in queued {
+            match request {
+                Request::Open(events, strings) => {
+                    if session.is_some() {
+                        let _ = events.unbounded_send(GeneanetEvent::Failed(
+                            "a Geneanet window is already open".into(),
+                        ));
+                        continue;
+                    }
+                    session = open(target, events, strings, Arc::clone(&handler_inbox));
+                }
+                // Dropping the session is what closes the window.
+                Request::Close => drop(session.take()),
+                Request::Fetch(urls, events) => match session.as_mut() {
+                    Some(open) => open.begin_fetch(urls, events),
+                    None => {
+                        let _ = events.unbounded_send(GeneanetEvent::Failed(
+                            "the Geneanet window is closed, so nothing can be fetched \
+                             — sign in again"
+                                .into(),
+                        ));
+                    }
+                },
             }
-            session = open(target, events, Arc::clone(&handler_inbox));
         }
 
         // The user closed the window. Before signing in that is not an error,
@@ -234,36 +424,35 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
         // The probe fires on every navigation, including the login page and any
         // Cloudflare interstitial. "Not yet" is the normal answer until the
         // user has signed in, and needs no reporting.
-        Message::Auth { signed_in: false } => None,
+        Message::Auth { signed_in: false } => {
+            // A probe on a host with no media API — which is what the fetch
+            // navigation lands on. Its arrival is the signal that the page
+            // finished loading, so the queued batch can go out.
+            open.run_queued_fetch();
+            None
+        }
         Message::Auth { signed_in: true } => {
             if open.collecting {
+                // Already collecting: this is a later page load, which during
+                // a fetch batch means the navigation completed.
+                open.run_queued_fetch();
                 return None;
             }
             open.collecting = true;
-            // The human part is over: everything from here is API traffic the
-            // scripts drive, so the window goes headless and the wizard's
-            // progress bars take over — but only if the session is
-            // self-sustaining, i.e. the remember-me cookie landed (the
-            // REMEMBER_ME init script pre-checks the box). If the site changed
-            // and no such cookie was set, keep the window visible so a
-            // mid-collection expiry leaves the user with a usable login page
-            // instead of an invisible dead session.
-            let has_remember_me = open
-                .webview
-                .cookies_for_url(COOKIE_ORIGIN)
-                .map(|cookies| {
-                    cookies
-                        .iter()
-                        .any(|cookie| cookie.name() == "REMEMBERME" && !cookie.value().is_empty())
-                })
-                .unwrap_or(false);
-            if has_remember_me {
-                open.window.set_visible(false);
-            } else {
-                tracing::info!(
-                    "no REMEMBERME cookie after login; keeping the login window visible"
-                );
-            }
+
+            // The human part is over. The window is neither hidden nor left
+            // showing Geneanet: hiding it makes cancellation impossible — a
+            // hidden window can never emit a close request, so a stalled
+            // collection would be unrecoverable — and leaving the site up says
+            // nothing about what the app is doing or whether it may be touched.
+            //
+            // Instead it shrinks to a panel and shows OxidGene's own status,
+            // in words. The numbers live in the wizard's modal, which is the
+            // only place they can be kept in step with the import.
+            open.window.set_title(&open.strings.title);
+            open.window.set_inner_size(STATUS_SIZE);
+            open.status(&open.strings.reading_list);
+
             open.send(GeneanetEvent::SignedIn);
             open.eval(&script::ipc_collection());
             None
@@ -271,7 +460,7 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
         Message::Progress { done } => {
             // The bulk endpoints do not report a total, so the bar is honest
             // about counting up rather than pretending to know how far along
-            // it is.
+            // it is. The window shows no count at all.
             open.send(GeneanetEvent::Collecting { done, total: 0 });
             None
         }
@@ -285,6 +474,7 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
                 return finish(session, HashMap::new());
             }
 
+            open.status(&open.strings.matching);
             open.send(GeneanetEvent::Sizing {
                 done: 0,
                 total: ids.len(),
@@ -304,6 +494,28 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
                 .collect();
             finish(session, sizes)
         }
+        Message::Fetched { url, data, error } => {
+            // Written straight to disk. The server reads it from there, so the
+            // bytes cross the process boundary once instead of riding through
+            // the UI and back out in a request body.
+            let (path, error) = match data {
+                Some(encoded) => match open.write_medium(&url, &encoded) {
+                    Ok(path) => (Some(path), None),
+                    Err(message) => (None, Some(message)),
+                },
+                None => (None, error),
+            };
+            open.send_fetched(GeneanetEvent::Fetched { url, path, error });
+            None
+        }
+        Message::Fetching { done, total } => {
+            open.send_fetched(GeneanetEvent::Fetching { done, total });
+            None
+        }
+        Message::FetchDone => {
+            open.finish_fetch();
+            None
+        }
         Message::Error { message } => {
             let done = session.take()?;
             done.send(GeneanetEvent::Failed(message));
@@ -312,27 +524,61 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
     }
 }
 
-/// Reports the collection and hands the session back for closing.
+/// Reports the collection — and leaves the window open.
+///
+/// This is the end of step 3 but not the end of the window's job. Every direct
+/// request to Geneanet is challenged, so the media the archives cannot account
+/// for are fetched through this same session during the import. Closing here
+/// would leave step 5 with nothing to fetch through and no way to get it back
+/// short of signing in again.
+///
+/// It is closed by [`Request::Close`], which the wizard sends when the import
+/// finishes or the modal is dismissed, and by the user closing it themselves.
+///
+/// Returns the session only when there is nothing to keep it open for.
 fn finish(session: &mut Option<Session>, deposit_sizes: HashMap<i64, u64>) -> Option<Session> {
-    let done = session.take()?;
-    let Some(collection) = done.collection.clone() else {
+    let collection = session.as_ref()?.collection.clone();
+    let Some(collection) = collection else {
+        let done = session.take()?;
         done.send(GeneanetEvent::Failed(
             "the login window reported no collection".into(),
         ));
         return Some(done);
     };
 
-    done.send(GeneanetEvent::Collected {
+    let open = session.as_ref()?;
+    let photo_count = view_count(&collection);
+    open.send(GeneanetEvent::Collected {
+        photo_count,
         collection,
         deposit_sizes,
         // Only used if the archives do not cover every photo.
-        cookie: done.cookie(),
+        cookie: open.cookie(),
         // Geneanet does not put the account name anywhere this flow reads, and
         // scraping the page for it would be the first thing a redesign broke.
         account: None,
     });
 
-    Some(done)
+    // Say so, rather than leaving the panel claiming to still be matching.
+    open.status(&open.strings.idle);
+
+    None
+}
+
+/// The scheme-and-host of a URL, or `None` if it carries neither.
+fn origin_of(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let host = rest.split('/').next()?;
+    (!host.is_empty()).then(|| format!("https://{host}/"))
+}
+
+/// How many views the collection holds — every page of every deposit.
+fn view_count(collection: &str) -> usize {
+    oxidgene_geneanet::manifest_from_collection(collection)
+        .map(|manifest| manifest.view_count)
+        .unwrap_or(0)
 }
 
 /// The deposits whose byte length can be asked for.
@@ -359,6 +605,7 @@ fn single_page_deposits(collection: &str) -> Vec<i64> {
 fn open<T: 'static>(
     target: &EventLoopWindowTarget<T>,
     events: UnboundedSender<GeneanetEvent>,
+    strings: WindowStrings,
     inbox: Inbox,
 ) -> Option<Session> {
     let window = WindowBuilder::new()
@@ -370,6 +617,14 @@ fn open<T: 'static>(
 
     let builder = WebViewBuilder::new()
         .with_url(START_URL)
+        // An ephemeral context. The login form's "remember me" box is
+        // pre-ticked so a long collection survives a `gntsess5` expiry, and
+        // that token is valid for months — leaving it in the app's cookie jar
+        // afterwards would mean a one-off import left a long-lived credential
+        // to the user's Geneanet account sitting on disk. Incognito makes the
+        // whole jar die with the window. (wry ignores any `WebContext` when
+        // this is set, which is exactly the intent.)
+        .with_incognito(true)
         // Runs at document start on every navigation, including the ones a
         // login and a Cloudflare challenge cause. Each says only "does the
         // media API answer yet", which is the one thing the next step needs.
@@ -439,12 +694,59 @@ fn open<T: 'static>(
         events,
         collecting: false,
         collection: None,
+        strings,
+        fetching: None,
+        queued_fetch: Vec::new(),
+        staging: None,
+        written: 0,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_origin_is_taken_from_an_absolute_url() {
+        // Renditions sit on a different host from the collection, and a
+        // cross-origin fetch would simply be refused — so the batch has to
+        // know where to move the window before it starts.
+        assert_eq!(
+            origin_of("https://gw.geneanet.org/public/img/x/normal.jpg?t=1").as_deref(),
+            Some("https://gw.geneanet.org/")
+        );
+        assert_eq!(
+            origin_of("https://www.geneanet.org/media/download/?deposits[]=1").as_deref(),
+            Some("https://www.geneanet.org/")
+        );
+    }
+
+    #[test]
+    fn a_relative_url_has_no_origin_to_move_to() {
+        // Manifest paths are host-relative; they are absolutised before they
+        // reach a fetch batch, and anything that slipped through must not be
+        // turned into a bogus navigation.
+        assert_eq!(origin_of("/public/img/x/normal.jpg"), None);
+        assert_eq!(origin_of(""), None);
+    }
+
+    #[test]
+    fn the_fetch_result_shapes_are_the_ones_this_module_parses() {
+        // Written in two languages; they can only disagree at runtime, on a
+        // live account, after a login.
+        let ok: Message =
+            serde_json::from_str(r#"{"kind":"fetched","url":"/a.jpg","data":"AAA="}"#)
+                .expect("parses");
+        assert!(matches!(ok, Message::Fetched { data: Some(_), .. }));
+
+        let failed: Message =
+            serde_json::from_str(r#"{"kind":"fetched","url":"/a.jpg","error":"HTTP 404"}"#)
+                .expect("parses");
+        assert!(matches!(failed, Message::Fetched { error: Some(_), .. }));
+
+        let done: Message = serde_json::from_str(r#"{"kind":"fetch_done"}"#).expect("parses");
+        assert!(matches!(done, Message::FetchDone));
+    }
 
     #[test]
     fn only_single_page_deposits_are_measured() {
