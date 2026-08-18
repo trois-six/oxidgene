@@ -471,9 +471,9 @@ Goal: for every tree individual, list **all** media it is identified in on the w
 
 **`views[].files.{normal,medium,screen,thumbnail}` are all generated renditions — re-encoded and downsized, never the original upload.** Evidence:
 
-- **Format rewriting**: originals uploaded as uncompressed BMP (`papie.bmp`, `le cam georges1.bmp`, …) are served as `normal.jpg`; PDF deposits have one `.pdf` per page in the data archive but one `normal.jpg` per page on the CDN. A `.bmp`→`.jpg` or `.pdf`→`.jpg` transformation is necessarily a re-encode.
+- **Format rewriting**: originals uploaded as uncompressed BMP (`portrait_a.bmp`, `portrait_b.bmp`, …) keep the `.bmp` extension in every rendition; PDF deposits have one `.pdf` per page in the data archive but one `normal.jpg` per page on the CDN. A `.bmp`→`.jpg` or `.pdf`→`.jpg` transformation is necessarily a re-encode.
 - **Four-size ladder**: `normal` > `medium` > `screen` > `thumbnail` are derivative sizes of the same view.
-- Even a 220-px-wide original (`220px-Charlemagne_denier….jpg`) gets a `normal.jpg` — "normal" means "the largest rendition", not "the file uploaded".
+- Even a 220-px-wide original gets a `normal.jpg` — "normal" means "the largest rendition", not "the file uploaded".
 - The API objects carry **no byte size and no content hash** anywhere (verified by walking every field of all 387 deposits), and the 40-hex component of CDN paths is **not** the SHA-1 of the original content (tested 0/25 known pairs) — so neither size- nor hash-matching against local files is possible from API data alone.
 
 **No original download on `api.geneanet.org`** — probed 2026-08-16 **[auth]**, all `404` (SPA fallback, route absent): `/media/download`, `/media/download/`, `/media/deposits/{id}/download`, `/media/deposits/{id}/original`, `/media/deposits/{id}/file`, `/media/deposits/{id}/views/{vid}/download`, `/media/deposits/{id}/views/{vid}/original`, `/media/deposits/{id}/views/{vid}/file`.
@@ -493,7 +493,7 @@ CDN rendition URLs return `403` for non-browser clients even **with** `X-Request
 
 ## 12. Linking the data-archive ZIPs to deposits/views — site-free, verified on the test account
 
-The account's data archive (`sample_account_media_images_1.zip` 599 files + `_2.zip` 24 files) holds **exactly 623 entries = the 623 media views**, one original per view. The ZIPs carry no deposit id, but they can be re-linked **without any site access**:
+The account's data archive (`account_media_images_1.zip` 599 files + `_2.zip` 24 files) holds **exactly 623 entries = the 623 media views**, one original per view. The ZIPs carry no deposit id, but they can be re-linked **without any site access**:
 
 - **Join key**: the ZIP entry's DOS datetime equals the deposit's `date_create` **to the minute** for ~612/623 entries (archive mtimes are upload times; the ~11 exceptions are old files whose original mtimes were preserved). The archive's global entry order tracks the deposit list in **reverse** (1 inversion observed), and the pages of a multi-page deposit are **consecutive entries in page order**.
 - **Method**: group entries and views by minute; equal-count groups pair by order; leftovers pair by elimination. Result: `zip_view_map.json` (same folder) = `{zip filename → {deposit_id, view_id, title, how, exact}}`, bijective 623↔623.
@@ -573,8 +573,17 @@ Conclusions:
   profile (Chrome 131) is already too old. Do not use it for OxidGene.
 - **wreq + wreq-util works, but only with a current-Chrome emulation** (146 at time of
   writing; profiles go up to 149). The same client with Chrome 131 is challenged — the
-  emulation version must track current Chrome as Cloudflare adapts, so keep `wreq-util`
-  updated and make the emulation version configurable.
+  emulation version must track current Chrome as Cloudflare adapts.
+
+  > **Measured, adopted, then removed (2026-08-17).** OxidGene shipped this
+  > briefly and took it back out. Two reasons, and the matrix above is exactly
+  > why: the working profile is a moving target with a *silent* failure mode —
+  > a stale pin looks like an expired cookie — and getting BoringSSL into the
+  > workspace cost a `bindgen` toolchain in CI plus a vendored, patched
+  > `tungstenite` to resolve the OpenSSL symbol clash it created. Every request
+  > now goes through the desktop app's Geneanet window instead, which needs no
+  > emulation because it *is* a browser. The rows below stand as a record of
+  > what was tested, not as a recommendation.
 - `curl_cffi` (curl-impersonate patched BoringSSL) remains the reference; a Rust
   alternative with the same engine would be linking `curl-sys` against
   curl-impersonate's libcurl, but `wreq` makes that unnecessary.

@@ -1,6 +1,7 @@
 //! Integration tests for GEDCOM import and export.
 
 use chrono::Utc;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use oxidgene_core::types::{Note, Person, PersonName};
@@ -463,6 +464,72 @@ fn test_import_asso_witness_and_godparent() {
 }
 
 #[test]
+fn asso_on_a_person_with_a_baptism_is_not_reported_as_a_guess() {
+    // A godparent belongs to a baptism, and finding one is the right answer —
+    // not something to warn about. Warning whenever the person merely had
+    // several events buried the associations that really were arbitrary.
+    let gedcom = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Child /BRANCH_A/
+1 BIRT
+2 DATE 1 JAN 1900
+1 BAPM
+2 DATE 5 JAN 1900
+1 DEAT
+2 DATE 1 JAN 1980
+1 ASSO @I2@
+2 RELA Godparent
+0 @I2@ INDI
+1 NAME Godparent /BRANCH_B/
+0 TRLR
+";
+
+    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+
+    assert_eq!(result.event_witnesses.len(), 1);
+    assert!(
+        !result.warnings.iter().any(|w| w.contains("ASSO")),
+        "a baptism is the right event, not a guess: {:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn asso_on_a_person_with_neither_birth_nor_baptism_is_reported() {
+    // Here the choice really is arbitrary, and staying silent would attach a
+    // witness to whichever event happened to be first with nothing said.
+    let gedcom = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Person /BRANCH_A/
+1 OCCU Baker
+1 RESI
+2 DATE 1920
+1 DEAT
+2 DATE 1 JAN 1980
+1 ASSO @I2@
+2 RELA Witness
+0 @I2@ INDI
+1 NAME Witness /BRANCH_B/
+0 TRLR
+";
+
+    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+
+    assert_eq!(result.event_witnesses.len(), 1);
+    assert!(
+        result.warnings.iter().any(|w| w.contains("ASSO")),
+        "an arbitrary choice must be reported: {:?}",
+        result.warnings
+    );
+}
+
+#[test]
 fn test_import_asso_dedups_against_nested_event_association() {
     // Gramps sometimes writes the same witness fact twice: once as a
     // non-standard `ASSO` nested inside the event, once as the standard
@@ -499,6 +566,7 @@ fn test_export_produces_valid_gedcom() {
         &result.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -534,6 +602,7 @@ fn test_export_family() {
         &result.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -571,6 +640,7 @@ fn test_export_source() {
         &result.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -597,6 +667,7 @@ fn test_export_empty() {
         &[],
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -665,6 +736,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         &[note],
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -696,6 +768,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
         &result.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -739,6 +812,7 @@ fn test_roundtrip_preserves_individuals() {
         &imported.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -790,6 +864,7 @@ fn test_roundtrip_preserves_names() {
         &imported.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -848,6 +923,7 @@ fn test_roundtrip_preserves_surname_particle() {
         &imported.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -1167,6 +1243,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
         &imported.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -1298,6 +1375,7 @@ fn test_export_default_keeps_one_occu_tag_per_profession() {
         &imported.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -1327,6 +1405,7 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
         &imported.notes,
         true,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -1415,6 +1494,7 @@ fn test_export_default_keeps_one_name_tag_per_person_name() {
         &imported.notes,
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -1453,6 +1533,7 @@ fn test_export_merge_names_option_collapses_aliases_into_primary_surn() {
         &imported.notes,
         false,
         true,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -1595,6 +1676,7 @@ fn test_export_result_serialization() {
         &[],
         false,
         false,
+        &HashMap::new(),
     )
     .unwrap();
 

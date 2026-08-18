@@ -55,6 +55,8 @@ pub struct Attachment {
     pub title: Option<String>,
     /// File extension taken from the rendition URLs, e.g. `jpg`.
     pub extension: String,
+    /// Where this person is on the picture, if the owner boxed them.
+    pub face: Option<crate::model::FacePosition>,
 }
 
 /// A reference that could not be attached, and why.
@@ -62,6 +64,13 @@ pub struct Attachment {
 pub struct Unjoined {
     pub geneweb_ref: Option<String>,
     pub name: String,
+    /// The two halves of that name, kept apart so a person can be created
+    /// from them — Geneanet's "hors de l'arbre" identifications name somebody
+    /// real, they are simply not in the GeneWeb tree.
+    pub lastname: Option<String>,
+    pub firstname: Option<String>,
+    /// Where they are on the picture, if boxed.
+    pub face: Option<crate::model::FacePosition>,
     pub deposit_id: i64,
     pub view_id: i64,
     pub reason: UnjoinedReason,
@@ -80,7 +89,7 @@ pub enum UnjoinedReason {
 impl UnjoinedReason {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::NoKey => "no GeneWeb key (person outside the tree)",
+            Self::NoKey => "identified on Geneanet as outside the tree",
             Self::NoSuchPerson => "no person with this key in the .gw file",
             Self::Ambiguous => "several persons share this key",
         }
@@ -142,9 +151,24 @@ pub fn join(manifest: &Manifest, index: &PersonIndex) -> Join {
                 );
 
                 let Some(key) = reference.geneweb_ref.as_deref() else {
+                    // Geneanet marks these "hors de l'arbre" in its own media
+                    // manager: the owner identified somebody on the medium and
+                    // said they are *not* the person in the tree. A reference
+                    // with no key is that statement, and it is deliberate.
+                    //
+                    // Falling back to matching the name it carries was tried
+                    // and reverted. It looked free — on the reference account
+                    // two of 35 such names land on exactly one person in the
+                    // export — but landing on someone is the whole problem:
+                    // those are same-named people the owner has already said
+                    // this is not. Recovering two media by overruling that is
+                    // a bad trade, and silently so.
                     result.unjoined.push(Unjoined {
                         geneweb_ref: None,
                         name,
+                        lastname: reference.lastname.clone(),
+                        firstname: reference.firstname.clone(),
+                        face: reference.face.clone(),
                         deposit_id: deposit.id,
                         view_id: view.id,
                         reason: UnjoinedReason::NoKey,
@@ -163,6 +187,7 @@ pub fn join(manifest: &Manifest, index: &PersonIndex) -> Join {
                             page: view.page,
                             title: deposit.title.clone(),
                             extension: extension(deposit, view),
+                            face: reference.face.clone(),
                         });
                         continue;
                     }
@@ -172,6 +197,9 @@ pub fn join(manifest: &Manifest, index: &PersonIndex) -> Join {
                 result.unjoined.push(Unjoined {
                     geneweb_ref: Some(key.to_string()),
                     name,
+                    lastname: reference.lastname.clone(),
+                    firstname: reference.firstname.clone(),
+                    face: reference.face.clone(),
                     deposit_id: deposit.id,
                     view_id: view.id,
                     reason,
@@ -244,6 +272,7 @@ mod tests {
             firstname: Some("person_a".to_string()),
             lastname: Some("BRANCH_A".to_string()),
             geneweb_ref: key.map(str::to_string),
+            face: None,
         }
     }
 

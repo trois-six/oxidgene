@@ -177,6 +177,8 @@ pub(crate) fn media_patch(
         place_id: body.place_id,
         file_path,
         mime_type,
+        source_media_type: body.source_media_type,
+        document_category: body.document_category,
         date_sort,
     })
 }
@@ -336,6 +338,122 @@ pub async fn download_media(
         &headers,
     )
     .await
+}
+
+/// GET /api/v1/trees/:tree_id/media/:media_id/archive
+///
+/// Every page of a document, in one ZIP.
+///
+/// A register of forty scans is one thing to the reader and forty files to
+/// the disk; saving it a page at a time means forty save dialogs and a
+/// directory whose alphabetical order has nothing to do with the document's.
+/// The archive therefore prefixes each entry with its position — `001_`,
+/// `002_` — so unzipping restores the reading order that
+/// [`MediaRepo::reorder_pages`] recorded, whatever the original file names
+/// were.
+///
+/// Pages with no stored bytes are skipped rather than fatal: a document
+/// assembled from a GEDCOM can name files nobody ever uploaded, and the
+/// pages that *are* held are still worth having.
+///
+/// Stored, not deflated. The pages are JPEGs and PNGs — already compressed —
+/// so deflate would spend CPU to save nothing.
+pub async fn download_archive(
+    State(state): State<AppState>,
+    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, ApiError> {
+    let document = MediaRepo::get(&state.db, media_id)
+        .await
+        .map_err(ApiError::from)?;
+    let pages = MediaRepo::list_pages(&state.db, media_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    // Fetch first, zip second: the store is async and the zip writer is not,
+    // so interleaving them would mean holding a `ZipWriter` across an await.
+    let mut held = Vec::with_capacity(pages.len());
+    for page in &pages {
+        let Some(key) = page.storage_key.as_deref() else {
+            continue;
+        };
+        let bytes = state.media.get(key).await.map_err(ApiError::from)?;
+        held.push((page.file_name.clone(), bytes));
+    }
+    if held.is_empty() {
+        return Err(ApiError(OxidGeneError::NotFound {
+            entity: "Media file",
+            id: media_id,
+        }));
+    }
+
+    let bytes = tokio::task::spawn_blocking(move || zip_pages(&held))
+        .await
+        .map_err(|e| ApiError(OxidGeneError::Internal(e.to_string())))??;
+
+    let name = format!("{}.zip", archive_stem(&document.file_name));
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, header_value("application/zip"));
+    headers.insert(CONTENT_LENGTH, header_value(&bytes.len().to_string()));
+    headers.insert(CONTENT_DISPOSITION, header_value(&disposition(&name)));
+    Ok((headers, Body::from(bytes)).into_response())
+}
+
+/// Write `pages` into a ZIP, numbered in the order given.
+fn zip_pages(pages: &[(String, Vec<u8>)]) -> Result<Vec<u8>, ApiError> {
+    use std::io::Write as _;
+
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options: zip::write::FileOptions<'_, ()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (index, (file_name, bytes)) in pages.iter().enumerate() {
+        let entry = format!("{:03}_{}", index + 1, zip_safe(file_name));
+        writer
+            .start_file(entry, options)
+            .and_then(|()| writer.write_all(bytes).map_err(Into::into))
+            .map_err(|e| ApiError(OxidGeneError::Internal(e.to_string())))?;
+    }
+    Ok(writer
+        .finish()
+        .map_err(|e| ApiError(OxidGeneError::Internal(e.to_string())))?
+        .into_inner())
+}
+
+/// A file name that cannot escape the archive's own directory.
+///
+/// A page's `file_name` came from whatever produced it — an upload, a GEDCOM,
+/// a Geneanet deposit — so it is not ours to trust. Anything that would make
+/// an unzipper write outside the folder it is unpacking into is flattened.
+fn zip_safe(file_name: &str) -> String {
+    let base = file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(file_name)
+        .trim_matches('.');
+    if base.is_empty() {
+        "page".to_string()
+    } else {
+        base.to_string()
+    }
+}
+
+/// The document's name without an extension, for naming the archive.
+///
+/// A document assembled in the UI is titled `Livret de famille`, but one
+/// built by an import may be called `deposit_4713.jpg` — zipping that into
+/// `deposit_4713.jpg.zip` reads as a mistake.
+fn archive_stem(file_name: &str) -> String {
+    let trimmed = file_name.trim();
+    if trimmed.is_empty() {
+        return "document".to_string();
+    }
+    match trimmed.rsplit_once('.') {
+        Some((stem, ext))
+            if !stem.is_empty() && ext.len() <= 4 && ext.chars().all(char::is_alphanumeric) =>
+        {
+            stem.to_string()
+        }
+        _ => trimmed.to_string(),
+    }
 }
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/thumbnail
@@ -538,6 +656,42 @@ pub const UPLOAD_BODY_LIMIT: usize = MAX_UPLOAD_BYTES + 1024 * 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_archive_is_named_after_the_document_not_its_first_page() {
+        assert_eq!(archive_stem("Livret de famille"), "Livret de famille");
+        assert_eq!(archive_stem("deposit_4713.jpg"), "deposit_4713");
+        // Not an extension: a title that happens to contain a full stop.
+        assert_eq!(
+            archive_stem("Acte n. 12 du registre"),
+            "Acte n. 12 du registre"
+        );
+        assert_eq!(archive_stem("   "), "document");
+    }
+
+    #[test]
+    fn a_page_name_cannot_write_outside_the_archive() {
+        assert_eq!(zip_safe("scan.jpg"), "scan.jpg");
+        assert_eq!(zip_safe("../../etc/passwd"), "passwd");
+        assert_eq!(zip_safe("C:\\Windows\\system32\\x.dll"), "x.dll");
+        assert_eq!(zip_safe(".."), "page");
+    }
+
+    #[test]
+    fn pages_are_numbered_in_the_order_they_are_given() {
+        let pages = vec![
+            ("second.jpg".to_string(), b"b".to_vec()),
+            ("first.jpg".to_string(), b"a".to_vec()),
+        ];
+        let Ok(bytes) = zip_pages(&pages) else {
+            panic!("zips two small entries")
+        };
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
+        assert_eq!(archive.len(), 2);
+        // The order given is the order stored, whatever the names sort as.
+        assert_eq!(archive.by_index(0).unwrap().name(), "001_second.jpg");
+        assert_eq!(archive.by_index(1).unwrap().name(), "002_first.jpg");
+    }
 
     #[test]
     fn an_accented_file_name_is_sent_in_both_forms() {

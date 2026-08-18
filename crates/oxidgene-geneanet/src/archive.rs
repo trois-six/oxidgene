@@ -11,17 +11,27 @@
 //! cost hundreds of megabytes of temporary space to learn something the
 //! directory already states.
 //!
-//! Matching is on exact size and nothing else. Filenames cannot be used —
-//! they are upload names, unrelated to the deposit title — and a perceptual
-//! hash would answer a harder question with a threshold, which silently
-//! misattributes the scanned dossiers that make up a third of a real archive.
+//! Matching is exact wherever it can be. Filenames are never used — they are
+//! upload names, unrelated to the deposit title and colliding freely — so an
+//! entry is recognised by its **exact byte length**, which both sides can
+//! state without transferring anything.
+//!
+//! Where no length is available the fallback is content, not a guess. A page
+//! of a multi-page deposit has no length to match on (its download is a ZIP
+//! assembled on the fly and streamed without a `Content-Length`), so it is
+//! recognised by a perceptual hash of its rendition instead — see
+//! [`PhashIndex`] and [`crate::phash`], which document the measurement behind
+//! the thresholds and why a clash there is *detected* rather than resolved.
+//!
 //! See `docs/specifications/geneanet-media-import.md` §5.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+
+use crate::phash::{self, Phash};
 
 /// File extensions that make an archive look like a media export.
 ///
@@ -70,10 +80,15 @@ struct Entry {
 }
 
 /// Several Geneanet data archives, indexed by entry length.
+///
+/// Entries live in one flat list so they can be addressed by position; the
+/// size index and the perceptual-hash index both point into it rather than
+/// each holding their own copy.
 #[derive(Debug, Default)]
 pub struct ArchiveSet {
     archives: Vec<ArchiveInfo>,
-    by_size: HashMap<u64, Vec<Entry>>,
+    entries: Vec<Entry>,
+    by_size: HashMap<u64, Vec<usize>>,
 }
 
 impl ArchiveSet {
@@ -129,7 +144,8 @@ impl ArchiveSet {
             self.by_size
                 .entry(entry.size())
                 .or_default()
-                .push(Entry { archive, index });
+                .push(self.entries.len());
+            self.entries.push(Entry { archive, index });
         }
 
         self.archives.push(ArchiveInfo {
@@ -153,15 +169,67 @@ impl ArchiveSet {
 
         self.archives.remove(removed);
 
-        self.by_size.retain(|_, entries| {
-            entries.retain(|e| e.archive != removed);
-            for entry in entries.iter_mut() {
+        // Rebuild rather than patch: entries are addressed by position, so
+        // dropping some in the middle renumbers every index that points past
+        // them. Rebuilding is O(n) over a list of a few hundred and cannot get
+        // that renumbering subtly wrong.
+        let surviving: Vec<Entry> = self
+            .entries
+            .drain(..)
+            .filter(|entry| entry.archive != removed)
+            .map(|mut entry| {
                 if entry.archive > removed {
                     entry.archive -= 1;
                 }
-            }
-            !entries.is_empty()
-        });
+                entry
+            })
+            .collect();
+
+        // The size index is rebuilt from the surviving entries, which means
+        // re-reading their lengths from the central directories.
+        self.entries = surviving;
+        self.reindex_sizes();
+    }
+
+    /// Re-reads the length of every surviving entry into the size index.
+    fn reindex_sizes(&mut self) {
+        let mut by_size: HashMap<u64, Vec<usize>> = HashMap::new();
+
+        for (position, entry) in self.entries.iter().enumerate() {
+            let info = &self.archives[entry.archive];
+            let Ok(file) = std::fs::File::open(&info.path) else {
+                continue;
+            };
+            let Ok(mut zip) = zip::ZipArchive::new(file) else {
+                continue;
+            };
+            let Ok(zipped) = zip.by_index_raw(entry.index) else {
+                continue;
+            };
+            by_size.entry(zipped.size()).or_default().push(position);
+        }
+
+        self.by_size = by_size;
+    }
+
+    /// How many entries are indexed across every archive.
+    #[must_use]
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Reads the entry at `position` in the flat list.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the position is out of range or the entry cannot be
+    /// read.
+    pub fn read_at(&self, position: usize) -> Result<Vec<u8>> {
+        let entry = self
+            .entries
+            .get(position)
+            .with_context(|| format!("no archive entry at position {position}"))?;
+        self.read(entry)
     }
 
     #[must_use]
@@ -195,31 +263,239 @@ impl ArchiveSet {
     }
 }
 
-impl LocalOriginals for ArchiveSet {
-    fn resolve(&self, size: u64) -> Result<Option<Vec<u8>>> {
+impl ArchiveSet {
+    /// The entry of exactly this length, if one can be named safely.
+    ///
+    /// Separate from [`LocalOriginals::resolve`] because a caller often wants
+    /// to know *which* entry matched rather than its bytes — knowing that an
+    /// entry is already accounted for is what lets the perceptual index skip
+    /// it, and that index costs a full decode per entry it does not skip.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if a candidate could not be read for comparison.
+    pub fn locate_by_size(&self, size: u64) -> Result<Option<usize>> {
         let candidates = self.by_size.get(&size).map_or(&[][..], Vec::as_slice);
 
         match candidates {
             [] => Ok(None),
-            [only] => self.read(only).map(Some),
+            [only] => Ok(Some(*only)),
             [first, rest @ ..] => {
                 // Same size, several entries: interchangeable only if they are
                 // byte-identical, which is what a duplicate upload looks like.
                 // Anything else defers to the network rather than guessing.
-                let reference = self.read(first)?;
+                let reference = self.read_at(*first)?;
                 for other in rest {
-                    if self.read(other)? != reference {
+                    if self.read_at(*other)? != reference {
                         return Ok(None);
                     }
                 }
-                Ok(Some(reference))
+                Ok(Some(*first))
             }
+        }
+    }
+}
+
+impl LocalOriginals for ArchiveSet {
+    fn resolve(&self, size: u64) -> Result<Option<Vec<u8>>> {
+        match self.locate_by_size(size)? {
+            Some(position) => self.read_at(position).map(Some),
+            None => Ok(None),
         }
     }
 
     fn file_count(&self) -> usize {
         self.archives.iter().map(|a| a.file_count).sum()
     }
+}
+
+/// The archive's entries, keyed by what they look like.
+///
+/// Built separately from [`ArchiveSet`] because it is expensive in a way the
+/// size index is not: every entry has to be decoded. The size index reads a
+/// few kilobytes of central directory; this one decodes several hundred
+/// photographs, so it is built once, on demand, by the caller that needs it.
+///
+/// Entries that do not decode as images — PDFs, above all — are simply absent.
+/// A page that would have matched one of those is downloaded instead, which is
+/// correct rather than a gap.
+#[derive(Debug, Default)]
+pub struct PhashIndex {
+    /// Position in [`ArchiveSet::entries`], and that entry's hash.
+    hashes: Vec<(usize, Phash)>,
+    /// Entries that could not be decoded, for the run report.
+    undecodable: usize,
+}
+
+impl PhashIndex {
+    /// Hashes every entry of `set` that decodes as an image.
+    #[must_use]
+    pub fn build(set: &ArchiveSet) -> Self {
+        Self::build_from(set, &(0..set.entry_count()).collect::<Vec<_>>())
+    }
+
+    /// Hashes only the entries at `positions`.
+    ///
+    /// This is the form callers should reach for. Decoding is the expensive
+    /// step by orders of magnitude — a data archive is hundreds of full-size
+    /// photographs — and only the entries an exact size match could *not*
+    /// claim are ever candidates here. On the reference account that is 244
+    /// entries out of 623, and they are the ones a single-page deposit's
+    /// `Content-Length` never covered.
+    #[must_use]
+    pub fn build_from(set: &ArchiveSet, positions: &[usize]) -> Self {
+        // Decoding is the whole cost here — a data archive is several hundred
+        // full-size photographs — and each entry is independent of every
+        // other, so the work is split across the machine's cores. Reading is
+        // grouped by archive within each worker so a ZIP's central directory
+        // is parsed once per worker rather than once per entry: on a 725 MB
+        // archive of 600 entries that difference is 600 parses against 8.
+        let workers = std::thread::available_parallelism()
+            .map(std::num::NonZeroUsize::get)
+            .unwrap_or(1)
+            .min(positions.len().max(1));
+
+        let chunk = positions.len().div_ceil(workers.max(1));
+        if chunk == 0 {
+            return Self::default();
+        }
+
+        let results: Vec<(Vec<(usize, Phash)>, usize)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = positions
+                .chunks(chunk)
+                .map(|slice| scope.spawn(move || hash_slice(set, slice)))
+                .collect();
+
+            handles
+                .into_iter()
+                .filter_map(|handle| handle.join().ok())
+                .collect()
+        });
+
+        let mut hashes = Vec::with_capacity(positions.len());
+        let mut undecodable = 0;
+        for (mut part, failed) in results {
+            hashes.append(&mut part);
+            undecodable += failed;
+        }
+        // Threads finish out of order; the index is searched linearly but a
+        // stable order keeps `locate`'s answer reproducible run to run.
+        hashes.sort_unstable_by_key(|(position, _)| *position);
+
+        Self {
+            hashes,
+            undecodable,
+        }
+    }
+
+    #[must_use]
+    pub fn hashed_count(&self) -> usize {
+        self.hashes.len()
+    }
+
+    #[must_use]
+    pub fn undecodable_count(&self) -> usize {
+        self.undecodable
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.hashes.is_empty()
+    }
+
+    /// Finds the archive entry that is the same picture as `query`.
+    ///
+    /// Needs `set` because settling a tie means comparing bytes: several
+    /// entries at the same distance is, on a real archive, overwhelmingly the
+    /// *same file uploaded twice* — and then either will do. This is the same
+    /// rule [`ArchiveSet::resolve`] applies to a size clash, and it has to be
+    /// the same rule, or a duplicate upload would be matched by one path and
+    /// downloaded by the other.
+    ///
+    /// Returns `None` when nothing is close enough, and when the tied entries
+    /// genuinely differ — a clash is detected, never resolved on probability.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if a tied entry could not be read back for comparison.
+    pub fn locate(&self, set: &ArchiveSet, query: Phash) -> Result<Option<usize>> {
+        let candidates: Vec<Phash> = self.hashes.iter().map(|(_, hash)| *hash).collect();
+
+        match phash::find(query, &candidates) {
+            phash::Match::Found(index) => Ok(Some(self.hashes[index].0)),
+            phash::Match::None => Ok(None),
+            phash::Match::Ambiguous(tied) => {
+                let Some((first, rest)) = tied.split_first() else {
+                    return Ok(None);
+                };
+                let reference = set.read_at(self.hashes[*first].0)?;
+                for other in rest {
+                    if set.read_at(self.hashes[*other].0)? != reference {
+                        // Different pictures the hash cannot tell apart, or the
+                        // same picture stored two different ways. Either way a
+                        // choice would be a guess.
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(self.hashes[*first].0))
+            }
+        }
+    }
+
+    /// Reads the bytes of the entry that is the same picture as `query`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the matched entry could not be read back.
+    pub fn resolve(&self, set: &ArchiveSet, query: Phash) -> Result<Option<Vec<u8>>> {
+        match self.locate(set, query)? {
+            Some(position) => set.read_at(position).map(Some),
+            None => Ok(None),
+        }
+    }
+}
+
+/// Hashes one worker's share, opening each archive it touches once.
+fn hash_slice(set: &ArchiveSet, positions: &[usize]) -> (Vec<(usize, Phash)>, usize) {
+    let mut by_archive: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for position in positions {
+        if let Some(entry) = set.entries.get(*position) {
+            by_archive.entry(entry.archive).or_default().push(*position);
+        }
+    }
+
+    let mut hashes = Vec::with_capacity(positions.len());
+    let mut undecodable = 0;
+
+    for (archive, members) in by_archive {
+        let info = &set.archives[archive];
+        let Ok(file) = std::fs::File::open(&info.path) else {
+            undecodable += members.len();
+            continue;
+        };
+        let Ok(mut zip) = zip::ZipArchive::new(file) else {
+            undecodable += members.len();
+            continue;
+        };
+
+        for position in members {
+            let index = set.entries[position].index;
+            let mut bytes = Vec::new();
+            let read = zip
+                .by_index(index)
+                .map(|mut entry| entry.read_to_end(&mut bytes))
+                .is_ok();
+
+            match read.then(|| phash::hash_image(&bytes)) {
+                Some(Ok(hash)) => hashes.push((position, hash)),
+                // PDFs and anything else `image` cannot read. The page that
+                // would have matched one is downloaded instead.
+                _ => undecodable += 1,
+            }
+        }
+    }
+
+    (hashes, undecodable)
 }
 
 /// Whether an archive entry's name looks like a medium.
@@ -238,6 +514,19 @@ mod tests {
     use std::io::Write;
 
     use super::*;
+
+    /// A deterministic PNG, distinct per `seed`, for content-matching tests.
+    fn png(width: u32, height: u32, seed: u32) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            let v = ((x * 7 + y * 13 + seed * 53) % 251) as u8;
+            image::Rgb([v, v.wrapping_mul(3), v.wrapping_add(seed as u8)])
+        });
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(&mut buffer, image::ImageFormat::Png)
+            .expect("encodes");
+        buffer.into_inner()
+    }
 
     /// A scratch directory that cleans itself up.
     struct TempDir(PathBuf);
@@ -431,6 +720,101 @@ mod tests {
         assert_eq!(
             set.resolve(14).expect("resolves").as_deref(),
             Some(&b"a longer entry"[..])
+        );
+    }
+
+    #[test]
+    fn the_phash_index_finds_the_entry_that_is_the_same_picture() {
+        // The multi-page case end to end: an entry the size index cannot help
+        // with, recognised by content instead.
+        let dir = TempDir::new("phash-find");
+        let archive = dir.zip(
+            "data.zip",
+            &[
+                ("page1.png", &png(40, 30, 3)),
+                ("page2.png", &png(40, 30, 91)),
+            ],
+        );
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let index = PhashIndex::build(&set);
+
+        assert_eq!(index.hashed_count(), 2);
+
+        let wanted = crate::phash::hash_image(&png(40, 30, 91)).expect("hashes");
+        let found = index
+            .resolve(&set, wanted)
+            .expect("resolves")
+            .expect("matched");
+        assert_eq!(found, png(40, 30, 91));
+    }
+
+    #[test]
+    fn the_phash_index_skips_what_it_cannot_decode() {
+        // A PDF is counted, not hashed; a page that would have matched it is
+        // downloaded instead, which is correct rather than a gap.
+        let dir = TempDir::new("phash-pdf");
+        let archive = dir.zip(
+            "data.zip",
+            &[
+                ("scan.pdf", b"%PDF-1.4 not really"),
+                ("photo.png", &png(20, 20, 5)),
+            ],
+        );
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let index = PhashIndex::build(&set);
+
+        assert_eq!(index.hashed_count(), 1);
+        assert_eq!(index.undecodable_count(), 1);
+    }
+
+    #[test]
+    fn the_phash_index_declines_rather_than_guessing_between_twins() {
+        // The same picture stored twice: the margin rule refuses both.
+        let dir = TempDir::new("phash-twins");
+        let archive = dir.zip(
+            "data.zip",
+            &[("a.png", &png(30, 30, 7)), ("b.png", &png(30, 30, 7))],
+        );
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let index = PhashIndex::build(&set);
+
+        let wanted = crate::phash::hash_image(&png(30, 30, 7)).expect("hashes");
+        // Byte-identical twins: the same file stored twice, so either will do
+        // — exactly what a size clash between duplicate uploads resolves to.
+        assert!(
+            index.locate(&set, wanted).expect("resolves").is_some(),
+            "byte-identical duplicates are interchangeable"
+        );
+    }
+
+    #[test]
+    fn twins_that_are_not_byte_identical_are_declined() {
+        // The clash that must never be resolved: two entries the hash cannot
+        // separate whose bytes differ. The same picture re-encoded, or two
+        // near-white scans of different documents — either way, choosing would
+        // be a guess, so the caller downloads.
+        let dir = TempDir::new("phash-differ");
+        let same = png(30, 30, 7);
+        let mut recoded = same.clone();
+        // Same pixels, different file: append a PNG comment chunk so the bytes
+        // differ while the decoded image does not.
+        recoded.extend_from_slice(b"\x00\x00\x00\x00tEXtx");
+        let archive = dir.zip("data.zip", &[("a.png", &same), ("b.png", &recoded)]);
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let index = PhashIndex::build(&set);
+
+        let wanted = crate::phash::hash_image(&same).expect("hashes");
+        assert!(
+            index.locate(&set, wanted).expect("resolves").is_none(),
+            "entries that differ must not be chosen between"
         );
     }
 

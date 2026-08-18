@@ -141,7 +141,6 @@ oxidgene/
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
 │   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + Dioxus WebView)
-│   ├── oxidgene-cli/       # CLI (import/export, migrations, geneanet-media)
 └── docker/                 # Docker files
 ```
 
@@ -159,7 +158,6 @@ oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-gedcom, oxidgene-
     ↑
 oxidgene-server (depends on: oxidgene-api, oxidgene-db)
 oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui, oxidgene-geneanet)
-oxidgene-cli (depends on: oxidgene-db, oxidgene-gedcom, oxidgene-geneanet)
 
 oxidgene-ui (depends on: oxidgene-core)
 ```
@@ -172,4 +170,4 @@ Where it needs something only the desktop can do — the
 and injects as context. The web build simply finds none and renders the
 explanation instead of the control.
 
-**Current layout:** All 7 crates are co-located in `crates/`. The base migration `m20250101_000001_initial.rs` holds the bulk of the schema (13 tables + the `person_search_fts` FTS5 index); later changes add their own files (`m20260724_*`, `m20260728_000001_person_denorm`). No incremental migration squashing.
+**Current layout:** All 7 crates are co-located in `crates/`, and there are two binaries — the web server and the desktop app. A CLI existed until 2026-08-18 and was removed: half its commands needed direct HTTP to Geneanet, which Cloudflare now refuses outright, and the rest were superseded by the import wizard. The base migration `m20250101_000001_initial.rs` holds the bulk of the schema (13 tables + the `person_search_fts` FTS5 index); later changes add their own files (`m20260724_*`, `m20260728_000001_person_denorm`). No incremental migration squashing.

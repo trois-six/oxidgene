@@ -43,6 +43,11 @@ pub struct ImportSummary {
 pub struct ExportData {
     pub gedcom: String,
     pub warnings: Vec<String>,
+    /// What a GEDZIP of this export must contain, as (storage key, path
+    /// inside the archive). Empty unless the export asked for archive paths:
+    /// a plain `.ged` references the producer's own paths and carries no
+    /// files.
+    pub media_files: Vec<(String, String)>,
 }
 
 /// Insert a batch of active models using `insert_many`, chunked to stay within
@@ -169,6 +174,8 @@ pub(crate) async fn persist_import_result(
                 date_qualifier: Set(m.date_qualifier.into()),
                 date_value2: Set(m.date_value2.clone()),
                 calendar: Set(m.calendar.into()),
+                source_media_type: Set(m.source_media_type.into()),
+                document_category: Set(m.document_category.map(|c| c.as_str().to_string())),
                 place_id: Set(m.place_id),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -404,6 +411,7 @@ pub async fn load_and_export(
     tree_id: Uuid,
     merge_occupations: bool,
     merge_names: bool,
+    for_archive: bool,
 ) -> Result<ExportData, OxidGeneError> {
     // Verify tree exists
     let _tree = TreeRepo::get(db, tree_id).await?;
@@ -435,6 +443,25 @@ pub async fn load_and_export(
 
     let notes = NoteRepo::list_all(db, tree_id).await?;
 
+    // A GEDZIP carries the bytes, so its `FILE` lines name entries inside the
+    // archive rather than the paths whatever produced the record used. Media
+    // we hold no bytes for keep their original value — there is nothing to
+    // pack for them and nothing better to say.
+    let mut media_paths = std::collections::HashMap::new();
+    let mut media_files = Vec::new();
+    if for_archive {
+        for medium in &media {
+            let (Some(path), Some(key)) = (
+                oxidgene_gedcom::export::archive_path(medium),
+                medium.storage_key.clone(),
+            ) else {
+                continue;
+            };
+            media_paths.insert(medium.id, path.clone());
+            media_files.push((key, path));
+        }
+    }
+
     // Export to GEDCOM
     let export_result = oxidgene_gedcom::export::export_gedcom(
         &persons,
@@ -452,11 +479,13 @@ pub async fn load_and_export(
         &notes,
         merge_occupations,
         merge_names,
+        &media_paths,
     )
     .map_err(OxidGeneError::Gedcom)?;
 
     Ok(ExportData {
         gedcom: export_result.gedcom,
         warnings: export_result.warnings,
+        media_files,
     })
 }

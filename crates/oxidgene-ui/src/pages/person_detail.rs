@@ -290,7 +290,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Tree-wide photo map (person_id -> file_path), used both for this
+    // Tree-wide portrait map (person_id -> image URL), used both for this
     // person's header avatar and for the mini pedigrees below — a single
     // `list_media_links_for_tree` call instead of two duplicate ones.
     let api_photos_map = api.clone();
@@ -301,15 +301,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             let Some(tid) = tid else {
                 return HashMap::new();
             };
-            api.list_media_links_for_tree(tid)
-                .await
-                .map(|rows| {
-                    rows.into_iter()
-                        .filter(|r| r.entity_type == "person")
-                        .map(|r| (r.entity_id, r.file_path))
-                        .collect()
-                })
-                .unwrap_or_default()
+            match api.list_media_links_for_tree(tid).await {
+                Ok(rows) => api.portrait_map(tid, &rows),
+                Err(_) => HashMap::new(),
+            }
         }
     });
 

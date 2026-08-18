@@ -391,6 +391,14 @@ pub struct UpdateMediaRequest {
     /// Only meaningful alongside a `file_path` we cannot sniff. Left out, the
     /// server guesses from the URL's extension.
     pub mime_type: Option<String>,
+    /// What the medium physically is, in GEDCOM's own vocabulary.
+    pub source_media_type: Option<oxidgene_core::enums::SourceMediaType>,
+    /// What kind of record it is. Clearing it is meaningful — a scan can stop
+    /// being classified — so this distinguishes "absent" from "set to null".
+    /// Setting it without a `source_media_type` also sets the medium it
+    /// implies, so a census return does not export as `OTHER`.
+    #[serde(default, deserialize_with = "double_option")]
+    pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
 }
 
 /// Request body for creating an empty multi-page document.
@@ -462,6 +470,9 @@ pub struct MediaLinkListRow {
     pub mime_type: String,
     /// Whether a thumbnail was generated; the caller draws an icon otherwise.
     pub has_thumbnail: bool,
+    /// Whether this is the person's profile image — the one a pedigree card
+    /// and a profile header show. Always `false` on an event row.
+    pub is_profile: bool,
 }
 
 /// Query parameters for the media-links list, which answers three questions.
@@ -846,16 +857,67 @@ pub struct GeneanetPreviewResponse {
     pub persons_with_photo: usize,
     pub attachment_count: usize,
     pub in_archives: usize,
+    /// Document pages recognised in the archives by content rather than size.
+    pub to_match: usize,
     pub to_download: usize,
     pub group_photos: usize,
     pub unlinked_views: usize,
+    /// Multi-page deposits imported as documents.
+    pub documents: usize,
+    /// Pages those documents hold — all of them are imported.
+    pub document_pages: usize,
+    pub unlinked_names: usize,
     pub outside_tree: usize,
     pub ambiguous: usize,
+    pub unlinked_names_sample: Vec<String>,
     pub outside_tree_names: Vec<String>,
     pub ambiguous_names: Vec<String>,
     /// `true` when almost no photo matched — the `.gw` and the account are
     /// probably not the same tree, and the wizard blocks rather than importing.
     pub mismatch: bool,
+}
+
+/// A step-3 session to encode for saving.
+#[derive(Debug, Deserialize)]
+pub struct EncodeSessionRequest {
+    pub collection: String,
+    #[serde(default)]
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    #[serde(default)]
+    pub account: Option<String>,
+    /// Media already fetched, base64 by URL. Present only in a save made after
+    /// step 4, and what lets the file be imported with no connection at all.
+    #[serde(default)]
+    pub media: std::collections::HashMap<String, String>,
+}
+
+/// What a saved session held.
+#[derive(Debug, Serialize)]
+pub struct DecodeSessionResponse {
+    pub collection: String,
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    pub account: Option<String>,
+    pub photo_count: usize,
+    /// Media the file carried. Empty means the wizard still has to gather them.
+    pub media: std::collections::HashMap<String, String>,
+}
+
+/// One medium the server cannot produce on its own.
+#[derive(Debug, Serialize)]
+pub struct NeededMedia {
+    pub deposit_id: i64,
+    pub view_id: i64,
+    pub page: Option<i64>,
+    /// Where the login window should fetch it from.
+    pub url: String,
+    /// `true` for a deposit's exact original, `false` for a page rendition.
+    pub original: bool,
+}
+
+/// What the login window has to fetch before an import can run.
+#[derive(Debug, Serialize)]
+pub struct GeneanetPlanResponse {
+    pub needed: Vec<NeededMedia>,
 }
 
 /// The same inputs as the preview, plus what it takes to fetch bytes. Step 5.
@@ -868,11 +930,32 @@ pub struct GeneanetImportRequest {
     pub deposit_sizes: std::collections::HashMap<i64, u64>,
     #[serde(default)]
     pub archive_paths: Vec<String>,
-    /// Geneanet session cookie, taken from the login window. Absent when the
-    /// archives cover every photo, in which case nothing is downloaded and
-    /// nothing needs authenticating.
+    /// Media the login window fetched, keyed by the URL they came from —
+    /// **filesystem paths**, not the bytes.
+    ///
+    /// The server never fetches anything itself: no direct request to Geneanet
+    /// succeeds, whatever the cookie and whatever the client. The window the
+    /// user signed in to does it, writes each medium to a temp directory, and
+    /// names it here. Paths rather than bytes because the gather only runs on
+    /// the desktop, where this server is in-process on the same filesystem —
+    /// exactly like the archive paths of step 2. Carrying the bytes instead
+    /// meant base64 inflating them by a third and a request body that grew
+    /// with the size of somebody's photo collection.
     #[serde(default)]
-    pub cookie: Option<String>,
+    pub fetched: std::collections::HashMap<String, String>,
+    /// Names this run so its progress can be asked about while it is going.
+    #[serde(default)]
+    pub progress_id: Option<uuid::Uuid>,
+}
+
+/// How far a running import has got.
+#[derive(Debug, Serialize)]
+pub struct ImportProgressResponse {
+    pub phase: crate::service::geneanet::ImportPhase,
+    /// Media written so far, and expected in total. Zero total means the run
+    /// has not reached the media yet.
+    pub done: usize,
+    pub total: usize,
 }
 
 /// What the import actually did.
@@ -889,6 +972,12 @@ pub struct GeneanetImportResponse {
     /// Person↔photo rows; higher than `media_count` when a photo shows several
     /// people, which is what the Geneanet export could not express at all.
     pub links_count: usize,
+    /// Links marked as a person's profile photo, from the `.gw`'s `#image`.
+    pub portraits_count: usize,
+    /// People created for identifications Geneanet marks "hors de l'arbre".
+    pub isolated_count: usize,
+    /// Identification boxes kept as regions on the stored pictures.
+    pub vignettes_count: usize,
     /// Photos that could not be fetched, one line each.
     pub skipped: Vec<String>,
     pub warnings: Vec<String>,

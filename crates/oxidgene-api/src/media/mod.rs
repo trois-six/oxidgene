@@ -327,6 +327,8 @@ mod tests {
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
+            source_media_type: Default::default(),
+            document_category: None,
             place_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
