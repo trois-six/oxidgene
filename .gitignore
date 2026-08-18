@@ -36,5 +36,4 @@ lcov.info
 .claude
 .cargo/config.toml
 .codegraph
-# Freedesktop trash, created when deleting from a file manager in this directory.
-.Trash-*/
+
