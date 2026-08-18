@@ -3622,12 +3622,112 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-viewer {
         display: flex;
         flex-direction: column;
-        max-width: min(1100px, 100%);
+        max-width: min(1400px, 100%);
         max-height: 100%;
         background: var(--bg-panel);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         overflow: hidden;
+    }
+
+    /* Image and facts side by side: what is written about a scan is most of
+       why it is worth opening, and it used to live only inside an edit form
+       a reader on a profile page never sees. */
+    .media-viewer-body {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+    }
+
+    .media-viewer-main {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+    }
+
+    .media-viewer-aside {
+        flex: 0 0 300px;
+        border-left: 1px solid var(--border);
+        overflow-y: auto;
+        padding: 14px;
+        background: var(--bg-card);
+    }
+
+    /* Below the fold on a narrow screen: the document comes first, and a
+       300px column beside a phone-width image leaves neither readable. */
+    @media (max-width: 900px) {
+        .media-viewer-body { flex-direction: column; }
+        .media-viewer-aside {
+            flex: 0 0 auto;
+            max-height: 40vh;
+            border-left: none;
+            border-top: 1px solid var(--border);
+        }
+    }
+
+    .media-facts {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .media-fact {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        font-size: 0.82rem;
+    }
+
+    /* A description or a note is a paragraph, not a value beside a label. */
+    .media-fact.is-prose { flex-direction: column; gap: 3px; }
+
+    .media-fact-label {
+        flex: 0 0 auto;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .media-fact-value {
+        color: var(--text-primary);
+        line-height: 1.5;
+        margin: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .media-fact-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+
+    .media-fact-tag {
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text-secondary);
+        font-size: 0.74rem;
+        padding: 2px 8px;
+    }
+
+    .media-fact-tech {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+    }
+
+    .media-facts-edit { width: 100%; margin-top: 14px; }
+
+    /* Inside the viewer the panel is the column, not a card floating in one. */
+    .media-panel.is-embedded {
+        background: none;
+        border: none;
+        border-radius: 0;
+        margin: 0;
+        padding: 0;
     }
 
     .media-viewer-stage {

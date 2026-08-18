@@ -945,6 +945,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.no_place", "\u{2014} no place \u{2014}"),
         ("media.note", "Note"),
         ("media.note_placeholder", "What to know about this document"),
+        ("media.clear_profile_image", "Remove as profile photo"),
+        ("media.identified", "Identified"),
         ("media.zoom_in", "Zoom in"),
         ("media.zoom_out", "Zoom out"),
         ("media.zoom_fit", "Fit"),
