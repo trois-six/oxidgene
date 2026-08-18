@@ -33,6 +33,7 @@ use ged_io::types::source::citation::CitationSource;
 use ged_io::types::source::quay::CertaintyAssessment;
 use uuid::Uuid;
 
+use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
     Person, PersonName, Place, Source,
@@ -79,6 +80,7 @@ pub fn export_gedcom(
     notes: &[Note],
     merge_occupations: bool,
     merge_names: bool,
+    media_paths: &HashMap<Uuid, String>,
 ) -> Result<ExportResult, String> {
     let mut warnings: Vec<String> = Vec::new();
 
@@ -300,15 +302,38 @@ pub fn export_gedcom(
     }
 
     // ── Export Multimedia ─────────────────────────────────────────────
+    // xref → the `TYPE` value its `FORM` must carry. Written back in after
+    // serialisation; see `insert_media_types`.
+    let mut media_types: HashMap<String, &'static str> = HashMap::new();
     for m in media {
         let xref = media_xref.get(&m.id).cloned();
+        // `file_path` is the producer's own path, preserved so a plain `.ged`
+        // round-trips to whatever wrote it. A GEDZIP carries the bytes, so
+        // there the `FILE` must name the entry inside the archive instead —
+        // `media_paths` holds those, and is empty for every other export.
+        let path = media_paths
+            .get(&m.id)
+            .cloned()
+            .unwrap_or_else(|| m.file_path.clone());
+        // A category the user chose is the better answer and implies a
+        // medium; the stored medium is what they said when they answered
+        // GEDCOM's own question directly, so it wins where both are set.
+        let medium = match (m.document_category, m.source_media_type) {
+            (Some(category), SourceMediaType::Other) => category.implied_medium(),
+            (_, medium) => medium,
+        };
+        if let Some(xref) = &xref {
+            media_types.insert(xref.clone(), medium.gedcom_value());
+        }
         data.multimedia.push(GedMultimedia {
             xref,
             file: Some(Reference {
-                value: Some(m.file_path.clone()),
+                value: Some(path),
                 form: Some(Format {
                     value: Some(m.mime_type.clone()),
-                    ..Default::default()
+                    // Set for completeness, and ignored by the writer — see
+                    // `insert_media_types`, which is what actually emits it.
+                    source_media_type: Some(medium.gedcom_value().to_string()),
                 }),
                 ..Default::default()
             }),
@@ -519,23 +544,122 @@ pub fn export_gedcom(
     let gedcom = GedcomWriter::new()
         .write_to_string(&data)
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
+    let gedcom = insert_media_types(&gedcom, &media_types);
 
     Ok(ExportResult { gedcom, warnings })
 }
 
-/// Wrap a GEDCOM string into a GEDZIP archive (a ZIP file containing
-/// `gedcom.ged`), per the GEDCOM 7.0 GEDZIP format.
+/// Write each `OBJE`'s `SOURCE_MEDIA_TYPE` into the serialised GEDCOM.
+///
+/// `ged_io` parses `FORM.TYPE` into `Format::source_media_type` and its writer
+/// never emits it — the field is read-only in practice, so setting it on the
+/// record before serialising produces a file without it. Until that is fixed
+/// upstream (see the `ged_io` note in the crate docs), the line is written
+/// here.
+///
+/// This is text manipulation of a GEDCOM, which is normally the wrong tool.
+/// It is safe in this one place because the text was produced by the writer
+/// two statements earlier, so its shape is known exactly rather than guessed:
+/// a record opens with `0 @X@ OBJE`, its `FILE` is at level 1, and the `FORM`
+/// this attaches to is the level-2 line under it. Anything unrecognised is
+/// passed through untouched.
+fn insert_media_types(gedcom: &str, types: &HashMap<String, &'static str>) -> String {
+    if types.is_empty() {
+        return gedcom.to_string();
+    }
+    let mut out = String::with_capacity(gedcom.len() + types.len() * 16);
+    // The type owed to the record currently being read, if it is an `OBJE` we
+    // have one for. Cleared by the next level-0 line, so a `FORM` belonging to
+    // some later record can never pick it up.
+    let mut pending: Option<&'static str> = None;
+    for line in gedcom.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if let Some(rest) = trimmed.strip_prefix("0 ") {
+            pending = rest
+                .strip_suffix(" OBJE")
+                .and_then(|xref| types.get(xref))
+                .copied();
+        }
+        out.push_str(line);
+        if let Some(value) = pending
+            && trimmed.starts_with("2 FORM ")
+        {
+            // The line ending the writer chose, so the file stays consistent.
+            let ending = line.strip_prefix(trimmed).unwrap_or("\n");
+            out.push_str("3 TYPE ");
+            out.push_str(value);
+            out.push_str(ending);
+            pending = None;
+        }
+    }
+    out
+}
+
+/// Where a media's bytes live inside a GEDZIP, if we hold any.
+///
+/// `None` for a record with no stored bytes — a GEDCOM import that named a
+/// file nobody ever uploaded, or a remote URL we deliberately never fetched.
+/// Those keep their original `FILE` value, which is the only thing we know
+/// about them.
+///
+/// The name is the media's id rather than its own file name: two scans called
+/// `photo.jpg` are routine in one tree, and an archive cannot hold both under
+/// that name. The extension is kept so the file opens by double-click after
+/// unzipping.
+#[must_use]
+pub fn archive_path(media: &Media) -> Option<String> {
+    media.storage_key.as_ref()?;
+    let extension = media
+        .file_name
+        .rsplit_once('.')
+        .map(|(_, ext)| ext)
+        .filter(|ext| !ext.is_empty() && ext.len() <= 4 && ext.chars().all(char::is_alphanumeric))
+        .map(str::to_ascii_lowercase)
+        .or_else(|| extension_for(&media.mime_type).map(str::to_string));
+    Some(match extension {
+        Some(ext) => format!("media/{}.{ext}", media.id),
+        None => format!("media/{}", media.id),
+    })
+}
+
+/// The conventional extension for a MIME type, for media whose file name
+/// carries none.
+fn extension_for(mime_type: &str) -> Option<&'static str> {
+    Some(match mime_type {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/tiff" => "tif",
+        "image/webp" => "webp",
+        "application/pdf" => "pdf",
+        _ => return None,
+    })
+}
+
+/// Wrap a GEDCOM string and its media into a GEDZIP archive, per GEDCOM 7.0.
+///
+/// `files` pairs each archive path — the same value the corresponding `FILE`
+/// line carries, from [`archive_path`] — with the bytes to store there. An
+/// empty slice produces the bare `gedcom.ged` archive, which is what this
+/// wrote unconditionally before: the format's entire point is that the media
+/// travel with the data, and a `.gdz` holding only the GEDCOM is a `.ged` in
+/// a costume.
 ///
 /// # Errors
 ///
 /// Returns `Err` if the ZIP archive cannot be written.
-pub fn export_gedzip(gedcom: &str) -> Result<Vec<u8>, String> {
+pub fn export_gedzip(gedcom: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let cursor = std::io::Cursor::new(Vec::new());
     let mut writer =
         ged_io::gedzip::GedzipWriter::new(cursor).map_err(|e| format!("GEDZIP error: {e}"))?;
     writer
         .write_gedcom_bytes(gedcom.as_bytes())
         .map_err(|e| format!("GEDZIP error: {e}"))?;
+    for (path, bytes) in files {
+        writer
+            .add_media_file(path, bytes)
+            .map_err(|e| format!("GEDZIP error: {e}"))?;
+    }
     let cursor = writer.finish().map_err(|e| format!("GEDZIP error: {e}"))?;
     Ok(cursor.into_inner())
 }
@@ -1141,4 +1265,243 @@ fn format_coord(value: f64, is_latitude: bool) -> String {
         ("W", -value)
     };
     format!("{prefix}{abs}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxidgene_core::enums::DocumentCategory;
+
+    fn medium(file_name: &str, mime_type: &str, stored: bool) -> Media {
+        Media {
+            id: Uuid::now_v7(),
+            tree_id: Uuid::now_v7(),
+            file_name: file_name.to_string(),
+            mime_type: mime_type.to_string(),
+            file_path: "C:\\Photos\\original.jpg".to_string(),
+            storage_key: stored.then(|| "ab/cdef".to_string()),
+            sha256: None,
+            thumbnail_key: None,
+            width: None,
+            height: None,
+            page_count: 1,
+            parent_media_id: None,
+            page_index: 0,
+            is_document: false,
+            title: None,
+            description: None,
+            file_size: 0,
+            date_value: None,
+            date_sort: None,
+            date_qualifier: Default::default(),
+            date_value2: None,
+            calendar: Default::default(),
+            source_media_type: Default::default(),
+            document_category: None,
+            place_id: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn a_medium_we_hold_is_filed_under_its_id_so_two_photo_jpgs_can_coexist() {
+        let first = medium("photo.jpg", "image/jpeg", true);
+        let second = medium("photo.jpg", "image/jpeg", true);
+        let (Some(a), Some(b)) = (archive_path(&first), archive_path(&second)) else {
+            panic!("both are stored")
+        };
+        assert_ne!(a, b, "one name for both would lose a file");
+        assert_eq!(a, format!("media/{}.jpg", first.id));
+    }
+
+    #[test]
+    fn a_medium_with_no_bytes_has_no_place_in_the_archive() {
+        // A GEDCOM import that named a file nobody uploaded. There is nothing
+        // to pack, so its `FILE` keeps whatever the producer wrote.
+        assert_eq!(
+            archive_path(&medium("photo.jpg", "image/jpeg", false)),
+            None
+        );
+    }
+
+    #[test]
+    fn an_extension_is_recovered_from_the_type_when_the_name_carries_none() {
+        let m = medium("scan", "image/png", true);
+        assert_eq!(archive_path(&m), Some(format!("media/{}.png", m.id)));
+    }
+
+    #[test]
+    fn a_full_stop_in_a_title_is_not_mistaken_for_an_extension() {
+        let m = medium("Acte n. 12 du registre", "image/jpeg", true);
+        // "12 du registre" is not an extension; the MIME type decides.
+        assert_eq!(archive_path(&m), Some(format!("media/{}.jpg", m.id)));
+    }
+
+    #[test]
+    fn an_archive_carries_the_media_and_the_gedcom_names_them() {
+        let m = medium("photo.jpg", "image/jpeg", true);
+        let path = archive_path(&m).expect("stored");
+        let mut paths = HashMap::new();
+        paths.insert(m.id, path.clone());
+
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&m),
+            &[],
+            &[],
+            false,
+            false,
+            &paths,
+        )
+        .expect("exports");
+        // The FILE line points into the archive, not at the Windows path the
+        // record was imported with.
+        assert!(
+            export.gedcom.contains(&path),
+            "the GEDCOM must name the entry it ships: {}",
+            export.gedcom
+        );
+        assert!(!export.gedcom.contains("C:\\Photos"));
+
+        let bytes =
+            export_gedzip(&export.gedcom, &[(path.clone(), b"JPEGBYTES".to_vec())]).expect("zips");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
+        // The bug this pins: the archive used to hold gedcom.ged and nothing
+        // else, so every photograph was silently dropped on export.
+        let mut entry = archive.by_name(&path).expect("the photo travelled");
+        let mut held = Vec::new();
+        std::io::Read::read_to_end(&mut entry, &mut held).expect("reads");
+        assert_eq!(held, b"JPEGBYTES");
+    }
+
+    #[test]
+    fn the_physical_medium_survives_an_export_and_a_re_import() {
+        let mut m = medium("headstone.jpg", "image/jpeg", true);
+        m.source_media_type = SourceMediaType::Tombstone;
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&m),
+            &[],
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(
+            export.gedcom.contains("3 TYPE TOMBSTONE"),
+            "the medium must reach the file: {}",
+            export.gedcom
+        );
+
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        assert_eq!(
+            back.media.first().map(|m| m.source_media_type),
+            Some(SourceMediaType::Tombstone)
+        );
+    }
+
+    #[test]
+    fn a_category_gedcom_cannot_express_still_exports_the_medium_it_implies() {
+        // A census return is `MANUSCRIPT` to GEDCOM. Writing `OTHER` because
+        // the user answered the richer question instead of the poorer one
+        // would make our own export worse than the classification we hold.
+        let mut m = medium("recensement.jpg", "image/jpeg", true);
+        m.document_category = Some(DocumentCategory::Census);
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&m),
+            &[],
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("MANUSCRIPT"), "{}", export.gedcom);
+    }
+
+    #[test]
+    fn an_explicit_medium_is_not_overridden_by_the_category() {
+        // The user answered both questions; neither answer is ours to discard.
+        let mut m = medium("microfilm.jpg", "image/jpeg", true);
+        m.document_category = Some(DocumentCategory::CivilRecord);
+        m.source_media_type = SourceMediaType::Fiche;
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&m),
+            &[],
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("FICHE"), "{}", export.gedcom);
+        assert!(!export.gedcom.contains("MANUSCRIPT"));
+    }
+
+    #[test]
+    fn a_plain_gedcom_export_still_references_the_producers_own_path() {
+        let m = medium("photo.jpg", "image/jpeg", true);
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&m),
+            &[],
+            &[],
+            false,
+            false,
+            // No archive: nothing to point into.
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("C:\\Photos\\original.jpg"));
+    }
 }

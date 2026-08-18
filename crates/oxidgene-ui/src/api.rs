@@ -11,9 +11,11 @@ use oxidgene_core::types::{
     Media, Note, Person, PersonName, Place, Source, Tree, Vignette,
 };
 use oxidgene_core::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
+    Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
+    Sex, SourceMediaType, SpouseRole,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 // ── PersonDetail — person + server-computed SOSA number ──────────────
@@ -393,6 +395,20 @@ pub struct MediaLinkRow {
     pub file_name: String,
     pub mime_type: String,
     pub has_thumbnail: bool,
+    /// Whether this is the person's profile image. Always `false` on an event
+    /// row — only a person has a portrait.
+    #[serde(default)]
+    pub is_profile: bool,
+}
+
+/// Whether a `file_path` is an address rather than a path.
+///
+/// The column holds whatever produced the record wrote there: a Windows path
+/// out of a GEDCOM, a relative name, or — when the media is one we deliberately
+/// never fetched — the URL it lives at. Only the last is something a browser
+/// can be pointed at.
+fn is_remote(file_path: &str) -> bool {
+    file_path.starts_with("http://") || file_path.starts_with("https://")
 }
 
 /// A media together with the link that attached it — one gallery tile.
@@ -464,9 +480,7 @@ impl MediaWithLink {
     pub fn source(&self) -> MediaSource {
         if self.media.storage_key.is_some() {
             MediaSource::Stored
-        } else if self.media.file_path.starts_with("http://")
-            || self.media.file_path.starts_with("https://")
-        {
+        } else if is_remote(&self.media.file_path) {
             MediaSource::Remote
         } else {
             MediaSource::Unheld
@@ -605,6 +619,14 @@ pub struct UpdateMediaBody {
     pub file_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+    /// What the medium physically is, in GEDCOM's own vocabulary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_media_type: Option<SourceMediaType>,
+    /// What kind of record it is. Sending it without a `source_media_type`
+    /// also sets the medium it implies, so a census return does not export as
+    /// `OTHER`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_category: Option<Option<DocumentCategory>>,
 }
 
 // ── Vignette DTOs ────────────────────────────────────────────────────
@@ -702,6 +724,47 @@ pub struct GeneanetPreviewBody {
     pub archive_paths: Vec<String>,
 }
 
+/// A step-3 session, encoded for the file the wizard saves.
+#[derive(Debug, Serialize)]
+pub struct GeneanetSessionBody {
+    pub collection: String,
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    pub account: Option<String>,
+    /// Media already fetched. Saving after step 4 includes them, which is what
+    /// makes the file importable with no connection.
+    pub media: std::collections::HashMap<String, String>,
+}
+
+/// What a saved session held.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GeneanetSession {
+    pub collection: String,
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    pub account: Option<String>,
+    /// Media the collection covers, pages included.
+    pub photo_count: usize,
+    /// Media the file carried. Empty means the wizard must still gather them.
+    pub media: std::collections::HashMap<String, String>,
+}
+
+/// One medium the server cannot produce on its own.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct NeededMedia {
+    pub deposit_id: i64,
+    pub view_id: i64,
+    pub page: Option<i64>,
+    /// Where the login window should fetch it from.
+    pub url: String,
+    /// `true` for a deposit's exact original, `false` for a page rendition.
+    pub original: bool,
+}
+
+/// What the login window has to fetch before an import can run.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GeneanetPlan {
+    pub needed: Vec<NeededMedia>,
+}
+
 /// The stat row and the explanatory lines of step 4.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct GeneanetPreview {
@@ -710,11 +773,19 @@ pub struct GeneanetPreview {
     pub persons_with_photo: usize,
     pub attachment_count: usize,
     pub in_archives: usize,
+    /// Document pages recognised in the archives by content rather than size.
+    pub to_match: usize,
     pub to_download: usize,
     pub group_photos: usize,
     pub unlinked_views: usize,
+    /// Multi-page deposits imported as documents.
+    pub documents: usize,
+    /// Pages those documents hold — all of them are imported.
+    pub document_pages: usize,
+    pub unlinked_names: usize,
     pub outside_tree: usize,
     pub ambiguous: usize,
+    pub unlinked_names_sample: Vec<String>,
     pub outside_tree_names: Vec<String>,
     pub ambiguous_names: Vec<String>,
     /// `true` when almost no photo matched — the wizard blocks rather than
@@ -729,9 +800,22 @@ pub struct GeneanetImportBody {
     pub collection: String,
     pub deposit_sizes: std::collections::HashMap<i64, u64>,
     pub archive_paths: Vec<String>,
-    /// Absent when the archives cover every photo — nothing is downloaded, so
-    /// nothing needs authenticating.
-    pub cookie: Option<String>,
+    /// Media the login window fetched, keyed by URL — **paths**, not bytes.
+    ///
+    /// The server never fetches anything itself: no direct request to Geneanet
+    /// succeeds. The window writes each medium to a temp directory and this
+    /// names them, which keeps the request small however many there are.
+    pub fetched: std::collections::HashMap<String, String>,
+    /// Names this run so its progress can be polled while it runs.
+    pub progress_id: Option<Uuid>,
+}
+
+/// How far a running import has got.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ImportProgress {
+    pub phase: String,
+    pub done: usize,
+    pub total: usize,
 }
 
 /// What the Geneanet import actually did.
@@ -746,6 +830,12 @@ pub struct GeneanetImportResult {
     pub media_count: usize,
     /// Higher than `media_count` when a photo shows several people.
     pub links_count: usize,
+    /// Links marked as a person's profile photo.
+    pub portraits_count: usize,
+    /// People created for identifications Geneanet marks "hors de l'arbre".
+    pub isolated_count: usize,
+    /// Identification boxes kept as regions on the stored pictures.
+    pub vignettes_count: usize,
     pub skipped: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -2099,6 +2189,74 @@ impl ApiClient {
         self.url(&format!("/api/v1/trees/{tree_id}/media/{media_id}/file"))
     }
 
+    /// Where a person's portrait can actually be shown from, if anywhere.
+    ///
+    /// Not `file_path`. That column is the *producer's* path — the `OBJE.FILE`
+    /// a GEDCOM carried, or the address a Geneanet deposit was served under —
+    /// kept verbatim so an export round-trips. It is not a URL this
+    /// application can load, and putting it in an `<img src>` is what turned
+    /// every card with a real photograph into a broken-image icon while the
+    /// people with *no* photograph, who fell through to the silhouette,
+    /// rendered correctly.
+    ///
+    /// The three cases, in the order they are worth trying:
+    ///
+    ///   - a **thumbnail** exists — we hold the bytes and have rasterised
+    ///     them. A pedigree card is 50 pixels wide, so the 400-pixel
+    ///     thumbnail is not merely acceptable here, it is the right file;
+    ///   - the media is **remote** — `file_path` is an `http(s)` URL we
+    ///     recorded and never fetched, so it is the only copy there is;
+    ///   - otherwise there is **nothing to show**. A record naming a file
+    ///     nobody uploaded, or one we could not rasterise, has no portrait,
+    ///     and `None` lets the caller draw the silhouette instead of asking
+    ///     the browser for bytes that will 404.
+    pub fn portrait_url(&self, tree_id: Uuid, row: &MediaLinkRow) -> Option<String> {
+        if row.has_thumbnail {
+            Some(self.media_thumbnail_url(tree_id, row.media_id))
+        } else if is_remote(&row.file_path) {
+            Some(row.file_path.clone())
+        } else {
+            None
+        }
+    }
+
+    /// One portrait per person, from the tree-wide link list.
+    ///
+    /// A person can have a dozen photographs attached and only one of them is
+    /// their portrait: the link they marked as the profile image. Collecting
+    /// the rows into a map without checking that flag lets whichever row the
+    /// database happened to return last win, which is why a person could
+    /// star a photograph and still see a different one on their card.
+    pub fn portrait_map(&self, tree_id: Uuid, rows: &[MediaLinkRow]) -> HashMap<Uuid, String> {
+        let mut portraits: HashMap<Uuid, String> = HashMap::new();
+        // Whether the entry already in the map was a deliberate choice. A
+        // starred link may arrive after an unstarred one, and must replace it.
+        let mut chosen: HashSet<Uuid> = HashSet::new();
+        for row in rows.iter().filter(|r| r.entity_type == "person") {
+            if chosen.contains(&row.entity_id) && !row.is_profile {
+                continue;
+            }
+            let Some(url) = self.portrait_url(tree_id, row) else {
+                continue;
+            };
+            if row.is_profile {
+                chosen.insert(row.entity_id);
+            }
+            portraits.insert(row.entity_id, url);
+        }
+        portraits
+    }
+
+    /// Absolute URL of a document's pages, packed into one ZIP.
+    ///
+    /// Only meaningful for a media with pages: a forty-page register is one
+    /// document to the reader, and saving it a page at a time is forty save
+    /// dialogs and a directory whose alphabetical order has nothing to do
+    /// with the document's.
+    pub fn media_archive_url(&self, tree_id: Uuid, media_id: Uuid) -> String {
+        self.url(&format!("/api/v1/trees/{tree_id}/media/{media_id}/archive"))
+    }
+
     /// Absolute URL of a media's generated thumbnail.
     pub fn media_thumbnail_url(&self, tree_id: Uuid, media_id: Uuid) -> String {
         self.url(&format!(
@@ -2480,6 +2638,66 @@ impl ApiClient {
         self.post("/api/v1/geneanet/preview", body).await
     }
 
+    /// Encode a collected session as the JSON the wizard writes to disk.
+    ///
+    /// Done server-side so the file format lives in one place — the same
+    /// module the loader validates against — rather than being assembled by
+    /// hand in the UI.
+    pub async fn encode_geneanet_session(
+        &self,
+        body: &GeneanetSessionBody,
+    ) -> Result<Vec<u8>, ApiError> {
+        // The archive itself, not JSON around it: the wizard writes these
+        // bytes straight to the file the user chose, and wrapping a ZIP in
+        // JSON would only base64 it again — the very thing the container
+        // exists to stop.
+        let url = self.url("/api/v1/geneanet/session/encode");
+        let resp = self.client.post(&url).json(body).send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            return Err(ApiError::Api {
+                status,
+                body: resp.text().await.unwrap_or_default(),
+            });
+        }
+
+        Ok(resp.bytes().await?.to_vec())
+    }
+
+    /// Read a saved session back, checking it really is one.
+    pub async fn decode_geneanet_session(
+        &self,
+        json: Vec<u8>,
+    ) -> Result<GeneanetSession, ApiError> {
+        self.post_bytes("/api/v1/geneanet/session/decode", json, &())
+            .await
+    }
+
+    /// Ask what the login window has to fetch before an import can run.
+    ///
+    /// The server never reaches Geneanet — every direct request is challenged
+    /// whatever the cookie — so anything it cannot find in the local archives
+    /// has to come through the window the user signed in to.
+    pub async fn plan_geneanet_import(
+        &self,
+        body: &GeneanetPreviewBody,
+    ) -> Result<GeneanetPlan, ApiError> {
+        self.post("/api/v1/geneanet/plan", body).await
+    }
+
+    /// How far a running import has got.
+    ///
+    /// `None` once it has finished — the import's own response is what says it
+    /// is done, and a poll racing the end should not read as an error.
+    pub async fn geneanet_import_progress(
+        &self,
+        progress_id: Uuid,
+    ) -> Result<Option<ImportProgress>, ApiError> {
+        self.get(&format!("/api/v1/geneanet/import/{progress_id}"))
+            .await
+    }
+
     /// Import the tree and attach every photo that joins onto it. Step 5.
     pub async fn import_geneanet(
         &self,
@@ -2626,5 +2844,126 @@ impl ApiClient {
             &[("term", term)],
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn link_row(entity: Uuid, media: Uuid, path: &str, thumb: bool, profile: bool) -> MediaLinkRow {
+        MediaLinkRow {
+            link_id: Uuid::now_v7(),
+            entity_id: entity,
+            entity_type: "person".to_string(),
+            media_id: media,
+            file_path: path.to_string(),
+            file_name: "x.jpg".to_string(),
+            mime_type: "image/jpeg".to_string(),
+            has_thumbnail: thumb,
+            is_profile: profile,
+        }
+    }
+
+    #[test]
+    fn a_stored_portrait_is_served_from_our_thumbnail_not_the_producers_path() {
+        let api = ApiClient::new("http://localhost:3000");
+        let (tree, media) = (Uuid::now_v7(), Uuid::now_v7());
+        // The address a Geneanet deposit was recorded under. Loading it
+        // directly is what turned every card holding a real photograph into a
+        // broken-image icon.
+        let row = link_row(
+            Uuid::now_v7(),
+            media,
+            "https://www.geneanet.org/deposit/4713",
+            true,
+            false,
+        );
+        let url = api.portrait_url(tree, &row).expect("has a portrait");
+        assert_eq!(url, api.media_thumbnail_url(tree, media));
+    }
+
+    #[test]
+    fn a_remote_media_we_never_fetched_is_shown_from_its_own_url() {
+        let api = ApiClient::new("http://localhost:3000");
+        let row = link_row(
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            "https://example.org/photo.jpg",
+            false,
+            false,
+        );
+        assert_eq!(
+            api.portrait_url(Uuid::now_v7(), &row).as_deref(),
+            Some("https://example.org/photo.jpg")
+        );
+    }
+
+    #[test]
+    fn a_record_naming_a_file_nobody_uploaded_has_no_portrait() {
+        let api = ApiClient::new("http://localhost:3000");
+        // No thumbnail, and a path that is not an address: there is nothing to
+        // load. `None` is what lets the card draw the silhouette instead of
+        // asking the browser for bytes that will 404.
+        let row = link_row(
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            "C:\\Photos\\scan.jpg",
+            false,
+            false,
+        );
+        assert_eq!(api.portrait_url(Uuid::now_v7(), &row), None);
+    }
+
+    #[test]
+    fn the_starred_link_is_the_portrait_whatever_order_the_rows_arrive_in() {
+        let api = ApiClient::new("http://localhost:3000");
+        let (tree, person) = (Uuid::now_v7(), Uuid::now_v7());
+        let starred = Uuid::now_v7();
+        // The starred row leads here and trails in the reversed case; both
+        // must choose it. Collecting into a map without reading the flag lets
+        // whichever row arrived last win, which is the bug this pins.
+        let rows = vec![
+            link_row(person, starred, "", true, true),
+            link_row(person, Uuid::now_v7(), "", true, false),
+        ];
+        assert_eq!(
+            api.portrait_map(tree, &rows).get(&person),
+            Some(&api.media_thumbnail_url(tree, starred))
+        );
+
+        let reversed: Vec<MediaLinkRow> = rows.into_iter().rev().collect();
+        assert_eq!(
+            api.portrait_map(tree, &reversed).get(&person),
+            Some(&api.media_thumbnail_url(tree, starred))
+        );
+    }
+
+    #[test]
+    fn a_person_who_starred_nothing_still_gets_one_of_their_photographs() {
+        let api = ApiClient::new("http://localhost:3000");
+        let (tree, person) = (Uuid::now_v7(), Uuid::now_v7());
+        let rows = vec![
+            link_row(person, Uuid::now_v7(), "", true, false),
+            link_row(person, Uuid::now_v7(), "", true, false),
+        ];
+        assert!(api.portrait_map(tree, &rows).contains_key(&person));
+    }
+
+    #[test]
+    fn a_person_whose_only_photograph_is_unheld_gets_no_portrait() {
+        let api = ApiClient::new("http://localhost:3000");
+        let (tree, person) = (Uuid::now_v7(), Uuid::now_v7());
+        let rows = vec![link_row(person, Uuid::now_v7(), "scan.jpg", false, true)];
+        assert!(api.portrait_map(tree, &rows).is_empty());
+    }
+
+    #[test]
+    fn an_event_row_is_never_mistaken_for_somebodys_portrait() {
+        let api = ApiClient::new("http://localhost:3000");
+        let (tree, event) = (Uuid::now_v7(), Uuid::now_v7());
+        let mut row = link_row(event, Uuid::now_v7(), "", true, false);
+        row.entity_type = "event".to_string();
+        assert!(api.portrait_map(tree, &[row]).is_empty());
     }
 }

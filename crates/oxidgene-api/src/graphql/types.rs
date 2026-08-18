@@ -186,6 +186,121 @@ impl From<GqlChildType> for oxidgene_core::ChildType {
     }
 }
 
+/// What a medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlSourceMediaType {
+    Audio,
+    Book,
+    Card,
+    Electronic,
+    Fiche,
+    Film,
+    Magazine,
+    Manuscript,
+    Map,
+    Newspaper,
+    Photo,
+    Tombstone,
+    Video,
+    Other,
+}
+
+impl From<oxidgene_core::enums::SourceMediaType> for GqlSourceMediaType {
+    fn from(m: oxidgene_core::enums::SourceMediaType) -> Self {
+        use oxidgene_core::enums::SourceMediaType as S;
+        match m {
+            S::Audio => Self::Audio,
+            S::Book => Self::Book,
+            S::Card => Self::Card,
+            S::Electronic => Self::Electronic,
+            S::Fiche => Self::Fiche,
+            S::Film => Self::Film,
+            S::Magazine => Self::Magazine,
+            S::Manuscript => Self::Manuscript,
+            S::Map => Self::Map,
+            S::Newspaper => Self::Newspaper,
+            S::Photo => Self::Photo,
+            S::Tombstone => Self::Tombstone,
+            S::Video => Self::Video,
+            S::Other => Self::Other,
+        }
+    }
+}
+
+impl From<GqlSourceMediaType> for oxidgene_core::enums::SourceMediaType {
+    fn from(m: GqlSourceMediaType) -> Self {
+        match m {
+            GqlSourceMediaType::Audio => Self::Audio,
+            GqlSourceMediaType::Book => Self::Book,
+            GqlSourceMediaType::Card => Self::Card,
+            GqlSourceMediaType::Electronic => Self::Electronic,
+            GqlSourceMediaType::Fiche => Self::Fiche,
+            GqlSourceMediaType::Film => Self::Film,
+            GqlSourceMediaType::Magazine => Self::Magazine,
+            GqlSourceMediaType::Manuscript => Self::Manuscript,
+            GqlSourceMediaType::Map => Self::Map,
+            GqlSourceMediaType::Newspaper => Self::Newspaper,
+            GqlSourceMediaType::Photo => Self::Photo,
+            GqlSourceMediaType::Tombstone => Self::Tombstone,
+            GqlSourceMediaType::Video => Self::Video,
+            GqlSourceMediaType::Other => Self::Other,
+        }
+    }
+}
+
+/// What kind of record a medium is — the distinction GEDCOM cannot draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlDocumentCategory {
+    Portrait,
+    GroupPhoto,
+    FamilyDocument,
+    CivilRecord,
+    ParishRecord,
+    NotarialArchive,
+    MilitaryArchive,
+    Census,
+    CoatOfArms,
+    Grave,
+    Other,
+}
+
+impl From<oxidgene_core::enums::DocumentCategory> for GqlDocumentCategory {
+    fn from(c: oxidgene_core::enums::DocumentCategory) -> Self {
+        use oxidgene_core::enums::DocumentCategory as D;
+        match c {
+            D::Portrait => Self::Portrait,
+            D::GroupPhoto => Self::GroupPhoto,
+            D::FamilyDocument => Self::FamilyDocument,
+            D::CivilRecord => Self::CivilRecord,
+            D::ParishRecord => Self::ParishRecord,
+            D::NotarialArchive => Self::NotarialArchive,
+            D::MilitaryArchive => Self::MilitaryArchive,
+            D::Census => Self::Census,
+            D::CoatOfArms => Self::CoatOfArms,
+            D::Grave => Self::Grave,
+            D::Other => Self::Other,
+        }
+    }
+}
+
+impl From<GqlDocumentCategory> for oxidgene_core::enums::DocumentCategory {
+    fn from(c: GqlDocumentCategory) -> Self {
+        match c {
+            GqlDocumentCategory::Portrait => Self::Portrait,
+            GqlDocumentCategory::GroupPhoto => Self::GroupPhoto,
+            GqlDocumentCategory::FamilyDocument => Self::FamilyDocument,
+            GqlDocumentCategory::CivilRecord => Self::CivilRecord,
+            GqlDocumentCategory::ParishRecord => Self::ParishRecord,
+            GqlDocumentCategory::NotarialArchive => Self::NotarialArchive,
+            GqlDocumentCategory::MilitaryArchive => Self::MilitaryArchive,
+            GqlDocumentCategory::Census => Self::Census,
+            GqlDocumentCategory::CoatOfArms => Self::CoatOfArms,
+            GqlDocumentCategory::Grave => Self::Grave,
+            GqlDocumentCategory::Other => Self::Other,
+        }
+    }
+}
+
 /// Date qualifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlDateQualifier {
@@ -1474,6 +1589,10 @@ pub struct GqlMedia {
     pub description: Option<String>,
     pub date_value: Option<String>,
     pub date_sort: Option<String>,
+    /// What the medium physically is, in GEDCOM's own vocabulary.
+    pub source_media_type: GqlSourceMediaType,
+    /// What kind of record it is; null when unclassified.
+    pub document_category: Option<GqlDocumentCategory>,
     pub place_id: Option<ID>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -1501,6 +1620,8 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             description: m.description,
             date_value: m.date_value,
             date_sort: m.date_sort.map(|d| d.to_string()),
+            source_media_type: m.source_media_type.into(),
+            document_category: m.document_category.map(Into::into),
             place_id: m.place_id.map(|id| ID(id.to_string())),
             created_at: m.created_at,
             updated_at: m.updated_at,

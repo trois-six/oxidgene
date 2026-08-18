@@ -15,7 +15,7 @@ user-facing flow it feeds is specified in
 
 Related: [Architecture](architecture.md) · [Data Model](data-model.md) ·
 [Geneanet Import Wizard](ui-geneanet-import.md) ·
-[GEDCOM Import](ui-gedcom-import.md) · [General](general.md) ·
+[Import](ui-import.md) · [General](general.md) ·
 [Geneanet Upload API](geneanet-upload-api.md) (the *other* Geneanet API —
 the upload app's — reverse-engineered 2026-08-16; Cloudflare/client findings
 live there too)
@@ -76,7 +76,7 @@ Measured on a real 10 254-person tree:
 
 The export loses roughly 55 % of the links and 100 % of the structure.
 
-A second account measured 2026-08-16 (10 196 persons, "juesce") tells the same
+A second account measured 2026-08-16 (10 196 persons) tells the same
 story: **387 deposits / 623 views**, 260 persons with media, **550
 person↔media links**, 235 views linked to nobody — and **92 % of views marked
 private**, which is why anonymous download routes are a dead end (§4).
@@ -222,8 +222,8 @@ person↔media link on the account, each carrying its **whole deposit inline**:
 ```json
 { "id": 15872352,
   "deposit": { "id": 11529525, "title": "…", "views": [ … ] },
-  "firstname": "Georges Auguste", "lastname": "LE SURNAME",
-  "reference_extra_geneweb": { "ref": "le surname|georges auguste|" } }
+  "firstname": "Given_C Given_D", "lastname": "LE SURNAME",
+  "reference_extra_geneweb": { "ref": "le surname|given_c given_d|" } }
 ```
 
 `per_page` is capped at 100 however much you ask for. On the reference account
@@ -271,11 +271,27 @@ whole download phase.
 
 `views[].files.{normal,medium,screen,thumbnail}` are all **generated
 renditions**, re-encoded and downsized. Proof, from known original/rendition
-pairs on the juesce account:
+pairs on the second account:
 
-- Originals uploaded as uncompressed `.bmp` are served as `normal.jpg`; PDF
-  deposits hold one `.pdf` per page in the data archive but one `normal.jpg`
-  per page on the CDN. A format change is necessarily a re-encode.
+- **PDF is the only format rewrite** (corrected 2026-08-17 — an earlier draft
+  claimed BMP was too). A PDF deposit holds one `.pdf` per page in the data
+  archive but one `normal.jpg` per page on the CDN, and that transformation is
+  necessarily a re-encode. Every other format keeps its extension, counted
+  across the second account's whole archive:
+
+  | | archive | CDN renditions |
+  |---|---|---|
+  | `.jpg` | 507 | 523 |
+  | `.jpeg` | 5 | 5 |
+  | `.png` | 88 | 88 |
+  | `.bmp` | 7 | **7** |
+  | `.pdf` | 16 | 0 |
+  | **total** | **623** | **623** |
+
+  523 = 507 + 16, so the sixteen PDF pages are exactly the ones that became
+  JPEGs. This matters to the matching in §5: 607 of 623 comparisons are
+  same-format, and only the PDF pages need an image lifted out of a container
+  before they can be compared at all.
 - `normal` > `medium` > `screen` > `thumbnail` is a four-size ladder; even a
   220-px-wide original gets a `normal.jpg` — "normal" means "the largest
   rendition", not "the file uploaded".
@@ -287,7 +303,7 @@ pairs on the juesce account:
 
 ### Public vs private renditions
 
-On the juesce account: 34 deposits / 49 views public, 353 / 574 private.
+On the second account: 34 deposits / 49 views public, 353 / 574 private.
 
 - **Public** CDN rendition URLs can be fetched **anonymously** — but only with
   a TLS-fingerprint-impersonating client (`curl_cffi`/`wreq`, see §8); plain
@@ -307,7 +323,7 @@ captcha) — and nothing this pipeline needs:
 |---|---|---|
 | Auth | OAuth2 `Bearer`, password grant works | `gntsess5`/`REMEMBERME` cookie |
 | Deposits | `GET /media/deposits.json` — 10/page, `204` past end | 100/page |
-| References | per-view only (623 requests on juesce) | **bulk** (~6 requests), `is_default` flag — **absent** from the app-API object (verified) |
+| References | per-view only (623 requests on the second account) | **bulk** (~6 requests), `is_default` flag — **absent** from the app-API object (verified) |
 | Originals | none — 8 candidate routes `404` | `/media/download/`, byte-identical |
 | Sizes / hashes | none anywhere | `HEAD` → `Content-Length` |
 | Tree | **write-only** (upload; no export route) | — |
@@ -356,7 +372,7 @@ silently resolved.
 ### Site-free pre-matching by upload timestamp (verified 2026-08-16)
 
 The archive can be **pre-linked without any session**, which shrinks the
-`HEAD` pass to only the entries that need verification. On the juesce account
+`HEAD` pass to only the entries that need verification. On the second account
 (623 archive entries ↔ 623 views, bijective):
 
 - **Join key**: the ZIP entry's DOS datetime equals the deposit's
@@ -440,7 +456,7 @@ and `_`, `-` and `'` all become spaces. The occurrence is left empty when zero.
 | `.gw` | Geneanet ref |
 |-------|--------------|
 | `SURNAME_A Renée` | `surname_a\|renee\|` |
-| `LE SURNAME Georges_Auguste` | `le surname\|georges auguste\|` |
+| `LE SURNAME Given_C_Given_D` | `le surname\|given_c given_d\|` |
 | `Jean-Marie` | `jean marie` |
 | `D'SURNAME_C` | `d surname c` |
 | `SURNAME_B Charles.1` | `surname_b\|charles\|1` |
@@ -477,8 +493,9 @@ cannot drift apart on the join, the key folding or the size matching:
 | `media.rs` | Choosing between a local original and a download |
 | `script.rs` | The scripts a *browser* runs — console (CLI) and IPC (app) |
 
-`apps/oxidgene-cli/src/geneanet/` keeps the terminal driver and the `.gdz`
-writer; `crates/oxidgene-api/src/service/geneanet.rs` keeps the write step.
+`crates/oxidgene-api/src/service/geneanet.rs` keeps the write step, and
+`apps/oxidgene-desktop/src/geneanet.rs` the login window. Nothing in this crate
+speaks HTTP any more — see §8.
 
 **The app takes the browser path, not the cookie path.** §8's `--cookie` flow
 is the headless one. The desktop wizard opens a real login window and evaluates
@@ -488,54 +505,69 @@ what §8's Cloudflare note says the honest answer is. The cookie is read out of
 that window afterwards, and only for the downloads in §5, which have no browser
 equivalent that would not push hundreds of megabytes through an IPC channel.
 
-## 8. Usage
+## 8. Running it
 
-```bash
-# 1. Collect the mapping. ~19 requests, no media. Safe and cheap.
-oxidgene-cli geneanet-media manifest \
-  --cookie "$GENEANET_COOKIE" \
-  --out geneanet-media/manifest.json
+There is one way to run this, and it is the wizard: tree card `⋮` → Import →
+**From Geneanet**. See [Geneanet Import](ui-geneanet-import.md) for the five
+steps.
 
-# 2. See what will land where. Offline — no cookie, no network.
-oxidgene-cli geneanet-media check \
-  --gw samples/tree.gw \
-  --manifest geneanet-media/manifest.json
+> **The CLI is gone (2026-08-18).** `oxidgene-cli geneanet-media` had six
+> subcommands; three needed direct HTTP, which no longer works at all (below),
+> and the other three — printing a console script, folding its output into a
+> manifest, and reporting the join offline — were all superseded by the window.
+> Removing it also took `client.rs` and `media.rs` out of this crate, and with
+> them `reqwest`, so the server no longer links an HTTP client.
 
-# 3. Build the archive, reusing the originals you already downloaded.
-oxidgene-cli geneanet-media gedzip \
-  --cookie "$GENEANET_COOKIE" \
-  --gw samples/tree.gw \
-  --manifest geneanet-media/manifest.json \
-  --local-media samples/media_images \
-  --out geneanet-media/tree.gdz
-```
+### Collect once, import many times
 
-`--cookie` also reads `GENEANET_COOKIE` from the environment, which is the
-better habit: a session cookie carries `REMEMBERME` and grants full account
-access, so it should not end up in shell history.
+Step 3 is the only part that touches Geneanet, and the expensive half of it is
+one `HEAD` per deposit — several hundred on a real account. So its output is
+**saveable**: step 3 offers *Save this connection*, and *Load a saved
+connection* takes it back. That means
 
-`geneanet-media fetch` downloads every deposit's original into a directory and
-records the path in the manifest. Resumable, and independent of the `.gdz`
-path.
+- iterating on an import without asking Geneanet anything again,
+- collecting on the machine with the browser and importing on the machine with
+  the archives,
+- and keeping the mapping, which is the one part §1 says no export can carry.
 
-### Throttling
+**One file, however far you got.** Saved during step 3 it carries the
+collection and the deposit sizes, and a later import still opens the window at
+step 4 to gather media. Saved after step 4 it carries the gathered media as
+well, and importing it needs **no Geneanet connection at all** — which is what
+makes a genuinely air-gapped import possible: collect on the machine that can
+reach Geneanet, import on the one that holds the archives, or holds nothing.
+The wizard reads what it was given and asks only for what is missing, so there
+is one *Load* button and no format for the user to choose between.
 
-`--delay-ms` (default 100) is the only knob, and requests go out one at a time.
-There is deliberately no concurrency setting: collecting the mapping costs ~19
-requests, so parallelism buys nothing and costs the one thing worth protecting
-— traffic that looks like a person rather than a crawler.
+**The container is a ZIP**, holding `session.json` and the media beside it as
+the files they are. Base64 inside JSON was the obvious first shape and the
+wrong one: it inflates binary by a third, and an account with no data archive
+has every medium in there.
 
-The heavier phase is `gedzip`, which needs one `HEAD` per deposit to size-match
-against the local archive (378 on the reference tree, ~40 s at the default
-delay). That is irreducible: no endpoint reports a deposit's byte length in
-bulk.
+`session.json` *is* the collection JSON with the deposit sizes, the media names
+and a format version added beside it.
+[`BrowserCollection`](../../crates/oxidgene-geneanet/src/model.rs) ignores
+fields it does not know, so unzipping a session gives you a file the manifest
+builder reads unchanged — the mapping stays inspectable, which matters for the
+one thing no export can carry.
 
-A `429` or `403` stops the run with an explanation rather than retrying into a
-wall.
+A bare JSON file loads too: sessions saved before the container changed, and
+the raw output of a browser console script. The two are told apart by content
+rather than by extension, because a renamed file is still the file it was.
 
-Whether scripted access fits Geneanet's terms of service is the operator's call:
-the data is the account owner's own, fetched through the account's own session,
-but that is not the same as a licence to automate.
+### Pace
+
+Requests go out one at a time. Collecting the mapping is ~19 of them, so
+parallelism would buy nothing and cost the one thing worth protecting: traffic
+that looks like a person rather than a crawler.
+
+The heavier pass is the per-deposit `HEAD` for size matching (379 on the
+reference account). That is irreducible — no endpoint reports a deposit's byte
+length in bulk — which is exactly why saving the result matters.
+
+Whether scripted access fits Geneanet's terms of service is the operator's
+call: the data is the account owner's own, fetched through the account's own
+session, but that is not the same as a licence to automate.
 
 ### Cloudflare
 
@@ -546,8 +578,7 @@ challenge`, `server: cloudflare` and a "Just a moment…" HTML page.
 **This looks exactly like an expired cookie and is not one.** The client
 detects it and says so, because the obvious reaction — go fetch a fresh
 cookie — fixes nothing. Observed directly: with the *same* cookie and the
-*same* `User-Agent: oxidgene-cli/0.1.0`, `curl` gets `200` while the Rust
-client is challenged. The cookie is irrelevant (full browser cookie and bare
+*same* user agent, `curl` gets `200` while a Rust client is challenged. The cookie is irrelevant (full browser cookie and bare
 `gntsess5` are challenged alike), and so is the user agent. What differs is the
 TLS/HTTP2 fingerprint of the stack — rustls + hyper against curl's OpenSSL.
 
@@ -555,35 +586,28 @@ The challenge is adaptive: the same binary collected a full 378-deposit
 manifest earlier the same day, then began to be challenged after a few hundred
 requests from the same address.
 
-**What the client does about it (changed 2026-08-16).** An earlier version of
-this section said fingerprint emulation was "deliberately not implemented, and
-should not be". That position was revisited once the download path had no
-honest alternative: the metadata phase runs inside the login webview (a real
-browser, a human present — out of reach of the check by construction), but the
-*downloads* have no webview equivalent that would not push hundreds of
-megabytes through an IPC channel. So the HTTP client in
-`crates/oxidgene-geneanet` now uses **`wreq` + `wreq-util` with a pinned
-current-Chrome emulation** (`Emulation::Chrome149` at time of writing), used
-only with the user's own session cookie, at a gentle one-request-at-a-time
-rate. The ethics are unchanged: the user logs in knowingly in a real window;
-the emulation only makes the download requests look like the browser that is
-already authenticated.
+**What the client does about it (settled 2026-08-17).** This section has now
+said three different things, so here is the measurement that ends it: **no
+direct download succeeds**. Every request from an HTTP client is challenged,
+whatever cookie it presents and whatever the stack.
 
-Tested against the live site (2026-08-16, full matrix in
-[Geneanet Upload API §13](geneanet-upload-api.md)):
+A browser-impersonating transport (`wreq` + `wreq-util`, pinned to a
+current-Chrome profile) was tried and **removed**. It worked — and it was the
+wrong trade twice over. It only worked while the pinned profile stayed current
+(a Chrome 131 profile was already being challenged), so it was a treadmill with
+a silent failure mode; and it dragged a BoringSSL toolchain, a `bindgen` build
+and a patched, vendored copy of `tungstenite` through the whole workspace to
+resolve a linker clash it had caused.
 
-| Stack | Result on www/gw data routes |
-|---|---|
-| plain libcurl / `requests` / rustls | `403` challenge |
-| `hyprcurl` (stock libcurl + cipher options) | `403` — **not** a curl_cffi equivalent |
-| `wreq` `Emulation::Chrome131` | `403` — stale profile |
-| **`wreq` `Emulation::Chrome146`+** | **passes everywhere** (incl. gw CDN) |
-| `curl_cffi` `impersonate="chrome"` (= Chrome 146) | passes |
+**Every request now goes through the login window**, media as well as metadata.
+That is not an optimisation and not a preference — it is the only place the
+bytes can come from. A real browser engine, on the user's own session, against
+their own data, is what the check is asking for rather than a way around it.
+See [the wizard's §6](ui-geneanet-import.md).
 
-Two operational facts follow: the emulation version **must track current
-Chrome** (a 131 profile is already challenged; bump the pinned profile when
-updating `wreq-util`), and a challenge page is still not an expired cookie —
-the client's error message says so and points at the emulation version first.
+This is why there is no headless path left at all, and why the CLI was
+removed rather than kept as a fallback: a fallback that cannot fetch a single
+byte is not one.
 
 The metadata phase is cheap enough to be largely out of reach of this — 19
 requests, issued inside the webview anyway — and the resulting manifest is
@@ -599,6 +623,20 @@ A photo shared by several people is **stored once** with several `MediaLink`
 rows — precisely what the original export could not express, and what
 `MediaLink`'s shape was already built for. `is_profile` carries Geneanet's
 `is_default` flag, so the portrait stays the portrait.
+
+> **Correction (2026-08-18): there is no `is_default`.** Walking a real
+> `/media/api/references` payload, a reference carries `event`, `face`,
+> `firstname`, `id`, `lastname`, `reference_extra_geneweb` and `thumb` —
+> nothing that marks a portrait. The portrait is knowable from the *other*
+> side: a `.gw` records it as `#image <url>`, and that URL is one of the
+> renditions the collection lists, so matching the path (minus its `?t=` cache
+> buster) says exactly which view a person's portrait is.
+>
+> That match does double duty. The `#image` URL would otherwise be imported as
+> a *remote* medium — a dead link, since it 403s for anyone not signed in —
+> sitting beside the stored copy of the same photo. The import now drops the
+> remote row and marks the stored one `is_profile` instead, so a portrait
+> appears once and shows up as the person's avatar.
 
 Exporting that tree to `.gdz` afterwards is a separate, already-supported
 operation. The CLI's `gedzip` subcommand predates this decision and remains
@@ -617,9 +655,17 @@ else joins.
 
 ## 10. Limits
 
-- **Unlinked media are dropped.** 235 views are attached to nobody on Geneanet;
-  they are counted and reported, not imported. `geneanet-media fetch` retrieves
-  them if wanted.
+- **"Unlinked" almost always means "an interior page", not "a forgotten
+  photo".** Measured on the second account: of 623 views, **all 379 single-page
+  deposits are linked** — every photograph — and **all 235 unlinked views are
+  pages 2..N of eight scanned dossiers** whose cover page *is* linked. Seven of
+  those eight have exactly page 1 attached.
+
+  Dropping unlinked views therefore does not discard forgotten photos; it
+  discards the insides of documents, up to 143 pages of one of them. That is
+  why the wizard imports a **whole multi-page deposit as a document** when any
+  of its views is linked (`media.is_document` + `parent_media_id` +
+  `page_index`, from Sprint F.3) rather than importing the cover alone.
 - **Multi-page pages are downsized by default.** See §5.
 - **No API exposes original filenames, byte sizes, or content hashes** — not
   the website API, not the upload app's API (§4b). Sizes come from a `HEAD`

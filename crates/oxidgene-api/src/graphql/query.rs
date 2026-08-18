@@ -449,6 +449,9 @@ impl QueryRoot {
             tid,
             merge_occupations.unwrap_or(false),
             merge_names.unwrap_or(false),
+            // GraphQL hands back the GEDCOM text; there is no archive to
+            // reference, so the media keep their producers' paths.
+            false,
         )
         .await?;
         Ok(GqlExportGedcomResult {

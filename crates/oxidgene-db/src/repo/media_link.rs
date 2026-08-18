@@ -43,6 +43,9 @@ pub struct MediaLinkRow {
     pub mime_type: String,
     /// Whether a thumbnail was generated for this media.
     pub has_thumbnail: bool,
+    /// Whether this link is the person's profile image. Always `false` on an
+    /// event row — only a person has a portrait.
+    pub is_profile: bool,
 }
 
 /// Repository for media–entity links.
@@ -75,7 +78,7 @@ impl MediaLinkRepo {
                 SELECT ml.id AS link_id,
                        ml.person_id AS entity_id,
                        'person' AS entity_type,
-                       ml.media_id,
+                       ml.media_id, ml.is_profile,
                        m.file_path, m.file_name, m.mime_type, m.thumbnail_key
                 FROM media_link ml
                 INNER JOIN media m ON m.id = ml.media_id
@@ -88,7 +91,7 @@ impl MediaLinkRepo {
                 SELECT ml.id AS link_id,
                        ml.event_id AS entity_id,
                        'event' AS entity_type,
-                       ml.media_id,
+                       ml.media_id, ml.is_profile,
                        m.file_path, m.file_name, m.mime_type, m.thumbnail_key
                 FROM media_link ml
                 INNER JOIN media m ON m.id = ml.media_id
@@ -135,6 +138,9 @@ impl MediaLinkRepo {
                     .try_get::<Option<String>>("", "thumbnail_key")
                     .map_err(|e| OxidGeneError::Database(e.to_string()))?
                     .is_some(),
+                is_profile: row
+                    .try_get("", "is_profile")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
             });
         }
         Ok(rows)

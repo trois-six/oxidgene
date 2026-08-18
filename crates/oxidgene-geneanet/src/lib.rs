@@ -16,18 +16,21 @@
 //! the archive builder, and the API keeps the persistence.
 
 pub mod archive;
-pub mod client;
 pub mod join;
 pub mod key;
-pub mod media;
 pub mod model;
+pub mod phash;
 pub mod script;
-
-use std::collections::BTreeMap;
+pub mod session;
 
 use anyhow::{Result, bail};
 
-pub use client::{Client, Throttle};
+/// The host the media manager and its API live on.
+///
+/// A browser collection carries no host of its own, and the manager it was
+/// gathered from only exists on this one.
+pub const DEFAULT_BASE_URL: &str = "https://www.geneanet.org";
+
 pub use model::Manifest;
 
 /// Parses a `.gw` export from its raw bytes.
@@ -57,100 +60,6 @@ pub fn parse_gw(bytes: &[u8], name: &str) -> Result<(geneweb::database::GwDataba
     Ok((database, errors.len()))
 }
 
-/// Pins each bulk-collected link to the view it belongs to.
-///
-/// A deposit with one page needs no work: the link can only be on that page.
-/// A deposit with several is the awkward case — the bulk endpoint lists every
-/// page without saying which — so its pages are probed one at a time, stopping
-/// as soon as every link the bulk pass reported for that deposit is accounted
-/// for. Links cluster on page 1 (the cover of a scanned dossier), so this
-/// almost always costs a single request per deposit rather than one per page.
-///
-/// # Errors
-///
-/// Returns `Err` if a per-view probe fails.
-pub async fn locate(
-    client: &Client,
-    deposits: &[model::Deposit],
-    entries: Vec<model::ReferenceEntry>,
-) -> Result<model::LocatedReferences> {
-    let mut expected: BTreeMap<i64, usize> = BTreeMap::new();
-    let mut single_page = model::LocatedReferences::new();
-    let mut multi_page: Vec<i64> = Vec::new();
-
-    for entry in entries {
-        let deposit_id = entry.deposit.id;
-        *expected.entry(deposit_id).or_default() += 1;
-
-        match entry.deposit.views.as_slice() {
-            [only] => {
-                let view_id = only.id;
-                single_page
-                    .entry((deposit_id, view_id))
-                    .or_default()
-                    .push(entry.into_reference());
-            }
-            _ => {
-                if !multi_page.contains(&deposit_id) {
-                    multi_page.push(deposit_id);
-                }
-            }
-        }
-    }
-
-    if multi_page.is_empty() {
-        return Ok(single_page);
-    }
-
-    let mut located = single_page;
-
-    for deposit_id in multi_page {
-        let Some(deposit) = deposits.iter().find(|d| d.id == deposit_id) else {
-            continue;
-        };
-        let mut remaining = expected.get(&deposit_id).copied().unwrap_or(0);
-
-        for view in &deposit.views {
-            if remaining == 0 {
-                break;
-            }
-            let found = client.view_references(deposit_id, view.id).await?;
-            if !found.is_empty() {
-                remaining = remaining.saturating_sub(found.len());
-                located.insert((deposit_id, view.id), found);
-            }
-        }
-    }
-
-    Ok(located)
-}
-
-/// Collects the full deposit → view → person mapping over HTTP.
-///
-/// Cheap by construction. `/media/api/references` hands back every link with
-/// its deposit inline, so the bulk of the work is a handful of paginated calls;
-/// only links sitting inside a multi-page deposit need locating individually.
-///
-/// On the reference tree this is ~19 requests where the naive per-view walk
-/// took 618 — which matters beyond speed, since request volume is what gets a
-/// client challenged by Cloudflare.
-///
-/// # Errors
-///
-/// Returns `Err` if any request fails, including the Cloudflare challenge the
-/// client detects and names rather than mistaking for an expired cookie.
-pub async fn collect_manifest(client: &Client) -> Result<Manifest> {
-    let deposits = client.list_deposits().await?;
-    let entries = client.list_references().await?;
-    let references = locate(client, &deposits, entries).await?;
-
-    Ok(Manifest::build(
-        client.base_url().to_string(),
-        deposits,
-        references,
-    ))
-}
-
 /// Builds a manifest from a collection gathered inside a real browser.
 ///
 /// Offline: no cookie, no network. This is the path the desktop wizard takes —
@@ -167,7 +76,7 @@ pub fn manifest_from_collection(json: &str) -> Result<Manifest> {
     // The browser collection carries no host of its own, and the media manager
     // it was gathered from only exists on the one host.
     Ok(Manifest::build(
-        client::DEFAULT_BASE_URL.to_string(),
+        DEFAULT_BASE_URL.to_string(),
         deposits,
         references,
     ))

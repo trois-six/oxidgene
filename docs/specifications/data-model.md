@@ -224,12 +224,45 @@ The `name` is a single string. The recommended format is comma-separated from mo
 | `description` | String? | |
 | `date_value` | String? | Date of the media (GEDCOM date phrase, same format as Event) |
 | `date_sort` | Date? | Normalized date for sorting |
+| `source_media_type` | Enum | What the medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`. Default `other` |
+| `document_category` | Enum? | What kind of *record* it is. Null when unclassified |
 | `place_id` | UUID v7? | FK → Place — where the media was created/taken |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
 
 Displayed in: [Person Edit Modal](ui-person-edit-modal.md) (media section)
+
+**Why two type columns.** GEDCOM has a field for this and its vocabulary is
+fixed: `OBJE.FILE.FORM.TYPE` in 5.5.1, `FORM.MEDI` in 7.0, enumerating `PHOTO`,
+`MANUSCRIPT`, `TOMBSTONE`, `FICHE`, `FILM`, `MAP`, `NEWSPAPER`, `BOOK`, `CARD`,
+`MAGAZINE`, `AUDIO`, `VIDEO`, `ELECTRONIC`, `OTHER`. Supporting it exactly is
+what makes an export readable by other genealogy software, so `SourceMediaType`
+is GEDCOM's list and nothing else is ever written there.
+
+But that vocabulary describes the *carrier*, not the record. A census return, a
+marriage contract and a conscription register are all `MANUSCRIPT` to GEDCOM,
+and to a genealogist they are three different things — the distinction
+Geneanet's own media types draw. `DocumentCategory` holds it: `portrait`,
+`group_photo`, `family_document`, `civil_record`, `parish_record`,
+`notarial_archive`, `military_archive`, `census`, `coat_of_arms`, `grave`,
+`other`. It is nullable because a photograph somebody uploaded needs no
+classification.
+
+Each category knows the medium it implies, so choosing only a category still
+produces a correct export — a census return exports as `MANUSCRIPT`, not
+`OTHER`. Where both are set explicitly, the stored medium wins: the user
+answered GEDCOM's question directly and that answer is not ours to discard.
+
+`source_media_type` defaults to `other` rather than to `photo`: the table holds
+scans and PDFs as readily as photographs, and a default that guessed would
+mislabel every existing row instead of admitting it does not know.
+
+> **`ged_io` gap.** The crate parses `FORM.TYPE` into
+> `Format::source_media_type` but its writer never emits it, so setting the
+> field before serialising produces a file without it. `export::insert_media_types`
+> writes the line into the serialised GEDCOM instead. Remove it once upstream
+> writes the tag.
 
 **Storage.** Files live on the filesystem, content-addressed under
 `{tree_id}/{aa}/{bb}/{sha256}.{ext}` beneath `OXIDGENE_MEDIA_ROOT` (default: the

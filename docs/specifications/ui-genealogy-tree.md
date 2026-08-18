@@ -10,7 +10,7 @@ timestamp: 2026-06-17T00:00:00Z
 # Visual & Functional Specifications — Genealogy Tree
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Dictionary](ui-dictionary.md) · [GEDCOM Import](ui-gedcom-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
+> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Dictionary](ui-dictionary.md) · [Import](ui-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
 
 ---
 

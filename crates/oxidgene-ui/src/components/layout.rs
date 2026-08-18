@@ -3166,10 +3166,14 @@ pub const LAYOUT_STYLES: &str = r#"
     /* One row of tiles that reflows rather than scrolls: a person with
        twenty scans should read as a contact sheet, not as a filmstrip the
        user has to drag through to know how much is there. */
+    /* The tiles are the way into the documents, and at 112px a scan of a
+       register was a grey rectangle — you could not tell two apart without
+       opening both. The generated thumbnail is 400px on its long edge, so
+       this stays well inside what the server already produces. */
     .media-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 14px;
     }
 
     .media-tile {
@@ -3637,13 +3641,67 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-deep);
     }
 
+    /* Zoomed, the stage stops centring: an image wider than its container
+       must start at the top-left and be scrolled, or the parts that overflow
+       are unreachable in both directions at once. */
+    .media-viewer-stage.is-zoomed {
+        align-items: flex-start;
+        justify-content: flex-start;
+    }
+
     /* Contain, not cover: this is the view where the document is the point,
-       so nothing may be cropped out of it. */
+       so nothing may be cropped out of it. The inline `width` a zoom level
+       sets overrides both maxima. */
     .media-viewer-image {
         max-width: 100%;
         max-height: 70vh;
         object-fit: contain;
     }
+
+    .media-viewer-stage.is-zoomed .media-viewer-image {
+        /* Nothing to contain into once it is larger than the stage, and
+           `contain` would fight the explicit width. */
+        object-fit: none;
+        height: auto;
+    }
+
+    .media-zoom {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 6px 0 0;
+    }
+
+    .media-zoom-btn,
+    .media-zoom-level {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-secondary);
+        font-family: var(--font-sans);
+        font-size: 0.78rem;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+    }
+
+    .media-zoom-btn {
+        width: 28px;
+        height: 26px;
+        line-height: 1;
+    }
+
+    /* Wide enough for "400 %" so the row does not shift as the number grows. */
+    .media-zoom-level {
+        min-width: 66px;
+        height: 26px;
+        padding: 0 8px;
+    }
+
+    .media-zoom-btn:hover:not(:disabled),
+    .media-zoom-level:hover { border-color: var(--orange); color: var(--text-primary); }
+    .media-zoom-btn:disabled { opacity: 0.4; cursor: default; }
+    .media-zoom-level.is-fit { color: var(--text-muted); }
 
     .media-viewer-audio { width: min(520px, 100%); }
 
@@ -3759,6 +3817,14 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
+    .media-pager-gap {
+        flex: 0 0 auto;
+        color: var(--text-muted);
+        font-size: 0.74rem;
+        padding: 4px 2px;
+        user-select: none;
+    }
+
     .media-pager-num:hover { color: var(--text-primary); border-color: var(--border); }
     .media-pager-num.is-current {
         color: var(--orange);
@@ -3816,7 +3882,7 @@ pub const LAYOUT_STYLES: &str = r#"
             padding-bottom: 4px;
         }
         .dict-letter-btn { flex: 0 0 auto; }
-        .media-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+        .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
         .cropper-backdrop { padding: 0; }
         .cropper-panel { max-height: 100vh; border-radius: 0; }
         /* Controls that only appear on hover are unreachable by touch. */
@@ -4296,5 +4362,67 @@ pub const LAYOUT_STYLES: &str = r#"
         .gn-step-summary { flex-basis: 100%; padding-left: 32px; }
         .gn-step-edit { margin-left: 0; }
     }
+
+
+    /* ── Saving and reloading a Geneanet session ──────────────────── */
+
+    /* Deliberately quiet. These sit inside a step whose own action is the
+       thing to do next, so they read as a footnote to it rather than as a
+       second choice competing for the same attention. */
+    .gn-session {
+        border-top: 1px solid var(--border);
+        margin-top: 14px;
+        padding-top: 10px;
+    }
+
+    .gn-session-why summary {
+        cursor: pointer;
+        color: var(--text-muted);
+        font-size: 0.76rem;
+        list-style: none;
+    }
+    .gn-session-why summary::-webkit-details-marker { display: none; }
+    .gn-session-why summary::before {
+        content: "\203A";
+        display: inline-block;
+        width: 12px;
+        transition: transform 0.15s;
+    }
+    .gn-session-why[open] summary::before { transform: rotate(90deg); }
+    .gn-session-why summary:hover { color: var(--text-secondary); }
+    .gn-session-why p {
+        color: var(--text-muted);
+        font-size: 0.76rem;
+        line-height: 1.5;
+        margin: 6px 0 0 12px;
+    }
+
+    .gn-session-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    .gn-session-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-secondary);
+        font-family: var(--font-sans);
+        font-size: 0.76rem;
+        padding: 5px 10px;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+    }
+    .gn-session-btn:hover:not(:disabled) {
+        border-color: var(--orange);
+        color: var(--text-primary);
+    }
+    .gn-session-btn:disabled { opacity: 0.5; cursor: default; }
+    .gn-session-icon { font-size: 0.85rem; line-height: 1; }
 
 "#;

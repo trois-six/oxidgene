@@ -35,10 +35,11 @@ crates/
 apps/
   oxidgene-server/  # Web server binary
   oxidgene-desktop/ # Desktop binary (embeds Axum + SQLite + WebView)
-  oxidgene-cli/     # CLI (import/export, migrations)
 ```
 
-Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`/`cli`; `core` ← `gedcom` ← `api`; `geneanet` ← `api`/`cli`/`desktop`; `core` ← `ui`.
+Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`; `core` ← `gedcom` ← `api`; `geneanet` ← `api`/`desktop`; `core` ← `ui`.
+
+**`oxidgene-geneanet` speaks no HTTP.** Every Geneanet request goes through the desktop app's login window — Cloudflare refuses direct clients outright — so the crate holds only the join, the key folding, the archive indexing, the perceptual hash and the scripts the window runs.
 
 **`oxidgene-ui` must stay platform-free** — it compiles to wasm, so it depends on neither `dioxus-desktop` nor `oxidgene-geneanet`. Where it needs a desktop-only capability it declares a trait and the desktop binary injects an implementation as context (see `ui/src/geneanet.rs` ↔ `apps/oxidgene-desktop/src/geneanet.rs`).
 
@@ -97,7 +98,6 @@ just fmt            # Format
 just clippy         # Lint
 just server         # Run web server (dev)
 just desktop        # Run desktop app (dev)
-just cli <ARGS>     # Run CLI
 ```
 
 ## Assets
@@ -112,7 +112,9 @@ Media storage lives in `crates/oxidgene-api/src/media/` — `store.rs` (the `Med
 
 A media is one of three things and every view tells them apart: **stored** (bytes in our store, thumbnail, croppable), **remote** (`file_path` is an http(s) URL we record and never fetch), **unheld** (a GEDCOM record naming a file nobody uploaded). A **multi-page document** is a `media` with `is_document` whose pages are `media` rows carrying `parent_media_id` + `page_index` — a page is a media, so upload/storage/thumbnails/cropping need no second path; listings filter `parent_media_id IS NULL`.
 
-**Geneanet import** (`docs/specifications/ui-geneanet-import.md`): the tree card's `⋮` → Import opens `components/import_modal.rs`, a modal with a file tab (.ged/.gw) and a five-step Geneanet tab. Its pipeline is `crates/oxidgene-geneanet`; the server side is `api/src/service/geneanet.rs` + `rest/geneanet.rs`; the login window is `apps/oxidgene-desktop/src/geneanet.rs`, reached through the `GeneanetCollector` trait so `oxidgene-ui` never sees `wry`. Steps 2 (archives), 3 (login) and the photo half of 5 are **desktop-only** — a browser has no path to read a multi-gigabyte ZIP by, and a window it opens is a different origin — and both steps render an explanation on web, where the `.gw` still imports.
+**Import** (`docs/specifications/ui-import.md`, `ui-geneanet-import.md`): the tree card's `⋮` → Import opens `components/import_modal.rs` — a file tab (.ged/.gw) and a five-step Geneanet tab. Pipeline in `crates/oxidgene-geneanet`; server side in `api/src/service/geneanet.rs` + `rest/geneanet.rs`; login window in `apps/oxidgene-desktop/src/geneanet.rs`, reached through the `GeneanetCollector` trait so `oxidgene-ui` never sees `wry`. Steps 2 (archives), 3 (login) and the media half of 5 are **desktop-only**.
+
+Two rules that are load-bearing there: a **multi-page deposit imports whole** as a `media.is_document` with its pages ordered by Geneanet's page number (links attach to pages, and users link the cover); and media are **recognised, not re-downloaded** — exact byte length where Geneanet states one, a 256-bit perceptual hash against the data archives where it does not. Step 3's output **saves to a file and loads back**, which is how to test without making several hundred `HEAD` requests against a real account.
 
 Open EPIC F items: the S3 backend for the server deployment, PostgreSQL verification, PDF page rendering (needs a C rasteriser, deliberately declined), showing a vignette as an event's illustration on the timeline, and — for the Geneanet wizard — the instructional screenshots (§3) plus per-photo progress and cancellation in step 5. The wizard has **not been run against a live Geneanet account**.
 

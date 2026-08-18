@@ -199,6 +199,255 @@ impl std::fmt::Display for Calendar {
     }
 }
 
+/// What kind of thing a medium physically *is* — GEDCOM's
+/// `SOURCE_MEDIA_TYPE`.
+///
+/// This is the vocabulary GEDCOM defines, exactly: `OBJE.FILE.FORM.TYPE` in
+/// 5.5.1, `FORM.MEDI` in 7.0. Keeping it enumerated rather than free text is
+/// what makes an export readable by other genealogy software, so the variants
+/// are GEDCOM's and are not ours to extend — a distinction GEDCOM does not
+/// draw belongs in [`DocumentCategory`] instead.
+///
+/// Note what it describes: the *carrier*, not the content. A census return
+/// and a notarial deed are both `Manuscript` here; that they are different
+/// kinds of record is a genealogical fact GEDCOM has no field for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceMediaType {
+    Audio,
+    Book,
+    Card,
+    Electronic,
+    Fiche,
+    Film,
+    Magazine,
+    Manuscript,
+    Map,
+    Newspaper,
+    Photo,
+    Tombstone,
+    Video,
+    #[default]
+    Other,
+}
+
+impl std::fmt::Display for SourceMediaType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl SourceMediaType {
+    /// The snake_case spelling used on the wire and in the database.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Audio => "audio",
+            Self::Book => "book",
+            Self::Card => "card",
+            Self::Electronic => "electronic",
+            Self::Fiche => "fiche",
+            Self::Film => "film",
+            Self::Magazine => "magazine",
+            Self::Manuscript => "manuscript",
+            Self::Map => "map",
+            Self::Newspaper => "newspaper",
+            Self::Photo => "photo",
+            Self::Tombstone => "tombstone",
+            Self::Video => "video",
+            Self::Other => "other",
+        }
+    }
+
+    /// The GEDCOM tag value, which is the same word in upper case.
+    #[must_use]
+    pub fn gedcom_value(self) -> &'static str {
+        match self {
+            Self::Audio => "AUDIO",
+            Self::Book => "BOOK",
+            Self::Card => "CARD",
+            Self::Electronic => "ELECTRONIC",
+            Self::Fiche => "FICHE",
+            Self::Film => "FILM",
+            Self::Magazine => "MAGAZINE",
+            Self::Manuscript => "MANUSCRIPT",
+            Self::Map => "MAP",
+            Self::Newspaper => "NEWSPAPER",
+            Self::Photo => "PHOTO",
+            Self::Tombstone => "TOMBSTONE",
+            Self::Video => "VIDEO",
+            Self::Other => "OTHER",
+        }
+    }
+
+    /// Read a GEDCOM value or a stored spelling, case-insensitively.
+    ///
+    /// `None` for anything outside the enumeration — a producer that wrote
+    /// something of its own. The caller keeps `Other` rather than inventing a
+    /// meaning.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value.trim().to_ascii_lowercase().as_str() {
+            "audio" => Self::Audio,
+            "book" => Self::Book,
+            "card" => Self::Card,
+            "electronic" => Self::Electronic,
+            "fiche" => Self::Fiche,
+            "film" => Self::Film,
+            "magazine" => Self::Magazine,
+            "manuscript" => Self::Manuscript,
+            "map" => Self::Map,
+            "newspaper" => Self::Newspaper,
+            "photo" => Self::Photo,
+            "tombstone" => Self::Tombstone,
+            "video" => Self::Video,
+            "other" => Self::Other,
+            _ => return None,
+        })
+    }
+
+    /// Every variant, in the order a picker should list them.
+    #[must_use]
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Photo,
+            Self::Manuscript,
+            Self::Book,
+            Self::Card,
+            Self::Newspaper,
+            Self::Magazine,
+            Self::Map,
+            Self::Tombstone,
+            Self::Fiche,
+            Self::Film,
+            Self::Audio,
+            Self::Video,
+            Self::Electronic,
+            Self::Other,
+        ]
+    }
+}
+
+/// What kind of *record* a medium is — the distinction GEDCOM does not draw.
+///
+/// [`SourceMediaType`] says a document is a `Manuscript`; it cannot say
+/// whether that manuscript is a census return, a notarial deed or a military
+/// register, and to a genealogist that is most of what matters. Geneanet's
+/// own media types make exactly this distinction, which is why importing from
+/// there and exporting to GEDCOM need two fields rather than one.
+///
+/// Optional: a photograph somebody uploaded is a photograph, and forcing a
+/// category onto it would be inventing information. Each variant knows the
+/// physical medium it implies, so a category answers both questions and a
+/// bare `SourceMediaType` still answers the one GEDCOM asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentCategory {
+    /// A portrait of one person.
+    Portrait,
+    /// A photograph of several people together.
+    GroupPhoto,
+    /// Family papers — letters, faire-parts, remembrance cards.
+    FamilyDocument,
+    /// Civil registration: birth, marriage and death records.
+    CivilRecord,
+    /// Parish registers, which predate civil registration.
+    ParishRecord,
+    /// Deeds, wills, marriage contracts and inventories.
+    NotarialArchive,
+    /// Conscription registers and service records.
+    MilitaryArchive,
+    /// Census returns.
+    Census,
+    /// A coat of arms.
+    CoatOfArms,
+    /// A grave or headstone.
+    Grave,
+    Other,
+}
+
+impl std::fmt::Display for DocumentCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl DocumentCategory {
+    /// The snake_case spelling used on the wire and in the database.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Portrait => "portrait",
+            Self::GroupPhoto => "group_photo",
+            Self::FamilyDocument => "family_document",
+            Self::CivilRecord => "civil_record",
+            Self::ParishRecord => "parish_record",
+            Self::NotarialArchive => "notarial_archive",
+            Self::MilitaryArchive => "military_archive",
+            Self::Census => "census",
+            Self::CoatOfArms => "coat_of_arms",
+            Self::Grave => "grave",
+            Self::Other => "other",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value.trim().to_ascii_lowercase().as_str() {
+            "portrait" => Self::Portrait,
+            "group_photo" => Self::GroupPhoto,
+            "family_document" => Self::FamilyDocument,
+            "civil_record" => Self::CivilRecord,
+            "parish_record" => Self::ParishRecord,
+            "notarial_archive" => Self::NotarialArchive,
+            "military_archive" => Self::MilitaryArchive,
+            "census" => Self::Census,
+            "coat_of_arms" => Self::CoatOfArms,
+            "grave" => Self::Grave,
+            "other" => Self::Other,
+            _ => return None,
+        })
+    }
+
+    /// The physical medium this kind of record is normally carried on.
+    ///
+    /// What a GEDCOM export writes when the user chose a category and never
+    /// touched the medium — which is the common case, since the category is
+    /// the question they can actually answer about a scan.
+    #[must_use]
+    pub fn implied_medium(self) -> SourceMediaType {
+        match self {
+            Self::Portrait | Self::GroupPhoto => SourceMediaType::Photo,
+            Self::FamilyDocument
+            | Self::CivilRecord
+            | Self::ParishRecord
+            | Self::NotarialArchive
+            | Self::MilitaryArchive
+            | Self::Census => SourceMediaType::Manuscript,
+            Self::Grave => SourceMediaType::Tombstone,
+            Self::CoatOfArms | Self::Other => SourceMediaType::Other,
+        }
+    }
+
+    /// Every variant, in the order a picker should list them.
+    #[must_use]
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Portrait,
+            Self::GroupPhoto,
+            Self::FamilyDocument,
+            Self::CivilRecord,
+            Self::ParishRecord,
+            Self::NotarialArchive,
+            Self::MilitaryArchive,
+            Self::Census,
+            Self::CoatOfArms,
+            Self::Grave,
+            Self::Other,
+        ]
+    }
+}
+
 /// Type of genealogical event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -562,5 +811,67 @@ mod tests {
         assert_eq!(json, r#""very_high""#);
         let deserialized: Confidence = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, Confidence::VeryHigh);
+    }
+}
+
+#[cfg(test)]
+mod media_type_tests {
+    use super::{DocumentCategory, SourceMediaType};
+
+    #[test]
+    fn gedcom_values_round_trip_through_the_parser() {
+        for medium in SourceMediaType::all() {
+            assert_eq!(
+                SourceMediaType::parse(medium.gedcom_value()),
+                Some(*medium),
+                "{medium} must survive an export and a re-import"
+            );
+            assert_eq!(SourceMediaType::parse(medium.as_str()), Some(*medium));
+        }
+    }
+
+    #[test]
+    fn a_vocabulary_of_someone_elses_is_not_guessed_at() {
+        // A producer writing its own word. Reading it as anything in the
+        // enumeration would be inventing a fact about the document.
+        assert_eq!(SourceMediaType::parse("Acte notarié"), None);
+        assert_eq!(SourceMediaType::parse(""), None);
+    }
+
+    #[test]
+    fn categories_round_trip_through_the_parser() {
+        for category in DocumentCategory::all() {
+            assert_eq!(DocumentCategory::parse(category.as_str()), Some(*category));
+        }
+    }
+
+    #[test]
+    fn every_category_implies_a_medium_gedcom_can_express() {
+        // The point of keeping two fields: whatever the user classified a
+        // scan as, the export still has something truthful to write.
+        assert_eq!(
+            DocumentCategory::Portrait.implied_medium(),
+            SourceMediaType::Photo
+        );
+        assert_eq!(
+            DocumentCategory::Grave.implied_medium(),
+            SourceMediaType::Tombstone
+        );
+        // The lossy direction, and the reason `document_category` exists:
+        // three different kinds of record, one GEDCOM word.
+        for category in [
+            DocumentCategory::Census,
+            DocumentCategory::NotarialArchive,
+            DocumentCategory::MilitaryArchive,
+        ] {
+            assert_eq!(category.implied_medium(), SourceMediaType::Manuscript);
+        }
+    }
+
+    #[test]
+    fn an_unclassified_medium_defaults_to_admitting_it_does_not_know() {
+        // Not `Photo`: the table holds scans and PDFs as readily as
+        // photographs, and a default that guessed would mislabel them.
+        assert_eq!(SourceMediaType::default(), SourceMediaType::Other);
     }
 }

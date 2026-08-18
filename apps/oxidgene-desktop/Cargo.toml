@@ -24,6 +24,8 @@ oxidgene-db = { workspace = true }
 oxidgene-ui = { workspace = true }
 oxidgene-geneanet = { workspace = true }
 serde = { workspace = true }
+# The window hands media over base64-encoded; they are written as bytes.
+base64 = { workspace = true }
 # The Geneanet login window reports back across the event loop boundary.
 futures-channel = "0.3"
 dioxus = { workspace = true, features = ["desktop", "router"] }

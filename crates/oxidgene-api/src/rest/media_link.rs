@@ -73,6 +73,7 @@ pub async fn list_media_links(
             file_name: r.file_name,
             mime_type: r.mime_type,
             has_thumbnail: r.has_thumbnail,
+            is_profile: r.is_profile,
         })
         .collect();
     Ok(Json(serde_json::to_value(response).unwrap()))
