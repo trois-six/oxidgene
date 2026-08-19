@@ -1512,6 +1512,69 @@ mod tests {
     }
 
     #[test]
+    fn a_persons_photographs_are_still_theirs_after_a_round_trip() {
+        // The bug this pins: `ged_io` discards the pointer in `1 OBJE @M1@`,
+        // so a tree exported with 548 person-photo links re-imported with
+        // none — every photograph present, attached to nobody.
+        let person = Person {
+            id: Uuid::now_v7(),
+            tree_id: Uuid::now_v7(),
+            sex: Sex::Unknown,
+            privacy: Default::default(),
+            portrait_media_id: None,
+            portrait_vignette_id: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted_at: None,
+        };
+        let medium = medium("portrait.jpg", "image/jpeg", true);
+        let link = MediaLink {
+            id: Uuid::now_v7(),
+            media_id: medium.id,
+            person_id: Some(person.id),
+            event_id: None,
+            source_id: None,
+            family_id: None,
+            sort_order: 0,
+        };
+
+        let export = export_gedcom(
+            std::slice::from_ref(&person),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&medium),
+            std::slice::from_ref(&link),
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("1 OBJE @M1@"), "{}", export.gedcom);
+
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        assert_eq!(back.media.len(), 1, "the photograph itself");
+        assert_eq!(
+            back.media_links.len(),
+            1,
+            "and it is still somebody's: {:#?}",
+            back.media_links
+        );
+        assert_eq!(
+            back.media_links[0].person_id,
+            back.persons.first().map(|p| p.id)
+        );
+        assert_eq!(back.media_links[0].media_id, back.media[0].id);
+    }
+
+    #[test]
     fn a_document_is_exported_as_its_cover_not_as_its_title() {
         // A document holds no bytes and its `file_path` is its title, so a
         // GEDZIP could never contain a file by that name — re-importing warned
