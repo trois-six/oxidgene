@@ -611,7 +611,7 @@ fn PrivacySection(
                         button {
                             key: "{value.as_str()}",
                             class: if current_privacy == value {
-                                "pf-gender-btn is-active"
+                                "pf-gender-btn active"
                             } else {
                                 "pf-gender-btn"
                             },
