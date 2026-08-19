@@ -85,6 +85,15 @@ pub struct MediaGalleryProps {
     /// which is what a reader who then clicks Edit expects to find.
     #[props(default = false)]
     pub read_only: bool,
+    /// Fired after any change to what is attached here — an upload, a detach,
+    /// a retitle, a portrait being chosen.
+    ///
+    /// The gallery refreshes itself, but it is not the only thing showing this
+    /// data: a profile page draws the person's portrait from the same links,
+    /// and without this it kept drawing the old one until the reader navigated
+    /// away and back.
+    #[props(default)]
+    pub on_changed: Option<EventHandler<()>>,
 }
 
 /// Thumbnail grid + upload cell + inline edit panel.
@@ -101,6 +110,16 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     // and less error-prone than mutating a local list in eight handlers and
     // hoping they all agree with the server.
     let mut revision = use_signal(|| 0_u32);
+    let on_changed = props.on_changed;
+    // Every mutation goes through here rather than touching `revision`
+    // directly: a bump the host is not told about is exactly the bug this
+    // exists to prevent.
+    let changed = use_callback(move |()| {
+        revision += 1;
+        if let Some(handler) = on_changed {
+            handler.call(());
+        }
+    });
     let mut editing = use_signal(|| None::<Uuid>);
     let mut cropping = use_signal(|| None::<MediaWithLink>);
     let mut viewing = use_signal(|| None::<MediaWithLink>);
@@ -150,7 +169,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                 if let Err(e) = api.create_media_link(tree_id, &body).await {
                     error.set(Some(e.to_string()));
                 }
-                revision += 1;
+                changed.call(());
             });
         }
     };
@@ -175,7 +194,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                         if let Err(e) = api.create_media_link(tree_id, &body).await {
                             error.set(Some(e.to_string()));
                         }
-                        revision += 1;
+                        changed.call(());
                         // Open its panel straight away: an empty document is
                         // useless until pages are added, and the panel is
                         // where they are added.
@@ -213,7 +232,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     },
                     on_crop: move |tile: MediaWithLink| cropping.set(Some(tile)),
                     on_view: move |tile: MediaWithLink| viewing.set(Some(tile)),
-                    on_changed: move |_| revision += 1,
+                    on_changed: move |_| changed.call(()),
                 }
             }
             if !read_only {
@@ -252,7 +271,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                 tree_id,
                 tile,
                 events: events.clone(),
-                on_changed: move |_| revision += 1,
+                on_changed: move |_| changed.call(()),
                 on_close: move |_| editing.set(None),
             }
         }
@@ -263,7 +282,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                 tile,
                 events: events.clone(),
                 read_only,
-                on_changed: move |()| revision += 1,
+                on_changed: move |()| changed.call(()),
                 on_close: move |_| viewing.set(None),
             }
         }
@@ -276,7 +295,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                 events: events.clone(),
                 on_close: move |_| {
                     cropping.set(None);
-                    revision += 1;
+                    changed.call(());
                 },
             }
         }
@@ -1437,6 +1456,30 @@ fn MediaViewer(
                 }
 
                 div { class: "media-viewer-body",
+                aside { class: "media-viewer-aside",
+                    if editing() {
+                        MediaEditPanel {
+                            tree_id,
+                            tile: tile.clone(),
+                            events: events.clone(),
+                            embedded: true,
+                            on_changed: move |()| on_changed.call(()),
+                            on_close: move |()| editing.set(false),
+                        }
+                    } else {
+                        MediaFacts {
+                            tree_id,
+                            media: shown.cloned().unwrap_or_else(|| tile.media.clone()),
+                        }
+                        if !read_only {
+                            button {
+                                class: "btn btn-outline media-facts-edit",
+                                r#type: "button",
+                                onclick: move |_| editing.set(true),
+                                {i18n.t("common.edit")}
+                            }
+                        }
+                    }
                 div { class: "media-viewer-main",
                 div {
                     class: if zoom().is_some() { "media-viewer-stage is-zoomed" } else { "media-viewer-stage" },
@@ -1568,30 +1611,6 @@ fn MediaViewer(
                 }
                 }
 
-                aside { class: "media-viewer-aside",
-                    if editing() {
-                        MediaEditPanel {
-                            tree_id,
-                            tile: tile.clone(),
-                            events: events.clone(),
-                            embedded: true,
-                            on_changed: move |()| on_changed.call(()),
-                            on_close: move |()| editing.set(false),
-                        }
-                    } else {
-                        MediaFacts {
-                            tree_id,
-                            media: shown.cloned().unwrap_or_else(|| tile.media.clone()),
-                        }
-                        if !read_only {
-                            button {
-                                class: "btn btn-outline media-facts-edit",
-                                r#type: "button",
-                                onclick: move |_| editing.set(true),
-                                {i18n.t("common.edit")}
-                            }
-                        }
-                    }
                 }
                 }
 
