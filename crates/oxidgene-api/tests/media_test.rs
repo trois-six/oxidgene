@@ -1639,3 +1639,66 @@ async fn a_record_naming_a_file_nobody_uploaded_is_not_a_portrait_by_default() {
         json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
     assert!(portraits.as_array().unwrap().is_empty(), "{portraits}");
 }
+
+#[tokio::test]
+async fn a_gedzip_round_trip_carries_the_photographs_into_the_new_tree() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (media_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (status, _, archive) =
+        raw(&h.app, &format!("{base}/gedcom/export?format=gedzip"), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!archive.is_empty());
+
+    // Import it back as a second tree. This is the whole promise of the
+    // format: the pictures travel with the genealogy.
+    let (status, imported) = json_request(
+        &h.app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({"name": "round trip"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{imported}");
+    let new_tree = imported["id"].as_str().unwrap().to_string();
+
+    let response = h
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/v1/trees/{new_tree}/gedzip/import"))
+                .header(header::CONTENT_TYPE, "application/zip")
+                .body(Body::from(archive))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let summary: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    assert_eq!(status, StatusCode::CREATED, "{summary}");
+
+    let (_, media) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{new_tree}/media"),
+        None,
+    )
+    .await;
+    let rows = media["edges"]
+        .as_array()
+        .unwrap_or_else(|| panic!("unexpected list shape: {media}"));
+    assert_eq!(rows.len(), 1, "{media}");
+    let imported = &rows[0]["node"];
+    // The point: bytes, not just a record naming a file.
+    assert!(
+        imported["storage_key"].is_string(),
+        "the photograph arrived without its bytes: {media}"
+    );
+    assert!(imported["thumbnail_key"].is_string());
+    assert_ne!(imported["id"], media_id.as_str(), "a new record, new tree");
+}
