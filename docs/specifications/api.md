@@ -172,7 +172,9 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 
 A rectangle that does not fit the media it crops is a `400` at write time, so a stored vignette always describes a region that exists.
 
-**Privacy** is accepted on all three of `PUT .../persons/{id}`,
+`PUT /trees/{id}` accepts `default_privacy` (`"public" | "private"`) — what
+`"default"` resolves to for everything in that tree. **Privacy** is accepted on
+all three of `PUT .../persons/{id}`,
 `PUT .../families/{id}` and `PUT .../media/{id}` as `"default" | "public" |
 "private"`. The family route's body is optional — it long predates this field as
 a bare "touch `updated_at`" — so a request with no body still succeeds. Nothing

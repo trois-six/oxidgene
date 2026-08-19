@@ -12,7 +12,7 @@ use oxidgene_core::types::{
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
-    Sex, SourceMediaType, SpouseRole,
+    Sex, SourceMediaType, SpouseRole, TreeDefaultPrivacy,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -157,7 +157,7 @@ pub struct CreateTreeBody {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct UpdateTreeBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -165,6 +165,9 @@ pub struct UpdateTreeBody {
     pub description: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sosa_root_person_id: Option<Option<Uuid>>,
+    /// What `Privacy::Default` resolves to for everything in this tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_privacy: Option<TreeDefaultPrivacy>,
 }
 
 #[derive(Debug, Serialize)]

@@ -507,6 +507,7 @@ pub fn Home() -> Element {
                                             }
                                             let Some(tid) = rename_tree_id() else { return };
                                             let body = UpdateTreeBody {
+                            default_privacy: None,
                                                 name: Some(name),
                                                 description: None,
                                                 sosa_root_person_id: None,

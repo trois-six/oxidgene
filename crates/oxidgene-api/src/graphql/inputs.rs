@@ -13,7 +13,7 @@ use async_graphql::{ID, InputObject, MaybeUndefined};
 
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
-    GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole,
+    GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -28,6 +28,8 @@ pub struct CreateTreeInput {
 /// Input for updating an existing tree.
 #[derive(Debug, InputObject)]
 pub struct UpdateTreeInput {
+    /// What `Default` privacy resolves to for everything in this tree.
+    pub default_privacy: Option<GqlTreeDefaultPrivacy>,
     pub name: Option<String>,
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,

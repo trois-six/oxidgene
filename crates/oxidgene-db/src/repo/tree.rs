@@ -55,6 +55,7 @@ impl TreeRepo {
             name: Set(name),
             description: Set(description),
             sosa_root_person_id: Set(None),
+            default_privacy: Set(oxidgene_core::enums::TreeDefaultPrivacy::default().into()),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -73,6 +74,7 @@ impl TreeRepo {
         name: Option<String>,
         description: Option<Option<String>>,
         sosa_root_person_id: Option<Option<Uuid>>,
+        default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
     ) -> Result<Tree, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
@@ -90,6 +92,9 @@ impl TreeRepo {
         }
         if let Some(sosa_root) = sosa_root_person_id {
             active.sosa_root_person_id = Set(sosa_root);
+        }
+        if let Some(default_privacy) = default_privacy {
+            active.default_privacy = Set(default_privacy.into());
         }
         active.updated_at = Set(Utc::now());
 
@@ -161,6 +166,7 @@ fn into_domain(m: tree::Model) -> Tree {
         name: m.name,
         description: m.description,
         sosa_root_person_id: m.sosa_root_person_id,
+        default_privacy: m.default_privacy.into(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
