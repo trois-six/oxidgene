@@ -267,6 +267,8 @@ pub struct UpdateMediaInput {
     /// The URL of a remote media. Refused for a media whose bytes we hold.
     pub file_path: Option<String>,
     pub mime_type: Option<String>,
+    /// Whether this is shown when the tree is published.
+    pub privacy: Option<GqlPrivacy>,
     /// What the medium physically is, in GEDCOM's own vocabulary.
     pub source_media_type: Option<GqlSourceMediaType>,
     /// What kind of record it is. Setting it without a `sourceMediaType` also
@@ -378,4 +380,16 @@ pub struct ImportGenewebInput {
     /// Name of the file being imported. GeneWeb records it on every family and
     /// it is echoed back in parse warnings; defaults to `import.gw`.
     pub filename: Option<String>,
+}
+
+/// Input for importing a GEDZIP archive (`.gdz`).
+#[derive(Debug, InputObject)]
+pub struct ImportGedzipInput {
+    /// The raw archive, base64-encoded.
+    ///
+    /// A `.gdz` is a ZIP: binary by definition, so it cannot travel as a
+    /// GraphQL `String`. The REST endpoint takes the same bytes raw, without
+    /// this encoding step — which is the one to prefer for a large album,
+    /// since base64 adds a third to it.
+    pub content_base64: String,
 }

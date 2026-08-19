@@ -1296,6 +1296,7 @@ mod tests {
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
+            privacy: Default::default(),
             source_media_type: Default::default(),
             document_category: None,
             place_id: None,

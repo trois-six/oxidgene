@@ -1336,7 +1336,10 @@ impl ImportProgress {
 /// this is the machine's parallelism — capped, because every one in flight
 /// holds a full-size decoded image in memory and a scanned page is tens of
 /// megabytes decoded.
-fn ingest_width() -> usize {
+///
+/// Shared with the GEDZIP importer, which ingests the same way from a
+/// different source and has no reason to pick a different width.
+pub(crate) fn ingest_width() -> usize {
     std::thread::available_parallelism()
         .map(std::num::NonZeroUsize::get)
         .unwrap_or(1)

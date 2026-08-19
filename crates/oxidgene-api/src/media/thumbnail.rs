@@ -15,12 +15,18 @@ use oxidgene_core::error::OxidGeneError;
 /// retina display without shipping the full scan to draw a contact sheet.
 pub const THUMBNAIL_MAX_EDGE: u32 = 400;
 
-/// Ceiling on the decoded pixel buffer, in bytes (256 MiB).
+/// Ceiling on the decoded pixel buffer, in bytes (1 GiB).
 ///
 /// A few kilobytes of crafted PNG can claim 60000×60000 pixels, and a decoder
 /// that believes it allocates 13 GiB before failing. The limit turns that into
-/// a rejected upload.
-const MAX_DECODED_BYTES: u64 = 256 * 1024 * 1024;
+/// a thumbnail that is not generated — [`super::ingest`] logs the failure and
+/// stores the file anyway, so the guard costs a gallery icon rather than an
+/// upload.
+///
+/// It has to clear what the upload ceiling now admits, or every large scan
+/// would land in exactly that iconless state: a 1200 dpi colour spread decodes
+/// to something under a gigabyte, a crafted bomb to many times one.
+const MAX_DECODED_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// A generated thumbnail, ready to store.
 #[derive(Debug, Clone)]

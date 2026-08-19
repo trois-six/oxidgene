@@ -58,8 +58,15 @@ pub async fn get_family(
 pub async fn update_family(
     State(state): State<AppState>,
     Path((_tree_id, family_id)): Path<(Uuid, Uuid)>,
+    body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let family = FamilyRepo::update(&state.db, family_id)
+    // Read from the raw bytes rather than through `Json`: this route already
+    // existed as a bare "touch updated_at" and is still called with no body at
+    // all, which an extractor expecting JSON refuses before the handler runs.
+    let privacy = serde_json::from_slice::<super::dto::UpdateFamilyRequest>(&body)
+        .ok()
+        .and_then(|b| b.privacy);
+    let family = FamilyRepo::update(&state.db, family_id, privacy)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(family).unwrap()))

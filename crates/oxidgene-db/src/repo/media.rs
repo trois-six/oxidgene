@@ -43,6 +43,7 @@ pub struct MediaPatch {
     /// hold — a remote URL, or a GEDCOM record naming a file nobody uploaded.
     pub file_path: Option<String>,
     pub mime_type: Option<String>,
+    pub privacy: Option<oxidgene_core::enums::Privacy>,
     pub source_media_type: Option<oxidgene_core::enums::SourceMediaType>,
     pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
     /// Derived by the caller, never sent by a client. See [`MediaRepo::update`].
@@ -144,6 +145,7 @@ impl MediaRepo {
             page_index: Set(0),
             is_document: Set(false),
             file_size: Set(file_size),
+            privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
             title: Set(title),
@@ -194,6 +196,7 @@ impl MediaRepo {
             page_index: Set(0),
             is_document: Set(false),
             file_size: Set(upload.file_size),
+            privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
             title: Set(upload.title),
@@ -290,6 +293,7 @@ impl MediaRepo {
             page_index: Set(0),
             is_document: Set(true),
             file_size: Set(0),
+            privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
             title: Set(title),
@@ -534,6 +538,9 @@ impl MediaRepo {
         if let Some(place_id) = patch.place_id {
             active.place_id = Set(place_id);
         }
+        if let Some(privacy) = patch.privacy {
+            active.privacy = Set(privacy.into());
+        }
         if let Some(source_media_type) = patch.source_media_type {
             active.source_media_type = Set(source_media_type.into());
         }
@@ -627,6 +634,7 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         date_value: m.date_value,
         date_sort: m.date_sort,
         date_qualifier: m.date_qualifier.into(),
+        privacy: m.privacy.into(),
         source_media_type: m.source_media_type.into(),
         // A value the enum does not know is a row written by something older
         // than this column; treated as unclassified rather than guessed at.

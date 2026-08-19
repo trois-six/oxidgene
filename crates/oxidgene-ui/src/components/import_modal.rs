@@ -199,7 +199,10 @@ pub fn ImportModal(
 // File tab
 // ═══════════════════════════════════════════════════════════════════
 
-/// Drop or pick a `.ged`/`.gw` and import it.
+/// Drop or pick a `.ged`, `.gdz` or `.gw` and import it.
+///
+/// The extension picks the reader (see [`format_of`]); only `.gdz` brings the
+/// media with it, the other two naming files the tree will not hold.
 ///
 /// The one behavioural change from the menu item this replaces: the bytes come
 /// from `read()` rather than from a path. A picked file has no path in a
@@ -219,8 +222,9 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
     let pick = move |_| {
         spawn(async move {
             let file = rfd::AsyncFileDialog::new()
-                .add_filter("GEDCOM / GeneWeb", &["ged", "gw"])
+                .add_filter("GEDCOM / GEDZIP / GeneWeb", &["ged", "gdz", "gw"])
                 .add_filter("GEDCOM", &["ged"])
+                .add_filter("GEDZIP", &["gdz"])
                 .add_filter("GeneWeb", &["gw"])
                 .add_filter("All files", &["*"])
                 .set_title(i18n.t("gedcom.select_file"))
@@ -248,17 +252,17 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
         busy.set(true);
         error.set(None);
         spawn(async move {
-            let outcome = if is_geneweb(&name) {
-                api.import_geneweb(tree_id, bytes, &name).await
-            } else {
-                match String::from_utf8(bytes) {
+            let outcome = match format_of(&name) {
+                FileFormat::Geneweb => api.import_geneweb(tree_id, bytes, &name).await,
+                FileFormat::Gedzip => api.import_gedzip(tree_id, bytes).await,
+                FileFormat::Gedcom => match String::from_utf8(bytes) {
                     Ok(gedcom) => api.import_gedcom(tree_id, &gedcom).await,
                     Err(_) => {
                         error.set(Some(i18n.t("import.not_utf8")));
                         busy.set(false);
                         return;
                     }
-                }
+                },
             };
             busy.set(false);
             match outcome {
@@ -1693,12 +1697,29 @@ fn GeneanetDone(result: GeneanetImportResult) -> Element {
 // Helpers
 // ═══════════════════════════════════════════════════════════════════
 
-/// Whether a picked file should go through the GeneWeb reader.
-fn is_geneweb(file_name: &str) -> bool {
-    file_name
-        .rsplit('.')
-        .next()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("gw"))
+/// Which reader a picked file goes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileFormat {
+    /// A GEDCOM text file — the default for anything unrecognised, because it
+    /// is the one format people rename freely and the reader says so itself
+    /// when handed something else.
+    Gedcom,
+    /// A GeneWeb `.gw` export.
+    Geneweb,
+    /// A GEDZIP `.gdz` archive: a GEDCOM and its media in one ZIP.
+    Gedzip,
+}
+
+/// Which reader a picked file's extension asks for.
+fn format_of(file_name: &str) -> FileFormat {
+    let extension = file_name.rsplit('.').next().unwrap_or_default();
+    if extension.eq_ignore_ascii_case("gw") {
+        FileFormat::Geneweb
+    } else if extension.eq_ignore_ascii_case("gdz") {
+        FileFormat::Gedzip
+    } else {
+        FileFormat::Gedcom
+    }
 }
 
 /// The last path component of an engine-reported file name.
@@ -1751,11 +1772,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_a_gw_extension_takes_the_geneweb_path() {
-        assert!(is_geneweb("tree.gw"));
-        assert!(is_geneweb("MYACCOUNT_2026-08-01.GW"));
-        assert!(!is_geneweb("tree.ged"));
-        assert!(!is_geneweb("tree"));
+    fn the_extension_picks_the_reader_whatever_its_case() {
+        assert_eq!(format_of("tree.gw"), FileFormat::Geneweb);
+        assert_eq!(format_of("MYACCOUNT_2026-08-01.GW"), FileFormat::Geneweb);
+        assert_eq!(format_of("tree.gdz"), FileFormat::Gedzip);
+        assert_eq!(format_of("EXPORT.GDZ"), FileFormat::Gedzip);
+        assert_eq!(format_of("tree.ged"), FileFormat::Gedcom);
+        // Anything unrecognised is read as GEDCOM — the reader will say so if
+        // it is not, and a renamed `.ged` is common.
+        assert_eq!(format_of("tree"), FileFormat::Gedcom);
     }
 
     #[test]

@@ -391,6 +391,9 @@ pub struct UpdateMediaRequest {
     /// Only meaningful alongside a `file_path` we cannot sniff. Left out, the
     /// server guesses from the URL's extension.
     pub mime_type: Option<String>,
+    /// Whether this is shown when the tree is published. Recorded now,
+    /// enforced when authentication lands.
+    pub privacy: Option<oxidgene_core::enums::Privacy>,
     /// What the medium physically is, in GEDCOM's own vocabulary.
     pub source_media_type: Option<oxidgene_core::enums::SourceMediaType>,
     /// What kind of record it is. Clearing it is meaningful — a scan can stop
@@ -399,6 +402,15 @@ pub struct UpdateMediaRequest {
     /// implies, so a census return does not export as `OTHER`.
     #[serde(default, deserialize_with = "double_option")]
     pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
+}
+
+/// Request body for updating a couple.
+///
+/// Only privacy so far — a family's own facts live on its events and its
+/// spouse rows, not on the row itself.
+#[derive(Debug, Deserialize)]
+pub struct UpdateFamilyRequest {
+    pub privacy: Option<oxidgene_core::enums::Privacy>,
 }
 
 /// Request body for creating an empty multi-page document.

@@ -142,7 +142,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Soft-delete media. The bytes stay: content addressing means another record may share them, and a tree purge removes the directory |
 
-**Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 64 MiB — larger files are EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
+**Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 128 MiB — comfortably above what the services we exchange with take (Geneanet caps a media file at 50 MB and accepts only JPEG, PNG, GIF and PDF), because a 1200 dpi register spread or a few-hundred-page dossier clears 64 MiB unremarkably. Larger still is EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
 
 **Three kinds of media.** *Stored* — `storage_key` is set, we serve the bytes, there is a thumbnail and crops can be drawn. *Remote* — `file_path` is an `http(s)` URL: recorded, never fetched by us, so no thumbnail and no crop, and the browser goes to the origin directly. *Unheld* — a record naming a file nobody uploaded, which is where every GEDCOM import starts. `PUT .../media/{id}` may edit `file_path` for the last two and **refuses it for a stored one**: there `file_path` is the value a GEDCOM export writes back, and repointing it would make the export describe a file we are serving something else for. A remote `mime_type` is guessed from the URL's extension when not given — the only evidence available without fetching, and it decides whether a viewer embeds the file or offers it as a download.
 
@@ -171,6 +171,12 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read. `400` for a PDF — rasterising one needs a rendering engine OxidGene does not ship |
 
 A rectangle that does not fit the media it crops is a `400` at write time, so a stored vignette always describes a region that exists.
+
+**Privacy** is accepted on all three of `PUT .../persons/{id}`,
+`PUT .../families/{id}` and `PUT .../media/{id}` as `"default" | "public" |
+"private"`. The family route's body is optional — it long predates this field as
+a bare "touch `updated_at`" — so a request with no body still succeeds. Nothing
+reads these values yet; see [Data Model](data-model.md) (Privacy).
 
 ### Portraits
 
@@ -242,17 +248,18 @@ Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints re
 
 ### Import / export
 
-GEDCOM is read and written; GeneWeb `.gw` is read only — OxidGene imports the
-format, it does not produce it.
+GEDCOM and GEDZIP are read and written; GeneWeb `.gw` is read only — OxidGene
+imports the format, it does not produce it.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 10 MiB body limit |
-| `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 10 MiB body limit |
+| `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 350 MiB body limit (the JSON escaping costs a further ~1.4× over the file itself) |
+| `POST` | `/trees/{tree_id}/gedzip/import` | Import a GEDZIP archive (`.gdz`): the `gedcom.ged` it wraps **and** the media files it carries. Body is the **raw archive** (`application/zip`), not JSON — base64 in an envelope would inflate a photo album by a third. Every medium whose `FILE` names an entry in the archive is stored, thumbnailed and written as a held medium; one naming an entry the archive lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE` names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`. 512 MiB body limit |
+| `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 350 MiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
-Both import endpoints return the same `ImportResponse` shape and trigger a full
-projection rebuild of the tree.
+All three import endpoints return the same `ImportResponse` shape and trigger a
+full projection rebuild of the tree.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
@@ -283,9 +290,11 @@ two endpoints that send nothing else take it as a raw body instead. They also
 carry `deposit_sizes`, the per-deposit byte lengths gathered in the login
 window, which is what decides whether a photo is already in the archives; and
 optionally `cookie`, needed only when the archives do not cover every photo.
-These four routes run under a **64 MiB body limit** rather than the 10 MiB of a
-plain import: a 10 000-person tree is around 8 MiB base64-encoded before the
-mapping is added.
+The two wizard routes that sit outside the tree nest run under a **32 MiB body
+limit**: a 10 000-person tree is around 8 MiB base64-encoded before the mapping
+is added, and that number grows with tree size rather than with how many
+photographs somebody owns. The tree-scoped routes here share the **350 MiB**
+allowance of a plain import.
 
 Used by: [Geneanet import wizard](ui-geneanet-import.md)
 
@@ -505,6 +514,9 @@ type Mutation {
   # `.gw` bytes are base64-encoded: the format is ISO-8859-1 unless the file
   # opts into UTF-8, and a GraphQL String cannot carry non-UTF-8 bytes.
   importGeneweb(treeId: ID!, input: ImportGenewebInput!): ImportResult!
+  # A `.gdz` is a ZIP, so it is base64 here too. Prefer the REST endpoint for a
+  # large one: base64 adds a third to an archive that is mostly photographs.
+  importGedzip(treeId: ID!, input: ImportGedzipInput!): ImportResult!
 
   # Read projections (see Read Projections spec) — mirrors the REST routes
   expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
@@ -605,6 +617,10 @@ input ImportGedcomInput {
 input ImportGenewebInput {
   contentBase64: String!
   filename: String   # default "import.gw"
+}
+
+input ImportGedzipInput {
+  contentBase64: String!   # the whole `.gdz` archive
 }
 
 # Returned by every import mutation, whatever the source format.

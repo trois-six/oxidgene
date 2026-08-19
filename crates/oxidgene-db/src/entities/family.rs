@@ -2,12 +2,16 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::sea_enums::Privacy;
+
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "family")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
     pub tree_id: Uuid,
+    /// Recorded now, enforced when authentication lands.
+    pub privacy: Privacy,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,
