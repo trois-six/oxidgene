@@ -9,7 +9,7 @@ use oxidgene_core::enums::*;
 use oxidgene_core::projection::*;
 
 use oxidgene_core::types::{
-    Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place,
+    Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place, Vignette,
 };
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -27,6 +27,11 @@ pub struct TreeData {
     pub children: Vec<FamilyChild>,
     pub media: Vec<Media>,
     pub media_links: Vec<MediaLink>,
+    /// Only the ones a projection needs: the crops that *are* somebody's
+    /// portrait. Every vignette in the tree would be a large slice to carry
+    /// for a field that is usually null.
+    #[allow(clippy::struct_field_names)]
+    pub portrait_vignettes: Vec<Vignette>,
     pub notes: Vec<Note>,
 }
 
@@ -50,6 +55,8 @@ struct IndexedData {
     family_by_child: HashMap<Uuid, Vec<FamilyChild>>,
     /// MediaLink entries grouped by person_id
     media_links_by_person: HashMap<Uuid, Vec<MediaLink>>,
+    /// The crops that are somebody's portrait, by id.
+    portrait_vignette_by_id: HashMap<Uuid, Vignette>,
     /// Media indexed by media_id
     media_by_id: HashMap<Uuid, Media>,
     /// Note count by person_id
@@ -131,6 +138,12 @@ impl IndexedData {
         }
 
         // Index media by ID
+        let portrait_vignette_by_id: HashMap<Uuid, Vignette> = data
+            .portrait_vignettes
+            .iter()
+            .map(|v| (v.id, v.clone()))
+            .collect();
+
         let media_by_id: HashMap<Uuid, Media> =
             data.media.iter().map(|m| (m.id, m.clone())).collect();
 
@@ -156,6 +169,7 @@ impl IndexedData {
             families_by_spouse,
             family_by_child,
             media_links_by_person,
+            portrait_vignette_by_id,
             media_by_id,
             note_count_by_person,
             display_names,
@@ -402,22 +416,32 @@ fn build_one_person(
     // is a crop resolves through the scan it is on, and the vignette id
     // travels with it so a card can ask for the cropped image rather than the
     // whole wedding party.
-    //
-    // TODO: a portrait that is a *crop* is not resolved here yet. Doing it
-    // needs the vignette's own `media_id` to find the containing scan, and
-    // `TreeData` does not carry vignettes — the projection would hand back a
-    // reference to a media it had not loaded. Callers that must draw a crop
-    // read `/portraits`, which resolves both shapes in one query; this field
-    // stays `None` for them rather than pointing at the whole wedding party.
+    // A crop resolves through the scan it sits on, and carries its own id so a
+    // card asks for the cropped image rather than the whole wedding party. The
+    // title prefers the vignette's — "Jeanne, second from the left" says more
+    // than the scan's own caption.
     let primary_media = person
-        .portrait_media_id
-        .and_then(|media_id| idx.media_by_id.get(&media_id))
-        .map(|m| ProfileMediaRef {
-            media_id: m.id,
-            vignette_id: None,
-            file_path: m.file_path.clone(),
-            mime_type: m.mime_type.clone(),
-            title: m.title.clone(),
+        .portrait_vignette_id
+        .and_then(|vignette_id| {
+            let vignette = idx.portrait_vignette_by_id.get(&vignette_id)?;
+            let media = idx.media_by_id.get(&vignette.media_id)?;
+            Some(ProfileMediaRef {
+                media_id: media.id,
+                vignette_id: Some(vignette_id),
+                file_path: media.file_path.clone(),
+                mime_type: media.mime_type.clone(),
+                title: vignette.title.clone().or_else(|| media.title.clone()),
+            })
+        })
+        .or_else(|| {
+            let media = idx.media_by_id.get(&person.portrait_media_id?)?;
+            Some(ProfileMediaRef {
+                media_id: media.id,
+                vignette_id: None,
+                file_path: media.file_path.clone(),
+                mime_type: media.mime_type.clone(),
+                title: media.title.clone(),
+            })
         });
 
     // ── Citation count ───────────────────────────────────────────────────

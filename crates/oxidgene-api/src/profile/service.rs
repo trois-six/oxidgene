@@ -20,6 +20,7 @@ use oxidgene_core::projection::{
 use oxidgene_db::repo::{
     AncestryRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo,
     MediaRepo, NoteRepo, PersonDenormRepo, PersonNameRepo, PersonRepo, PersonSearchRepo, PlaceRepo,
+    VignetteRepo,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use tracing::{debug, info, instrument};
@@ -529,6 +530,25 @@ impl ProfileService {
             MediaRepo::get_many(conn, &media_ids),
         )?;
 
+        // The portrait crop, and the scan it sits on. Fetched after the
+        // person rather than alongside, because which crop to fetch is
+        // written on the person; and appended to `media` because the
+        // containing scan need not be one of this person's own links — a face
+        // in somebody else's group photograph is still their portrait.
+        let mut media = media;
+        let mut portrait_vignettes = Vec::new();
+        if let Some(vignette_id) = persons
+            .iter()
+            .find(|p| p.id == person_id)
+            .and_then(|p| p.portrait_vignette_id)
+            && let Ok(vignette) = VignetteRepo::get(conn, vignette_id).await
+        {
+            if !media.iter().any(|m| m.id == vignette.media_id) {
+                media.extend(MediaRepo::get_many(conn, &[vignette.media_id]).await?);
+            }
+            portrait_vignettes.push(vignette);
+        }
+
         Ok(TreeData {
             persons,
             names,
@@ -538,6 +558,7 @@ impl ProfileService {
             children,
             media,
             media_links,
+            portrait_vignettes,
             notes,
         })
     }
@@ -569,6 +590,14 @@ impl ProfileService {
         let media_ids: Vec<Uuid> = media.iter().map(|m| m.id).collect();
         let media_links = MediaLinkRepo::list_by_medias(conn, &media_ids).await?;
 
+        // Only the crops that are somebody's portrait: every vignette in the
+        // tree would be a large slice to carry for a field usually null.
+        let portrait_ids: Vec<Uuid> = persons
+            .iter()
+            .filter_map(|p| p.portrait_vignette_id)
+            .collect();
+        let portrait_vignettes = VignetteRepo::get_many(conn, &portrait_ids).await?;
+
         Ok(TreeData {
             persons,
             names,
@@ -578,6 +607,7 @@ impl ProfileService {
             children,
             media,
             media_links,
+            portrait_vignettes,
             notes,
         })
     }

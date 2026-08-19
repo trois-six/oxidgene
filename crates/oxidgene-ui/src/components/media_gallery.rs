@@ -135,11 +135,32 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             }
         }
     });
-    let portrait_media_id = portrait
+    let portrait_read = portrait.read_unchecked();
+    let portrait_pair = portrait_read.as_ref().and_then(|p| p.as_ref()).copied();
+    drop(portrait_read);
+    let portrait_media_id = portrait_pair.and_then(|(media, _)| media);
+    let portrait_vignette_id = portrait_pair.and_then(|(_, vignette)| vignette);
+
+    // Crops of larger images that show this person. A face in a group
+    // photograph is one of their pictures as surely as a photograph of them
+    // alone is, and until now it appeared in no gallery at all — it existed
+    // only inside the scan it was drawn on.
+    let vignettes = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let _ = revision();
+            async move {
+                let person_id = portrait_owner?;
+                api.list_person_vignettes(tree_id, person_id).await.ok()
+            }
+        }
+    });
+    let person_vignettes: Vec<Vignette> = vignettes
         .read_unchecked()
         .as_ref()
-        .and_then(|p| p.as_ref())
-        .and_then(|(media, _)| *media);
+        .and_then(|v| v.clone())
+        .unwrap_or_default();
 
     let changed = use_callback(move |()| {
         revision += 1;
@@ -262,6 +283,17 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     on_crop: move |tile: MediaWithLink| cropping.set(Some(tile)),
                     on_view: move |tile: MediaWithLink| viewing.set(Some(tile)),
                     on_changed: move |_| changed.call(()),
+                }
+            }
+            for vignette in person_vignettes.iter().cloned() {
+                VignetteTile {
+                    key: "v{vignette.id}",
+                    tree_id,
+                    vignette: vignette.clone(),
+                    person_id: portrait_owner,
+                    is_portrait: portrait_vignette_id == Some(vignette.id),
+                    on_view: move |tile| viewing.set(Some(tile)),
+                    on_changed: move |()| changed.call(()),
                 }
             }
             if !read_only {
@@ -574,6 +606,139 @@ fn MediaTile(
                             toggle_profile.call(());
                         },
                         if is_profile {
+                            {i18n.t("media.clear_profile_image")}
+                        } else {
+                            {i18n.t("media.set_profile_image")}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A crop of a larger image, shown as one of the person's pictures.
+///
+/// A face in a group photograph is one of somebody's pictures as surely as a
+/// photograph of them alone is, and it used to appear in no gallery at all —
+/// it existed only inside the scan it was drawn on. The image is cropped by
+/// the server on read, so this is one `<img>` and no second copy of anything.
+///
+/// It carries the portrait action and nothing else. Editing the rectangle
+/// belongs to the cropper, over the scan, where the coordinates mean
+/// something; a tile is too small to move a rectangle on.
+#[component]
+fn VignetteTile(
+    tree_id: Uuid,
+    vignette: Vignette,
+    person_id: Option<Uuid>,
+    is_portrait: bool,
+    on_view: EventHandler<MediaWithLink>,
+    on_changed: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut menu_at = use_signal(|| None::<(f64, f64)>);
+
+    let vignette_id = vignette.id;
+    let url = api.vignette_image_url(tree_id, vignette_id);
+    let caption = vignette
+        .title
+        .clone()
+        .unwrap_or_else(|| i18n.t("media.vignette"));
+
+    let toggle_portrait = use_callback({
+        let api = api.clone();
+        move |()| {
+            let api = api.clone();
+            let Some(person_id) = person_id else {
+                return;
+            };
+            spawn(async move {
+                busy.set(true);
+                let body = if is_portrait {
+                    SetPortraitBody::default()
+                } else {
+                    SetPortraitBody {
+                        media_id: None,
+                        vignette_id: Some(vignette_id),
+                    }
+                };
+                match api.set_person_portrait(tree_id, person_id, body).await {
+                    Ok(_) => on_changed.call(()),
+                    Err(e) => error.set(Some(e.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    });
+
+    rsx! {
+        div { class: "media-tile",
+            div {
+                class: "media-thumb is-vignette",
+                role: "button",
+                title: i18n.t("media.view"),
+                // Opening it opens the scan it is a region of: the point of a
+                // crop is the document behind it, and a viewer showing the
+                // crop alone would hide what it is evidence from.
+                onclick: {
+                    let api = api.clone();
+                    move |_| {
+                        let api = api.clone();
+                        spawn(async move {
+                            if let Ok(media) = api.get_media(tree_id, vignette.media_id).await {
+                                on_view.call(MediaWithLink {
+                                    link_id: vignette_id,
+                                    sort_order: 0,
+                                    media,
+                                });
+                            }
+                        });
+                    }
+                },
+                oncontextmenu: move |e: Event<MouseData>| {
+                    if person_id.is_none() {
+                        return;
+                    }
+                    e.prevent_default();
+                    let point = e.client_coordinates();
+                    menu_at.set(Some((point.x, point.y)));
+                },
+                img { src: "{url}", alt: "{caption}", loading: "lazy" }
+                if is_portrait {
+                    span { class: "media-star", title: i18n.t("media.profile_image"), "\u{2605}" }
+                }
+                // Says what it is: without it a crop and the whole scan look
+                // like two photographs of the same thing.
+                span { class: "media-vignette-badge", title: i18n.t("media.vignette"), "\u{2702}" }
+            }
+            div { class: "media-caption", title: "{caption}", "{caption}" }
+            if let Some(err) = error() {
+                div { class: "error-msg", "{err}" }
+            }
+
+            if let Some((x, y)) = menu_at() {
+                div {
+                    class: "context-menu-backdrop",
+                    onclick: move |_| menu_at.set(None),
+                    oncontextmenu: move |e: Event<MouseData>| {
+                        e.prevent_default();
+                        menu_at.set(None);
+                    },
+                }
+                div { class: "context-menu", style: "left: {x}px; top: {y}px;",
+                    button {
+                        class: "context-menu-item",
+                        r#type: "button",
+                        disabled: busy(),
+                        onclick: move |_| {
+                            menu_at.set(None);
+                            toggle_portrait.call(());
+                        },
+                        if is_portrait {
                             {i18n.t("media.clear_profile_image")}
                         } else {
                             {i18n.t("media.set_profile_image")}

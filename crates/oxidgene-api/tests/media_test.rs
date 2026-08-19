@@ -1428,3 +1428,76 @@ async fn a_note_can_be_about_a_document_rather_than_a_person() {
     .await;
     assert_eq!(listed.as_array().unwrap().len(), 1, "{listed}");
 }
+
+#[tokio::test]
+async fn a_crop_portrait_reaches_the_read_projection() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (media_id, _) = attach_photo(&h, &person_id, "wedding.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (_, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{media_id}/vignettes"),
+        Some(json!({
+            "x": 10, "y": 10, "width": 30, "height": 30,
+            "person_id": person_id, "title": "second from the left"
+        })),
+    )
+    .await;
+    json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"vignette_id": vignette["id"]})),
+    )
+    .await;
+
+    let (status, profile) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/profiles/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{profile}");
+
+    // The crop's own id travels, so a card asks for the cropped image rather
+    // than the whole wedding party; the media id is the scan it sits on.
+    let portrait = &profile["primary_media"];
+    assert_eq!(portrait["vignette_id"], vignette["id"], "{profile}");
+    assert_eq!(portrait["media_id"], media_id.as_str());
+    // The crop's title says more than the scan's caption ever could.
+    assert_eq!(portrait["title"], "second from the left");
+}
+
+#[tokio::test]
+async fn the_projection_draws_the_portrait_that_was_chosen() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    // Attached first, so it holds the lowest sort_order. The projection used
+    // to take that one and ignore the stored choice entirely, so a person
+    // could star a photograph and have their card go on drawing another.
+    let (first, _) = attach_photo(&h, &person_id, "first.png").await;
+    let (second, _) = attach_photo(&h, &person_id, "second.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"media_id": second})),
+    )
+    .await;
+
+    let (_, profile) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/profiles/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(profile["primary_media"]["media_id"], second.as_str());
+    assert_ne!(profile["primary_media"]["media_id"], first.as_str());
+}
