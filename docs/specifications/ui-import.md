@@ -196,6 +196,19 @@ into the expanded step, live regions on the progress bars — is in
 - Stat rows wrap 4 → 2 → 1 at 900 px and 560 px
 - The drop zone is always full width
 
+## What a GEDZIP round trip does to the portrait
+
+GEDCOM has no primary-photo flag, so the choice cannot be *stated* — but it can
+be implied, because order survives. A person's `OBJE` links are written portrait
+first, and the import takes somebody's first picture as their portrait when none
+is recorded, so the choice arrives intact. Link order is recorded explicitly on
+import (`media_link.sort_order` follows the file) rather than left to insertion
+order.
+
+A portrait that is a **crop** cannot cross: GEDCOM cannot express a region of an
+image as somebody's portrait at all. Those people come back represented by their
+first whole picture, and the crop itself survives as a vignette on the scan.
+
 ## What a GEDZIP round trip does to a multi-page document
 
 Nothing carries it across, and nothing pretends to. GEDCOM has no notion of a

@@ -103,6 +103,9 @@ fn attach_object_pointers(
     // Which record we are inside, and what it is. Cleared by the next level-0
     // line, so a pointer can never be attributed to the record before it.
     let mut current: Option<(bool, Uuid)> = None;
+    // Position within the record being read: the file's order is the gallery's
+    // order, and a person's first picture is the one that represents them.
+    let mut position: i32 = 0;
     for line in gedcom_str.lines() {
         let line = line.trim_end_matches('\r');
         let mut parts = line.trim_start().splitn(3, ' ');
@@ -118,6 +121,7 @@ fn attach_object_pointers(
                 (true, Some("FAM")) => family_xrefs.get(second).map(|id| (false, *id)),
                 _ => None,
             };
+            position = 0;
             continue;
         }
 
@@ -151,8 +155,9 @@ fn attach_object_pointers(
             event_id: None,
             source_id: None,
             family_id: (!is_person).then_some(owner),
-            sort_order: 0,
+            sort_order: position,
         });
+        position += 1;
     }
     let _ = tree_id;
 }
@@ -597,7 +602,11 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         }
 
         // Multimedia links on the individual
-        for mm in &indi.multimedia {
+        // The file's order is the gallery's order, recorded rather than left
+        // to the ids: a person's first picture is the one that represents them
+        // when no portrait is stored, and GEDCOM states a portrait only by
+        // writing it first.
+        for (index, mm) in indi.multimedia.iter().enumerate() {
             let media_id = resolve_or_create_media(mm, tree_id, now, &media_map, &mut result);
             if let Some(media_id) = media_id {
                 result.media_links.push(MediaLink {
@@ -607,7 +616,7 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
                     event_id: None,
                     source_id: None,
                     family_id: None,
-                    sort_order: 0,
+                    sort_order: i32::try_from(index).unwrap_or(i32::MAX),
                 });
             }
         }
