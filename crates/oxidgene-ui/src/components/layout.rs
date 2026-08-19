@@ -3649,7 +3649,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .media-viewer-aside {
         flex: 0 0 300px;
-        border-left: 1px solid var(--border);
+        border-right: 1px solid var(--border);
         overflow-y: auto;
         padding: 14px;
         background: var(--bg-card);
@@ -3658,11 +3658,14 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Below the fold on a narrow screen: the document comes first, and a
        300px column beside a phone-width image leaves neither readable. */
     @media (max-width: 900px) {
-        .media-viewer-body { flex-direction: column; }
+        /* Stacked, the document leads and the facts follow it: on a phone the
+           scan is what the reader opened, and a column above it would push it
+           off the screen. */
+        .media-viewer-body { flex-direction: column-reverse; }
         .media-viewer-aside {
             flex: 0 0 auto;
             max-height: 40vh;
-            border-left: none;
+            border-right: none;
             border-top: 1px solid var(--border);
         }
     }

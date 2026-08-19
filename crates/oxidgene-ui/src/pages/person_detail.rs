@@ -293,10 +293,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Tree-wide portrait map (person_id -> image URL), used both for this
     // person's header avatar and for the mini pedigrees below — a single
     // `list_media_links_for_tree` call instead of two duplicate ones.
+    // Bumped when the gallery below reports a change, so choosing a portrait
+    // is visible here at once rather than on the next visit to the page.
+    let mut media_revision = use_signal(|| 0_u32);
     let api_photos_map = api.clone();
     let photos_map_resource = use_resource(move || {
         let api = api_photos_map.clone();
         let tid = tree_id_parsed();
+        let _ = media_revision();
         async move {
             let Some(tid) = tid else {
                 return HashMap::new();
@@ -1418,6 +1422,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     tree_id: media_tid,
                     owner: MediaOwner::Person(pid),
                     read_only: true,
+                    on_changed: move |()| media_revision += 1,
                 }
             }
         }

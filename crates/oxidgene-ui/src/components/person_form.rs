@@ -1774,6 +1774,13 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 tree_id: tid,
                                 owner: MediaOwner::Person(pid),
                                 events: event_choices.clone(),
+                                // Choosing a portrait writes immediately and is
+                                // not part of this form's save, so a user who
+                                // picks one and then closes without saving must
+                                // still see the card behind the modal change.
+                                // Every host treats `on_saved` as "refresh",
+                                // never as "close", so this is safe to call.
+                                on_changed: move |()| props.on_saved.call(()),
                             }
                         }
                     }
