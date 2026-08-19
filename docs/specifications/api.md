@@ -255,9 +255,9 @@ imports the format, it does not produce it.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 350 MiB body limit (the JSON escaping costs a further ~1.4× over the file itself) |
+| `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 1 GiB body limit (the JSON escaping costs a further ~1.4× over the file itself) |
 | `POST` | `/trees/{tree_id}/gedzip/import` | Import a GEDZIP archive (`.gdz`): the `gedcom.ged` it wraps **and** the media files it carries. Body is the **raw archive** (`application/zip`), not JSON — base64 in an envelope would inflate a photo album by a third. Every medium whose `FILE` names an entry in the archive is stored, thumbnailed and written as a held medium; one naming an entry the archive lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE` names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`. 512 MiB body limit |
-| `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 350 MiB body limit |
+| `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 1 GiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
 All three import endpoints return the same `ImportResponse` shape and trigger a
@@ -295,7 +295,7 @@ optionally `cookie`, needed only when the archives do not cover every photo.
 The two wizard routes that sit outside the tree nest run under a **32 MiB body
 limit**: a 10 000-person tree is around 8 MiB base64-encoded before the mapping
 is added, and that number grows with tree size rather than with how many
-photographs somebody owns. The tree-scoped routes here share the **350 MiB**
+photographs somebody owns. The tree-scoped routes here share the **1 GiB**
 allowance of a plain import.
 
 Used by: [Geneanet import wizard](ui-geneanet-import.md)

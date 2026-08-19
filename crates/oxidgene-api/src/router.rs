@@ -17,12 +17,12 @@ const GENEANET_BODY_LIMIT: usize = 32 * 1024 * 1024;
 ///
 /// This one tracks the size of a file somebody hands us rather than the size
 /// of their tree, and the two part company badly at the top end: Geneanet
-/// accepts a **zipped** GEDCOM of 350 MB, so the unzipped file a user drops on
-/// us is allowed to be larger still. 350 MiB is that number taken literally
+/// accepts a **zipped** GEDCOM of 1 GB, so the unzipped file a user drops on
+/// us is allowed to be larger still. 1 GB is that number taken literally
 /// and then given the larger unit. The JSON-wrapped GEDCOM import pays a
 /// further ~1.4× for the string escaping, which is the one path here still
 /// bounded by tree size rather than by this.
-const IMPORT_BODY_LIMIT: usize = 350 * 1024 * 1024;
+const IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 
 /// Body limit for a GEDZIP import.
 ///
