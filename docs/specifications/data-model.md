@@ -298,6 +298,23 @@ No soft delete: a vignette is a coordinate annotation, not a record anyone cites
 and a rectangle that does not fit its media is refused at write time — so a stored
 vignette always describes a region that exists.
 
+**Which image represents a person.** At most one of `portrait_media_id` /
+`portrait_vignette_id` is ever set, and the pair is read and written through a
+single `Portrait` value (`Media(id)` / `Vignette(id)` / `None`), so "both set"
+is not a state a caller can produce — the API refuses a request carrying both
+rather than silently picking one.
+
+It lives here rather than as a flag on `MediaLink` because a person is very
+often identified *inside* a larger photograph — a group portrait, a wedding
+party — and that region is already a first-class row: a `Vignette`. A second
+`is_profile` on `Vignette` would spread the invariant "at most one portrait per
+person" across two tables, where it can no longer be established in a single
+statement; a pointer on `Person` makes it structural instead of enforced.
+
+Not a foreign key: SQLite cannot add one through `ALTER TABLE`, the same reason
+`media.place_id` has none. A dangling pointer resolves to "no portrait" rather
+than to an error.
+
 ### MediaLink
 
 | Column | Type | Notes |
