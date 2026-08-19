@@ -273,7 +273,7 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 | C | Tree Editing (Frontend) | ✅ Complete |
 | D | UX, Languages, Performance | ✅ Complete |
 | E | Read Projections & Search | ✅ E.9 Complete; 🔄 E.8 (dictionary descent view) planned |
-| F | Media Management | 🔄 F.1–F.3, the Geneanet import, media typing (GEDCOM `SOURCE_MEDIA_TYPE` + document category) and the `.gdz` media fix shipped (S3 backend, PostgreSQL verification, PDF page rendering outstanding); F.4 planned |
+| F | Media Management | 🔄 F.1–F.3, the Geneanet import, media typing (GEDCOM `SOURCE_MEDIA_TYPE` + document category), the `.gdz` media fix, and portraits-as-crops shipped (S3 backend, PostgreSQL verification, PDF page rendering outstanding); F.4 planned |
 | G | Security & Deployment | ⏳ Post-Media |
 | H | Asynchronous Pipeline | ⏳ Post-MVP |
 

@@ -172,14 +172,38 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 
 A rectangle that does not fit the media it crops is a `400` at write time, so a stored vignette always describes a region that exists.
 
+### Portraits
+
+| Method | Path | Description |
+|---|---|---|
+| `PUT` | `/trees/{tree_id}/persons/{person_id}/portrait` | Choose what represents a person: `{media_id}`, `{vignette_id}`, or `{}` to clear it. Both ids together is a `400` — a portrait is a media or a crop, never both |
+| `GET` | `/trees/{tree_id}/portraits` | Every person's portrait in the tree, as `{person_id, media_id?, vignette_id?, file_path, has_thumbnail}` |
+
+Replaces `PUT /media-links/{link_id}/profile`, and `MediaLink` no longer carries
+`is_profile`. The portrait is a property of the *person* — see
+[Data Model](data-model.md) (Person) for why — so setting one is a single write
+and needs no clearing pass over the person's other links.
+
+`GET /portraits` exists because a pedigree draws a hundred cards and a profile
+page draws one avatar from the same answer; before the move this was read out of
+the tree-wide media-link list, shipping every link in the tree so that a few
+could be recognised as portraits. A crop is resolved through the scan it sits
+on, so `has_thumbnail` answers for both shapes and a caller never asks twice.
+
+**Drawing one.** In order: a `vignette_id` means the cropped image
+(`/vignettes/{id}/image`); otherwise `has_thumbnail` means our own thumbnail;
+otherwise an `http(s)` `file_path` is a remote media we recorded and never
+fetched. Anything else has no portrait to draw. `file_path` is never itself a
+URL to load — it is the producer's own path, kept verbatim so an export
+round-trips.
+
 ### Media Links
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media-links` | Unfiltered: every person↔media link in the tree, flat — what the pedigree canvas reads to find each card's photo |
-| `GET` | `/trees/{tree_id}/media-links?entity_type=person\|family\|event\|source&entity_id={id}` | One entity's gallery. Each row is the link (`link_id`, `sort_order`, `is_profile`) with the **media flattened in**, so a grid of twenty scans is one request rather than twenty-one — a tile cannot be drawn without the MIME type and whether a thumbnail exists |
+| `GET` | `/trees/{tree_id}/media-links?entity_type=person\|family\|event\|source&entity_id={id}` | One entity's gallery. Each row is the link (`link_id`, `sort_order`) with the **media flattened in**, so a grid of twenty scans is one request rather than twenty-one — a tile cannot be drawn without the MIME type and whether a thumbnail exists |
 | `POST` | `/trees/{tree_id}/media-links` | Attach a media to an entity |
-| `PUT` | `/trees/{tree_id}/media-links/{link_id}/profile` | `{"is_profile": true\|false}` — make this the person's profile photo, or clear it. Setting one clears the person's others in the same statement, so the tree never shows two stars. Only a link to a *person* may be one; a couple's card shows its spouses' portraits. Rebuilds the person's projection, since the portrait is embedded in `person_denorm` |
 | `DELETE` | `/trees/{tree_id}/media-links/{link_id}` | Detach. The media itself is untouched — the file may document three other people |
 
 ### Notes

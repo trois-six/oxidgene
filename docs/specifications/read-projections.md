@@ -101,7 +101,13 @@ struct PersonProfile {
     family_as_child: Option<ProfileChildLink>,   // Family where this person is a child
 
     // Attached media/sources/notes (counts + primary)
-    primary_media: Option<ProfileMediaRef>,  // Portrait / primary photo
+    // The portrait the person chose — `person.portrait_media_id`, or the crop
+    // in `portrait_vignette_id`. `ProfileMediaRef` carries `vignette_id` so a
+    // card asks for the cropped image rather than the whole group photograph.
+    // Before EPIC F this took whichever media had the lowest `sort_order` and
+    // ignored the stored choice, so a starred photograph and the one a
+    // pedigree card drew could disagree.
+    primary_media: Option<ProfileMediaRef>,
     media_count: u32,
     citation_count: u32,
     note_count: u32,
