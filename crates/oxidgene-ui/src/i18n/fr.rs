@@ -632,6 +632,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ),
         // ── Settings page ───────────────────────────────────────────
         ("settings.breadcrumb", "Param\u{00E8}tres"),
+        ("settings.default_privacy", "Confidentialit\u{00E9} par d\u{00E9}faut"),
+        ("settings.default_privacy_desc", "Ce que signifie \u{00AB}\u{202F}suit l\u{2019}arbre\u{202F}\u{00BB} pour chaque personne, couple et document ici. Chacun peut toujours en d\u{00E9}cider autrement."),
         ("settings.tree_roots", "Arbre et racines"),
         ("settings.privacy", "Confidentialit\u{00E9}"),
         ("settings.date_display", "Affichage des dates"),

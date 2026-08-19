@@ -594,6 +594,35 @@ impl From<DateQualifier> for enums::DateQualifier {
     }
 }
 
+/// What `Privacy::Default` resolves to for one tree — stored as a string
+/// column. Two variants, so "the tree follows the tree" cannot be written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(10))")]
+pub enum TreeDefaultPrivacy {
+    #[sea_orm(string_value = "public")]
+    Public,
+    #[sea_orm(string_value = "private")]
+    Private,
+}
+
+impl From<enums::TreeDefaultPrivacy> for TreeDefaultPrivacy {
+    fn from(v: enums::TreeDefaultPrivacy) -> Self {
+        match v {
+            enums::TreeDefaultPrivacy::Public => Self::Public,
+            enums::TreeDefaultPrivacy::Private => Self::Private,
+        }
+    }
+}
+
+impl From<TreeDefaultPrivacy> for enums::TreeDefaultPrivacy {
+    fn from(v: TreeDefaultPrivacy) -> Self {
+        match v {
+            TreeDefaultPrivacy::Public => Self::Public,
+            TreeDefaultPrivacy::Private => Self::Private,
+        }
+    }
+}
+
 /// GEDCOM's `SOURCE_MEDIA_TYPE` — stored as a string column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]

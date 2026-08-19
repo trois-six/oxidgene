@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::sea_enums::TreeDefaultPrivacy;
+
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "tree")]
 pub struct Model {
@@ -10,6 +12,8 @@ pub struct Model {
     pub name: String,
     pub description: Option<String>,
     pub sosa_root_person_id: Option<Uuid>,
+    /// What `Privacy::Default` means for everything in this tree.
+    pub default_privacy: TreeDefaultPrivacy,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

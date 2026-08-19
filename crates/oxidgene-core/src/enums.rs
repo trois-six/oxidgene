@@ -199,6 +199,63 @@ impl std::fmt::Display for Calendar {
     }
 }
 
+/// What `Privacy::Default` resolves to, for one tree.
+///
+/// Deliberately *not* [`Privacy`]: that enum's own `Default` variant means
+/// "follow the tree", and a tree whose default followed the tree would be
+/// circular. Two variants, so the nonsensical state cannot be written down.
+///
+/// `Private` is the default. A genealogy holds living people, and a tree
+/// nobody has classified has not been cleared for publication — the value that
+/// applies before anyone has thought about it should be the one that
+/// withholds. Publishing is the deliberate act.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeDefaultPrivacy {
+    Public,
+    #[default]
+    Private,
+}
+
+impl std::fmt::Display for TreeDefaultPrivacy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TreeDefaultPrivacy {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private => "private",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "public" => Some(Self::Public),
+            "private" => Some(Self::Private),
+            _ => None,
+        }
+    }
+
+    /// Resolve one record's setting against this tree's default.
+    ///
+    /// The whole point of the pair: a record saying `Default` has not made a
+    /// choice, so the tree makes it. `Public` and `Private` on the record are
+    /// choices, and override.
+    #[must_use]
+    pub fn resolve(self, privacy: Privacy) -> Self {
+        match privacy {
+            Privacy::Public => Self::Public,
+            Privacy::Private => Self::Private,
+            Privacy::Default => self,
+        }
+    }
+}
+
 /// What kind of thing a medium physically *is* — GEDCOM's
 /// `SOURCE_MEDIA_TYPE`.
 ///
@@ -873,5 +930,50 @@ mod media_type_tests {
         // Not `Photo`: the table holds scans and PDFs as readily as
         // photographs, and a default that guessed would mislabel them.
         assert_eq!(SourceMediaType::default(), SourceMediaType::Other);
+    }
+}
+
+#[cfg(test)]
+mod tree_privacy_tests {
+    use super::{Privacy, TreeDefaultPrivacy};
+
+    #[test]
+    fn a_record_that_has_not_chosen_takes_the_trees_answer() {
+        assert_eq!(
+            TreeDefaultPrivacy::Public.resolve(Privacy::Default),
+            TreeDefaultPrivacy::Public
+        );
+        assert_eq!(
+            TreeDefaultPrivacy::Private.resolve(Privacy::Default),
+            TreeDefaultPrivacy::Private
+        );
+    }
+
+    #[test]
+    fn a_record_that_has_chosen_overrides_the_tree() {
+        // Marking one person public in a private tree is the whole reason the
+        // per-record field exists.
+        assert_eq!(
+            TreeDefaultPrivacy::Private.resolve(Privacy::Public),
+            TreeDefaultPrivacy::Public
+        );
+        assert_eq!(
+            TreeDefaultPrivacy::Public.resolve(Privacy::Private),
+            TreeDefaultPrivacy::Private
+        );
+    }
+
+    #[test]
+    fn an_unclassified_tree_withholds() {
+        // A genealogy holds living people; publishing is the deliberate act.
+        assert_eq!(TreeDefaultPrivacy::default(), TreeDefaultPrivacy::Private);
+    }
+
+    #[test]
+    fn the_stored_spellings_round_trip() {
+        for value in [TreeDefaultPrivacy::Public, TreeDefaultPrivacy::Private] {
+            assert_eq!(TreeDefaultPrivacy::parse(value.as_str()), Some(value));
+        }
+        assert_eq!(TreeDefaultPrivacy::parse("default"), None);
     }
 }

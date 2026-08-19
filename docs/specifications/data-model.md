@@ -278,6 +278,19 @@ two living people, and withholding both their person records does not withhold
 the union that names them. A document needs one for the same reason a photograph
 of living children does.
 
+`Default` means "follow the tree", and the tree says which: `tree.default_privacy`
+is `public` | `private`, defaulting to **private**. It is deliberately *not* a
+`Privacy` — that enum's own `Default` variant would make a tree follow itself —
+so it has two variants and the circular state cannot be written down.
+`TreeDefaultPrivacy::resolve(privacy)` is the one place the pair is combined: a
+record saying `Default` takes the tree's answer, and `Public` / `Private` on the
+record override it.
+
+The default default withholds. A genealogy holds living people, and a tree
+nobody has classified has not been cleared for publication, so the value that
+applies before anyone has thought about it is the one that hides. Publishing is
+the deliberate act.
+
 **Nothing enforces it yet.** Privacy is meaningful only against a viewer, and
 there are no viewers until authentication lands. What the column buys now is
 that the *intent* is recorded: a user classifying their tree today does not have

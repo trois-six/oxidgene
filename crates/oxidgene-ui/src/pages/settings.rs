@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use oxidgene_core::enums::TreeDefaultPrivacy;
 use oxidgene_core::types::PersonName;
 use uuid::Uuid;
 
@@ -360,6 +361,16 @@ fn TreeRootsSection(
     // without waiting for tree_resource to re-fetch.
     // None = use tree_resource value, Some(x) = override with x.
     let mut local_sosa_override = use_signal(|| None::<Option<Uuid>>);
+    // What `Default` privacy means for everything in this tree. Same local
+    // override, for the same reason: the control must answer the click, not
+    // the refetch.
+    let mut local_privacy_override = use_signal(|| None::<TreeDefaultPrivacy>);
+
+    let current_privacy =
+        local_privacy_override().unwrap_or_else(|| match &*tree_resource.read() {
+            Some(Some(Ok(tree))) => tree.default_privacy,
+            _ => TreeDefaultPrivacy::default(),
+        });
 
     // Current sosa_root_person_id: local override takes precedence
     let current_sosa_root = match local_sosa_override() {
@@ -426,6 +437,7 @@ fn TreeRootsSection(
         spawn(async move {
             if let Some(tid) = tree_id_parsed {
                 let body = UpdateTreeBody {
+                    default_privacy: None,
                     name: None,
                     description: None,
                     sosa_root_person_id: Some(Some(person_id)),
@@ -453,6 +465,7 @@ fn TreeRootsSection(
         spawn(async move {
             if let Some(tid) = tree_id_parsed {
                 let body = UpdateTreeBody {
+                    default_privacy: None,
                     name: None,
                     description: None,
                     sosa_root_person_id: Some(None),
@@ -549,6 +562,58 @@ fn TreeRootsSection(
                 }
                 div { class: "settings-placeholder",
                     {i18n.t("settings.who_am_i_future")}
+                }
+            }
+
+            // ── Default privacy ──
+            //
+            // Every person, couple and document defaults to "follows the tree",
+            // and until now there was no tree setting to follow — the commonest
+            // value in the model pointed at nothing.
+            div { class: "card", style: "margin-top: 16px;",
+                h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
+                    {i18n.t("settings.default_privacy")}
+                }
+                p { class: "settings-section-subtitle",
+                    {i18n.t("settings.default_privacy_desc")}
+                }
+                div { class: "pf-gender-group", style: "margin-top: 12px;",
+                    for (value , label) in [
+                        (TreeDefaultPrivacy::Private, i18n.t("privacy.private")),
+                        (TreeDefaultPrivacy::Public, i18n.t("privacy.public")),
+                    ] {
+                        button {
+                            key: "{value.as_str()}",
+                            class: if current_privacy == value {
+                                "pf-gender-btn is-active"
+                            } else {
+                                "pf-gender-btn"
+                            },
+                            r#type: "button",
+                            onclick: {
+                                let api = api.clone();
+                                move |_| {
+                                    let api = api.clone();
+                                    local_privacy_override.set(Some(value));
+                                    spawn(async move {
+                                        let Some(tid) = tree_id_parsed else { return };
+                                        let body = UpdateTreeBody {
+                                            default_privacy: Some(value),
+                                            ..Default::default()
+                                        };
+                                        match api.update_tree(tid, &body).await {
+                                            Ok(_) => tree_cache.invalidate(),
+                                            Err(e) => save_error.set(Some(e.to_string())),
+                                        }
+                                    });
+                                }
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                p { class: "pf-ns-hint", style: "margin-top: 8px;",
+                    {i18n.t("privacy.not_enforced_yet")}
                 }
             }
         }

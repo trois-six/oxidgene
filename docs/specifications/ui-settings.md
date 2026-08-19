@@ -146,9 +146,45 @@ Second person picker to designate the current user's own person in the tree. Use
 
 ---
 
+### Default privacy
+
+A card holding the one shipped privacy control — see
+[§8](#8-section-privacy) for what it does and why it lives here rather than
+there.
+
+---
+
 ## 8. Section: Privacy
 
-### Tree visibility
+> **Implemented so far: the default only.** Everything else in this section is
+> still a plan. Privacy is meaningful only against a viewer, and there are no
+> viewers until authentication lands — so the toggles below describe what should
+> happen once there are, and nothing reads any stored privacy value yet.
+>
+> The one shipped control is **Default privacy**, and it sits in
+> [§7 Tree & Roots](#7-section-tree--roots) rather than here: with the rest of
+> this section unbuilt, a Privacy page holding a single pair of buttons would
+> read as though the feature were finished. It moves here when the others
+> arrive.
+
+### Default privacy (implemented)
+
+Two buttons, Private and Public, saying what "follows the tree" means for every
+person, couple and document in it. Each of those can still say otherwise — the
+tree answers only for the records that have not chosen.
+
+Private leads, and is the default for a new tree: a genealogy holds living
+people, and a tree nobody has classified has not been cleared for publication.
+Publishing is the deliberate act.
+
+Saving is immediate — one click, one write — with a local override so the control
+answers the click rather than the refetch. It carries the same line every other
+privacy control does: *recorded now, nothing is hidden yet*.
+
+Stored as `tree.default_privacy`; see [Data Model](data-model.md) (Privacy) for
+why it is not a `Privacy` value itself.
+
+### Tree visibility (planned)
 
 | Toggle | Effect |
 |---|---|
@@ -366,3 +402,4 @@ Export is triggered directly by the format buttons.
 ## 19. Design Consistency
 
 The settings page uses the standard `sub-page` layout pattern shared with all non-pedigree pages (see [General](general.md) section 8). All interactive elements follow the same hover/focus/active patterns from the [Design Tokens](ui-design-tokens.md). The light/dark theme applies globally.
+

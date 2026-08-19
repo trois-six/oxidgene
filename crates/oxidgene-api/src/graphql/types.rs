@@ -186,6 +186,31 @@ impl From<GqlChildType> for oxidgene_core::ChildType {
     }
 }
 
+/// What `Default` privacy resolves to, for one tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlTreeDefaultPrivacy {
+    Public,
+    Private,
+}
+
+impl From<oxidgene_core::enums::TreeDefaultPrivacy> for GqlTreeDefaultPrivacy {
+    fn from(v: oxidgene_core::enums::TreeDefaultPrivacy) -> Self {
+        match v {
+            oxidgene_core::enums::TreeDefaultPrivacy::Public => Self::Public,
+            oxidgene_core::enums::TreeDefaultPrivacy::Private => Self::Private,
+        }
+    }
+}
+
+impl From<GqlTreeDefaultPrivacy> for oxidgene_core::enums::TreeDefaultPrivacy {
+    fn from(v: GqlTreeDefaultPrivacy) -> Self {
+        match v {
+            GqlTreeDefaultPrivacy::Public => Self::Public,
+            GqlTreeDefaultPrivacy::Private => Self::Private,
+        }
+    }
+}
+
 /// What a medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlSourceMediaType {
@@ -702,6 +727,8 @@ pub struct GqlTree {
     pub name: String,
     pub description: Option<String>,
     pub sosa_root_person_id: Option<ID>,
+    /// What `Default` privacy resolves to for everything in this tree.
+    pub default_privacy: GqlTreeDefaultPrivacy,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -740,6 +767,7 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             name: t.name,
             description: t.description,
             sosa_root_person_id: t.sosa_root_person_id.map(|id| ID(id.to_string())),
+            default_privacy: t.default_privacy.into(),
             created_at: t.created_at,
             updated_at: t.updated_at,
         }
