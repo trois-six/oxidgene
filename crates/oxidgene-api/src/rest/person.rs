@@ -322,3 +322,51 @@ pub async fn get_person_by_sosa(
         .unwrap(),
     ))
 }
+
+/// PUT /api/v1/trees/:tree_id/persons/:person_id/portrait
+///
+/// Choose what represents a person: a whole media, a region of one — a face in
+/// a group photograph — or nothing.
+///
+/// One write on the person. "At most one portrait" is a property of that row
+/// rather than an invariant spanning the media links, so nothing has to be
+/// cleared first and no failure between two statements can leave two.
+pub async fn set_person_portrait(
+    State(state): State<AppState>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<super::dto::SetPortraitRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let portrait = body
+        .portrait()
+        .map_err(|e| ApiError(OxidGeneError::Validation(e)))?;
+    let person = PersonRepo::set_portrait(&state.db, person_id, portrait)
+        .await
+        .map_err(ApiError::from)?;
+
+    // The portrait is embedded in `person_denorm`, so the projection has to be
+    // rebuilt or the tree keeps drawing the old one.
+    state
+        .profiles
+        .rebuild_person(&state.db, tree_id, person_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(person).unwrap()))
+}
+
+/// GET /api/v1/trees/:tree_id/portraits
+///
+/// Every person's portrait in one request, as (person, media, vignette).
+///
+/// A pedigree draws a hundred cards and a profile page draws one avatar, both
+/// from the same answer. Before the portrait moved onto the person this was
+/// read out of the tree-wide media-link list — every link in the tree shipped
+/// so that a few of them could be recognised as portraits.
+pub async fn list_portraits(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let rows = PersonRepo::list_portraits(&state.db, tree_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(rows).unwrap()))
+}

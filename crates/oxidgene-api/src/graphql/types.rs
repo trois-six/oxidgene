@@ -791,6 +791,10 @@ pub struct GqlPerson {
     pub tree_id: ID,
     pub sex: GqlSex,
     pub privacy: GqlPrivacy,
+    /// The whole media representing this person, if their portrait is one.
+    pub portrait_media_id: Option<ID>,
+    /// The region of a larger image representing them, if it is a crop.
+    pub portrait_vignette_id: Option<ID>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -921,6 +925,8 @@ impl From<oxidgene_core::types::Person> for GqlPerson {
             tree_id: ID(p.tree_id.to_string()),
             sex: p.sex.into(),
             privacy: p.privacy.into(),
+            portrait_media_id: p.portrait_media_id.map(|id| ID(id.to_string())),
+            portrait_vignette_id: p.portrait_vignette_id.map(|id| ID(id.to_string())),
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -1634,7 +1640,6 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
 pub struct GqlMediaWithLink {
     pub link_id: ID,
     pub sort_order: i32,
-    pub is_profile: bool,
     pub media: GqlMedia,
 }
 
@@ -1729,7 +1734,6 @@ pub struct GqlMediaLink {
     pub source_id: Option<ID>,
     pub family_id: Option<ID>,
     pub sort_order: i32,
-    pub is_profile: bool,
 }
 
 impl From<oxidgene_core::types::MediaLink> for GqlMediaLink {
@@ -1742,7 +1746,6 @@ impl From<oxidgene_core::types::MediaLink> for GqlMediaLink {
             source_id: l.source_id.map(|id| ID(id.to_string())),
             family_id: l.family_id.map(|id| ID(id.to_string())),
             sort_order: l.sort_order,
-            is_profile: l.is_profile,
         }
     }
 }

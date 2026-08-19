@@ -3701,6 +3701,10 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow-wrap: anywhere;
     }
 
+    /* An unset field is shown, not hidden: it says the fact can be recorded
+       and has not been, which an absent row cannot say. */
+    .media-fact-value.is-empty { color: var(--text-muted); }
+
     .media-fact-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 
     .media-fact-tag {

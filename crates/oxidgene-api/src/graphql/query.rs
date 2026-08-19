@@ -329,7 +329,6 @@ impl QueryRoot {
             .map(|(link, media)| GqlMediaWithLink {
                 link_id: ID(link.id.to_string()),
                 sort_order: link.sort_order,
-                is_profile: link.is_profile,
                 media: media.into(),
             })
             .collect())

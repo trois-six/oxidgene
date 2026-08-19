@@ -15,7 +15,7 @@ use oxidgene_core::{
     Sex, SourceMediaType, SpouseRole,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 // ── PersonDetail — person + server-computed SOSA number ──────────────
@@ -27,6 +27,12 @@ pub struct PersonDetail {
     pub tree_id: Uuid,
     pub sex: Sex,
     pub privacy: Privacy,
+    /// Which image represents this person: a whole media, or a region of one.
+    /// At most one is ever set.
+    #[serde(default)]
+    pub portrait_media_id: Option<Uuid>,
+    #[serde(default)]
+    pub portrait_vignette_id: Option<Uuid>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -395,10 +401,6 @@ pub struct MediaLinkRow {
     pub file_name: String,
     pub mime_type: String,
     pub has_thumbnail: bool,
-    /// Whether this is the person's profile image. Always `false` on an event
-    /// row — only a person has a portrait.
-    #[serde(default)]
-    pub is_profile: bool,
 }
 
 /// Whether a `file_path` is an address rather than a path.
@@ -411,6 +413,16 @@ fn is_remote(file_path: &str) -> bool {
     file_path.starts_with("http://") || file_path.starts_with("https://")
 }
 
+/// One person's portrait, as the tree-wide endpoint returns it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PortraitRow {
+    pub person_id: uuid::Uuid,
+    pub media_id: Option<uuid::Uuid>,
+    pub vignette_id: Option<uuid::Uuid>,
+    pub file_path: String,
+    pub has_thumbnail: bool,
+}
+
 /// A media together with the link that attached it — one gallery tile.
 ///
 /// Mirrors `MediaWithLink` on the API side, which flattens the media, so the
@@ -419,7 +431,6 @@ fn is_remote(file_path: &str) -> bool {
 pub struct MediaWithLink {
     pub link_id: uuid::Uuid,
     pub sort_order: i32,
-    pub is_profile: bool,
     #[serde(flatten)]
     pub media: Media,
 }
@@ -590,9 +601,14 @@ pub struct MediaUpload {
     pub as_page_of: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SetProfileMediaLinkBody {
-    pub is_profile: bool,
+#[derive(Debug, Serialize, Default)]
+pub struct SetPortraitBody {
+    /// A whole media.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<uuid::Uuid>,
+    /// A region of one — a face in a group photograph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vignette_id: Option<uuid::Uuid>,
 }
 
 /// A media carries the same descriptive fields a fact does — and no source
@@ -2199,20 +2215,25 @@ impl ApiClient {
     /// people with *no* photograph, who fell through to the silhouette,
     /// rendered correctly.
     ///
-    /// The three cases, in the order they are worth trying:
+    /// In order:
     ///
-    ///   - a **thumbnail** exists — we hold the bytes and have rasterised
-    ///     them. A pedigree card is 50 pixels wide, so the 400-pixel
-    ///     thumbnail is not merely acceptable here, it is the right file;
-    ///   - the media is **remote** — `file_path` is an `http(s)` URL we
-    ///     recorded and never fetched, so it is the only copy there is;
-    ///   - otherwise there is **nothing to show**. A record naming a file
-    ///     nobody uploaded, or one we could not rasterise, has no portrait,
-    ///     and `None` lets the caller draw the silhouette instead of asking
-    ///     the browser for bytes that will 404.
-    pub fn portrait_url(&self, tree_id: Uuid, row: &MediaLinkRow) -> Option<String> {
+    ///   - a **vignette** — the portrait is a region of a larger image, and
+    ///     the server crops it on read, which is the whole point of storing a
+    ///     face in a group photograph as coordinates rather than as a copy;
+    ///   - a **thumbnail** — we hold the bytes and have rasterised them. A
+    ///     pedigree card is 50 pixels wide, so the 400-pixel thumbnail is not
+    ///     merely acceptable, it is the right file;
+    ///   - a **remote** URL we recorded and never fetched, the only copy there
+    ///     is;
+    ///   - otherwise **nothing to show**, and `None` lets the caller draw the
+    ///     silhouette rather than ask the browser for bytes that will 404.
+    pub fn portrait_url(&self, tree_id: Uuid, row: &PortraitRow) -> Option<String> {
+        if let Some(vignette_id) = row.vignette_id {
+            return Some(self.vignette_image_url(tree_id, vignette_id));
+        }
+        let media_id = row.media_id?;
         if row.has_thumbnail {
-            Some(self.media_thumbnail_url(tree_id, row.media_id))
+            Some(self.media_thumbnail_url(tree_id, media_id))
         } else if is_remote(&row.file_path) {
             Some(row.file_path.clone())
         } else {
@@ -2220,31 +2241,34 @@ impl ApiClient {
         }
     }
 
-    /// One portrait per person, from the tree-wide link list.
-    ///
-    /// A person can have a dozen photographs attached and only one of them is
-    /// their portrait: the link they marked as the profile image. Collecting
-    /// the rows into a map without checking that flag lets whichever row the
-    /// database happened to return last win, which is why a person could
-    /// star a photograph and still see a different one on their card.
-    pub fn portrait_map(&self, tree_id: Uuid, rows: &[MediaLinkRow]) -> HashMap<Uuid, String> {
-        let mut portraits: HashMap<Uuid, String> = HashMap::new();
-        // Whether the entry already in the map was a deliberate choice. A
-        // starred link may arrive after an unstarred one, and must replace it.
-        let mut chosen: HashSet<Uuid> = HashSet::new();
-        for row in rows.iter().filter(|r| r.entity_type == "person") {
-            if chosen.contains(&row.entity_id) && !row.is_profile {
-                continue;
-            }
-            let Some(url) = self.portrait_url(tree_id, row) else {
-                continue;
-            };
-            if row.is_profile {
-                chosen.insert(row.entity_id);
-            }
-            portraits.insert(row.entity_id, url);
-        }
-        portraits
+    /// One portrait per person, ready to put in an `<img src>`.
+    pub fn portrait_map(&self, tree_id: Uuid, rows: &[PortraitRow]) -> HashMap<Uuid, String> {
+        rows.iter()
+            .filter_map(|row| Some((row.person_id, self.portrait_url(tree_id, row)?)))
+            .collect()
+    }
+
+    /// Every person's portrait in a tree, in one request.
+    pub async fn list_portraits(&self, tree_id: Uuid) -> Result<Vec<PortraitRow>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/portraits"))
+            .await
+    }
+
+    /// Choose what represents a person — a media, a crop of one, or nothing.
+    pub async fn set_person_portrait(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+        portrait: SetPortraitBody,
+    ) -> Result<serde_json::Value, ApiError> {
+        let person = self
+            .put(
+                &format!("/api/v1/trees/{tree_id}/persons/{person_id}/portrait"),
+                &portrait,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(person)
     }
 
     /// Absolute URL of a document's pages, packed into one ZIP.
@@ -2461,23 +2485,6 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(())
-    }
-
-    /// Make a link the person's profile image, or clear the flag.
-    pub async fn set_profile_media_link(
-        &self,
-        tree_id: Uuid,
-        link_id: Uuid,
-        is_profile: bool,
-    ) -> Result<serde_json::Value, ApiError> {
-        let link = self
-            .put(
-                &format!("/api/v1/trees/{tree_id}/media-links/{link_id}/profile"),
-                &SetProfileMediaLinkBody { is_profile },
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(link)
     }
 
     // ── Vignettes ───────────────────────────────────────────────────
@@ -2851,17 +2858,13 @@ impl ApiClient {
 mod tests {
     use super::*;
 
-    fn link_row(entity: Uuid, media: Uuid, path: &str, thumb: bool, profile: bool) -> MediaLinkRow {
-        MediaLinkRow {
-            link_id: Uuid::now_v7(),
-            entity_id: entity,
-            entity_type: "person".to_string(),
+    fn portrait_row(media: Option<Uuid>, path: &str, thumb: bool) -> PortraitRow {
+        PortraitRow {
+            person_id: Uuid::now_v7(),
             media_id: media,
+            vignette_id: None,
             file_path: path.to_string(),
-            file_name: "x.jpg".to_string(),
-            mime_type: "image/jpeg".to_string(),
             has_thumbnail: thumb,
-            is_profile: profile,
         }
     }
 
@@ -2872,27 +2875,47 @@ mod tests {
         // The address a Geneanet deposit was recorded under. Loading it
         // directly is what turned every card holding a real photograph into a
         // broken-image icon.
-        let row = link_row(
-            Uuid::now_v7(),
-            media,
-            "https://www.geneanet.org/deposit/4713",
-            true,
-            false,
+        let row = portrait_row(Some(media), "https://www.geneanet.org/deposit/4713", true);
+        assert_eq!(
+            api.portrait_url(tree, &row),
+            Some(api.media_thumbnail_url(tree, media))
         );
-        let url = api.portrait_url(tree, &row).expect("has a portrait");
-        assert_eq!(url, api.media_thumbnail_url(tree, media));
+    }
+
+    #[test]
+    fn a_portrait_that_is_a_face_in_a_group_photo_is_served_as_the_crop() {
+        let api = ApiClient::new("http://localhost:3000");
+        let (tree, vignette) = (Uuid::now_v7(), Uuid::now_v7());
+        // The portrait most people in an old family archive actually have.
+        // Serving the containing scan here would show the whole wedding party
+        // on a card meant to show one face.
+        let mut row = portrait_row(None, "", false);
+        row.vignette_id = Some(vignette);
+        assert_eq!(
+            api.portrait_url(tree, &row),
+            Some(api.vignette_image_url(tree, vignette))
+        );
+    }
+
+    #[test]
+    fn a_crop_wins_over_a_media_if_a_row_somehow_carries_both() {
+        let api = ApiClient::new("http://localhost:3000");
+        let (tree, vignette) = (Uuid::now_v7(), Uuid::now_v7());
+        // The write path refuses both, but a deterministic answer beats an
+        // arbitrary one if a row ever escapes it: the crop is the more
+        // specific statement.
+        let mut row = portrait_row(Some(Uuid::now_v7()), "", true);
+        row.vignette_id = Some(vignette);
+        assert_eq!(
+            api.portrait_url(tree, &row),
+            Some(api.vignette_image_url(tree, vignette))
+        );
     }
 
     #[test]
     fn a_remote_media_we_never_fetched_is_shown_from_its_own_url() {
         let api = ApiClient::new("http://localhost:3000");
-        let row = link_row(
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            "https://example.org/photo.jpg",
-            false,
-            false,
-        );
+        let row = portrait_row(Some(Uuid::now_v7()), "https://example.org/photo.jpg", false);
         assert_eq!(
             api.portrait_url(Uuid::now_v7(), &row).as_deref(),
             Some("https://example.org/photo.jpg")
@@ -2903,67 +2926,22 @@ mod tests {
     fn a_record_naming_a_file_nobody_uploaded_has_no_portrait() {
         let api = ApiClient::new("http://localhost:3000");
         // No thumbnail, and a path that is not an address: there is nothing to
-        // load. `None` is what lets the card draw the silhouette instead of
-        // asking the browser for bytes that will 404.
-        let row = link_row(
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            "C:\\Photos\\scan.jpg",
-            false,
-            false,
-        );
+        // load. `None` lets the card draw the silhouette rather than ask the
+        // browser for bytes that will 404.
+        let row = portrait_row(Some(Uuid::now_v7()), "C:\\Photos\\scan.jpg", false);
         assert_eq!(api.portrait_url(Uuid::now_v7(), &row), None);
     }
 
     #[test]
-    fn the_starred_link_is_the_portrait_whatever_order_the_rows_arrive_in() {
+    fn a_person_with_nothing_loadable_is_left_out_of_the_map() {
         let api = ApiClient::new("http://localhost:3000");
         let (tree, person) = (Uuid::now_v7(), Uuid::now_v7());
-        let starred = Uuid::now_v7();
-        // The starred row leads here and trails in the reversed case; both
-        // must choose it. Collecting into a map without reading the flag lets
-        // whichever row arrived last win, which is the bug this pins.
-        let rows = vec![
-            link_row(person, starred, "", true, true),
-            link_row(person, Uuid::now_v7(), "", true, false),
-        ];
-        assert_eq!(
-            api.portrait_map(tree, &rows).get(&person),
-            Some(&api.media_thumbnail_url(tree, starred))
-        );
+        let mut unheld = portrait_row(Some(Uuid::now_v7()), "scan.jpg", false);
+        unheld.person_id = person;
+        assert!(api.portrait_map(tree, &[unheld]).is_empty());
 
-        let reversed: Vec<MediaLinkRow> = rows.into_iter().rev().collect();
-        assert_eq!(
-            api.portrait_map(tree, &reversed).get(&person),
-            Some(&api.media_thumbnail_url(tree, starred))
-        );
-    }
-
-    #[test]
-    fn a_person_who_starred_nothing_still_gets_one_of_their_photographs() {
-        let api = ApiClient::new("http://localhost:3000");
-        let (tree, person) = (Uuid::now_v7(), Uuid::now_v7());
-        let rows = vec![
-            link_row(person, Uuid::now_v7(), "", true, false),
-            link_row(person, Uuid::now_v7(), "", true, false),
-        ];
-        assert!(api.portrait_map(tree, &rows).contains_key(&person));
-    }
-
-    #[test]
-    fn a_person_whose_only_photograph_is_unheld_gets_no_portrait() {
-        let api = ApiClient::new("http://localhost:3000");
-        let (tree, person) = (Uuid::now_v7(), Uuid::now_v7());
-        let rows = vec![link_row(person, Uuid::now_v7(), "scan.jpg", false, true)];
-        assert!(api.portrait_map(tree, &rows).is_empty());
-    }
-
-    #[test]
-    fn an_event_row_is_never_mistaken_for_somebodys_portrait() {
-        let api = ApiClient::new("http://localhost:3000");
-        let (tree, event) = (Uuid::now_v7(), Uuid::now_v7());
-        let mut row = link_row(event, Uuid::now_v7(), "", true, false);
-        row.entity_type = "event".to_string();
-        assert!(api.portrait_map(tree, &[row]).is_empty());
+        let mut held = portrait_row(Some(Uuid::now_v7()), "", true);
+        held.person_id = person;
+        assert!(api.portrait_map(tree, &[held]).contains_key(&person));
     }
 }

@@ -12,6 +12,12 @@ pub struct Model {
     pub tree_id: Uuid,
     pub sex: Sex,
     pub privacy: Privacy,
+    /// The whole media that represents this person, if their portrait is one.
+    /// Mutually exclusive with `portrait_vignette_id`.
+    pub portrait_media_id: Option<Uuid>,
+    /// The region of a larger image that represents them — a face in a group
+    /// photograph — if their portrait is a crop instead.
+    pub portrait_vignette_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

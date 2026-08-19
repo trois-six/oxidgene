@@ -43,9 +43,6 @@ pub struct MediaLinkRow {
     pub mime_type: String,
     /// Whether a thumbnail was generated for this media.
     pub has_thumbnail: bool,
-    /// Whether this link is the person's profile image. Always `false` on an
-    /// event row — only a person has a portrait.
-    pub is_profile: bool,
 }
 
 /// Repository for media–entity links.
@@ -78,7 +75,7 @@ impl MediaLinkRepo {
                 SELECT ml.id AS link_id,
                        ml.person_id AS entity_id,
                        'person' AS entity_type,
-                       ml.media_id, ml.is_profile,
+                       ml.media_id,
                        m.file_path, m.file_name, m.mime_type, m.thumbnail_key
                 FROM media_link ml
                 INNER JOIN media m ON m.id = ml.media_id
@@ -91,7 +88,7 @@ impl MediaLinkRepo {
                 SELECT ml.id AS link_id,
                        ml.event_id AS entity_id,
                        'event' AS entity_type,
-                       ml.media_id, ml.is_profile,
+                       ml.media_id,
                        m.file_path, m.file_name, m.mime_type, m.thumbnail_key
                 FROM media_link ml
                 INNER JOIN media m ON m.id = ml.media_id
@@ -138,9 +135,6 @@ impl MediaLinkRepo {
                     .try_get::<Option<String>>("", "thumbnail_key")
                     .map_err(|e| OxidGeneError::Database(e.to_string()))?
                     .is_some(),
-                is_profile: row
-                    .try_get("", "is_profile")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
             });
         }
         Ok(rows)
@@ -223,70 +217,6 @@ impl MediaLinkRepo {
             .collect())
     }
 
-    /// Make one link the profile image for whatever it is attached to.
-    ///
-    /// Clears the flag on the entity's other links in the same breath — the
-    /// invariant is "at most one per person", and leaving that to two calls
-    /// means a failure between them shows two stars in the tree. Callers pass a
-    /// transaction when the surrounding write must be atomic with it.
-    pub async fn set_profile(
-        db: &impl ConnectionTrait,
-        link_id: Uuid,
-    ) -> Result<MediaLink, OxidGeneError> {
-        let link = Entity::find_by_id(link_id)
-            .one(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "MediaLink",
-                id: link_id,
-            })?;
-
-        let Some(person_id) = link.person_id else {
-            return Err(OxidGeneError::Validation(
-                "only a link to a person can be a profile image".into(),
-            ));
-        };
-
-        Entity::update_many()
-            .col_expr(Column::IsProfile, sea_orm::sea_query::Expr::value(false))
-            .filter(Column::PersonId.eq(person_id))
-            .filter(Column::Id.ne(link_id))
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-        let mut active: media_link::ActiveModel = link.into();
-        active.is_profile = Set(true);
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(into_domain(result))
-    }
-
-    /// Clear the profile flag on a link, leaving the person without one.
-    pub async fn clear_profile(
-        db: &impl ConnectionTrait,
-        link_id: Uuid,
-    ) -> Result<MediaLink, OxidGeneError> {
-        let link = Entity::find_by_id(link_id)
-            .one(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "MediaLink",
-                id: link_id,
-            })?;
-        let mut active: media_link::ActiveModel = link.into();
-        active.is_profile = Set(false);
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(into_domain(result))
-    }
-
     /// Create a media link.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
@@ -307,7 +237,6 @@ impl MediaLinkRepo {
             source_id: Set(source_id),
             family_id: Set(family_id),
             sort_order: Set(sort_order),
-            is_profile: Set(false),
         };
         let result = model
             .insert(db)
@@ -341,6 +270,5 @@ fn into_domain(m: media_link::Model) -> MediaLink {
         source_id: m.source_id,
         family_id: m.family_id,
         sort_order: m.sort_order,
-        is_profile: m.is_profile,
     }
 }

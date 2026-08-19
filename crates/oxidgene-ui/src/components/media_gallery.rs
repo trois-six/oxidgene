@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::api::{
     ApiClient, CreateMediaLinkBody, CreateNoteBody, MediaKind, MediaSource, MediaWithLink,
-    UpdateMediaBody, UpdateNoteBody,
+    SetPortraitBody, UpdateMediaBody, UpdateNoteBody,
 };
 use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::image_cropper::ImageCropper;
@@ -114,6 +114,33 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     // Every mutation goes through here rather than touching `revision`
     // directly: a bump the host is not told about is exactly the bug this
     // exists to prevent.
+    // Which media (or crop) represents this person, if the gallery belongs to
+    // one. Read from the person rather than from the links: the portrait is a
+    // property of the person now, so there is one place to ask.
+    let portrait_owner = match owner {
+        MediaOwner::Person(id) => Some(id),
+        MediaOwner::Family(_) | MediaOwner::Event(_) => None,
+    };
+    let portrait = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let _ = revision();
+            async move {
+                let person_id = portrait_owner?;
+                api.get_person(tree_id, person_id)
+                    .await
+                    .ok()
+                    .map(|p| (p.portrait_media_id, p.portrait_vignette_id))
+            }
+        }
+    });
+    let portrait_media_id = portrait
+        .read_unchecked()
+        .as_ref()
+        .and_then(|p| p.as_ref())
+        .and_then(|(media, _)| *media);
+
     let changed = use_callback(move |()| {
         revision += 1;
         if let Some(handler) = on_changed {
@@ -225,6 +252,8 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     tree_id,
                     tile: tile.clone(),
                     show_profile: owner.supports_profile(),
+                    person_id: portrait_owner,
+                    is_portrait: portrait_media_id == Some(tile.media.id),
                     read_only,
                     is_open: editing() == Some(tile.media.id),
                     on_edit: move |id| {
@@ -309,6 +338,11 @@ fn MediaTile(
     tree_id: Uuid,
     tile: MediaWithLink,
     show_profile: bool,
+    /// Whose gallery this is, when it is a person's — the portrait is written
+    /// on them, not on the link.
+    person_id: Option<Uuid>,
+    /// Whether this media is currently that person's portrait.
+    is_portrait: bool,
     read_only: bool,
     is_open: bool,
     on_edit: EventHandler<Uuid>,
@@ -354,15 +388,24 @@ fn MediaTile(
     // so it takes no ownership of anything it cannot clone.
     let toggle_profile = use_callback({
         let api = api.clone();
-        let currently = tile.is_profile;
         move |()| {
             let api = api.clone();
+            let Some(person_id) = person_id else {
+                return;
+            };
             spawn(async move {
                 busy.set(true);
-                match api
-                    .set_profile_media_link(tree_id, link_id, !currently)
-                    .await
-                {
+                // Clearing is sending neither id, which is how "use the
+                // silhouette again" is said.
+                let body = if is_portrait {
+                    SetPortraitBody::default()
+                } else {
+                    SetPortraitBody {
+                        media_id: Some(media_id),
+                        vignette_id: None,
+                    }
+                };
+                match api.set_person_portrait(tree_id, person_id, body).await {
                     Ok(_) => on_changed.call(()),
                     Err(e) => error.set(Some(e.to_string())),
                 }
@@ -392,7 +435,7 @@ fn MediaTile(
     };
 
     let tile_for_crop = tile.clone();
-    let is_profile = tile.is_profile;
+    let is_profile = is_portrait;
 
     rsx! {
         div { class: if is_open { "media-tile is-open" } else { "media-tile" },
@@ -431,7 +474,7 @@ fn MediaTile(
                 if source == MediaSource::Remote {
                     span { class: "media-remote", title: i18n.t("media.source_remote"), "\u{1F517}" }
                 }
-                if tile.is_profile {
+                if is_portrait {
                     span { class: "media-star", title: i18n.t("media.profile_image"), "\u{2605}" }
                 }
                 if pages > 1 {
@@ -444,7 +487,7 @@ fn MediaTile(
                     onclick: move |e| e.stop_propagation(),
                     if !read_only && show_profile && kind == MediaKind::Image {
                         button {
-                            class: if tile.is_profile { "media-act is-on" } else { "media-act" },
+                            class: if is_portrait { "media-act is-on" } else { "media-act" },
                             r#type: "button",
                             disabled: busy(),
                             title: i18n.t("media.set_profile_image"),
@@ -1240,59 +1283,36 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
         })
         .unwrap_or_default();
 
+    // Every field is listed, set or not. Omitting the empty ones was tidier
+    // and told the reader nothing: a scan with no date looked identical to a
+    // viewer that could not record one, so the feature read as missing rather
+    // than as unfilled. An em-dash is an invitation; an absent row is not.
+    //
+    // There is deliberately no `source` row. A media *is* a source document —
+    // asking which source backs a scan of a parish register asks it to cite
+    // itself — so the field does not exist to be shown.
     rsx! {
         div { class: "media-facts",
-            if let Some(title) = media.title.as_ref().filter(|t| !t.trim().is_empty()) {
-                div { class: "media-fact",
-                    span { class: "media-fact-label", {i18n.t("media.title")} }
-                    span { class: "media-fact-value", "{title}" }
-                }
+            MediaFact { label: i18n.t("media.title"), value: media.title.clone() }
+            MediaFact { label: i18n.t("media.date"), value: (!date.is_empty()).then_some(date) }
+            MediaFact { label: i18n.t("media.place"), value: place }
+            MediaFact {
+                label: i18n.t("media.document_category"),
+                value: media
+                    .document_category
+                    .map(|c| i18n.t(&format!("media.category.{}", c.as_str()))),
             }
-            if !date.is_empty() {
-                div { class: "media-fact",
-                    span { class: "media-fact-label", {i18n.t("media.date")} }
-                    span { class: "media-fact-value", "{date}" }
-                }
+            MediaFact {
+                label: i18n.t("media.source_media_type"),
+                value: Some(i18n.t(&format!("media.medium.{}", media.source_media_type.as_str()))),
             }
-            if let Some(place) = place {
-                div { class: "media-fact",
-                    span { class: "media-fact-label", {i18n.t("media.place")} }
-                    span { class: "media-fact-value", "{place}" }
-                }
+            MediaFact {
+                label: i18n.t("media.description"),
+                value: media.description.clone(),
+                prose: true,
             }
-            if let Some(category) = media.document_category {
-                div { class: "media-fact",
-                    span { class: "media-fact-label", {i18n.t("media.document_category")} }
-                    span { class: "media-fact-value",
-                        {i18n.t(&format!("media.category.{}", category.as_str()))}
-                    }
-                }
-            }
-            // The physical medium is only worth a line when it says something
-            // the reader did not already know from the category or the file.
-            if media.source_media_type != oxidgene_core::enums::SourceMediaType::Other
-                && media.document_category.map(|c| c.implied_medium())
-                    != Some(media.source_media_type)
-            {
-                div { class: "media-fact",
-                    span { class: "media-fact-label", {i18n.t("media.source_media_type")} }
-                    span { class: "media-fact-value",
-                        {i18n.t(&format!("media.medium.{}", media.source_media_type.as_str()))}
-                    }
-                }
-            }
-            if let Some(description) = media.description.as_ref().filter(|d| !d.trim().is_empty()) {
-                div { class: "media-fact is-prose",
-                    span { class: "media-fact-label", {i18n.t("media.description")} }
-                    p { class: "media-fact-value", "{description}" }
-                }
-            }
-            if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
-                div { class: "media-fact is-prose",
-                    span { class: "media-fact-label", {i18n.t("media.note")} }
-                    p { class: "media-fact-value", "{note}" }
-                }
-            }
+            MediaFact { label: i18n.t("media.note"), value: note, prose: true }
+
             if !identified.is_empty() {
                 div { class: "media-fact is-prose",
                     span { class: "media-fact-label", {i18n.t("media.identified")} }
@@ -1327,6 +1347,24 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
                 }
                 if media.file_size > 0 {
                     span { {format_size(media.file_size)} }
+                }
+            }
+        }
+    }
+}
+
+/// One labelled fact, shown whether or not it has a value.
+#[component]
+fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool) -> Element {
+    let filled = value.as_ref().is_some_and(|v| !v.trim().is_empty());
+    rsx! {
+        div { class: if prose { "media-fact is-prose" } else { "media-fact" },
+            span { class: "media-fact-label", "{label}" }
+            span {
+                class: if filled { "media-fact-value" } else { "media-fact-value is-empty" },
+                match value.filter(|v| !v.trim().is_empty()) {
+                    Some(value) => value,
+                    None => "\u{2014}".to_string(),
                 }
             }
         }
@@ -1421,9 +1459,44 @@ fn MediaViewer(
                     }
                 }
 
+
+                div { class: "media-viewer-body",
+                aside { class: "media-viewer-aside",
+                    if editing() {
+                        MediaEditPanel {
+                            tree_id,
+                            tile: tile.clone(),
+                            events: events.clone(),
+                            embedded: true,
+                            on_changed: move |()| on_changed.call(()),
+                            on_close: move |()| editing.set(false),
+                        }
+                    } else {
+                        MediaFacts {
+                            tree_id,
+                            media: shown.cloned().unwrap_or_else(|| tile.media.clone()),
+                        }
+                        // Not gated on `read_only`. That flag governs the
+                        // *gallery* — uploading, cropping, detaching — which
+                        // is restructuring what a person has. Recording when a
+                        // scan was taken is describing the scan itself, and
+                        // the moment a reader knows that is while looking at
+                        // it. Sending them to the edit modal to type a date
+                        // means leaving the page that prompted them.
+                        button {
+                            class: "btn btn-outline media-facts-edit",
+                            r#type: "button",
+                            onclick: move |_| editing.set(true),
+                            {i18n.t("media.edit_details")}
+                        }
+                    }
+                }
+
+                div { class: "media-viewer-main",
                 // Zoom belongs to images alone: a video and an audio track
                 // have their own controls, and a fallback has nothing to
-                // magnify.
+                // magnify. It sits over the image rather than over the whole
+                // dialog, so it reads as belonging to what it acts on.
                 if matches!(kind, MediaKind::Image) && url.is_some() {
                     div { class: "media-zoom",
                         button {
@@ -1454,33 +1527,6 @@ fn MediaViewer(
                         }
                     }
                 }
-
-                div { class: "media-viewer-body",
-                aside { class: "media-viewer-aside",
-                    if editing() {
-                        MediaEditPanel {
-                            tree_id,
-                            tile: tile.clone(),
-                            events: events.clone(),
-                            embedded: true,
-                            on_changed: move |()| on_changed.call(()),
-                            on_close: move |()| editing.set(false),
-                        }
-                    } else {
-                        MediaFacts {
-                            tree_id,
-                            media: shown.cloned().unwrap_or_else(|| tile.media.clone()),
-                        }
-                        if !read_only {
-                            button {
-                                class: "btn btn-outline media-facts-edit",
-                                r#type: "button",
-                                onclick: move |_| editing.set(true),
-                                {i18n.t("common.edit")}
-                            }
-                        }
-                    }
-                div { class: "media-viewer-main",
                 div {
                     class: if zoom().is_some() { "media-viewer-stage is-zoomed" } else { "media-viewer-stage" },
                     match (url.clone(), kind) {
@@ -1608,9 +1654,7 @@ fn MediaViewer(
                             "\u{23ED}"
                         }
                     }
-                }
-                }
-
+                    }
                 }
                 }
 

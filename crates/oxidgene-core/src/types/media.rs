@@ -88,9 +88,48 @@ pub struct MediaLink {
     pub source_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub sort_order: i32,
-    /// `true` if this image is the linked person's profile photo.
-    /// Only one `MediaLink` per person may have this set.
-    pub is_profile: bool,
+}
+
+/// What a person's portrait is, as a single value.
+///
+/// Modelled as one enum rather than two optional ids so that "both set" is not
+/// a state anything has to check for, or handle when it happens anyway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "id")]
+pub enum Portrait {
+    /// A whole media file.
+    Media(Uuid),
+    /// A region of one — a face in a group photograph.
+    Vignette(Uuid),
+    /// None chosen; a card draws the silhouette.
+    None,
+}
+
+impl Portrait {
+    /// Read the pair of columns back into one value.
+    ///
+    /// A row with both set should not exist — the write path refuses it — but
+    /// if one ever does, the vignette wins: it is the more specific statement,
+    /// and picking deterministically beats surfacing an error for something no
+    /// reader can act on.
+    #[must_use]
+    pub fn from_columns(media_id: Option<Uuid>, vignette_id: Option<Uuid>) -> Self {
+        match (vignette_id, media_id) {
+            (Some(id), _) => Self::Vignette(id),
+            (None, Some(id)) => Self::Media(id),
+            (None, None) => Self::None,
+        }
+    }
+
+    /// The pair of columns to store, as (media_id, vignette_id).
+    #[must_use]
+    pub fn to_columns(self) -> (Option<Uuid>, Option<Uuid>) {
+        match self {
+            Self::Media(id) => (Some(id), None),
+            Self::Vignette(id) => (None, Some(id)),
+            Self::None => (None, None),
+        }
+    }
 }
 
 /// A rectangular region of a stored media file, kept as coordinates rather
