@@ -217,6 +217,19 @@ impl MediaLinkRepo {
             .collect())
     }
 
+    /// One link by id.
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<MediaLink, OxidGeneError> {
+        Entity::find_by_id(id)
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map(into_domain)
+            .ok_or(OxidGeneError::NotFound {
+                entity: "MediaLink",
+                id,
+            })
+    }
+
     /// Create a media link.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(

@@ -317,6 +317,11 @@ pub fn Settings(tree_id: String) -> Element {
                             tree_id: tree_id.clone(),
                             tree_resource: tree_resource,
                         }
+                    } else if sec == "privacy" {
+                        PrivacySection {
+                            tree_id: tree_id.clone(),
+                            tree_resource: tree_resource,
+                        }
                     } else if sec == "export" {
                         ExportSection {
                             on_export: on_export,
@@ -361,16 +366,6 @@ fn TreeRootsSection(
     // without waiting for tree_resource to re-fetch.
     // None = use tree_resource value, Some(x) = override with x.
     let mut local_sosa_override = use_signal(|| None::<Option<Uuid>>);
-    // What `Default` privacy means for everything in this tree. Same local
-    // override, for the same reason: the control must answer the click, not
-    // the refetch.
-    let mut local_privacy_override = use_signal(|| None::<TreeDefaultPrivacy>);
-
-    let current_privacy =
-        local_privacy_override().unwrap_or_else(|| match &*tree_resource.read() {
-            Some(Some(Ok(tree))) => tree.default_privacy,
-            _ => TreeDefaultPrivacy::default(),
-        });
 
     // Current sosa_root_person_id: local override takes precedence
     let current_sosa_root = match local_sosa_override() {
@@ -564,12 +559,43 @@ fn TreeRootsSection(
                     {i18n.t("settings.who_am_i_future")}
                 }
             }
+        }
+    }
+}
 
-            // ── Default privacy ──
-            //
-            // Every person, couple and document defaults to "follows the tree",
-            // and until now there was no tree setting to follow — the commonest
-            // value in the model pointed at nothing.
+/// What `Default` privacy means for everything in this tree.
+///
+/// Every person, couple and document defaults to "follows the tree", and
+/// until this setting existed there was no tree setting to follow — the
+/// commonest value in the model pointed at nothing.
+#[component]
+fn PrivacySection(
+    tree_id: String,
+    tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let tree_id_parsed = tree_id.parse::<Uuid>().ok();
+
+    let mut save_error = use_signal(|| None::<String>);
+    // Local override so the control answers the click, not the refetch.
+    let mut local_privacy_override = use_signal(|| None::<TreeDefaultPrivacy>);
+
+    let current_privacy =
+        local_privacy_override().unwrap_or_else(|| match &*tree_resource.read() {
+            Some(Some(Ok(tree))) => tree.default_privacy,
+            _ => TreeDefaultPrivacy::default(),
+        });
+
+    rsx! {
+        div { class: "settings-section",
+            div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
+            h2 { class: "settings-section-title", {i18n.t("settings.privacy")} }
+            p { class: "settings-section-subtitle",
+                {i18n.t("settings.privacy_desc")}
+            }
+
             div { class: "card", style: "margin-top: 16px;",
                 h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
                     {i18n.t("settings.default_privacy")}
@@ -614,6 +640,9 @@ fn TreeRootsSection(
                 }
                 p { class: "pf-ns-hint", style: "margin-top: 8px;",
                     {i18n.t("privacy.not_enforced_yet")}
+                }
+                if let Some(err) = &save_error() {
+                    div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
                 }
             }
         }

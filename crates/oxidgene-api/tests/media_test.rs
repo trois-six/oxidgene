@@ -996,9 +996,14 @@ async fn a_portrait_can_be_cleared() {
 
     assert_eq!(status, StatusCode::OK, "{cleared}");
     assert!(cleared["portrait_media_id"].is_null());
+
+    // Cleared means "no explicit choice", not "draw nothing": the fallback
+    // takes over, exactly as it does for a person who never chose.
     let (_, portraits) =
         json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
-    assert!(portraits.as_array().unwrap().is_empty(), "{portraits}");
+    let rows = portraits.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{portraits}");
+    assert_eq!(rows[0]["media_id"], media_id.as_str());
 }
 
 #[tokio::test]
@@ -1572,4 +1577,65 @@ async fn a_tree_says_what_default_privacy_means_and_starts_by_withholding() {
     // choice, which is the whole reason both fields exist.
     let (_, family) = json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
     assert_eq!(family["privacy"], "default");
+}
+
+#[tokio::test]
+async fn a_person_who_chose_no_portrait_still_shows_one_of_their_photographs() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (first, _) = attach_photo(&h, &person_id, "first.png").await;
+    attach_photo(&h, &person_id, "second.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    // No import sets a portrait — neither GEDCOM nor a `.gw` says which of
+    // somebody's pictures represents them — so without a fallback a freshly
+    // imported tree draws silhouettes for everyone who has photographs.
+    let (status, portraits) =
+        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    assert_eq!(status, StatusCode::OK, "{portraits}");
+    let rows = portraits.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{portraits}");
+    assert_eq!(
+        rows[0]["media_id"],
+        first.as_str(),
+        "the first by sort order"
+    );
+
+    // And the projection agrees, or a card and an avatar disagree.
+    let (_, profile) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/profiles/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(profile["primary_media"]["media_id"], first.as_str());
+}
+
+#[tokio::test]
+async fn a_record_naming_a_file_nobody_uploaded_is_not_a_portrait_by_default() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    // A GEDCOM-imported row: a name, no bytes, nothing to draw. Falling back
+    // to it would put a broken image on the card.
+    let (_, media) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media"),
+        Some(json!({"file_name": "scan.jpg", "file_path": "C:\\Photos\\scan.jpg"})),
+    )
+    .await;
+    json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media-links"),
+        Some(json!({"media_id": media["id"], "person_id": person_id, "sort_order": 0})),
+    )
+    .await;
+
+    let (_, portraits) =
+        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    assert!(portraits.as_array().unwrap().is_empty(), "{portraits}");
 }
