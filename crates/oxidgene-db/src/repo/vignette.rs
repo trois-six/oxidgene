@@ -91,6 +91,24 @@ impl VignetteRepo {
     }
 
     /// Get a vignette by ID.
+    /// Several by id, in one query. Missing ids are simply absent from the
+    /// result — a portrait pointing at a deleted crop is "no portrait", not an
+    /// error a reader can act on.
+    pub async fn get_many(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Vignette>, OxidGeneError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let models = Entity::find()
+            .filter(Column::Id.is_in(ids.to_vec()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Vignette, OxidGeneError> {
         Entity::find_by_id(id)
             .one(db)
