@@ -1,6 +1,7 @@
 //! REST handlers for GEDCOM import and export.
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -25,6 +26,44 @@ pub async fn import_gedcom_handler(
         .map_err(ApiError::from)?;
 
     // Eagerly rebuild every projection of this tree after a GEDCOM import
+    state
+        .profiles
+        .rebuild_tree_full(&state.db, tree_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    let response = ImportResponse {
+        persons_count: summary.persons_count,
+        families_count: summary.families_count,
+        events_count: summary.events_count,
+        sources_count: summary.sources_count,
+        media_count: summary.media_count,
+        places_count: summary.places_count,
+        notes_count: summary.notes_count,
+        warnings: summary.warnings,
+    };
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// POST /api/v1/trees/:tree_id/gedzip/import
+///
+/// Import a GEDZIP archive (`.gdz`) into the given tree: the genealogy from
+/// the `gedcom.ged` it wraps, plus every media file it carries.
+///
+/// The body is the **raw archive**, not JSON — a ZIP is bytes, and base64 in a
+/// JSON envelope would inflate a photo album by a third for nothing.
+pub async fn import_gedzip_handler(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    body: Bytes,
+) -> Result<(StatusCode, Json<ImportResponse>), ApiError> {
+    let summary = gedcom::import_gedzip_and_persist(&state.db, &*state.media, tree_id, &body)
+        .await
+        .map_err(ApiError::from)?;
+
+    // Eagerly rebuild every projection of this tree — same rationale as the
+    // plain GEDCOM path above.
     state
         .profiles
         .rebuild_tree_full(&state.db, tree_id)

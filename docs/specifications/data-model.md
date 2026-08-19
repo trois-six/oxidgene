@@ -271,6 +271,19 @@ two rows — what a census page documenting eight siblings needs. Keys are scope
 per tree rather than globally: deduplication stops at the tree boundary, which is
 the price of purging a tree by removing one directory, with no reference counting.
 
+**Privacy.** `Person`, `Family` and `Media` each carry a `privacy` enum
+(`default` / `public` / `private`), defaulting to `default` — follow the tree's
+own setting. A couple needs its own: a living pair's marriage is a fact about
+two living people, and withholding both their person records does not withhold
+the union that names them. A document needs one for the same reason a photograph
+of living children does.
+
+**Nothing enforces it yet.** Privacy is meaningful only against a viewer, and
+there are no viewers until authentication lands. What the column buys now is
+that the *intent* is recorded: a user classifying their tree today does not have
+to do it again later, and enforcement becomes a read-path change rather than a
+schema change plus a data-entry campaign. Every picker that sets it says so.
+
 ### Vignette
 
 A rectangular region of a media file, kept as coordinates rather than as a second

@@ -86,6 +86,92 @@ pub async fn import_and_persist(
     persist_import_result(db, result).await
 }
 
+/// Read a GEDZIP archive (`.gdz`) and persist everything it holds — the
+/// genealogy *and* the media files it carries.
+///
+/// The genealogy half is [`import_and_persist`] by another name. What the
+/// format adds is that the files travel with it, so every medium whose `FILE`
+/// names an entry in the archive is ingested into the media store first and
+/// its row written as a held medium — thumbnail, dimensions and all — rather
+/// than as the unheld stub a plain `.ged` produces.
+///
+/// A file the store refuses (an unsupported type, or one over the upload
+/// ceiling) costs that medium its bytes and nothing else: the record is still
+/// written, the reason is reported in
+/// [`ImportSummary::warnings`], and the rest of the archive still lands. The
+/// alternative — failing a ten-thousand-person import over one stray file —
+/// would be worse.
+pub async fn import_gedzip_and_persist(
+    db: &DatabaseConnection,
+    store: &dyn crate::media::MediaStore,
+    tree_id: Uuid,
+    archive: &[u8],
+) -> Result<ImportSummary, OxidGeneError> {
+    let _tree = TreeRepo::get(db, tree_id).await?;
+
+    let oxidgene_gedcom::import::GedzipImport { mut result, files } =
+        oxidgene_gedcom::import::import_gedzip(archive, tree_id).map_err(OxidGeneError::Gedcom)?;
+
+    // The name to store each file under is the one its own record carries —
+    // the archive path is `media/<uuid>.jpg` in an OxidGene export and
+    // whatever the producer chose in anyone else's, neither of which is a name
+    // worth showing.
+    let names: std::collections::HashMap<Uuid, String> = result
+        .media
+        .iter()
+        .map(|m| (m.id, m.file_name.clone()))
+        .collect();
+
+    let mut stored: std::collections::HashMap<Uuid, crate::media::IngestedMedia> =
+        std::collections::HashMap::with_capacity(files.len());
+
+    // Decoding and thumbnailing is CPU-bound and each file is independent, so
+    // they go in parallel — capped, because each one in flight holds a
+    // full-size decoded image. Same reasoning, and the same width, as the
+    // Geneanet importer.
+    for batch in files.chunks(crate::service::geneanet::ingest_width()) {
+        let ingested = futures_util::future::join_all(batch.iter().map(|(media_id, bytes)| {
+            let name = names.get(media_id).map_or("upload", String::as_str);
+            crate::media::ingest(store, tree_id, name, bytes.clone())
+        }))
+        .await;
+
+        for ((media_id, _), outcome) in batch.iter().zip(ingested) {
+            let name = names.get(media_id).map_or("upload", String::as_str);
+            match outcome {
+                Ok(ingested) => {
+                    stored.insert(*media_id, ingested);
+                }
+                Err(err) => result
+                    .warnings
+                    .push(format!("GEDZIP: '{name}' was not stored: {err}")),
+            }
+        }
+    }
+
+    for media in &mut result.media {
+        let Some(ingested) = stored.remove(&media.id) else {
+            continue;
+        };
+        // `file_path` stops being the producer's path the moment we hold the
+        // bytes: it now carries the name our own GEDCOM export writes out,
+        // which is what an uploaded file gets (see `MediaRepo::create_uploaded`).
+        media.file_path.clone_from(&ingested.file_name);
+        media.file_name = ingested.file_name;
+        // Sniffed from the content, so a `FORM` that lied does not survive.
+        media.mime_type = ingested.mime_type;
+        media.storage_key = Some(ingested.storage_key);
+        media.sha256 = Some(ingested.sha256);
+        media.file_size = ingested.file_size;
+        media.thumbnail_key = ingested.thumbnail_key;
+        media.width = ingested.width;
+        media.height = ingested.height;
+        media.page_count = ingested.page_count;
+    }
+
+    persist_import_result(db, result).await
+}
+
 /// Persist every entity of a parsed import into the database.
 ///
 /// Format-agnostic: it takes the domain-model output of any importer (GEDCOM,
@@ -174,6 +260,7 @@ pub(crate) async fn persist_import_result(
                 date_qualifier: Set(m.date_qualifier.into()),
                 date_value2: Set(m.date_value2.clone()),
                 calendar: Set(m.calendar.into()),
+                privacy: Set(m.privacy.into()),
                 source_media_type: Set(m.source_media_type.into()),
                 document_category: Set(m.document_category.map(|c| c.as_str().to_string())),
                 place_id: Set(m.place_id),
@@ -237,6 +324,7 @@ pub(crate) async fn persist_import_result(
             .map(|f| family::ActiveModel {
                 id: Set(f.id),
                 tree_id: Set(f.tree_id),
+                privacy: Set(f.privacy.into()),
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),

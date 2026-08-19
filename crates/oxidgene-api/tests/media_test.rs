@@ -1501,3 +1501,49 @@ async fn the_projection_draws_the_portrait_that_was_chosen() {
     assert_eq!(profile["primary_media"]["media_id"], second.as_str());
     assert_ne!(profile["primary_media"]["media_id"], first.as_str());
 }
+
+#[tokio::test]
+async fn a_couple_and_a_document_each_carry_their_own_privacy() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("living.png"), &png(60, 60))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+    let (_, family) = json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
+
+    // Nothing enforces this yet — but the choice is stored, so classifying a
+    // tree today does not have to be redone when enforcement arrives.
+    let (status, updated) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/media/{media_id}"),
+        Some(json!({"privacy": "private"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["privacy"], "private");
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/families/{}", family["id"].as_str().unwrap()),
+        Some(json!({"privacy": "private"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["privacy"], "private");
+}
+
+#[tokio::test]
+async fn a_couple_defaults_to_following_the_tree() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (_, family) = json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
+    // Not `public`: a tree that has said nothing about a couple has not said
+    // the couple may be published.
+    assert_eq!(family["privacy"], "default");
+}

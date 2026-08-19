@@ -2061,7 +2061,7 @@ pub(crate) fn render_place_select(
 
 /// A row of mutually exclusive buttons bound to one string signal (sex,
 /// privacy) — a radio group that reads as a segmented control.
-pub(crate) fn render_choice_group(
+pub fn render_choice_group(
     options: &[(&'static str, String)],
     mut selected: Signal<String>,
     on_change: impl FnMut() + Clone + 'static,

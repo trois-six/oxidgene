@@ -16,16 +16,18 @@ use oxidgene_db::repo::{
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
-    CreateTreeInput, CreateVignetteInput, ImportGedcomInput, ImportGenewebInput, PersonNameInput,
-    SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput,
-    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput,
-    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
+    CreateTreeInput, CreateVignetteInput, ImportGedcomInput, ImportGedzipInput, ImportGenewebInput,
+    PersonNameInput, SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput,
+    UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
+    UpdateSourceInput, UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput,
+    UploadMediaInput,
 };
 use super::types::{
     GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilyNameParticleUpdate,
     GqlFamilySpouse, GqlImportResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta,
-    GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlSource,
-    GqlTree, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, purge_from_ctx,
+    GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace, GqlPrivacy, GqlProfileRebuildResult,
+    GqlSource, GqlTree, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
+    purge_from_ctx,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -310,11 +312,16 @@ impl MutationRoot {
         Ok(family.into())
     }
 
-    /// Update a family (touches updated_at).
-    async fn update_family(&self, ctx: &Context<'_>, id: ID) -> Result<GqlFamily> {
+    /// Update a family: its privacy, and `updatedAt` either way.
+    async fn update_family(
+        &self,
+        ctx: &Context<'_>,
+        id: ID,
+        privacy: Option<GqlPrivacy>,
+    ) -> Result<GqlFamily> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        let family = FamilyRepo::update(db, uuid).await?;
+        let family = FamilyRepo::update(db, uuid, privacy.map(Into::into)).await?;
         Ok(family.into())
     }
 
@@ -900,6 +907,7 @@ impl MutationRoot {
             place_id: patch_parse(input.place_id, |s| Uuid::parse_str(&s), "placeId")?,
             file_path: input.file_path,
             mime_type: input.mime_type,
+            privacy: input.privacy.map(Into::into),
             source_media_type: input.source_media_type.map(Into::into),
             document_category: match input.document_category {
                 MaybeUndefined::Undefined => None,
@@ -1282,6 +1290,35 @@ impl MutationRoot {
         let filename = input.filename.as_deref().unwrap_or("import.gw");
         let summary =
             crate::service::geneweb::import_and_persist(db, tid, &bytes, filename).await?;
+        // Same rationale as `import_gedcom` above.
+        profiles.rebuild_tree_full(db, tid).await?;
+        Ok(import_result(summary))
+    }
+
+    /// Import a GEDZIP archive (`.gdz`) into a tree: the genealogy it wraps
+    /// and every media file it carries. Triggers a full projection rebuild
+    /// after import.
+    ///
+    /// The archive is base64-encoded because it is binary — see
+    /// [`ImportGedzipInput`]. The matching export is
+    /// `exportGedcom`'s REST twin with `?format=gedzip`.
+    async fn import_gedzip(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: ImportGedzipInput,
+    ) -> Result<GqlImportResult> {
+        use base64::Engine as _;
+
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let store = media_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&input.content_base64)
+            .map_err(|e| async_graphql::Error::new(format!("contentBase64 is not base64: {e}")))?;
+        let summary =
+            crate::service::gedcom::import_gedzip_and_persist(db, &**store, tid, &bytes).await?;
         // Same rationale as `import_gedcom` above.
         profiles.rebuild_tree_full(db, tid).await?;
         Ok(import_result(summary))

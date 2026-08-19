@@ -35,13 +35,17 @@ pub fn default_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("media"))
 }
 
-/// Largest single upload accepted, in bytes (64 MiB).
+/// Largest single upload accepted, in bytes (128 MiB).
 ///
-/// Wide enough for a 600 dpi colour scan of a register spread, narrow enough
-/// that the whole file fits in memory — which it must, because the content
-/// hash cannot be known until the last byte has arrived. Anything larger is
-/// EPIC H's chunked-upload problem.
-pub const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+/// Deliberately above what the services we exchange with accept — Geneanet
+/// caps a media file at 50 MB and refuses anything that is not JPEG, PNG, GIF
+/// or PDF — because a ceiling that turns away a scan the user already owns
+/// costs more than the memory does: a 1200 dpi colour scan of a register
+/// spread, or a dossier PDF of a few hundred pages, clears 64 MiB without
+/// being in any way unusual. What still bounds it is that the whole file must
+/// fit in memory, because the content hash cannot be known until the last byte
+/// has arrived. Anything larger is EPIC H's chunked-upload problem.
+pub const MAX_UPLOAD_BYTES: usize = 128 * 1024 * 1024;
 
 /// The formats an upload may be, keyed by the magic bytes that identify them.
 ///
@@ -327,6 +331,7 @@ mod tests {
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
+            privacy: Default::default(),
             source_media_type: Default::default(),
             document_category: None,
             place_id: None,

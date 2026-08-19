@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use super::sea_enums::{Calendar, DateQualifier, SourceMediaType};
+use super::sea_enums::{Calendar, DateQualifier, Privacy, SourceMediaType};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "media")]
@@ -39,6 +39,8 @@ pub struct Model {
     /// Stored as its snake_case spelling; `None` when unclassified.
     pub document_category: Option<String>,
     pub place_id: Option<Uuid>,
+    /// Recorded now, enforced when authentication lands.
+    pub privacy: Privacy,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

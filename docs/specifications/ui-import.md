@@ -28,7 +28,7 @@ Two tabs, because there are two genuinely different jobs:
 
 | Tab | What it is |
 |---|---|
-| **A file** | Pick or drop a `.ged` or `.gw` and import it. Seconds, one decision. |
+| **A file** | Pick or drop a `.ged`, `.gdz` or `.gw` and import it. Seconds, one decision. |
 | **From Geneanet** | Five steps, most of them instructions. The user has work to do on another website first, and two of the three inputs cannot be downloaded at all. Specified in full in [Geneanet Import](ui-geneanet-import.md). |
 
 Splitting them across a modal and a page was tried and rejected: they are one
@@ -48,7 +48,7 @@ scrolls.
 ├───────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │   📄  Drop a file here, or click to browse               │  │
-│  │       .ged (GEDCOM) · .gw (GeneWeb)                      │  │
+│  │       .ged · .gdz (with media) · .gw                    │  │
 │  └─────────────────────────────────────────────────────────┘  │
 │                                              [ Import ]       │
 └───────────────────────────────────────────────────────────────┘
@@ -67,16 +67,26 @@ it would otherwise close the modal.
 
 ## 3. The file tab
 
-A drop zone that is also a button. Accepts one `.ged` or `.gw`; drag-and-drop
-and the native picker both work.
+A drop zone that is also a button. Accepts one `.ged`, `.gdz` or `.gw`;
+drag-and-drop and the native picker both work.
 
 The bytes are read with the file handle's `read()`, never a path. A file picked
 in a browser has no path at all, and this used to read one — which quietly made
 "the shared web/desktop import" desktop-only, with nothing saying so.
 
-`.gw` and `.ged` are told apart by extension and sent to different endpoints,
-because a `.gw` is ISO-8859-1 unless it declares otherwise and only its reader
-can decode it. See [API Contract §Import](api.md).
+The three are told apart by extension and sent to three endpoints, because
+each arrives differently: a `.ged` is a UTF-8 string, a `.gw` is ISO-8859-1
+unless it declares otherwise so only its reader can decode it, and a `.gdz` is
+a ZIP. Anything with an unrecognised extension is read as GEDCOM — the reader
+says so soon enough if it is not, and a renamed `.ged` is common. See
+[API Contract §Import](api.md).
+
+**Only `.gdz` brings the photographs.** A GEDZIP is a `gedcom.ged` and the
+media files it references in one archive, so the media arrive held: stored,
+thumbnailed, croppable, exactly as if they had been uploaded. A `.ged` and a
+`.gw` name files nobody handed us, and those stay unheld records the user can
+attach bytes to later. A file the archive turns out not to carry, or one no
+`OBJE` names, is a warning on the result — never a failed import.
 
 ### What this tab does not do
 
