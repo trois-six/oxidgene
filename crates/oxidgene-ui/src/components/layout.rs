@@ -3194,6 +3194,22 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .media-tile.is-open .media-thumb { border-color: var(--orange); }
 
+    /* A crop is a region of something larger, and reads as one: dashed, so it
+       is not mistaken for a second photograph of the same scene. */
+    .media-thumb.is-vignette { border-style: dashed; }
+
+    .media-vignette-badge {
+        position: absolute;
+        left: 4px;
+        bottom: 4px;
+        background: rgba(0, 0, 0, 0.55);
+        border-radius: 3px;
+        color: var(--text-primary);
+        font-size: 0.7rem;
+        line-height: 1;
+        padding: 3px 4px;
+    }
+
     .media-thumb img {
         width: 100%;
         height: 100%;

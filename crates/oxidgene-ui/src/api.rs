@@ -2271,6 +2271,12 @@ impl ApiClient {
         Ok(person)
     }
 
+    /// One media's metadata.
+    pub async fn get_media(&self, tree_id: Uuid, media_id: Uuid) -> Result<Media, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/media/{media_id}"))
+            .await
+    }
+
     /// Absolute URL of a document's pages, packed into one ZIP.
     ///
     /// Only meaningful for a media with pages: a forty-page register is one
