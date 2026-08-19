@@ -80,7 +80,7 @@ pub async fn list_media_links(
 /// POST /api/v1/trees/:tree_id/media-links
 pub async fn create_media_link(
     State(state): State<AppState>,
-    Path(_tree_id): Path<Uuid>,
+    Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateMediaLinkRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
@@ -96,6 +96,18 @@ pub async fn create_media_link(
     )
     .await
     .map_err(ApiError::from)?;
+
+    // A person's portrait is embedded in `person_denorm`, and attaching their
+    // first photograph is exactly what changes it — this never rebuilt, so a
+    // card and a gallery could disagree about whether somebody had a picture
+    // at all.
+    if let Some(person_id) = link.person_id {
+        state
+            .profiles
+            .rebuild_person(&state.db, tree_id, person_id)
+            .await
+            .map_err(ApiError::from)?;
+    }
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(link).unwrap()),
@@ -105,10 +117,23 @@ pub async fn create_media_link(
 /// DELETE /api/v1/trees/:tree_id/media-links/:link_id
 pub async fn delete_media_link(
     State(state): State<AppState>,
-    Path((_tree_id, link_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, link_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
+    // Read the link before it goes: afterwards there is nothing left to say
+    // whose projection is now wrong.
+    let person_id = MediaLinkRepo::get(&state.db, link_id)
+        .await
+        .ok()
+        .and_then(|link| link.person_id);
     MediaLinkRepo::delete(&state.db, link_id)
         .await
         .map_err(ApiError::from)?;
+    if let Some(person_id) = person_id {
+        state
+            .profiles
+            .rebuild_person(&state.db, tree_id, person_id)
+            .await
+            .map_err(ApiError::from)?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }

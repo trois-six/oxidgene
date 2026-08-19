@@ -305,16 +305,47 @@ pub fn export_gedcom(
     // xref → the `TYPE` value its `FORM` must carry. Written back in after
     // serialisation; see `insert_media_types`.
     let mut media_types: HashMap<String, &'static str> = HashMap::new();
+    // A multi-page document is a container, and GEDCOM has no container: its
+    // `OBJE` must still carry a `FILE`, which 5.5.1 requires. So it is
+    // represented by its cover — the page a reader thinks of as its face.
+    //
+    // Without this the `FILE` carried the document's *title*, since that is
+    // what `create_document` puts in `file_path` for a row that holds no
+    // bytes. A GEDZIP then could not contain a file by that name, and
+    // re-importing warned once per document about an archive entry that never
+    // could have existed.
+    let cover_of: HashMap<Uuid, &Media> = {
+        let mut covers: HashMap<Uuid, &Media> = HashMap::new();
+        for page in media.iter().filter(|m| m.parent_media_id.is_some()) {
+            let Some(parent) = page.parent_media_id else {
+                continue;
+            };
+            match covers.get(&parent) {
+                Some(current) if current.page_index <= page.page_index => {}
+                _ => {
+                    covers.insert(parent, page);
+                }
+            }
+        }
+        covers
+    };
     for m in media {
         let xref = media_xref.get(&m.id).cloned();
         // `file_path` is the producer's own path, preserved so a plain `.ged`
         // round-trips to whatever wrote it. A GEDZIP carries the bytes, so
         // there the `FILE` must name the entry inside the archive instead —
         // `media_paths` holds those, and is empty for every other export.
+        // The document's own row has no bytes; its cover's are what an
+        // importer can actually resolve.
+        let source = if m.is_document {
+            cover_of.get(&m.id).copied().unwrap_or(m)
+        } else {
+            m
+        };
         let path = media_paths
-            .get(&m.id)
+            .get(&source.id)
             .cloned()
-            .unwrap_or_else(|| m.file_path.clone());
+            .unwrap_or_else(|| source.file_path.clone());
         // A category the user chose is the better answer and implies a
         // medium; the stored medium is what they said when they answered
         // GEDCOM's own question directly, so it wins where both are set.
@@ -1478,6 +1509,88 @@ mod tests {
         .expect("exports");
         assert!(export.gedcom.contains("FICHE"), "{}", export.gedcom);
         assert!(!export.gedcom.contains("MANUSCRIPT"));
+    }
+
+    #[test]
+    fn a_document_is_exported_as_its_cover_not_as_its_title() {
+        // A document holds no bytes and its `file_path` is its title, so a
+        // GEDZIP could never contain a file by that name — re-importing warned
+        // once per document about an entry that could not have existed.
+        let mut document = medium("Dossier de naturalisation", "image/jpeg", false);
+        document.is_document = true;
+        document.page_count = 2;
+
+        let mut second = medium("page2.jpg", "image/jpeg", true);
+        second.parent_media_id = Some(document.id);
+        second.page_index = 1;
+        let mut cover = medium("page1.jpg", "image/jpeg", true);
+        cover.parent_media_id = Some(document.id);
+        cover.page_index = 0;
+
+        let cover_path = archive_path(&cover).expect("stored");
+        let mut paths = HashMap::new();
+        paths.insert(cover.id, cover_path.clone());
+        paths.insert(second.id, archive_path(&second).expect("stored"));
+
+        // Pages deliberately out of order: the cover is page_index 0, not
+        // whichever row the database happened to return first.
+        let rows = vec![document.clone(), second, cover];
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &rows,
+            &[],
+            &[],
+            false,
+            false,
+            &paths,
+        )
+        .expect("exports");
+
+        assert!(
+            !export.gedcom.contains("Dossier de naturalisation"),
+            "the title is not a file name: {}",
+            export.gedcom
+        );
+        // Twice: once for the document, once for the cover page in its own
+        // right. Both resolve to bytes the archive actually carries.
+        assert_eq!(export.gedcom.matches(&cover_path).count(), 2);
+    }
+
+    #[test]
+    fn a_document_with_no_pages_falls_back_to_its_own_path() {
+        // An empty document — created and never filled. There is no cover to
+        // borrow, so nothing is invented.
+        let mut document = medium("Empty dossier", "image/jpeg", false);
+        document.is_document = true;
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&document),
+            &[],
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("C:\\Photos\\original.jpg"));
     }
 
     #[test]
