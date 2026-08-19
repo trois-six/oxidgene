@@ -1547,3 +1547,29 @@ async fn a_couple_defaults_to_following_the_tree() {
     // the couple may be published.
     assert_eq!(family["privacy"], "default");
 }
+
+#[tokio::test]
+async fn a_tree_says_what_default_privacy_means_and_starts_by_withholding() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    // A genealogy holds living people, and a tree nobody has classified has
+    // not been cleared for publication. Publishing is the deliberate act.
+    let (_, tree) = json_request(&h.app, Method::GET, &base, None).await;
+    assert_eq!(tree["default_privacy"], "private");
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::PUT,
+        &base,
+        Some(json!({"default_privacy": "public"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["default_privacy"], "public");
+
+    // The tree's own setting is not a record's: one that has chosen keeps its
+    // choice, which is the whole reason both fields exist.
+    let (_, family) = json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
+    assert_eq!(family["privacy"], "default");
+}

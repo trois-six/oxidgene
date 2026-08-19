@@ -606,6 +606,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ),
         // ── Settings page ───────────────────────────────────────────
         ("settings.breadcrumb", "Settings"),
+        ("settings.default_privacy", "Default privacy"),
+        ("settings.default_privacy_desc", "What \u{201C}follows the tree\u{201D} means for every person, couple and document here. Each of them can still say otherwise."),
         ("settings.tree_roots", "Tree & Roots"),
         ("settings.privacy", "Privacy"),
         ("settings.date_display", "Date Display"),
