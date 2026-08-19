@@ -200,10 +200,16 @@ into the expanded step, live regions on the progress bars — is in
 
 GEDCOM has no primary-photo flag, so the choice cannot be *stated* — but it can
 be implied, because order survives. A person's `OBJE` links are written portrait
-first, and the import takes somebody's first picture as their portrait when none
-is recorded, so the choice arrives intact. Link order is recorded explicitly on
-import (`media_link.sort_order` follows the file) rather than left to insertion
-order.
+first — the first `OBJE` under an `INDI` being the primary one by long
+convention — and the import reads it back into `person.portrait_media_id`, so
+the choice arrives *stored* rather than merely drawn. Link order is recorded
+explicitly on import (`media_link.sort_order` follows the file) rather than left
+to insertion order.
+
+Storing it matters beyond the avatar: the gallery's star marks the stored
+choice, so a portrait that was only implied came back looking right and with no
+star — and nothing for "remove as profile photo" to remove. An existing choice
+in the file is never overwritten.
 
 A portrait that is a **crop** cannot cross: GEDCOM cannot express a region of an
 image as somebody's portrait at all. Those people come back represented by their
