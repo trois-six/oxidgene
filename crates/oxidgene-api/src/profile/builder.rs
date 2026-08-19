@@ -442,6 +442,26 @@ fn build_one_person(
                 mime_type: media.mime_type.clone(),
                 title: media.title.clone(),
             })
+        })
+        // Nothing chosen: their first linked photograph. No import sets a
+        // portrait — neither GEDCOM nor a `.gw` says which picture represents
+        // somebody — so without this a freshly imported tree draws silhouettes
+        // for everyone who has photographs. A document's page is skipped: the
+        // register it belongs to is the picture, not page 7 of it.
+        .or_else(|| {
+            let media = person_media_links
+                .iter()
+                .filter_map(|link| Some((link, idx.media_by_id.get(&link.media_id)?)))
+                .filter(|(_, media)| media.parent_media_id.is_none())
+                .min_by_key(|(link, _)| (link.sort_order, link.id))
+                .map(|(_, media)| media)?;
+            Some(ProfileMediaRef {
+                media_id: media.id,
+                vignette_id: None,
+                file_path: media.file_path.clone(),
+                mime_type: media.mime_type.clone(),
+                title: media.title.clone(),
+            })
         });
 
     // ── Citation count ───────────────────────────────────────────────────

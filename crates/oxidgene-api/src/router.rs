@@ -13,26 +13,36 @@ use axum::routing::{delete, get, patch, post, put};
 /// this number depends on tree size alone.
 const GENEANET_BODY_LIMIT: usize = 32 * 1024 * 1024;
 
-/// Body limit for importing a genealogy file — `.ged` or `.gw`.
+/// Body limit for importing a genealogy file — `.ged` or `.gw` (1 GiB).
 ///
 /// This one tracks the size of a file somebody hands us rather than the size
 /// of their tree, and the two part company badly at the top end: Geneanet
-/// accepts a **zipped** GEDCOM of 1 GB, so the unzipped file a user drops on
-/// us is allowed to be larger still. 1 GB is that number taken literally
-/// and then given the larger unit. The JSON-wrapped GEDCOM import pays a
-/// further ~1.4× for the string escaping, which is the one path here still
-/// bounded by tree size rather than by this.
+/// accepts a **zipped** GEDCOM of 350 MB, so an unzipped file a user drops on
+/// us is not unusual for being larger still. 1 GiB is comfortably past that
+/// and past anything a tree's text alone plausibly reaches. The JSON-wrapped
+/// GEDCOM import pays a further ~1.4× for the string escaping, which is the
+/// one path here still bounded by tree size rather than by this.
 const IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 
-/// Body limit for a GEDZIP import.
+/// Body limit for a GEDZIP import (1 GiB).
 ///
 /// Unlike every other body here, this one is mostly photographs: a `.gdz` is a
 /// tree's genealogy plus its entire media library in one file, and the whole
 /// archive has to be in memory before the ZIP central directory can be read.
-/// 512 MiB covers a few thousand scans and still fails cleanly rather than
-/// taking the process down; anything larger is EPIC H's chunked-upload
-/// problem, the same one that caps a single upload at 128 MiB.
-const GEDZIP_BODY_LIMIT: usize = 512 * 1024 * 1024;
+/// Real ones run to hundreds of MiB — an export of a tree with a decade of
+/// scans behind it lands around 650.
+///
+/// It overrides [`IMPORT_BODY_LIMIT`] on its own route rather than inheriting
+/// it, so the two have to be kept in step by hand; the assertion below is
+/// there because raising the text limit alone leaves the archive — the larger
+/// file of the two, by definition — refused at a ceiling nobody remembered.
+/// Anything past this is EPIC H's chunked-upload problem, the same one that
+/// caps a single upload at 128 MiB.
+const GEDZIP_BODY_LIMIT: usize = 1024 * 1024 * 1024;
+
+/// A `.gdz` is a `.ged` with the album added, so its ceiling cannot be the
+/// lower of the two.
+const _: () = assert!(GEDZIP_BODY_LIMIT >= IMPORT_BODY_LIMIT);
 use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]

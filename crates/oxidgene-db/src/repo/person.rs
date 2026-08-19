@@ -187,22 +187,60 @@ impl PersonRepo {
         } else {
             "$1"
         };
-        // A vignette resolves through the media it crops, so one join answers
-        // both shapes and the caller never has to ask a second time.
+        // Two questions in one query.
+        //
+        // First, what represents each person: the portrait they chose, or —
+        // when they have chosen none — their first linked photograph. That
+        // fallback is not a nicety: no import sets a portrait, because neither
+        // GEDCOM nor a `.gw` says which of somebody's pictures represents
+        // them, so without it a freshly imported tree draws silhouettes for
+        // everyone who has photographs.
+        //
+        // Only a medium that can actually be drawn qualifies as a fallback: one
+        // we have rasterised, or a remote URL we recorded. A PDF or a record
+        // naming a file nobody uploaded is not somebody's portrait by default.
+        //
+        // Second, where to fetch it: a vignette resolves through the media it
+        // crops, so one query answers both shapes and the caller never asks
+        // twice.
         let sql = format!(
             r#"
-                SELECT p.id AS person_id,
-                       p.portrait_media_id,
-                       p.portrait_vignette_id,
+                WITH resolved AS (
+                    SELECT p.id AS person_id,
+                           p.portrait_vignette_id,
+                           COALESCE(p.portrait_media_id, CASE
+                             -- Only when nothing was chosen at all. A crop is a
+                             -- choice, and filling the media column beside it
+                             -- would report both, which is not a state the
+                             -- model holds.
+                             WHEN p.portrait_vignette_id IS NULL THEN (
+                               SELECT ml.media_id
+                               FROM media_link ml
+                               INNER JOIN media mm
+                                   ON mm.id = ml.media_id AND mm.deleted_at IS NULL
+                               WHERE ml.person_id = p.id
+                                 AND mm.parent_media_id IS NULL
+                                 AND (mm.thumbnail_key IS NOT NULL
+                                      OR mm.file_path LIKE 'http%')
+                               ORDER BY ml.sort_order, ml.id
+                               LIMIT 1
+                             )
+                           END) AS portrait_media_id
+                    FROM person p
+                    WHERE p.tree_id = {placeholder}
+                      AND p.deleted_at IS NULL
+                )
+                SELECT r.person_id,
+                       r.portrait_media_id,
+                       r.portrait_vignette_id,
                        COALESCE(m.file_path, vm.file_path) AS file_path,
                        COALESCE(m.thumbnail_key, vm.thumbnail_key) AS thumbnail_key
-                FROM person p
-                LEFT JOIN media m ON m.id = p.portrait_media_id AND m.deleted_at IS NULL
-                LEFT JOIN vignette v ON v.id = p.portrait_vignette_id
+                FROM resolved r
+                LEFT JOIN media m ON m.id = r.portrait_media_id AND m.deleted_at IS NULL
+                LEFT JOIN vignette v ON v.id = r.portrait_vignette_id
                 LEFT JOIN media vm ON vm.id = v.media_id AND vm.deleted_at IS NULL
-                WHERE p.tree_id = {placeholder}
-                  AND p.deleted_at IS NULL
-                  AND (p.portrait_media_id IS NOT NULL OR p.portrait_vignette_id IS NOT NULL)
+                WHERE r.portrait_media_id IS NOT NULL
+                   OR r.portrait_vignette_id IS NOT NULL
             "#
         );
         let stmt = Statement::from_sql_and_values(backend, &sql, vec![tree_id.into()]);
