@@ -4411,7 +4411,7 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 6px;
     }
 
-    /* ── Step 4 findings ──────────────────────────────────────────── */
+    /* ── Findings list: step 4's preview, and the Geneanet result ──── */
 
     .gn-findings {
         list-style: none;
@@ -4420,6 +4420,10 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         flex-direction: column;
         gap: 8px;
+        /* The result screen centres its text, and a centred line whose
+           marker is pinned to the left reads as detached from it. Same
+           reset `.import-warnings` makes for the same reason. */
+        text-align: left;
     }
 
     .gn-findings li {

@@ -1688,6 +1688,12 @@ mod tests {
             .map(|m| m.file_name.as_str());
         assert_eq!(name, Some("chosen.jpg"), "{:#?}", back.media_links);
         assert_eq!(back.media_links.len(), 2, "and she kept the other one");
+
+        // And it is *recorded* as the portrait, not merely drawn as one: the
+        // gallery marks the stored choice, so an implied portrait came back
+        // without its star and with nothing to un-choose.
+        let imported = back.persons.first().expect("she is there");
+        assert_eq!(imported.portrait_media_id, Some(first.media_id));
     }
 
     #[test]
