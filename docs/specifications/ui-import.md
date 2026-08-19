@@ -195,3 +195,23 @@ into the expanded step, live regions on the progress bars — is in
 - The modal is `min(820px, 94vw)` wide; its body is the only thing that scrolls
 - Stat rows wrap 4 → 2 → 1 at 900 px and 560 px
 - The drop zone is always full width
+
+## What a GEDZIP round trip does to a multi-page document
+
+Nothing carries it across, and nothing pretends to. GEDCOM has no notion of a
+document assembled from page images, so on export the container **dissolves**:
+each page is written as an ordinary standalone `OBJE`, and everything that was
+linked to the document is linked to every one of its pages, in reading order.
+Re-importing yields *n* one-page media, each attached to the same people the
+document was.
+
+The document row itself is not exported at all. It holds no bytes — its
+`file_path` is its title — so writing it produced a `FILE` naming something no
+archive could contain, which is where the *"the archive holds no file named
+'Dossier de naturalisation…'"* warnings came from. Writing it as its cover
+instead was worse: the person kept page one and lost the other thirty-seven.
+
+So the scans survive a round trip, with their bytes and their owners. The
+grouping does not: a thirty-eight page dossier comes back as thirty-eight
+pictures. Re-assembling them into a document is a manual step, and the pages
+keep their order in the gallery because the links were written in it.

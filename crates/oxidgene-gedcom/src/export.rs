@@ -305,47 +305,40 @@ pub fn export_gedcom(
     // xref → the `TYPE` value its `FORM` must carry. Written back in after
     // serialisation; see `insert_media_types`.
     let mut media_types: HashMap<String, &'static str> = HashMap::new();
-    // A multi-page document is a container, and GEDCOM has no container: its
-    // `OBJE` must still carry a `FILE`, which 5.5.1 requires. So it is
-    // represented by its cover — the page a reader thinks of as its face.
+    // A multi-page document is a container, and GEDCOM has no container at
+    // all. Rather than fake one, the document dissolves: its pages are
+    // exported as ordinary standalone media, and anything linked to the
+    // document is linked to every one of them.
     //
-    // Without this the `FILE` carried the document's *title*, since that is
-    // what `create_document` puts in `file_path` for a row that holds no
-    // bytes. A GEDZIP then could not contain a file by that name, and
-    // re-importing warned once per document about an archive entry that never
-    // could have existed.
-    let cover_of: HashMap<Uuid, &Media> = {
-        let mut covers: HashMap<Uuid, &Media> = HashMap::new();
-        for page in media.iter().filter(|m| m.parent_media_id.is_some()) {
-            let Some(parent) = page.parent_media_id else {
-                continue;
-            };
-            match covers.get(&parent) {
-                Some(current) if current.page_index <= page.page_index => {}
-                _ => {
-                    covers.insert(parent, page);
-                }
-            }
+    // The document's own row is not exported. It holds no bytes — its
+    // `file_path` is its *title*, which is what made a GEDZIP warn about an
+    // archive entry that could never exist — and writing it as its cover
+    // instead only produced a duplicate of page one while leaving the other
+    // thirty-seven attached to nobody.
+    let mut pages_of: HashMap<Uuid, Vec<&Media>> = HashMap::new();
+    for page in media.iter().filter(|m| m.parent_media_id.is_some()) {
+        if let Some(parent) = page.parent_media_id {
+            pages_of.entry(parent).or_default().push(page);
         }
-        covers
-    };
+    }
+    for pages in pages_of.values_mut() {
+        pages.sort_by_key(|page| (page.page_index, page.id));
+    }
+
     for m in media {
+        // Dissolved above; its pages carry the bytes.
+        if m.is_document {
+            continue;
+        }
         let xref = media_xref.get(&m.id).cloned();
         // `file_path` is the producer's own path, preserved so a plain `.ged`
         // round-trips to whatever wrote it. A GEDZIP carries the bytes, so
         // there the `FILE` must name the entry inside the archive instead —
         // `media_paths` holds those, and is empty for every other export.
-        // The document's own row has no bytes; its cover's are what an
-        // importer can actually resolve.
-        let source = if m.is_document {
-            cover_of.get(&m.id).copied().unwrap_or(m)
-        } else {
-            m
-        };
         let path = media_paths
-            .get(&source.id)
+            .get(&m.id)
             .cloned()
-            .unwrap_or_else(|| source.file_path.clone());
+            .unwrap_or_else(|| m.file_path.clone());
         // A category the user chose is the better answer and implies a
         // medium; the stored medium is what they said when they answered
         // GEDCOM's own question directly, so it wins where both are set.
@@ -424,6 +417,7 @@ pub fn export_gedcom(
                     &media_by_id,
                     &source_xref,
                     &media_xref,
+                    &pages_of,
                     &mut warnings,
                 )),
             }
@@ -453,7 +447,9 @@ pub fn export_gedcom(
             .get(&person.id)
             .map(|mls| {
                 mls.iter()
-                    .filter_map(|ml| to_ged_multimedia_ref(ml.media_id, &media_by_id, &media_xref))
+                    .flat_map(|ml| {
+                        to_ged_multimedia_refs(ml.media_id, &media_by_id, &media_xref, &pages_of)
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -527,6 +523,7 @@ pub fn export_gedcom(
                             &media_by_id,
                             &source_xref,
                             &media_xref,
+                            &pages_of,
                             &mut warnings,
                         )
                     })
@@ -553,7 +550,9 @@ pub fn export_gedcom(
             .get(&fam.id)
             .map(|mls| {
                 mls.iter()
-                    .filter_map(|ml| to_ged_multimedia_ref(ml.media_id, &media_by_id, &media_xref))
+                    .flat_map(|ml| {
+                        to_ged_multimedia_refs(ml.media_id, &media_by_id, &media_xref, &pages_of)
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -976,6 +975,7 @@ fn to_ged_detail(
     media_by_id: &HashMap<Uuid, &Media>,
     source_xref: &HashMap<Uuid, String>,
     media_xref: &HashMap<Uuid, String>,
+    pages_of: &HashMap<Uuid, Vec<&Media>>,
     warnings: &mut Vec<String>,
 ) -> GedDetail {
     let event = convert_event_type(evt.event_type);
@@ -1027,7 +1027,9 @@ fn to_ged_detail(
         .get(&evt.id)
         .map(|mls| {
             mls.iter()
-                .filter_map(|ml| to_ged_multimedia_ref(ml.media_id, media_by_id, media_xref))
+                .flat_map(|ml| {
+                    to_ged_multimedia_refs(ml.media_id, media_by_id, media_xref, pages_of)
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -1265,18 +1267,40 @@ fn to_ged_citation(
     })
 }
 
-fn to_ged_multimedia_ref(
+/// The `OBJE` pointers one media link becomes.
+///
+/// Usually one. A link to a multi-page document becomes one per page, in
+/// reading order: the document itself is not exported — GEDCOM has no
+/// container — so linking to it would point at a record that is not there, and
+/// linking only to its cover would leave the other pages attached to nobody.
+/// Somebody whose naturalisation dossier runs to thirty-eight scans keeps all
+/// thirty-eight.
+fn to_ged_multimedia_refs(
     media_id: Uuid,
     media_by_id: &HashMap<Uuid, &Media>,
     media_xref: &HashMap<Uuid, String>,
-) -> Option<GedMultimedia> {
-    let xref = media_xref.get(&media_id)?.clone();
-    // For inline references we only need the xref
-    let _media = media_by_id.get(&media_id)?;
-    Some(GedMultimedia {
-        xref: Some(xref),
-        ..Default::default()
-    })
+    pages_of: &HashMap<Uuid, Vec<&Media>>,
+) -> Vec<GedMultimedia> {
+    let Some(media) = media_by_id.get(&media_id) else {
+        return Vec::new();
+    };
+    let targets: Vec<Uuid> = if media.is_document {
+        pages_of
+            .get(&media_id)
+            .map(|pages| pages.iter().map(|page| page.id).collect())
+            .unwrap_or_default()
+    } else {
+        vec![media_id]
+    };
+    targets
+        .into_iter()
+        .filter_map(|id| {
+            Some(GedMultimedia {
+                xref: Some(media_xref.get(&id)?.clone()),
+                ..Default::default()
+            })
+        })
+        .collect()
 }
 
 /// Format a float coordinate as a GEDCOM coordinate string.
@@ -1302,6 +1326,20 @@ fn format_coord(value: f64, is_latitude: bool) -> String {
 mod tests {
     use super::*;
     use oxidgene_core::enums::DocumentCategory;
+
+    fn person_row() -> Person {
+        Person {
+            id: Uuid::now_v7(),
+            tree_id: Uuid::now_v7(),
+            sex: Sex::Unknown,
+            privacy: Default::default(),
+            portrait_media_id: None,
+            portrait_vignette_id: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted_at: None,
+        }
+    }
 
     fn medium(file_name: &str, mime_type: &str, stored: bool) -> Media {
         Media {
@@ -1516,17 +1554,7 @@ mod tests {
         // The bug this pins: `ged_io` discards the pointer in `1 OBJE @M1@`,
         // so a tree exported with 548 person-photo links re-imported with
         // none — every photograph present, attached to nobody.
-        let person = Person {
-            id: Uuid::now_v7(),
-            tree_id: Uuid::now_v7(),
-            sex: Sex::Unknown,
-            privacy: Default::default(),
-            portrait_media_id: None,
-            portrait_vignette_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            deleted_at: None,
-        };
+        let person = person_row();
         let medium = medium("portrait.jpg", "image/jpeg", true);
         let link = MediaLink {
             id: Uuid::now_v7(),
@@ -1575,31 +1603,44 @@ mod tests {
     }
 
     #[test]
-    fn a_document_is_exported_as_its_cover_not_as_its_title() {
-        // A document holds no bytes and its `file_path` is its title, so a
-        // GEDZIP could never contain a file by that name — re-importing warned
-        // once per document about an entry that could not have existed.
+    fn a_link_to_a_document_becomes_a_link_to_every_page() {
+        // Sala's naturalisation dossier: thirty-eight scans, and she was
+        // linked to the document rather than to any page. Exporting the
+        // document as its cover gave her page one and left the other
+        // thirty-seven in the tree attached to nobody.
+        let person = person_row();
         let mut document = medium("Dossier de naturalisation", "image/jpeg", false);
         document.is_document = true;
-        document.page_count = 2;
+        document.page_count = 3;
 
-        let mut second = medium("page2.jpg", "image/jpeg", true);
-        second.parent_media_id = Some(document.id);
-        second.page_index = 1;
-        let mut cover = medium("page1.jpg", "image/jpeg", true);
-        cover.parent_media_id = Some(document.id);
-        cover.page_index = 0;
+        let mut pages = Vec::new();
+        for index in 0..3 {
+            let mut page = medium(&format!("page{index}.jpg"), "image/jpeg", true);
+            // Distinct paths, or the order this asserts is unobservable: the
+            // shared fixture gives every medium the same one.
+            page.file_path = format!("page{index}.jpg");
+            page.parent_media_id = Some(document.id);
+            page.page_index = index;
+            pages.push(page);
+        }
 
-        let cover_path = archive_path(&cover).expect("stored");
-        let mut paths = HashMap::new();
-        paths.insert(cover.id, cover_path.clone());
-        paths.insert(second.id, archive_path(&second).expect("stored"));
+        let link = MediaLink {
+            id: Uuid::now_v7(),
+            media_id: document.id,
+            person_id: Some(person.id),
+            event_id: None,
+            source_id: None,
+            family_id: None,
+            sort_order: 0,
+        };
 
-        // Pages deliberately out of order: the cover is page_index 0, not
-        // whichever row the database happened to return first.
-        let rows = vec![document.clone(), second, cover];
+        // Deliberately out of order, and the document last: neither the row
+        // order nor the insertion order decides the reading order.
+        let mut rows = vec![pages[2].clone(), pages[0].clone(), pages[1].clone()];
+        rows.push(document.clone());
+
         let export = export_gedcom(
-            &[],
+            std::slice::from_ref(&person),
             &[],
             &[],
             &[],
@@ -1610,30 +1651,49 @@ mod tests {
             &[],
             &[],
             &rows,
-            &[],
+            std::slice::from_ref(&link),
             &[],
             false,
             false,
-            &paths,
+            &HashMap::new(),
         )
         .expect("exports");
 
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        // Three standalone media, and every one of them still hers.
+        assert_eq!(back.media.len(), 3, "the document itself is not a file");
         assert!(
-            !export.gedcom.contains("Dossier de naturalisation"),
-            "the title is not a file name: {}",
-            export.gedcom
+            back.media
+                .iter()
+                .all(|m| !m.is_document && m.page_count == 1)
         );
-        // Twice: once for the document, once for the cover page in its own
-        // right. Both resolve to bytes the archive actually carries.
-        assert_eq!(export.gedcom.matches(&cover_path).count(), 2);
+        assert_eq!(back.media_links.len(), 3, "{:#?}", back.media_links);
+
+        // Her links are in reading order — `page_index`, not the order the
+        // rows happened to arrive in. The `OBJE` records themselves follow the
+        // media list, which is why this reads the links and not the media.
+        let ordered: Vec<&str> = back
+            .media_links
+            .iter()
+            .filter_map(|link| {
+                back.media
+                    .iter()
+                    .find(|m| m.id == link.media_id)
+                    .map(|m| m.file_name.as_str())
+            })
+            .collect();
+        assert_eq!(ordered, vec!["page0.jpg", "page1.jpg", "page2.jpg"]);
     }
 
     #[test]
-    fn a_document_with_no_pages_falls_back_to_its_own_path() {
-        // An empty document — created and never filled. There is no cover to
-        // borrow, so nothing is invented.
-        let mut document = medium("Empty dossier", "image/jpeg", false);
+    fn a_document_is_never_written_as_a_file_of_its_own() {
+        // Its `file_path` is its title, so a GEDZIP warned once per document
+        // about an archive entry that could not have existed.
+        let mut document = medium("Dossier de naturalisation", "image/jpeg", false);
         document.is_document = true;
+        let mut cover = medium("page1.jpg", "image/jpeg", true);
+        cover.parent_media_id = Some(document.id);
+
         let export = export_gedcom(
             &[],
             &[],
@@ -1645,7 +1705,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&document),
+            &[document, cover],
             &[],
             &[],
             false,
@@ -1653,7 +1713,11 @@ mod tests {
             &HashMap::new(),
         )
         .expect("exports");
-        assert!(export.gedcom.contains("C:\\Photos\\original.jpg"));
+        assert!(
+            !export.gedcom.contains("Dossier de naturalisation"),
+            "{}",
+            export.gedcom
+        );
     }
 
     #[test]
