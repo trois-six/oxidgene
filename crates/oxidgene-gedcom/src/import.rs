@@ -41,7 +41,47 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
 
     let mut result = import_gedcom_data(&data, tree_id)?;
     attach_object_pointers(gedcom_str, &data, tree_id, &mut result);
+    assign_portraits(&mut result);
     Ok(result)
+}
+
+/// Record each person's first picture as their portrait.
+///
+/// GEDCOM has no primary-photo flag, and states the choice only by order: the
+/// first `OBJE` under an `INDI` is the primary one by long convention, and it
+/// is what OxidGene's own export writes first for exactly that reason.
+///
+/// Reading it back into `portrait_media_id` rather than leaving it implied is
+/// what makes the stored state match the displayed one. The fallback that
+/// picks a person's first picture would draw the same face either way — but
+/// with nothing stored, the gallery could not mark it, so a portrait survived a
+/// round trip visually while losing its star, and clicking "remove as profile
+/// photo" would have had nothing to remove.
+///
+/// Only a person with no portrait already is given one, so this cannot
+/// overwrite a choice made in the file it is reading.
+fn assign_portraits(result: &mut ImportResult) {
+    let mut first: HashMap<Uuid, (i32, Uuid)> = HashMap::new();
+    for link in &result.media_links {
+        let Some(person_id) = link.person_id else {
+            continue;
+        };
+        let candidate = (link.sort_order, link.media_id);
+        match first.get(&person_id) {
+            Some(current) if current.0 <= candidate.0 => {}
+            _ => {
+                first.insert(person_id, candidate);
+            }
+        }
+    }
+    for person in &mut result.persons {
+        if person.portrait_media_id.is_some() || person.portrait_vignette_id.is_some() {
+            continue;
+        }
+        if let Some((_, media_id)) = first.get(&person.id) {
+            person.portrait_media_id = Some(*media_id);
+        }
+    }
 }
 
 /// Recover the `OBJE` pointers that the parser discards.
@@ -211,6 +251,7 @@ pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, Stri
     if let Ok(text) = std::str::from_utf8(&gedcom_bytes) {
         attach_object_pointers(text, &data, tree_id, &mut result);
     }
+    assign_portraits(&mut result);
 
     // Owned up front: `media_files` borrows the reader, and reading an entry
     // out of it below needs the reader back.
