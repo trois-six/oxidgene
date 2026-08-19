@@ -88,6 +88,13 @@ thumbnailed, croppable, exactly as if they had been uploaded. A `.ged` and a
 attach bytes to later. A file the archive turns out not to carry, or one no
 `OBJE` names, is a warning on the result — never a failed import.
 
+What a GEDZIP round trip does **not** carry back is the structure GEDCOM has no
+tag for: a multi-page document's pages export as separate `OBJE` records, so
+re-importing the archive gives back that many separate media rather than one
+document with its pages, and a medium's original file name is lost where the
+archive path is `media/{uuid}.{ext}` — which is our own exporter's, chosen
+because two scans called `photo.jpg` in one tree is routine.
+
 ### What this tab does not do
 
 An earlier version of this spec described a three-step wizard — upload and
