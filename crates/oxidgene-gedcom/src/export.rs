@@ -442,11 +442,31 @@ pub fn export_gedcom(
             .and_then(|ns| ns.first())
             .map(|n| to_ged_note(&n.text));
 
-        // Multimedia links
+        // Multimedia links, portrait first.
+        //
+        // GEDCOM has no primary-photo flag, so the choice cannot be stated —
+        // but it can be *implied*, because order survives and our own import
+        // takes a person's first picture when no portrait is recorded. Writing
+        // the portrait first is therefore what carries the choice across a
+        // round trip; without it the person kept every photograph and came back
+        // represented by whichever one happened to be written first.
+        //
+        // A crop portrait has no whole media to lead with, so those trees fall
+        // back to the first picture as before: GEDCOM cannot express a region
+        // of an image as somebody's portrait at all.
         let multimedia: Vec<GedMultimedia> = mlinks_by_person
             .get(&person.id)
             .map(|mls| {
-                mls.iter()
+                let mut ordered: Vec<&&MediaLink> = mls.iter().collect();
+                ordered.sort_by_key(|ml| {
+                    (
+                        person.portrait_media_id != Some(ml.media_id),
+                        ml.sort_order,
+                        ml.id,
+                    )
+                });
+                ordered
+                    .into_iter()
                     .flat_map(|ml| {
                         to_ged_multimedia_refs(ml.media_id, &media_by_id, &media_xref, &pages_of)
                     })
@@ -1600,6 +1620,74 @@ mod tests {
             back.persons.first().map(|p| p.id)
         );
         assert_eq!(back.media_links[0].media_id, back.media[0].id);
+    }
+
+    #[test]
+    fn the_portrait_still_represents_the_person_after_a_round_trip() {
+        // GEDCOM has no primary-photo flag, so the choice is carried by
+        // *order*: our import takes a person's first picture when no portrait
+        // is stored. Without writing the portrait first, somebody with several
+        // photographs kept all of them and came back represented by whichever
+        // one happened to be written first.
+        // Distinct paths, or the two are indistinguishable after a round trip:
+        // the shared fixture gives every medium the same one.
+        let mut chosen = medium("chosen.jpg", "image/jpeg", true);
+        chosen.file_path = "chosen.jpg".to_string();
+        let mut other = medium("other.jpg", "image/jpeg", true);
+        other.file_path = "other.jpg".to_string();
+
+        let mut person = person_row();
+        person.portrait_media_id = Some(chosen.id);
+
+        // `other` is attached first and sorts first, so only the portrait
+        // itself can put `chosen` at the head of the list.
+        let links: Vec<MediaLink> = [(&other, 0), (&chosen, 1)]
+            .into_iter()
+            .map(|(m, order)| MediaLink {
+                id: Uuid::now_v7(),
+                media_id: m.id,
+                person_id: Some(person.id),
+                event_id: None,
+                source_id: None,
+                family_id: None,
+                sort_order: order,
+            })
+            .collect();
+
+        let export = export_gedcom(
+            std::slice::from_ref(&person),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[other.clone(), chosen.clone()],
+            &links,
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let first = back
+            .media_links
+            .iter()
+            .filter(|l| l.person_id.is_some())
+            .min_by_key(|l| l.sort_order)
+            .expect("she has pictures");
+        let name = back
+            .media
+            .iter()
+            .find(|m| m.id == first.media_id)
+            .map(|m| m.file_name.as_str());
+        assert_eq!(name, Some("chosen.jpg"), "{:#?}", back.media_links);
+        assert_eq!(back.media_links.len(), 2, "and she kept the other one");
     }
 
     #[test]
