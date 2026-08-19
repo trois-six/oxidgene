@@ -305,7 +305,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             let Some(tid) = tid else {
                 return HashMap::new();
             };
-            match api.list_media_links_for_tree(tid).await {
+            match api.list_portraits(tid).await {
                 Ok(rows) => api.portrait_map(tid, &rows),
                 Err(_) => HashMap::new(),
             }

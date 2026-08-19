@@ -848,7 +848,6 @@ async fn one_request_returns_a_person_gallery_with_everything_a_tile_needs() {
     let row = &rows[0];
     assert_eq!(row["link_id"], link_id.as_str());
     assert_eq!(row["id"], media_id.as_str(), "the media is flattened in");
-    assert_eq!(row["is_profile"], false);
     // The three things a tile cannot be drawn without.
     assert_eq!(row["mime_type"], "image/png");
     assert!(row["thumbnail_key"].is_string());
@@ -907,100 +906,124 @@ async fn a_soft_deleted_media_leaves_the_gallery() {
 }
 
 #[tokio::test]
-async fn setting_a_profile_photo_unsets_the_previous_one() {
+async fn choosing_a_portrait_replaces_the_previous_one() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (_, first) = attach_photo(&h, &person_id, "first.png").await;
-    let (_, second) = attach_photo(&h, &person_id, "second.png").await;
+    let (first_media, _) = attach_photo(&h, &person_id, "first.png").await;
+    let (second_media, _) = attach_photo(&h, &person_id, "second.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    for link in [&first, &second] {
+    for media in [&first_media, &second_media] {
         let (status, body) = json_request(
             &h.app,
             Method::PUT,
-            &format!("{base}/media-links/{link}/profile"),
-            Some(json!({"is_profile": true})),
+            &format!("{base}/persons/{person_id}/portrait"),
+            Some(json!({"media_id": media})),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
     }
 
-    let (_, listed) = json_request(
-        &h.app,
-        Method::GET,
-        &format!("{base}/media-links?entity_type=person&entity_id={person_id}"),
-        None,
-    )
-    .await;
-    let starred: Vec<&Value> = listed
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|row| row["is_profile"] == true)
-        .collect();
-    assert_eq!(starred.len(), 1, "at most one star per person: {listed}");
-    assert_eq!(starred[0]["link_id"], second.as_str());
+    // One column, so "at most one portrait" needs no clearing pass and cannot
+    // be left half-done by a failure between two statements.
+    let (_, portraits) =
+        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    let rows = portraits.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{portraits}");
+    assert_eq!(rows[0]["person_id"], person_id.as_str());
+    assert_eq!(rows[0]["media_id"], second_media.as_str());
 }
 
 #[tokio::test]
-async fn a_profile_photo_can_be_cleared() {
+async fn a_portrait_can_be_a_face_in_a_group_photograph() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (_, link) = attach_photo(&h, &person_id, "photo.png").await;
+    let (media_id, _) = attach_photo(&h, &person_id, "wedding.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    // The portrait most people in an old family archive actually have: a
+    // region of a larger scan, stored as coordinates rather than as a copy.
+    let (status, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{media_id}/vignettes"),
+        Some(json!({"x": 10, "y": 10, "width": 30, "height": 30, "person_id": person_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
+
+    let (status, body) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"vignette_id": vignette["id"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (_, portraits) =
+        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    let row = &portraits.as_array().unwrap()[0];
+    assert_eq!(row["vignette_id"], vignette["id"]);
+    assert!(row["media_id"].is_null(), "one or the other, never both");
+    // The crop resolves through the scan it is on, so a caller knows there
+    // are rasterised bytes behind it without asking twice.
+    assert_eq!(row["has_thumbnail"], true);
+}
+
+#[tokio::test]
+async fn a_portrait_can_be_cleared() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     json_request(
         &h.app,
         Method::PUT,
-        &format!("{base}/media-links/{link}/profile"),
-        Some(json!({"is_profile": true})),
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"media_id": media_id})),
     )
     .await;
+    // Sending neither id is how "use the silhouette again" is said.
     let (status, cleared) = json_request(
         &h.app,
         Method::PUT,
-        &format!("{base}/media-links/{link}/profile"),
-        Some(json!({"is_profile": false})),
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({})),
     )
     .await;
 
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(cleared["is_profile"], false);
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert!(cleared["portrait_media_id"].is_null());
+    let (_, portraits) =
+        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    assert!(portraits.as_array().unwrap().is_empty(), "{portraits}");
 }
 
 #[tokio::test]
-async fn a_media_attached_to_nobody_cannot_be_a_profile_photo() {
+async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
     let h = setup().await;
-    let (_, media) = upload(
-        &h.app,
-        h.tree_id,
-        &[("file", Some("orphan.png"), &png(100, 100))],
-    )
-    .await;
-    let media_id = media["id"].as_str().unwrap();
+    let person_id = person(&h).await;
+    let (media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    // A link to a family, not a person: a couple's card shows its spouses'
-    // portraits, so there is no family profile photo to set.
-    let (status, family) =
-        json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
-    assert_eq!(status, StatusCode::CREATED, "{family}");
-    let (_, link) = json_request(
+    let (_, vignette) = json_request(
         &h.app,
         Method::POST,
-        &format!("{base}/media-links"),
-        Some(json!({"media_id": media_id, "family_id": family["id"], "sort_order": 0})),
+        &format!("{base}/media/{media_id}/vignettes"),
+        Some(json!({"x": 0, "y": 0, "width": 20, "height": 20})),
     )
     .await;
 
+    // Refused rather than resolved: the model holds one answer, and silently
+    // picking one of two would make the stored portrait differ from the one
+    // that was asked for.
     let (status, body) = json_request(
         &h.app,
         Method::PUT,
-        &format!(
-            "{base}/media-links/{}/profile",
-            link["id"].as_str().unwrap()
-        ),
-        Some(json!({"is_profile": true})),
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"media_id": media_id, "vignette_id": vignette["id"]})),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");

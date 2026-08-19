@@ -57,6 +57,11 @@ pub fn build_router(state: AppState) -> Router {
             get(person::list_persons).post(person::create_person),
         )
         .route("/{tree_id}/persons/search", get(person::search_persons))
+        .route("/{tree_id}/portraits", get(person::list_portraits))
+        .route(
+            "/{tree_id}/persons/{person_id}/portrait",
+            put(person::set_person_portrait),
+        )
         .route(
             "/{tree_id}/persons/sosa/{number}",
             get(person::get_person_by_sosa),
@@ -238,10 +243,6 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/media-links/{link_id}",
             delete(media_link::delete_media_link),
-        )
-        .route(
-            "/{tree_id}/media-links/{link_id}/profile",
-            put(media_link::set_profile_media_link),
         );
 
     let note_routes = Router::new()

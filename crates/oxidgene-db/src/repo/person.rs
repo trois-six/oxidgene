@@ -6,7 +6,7 @@
 use chrono::Utc;
 use oxidgene_core::enums::{Privacy, Sex};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Person};
+use oxidgene_core::types::{Connection, Person, Portrait};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
@@ -17,6 +17,18 @@ use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for person CRUD operations.
 pub struct PersonRepo;
+
+/// One person's portrait, flat, with what a caller needs to draw it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PortraitRow {
+    pub person_id: Uuid,
+    pub media_id: Option<Uuid>,
+    pub vignette_id: Option<Uuid>,
+    /// The producer's own path. Only useful when it is an `http(s)` URL — a
+    /// remote media we recorded and never fetched.
+    pub file_path: String,
+    pub has_thumbnail: bool,
+}
 
 impl PersonRepo {
     /// List persons in a tree with pagination (excludes soft-deleted).
@@ -86,6 +98,8 @@ impl PersonRepo {
             tree_id: Set(tree_id),
             sex: Set(sea_enums::Sex::from(sex)),
             privacy: Set(sea_enums::Privacy::from(Privacy::default())),
+            portrait_media_id: Set(None),
+            portrait_vignette_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -150,6 +164,136 @@ impl PersonRepo {
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         Ok(())
     }
+
+    /// Set — or clear — which image represents a person.
+    ///
+    /// One row, one write. The two columns are written together from a single
+    /// [`Portrait`], so "media *and* vignette" is not a state this can produce,
+    /// and no caller has to clear the other one first.
+    /// Every person's portrait in a tree, with enough to draw it.
+    ///
+    /// `has_thumbnail` says whether we hold rasterised bytes for the media, so
+    /// a caller knows to use our thumbnail rather than the producer's path —
+    /// which is not a URL anything can load.
+    pub async fn list_portraits(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<PortraitRow>, OxidGeneError> {
+        use sea_orm::{DbBackend, Statement};
+
+        let backend = db.get_database_backend();
+        let placeholder = if matches!(backend, DbBackend::Sqlite) {
+            "?"
+        } else {
+            "$1"
+        };
+        // A vignette resolves through the media it crops, so one join answers
+        // both shapes and the caller never has to ask a second time.
+        let sql = format!(
+            r#"
+                SELECT p.id AS person_id,
+                       p.portrait_media_id,
+                       p.portrait_vignette_id,
+                       COALESCE(m.file_path, vm.file_path) AS file_path,
+                       COALESCE(m.thumbnail_key, vm.thumbnail_key) AS thumbnail_key
+                FROM person p
+                LEFT JOIN media m ON m.id = p.portrait_media_id AND m.deleted_at IS NULL
+                LEFT JOIN vignette v ON v.id = p.portrait_vignette_id
+                LEFT JOIN media vm ON vm.id = v.media_id AND vm.deleted_at IS NULL
+                WHERE p.tree_id = {placeholder}
+                  AND p.deleted_at IS NULL
+                  AND (p.portrait_media_id IS NOT NULL OR p.portrait_vignette_id IS NOT NULL)
+            "#
+        );
+        let stmt = Statement::from_sql_and_values(backend, &sql, vec![tree_id.into()]);
+        let results = db
+            .query_all(stmt)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        let mut rows = Vec::with_capacity(results.len());
+        for row in results {
+            let get = |name: &str| row.try_get::<Option<Uuid>>("", name);
+            rows.push(PortraitRow {
+                person_id: row
+                    .try_get("", "person_id")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                media_id: get("portrait_media_id")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                vignette_id: get("portrait_vignette_id")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                file_path: row
+                    .try_get::<Option<String>>("", "file_path")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .unwrap_or_default(),
+                has_thumbnail: row
+                    .try_get::<Option<String>>("", "thumbnail_key")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .is_some(),
+            });
+        }
+        Ok(rows)
+    }
+
+    pub async fn set_portrait(
+        db: &impl ConnectionTrait,
+        person_id: Uuid,
+        portrait: Portrait,
+    ) -> Result<Person, OxidGeneError> {
+        let person = Entity::find_by_id(person_id)
+            .filter(Column::DeletedAt.is_null())
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Person",
+                id: person_id,
+            })?;
+
+        let (media_id, vignette_id) = portrait.to_columns();
+        let mut active: person::ActiveModel = person.into();
+        active.portrait_media_id = Set(media_id);
+        active.portrait_vignette_id = Set(vignette_id);
+        active.updated_at = Set(Utc::now());
+        let result = active
+            .update(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(into_domain(result))
+    }
+
+    /// Forget any portrait pointing at a media, or at a crop of one.
+    ///
+    /// Called when a media is deleted: the pointer is not a foreign key — SQLite
+    /// cannot add one through `ALTER TABLE` — so nothing else would clear it, and
+    /// a card would go on asking for bytes that are gone.
+    pub async fn clear_portraits_for_media(
+        db: &impl ConnectionTrait,
+        media_id: Uuid,
+        vignette_ids: &[Uuid],
+    ) -> Result<(), OxidGeneError> {
+        Entity::update_many()
+            .col_expr(
+                Column::PortraitMediaId,
+                sea_orm::sea_query::Expr::value(None::<Uuid>),
+            )
+            .filter(Column::PortraitMediaId.eq(media_id))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        if !vignette_ids.is_empty() {
+            Entity::update_many()
+                .col_expr(
+                    Column::PortraitVignetteId,
+                    sea_orm::sea_query::Expr::value(None::<Uuid>),
+                )
+                .filter(Column::PortraitVignetteId.is_in(vignette_ids.to_vec()))
+                .exec(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        }
+        Ok(())
+    }
 }
 
 fn into_domain(m: person::Model) -> Person {
@@ -158,6 +302,8 @@ fn into_domain(m: person::Model) -> Person {
         tree_id: m.tree_id,
         sex: m.sex.into(),
         privacy: m.privacy.into(),
+        portrait_media_id: m.portrait_media_id,
+        portrait_vignette_id: m.portrait_vignette_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
