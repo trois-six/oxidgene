@@ -96,6 +96,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Streaming parser for large files.
 - Error logging and normalization.
 - GeneWeb `.gw` import (crate `geneweb`), converted through the same `ged_io` model.
+- **GEDZIP `.gdz` import and export.** The archive form of GEDCOM 7.0: a `gedcom.ged` and the media files it references in one ZIP. Import is the one file format that arrives with its photographs — each medium the archive carries is stored, thumbnailed and written as a held medium, where a `.ged` or a `.gw` names files nobody handed us. A missing or unreferenced file is a warning, never a failed import.
 - **Geneanet trees keep their photos.** A Geneanet export carries at most one medium per individual, as a URL that `403`s for anyone not logged in — losing ~55 % of the person↔photo links and every group photo. The full mapping is recovered from Geneanet's media API and joined onto the `.gw` by GeneWeb key, then imported straight into a tree as `Media` + `MediaLink` rows, so a group photo lands on everyone in it. A guided single-page flow walks the user through the Geneanet side, including an in-app login window. Exporting that tree to `.gdz` afterwards is the existing export path. See [Geneanet Media Import](geneanet-media-import.md) for the mechanism and [Geneanet Import](ui-geneanet-import.md) for the flow. Depends on Sprint F.1 for media storage.
 - → see [API Contract](api.md) (GEDCOM endpoints) · [Settings](ui-settings.md) (export section)
 
@@ -273,7 +274,7 @@ All content areas use `max-width: 1200px` for a unified reading width across all
 | C | Tree Editing (Frontend) | ✅ Complete |
 | D | UX, Languages, Performance | ✅ Complete |
 | E | Read Projections & Search | ✅ E.9 Complete; 🔄 E.8 (dictionary descent view) planned |
-| F | Media Management | 🔄 F.1–F.3, the Geneanet import, media typing (GEDCOM `SOURCE_MEDIA_TYPE` + document category), the `.gdz` media fix, and portraits-as-crops shipped (S3 backend, PostgreSQL verification, PDF page rendering outstanding); F.4 planned |
+| F | Media Management | 🔄 F.1–F.3, the Geneanet import, media typing (GEDCOM `SOURCE_MEDIA_TYPE` + document category), the `.gdz` media fix, GEDZIP import, and portraits-as-crops shipped (S3 backend, PostgreSQL verification, PDF page rendering outstanding); F.4 planned |
 | G | Security & Deployment | ⏳ Post-Media |
 | H | Asynchronous Pipeline | ⏳ Post-MVP |
 

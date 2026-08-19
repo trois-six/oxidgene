@@ -34,6 +34,7 @@ use crate::components::media_input::MediaInput;
 use crate::components::person_form::render_place_select;
 use crate::components::vignette_linker::VignetteLinker;
 use crate::i18n::use_i18n;
+use crate::utils::parse_privacy;
 
 /// What the gallery's media are attached to.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -787,6 +788,7 @@ fn MediaEditPanel(
             tile.media.date_value2.as_deref(),
         )
     });
+    let mut privacy = use_signal(|| tile.media.privacy);
     let mut source_media_type = use_signal(|| tile.media.source_media_type);
     let mut document_category = use_signal(|| tile.media.document_category);
     let mut note_text = use_signal(String::new);
@@ -873,6 +875,7 @@ fn MediaEditPanel(
             let url_value = url().trim().to_string();
             let place_value = Uuid::parse_str(place_id().trim()).ok();
             let note_value = note_text().trim().to_string();
+            let privacy_value = privacy();
             let medium_value = source_media_type();
             let category_value = document_category();
             let existing_note = note_id();
@@ -896,6 +899,7 @@ fn MediaEditPanel(
                     file_path: (source != MediaSource::Stored && !url_value.is_empty())
                         .then_some(url_value),
                     mime_type: None,
+                    privacy: Some(privacy_value),
                     source_media_type: Some(medium_value),
                     document_category: Some(category_value),
                 };
@@ -1120,6 +1124,31 @@ fn MediaEditPanel(
                     }
                 }
                 p { class: "pf-ns-hint", {i18n.t("media.source_media_type_hint")} }
+            }
+
+            // Recorded, not yet enforced — the hint says so rather than
+            // letting the control imply a protection that does not exist.
+            div { class: "form-group",
+                label { {i18n.t("media.privacy")} }
+                select {
+                    class: "td-select",
+                    onchange: move |e: Event<FormData>| {
+                        privacy.set(parse_privacy(&e.value()));
+                    },
+                    for (value , label) in [
+                        ("Default", i18n.t("privacy.default")),
+                        ("Public", i18n.t("privacy.public")),
+                        ("Private", i18n.t("privacy.private")),
+                    ] {
+                        option {
+                            key: "{value}",
+                            value: "{value}",
+                            selected: format!("{:?}", privacy()) == value,
+                            "{label}"
+                        }
+                    }
+                }
+                p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
             }
 
             // The same date widget every fact uses, so a photograph taken

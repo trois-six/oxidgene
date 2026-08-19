@@ -635,6 +635,9 @@ pub struct UpdateMediaBody {
     pub file_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+    /// Whether this is shown when the tree is published.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<Privacy>,
     /// What the medium physically is, in GEDCOM's own vocabulary.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_media_type: Option<SourceMediaType>,
@@ -1541,6 +1544,23 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(result)
+    }
+
+    /// Set a couple's privacy.
+    pub async fn update_family_privacy(
+        &self,
+        tree_id: Uuid,
+        id: Uuid,
+        privacy: Privacy,
+    ) -> Result<Family, ApiError> {
+        let family = self
+            .put(
+                &format!("/api/v1/trees/{tree_id}/families/{id}"),
+                &serde_json::json!({ "privacy": privacy }),
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(family)
     }
 
     pub async fn delete_family(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
@@ -2607,6 +2627,29 @@ impl ApiClient {
                 &format!("/api/v1/trees/{tree_id}/geneweb/import"),
                 content,
                 &query,
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
+    }
+
+    /// Import a GEDZIP archive (`.gdz`) — a ZIP wrapping a GEDCOM together
+    /// with the media files it references.
+    ///
+    /// Takes the raw archive: it is binary, so there is nothing to gain from
+    /// wrapping it in JSON and a third of its size to lose. Media the archive
+    /// carries are stored as it is read, so a `.gdz` arrives with its
+    /// photographs where a `.ged` arrives with their names only.
+    pub async fn import_gedzip(
+        &self,
+        tree_id: Uuid,
+        archive: Vec<u8>,
+    ) -> Result<ImportResult, ApiError> {
+        let result = self
+            .post_bytes(
+                &format!("/api/v1/trees/{tree_id}/gedzip/import"),
+                archive,
+                &(),
             )
             .await?;
         self.invalidate_tree(tree_id);

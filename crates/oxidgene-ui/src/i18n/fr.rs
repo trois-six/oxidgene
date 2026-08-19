@@ -677,7 +677,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("not_found.message_suffix", "\u{00A0}\u{00BB} n\u{2019}existe pas."),
         ("not_found.go_home", "Retour \u{00E0} l\u{2019}accueil"),
         // ── GEDCOM I/O ──────────────────────────────────────────────
-        ("gedcom.select_file", "S\u{00E9}lectionner un fichier GEDCOM ou GeneWeb"),
+        (
+            "gedcom.select_file",
+            "S\u{00E9}lectionner un fichier GEDCOM, GEDZIP ou GeneWeb",
+        ),
         ("gedcom.save_file", "Enregistrer le fichier GEDCOM"),
         ("import.read_error", "Impossible de lire le fichier\u{00A0}: {error}"),
         ("import.not_utf8", "Ce fichier GEDCOM n\u{2019}est pas en UTF-8 valide. R\u{00E9}exportez-le en UTF-8 depuis votre logiciel de g\u{00E9}n\u{00E9}alogie, ou importez plut\u{00F4}t la version GeneWeb (.gw)."),
@@ -686,7 +689,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("import.tab_file", "Un fichier"),
         ("import.tab_geneanet", "Depuis Geneanet"),
         ("import.drop_label", "D\u{00E9}posez un fichier ici, ou cliquez pour parcourir"),
-        ("import.drop_formats", ".ged (GEDCOM) \u{00B7} .gw (GeneWeb)"),
+        (
+            "import.drop_formats",
+            ".ged (GEDCOM) \u{00B7} .gdz (GEDZIP, avec les m\u{00E9}dias) \u{00B7} .gw (GeneWeb)",
+        ),
         ("import.file_size", "{size}"),
         ("import.start", "Importer"),
         ("import.importing", "Import en cours\u{2026}"),
@@ -974,6 +980,9 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.clear_profile_image", "Retirer l\u{2019}image principale"),
         ("media.edit_details", "Modifier les informations"),
         ("media.vignette", "D\u{00E9}tail d\u{2019}une photo"),
+        ("media.privacy", "Confidentialit\u{00E9}"),
+        ("privacy.not_enforced_yet", "Enregistr\u{00E9} d\u{00E8}s maintenant. Rien n\u{2019}est encore masqu\u{00E9} \u{2014} cela prendra effet avec les comptes et la publication."),
+        ("union_form.privacy", "Confidentialit\u{00E9}"),
         ("media.identified", "Identifi\u{00E9}s"),
         ("media.zoom_in", "Agrandir"),
         ("media.zoom_out", "R\u{00E9}duire"),

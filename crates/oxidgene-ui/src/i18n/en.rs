@@ -651,7 +651,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("not_found.message_suffix", "\" does not exist."),
         ("not_found.go_home", "Go Home"),
         // ── GEDCOM I/O ──────────────────────────────────────────────
-        ("gedcom.select_file", "Select a GEDCOM or GeneWeb file"),
+        (
+            "gedcom.select_file",
+            "Select a GEDCOM, GEDZIP or GeneWeb file",
+        ),
         ("gedcom.save_file", "Save GEDCOM file"),
         ("import.read_error", "Failed to read file: {error}"),
         ("import.not_utf8", "This GEDCOM file is not valid UTF-8. Re-export it as UTF-8 from your genealogy software, or import the GeneWeb (.gw) version instead."),
@@ -660,7 +663,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("import.tab_file", "A file"),
         ("import.tab_geneanet", "From Geneanet"),
         ("import.drop_label", "Drop a file here, or click to browse"),
-        ("import.drop_formats", ".ged (GEDCOM) \u{00B7} .gw (GeneWeb)"),
+        (
+            "import.drop_formats",
+            ".ged (GEDCOM) \u{00B7} .gdz (GEDZIP, with media) \u{00B7} .gw (GeneWeb)",
+        ),
         ("import.file_size", "{size}"),
         ("import.start", "Import"),
         ("import.importing", "Importing\u{2026}"),
@@ -948,6 +954,9 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.clear_profile_image", "Remove as profile photo"),
         ("media.edit_details", "Edit details"),
         ("media.vignette", "Detail of a photo"),
+        ("media.privacy", "Privacy"),
+        ("privacy.not_enforced_yet", "Recorded now. Nothing is hidden yet \u{2014} this takes effect when accounts and publishing arrive."),
+        ("union_form.privacy", "Privacy"),
         ("media.identified", "Identified"),
         ("media.zoom_in", "Zoom in"),
         ("media.zoom_out", "Zoom out"),

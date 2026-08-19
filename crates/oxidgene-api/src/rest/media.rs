@@ -177,6 +177,7 @@ pub(crate) fn media_patch(
         place_id: body.place_id,
         file_path,
         mime_type,
+        privacy: body.privacy,
         source_media_type: body.source_media_type,
         document_category: body.document_category,
         date_sort,

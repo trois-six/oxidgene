@@ -3,6 +3,10 @@
 //! Parses a GEDCOM string and converts it into OxidGene domain model entities.
 //! Tracks xref → UUID mappings so that cross-references between GEDCOM records
 //! are correctly translated into foreign-key relationships.
+//!
+//! [`import_gedzip`] reads the same genealogy out of a `.gdz` archive and, in
+//! addition, hands back the media bytes the archive carries — the one thing
+//! that format has which a bare `.ged` does not.
 
 use std::collections::HashMap;
 
@@ -16,7 +20,8 @@ use uuid::Uuid;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source, normalize_mime, split_surname_particle, split_surname_with,
+    Person, PersonName, Place, Source, is_remote_url, normalize_mime, split_surname_particle,
+    split_surname_with,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
@@ -35,6 +40,112 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         .map_err(|e| format!("GEDCOM parse error: {e}"))?;
 
     import_gedcom_data(&data, tree_id)
+}
+
+/// A GEDZIP archive, read: the genealogy it holds and the files it carries.
+///
+/// See [`import_gedzip`].
+#[derive(Debug)]
+pub struct GedzipImport {
+    /// Everything the enclosed `gedcom.ged` yielded — exactly what
+    /// [`import_gedcom`] would have produced from the same bytes on their own.
+    pub result: ImportResult,
+    /// The bytes each medium's `FILE` named inside the archive, keyed by the
+    /// id of the matching record in [`ImportResult::media`].
+    ///
+    /// A medium is absent here when its `FILE` is a URL, or names an entry the
+    /// archive does not hold. Neither is fatal — both are reported in
+    /// [`ImportResult::warnings`] and leave the record as an unheld one, which
+    /// is what a plain `.ged` would have produced anyway.
+    pub files: Vec<(Uuid, Vec<u8>)>,
+}
+
+/// Import a GEDZIP archive (`.gdz`) — a ZIP wrapping a `gedcom.ged` together
+/// with the media files it references, per GEDCOM 7.0.
+///
+/// The genealogy half is the ordinary GEDCOM import; what the format adds is
+/// that the referenced files travel with it, so this also hands back the bytes
+/// of every medium the archive actually carries. Writing them into a store is
+/// the caller's business — this crate holds no store — so the bytes come back
+/// paired with the media record that named them.
+///
+/// # Errors
+///
+/// Returns `Err` if `archive` is not a readable ZIP, if it holds no
+/// `gedcom.ged`, or if that GEDCOM cannot be parsed. A media file that is
+/// missing or unreadable is a warning, not an error.
+pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, String> {
+    let mut reader = ged_io::gedzip::GedzipReader::new(std::io::Cursor::new(archive))
+        .map_err(|e| format!("GEDZIP read error: {e}"))?;
+    let data = reader
+        .parse_gedcom()
+        .map_err(|e| format!("GEDZIP parse error: {e}"))?;
+
+    let mut result = import_gedcom_data(&data, tree_id)?;
+
+    // Owned up front: `media_files` borrows the reader, and reading an entry
+    // out of it below needs the reader back.
+    let entries: HashMap<String, String> = reader
+        .media_files()
+        .iter()
+        .map(|name| (entry_key(name), (*name).to_string()))
+        .collect();
+
+    let mut wanted: Vec<(Uuid, String)> = Vec::new();
+    for media in &result.media {
+        // A `FILE` may name something the archive was never meant to hold —
+        // GEDCOM 7 allows a URL there, and we deliberately never fetch one.
+        if is_remote_url(&media.file_path) {
+            continue;
+        }
+        match entries.get(&entry_key(&media.file_path)) {
+            Some(name) => wanted.push((media.id, name.clone())),
+            None => result.warnings.push(format!(
+                "GEDZIP: the archive holds no file named '{}'; the media record was kept without its bytes",
+                media.file_path
+            )),
+        }
+    }
+
+    let referenced: std::collections::HashSet<&str> =
+        wanted.iter().map(|(_, name)| name.as_str()).collect();
+    let unreferenced = entries
+        .values()
+        .filter(|name| !referenced.contains(name.as_str()))
+        .count();
+    if unreferenced > 0 {
+        // Not an error: the archive is still valid, and a file no record
+        // names has nothing in the tree to attach to. Worth saying, because
+        // it is usually how somebody learns their exporter dropped the links.
+        result.warnings.push(format!(
+            "GEDZIP: {unreferenced} file(s) in the archive are named by no OBJE record and were not imported"
+        ));
+    }
+
+    let mut files = Vec::with_capacity(wanted.len());
+    for (media_id, name) in wanted {
+        match reader.read_media_file(&name) {
+            Ok(bytes) => files.push((media_id, bytes)),
+            Err(e) => result.warnings.push(format!(
+                "GEDZIP: '{name}' could not be read out of the archive: {e}"
+            )),
+        }
+    }
+
+    Ok(GedzipImport { result, files })
+}
+
+/// Folds an archive entry name and a `FILE` value onto a common key.
+///
+/// A ZIP entry is a forward-slash path, but the `FILE` value naming it comes
+/// from whatever wrote the archive: producers on Windows write backslashes,
+/// some prefix `./`, and case differs between a file system that cares and one
+/// that does not. Matching on the folded form costs nothing and recovers media
+/// that an exact comparison would leave unheld.
+fn entry_key(raw: &str) -> String {
+    let slashed = raw.replace('\\', "/");
+    let trimmed = slashed.trim_start_matches("./").trim_start_matches('/');
+    trimmed.to_ascii_lowercase()
 }
 
 /// Import an already-parsed GEDCOM model into OxidGene domain model entities.
@@ -246,6 +357,8 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
+            // GEDCOM has no privacy tag; a scan arrives following the tree.
+            privacy: Privacy::default(),
             source_media_type,
             // GEDCOM has no field for this; it stays unset until a user
             // classifies the record or a Geneanet import supplies one.
@@ -390,6 +503,7 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         result.families.push(Family {
             id: family_id,
             tree_id,
+            privacy: Privacy::default(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -1746,6 +1860,8 @@ fn resolve_or_create_media(
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
+            // GEDCOM has no privacy tag; a scan arrives following the tree.
+            privacy: Privacy::default(),
             source_media_type,
             document_category: None,
             place_id: None,
@@ -2096,5 +2212,137 @@ mod event_type_text_tests {
         // "Williams" contains "will"; "job title" contains "title".
         assert_eq!(event_type_from_type_text(Some("Estate of Williams")), None);
         assert_eq!(event_type_from_type_text(Some("Job title change")), None);
+    }
+}
+
+#[cfg(test)]
+mod gedzip_tests {
+    use super::*;
+
+    /// A one-person GEDCOM whose single `OBJE` names `path`.
+    fn gedcom_naming(path: &str) -> String {
+        format!(
+            "0 HEAD\n\
+             1 GEDC\n\
+             2 VERS 5.5.1\n\
+             1 CHAR UTF-8\n\
+             0 @I1@ INDI\n\
+             1 NAME Branch /A/\n\
+             1 OBJE @M1@\n\
+             0 @M1@ OBJE\n\
+             1 FILE {path}\n\
+             2 FORM image/jpeg\n\
+             0 TRLR\n"
+        )
+    }
+
+    fn archive(gedcom: &str, files: &[(&str, &[u8])]) -> Vec<u8> {
+        let files: Vec<(String, Vec<u8>)> = files
+            .iter()
+            .map(|(name, bytes)| ((*name).to_string(), (*bytes).to_vec()))
+            .collect();
+        crate::export::export_gedzip(gedcom, &files).expect("writes the archive")
+    }
+
+    #[test]
+    fn the_bytes_of_every_medium_the_archive_carries_come_back_with_it() {
+        let bytes = archive(
+            &gedcom_naming("media/portrait.jpg"),
+            &[("media/portrait.jpg", b"JPEGBYTES")],
+        );
+
+        let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
+
+        assert_eq!(import.result.persons.len(), 1);
+        assert_eq!(import.result.media.len(), 1);
+        assert_eq!(import.files.len(), 1);
+        assert_eq!(import.files[0].0, import.result.media[0].id);
+        assert_eq!(import.files[0].1, b"JPEGBYTES");
+        assert!(
+            import.result.warnings.is_empty(),
+            "got {:?}",
+            import.result.warnings
+        );
+    }
+
+    #[test]
+    fn a_file_the_archive_does_not_hold_is_a_warning_and_an_unheld_record() {
+        let bytes = archive(&gedcom_naming("media/portrait.jpg"), &[]);
+
+        let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
+
+        // The record survives — it is exactly what a plain `.ged` produces.
+        assert_eq!(import.result.media.len(), 1);
+        assert!(import.result.media[0].storage_key.is_none());
+        assert!(import.files.is_empty());
+        assert!(
+            import
+                .result
+                .warnings
+                .iter()
+                .any(|w| w.contains("media/portrait.jpg")),
+            "got {:?}",
+            import.result.warnings
+        );
+    }
+
+    #[test]
+    fn a_producers_own_separators_and_case_still_find_the_entry() {
+        // What a Windows exporter writes, against the entry a ZIP holds.
+        let bytes = archive(
+            &gedcom_naming(r".\Media\Portrait.JPG"),
+            &[("media/portrait.jpg", b"JPEGBYTES")],
+        );
+
+        let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
+
+        assert_eq!(import.files.len(), 1, "got {:?}", import.result.warnings);
+        assert_eq!(import.files[0].1, b"JPEGBYTES");
+    }
+
+    #[test]
+    fn a_url_is_recorded_rather_than_looked_for_in_the_archive() {
+        let bytes = archive(&gedcom_naming("https://example.org/portrait.jpg"), &[]);
+
+        let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
+
+        assert_eq!(import.result.media.len(), 1);
+        assert!(import.files.is_empty());
+        // Nothing to warn about: we never meant to hold this one's bytes.
+        assert!(
+            import.result.warnings.is_empty(),
+            "got {:?}",
+            import.result.warnings
+        );
+    }
+
+    #[test]
+    fn a_file_no_record_names_is_reported_and_left_alone() {
+        let bytes = archive(
+            &gedcom_naming("media/portrait.jpg"),
+            &[
+                ("media/portrait.jpg", b"JPEGBYTES"),
+                ("media/stray.jpg", b"ORPHANBYTES"),
+            ],
+        );
+
+        let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
+
+        assert_eq!(import.files.len(), 1);
+        assert!(
+            import
+                .result
+                .warnings
+                .iter()
+                .any(|w| w.contains("1 file(s)")),
+            "got {:?}",
+            import.result.warnings
+        );
+    }
+
+    #[test]
+    fn something_that_is_not_an_archive_at_all_fails_rather_than_importing_nothing() {
+        let err = import_gedzip(b"0 HEAD\n0 TRLR\n", Uuid::now_v7()).unwrap_err();
+        assert!(err.contains("GEDZIP"), "got {err}");
     }
 }

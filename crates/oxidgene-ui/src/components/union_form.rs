@@ -21,7 +21,9 @@ use crate::components::person_form::{
 };
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
-use crate::utils::{child_type_label_key, event_type_label_key, opt_str, resolve_name};
+use crate::utils::{
+    child_type_label_key, event_type_label_key, opt_str, parse_privacy, resolve_name,
+};
 use oxidgene_core::{ChildType, EventType};
 
 // ── Props ────────────────────────────────────────────────────────────────
@@ -49,6 +51,12 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
     let tid = props.tree_id;
     let fid = props.family_id;
+    // A couple has a privacy of its own: a living pair's marriage is a fact
+    // about two living people, and withholding both their person records does
+    // not withhold the union that names them.
+    let mut privacy_val = use_signal(|| "Default".to_string());
+    let mut privacy_loaded = use_signal(|| false);
+    let open_privacy = use_signal(|| true);
 
     // ── State ──
     let mut save_error = use_signal(|| None::<String>);
@@ -97,6 +105,22 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
     // Spouses
     let api_spouses = api.clone();
+    // Seeded once from the stored row: re-seeding on every render would fight
+    // the user's own clicks.
+    let family_resource = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move { api.get_family(tid, fid).await.ok() }
+        }
+    });
+    if !privacy_loaded()
+        && let Some(Some(family)) = &*family_resource.read_unchecked()
+    {
+        privacy_val.set(format!("{:?}", family.privacy));
+        privacy_loaded.set(true);
+    }
+
     let spouses_resource = use_resource(move || {
         let api = api_spouses.clone();
         let _tick = refresh();
@@ -819,6 +843,31 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             owner: MediaOwner::Family(fid),
                             events: union_event_choices.clone(),
                         }
+                    }
+
+                    // ── Privacy ──
+                    FormSection { title: i18n.t("union_form.privacy"), open: open_privacy,
+                        {crate::components::person_form::render_choice_group(
+                            &[
+                                ("Default", i18n.t("privacy.default")),
+                                ("Public",  i18n.t("privacy.public")),
+                                ("Private", i18n.t("privacy.private")),
+                            ],
+                            privacy_val,
+                            {
+                                let api = api.clone();
+                                move || {
+                                    let api = api.clone();
+                                    let privacy = parse_privacy(&privacy_val());
+                                    spawn(async move {
+                                        let _ = api
+                                            .update_family_privacy(tid, fid, privacy)
+                                            .await;
+                                    });
+                                }
+                            },
+                        )}
+                        p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
                     }
 
                     // ── Delete couple ──

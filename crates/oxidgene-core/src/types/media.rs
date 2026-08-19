@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::enums::{Calendar, DateQualifier, DocumentCategory, SourceMediaType};
+use crate::enums::{Calendar, DateQualifier, DocumentCategory, Privacy, SourceMediaType};
 
 /// A media file (image, PDF, video, etc.).
 ///
@@ -73,6 +73,10 @@ pub struct Media {
     pub document_category: Option<DocumentCategory>,
     /// Location where the media was created or applies to.
     pub place_id: Option<Uuid>,
+    /// Whether this is shown when the tree is published. Recorded now,
+    /// enforced when authentication lands — see the roadmap.
+    #[serde(default)]
+    pub privacy: Privacy,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

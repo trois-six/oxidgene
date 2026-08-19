@@ -64,6 +64,7 @@ impl FamilyRepo {
         let model = family::ActiveModel {
             id: Set(id),
             tree_id: Set(tree_id),
+            privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -75,8 +76,12 @@ impl FamilyRepo {
         Ok(into_domain(result))
     }
 
-    /// Update a family (touch updated_at).
-    pub async fn update(db: &impl ConnectionTrait, id: Uuid) -> Result<Family, OxidGeneError> {
+    /// Update a family: its privacy, and `updated_at` either way.
+    pub async fn update(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        privacy: Option<oxidgene_core::enums::Privacy>,
+    ) -> Result<Family, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -88,6 +93,9 @@ impl FamilyRepo {
             })?;
 
         let mut active: ActiveModel = existing.into_active_model();
+        if let Some(privacy) = privacy {
+            active.privacy = Set(privacy.into());
+        }
         active.updated_at = Set(Utc::now());
 
         let result = active
@@ -123,6 +131,7 @@ fn into_domain(m: family::Model) -> Family {
     Family {
         id: m.id,
         tree_id: m.tree_id,
+        privacy: m.privacy.into(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

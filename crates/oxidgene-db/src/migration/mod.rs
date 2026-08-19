@@ -6,6 +6,7 @@ pub mod m20260813_000002_media_event_fields;
 pub mod m20260813_000003_media_pages;
 pub mod m20260818_000001_media_type;
 pub mod m20260819_000001_person_portrait;
+pub mod m20260819_000002_privacy_family_media;
 
 use sea_orm_migration::prelude::*;
 
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260813_000003_media_pages::Migration),
             Box::new(m20260818_000001_media_type::Migration),
             Box::new(m20260819_000001_person_portrait::Migration),
+            Box::new(m20260819_000002_privacy_family_media::Migration),
         ]
     }
 }

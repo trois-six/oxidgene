@@ -621,7 +621,7 @@ one `MediaLink` per person the photo is attached to.
 
 A photo shared by several people is **stored once** with several `MediaLink`
 rows — precisely what the original export could not express, and what
-`MediaLink`'s shape was already built for. `is_profile` carries Geneanet's
+`MediaLink`'s shape was already built for. `person.portrait_media_id` carries Geneanet's
 `is_default` flag, so the portrait stays the portrait.
 
 > **Correction (2026-08-18): there is no `is_default`.** Walking a real
@@ -635,7 +635,7 @@ rows — precisely what the original export could not express, and what
 > That match does double duty. The `#image` URL would otherwise be imported as
 > a *remote* medium — a dead link, since it 403s for anyone not signed in —
 > sitting beside the stored copy of the same photo. The import now drops the
-> remote row and marks the stored one `is_profile` instead, so a portrait
+> remote row and points the person's portrait at the stored one instead, so a portrait
 > appears once and shows up as the person's avatar.
 
 Exporting that tree to `.gdz` afterwards is a separate, already-supported
