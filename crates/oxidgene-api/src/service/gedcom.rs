@@ -194,6 +194,8 @@ pub(crate) async fn persist_import_result(
                 id: Set(p.id),
                 tree_id: Set(p.tree_id),
                 sex: Set(sea_enums::Sex::from(p.sex)),
+                portrait_media_id: Set(p.portrait_media_id),
+                portrait_vignette_id: Set(p.portrait_vignette_id),
                 privacy: Set(sea_enums::Privacy::from(p.privacy)),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -352,7 +354,6 @@ pub(crate) async fn persist_import_result(
                 source_id: Set(ml.source_id),
                 family_id: Set(ml.family_id),
                 sort_order: Set(ml.sort_order),
-                is_profile: Set(ml.is_profile),
             })
             .collect();
         batch_insert::<media_link::Entity, _>(&txn, models).await?;

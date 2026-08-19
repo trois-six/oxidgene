@@ -470,9 +470,6 @@ pub struct MediaLinkListRow {
     pub mime_type: String,
     /// Whether a thumbnail was generated; the caller draws an icon otherwise.
     pub has_thumbnail: bool,
-    /// Whether this is the person's profile image — the one a pedigree card
-    /// and a profile header show. Always `false` on an event row.
-    pub is_profile: bool,
 }
 
 /// Query parameters for the media-links list, which answers three questions.
@@ -490,10 +487,31 @@ pub struct MediaLinkListQuery {
     pub media_id: Option<uuid::Uuid>,
 }
 
-/// Request body for setting or clearing a link's profile flag.
+/// Request body for choosing what represents a person.
+///
+/// At most one of the two may be given. Both absent clears the portrait, which
+/// is how "use the silhouette again" is said.
 #[derive(Debug, Deserialize)]
-pub struct SetProfileMediaLinkRequest {
-    pub is_profile: bool,
+pub struct SetPortraitRequest {
+    #[serde(default)]
+    pub media_id: Option<uuid::Uuid>,
+    /// A region of a larger image — a face in a group photograph.
+    #[serde(default)]
+    pub vignette_id: Option<uuid::Uuid>,
+}
+
+impl SetPortraitRequest {
+    /// Read the body as one value, refusing the state the model cannot hold.
+    pub fn portrait(&self) -> Result<oxidgene_core::types::Portrait, String> {
+        match (self.media_id, self.vignette_id) {
+            (Some(_), Some(_)) => {
+                Err("a portrait is a media or a vignette, never both".to_string())
+            }
+            (Some(id), None) => Ok(oxidgene_core::types::Portrait::Media(id)),
+            (None, Some(id)) => Ok(oxidgene_core::types::Portrait::Vignette(id)),
+            (None, None) => Ok(oxidgene_core::types::Portrait::None),
+        }
+    }
 }
 
 /// A media together with the link that attached it — one gallery tile.
@@ -501,7 +519,6 @@ pub struct SetProfileMediaLinkRequest {
 pub struct MediaWithLink {
     pub link_id: uuid::Uuid,
     pub sort_order: i32,
-    pub is_profile: bool,
     #[serde(flatten)]
     pub media: oxidgene_core::types::Media,
 }

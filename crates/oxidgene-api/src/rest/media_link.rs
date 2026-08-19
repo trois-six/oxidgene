@@ -37,7 +37,6 @@ pub async fn list_media_links(
             .map(|(link, media)| MediaWithLink {
                 link_id: link.id,
                 sort_order: link.sort_order,
-                is_profile: link.is_profile,
                 media,
             })
             .collect();
@@ -73,39 +72,9 @@ pub async fn list_media_links(
             file_name: r.file_name,
             mime_type: r.mime_type,
             has_thumbnail: r.has_thumbnail,
-            is_profile: r.is_profile,
         })
         .collect();
     Ok(Json(serde_json::to_value(response).unwrap()))
-}
-
-/// PUT /api/v1/trees/:tree_id/media-links/:link_id/profile
-///
-/// Make this link the person's profile image, or clear it with
-/// `{"is_profile": false}`. Setting one clears the person's others in the same
-/// statement, so the tree never shows two stars.
-pub async fn set_profile_media_link(
-    State(state): State<AppState>,
-    Path((tree_id, link_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<super::dto::SetProfileMediaLinkRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let link = if body.is_profile {
-        MediaLinkRepo::set_profile(&state.db, link_id).await
-    } else {
-        MediaLinkRepo::clear_profile(&state.db, link_id).await
-    }
-    .map_err(ApiError::from)?;
-
-    // The profile photo is embedded in `person_denorm`, so the projection has
-    // to be rebuilt or the tree keeps drawing the old portrait.
-    if let Some(person_id) = link.person_id {
-        state
-            .profiles
-            .rebuild_person(&state.db, tree_id, person_id)
-            .await
-            .map_err(ApiError::from)?;
-    }
-    Ok(Json(serde_json::to_value(link).unwrap()))
 }
 
 /// POST /api/v1/trees/:tree_id/media-links

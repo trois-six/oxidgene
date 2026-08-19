@@ -12,6 +12,17 @@ pub struct Person {
     pub sex: Sex,
     /// Per-person privacy override (§7 of the person edit modal spec).
     pub privacy: Privacy,
+    /// Which image represents this person. At most one of the two is ever set:
+    /// a whole media, or a region of one — a face in a group photograph, which
+    /// is the portrait most people in an old family archive actually have.
+    ///
+    /// Keeping it here rather than as a flag on the link makes "at most one
+    /// portrait" a property of a single row instead of an invariant spanning
+    /// two tables.
+    #[serde(default)]
+    pub portrait_media_id: Option<Uuid>,
+    #[serde(default)]
+    pub portrait_vignette_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

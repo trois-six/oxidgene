@@ -21,6 +21,8 @@ sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+# The flat portrait row crosses to the API layer as JSON.
+serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 ammonia = { workspace = true }

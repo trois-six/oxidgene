@@ -394,13 +394,27 @@ fn build_one_person(
         .unwrap_or_default();
     let media_count = person_media_links.len() as u32;
 
-    // Find the primary media (first by sort_order)
-    let primary_media = person_media_links
-        .iter()
-        .min_by_key(|ml| ml.sort_order)
-        .and_then(|ml| idx.media_by_id.get(&ml.media_id))
+    // The portrait the person actually chose.
+    //
+    // This used to take whichever media had the lowest `sort_order`, ignoring
+    // the stored choice entirely — so a person could star a photograph and
+    // have their pedigree card go on drawing a different one. A portrait that
+    // is a crop resolves through the scan it is on, and the vignette id
+    // travels with it so a card can ask for the cropped image rather than the
+    // whole wedding party.
+    //
+    // TODO: a portrait that is a *crop* is not resolved here yet. Doing it
+    // needs the vignette's own `media_id` to find the containing scan, and
+    // `TreeData` does not carry vignettes — the projection would hand back a
+    // reference to a media it had not loaded. Callers that must draw a crop
+    // read `/portraits`, which resolves both shapes in one query; this field
+    // stays `None` for them rather than pointing at the whole wedding party.
+    let primary_media = person
+        .portrait_media_id
+        .and_then(|media_id| idx.media_by_id.get(&media_id))
         .map(|m| ProfileMediaRef {
             media_id: m.id,
+            vignette_id: None,
             file_path: m.file_path.clone(),
             mime_type: m.mime_type.clone(),
             title: m.title.clone(),

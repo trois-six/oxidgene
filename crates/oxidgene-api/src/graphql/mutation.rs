@@ -925,28 +925,38 @@ impl MutationRoot {
     ///
     /// Setting one clears the person's others in the same statement, so the
     /// tree never shows two stars. Rebuilds the person's projection, since the
-    /// portrait is embedded in it.
-    async fn set_profile_media_link(
+    /// Choose what represents a person: a whole media, a region of one, or
+    /// nothing.
+    ///
+    /// One write on the person. Passing neither id clears the portrait;
+    /// passing both is refused, since that is not a state the model holds.
+    async fn set_person_portrait(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-        id: ID,
-        is_profile: bool,
-    ) -> Result<GqlMediaLink> {
+        person_id: ID,
+        media_id: Option<ID>,
+        vignette_id: Option<ID>,
+    ) -> Result<GqlPerson> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let link_id = Uuid::parse_str(id.as_str())?;
+        let pid = Uuid::parse_str(person_id.as_str())?;
 
-        let link = if is_profile {
-            MediaLinkRepo::set_profile(db, link_id).await?
-        } else {
-            MediaLinkRepo::clear_profile(db, link_id).await?
+        let request = crate::rest::dto::SetPortraitRequest {
+            media_id: media_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            vignette_id: vignette_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
         };
-        if let Some(person_id) = link.person_id {
-            profiles.rebuild_person(db, tid, person_id).await?;
-        }
-        Ok(link.into())
+        let portrait = request.portrait().map_err(async_graphql::Error::new)?;
+        let person = PersonRepo::set_portrait(db, pid, portrait).await?;
+        // The portrait is embedded in `person_denorm`, so the projection has
+        // to be rebuilt or the tree keeps drawing the old one.
+        profiles.rebuild_person(db, tid, pid).await?;
+        Ok(person.into())
     }
 
     /// Create an empty multi-page document.

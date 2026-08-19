@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
     MediaLinkRepo, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, TreeRepo,
     UploadedMedia, VignetteInput, VignetteRepo,
@@ -744,11 +745,19 @@ async fn attach_media(
             match created {
                 Ok(link) => {
                     summary.links_count += 1;
-                    // Set after creation rather than at it: `set_profile`
-                    // clears whichever link held the flag before, because one
-                    // portrait per person is an invariant rather than a field.
-                    if attached.is_portrait {
-                        match MediaLinkRepo::set_profile(db, link.id).await {
+                    // The portrait is a property of the person, so this
+                    // writes the person rather than the link — one row, and
+                    // "at most one portrait" needs no clearing pass.
+                    if attached.is_portrait
+                        && let Some(person_id) = link.person_id
+                    {
+                        match PersonRepo::set_portrait(
+                            db,
+                            person_id,
+                            Portrait::Media(link.media_id),
+                        )
+                        .await
+                        {
                             Ok(_) => summary.portraits_count += 1,
                             Err(err) => {
                                 summary.skipped.push(format!("deposit {deposit_id}: {err}"))

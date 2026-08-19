@@ -282,6 +282,10 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             tree_id,
             sex,
             privacy: Privacy::default(),
+            // A GEDCOM names a person's media but never says which one
+            // represents them: `OBJE` carries no primary flag.
+            portrait_media_id: None,
+            portrait_vignette_id: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -367,7 +371,6 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
                     source_id: None,
                     family_id: None,
                     sort_order: 0,
-                    is_profile: false,
                 });
             }
         }
@@ -515,7 +518,6 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
                     source_id: None,
                     family_id: Some(family_id),
                     sort_order: 0,
-                    is_profile: false,
                 });
             }
         }
@@ -1386,7 +1388,6 @@ fn import_event_detail(
                 source_id: None,
                 family_id: None,
                 sort_order: 0,
-                is_profile: false,
             });
         }
     }

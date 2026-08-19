@@ -108,6 +108,11 @@ pub struct ProfileChildLink {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileMediaRef {
     pub media_id: Uuid,
+    /// Set when the portrait is a region of that media rather than the whole
+    /// of it — a face in a group photograph. The cropped image is served from
+    /// the vignette, not the media.
+    #[serde(default)]
+    pub vignette_id: Option<Uuid>,
     pub file_path: String,
     pub mime_type: String,
     pub title: Option<String>,
