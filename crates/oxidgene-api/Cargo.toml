@@ -44,7 +44,6 @@ async-trait = "0.1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 dirs = { workspace = true }
 image = { workspace = true }
-lopdf = { workspace = true }
 sha2 = { workspace = true }
 
 [build-dependencies]

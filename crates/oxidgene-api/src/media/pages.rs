@@ -7,31 +7,25 @@
 //! lets a vignette say which page it was cropped from.
 //!
 //! Counting is header work, not rendering. Nothing here decodes a pixel.
+//!
+//! PDFs are not counted. Reading a page count out of one means walking the
+//! xref table — a naive `/Type /Page` scan miscounts the compressed object
+//! streams every modern writer emits — and the only crate that does it
+//! properly brought a PDF encryption stack, a parser combinator library and
+//! two duplicated hash crates along for a single call. A PDF therefore
+//! reports one page, which is what the code already does for anything it
+//! cannot parse.
 
 /// Number of pages in `bytes`, given its MIME type.
 ///
-/// Returns `1` for single-page formats and for anything unparseable — a
-/// document we cannot count is still a document, and refusing the upload over
-/// a metadata field would be worse than under-reporting it.
+/// Returns `1` for single-page formats, for PDFs, and for anything
+/// unparseable — a document we cannot count is still a document, and refusing
+/// the upload over a metadata field would be worse than under-reporting it.
 pub fn count(mime_type: &str, bytes: &[u8]) -> u32 {
     match mime_type {
-        "application/pdf" => count_pdf(bytes).unwrap_or(1),
         "image/tiff" => count_tiff(bytes).unwrap_or(1),
         _ => 1,
     }
-}
-
-/// Whether this MIME type can carry more than one page.
-pub fn is_multipage_format(mime_type: &str) -> bool {
-    matches!(mime_type, "application/pdf" | "image/tiff")
-}
-
-fn count_pdf(bytes: &[u8]) -> Option<u32> {
-    // `load_mem` walks the xref table, so this also handles the compressed
-    // object streams that a naive `/Type /Page` grep miscounts.
-    let document = lopdf::Document::load_mem(bytes).ok()?;
-    let pages = document.get_pages().len();
-    u32::try_from(pages).ok().filter(|n| *n > 0)
 }
 
 /// Walk a TIFF's chain of image file directories.
@@ -192,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unparseable_pdf_counts_as_one_rather_than_failing_the_upload() {
+    fn a_pdf_counts_as_one_page_however_many_it_really_has() {
         assert_eq!(count("application/pdf", b"%PDF-1.4\ntruncated"), 1);
     }
 
@@ -200,8 +194,5 @@ mod tests {
     fn single_page_formats_are_not_probed() {
         assert_eq!(count("image/jpeg", b"\xff\xd8\xff"), 1);
         assert_eq!(count("image/png", b"\x89PNG"), 1);
-        assert!(!is_multipage_format("image/jpeg"));
-        assert!(is_multipage_format("application/pdf"));
-        assert!(is_multipage_format("image/tiff"));
     }
 }
