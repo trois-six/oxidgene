@@ -131,6 +131,39 @@ pub fn ImportModal(
     // and a stray click on the page behind is all it would take.
     let busy = use_signal(|| false);
 
+    // The scroll offset lives on `.import-modal-body`, which outlives every
+    // screen rendered inside it — so a step collapsing, or the result taking
+    // over from a scrolled step 5, can leave the offset far past the end of
+    // much shorter content. The webview does not re-clamp it on its own (the
+    // same fault `use_init_textarea_resize_clamp` answers for a resized
+    // textarea), and with no scroll range left there is no scrollbar to drag
+    // back with: the top of the screen sits above the top edge, the rest of
+    // the box is blank, and the modal reads as empty. Clamping on every patch
+    // keeps whatever is rendered on screen. The frame-coalescing matters: an
+    // import in flight rewrites its progress line continuously, and measuring
+    // `scrollHeight` per mutation would force a layout on each one.
+    use_effect(|| {
+        document::eval(
+            r#"
+            const body = document.querySelector('.import-modal-body');
+            if (body && !body.dataset.oxClamp) {
+                body.dataset.oxClamp = '1';
+                let queued = false;
+                const clamp = () => {
+                    queued = false;
+                    const max = Math.max(0, body.scrollHeight - body.clientHeight);
+                    if (body.scrollTop > max) body.scrollTop = max;
+                };
+                new MutationObserver(() => {
+                    if (queued) return;
+                    queued = true;
+                    requestAnimationFrame(clamp);
+                }).observe(body, { childList: true, subtree: true, characterData: true });
+            }
+            "#,
+        );
+    });
+
     rsx! {
         div {
             class: "modal-backdrop",
@@ -218,6 +251,14 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
     let mut busy = busy;
     let mut error = use_signal(|| None::<String>);
     let mut result = use_signal(|| None::<ImportResult>);
+
+    // Reading `result` inside the effect is what makes it re-run when the
+    // import lands and the receipt replaces the drop zone.
+    use_effect(move || {
+        if result().is_some() {
+            scroll_import_body_to_top();
+        }
+    });
 
     let pick = move |_| {
         spawn(async move {
@@ -1638,6 +1679,10 @@ fn ImportStep(
 fn GeneanetDone(result: GeneanetImportResult) -> Element {
     let i18n = use_i18n();
 
+    // Step 5 is the tallest screen of the five and the receipt is the
+    // shortest, so this is the transition where the stale offset shows.
+    use_effect(scroll_import_body_to_top);
+
     rsx! {
         div { class: "import-done",
             div { class: "import-done-icon", "✓" }
@@ -1696,6 +1741,26 @@ fn GeneanetDone(result: GeneanetImportResult) -> Element {
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════
+
+/// Put the modal body back at the top of a screen that just replaced another.
+///
+/// Clamping alone (see [`ImportModal`]) only guarantees the content is
+/// reachable; a receipt still wants to open at its own first line rather than
+/// wherever the step before it happened to be scrolled to. Twice, because the
+/// first call lands as Dioxus patches the DOM and the second after the webview
+/// has laid the new screen out.
+fn scroll_import_body_to_top() {
+    document::eval(
+        r#"
+        const top = () => {
+            const body = document.querySelector('.import-modal-body');
+            if (body) body.scrollTop = 0;
+        };
+        top();
+        requestAnimationFrame(top);
+        "#,
+    );
+}
 
 /// Which reader a picked file goes to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
