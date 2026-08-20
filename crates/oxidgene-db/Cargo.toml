@@ -10,9 +10,15 @@ repository.workspace = true
 [features]
 default = []
 # Enable the PostgreSQL driver — opt in for the server binary; desktop uses SQLite only.
+#
+# TLS rides along with it. The base runtime carries none, because the desktop's
+# SQLite is a file on the same disk; a Postgres connection crosses a network and
+# a managed provider will insist on encrypting it.
 postgres = [
     "sea-orm/sqlx-postgres",
+    "sea-orm/runtime-tokio-rustls",
     "sea-orm-migration/sqlx-postgres",
+    "sea-orm-migration/runtime-tokio-rustls",
 ]
 
 [dependencies]

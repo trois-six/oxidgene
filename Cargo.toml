@@ -42,17 +42,28 @@ flate2 = "1"
 async-graphql = { version = "7.2", features = ["chrono"] }
 async-graphql-axum = "7.2"
 
-# ORM & database — base features only; postgres added per-crate via feature flag
-sea-orm = { version = "1.1", features = [
+# ORM & database — base features only; postgres added per-crate via feature flag.
+#
+# Defaults are off on both, and that is where the weight was. `sea-orm`'s
+# defaults add `with-rust_decimal`, `with-bigdecimal` and `with-time` — three
+# numeric/date libraries we map no column onto. `sea-orm-migration`'s default is
+# `cli`, which links the whole `sea-orm-cli` code generator (and `clap`, and
+# `dotenvy`) into a library that only ever runs migrations.
+#
+# The TLS-less runtime is the base: SQLite is a file, and a driver that speaks
+# no TLS is exactly right for it. The server re-adds rustls through the
+# `postgres` feature, where a connection really does cross a network.
+sea-orm = { version = "1.1", default-features = false, features = [
     "sqlx-sqlite",
-    "runtime-tokio-rustls",
+    "runtime-tokio",
     "macros",
+    "with-json",
     "with-uuid",
     "with-chrono",
 ] }
-sea-orm-migration = { version = "1.1", features = [
+sea-orm-migration = { version = "1.1", default-features = false, features = [
     "sqlx-sqlite",
-    "runtime-tokio-rustls",
+    "runtime-tokio",
 ] }
 
 # Serialization
@@ -93,6 +104,12 @@ base64 = "0.22"
 sha2 = "0.10"
 # Thumbnails + intrinsic dimensions. `rayon` is off: thumbnailing already runs
 # on a blocking task, one file at a time, so a second thread pool buys nothing.
+#
+# This trimming only reaches the server binary. `dioxus-desktop` depends on
+# `image` with its defaults left on, and Cargo unifies features by union with
+# no way to subtract — so the desktop build gets `rayon` back, plus the `avif`
+# decoder and with it `rav1e`, an entire AV1 encoder nothing here calls. Undoing
+# that needs a patched `dioxus-desktop`, not a line in this file.
 image = { version = "0.25", default-features = false, features = [
     "bmp",
     "gif",
@@ -102,30 +119,35 @@ image = { version = "0.25", default-features = false, features = [
     "tiff",
     "webp",
 ] }
-# PDF page counting. Default features drag in jiff/rayon/time for metadata and
-# rendering helpers we never call.
-lopdf = { version = "0.44", default-features = false, features = ["chrono"] }
-
 # HTML sanitizer for note bodies (see oxidgene-db::html)
 ammonia = "4"
 
-# Configuration
-config = "0.15"
+# Configuration. The server reads one optional `oxidgene.toml` and the
+# environment; the default feature set also links parsers for JSON, YAML, INI,
+# RON and JSON5, for file formats we document nowhere and accept nowhere.
+config = { version = "0.15", default-features = false, features = ["toml"] }
 
 # Dioxus (frontend)
 dioxus = "0.7"
 
-# HTTP client
-reqwest = { version = "0.13", features = ["json", "multipart", "query"] }
+# HTTP client. TLS stays: the download button on a remote medium fetches an
+# arbitrary https URL. `charset` and `http2` go: we read JSON and bytes, never a
+# legacy-encoded `text/*` body, and one connection to a local Axum server has
+# nothing to multiplex. `system-proxy` stays — a desktop user behind a corporate
+# proxy should not have to configure one twice.
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "multipart",
+    "query",
+    "rustls",
+    "system-proxy",
+] }
 
 # Platform directories
 dirs = "6"
 
 # Native file dialogs
 rfd = "0.17"
-
-# CLI
-clap = { version = "4", features = ["derive"] }
 
 [profile.dev]
 debug = "line-tables-only"  # smaller debug info → faster incremental builds

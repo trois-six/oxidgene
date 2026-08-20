@@ -44,7 +44,6 @@ use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::routing::get;
-use clap::Parser;
 use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
@@ -58,12 +57,50 @@ use tracing_subscriber::EnvFilter;
 
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
 
-#[derive(Parser)]
-#[command(name = "oxidgene-desktop", about = "OxidGene desktop genealogy app")]
+/// The whole command line: one flag, read by hand.
+///
+/// A derive-based parser links its entire help-rendering and error-reporting
+/// machinery into a binary that opens a window; for a single boolean it was
+/// the largest dependency in the app that no feature needed. `--help` is
+/// answered here rather than dropped, because a binary on a `$PATH` that
+/// ignores it is rude.
 struct Cli {
-    /// Enable debug logging (logs all person data received from the backend)
-    #[arg(long)]
+    /// Log all person data received from the backend.
     debug: bool,
+}
+
+impl Cli {
+    fn parse() -> Self {
+        let mut debug = false;
+        for arg in std::env::args().skip(1) {
+            match arg.as_str() {
+                "--debug" => debug = true,
+                "-h" | "--help" => {
+                    println!(
+                        "oxidgene-desktop — OxidGene desktop genealogy app\n\
+                         \n\
+                         Usage: oxidgene-desktop [--debug]\n\
+                         \n\
+                         Options:\n    \
+                             --debug      Log all person data received from the backend\n    \
+                             -h, --help   Show this message\n    \
+                             -V, --version  Show the version\n"
+                    );
+                    std::process::exit(0);
+                }
+                "-V" | "--version" => {
+                    println!("oxidgene-desktop {}", env!("CARGO_PKG_VERSION"));
+                    std::process::exit(0);
+                }
+                other => {
+                    eprintln!("oxidgene-desktop: unrecognised argument '{other}'");
+                    eprintln!("Try 'oxidgene-desktop --help'.");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Self { debug }
+    }
 }
 
 fn main() {
