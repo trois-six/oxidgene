@@ -475,6 +475,15 @@ Importing…
 
 **[ Open the tree ]** (primary) · **[ Import another ]**
 
+The receipt opens at its own first line. The modal body is the one scroll
+container of the whole wizard, and it outlives the screens rendered inside it:
+step 5 is the tallest of the five and the receipt the shortest, so the offset
+left behind by a scrolled step would otherwise sit past the end of the receipt
+— tick and counts above the top edge, blank below, and no scroll range left to
+drag back with. The body therefore re-clamps its offset on every DOM patch (so
+no screen can ever be stranded off-view, step collapses included) and the
+receipt scrolls itself to the top on top of that.
+
 ---
 
 ## 9. What this flow does not do
