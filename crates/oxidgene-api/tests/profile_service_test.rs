@@ -767,6 +767,88 @@ async fn a_dateless_birth_does_not_mask_a_dated_baptism() {
     assert_eq!(death.date_value.as_deref(), Some("1691"));
 }
 
+/// A payload written by an older build must be rebuilt, not served.
+///
+/// This is the trap the schema version exists to close: every field added to
+/// `PersonProfile` carries `#[serde(default)]`, so an old payload deserializes
+/// cleanly and comes back *looking complete*. Nothing could tell it apart from
+/// a person who genuinely has nothing recorded, which is how the date
+/// qualifiers shipped invisible on every existing install.
+#[tokio::test]
+async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
+    use oxidgene_db::sea_orm::{ConnectionTrait, Statement};
+
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (_father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
+
+    service.rebuild_tree_full(&db, tree_id).await.unwrap();
+    assert_eq!(
+        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
+        3
+    );
+
+    // Age the rows the way a binary upgrade does: the payloads stay byte for
+    // byte what they were, only the version they were written under moves.
+    // Then corrupt one so that *serving* it would be unmistakable.
+    let backend = db.get_database_backend();
+    db.execute(Statement::from_string(
+        backend,
+        "UPDATE person_denorm SET schema_version = 0",
+    ))
+    .await
+    .unwrap();
+    db.execute(Statement::from_sql_and_values(
+        backend,
+        "UPDATE person_denorm SET payload = replace(payload, 'Pierre', 'STALE') WHERE person_id = $1",
+        [child.into()],
+    ))
+    .await
+    .unwrap();
+
+    // Physically still there; usable, no.
+    assert_eq!(PersonDenormRepo::count_tree(&db, tree_id).await.unwrap(), 3);
+    assert_eq!(
+        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
+        0
+    );
+    assert!(
+        PersonDenormRepo::get(&db, tree_id, child)
+            .await
+            .unwrap()
+            .is_none(),
+        "a stale row reads as absent, which is what sends callers to rebuild"
+    );
+
+    // The ordinary read path heals it, with no rebuild call of its own.
+    let profile = service
+        .get_or_build_person(&db, tree_id, child)
+        .await
+        .unwrap();
+    assert_eq!(
+        profile.primary_name.as_ref().unwrap().display_name,
+        "Pierre Dupont",
+        "the doctored payload must not have been served"
+    );
+    assert_eq!(
+        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
+        1,
+        "and the rebuilt row is stamped with the current version"
+    );
+
+    // A pedigree heals the whole tree through `ensure_materialized`, which is
+    // why it asks `count_current` rather than `count_tree`.
+    let pedigree = service
+        .get_or_build_pedigree(tree_id, child, 2, 1)
+        .await
+        .unwrap();
+    assert_eq!(pedigree.persons[&child].display_name, "Pierre Dupont");
+    assert_eq!(
+        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
+        3
+    );
+}
+
 #[tokio::test]
 async fn pedigree_reflects_a_mutation_immediately() {
     let (db, service) = setup().await;
