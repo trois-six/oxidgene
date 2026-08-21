@@ -236,6 +236,8 @@ round-trips.
 
 Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints return distinct values + usage counts; usage endpoints return the persons behind one value, resolved server-side into `PersonUsageEntry` (id, name parts, birth/death years) in one bulk query.
 
+Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can hedge the same way a pedigree card does (`ca 1849`, `< 1917`). The qualifier sits **beside** the year rather than being folded into it: `birth_year` stays an integer the client can sort on, and a `"ca 1849"` in that field would break both that and the search grid.
+
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/dictionary/family-names` | Distinct surnames + person counts |
@@ -315,6 +317,12 @@ Pre-built, denormalized read models for instant page rendering. Person profiles 
 | `PATCH` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
 
 > **Sprint E.9 renamed these routes** off `/cache/*`, which named an implementation that no longer exists: `/cache/persons*` → `/profiles*`, `/cache/pedigree/*` → `/pedigree/*`, `/cache/invalidate` → `/profiles/drop`. GraphQL field and type names are unchanged.
+
+**A pedigree node carries whole events, not extracted years.** `PedigreeNode` and `PedigreeFamilyMember` expose `birth` / `death` as `ProfileEvent`s. They used to hold a `birth_year` string plus a `birth_place` string, and everything that did not fit those two — the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id — was gone before any client saw it: a birth on 2 Nov 1788 arrived as `"1788"`, and a death recorded as "between 11 Nov 1691 and 20 Aug 1693" as a qualifier promising a second date the payload could not carry. `ProfileEvent` therefore also carries `date_qualifier`, `date_value2` and `calendar`, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
+
+`birth` falls back to the **baptism** and `death` to the **burial**, and the fallback triggers on a missing *date*, not a missing event — a parish tree is full of empty birth stubs created to hang a source on, and one of those would otherwise mask a perfectly good "vers 1620" on the baptism. Each event keeps its own precision; there is deliberately no single "approximate" flag spanning both ends of a life. See [Tree View](ui-genealogy-tree.md) for how a client draws these.
+
+**Projection payloads are versioned.** Every stored profile carries a `schema_version`, and a row written by an older build is treated as absent and rebuilt on first read — so a client never receives a payload whose missing fields are indistinguishable from empty ones. Nothing in the API surfaces the version; it is why `POST /profiles/rebuild` is no longer needed after an upgrade. See [Read Projections §2.1.1](read-projections.md).
 
 **Search (Sprint E.6):** person search moved to the normal search path — `GET /trees/{tree_id}/persons/search?q=query&limit=20&offset=0` (paginated `SearchResult`, backed by the `person_search_fts` DB table; empty or missing `q` = browse mode, sorted by name). The former `GET /cache/search` endpoint and the legacy `surname`/`given_names`/`sex` field filters were removed.
 
@@ -693,6 +701,9 @@ type GqlProfileEvent {
   eventType: EventType!
   dateValue: String
   dateSort: Date
+  dateQualifier: DateQualifier!
+  dateValue2: String
+  calendar: Calendar!
   placeName: String
   placeId: ID
   description: String
@@ -739,10 +750,12 @@ type PedigreeNode {
   personId: ID!
   sex: Sex!
   displayName: String!
-  birthYear: String
-  birthPlace: String
-  deathYear: String
-  deathPlace: String
+  givenNames: String
+  surname: String
+  # Whole events, not a year and a place name pulled out of them — see below.
+  # Fall back to baptism / burial when the birth / death carries no date.
+  birth: GqlProfileEvent
+  death: GqlProfileEvent
   occupation: String
   primaryMediaPath: String
   generation: Int!

@@ -53,6 +53,8 @@ Dependency flow: `core` ← `db` ← `api` ← `server`/`desktop`; `core` ← `g
 - **`PersonAncestry` closure table** for O(1) ancestor/descendant traversal
 - **No auth in MVP** (EPIC F, deferred)
 - **Family-centric model**: Persons exist independently; Families link spouses + children
+- **Bump `PROJECTION_SCHEMA_VERSION`** whenever `PersonProfile`'s shape changes (including anything nested: `ProfileEvent`, `PedigreeNode`, …). Those fields carry `#[serde(default)]`, so a payload already in `person_denorm` deserializes cleanly and comes back *looking complete* — without a bump the change is invisible on every existing install. See [`read-projections.md` §2.1.1](docs/specifications/read-projections.md)
+- **A year shown alone carries its precision**: use `Event::qualified_year()`, not `Event::year()`, so an approximate date is not drawn as a fact. Birth falls back to baptism and death to burial on a missing *date* (not a missing event)
 
 ## Frontend (oxidgene-ui)
 
@@ -77,6 +79,7 @@ Dioxus. Components in `src/components/`, pages in `src/pages/`.
 - `use_signal` returns Copy types — closures capture by copy
 - SVG in rsx!: use quoted attrs for camelCase — `"viewBox"`, `"strokeWidth"`, `"fillOpacity"`
 - `EventHandler<T>` for component callbacks (e.g. `on_confirm: EventHandler<()>`)
+- **No SVG `<title>` in rsx**: dioxus-html defines `title` as the *HTML* element and leaves its SVG twin commented out, so `title {}` inside an `<svg>` compiles and is silently inert. Use `dangerous_inner_html` with escaped markup — the browser parses it in the SVG namespace (see `render_pedigree_card`)
 
 ## Backend (oxidgene-api)
 

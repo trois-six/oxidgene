@@ -137,7 +137,7 @@ Each row shows:
 Results displayed as a responsive grid of cards (`minmax(340px, 1fr)`). Each card contains:
 
 - **Header** (clickable, same navigation target as a list row): full name (surname + first name) and birth/death years
-- **Mini-pedigree**: a small pannable pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section, at a denser fixed scale (0.5). Clicking any person card inside the fragment navigates to that person
+- **Mini-pedigree**: a small pannable pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section, at a denser fixed scale (0.5). Clicking any person card inside the fragment navigates to that person. Its cards draw the same date precision marks as the main canvas (`ca 1849-< 1917`) — same renderer, so they cannot drift apart; see [Tree View](ui-genealogy-tree.md)
 - **Sex indicator**: colored top border (blue/pink)
 
 Pedigrees are fetched lazily per card from the server-side pedigree cache; loading cells show a placeholder message.

@@ -148,6 +148,12 @@ struct ProfileEvent {
     event_type: EventType,
     date_value: Option<String>,     // Original GEDCOM date phrase
     date_sort: Option<NaiveDate>,   // Normalized for sorting
+    // All three needed to render a date as text. Without date_value2 a
+    // "between 11 Nov 1691 and 20 Aug 1693" reads as a bare "between 1691" —
+    // a qualifier promising a second date the projection could not carry.
+    date_qualifier: DateQualifier,
+    date_value2: Option<String>,    // Far end of an Or / Between range
+    calendar: Calendar,             // So a Republican or Hebrew date is not re-read as Gregorian
     place_name: Option<String>,     // Denormalized from Place.name
     place_id: Option<Uuid>,
     description: Option<String>,
@@ -215,10 +221,13 @@ struct PedigreeNode {
     display_name: String,
     given_names: Option<String>,
     surname: Option<String>,
-    birth_year: Option<String>,         // "1842" — for card display
-    birth_place: Option<String>,
-    death_year: Option<String>,
-    death_place: Option<String>,
+    // Whole events, not a year and a place pulled out of them: a year string
+    // cannot hold the day, the month, an Or/Between range's far end, the
+    // calendar or the place's id, and dropping those is what made a birth on
+    // 2 Nov 1788 render as "1788". Falls back to baptism / burial when the
+    // primary event carries no *date* (not merely when it is absent).
+    birth: Option<ProfileEvent>,
+    death: Option<ProfileEvent>,
     occupation: Option<String>,
     primary_media_path: Option<String>, // Portrait thumbnail path
     generation: i32,                    // Relative to root (0 = root, -1 = parent, +1 = child)
