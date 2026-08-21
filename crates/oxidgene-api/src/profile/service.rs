@@ -91,14 +91,18 @@ impl ProfileService {
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
-        let denorm_rows = PersonDenormRepo::count_tree(conn, tree_id).await?;
+        // `count_current` and not `count_tree`: a tree whose rows an older
+        // build wrote is as unusable as one nobody has built, and answering
+        // "already materialized" for it is what let a projection change stay
+        // invisible until somebody happened to re-import.
+        let denorm_rows = PersonDenormRepo::count_current(conn, tree_id).await?;
         let search_rows = PersonSearchRepo::count_tree(conn, tree_id).await?;
         if denorm_rows > 0 && search_rows > 0 {
             return Ok(());
         }
 
         debug!(
-            "Tree {} not materialized ({} projections, {} search rows), building",
+            "Tree {} not materialized ({} usable projections, {} search rows), building",
             tree_id, denorm_rows, search_rows
         );
         self.rebuild_tree_full(conn, tree_id).await?;

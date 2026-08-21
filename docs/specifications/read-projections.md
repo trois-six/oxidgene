@@ -67,11 +67,29 @@ Pedigrees looked like the counter-example — a pedigree is keyed by `(root, anc
 | `person_id` | UUID | PK, FK → `person.id` `ON DELETE CASCADE` |
 | `tree_id` | UUID | FK → `tree.id` `ON DELETE CASCADE`, indexed |
 | `payload` | TEXT | The JSON-serialized `PersonProfile` (below) |
+| `schema_version` | int | Which build's payload shape this row holds; see §2.1.1 |
 | `updated_at` | timestamptz | When the projection was last rebuilt |
 
 The payload is **JSON rather than typed columns** on purpose: it embeds nested collections (other names, events, family links) that would otherwise need their own denormalized tables, and it lets the projection shape evolve without a migration per displayed field. Nothing queries *inside* the payload — lookups are by `person_id` or `tree_id`, and text search goes through `person_search_fts` (§4).
 
-Owned by `PersonDenormRepo` in `oxidgene-db`: `get`, `get_many`, `list_tree`, `upsert` (bounded per-mutation refresh), `replace_tree` (full rebuild), `delete_person`, `delete_tree`, `count_tree`.
+Owned by `PersonDenormRepo` in `oxidgene-db`: `get`, `get_many`, `list_tree`, `upsert` (bounded per-mutation refresh), `replace_tree` (full rebuild), `delete_person`, `delete_tree`, `count_current`, `count_tree`.
+
+#### 2.1.1 Payload versioning
+
+Letting the shape evolve without a migration has a cost, and it has to be paid explicitly. Every field added to `PersonProfile` carries `#[serde(default)]` so the rows already stored keep deserializing — which means an old payload comes back **looking complete**. Nothing can tell "this person genuinely has no date qualifier" from "this row predates qualifiers", and a projection change is therefore invisible on every existing install until somebody happens to re-import.
+
+That is not hypothetical: it is exactly what the date-qualifier work shipped, and the only cure was knowing to re-import.
+
+So `oxidgene_core::projection::PROJECTION_SCHEMA_VERSION` stamps every write, and reads compare it:
+
+- `get`, `get_many` and `count_current` **filter on it**, so a row from an older build reads as *absent*. The callers that already rebuild a missing projection rebuild a stale one too — no second code path, and no way to forget one.
+- `ensure_materialized` asks `count_current`, not `count_tree`: a tree whose rows an older build wrote is as unusable as one nobody has built, so it is rebuilt on first read (§5.5).
+- `list_tree` deliberately does **not** filter. It answers "who is in this tree", and silently dropping stale rows would return a short list; its one caller checks `count_current` first, so nothing stale survives to reach it.
+- `upsert`'s `ON CONFLICT` updates `schema_version` along with the payload. Leaving the old version behind would rebuild the row forever, once per read.
+
+The column, not a field inside the payload: the version is metadata *about* the row and has to be queryable in one indexable comparison, identically on SQLite and PostgreSQL. Inside the JSON it would need each backend's own JSON functions, and counting stale rows would mean decoding every payload in the tree on a question asked by every read path.
+
+**Raise the constant whenever a change alters what a payload means** — adding a field is the usual case and precisely the one that needs it. A bump costs one lazy rebuild per tree on first read; not bumping costs a silent wrong answer. When in doubt, bump.
 
 ### 2.2 Shape
 
@@ -365,6 +383,8 @@ Mutation latency breakdown (typical):
 ### 5.5 Lazy materialization
 
 A tree whose projections have never been built — an existing database on first run after the `person_denorm` migration — is materialized on its first read (`ensure_materialized`), the same trick `person_search_fts` uses. No manual backfill step is needed.
+
+The same path covers a tree whose projections are **stale** rather than missing: `ensure_materialized` counts rows at the current `schema_version` (§2.1.1), so a build that raised it rebuilds each tree once, on first read. This is why the version migration backfills nothing — rebuilding inside a migration would re-derive every projection in the database up front, needing the whole builder there, to redo work the first read does lazily anyway.
 
 ---
 

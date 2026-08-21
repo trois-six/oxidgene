@@ -8,6 +8,7 @@ pub mod m20260818_000001_media_type;
 pub mod m20260819_000001_person_portrait;
 pub mod m20260819_000002_privacy_family_media;
 pub mod m20260819_000003_tree_default_privacy;
+pub mod m20260821_000001_person_denorm_schema_version;
 
 use sea_orm_migration::prelude::*;
 
@@ -25,6 +26,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260819_000001_person_portrait::Migration),
             Box::new(m20260819_000002_privacy_family_media::Migration),
             Box::new(m20260819_000003_tree_default_privacy::Migration),
+            Box::new(m20260821_000001_person_denorm_schema_version::Migration),
         ]
     }
 }

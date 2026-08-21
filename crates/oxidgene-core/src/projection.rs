@@ -16,6 +16,23 @@ use uuid::Uuid;
 
 use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole};
 
+/// The shape of a stored [`PersonProfile`] payload.
+///
+/// Stored beside the row in `person_denorm.schema_version`, and compared on
+/// every read: a row written by an older build is treated as *absent*, so the
+/// paths that already rebuild a missing projection rebuild a stale one too.
+///
+/// **Raise this whenever a change alters what a payload means.** Adding a field
+/// is the usual case, and it is exactly the one that needs it: new fields carry
+/// `#[serde(default)]` so old rows keep deserializing, which means they come
+/// back looking complete rather than empty. Without a bump the feature is
+/// simply invisible on every existing install — that is what happened when
+/// `date_qualifier` arrived and every card went on drawing bare years.
+///
+/// A bump costs one lazy rebuild per tree on first read. Not bumping costs a
+/// silent wrong answer, so when in doubt, bump.
+pub const PROJECTION_SCHEMA_VERSION: i32 = 1;
+
 // ─── Person profile ─────────────────────────────────────────────────────────
 
 /// A fully denormalized person profile, containing everything needed
