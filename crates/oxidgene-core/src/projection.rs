@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::enums::{ChildType, NameType, Sex, SpouseRole};
+use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole};
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
@@ -55,6 +55,54 @@ pub struct PersonProfile {
     pub built_at: DateTime<Utc>,
 }
 
+impl PersonProfile {
+    /// The event a card should date this person's life *from*: the birth, or
+    /// the baptism when no birth was recorded.
+    ///
+    /// Mirrors GeneWeb's `Gutil.get_birth_death_date`. A parish register very
+    /// often holds a baptism and no birth, and "1620" from the baptism is far
+    /// more use on a card than an empty line — the baptism's own qualifier
+    /// still says how firm it is.
+    ///
+    /// Note what this deliberately does *not* copy from GeneWeb: there, the
+    /// fallback sets a single `approx` flag covering *both* ends of the life,
+    /// so a person whose birth came from a baptism gets "ca" stamped on their
+    /// death year too — which is how a death recorded as "between 1691 and
+    /// 1693" ends up displayed as "ca 1691". Each event keeps its own
+    /// precision here.
+    /// The fallback triggers on a missing **date**, not a missing event. A
+    /// birth recorded with no date at all is extremely common — the register
+    /// entry is the baptism, and the birth is an empty stub someone created to
+    /// hang a source on. Testing `self.birth.is_none()` would keep that stub
+    /// and draw a blank year while a perfectly good "vers 1620" sat unused on
+    /// the baptism. GeneWeb tests the date for the same reason
+    /// (`Date.od_of_cdate (get_birth p)`).
+    pub fn birth_or_baptism(&self) -> Option<&ProfileEvent> {
+        pick_dated(self.birth.as_ref(), self.baptism.as_ref())
+    }
+
+    /// The event a card should date this person's life *to*: the death, or the
+    /// burial when the death carries no date. See [`Self::birth_or_baptism`].
+    pub fn death_or_burial(&self) -> Option<&ProfileEvent> {
+        pick_dated(self.death.as_ref(), self.burial.as_ref())
+    }
+}
+
+/// `preferred` when it carries a date, otherwise `fallback` when *it* does,
+/// otherwise whichever exists — so a dateless stub still identifies the event
+/// for anything that only needs to know it happened.
+fn pick_dated<'a>(
+    preferred: Option<&'a ProfileEvent>,
+    fallback: Option<&'a ProfileEvent>,
+) -> Option<&'a ProfileEvent> {
+    let dated = |e: &&ProfileEvent| e.date_value.is_some() || e.date_sort.is_some();
+    preferred
+        .filter(dated)
+        .or_else(|| fallback.filter(dated))
+        .or(preferred)
+        .or(fallback)
+}
+
 /// A person name, pre-computed for display.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileName {
@@ -72,6 +120,20 @@ pub struct ProfileEvent {
     pub event_type: crate::enums::EventType,
     pub date_value: Option<String>,
     pub date_sort: Option<NaiveDate>,
+    /// How precise the date is. `serde(default)` because payloads written
+    /// before this field existed are still in `person_denorm`, and an absent
+    /// qualifier means the same thing as `Exact` did back then.
+    #[serde(default)]
+    pub date_qualifier: DateQualifier,
+    /// The far end of an `Or`/`Between` range. Without it a "between 11 Nov
+    /// 1691 and 20 Aug 1693" reads as a bare "between 1691" — the qualifier
+    /// promises a second date the projection could not carry.
+    #[serde(default)]
+    pub date_value2: Option<String>,
+    /// Calendar the date was recorded in, so a Republican or Hebrew date is
+    /// not silently re-read as Gregorian.
+    #[serde(default)]
+    pub calendar: Calendar,
     pub place_name: Option<String>,
     pub place_id: Option<Uuid>,
     pub description: Option<String>,
@@ -153,10 +215,22 @@ pub struct PedigreeNode {
     pub given_names: Option<String>,
     #[serde(default)]
     pub surname: Option<String>,
-    pub birth_year: Option<String>,
-    pub birth_place: Option<String>,
-    pub death_year: Option<String>,
-    pub death_place: Option<String>,
+    /// The whole birth event, not a year pulled out of it.
+    ///
+    /// It used to be a `birth_year` string plus a `birth_place` string, and
+    /// every fact that did not fit those two — the day and month, the far end
+    /// of a range, the calendar, the place's id — was gone before the frontend
+    /// saw it. That is why a death recorded as "between 11 Nov 1691 and 20 Aug
+    /// 1693" reached the events panel as "between 1691". Carrying the event
+    /// itself costs a few fields per node and cannot lose anything.
+    ///
+    /// Falls back to baptism when there is no birth, the way GeneWeb's
+    /// `get_birth_death_date` does — see [`birth_or_baptism`].
+    #[serde(default)]
+    pub birth: Option<ProfileEvent>,
+    /// The whole death event, falling back to burial. See [`Self::birth`].
+    #[serde(default)]
+    pub death: Option<ProfileEvent>,
     pub occupation: Option<String>,
     pub primary_media_path: Option<String>,
     pub generation: i32,
@@ -195,8 +269,11 @@ pub struct PedigreeFamilyMember {
     #[serde(default)]
     pub surname: Option<String>,
     pub sex: Sex,
-    pub birth_year: Option<String>,
-    pub death_year: Option<String>,
+    /// Whole events, for the same reason as [`PedigreeNode::birth`].
+    #[serde(default)]
+    pub birth: Option<ProfileEvent>,
+    #[serde(default)]
+    pub death: Option<ProfileEvent>,
 }
 
 /// The result of an incremental pedigree expansion.
