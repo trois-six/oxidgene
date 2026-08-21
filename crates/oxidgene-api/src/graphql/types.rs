@@ -1923,6 +1923,9 @@ pub struct GqlProfileEvent {
     pub event_id: ID,
     pub event_type: GqlEventType,
     pub date_value: Option<String>,
+    /// How precise `date_value` is — without it a client cannot tell
+    /// "1849" from "about 1849".
+    pub date_qualifier: GqlDateQualifier,
     pub place_name: Option<String>,
     pub place_id: Option<ID>,
     pub description: Option<String>,
@@ -2058,6 +2061,7 @@ impl From<oxidgene_core::projection::ProfileEvent> for GqlProfileEvent {
             event_id: ID(e.event_id.to_string()),
             event_type: e.event_type.into(),
             date_value: e.date_value,
+            date_qualifier: e.date_qualifier.into(),
             place_name: e.place_name,
             place_id: e.place_id.map(|id| ID(id.to_string())),
             description: e.description,
@@ -2156,10 +2160,12 @@ pub struct GqlPedigreeNode {
     pub person_id: ID,
     pub sex: GqlSex,
     pub display_name: String,
-    pub birth_year: Option<String>,
-    pub birth_place: Option<String>,
-    pub death_year: Option<String>,
-    pub death_place: Option<String>,
+    /// The whole birth event — its date, precision, second date, calendar and
+    /// place — rather than a year and a place name pulled out of it. Falls
+    /// back to the baptism when no birth was recorded.
+    pub birth: Option<GqlProfileEvent>,
+    /// The whole death event, falling back to the burial. See `birth`.
+    pub death: Option<GqlProfileEvent>,
     pub occupation: Option<String>,
     pub primary_media_path: Option<String>,
     /// Relative to root: 0 = root, -1 = parent, +1 = child.
@@ -2205,10 +2211,8 @@ impl From<oxidgene_core::projection::PedigreeNode> for GqlPedigreeNode {
             person_id: ID(n.person_id.to_string()),
             sex: n.sex.into(),
             display_name: n.display_name,
-            birth_year: n.birth_year,
-            birth_place: n.birth_place,
-            death_year: n.death_year,
-            death_place: n.death_place,
+            birth: n.birth.map(Into::into),
+            death: n.death.map(Into::into),
             occupation: n.occupation,
             primary_media_path: n.primary_media_path,
             generation: n.generation,

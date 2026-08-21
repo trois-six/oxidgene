@@ -190,6 +190,9 @@ fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>) -> ProfileE
         event_type: event.event_type,
         date_value: event.date_value.clone(),
         date_sort: event.date_sort,
+        date_qualifier: event.date_qualifier,
+        date_value2: event.date_value2.clone(),
+        calendar: event.calendar,
         place_name,
         place_id: event.place_id,
         description: event.description.clone(),
@@ -203,6 +206,15 @@ fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>) -> ProfileE
 pub fn extract_year(event: &ProfileEvent) -> Option<String> {
     oxidgene_core::types::year_from_date(event.date_sort, event.date_value.as_deref())
         .map(|y| format!("{y:04}"))
+}
+
+/// The precision to show beside a year pulled out by [`extract_year`].
+///
+/// A person with no birth event at all is `Exact` rather than anything hedged:
+/// the card draws no year for them, so the qualifier is never read, and
+/// `Exact` is the value that says "nothing was claimed here".
+pub fn extract_qualifier(event: Option<&ProfileEvent>) -> DateQualifier {
+    event.map(|e| e.date_qualifier).unwrap_or_default()
 }
 
 /// Build all `PersonProfile` entries for an entire tree.
@@ -606,10 +618,11 @@ pub fn build_pedigree_node(
             .as_ref()
             .and_then(|n| n.given_names.clone()),
         surname: person.primary_name.as_ref().and_then(|n| n.surname.clone()),
-        birth_year: person.birth.as_ref().and_then(extract_year),
-        birth_place: person.birth.as_ref().and_then(|e| e.place_name.clone()),
-        death_year: person.death.as_ref().and_then(extract_year),
-        death_place: person.death.as_ref().and_then(|e| e.place_name.clone()),
+        // Whole events, and falling back to baptism / burial the way GeneWeb
+        // does — a parish register routinely holds one and not the other, and
+        // a card with "1620" beats a card with nothing.
+        birth: person.birth_or_baptism().cloned(),
+        death: person.death_or_burial().cloned(),
         occupation: person.occupation.clone(),
         primary_media_path: person.primary_media.as_ref().map(|m| m.file_path.clone()),
         generation,
@@ -634,6 +647,9 @@ mod tests {
             event_type: EventType::Birth,
             date_value: Some("ABT 1842".to_string()),
             date_sort: None,
+            date_qualifier: DateQualifier::About,
+            date_value2: None,
+            calendar: Calendar::default(),
             place_name: None,
             place_id: None,
             description: None,
@@ -645,6 +661,12 @@ mod tests {
             ..event.clone()
         };
         assert_eq!(extract_year(&event_with_sort), Some("1842".to_string()));
+
+        // The year alone cannot say "about", so the projection has to carry
+        // the qualifier beside it — this is what a pedigree card reads to
+        // decide between `1842` and `ca 1842`.
+        assert_eq!(extract_qualifier(Some(&event)), DateQualifier::About);
+        assert_eq!(extract_qualifier(None), DateQualifier::Exact);
     }
 
     #[test]

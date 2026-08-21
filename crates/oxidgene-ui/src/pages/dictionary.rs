@@ -910,7 +910,8 @@ fn render_usage_accordion(
                         class: "dict-accordion-item",
                         span { class: "dict-accordion-name", {surname_first(entry, &i18n)} }
                         {
-                            let lifespan = format_lifespan(entry.birth_year, entry.death_year);
+                            let (birth, death) = entry.lifespan_years();
+                            let lifespan = format_lifespan(birth, death);
                             if lifespan.is_empty() {
                                 rsx! {}
                             } else {

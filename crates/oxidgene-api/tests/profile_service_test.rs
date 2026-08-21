@@ -429,6 +429,344 @@ async fn pedigree_builds_from_stored_projections() {
     assert_eq!(again.edges.len(), pedigree.edges.len());
 }
 
+/// An approximate date has to survive the whole way to the pedigree node, or
+/// the card that draws it turns "about 1849" into a flat "1849" and quietly
+/// claims a precision the record never had.
+///
+/// The projection stores a *year string*, which cannot carry "about" on its
+/// own — this is the test that the qualifier travels beside it.
+#[tokio::test]
+async fn a_pedigree_node_keeps_how_precise_its_dates_are() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+
+    let person_id = Uuid::now_v7();
+    PersonRepo::create(&db, person_id, tree_id, Sex::Male)
+        .await
+        .expect("person");
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        person_id,
+        NameType::Birth,
+        PersonNamePieces {
+            given_names: Some("Child One".into()),
+            surname: Some("Branch A".into()),
+            ..Default::default()
+        },
+        true,
+        0,
+    )
+    .await
+    .expect("name");
+
+    // Born about 1849, died before 1917 — the shape of a person whose dates
+    // come from an age on a later record rather than from a register.
+    for (event_type, year, qualifier) in [
+        (EventType::Birth, 1849, DateQualifier::About),
+        (EventType::Death, 1917, DateQualifier::Before),
+    ] {
+        EventRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            event_type,
+            Some(year.to_string()),
+            chrono::NaiveDate::from_ymd_opt(year, 1, 1),
+            None,
+            Some(person_id),
+            None,
+            None,
+            qualifier,
+            None,
+            Calendar::default(),
+            None,
+        )
+        .await
+        .expect("event");
+    }
+
+    let pedigree = service
+        .get_or_build_pedigree(tree_id, person_id, 1, 1)
+        .await
+        .unwrap();
+    let node = &pedigree.persons[&person_id];
+
+    let birth = node.birth.as_ref().expect("birth on the node");
+    let death = node.death.as_ref().expect("death on the node");
+    assert_eq!(birth.date_qualifier, DateQualifier::About);
+    assert_eq!(death.date_qualifier, DateQualifier::Before);
+    // The whole date, not a year pulled out of it — the events panel writes
+    // « vers 2 nov. 1849 » from this, and a year-only value would silently
+    // drop the day and month.
+    assert_eq!(birth.date_value.as_deref(), Some("1849"));
+    assert_eq!(death.date_value.as_deref(), Some("1917"));
+
+    // The profile's own events carry it too — that is what the events panel
+    // reads to write « vers 1849 » in full.
+    let profile = service
+        .get_or_build_person(&db, tree_id, person_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        profile.birth.as_ref().unwrap().date_qualifier,
+        DateQualifier::About
+    );
+    assert_eq!(
+        profile.death.as_ref().unwrap().date_qualifier,
+        DateQualifier::Before
+    );
+}
+
+/// The pedigree node used to hold a *year string* pulled out of the event, so
+/// everything that did not fit — the day, the month, the far end of a range,
+/// the calendar — was gone before the frontend saw it. The events panel showed
+/// "1788" for a birth on 2 Nov 1788, and "between 1691" for a death recorded
+/// as "between 11 Nov 1691 and 20 Aug 1693".
+#[tokio::test]
+async fn a_pedigree_node_keeps_whole_dates_not_just_the_year() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+
+    let person_id = Uuid::now_v7();
+    PersonRepo::create(&db, person_id, tree_id, Sex::Male)
+        .await
+        .expect("person");
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        person_id,
+        NameType::Birth,
+        PersonNamePieces {
+            given_names: Some("Child Two".into()),
+            surname: Some("Branch A".into()),
+            ..Default::default()
+        },
+        true,
+        0,
+    )
+    .await
+    .expect("name");
+
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Birth,
+        Some("2 NOV 1788".to_string()),
+        chrono::NaiveDate::from_ymd_opt(1788, 11, 2),
+        None,
+        Some(person_id),
+        None,
+        None,
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
+    )
+    .await
+    .expect("birth");
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Death,
+        Some("11 NOV 1691".to_string()),
+        chrono::NaiveDate::from_ymd_opt(1691, 11, 11),
+        None,
+        Some(person_id),
+        None,
+        None,
+        DateQualifier::Between,
+        Some("20 AUG 1693".to_string()),
+        Calendar::default(),
+        None,
+    )
+    .await
+    .expect("death");
+
+    let pedigree = service
+        .get_or_build_pedigree(tree_id, person_id, 1, 1)
+        .await
+        .unwrap();
+    let node = &pedigree.persons[&person_id];
+
+    let birth = node.birth.as_ref().expect("birth");
+    assert_eq!(birth.date_value.as_deref(), Some("2 NOV 1788"));
+
+    let death = node.death.as_ref().expect("death");
+    assert_eq!(death.date_qualifier, DateQualifier::Between);
+    // Without this the panel writes "between 1691" — a qualifier promising a
+    // second date the projection could not carry.
+    assert_eq!(death.date_value2.as_deref(), Some("20 AUG 1693"));
+}
+
+/// A parish register routinely records a baptism and no birth. GeneWeb dates
+/// the card from the baptism rather than leaving it blank, and so do we.
+#[tokio::test]
+async fn a_card_falls_back_to_baptism_and_burial() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+
+    let person_id = Uuid::now_v7();
+    PersonRepo::create(&db, person_id, tree_id, Sex::Male)
+        .await
+        .expect("person");
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        person_id,
+        NameType::Birth,
+        PersonNamePieces {
+            given_names: Some("Child Three".into()),
+            surname: Some("Branch A".into()),
+            ..Default::default()
+        },
+        true,
+        0,
+    )
+    .await
+    .expect("name");
+
+    // No Birth, no Death — only the sacraments either side of them.
+    for (event_type, value, year, qualifier) in [
+        (EventType::Baptism, "1620", 1620, DateQualifier::About),
+        (EventType::Burial, "1691", 1691, DateQualifier::Exact),
+    ] {
+        EventRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            event_type,
+            Some(value.to_string()),
+            chrono::NaiveDate::from_ymd_opt(year, 1, 1),
+            None,
+            Some(person_id),
+            None,
+            None,
+            qualifier,
+            None,
+            Calendar::default(),
+            None,
+        )
+        .await
+        .expect("event");
+    }
+
+    let pedigree = service
+        .get_or_build_pedigree(tree_id, person_id, 1, 1)
+        .await
+        .unwrap();
+    let node = &pedigree.persons[&person_id];
+
+    assert_eq!(
+        node.birth.as_ref().map(|e| e.event_type),
+        Some(EventType::Baptism),
+        "a card with no birth should be dated from the baptism"
+    );
+    assert_eq!(
+        node.death.as_ref().map(|e| e.event_type),
+        Some(EventType::Burial)
+    );
+    // Each event keeps its *own* precision. GeneWeb sets one `approx` flag for
+    // the pair here, which is how Geneanet ends up stamping "ca" on a burial
+    // year that was recorded exactly.
+    assert_eq!(
+        node.birth.as_ref().unwrap().date_qualifier,
+        DateQualifier::About
+    );
+    assert_eq!(
+        node.death.as_ref().unwrap().date_qualifier,
+        DateQualifier::Exact
+    );
+}
+
+/// The commonest shape in a parish tree, and the one that broke: a Birth event
+/// exists but carries no date — an empty stub someone made to hang a source
+/// on — while the dated record is the Baptism. Falling back only when the
+/// *event* is missing keeps the stub and draws a blank year.
+#[tokio::test]
+async fn a_dateless_birth_does_not_mask_a_dated_baptism() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+
+    let person_id = Uuid::now_v7();
+    PersonRepo::create(&db, person_id, tree_id, Sex::Male)
+        .await
+        .expect("person");
+    PersonNameRepo::create(
+        &db,
+        Uuid::now_v7(),
+        person_id,
+        NameType::Birth,
+        PersonNamePieces {
+            given_names: Some("Child Four".into()),
+            surname: Some("Branch A".into()),
+            ..Default::default()
+        },
+        true,
+        0,
+    )
+    .await
+    .expect("name");
+
+    // A Birth with no date at all, and a Baptism that has one.
+    for (event_type, value, sort, qualifier) in [
+        (EventType::Birth, None, None, DateQualifier::Exact),
+        (
+            EventType::Baptism,
+            Some("1620".to_string()),
+            chrono::NaiveDate::from_ymd_opt(1620, 1, 1),
+            DateQualifier::About,
+        ),
+        // Mirror image on the other end: a dateless Death over a dated Burial.
+        (EventType::Death, None, None, DateQualifier::Exact),
+        (
+            EventType::Burial,
+            Some("1691".to_string()),
+            chrono::NaiveDate::from_ymd_opt(1691, 1, 1),
+            DateQualifier::Exact,
+        ),
+    ] {
+        EventRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            event_type,
+            value,
+            sort,
+            None,
+            Some(person_id),
+            None,
+            None,
+            qualifier,
+            None,
+            Calendar::default(),
+            None,
+        )
+        .await
+        .expect("event");
+    }
+
+    let pedigree = service
+        .get_or_build_pedigree(tree_id, person_id, 1, 1)
+        .await
+        .unwrap();
+    let node = &pedigree.persons[&person_id];
+
+    let birth = node
+        .birth
+        .as_ref()
+        .expect("a dated event to date the card by");
+    assert_eq!(birth.event_type, EventType::Baptism);
+    assert_eq!(birth.date_value.as_deref(), Some("1620"));
+    assert_eq!(birth.date_qualifier, DateQualifier::About);
+
+    let death = node.death.as_ref().expect("a dated event");
+    assert_eq!(death.event_type, EventType::Burial);
+    assert_eq!(death.date_value.as_deref(), Some("1691"));
+}
+
 #[tokio::test]
 async fn pedigree_reflects_a_mutation_immediately() {
     let (db, service) = setup().await;

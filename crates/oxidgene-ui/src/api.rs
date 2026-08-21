@@ -8,7 +8,7 @@
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, SearchResult};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse,
-    Media, Note, Person, PersonName, Place, Source, Tree, Vignette,
+    Media, Note, Person, PersonName, Place, QualifiedYear, Source, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -105,7 +105,24 @@ pub struct PersonUsageEntry {
     pub given_names: Option<String>,
     pub surname: Option<String>,
     pub birth_year: Option<i32>,
+    #[serde(default)]
+    pub birth_qualifier: DateQualifier,
     pub death_year: Option<i32>,
+    #[serde(default)]
+    pub death_qualifier: DateQualifier,
+}
+
+impl PersonUsageEntry {
+    /// The birth/death years with their precision, ready for
+    /// [`format_lifespan`](crate::components::pedigree_chart::format_lifespan).
+    pub fn lifespan_years(&self) -> (Option<QualifiedYear>, Option<QualifiedYear>) {
+        (
+            self.birth_year
+                .map(|y| QualifiedYear::new(y, self.birth_qualifier)),
+            self.death_year
+                .map(|y| QualifiedYear::new(y, self.death_qualifier)),
+        )
+    }
 }
 
 /// Body of the dictionary's bulk particle edit.

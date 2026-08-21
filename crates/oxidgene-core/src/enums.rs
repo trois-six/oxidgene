@@ -175,6 +175,34 @@ impl DateQualifier {
     pub fn needs_second_date(&self) -> bool {
         matches!(self, Self::Or | Self::Between)
     }
+
+    /// The mark that goes in front of a bare year on a pedigree card, so that
+    /// `ca 1849–< 1917` reads as "born about 1849, died before 1917" at a
+    /// glance rather than claiming two dates we do not have.
+    ///
+    /// These are GeneWeb's own symbols (`prec_text`, `lib/dateDisplay.ml`),
+    /// which is what Geneanet draws and therefore what anyone arriving from a
+    /// Geneanet tree already reads fluently. The trailing space is part of the
+    /// mark: `ca 1849`, `< 1917`.
+    ///
+    /// `Calculated`, `Estimated` and `FromAge` have no GeneWeb counterpart and
+    /// all fold into `ca`. Each is an approximation arrived at by a different
+    /// route, and once the arithmetic is done the reader of a *card* wants the
+    /// same warning from all three. The distinction is not lost — it stays on
+    /// the event, and the edit modal and the events panel still name it in
+    /// full — it is simply not what four characters of card should spend
+    /// themselves on.
+    pub fn short_prefix(&self) -> &'static str {
+        match self {
+            Self::Exact => "",
+            Self::About | Self::Calculated | Self::Estimated | Self::FromAge => "ca ",
+            Self::Perhaps => "? ",
+            Self::Before => "< ",
+            Self::After => "> ",
+            Self::Or => "| ",
+            Self::Between => ".. ",
+        }
+    }
 }
 
 /// Calendar system used to record a date (§8 of the person edit modal spec).
@@ -814,6 +842,33 @@ impl std::fmt::Display for Confidence {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The marks Geneanet draws on the tree this was modelled from, read off
+    /// the live page: `ca 1849-< 1917`, `< 1907-`, `> 1912-`.
+    #[test]
+    fn short_prefix_matches_geneweb_symbols() {
+        assert_eq!(DateQualifier::Exact.short_prefix(), "");
+        assert_eq!(DateQualifier::About.short_prefix(), "ca ");
+        assert_eq!(DateQualifier::Perhaps.short_prefix(), "? ");
+        assert_eq!(DateQualifier::Before.short_prefix(), "< ");
+        assert_eq!(DateQualifier::After.short_prefix(), "> ");
+        assert_eq!(DateQualifier::Or.short_prefix(), "| ");
+        assert_eq!(DateQualifier::Between.short_prefix(), ".. ");
+    }
+
+    /// GEDCOM's `CAL`/`EST` and our own `FromAge` have no GeneWeb counterpart.
+    /// They read as `ca` on a card rather than inventing a symbol nobody knows;
+    /// the exact qualifier survives on the event for the modal and the panel.
+    #[test]
+    fn the_approximations_geneweb_lacks_read_as_about() {
+        for q in [
+            DateQualifier::Calculated,
+            DateQualifier::Estimated,
+            DateQualifier::FromAge,
+        ] {
+            assert_eq!(q.short_prefix(), "ca ", "{q} should read as about");
+        }
+    }
 
     #[test]
     fn test_event_type_individual() {

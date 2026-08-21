@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use dioxus::prelude::*;
 use oxidgene_core::EventType;
 use oxidgene_core::projection::Pedigree;
-use oxidgene_core::types::Event as DomainEvent;
+use oxidgene_core::types::{Event as DomainEvent, QualifiedYear};
 use uuid::Uuid;
 
 use crate::api::ApiClient;
@@ -458,25 +458,52 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Birth/death vitals clauses shown under the header name, e.g.
     // "Born on **10 December 1700** in Paris — **43 years old**."
     let event_date = |e: &DomainEvent| format_event_date(&i18n, e);
+
+    /// The vitals key agreeing with the person's sex.
+    ///
+    /// French inflects the participle — « Né », « Née » — and the
+    /// parenthesised « Né(e) » is a hedge worth spending only when the sex is
+    /// genuinely unknown, which is precisely what `Sex::Unknown` records.
+    /// English has no agreement, so its three keys carry the same string and
+    /// this costs nothing there.
+    fn vitals_key(base: &str, sex: Sex) -> String {
+        match sex {
+            Sex::Male => format!("{base}_male"),
+            Sex::Female => format!("{base}_female"),
+            Sex::Unknown => base.to_string(),
+        }
+    }
     let vital_clauses: Vec<VitalClause> = match &*events_resource.read() {
         Some(Ok(conn)) => {
-            let birth = conn
-                .edges
-                .iter()
-                .map(|e| &e.node)
-                .find(|e| e.event_type == EventType::Birth);
-            let death = conn
-                .edges
-                .iter()
-                .map(|e| &e.node)
-                .find(|e| e.event_type == EventType::Death);
+            // Prefer the birth, but skip a dateless stub in favour of a dated
+            // baptism — the register entry is very often the sacrament, and
+            // the header should say "vers 1620" rather than a bare "Né le".
+            // Same resolution as the pedigree card and its side panel.
+            let dated_or_first = |preferred: EventType, fallback: EventType| {
+                let of_type = |t: EventType| {
+                    conn.edges
+                        .iter()
+                        .map(|e| &e.node)
+                        .find(move |e| e.event_type == t)
+                };
+                let dated = |e: &&DomainEvent| e.date_value.is_some() || e.date_sort.is_some();
+                of_type(preferred)
+                    .filter(dated)
+                    .or_else(|| of_type(fallback).filter(dated))
+                    .or_else(|| of_type(preferred))
+                    .or_else(|| of_type(fallback))
+            };
+            let birth = dated_or_first(EventType::Birth, EventType::Baptism);
+            let death = dated_or_first(EventType::Death, EventType::Burial);
 
             let mut clauses = Vec::new();
             if let Some(b) = birth {
-                clauses.push(VitalClause::Born {
-                    date: event_date(b),
-                    place: b.place_id.map(&place_name),
-                });
+                let (date, place) = (event_date(b), b.place_id.map(&place_name));
+                // A birth event carrying neither a date nor a place says
+                // nothing; rendering it produced the dangling "Né(e) le ".
+                if !date.is_empty() || place.is_some() {
+                    clauses.push(VitalClause::Born { date, place });
+                }
             }
             if let Some(d) = death {
                 clauses.push(VitalClause::Died {
@@ -814,11 +841,15 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 let sex_map: HashMap<Uuid, Sex> =
                     snapshot.persons.iter().map(|p| (p.id, p.sex)).collect();
 
-                let mut birth_years: HashMap<Uuid, i32> = HashMap::new();
-                let mut death_years: HashMap<Uuid, i32> = HashMap::new();
+                // Years carry their qualifier so the narrative hedges the same
+                // way the pedigree cards do — "ca 1849" in both places.
+                let mut birth_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
+                let mut death_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
                 for e in &snapshot.events {
                     let Some(pid) = e.person_id else { continue };
-                    let Some(year) = e.year() else { continue };
+                    let Some(year) = e.qualified_year() else {
+                        continue;
+                    };
                     match e.event_type {
                         EventType::Birth => {
                             birth_years.entry(pid).or_insert(year);
@@ -1274,10 +1305,17 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                             .as_ref()
                                                             .map(|p| format!(" {}", i18n.t_args("person.vitals.in_place", &[("place", p)])))
                                                             .unwrap_or_default();
-                                                        rsx! {
-                                                            "{i18n.t(\"person.vitals.born_prefix\")} "
-                                                            b { "{date}" }
-                                                            "{place_clause}"
+                                                        if date.is_empty() {
+                                                            rsx! {
+                                                                b { "{i18n.t(&vitals_key(\"person.vitals.born_no_date\", person_sex))}" }
+                                                                "{place_clause}"
+                                                            }
+                                                        } else {
+                                                            rsx! {
+                                                                "{i18n.t(&vitals_key(\"person.vitals.born_prefix\", person_sex))} "
+                                                                b { "{date}" }
+                                                                "{place_clause}"
+                                                            }
                                                         }
                                                     }
                                                     VitalClause::Died { date, place } => {
@@ -1287,12 +1325,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                             .unwrap_or_default();
                                                         if date.is_empty() {
                                                             rsx! {
-                                                                b { "{i18n.t(\"person.vitals.died_no_date\")}" }
+                                                                b { "{i18n.t(&vitals_key(\"person.vitals.died_no_date\", person_sex))}" }
                                                                 "{place_clause}"
                                                             }
                                                         } else {
                                                             rsx! {
-                                                                "{i18n.t(\"person.vitals.died_prefix\")} "
+                                                                "{i18n.t(&vitals_key(\"person.vitals.died_prefix\", person_sex))} "
                                                                 b { "{date}" }
                                                                 "{place_clause}"
                                                             }

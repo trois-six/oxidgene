@@ -803,7 +803,9 @@ pub struct PersonUsageEntryDto {
     pub given_names: Option<String>,
     pub surname: Option<String>,
     pub birth_year: Option<i32>,
+    pub birth_qualifier: DateQualifier,
     pub death_year: Option<i32>,
+    pub death_qualifier: DateQualifier,
 }
 
 impl From<oxidgene_db::repo::PersonUsageEntry> for PersonUsageEntryDto {
@@ -813,7 +815,9 @@ impl From<oxidgene_db::repo::PersonUsageEntry> for PersonUsageEntryDto {
             given_names: e.given_names,
             surname: e.surname,
             birth_year: e.birth_year,
+            birth_qualifier: e.birth_qualifier,
             death_year: e.death_year,
+            death_qualifier: e.death_qualifier,
         }
     }
 }

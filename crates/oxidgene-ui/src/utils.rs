@@ -452,8 +452,28 @@ pub fn html_to_preview(html: &str, max_chars: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
+/// Escape the five XML metacharacters, for the rare place that has to build
+/// markup as a string rather than as rsx.
+///
+/// Needed because a date's precision mark is literally `<` or `>` — see
+/// `pedigree_chart`'s SVG `<title>` tooltip.
+pub fn escape_xml(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Estimate rendered text width in pixels for Lato-like sans fonts.
-fn estimate_text_width_px(text: &str, font_size_px: f32) -> f32 {
+pub fn estimate_text_width_px(text: &str, font_size_px: f32) -> f32 {
     text.chars()
         .map(|ch| estimate_char_width_px(ch, font_size_px))
         .sum()

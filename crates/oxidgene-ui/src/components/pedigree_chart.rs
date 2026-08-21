@@ -18,15 +18,15 @@ use crate::components::date_input::format_event_date;
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
-use oxidgene_core::projection::Pedigree;
+use oxidgene_core::projection::{Pedigree, ProfileEvent};
 use oxidgene_core::types::{
-    Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place,
+    Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place, QualifiedYear,
 };
-use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
+use oxidgene_core::{ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
 
 use crate::i18n::{I18n, use_i18n};
 
-use crate::utils::{event_type_label_key, truncate_text_to_fit};
+use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
 
 // ── Layout constants (matching the JS reference implementation) ──────────
 
@@ -63,6 +63,7 @@ const TEXT_MAX_WIDTH_FULL: f32 = 105.0;
 const TEXT_MAX_WIDTH_COMPACT: f32 = (COMPACT_INNER_W - TEXT_X_COMPACT) as f32;
 const SURNAME_FONT_SIZE_PX: f32 = 11.0;
 const GIVEN_FONT_SIZE_PX: f32 = 10.0;
+const DATE_FONT_SIZE_PX: f32 = 10.0;
 const SOSA_CX_FULL: f64 = 57.5;
 const SOSA_CX_COMPACT: f64 = 67.5;
 const SOSA_CY: f64 = 57.5;
@@ -153,11 +154,99 @@ fn fmt_year(date: &str) -> String {
 }
 
 /// Format a "birth-death" lifespan string from optional years.
-pub(crate) fn format_lifespan(birth: Option<i32>, death: Option<i32>) -> String {
+///
+/// Each year carries its own precision mark, GeneWeb-style, so a card reads
+/// `ca 1849-< 1917` — "about 1849 to before 1917" — instead of flattening two
+/// hedged dates into a pair of bare numbers that claim more than the records
+/// do. See [`DateQualifier::short_prefix`].
+pub(crate) fn format_lifespan(
+    birth: Option<QualifiedYear>,
+    death: Option<QualifiedYear>,
+) -> String {
+    join_lifespan(birth, death, QualifiedYear::wide)
+}
+
+/// [`format_lifespan`] in the form that always spends one year per date.
+///
+/// A range gives up its far end here but keeps the `..`/`|` mark saying it is
+/// one, so the card understates rather than misleads.
+fn format_lifespan_narrow(birth: Option<QualifiedYear>, death: Option<QualifiedYear>) -> String {
+    join_lifespan(birth, death, QualifiedYear::narrow)
+}
+
+/// The `birth-death` shape both forms share. A missing year keeps its dash:
+/// "born then, and nothing is known after" is not the same as saying nothing.
+fn join_lifespan(
+    birth: Option<QualifiedYear>,
+    death: Option<QualifiedYear>,
+    render: impl Fn(&QualifiedYear) -> String,
+) -> String {
     match (birth, death) {
-        (Some(b), Some(d)) => format!("{b}-{d}"),
-        (Some(b), None) => format!("{b}-"),
-        (None, Some(d)) => format!("-{d}"),
+        (Some(b), Some(d)) => format!("{}-{}", render(&b), render(&d)),
+        (Some(b), None) => format!("{}-", render(&b)),
+        (None, Some(d)) => format!("-{}", render(&d)),
+        _ => String::new(),
+    }
+}
+
+/// The widest lifespan that fits `max_width_px`, and the text for it.
+///
+/// Ranges are worth their width — "between 1691 and 1693" is a fact a card can
+/// carry — but two of them run to 105.8px, past even the 175px card's 105px
+/// text column, and a compact card only has 72px. So the wide form is used
+/// when it fits and the narrow one when it does not, rather than compressing
+/// glyphs to the point of illegibility. The tooltip always has the full text.
+fn fit_lifespan(
+    birth: Option<QualifiedYear>,
+    death: Option<QualifiedYear>,
+    max_width_px: f32,
+) -> String {
+    let wide = format_lifespan(birth, death);
+    if crate::utils::estimate_text_width_px(&wide, DATE_FONT_SIZE_PX) <= max_width_px {
+        return wide;
+    }
+    format_lifespan_narrow(birth, death)
+}
+
+/// The lifespan spelled out for a tooltip — « Environ 1849 – Avant 1917 » —
+/// so the terse marks on the card have somewhere to explain themselves.
+///
+/// Empty when neither year is qualified: a tooltip that only repeats the text
+/// already on the card is noise, and an empty string is how the caller knows
+/// to omit the `<title>` entirely.
+fn lifespan_tooltip(
+    i18n: &I18n,
+    birth: Option<QualifiedYear>,
+    death: Option<QualifiedYear>,
+) -> String {
+    if !matches!(birth, Some(y) if y.qualifier != DateQualifier::Exact)
+        && !matches!(death, Some(y) if y.qualifier != DateQualifier::Exact)
+    {
+        return String::new();
+    }
+    let spell = |y: QualifiedYear| match (y.qualifier, y.year2) {
+        (DateQualifier::Exact, _) => y.year.to_string(),
+        // A range reads as one phrase — « Entre 1691 et 1693 » — rather than
+        // as a qualifier stuck in front of a lone year.
+        (DateQualifier::Between, Some(year2)) => format!(
+            "{} {} {} {}",
+            i18n.t("date_qualifier.between"),
+            y.year,
+            i18n.t("common.and"),
+            year2
+        ),
+        (DateQualifier::Or, Some(year2)) => format!(
+            "{} {} {}",
+            y.year,
+            i18n.t("date_qualifier.or").to_lowercase(),
+            year2
+        ),
+        (q, _) => format!("{} {}", i18n.t(&format!("date_qualifier.{q}")), y.year),
+    };
+    match (birth, death) {
+        (Some(b), Some(d)) => format!("{} \u{2013} {}", spell(b), spell(d)),
+        (Some(b), None) => spell(b),
+        (None, Some(d)) => spell(d),
         _ => String::new(),
     }
 }
@@ -260,6 +349,44 @@ impl PartialEq for PedigreeData {
     }
 }
 
+/// Turn a projection event back into the domain shape the chart and the events
+/// panel already speak.
+///
+/// Every date column travels: the value, the second value an `Or`/`Between`
+/// needs, the calendar, the qualifier and the sort date. That is the whole
+/// point — the panel renders through `format_event_date`, which can only write
+/// « entre 11 nov. 1691 et 20 août 1693 » if all of them arrive.
+fn profile_event_to_domain(
+    pe: &ProfileEvent,
+    tree_id: Uuid,
+    person_id: Option<Uuid>,
+    family_id: Option<Uuid>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> DomainEvent {
+    DomainEvent {
+        id: pe.event_id,
+        tree_id,
+        event_type: pe.event_type,
+        date_value: pe.date_value.clone(),
+        date_sort: pe.date_sort,
+        date_qualifier: pe.date_qualifier,
+        date_value2: pe.date_value2.clone(),
+        calendar: pe.calendar,
+        cause: None,
+        place_id: pe.place_id,
+        person_id,
+        family_id,
+        // The projection denormalizes the place *name* beside its id. The chart
+        // resolves ids through its own `places` map, which holds only the
+        // places the pedigree pulled in, so the name is kept here as the
+        // fallback the panel reads when the id resolves to nothing.
+        description: pe.description.clone().or_else(|| pe.place_name.clone()),
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    }
+}
+
 impl PedigreeData {
     /// Build `PedigreeData` from a [`Pedigree`] returned by the cache API.
     ///
@@ -267,7 +394,7 @@ impl PedigreeData {
     /// denormalized pedigree nodes so the existing layout + rendering code works
     /// unchanged.
     pub fn from_pedigree(pedigree: &Pedigree) -> Self {
-        use chrono::{NaiveDate, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let tree_id = pedigree.tree_id;
@@ -310,69 +437,19 @@ impl PedigreeData {
             names.insert(node.person_id, vec![name]);
         }
 
-        // ── Synthetic events from PedigreeNode birth/death years ──
+        // ── Birth/death events, carried whole by the projection ──
+        //
+        // These used to be *rebuilt* from a year string on the node, which is
+        // why the events panel showed "1788" for a birth on 2 Nov 1788 and
+        // "between 1691" for a death recorded as a range. The projection hands
+        // over the event now, so this is a conversion and can lose nothing.
         let mut events_by_person: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
         for node in pedigree.persons.values() {
-            let mut person_events = Vec::new();
-            if let Some(ref year_str) = node.birth_year {
-                let date_sort = year_str
-                    .parse::<i32>()
-                    .ok()
-                    .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
-                let mut evt = DomainEvent {
-                    id: Uuid::now_v7(),
-                    tree_id,
-                    event_type: EventType::Birth,
-                    date_value: Some(year_str.clone()),
-                    date_sort,
-                    date_qualifier: DateQualifier::default(),
-                    date_value2: None,
-                    calendar: Calendar::default(),
-                    cause: None,
-                    place_id: None,
-                    person_id: Some(node.person_id),
-                    family_id: None,
-                    description: None,
-                    created_at: now,
-                    updated_at: now,
-                    deleted_at: None,
-                };
-                // If we have a birth place string, we can't create a real Place
-                // (no UUID) — leave place_id as None; the chart reads place_name()
-                // but falls back gracefully.
-                if node.birth_place.is_some() {
-                    evt.description = node.birth_place.clone();
-                }
-                person_events.push(evt);
-            }
-            if let Some(ref year_str) = node.death_year {
-                let date_sort = year_str
-                    .parse::<i32>()
-                    .ok()
-                    .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
-                let mut evt = DomainEvent {
-                    id: Uuid::now_v7(),
-                    tree_id,
-                    event_type: EventType::Death,
-                    date_value: Some(year_str.clone()),
-                    date_sort,
-                    date_qualifier: DateQualifier::default(),
-                    date_value2: None,
-                    calendar: Calendar::default(),
-                    cause: None,
-                    place_id: None,
-                    person_id: Some(node.person_id),
-                    family_id: None,
-                    description: None,
-                    created_at: now,
-                    updated_at: now,
-                    deleted_at: None,
-                };
-                if node.death_place.is_some() {
-                    evt.description = node.death_place.clone();
-                }
-                person_events.push(evt);
-            }
+            let person_events: Vec<DomainEvent> = [node.birth.as_ref(), node.death.as_ref()]
+                .into_iter()
+                .flatten()
+                .map(|pe| profile_event_to_domain(pe, tree_id, Some(node.person_id), None, now))
+                .collect();
             if !person_events.is_empty() {
                 events_by_person.insert(node.person_id, person_events);
             }
@@ -461,24 +538,7 @@ impl PedigreeData {
         for (family_id, events) in &pedigree.family_events {
             let domain_events: Vec<DomainEvent> = events
                 .iter()
-                .map(|ce| DomainEvent {
-                    id: ce.event_id,
-                    tree_id,
-                    event_type: ce.event_type,
-                    date_value: ce.date_value.clone(),
-                    date_sort: ce.date_sort,
-                    date_qualifier: DateQualifier::default(),
-                    date_value2: None,
-                    calendar: Calendar::default(),
-                    cause: None,
-                    place_id: ce.place_id,
-                    person_id: None,
-                    family_id: Some(*family_id),
-                    description: ce.description.clone(),
-                    created_at: now,
-                    updated_at: now,
-                    deleted_at: None,
-                })
+                .map(|ce| profile_event_to_domain(ce, tree_id, None, Some(*family_id), now))
                 .collect();
             events_by_family.insert(*family_id, domain_events);
         }
@@ -520,56 +580,15 @@ impl PedigreeData {
                 };
                 names.insert(member.person_id, vec![name]);
 
-                // Build synthetic birth/death events.
-                let mut member_events = Vec::new();
-                if let Some(ref year_str) = member.birth_year {
-                    let date_sort = year_str
-                        .parse::<i32>()
-                        .ok()
-                        .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
-                    member_events.push(DomainEvent {
-                        id: Uuid::now_v7(),
-                        tree_id,
-                        event_type: EventType::Birth,
-                        date_value: Some(year_str.clone()),
-                        date_sort,
-                        date_qualifier: DateQualifier::default(),
-                        date_value2: None,
-                        calendar: Calendar::default(),
-                        cause: None,
-                        place_id: None,
-                        person_id: Some(member.person_id),
-                        family_id: None,
-                        description: None,
-                        created_at: now,
-                        updated_at: now,
-                        deleted_at: None,
-                    });
-                }
-                if let Some(ref year_str) = member.death_year {
-                    let date_sort = year_str
-                        .parse::<i32>()
-                        .ok()
-                        .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1));
-                    member_events.push(DomainEvent {
-                        id: Uuid::now_v7(),
-                        tree_id,
-                        event_type: EventType::Death,
-                        date_value: Some(year_str.clone()),
-                        date_sort,
-                        date_qualifier: DateQualifier::default(),
-                        date_value2: None,
-                        calendar: Calendar::default(),
-                        cause: None,
-                        place_id: None,
-                        person_id: Some(member.person_id),
-                        family_id: None,
-                        description: None,
-                        created_at: now,
-                        updated_at: now,
-                        deleted_at: None,
-                    });
-                }
+                // Same conversion as the pedigree nodes above.
+                let member_events: Vec<DomainEvent> =
+                    [member.birth.as_ref(), member.death.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .map(|pe| {
+                            profile_event_to_domain(pe, tree_id, Some(member.person_id), None, now)
+                        })
+                        .collect();
                 if !member_events.is_empty() {
                     events_by_person.insert(member.person_id, member_events);
                 }
@@ -686,26 +705,33 @@ impl PedigreeData {
         crate::utils::resolve_name(person_id, &self.names, i18n)
     }
 
-    fn birth_date(&self, person_id: Uuid) -> Option<String> {
-        let events = self.events_by_person.get(&person_id)?;
-        if let Some(e) = events.iter().find(|e| e.event_type == EventType::Birth) {
-            return e.date_value.as_deref().map(fmt_year);
-        }
-        if let Some(e) = events.iter().find(|e| e.event_type == EventType::Baptism) {
-            return e.date_value.as_deref().map(fmt_year);
-        }
-        None
+    /// The year to date this person's life *from*, with its precision.
+    ///
+    /// Prefers a birth, falls back to a baptism, and — like the projection —
+    /// skips over a dateless stub rather than letting it mask a dated
+    /// sacrament: `qualified_year()` is `None` for an event with no date, so
+    /// `find_map` simply carries on to the next candidate.
+    pub(crate) fn qualified_birth_year(&self, person_id: Uuid) -> Option<QualifiedYear> {
+        self.first_qualified_year(person_id, &[EventType::Birth, EventType::Baptism])
     }
 
-    fn death_date(&self, person_id: Uuid) -> Option<String> {
+    /// The year to date this person's life *to*. See [`Self::qualified_birth_year`].
+    pub(crate) fn qualified_death_year(&self, person_id: Uuid) -> Option<QualifiedYear> {
+        self.first_qualified_year(person_id, &[EventType::Death, EventType::Burial])
+    }
+
+    fn first_qualified_year(
+        &self,
+        person_id: Uuid,
+        preference: &[EventType],
+    ) -> Option<QualifiedYear> {
         let events = self.events_by_person.get(&person_id)?;
-        if let Some(e) = events.iter().find(|e| e.event_type == EventType::Death) {
-            return e.date_value.as_deref().map(fmt_year);
-        }
-        if let Some(e) = events.iter().find(|e| e.event_type == EventType::Burial) {
-            return e.date_value.as_deref().map(fmt_year);
-        }
-        None
+        preference.iter().find_map(|wanted| {
+            events
+                .iter()
+                .filter(|e| e.event_type == *wanted)
+                .find_map(|e| e.qualified_year())
+        })
     }
 
     fn marriage_date_for_family(&self, family_id: Uuid) -> Option<String> {
@@ -776,8 +802,8 @@ struct TreeNode {
     sex: Sex,
     label_surname: String,
     label_given: String,
-    birth_year: Option<i32>,
-    death_year: Option<i32>,
+    birth_year: Option<QualifiedYear>,
+    death_year: Option<QualifiedYear>,
     photo_url: Option<String>,
     sosa_badge: SosaBadge,
     /// Indices into the TreeNode arena of children (for RT traversal).
@@ -806,8 +832,8 @@ impl TreeNode {
         sex: Sex,
         given: String,
         surname: String,
-        birth_year: Option<i32>,
-        death_year: Option<i32>,
+        birth_year: Option<QualifiedYear>,
+        death_year: Option<QualifiedYear>,
         photo_url: Option<String>,
         sosa_badge: SosaBadge,
         after: i32,
@@ -887,8 +913,8 @@ struct PersonNode {
     sex: Sex,
     given: String,
     surname: String,
-    birth_year: Option<i32>,
-    death_year: Option<i32>,
+    birth_year: Option<QualifiedYear>,
+    death_year: Option<QualifiedYear>,
     photo_url: Option<String>,
     sosa_badge: SosaBadge,
 }
@@ -905,17 +931,10 @@ impl PersonNode {
         let given = given.unwrap_or_default();
         let surname = surname.unwrap_or_default();
 
-        let birth_year = data
-            .events_by_person
-            .get(&id)
-            .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Birth))
-            .and_then(|e| e.year());
-
-        let death_year = data
-            .events_by_person
-            .get(&id)
-            .and_then(|evts| evts.iter().find(|e| e.event_type == EventType::Death))
-            .and_then(|e| e.year());
+        // Same resolution as the side panel, so a card and the panel beside it
+        // never disagree about when someone lived.
+        let birth_year = data.qualified_birth_year(id);
+        let death_year = data.qualified_death_year(id);
 
         let photo_url = data.photos.get(&id).cloned();
 
@@ -2237,8 +2256,8 @@ struct LayoutNode {
     sex: Sex,
     label_surname: String,
     label_given: String,
-    birth_year: Option<i32>,
-    death_year: Option<i32>,
+    birth_year: Option<QualifiedYear>,
+    death_year: Option<QualifiedYear>,
     photo_url: Option<String>,
     sosa_badge: SosaBadge,
     is_compact: bool,
@@ -2719,6 +2738,7 @@ pub struct MiniPedigreeProps {
 /// interactive [`PedigreeChart`].
 #[component]
 pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
+    let i18n = use_i18n();
     let selected_person_id = use_signal(|| props.root_person_id);
     let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
@@ -2827,6 +2847,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     noop_click,
                                     noop_empty_slot,
                                     false,
+                                    i18n,
                                 )}
                             }
                         }
@@ -2846,6 +2867,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     noop_click,
                                     noop_empty_slot,
                                     false,
+                                    i18n,
                                 )}
                             }
                         }
@@ -2908,6 +2930,7 @@ fn render_pedigree_card(
     on_person_click: EventHandler<(Uuid, f64, f64)>,
     on_empty_slot: EventHandler<(Uuid, bool)>,
     allow_empty_click: bool,
+    i18n: I18n,
 ) -> Element {
     let is_compact = node.is_compact;
     let (rw, rh) = if is_compact {
@@ -2961,7 +2984,37 @@ fn render_pedigree_card(
                 truncate_text_to_fit(&surname_up, text_max_width, SURNAME_FONT_SIZE_PX);
             let label_given = node.label_given.split(",").next().unwrap_or("").to_string();
             let given_disp = truncate_text_to_fit(&label_given, text_max_width, GIVEN_FONT_SIZE_PX);
-            let date_s = format_lifespan(node.birth_year, node.death_year);
+            let date_s = fit_lifespan(node.birth_year, node.death_year, text_max_width);
+            // Spelled-out form for the hover title; empty when both years are
+            // exact and the marks need no explaining.
+            let date_title = lifespan_tooltip(&i18n, node.birth_year, node.death_year);
+            // A bare `1849-1917` always fitted, so the date line was never
+            // measured. The marks make it up to five characters longer, which
+            // overruns a compact card's 72px. Squeeze rather than truncate:
+            // dropping characters off a date would silently change what it
+            // says, while `textLength` keeps every one of them legible.
+            let date_squeeze = (crate::utils::estimate_text_width_px(&date_s, DATE_FONT_SIZE_PX)
+                > text_max_width)
+                .then_some(text_max_width);
+            // A native SVG tooltip is a `<title>` child, and rsx cannot make
+            // one: dioxus-html defines `title` as the HTML element (its SVG
+            // twin is commented out), and an HTML-namespaced `<title>` inside
+            // an `<svg>` is inert. Assigning innerHTML on an SVG element parses
+            // the fragment in the SVG namespace, which is the only route to a
+            // real tooltip here.
+            //
+            // Both strings are ours — translated words, integers and the fixed
+            // marks — but the marks are literally `<` and `>`, so they are
+            // escaped rather than trusted.
+            let date_html = if date_title.is_empty() {
+                escape_xml(&date_s)
+            } else {
+                format!(
+                    "<title>{}</title>{}",
+                    escape_xml(&date_title),
+                    escape_xml(&date_s)
+                )
+            };
             let has_surname = !surname_disp.is_empty();
             let has_given = !given_disp.is_empty();
             let has_date = !date_s.is_empty();
@@ -3026,8 +3079,21 @@ fn render_pedigree_card(
                         if has_surname {
                             tspan { x: "{tx}", y: "{surname_y}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_disp}" }
                         }
-                        if has_date {
-                            tspan { x: "{tx}", y: "{date_y}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{date_s}" }
+                    }
+                    // The lifespan is its own `text` rather than a third tspan
+                    // so it can own a `<title>`: SVG 1.1 does not allow one
+                    // inside a `tspan`, and the qualifier marks are exactly the
+                    // part of the card that needs to be able to explain itself.
+                    // Absolute x/y means it lands where the tspan did.
+                    if has_date {
+                        text {
+                            class: "ped-card-name-text",
+                            x: "{tx}",
+                            y: "{date_y}",
+                            style: "font-size:{DATE_FONT_SIZE_PX}px;font-family:'Lato',sans-serif;fill:{text_fill}",
+                            "textLength": date_squeeze.map(|w| w.to_string()),
+                            "lengthAdjust": date_squeeze.map(|_| "spacingAndGlyphs"),
+                            dangerous_inner_html: "{date_html}",
                         }
                     }
                     if is_focus {
@@ -3330,14 +3396,16 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         .map(|url| url.as_str())
         .unwrap_or_else(|| default_portrait(props.data.sex_of(sel_pid)))
         .to_string();
-    let sel_birth = props.data.birth_date(sel_pid).unwrap_or_default();
-    let sel_death = props.data.death_date(sel_pid).unwrap_or_default();
-    let sel_dates = match (sel_birth.is_empty(), sel_death.is_empty()) {
-        (true, true) => String::new(),
-        (false, true) => i18n.t_args("pedigree.birth_year_abbr", &[("year", &sel_birth)]),
-        (true, false) => i18n.t_args("pedigree.death_year_abbr", &[("year", &sel_death)]),
-        _ => format!("{sel_birth} \u{2013} {sel_death}"),
-    };
+    // The same lifespan the card draws, rather than the old "n. 1620" / "d.
+    // 1691" abbreviations: the panel sits beside the card showing the very
+    // same person, and two spellings of one life read as two different facts.
+    // The events below keep their own full-text dates.
+    // Always the wide form here: this is HTML that wraps, so unlike the card
+    // it never has to give up a range's far end.
+    let sel_dates = format_lifespan(
+        props.data.qualified_birth_year(sel_pid),
+        props.data.qualified_death_year(sel_pid),
+    );
 
     // Family IDs where the selected person is a spouse — used both to pull in
     // conjugal-family events below and to flag which rendered events are
@@ -3727,6 +3795,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             props.on_person_click,
                                             props.on_empty_slot,
                                             true,
+                                            i18n,
                                         )}
                                     }
                                 }
@@ -3748,6 +3817,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             props.on_person_click,
                                             desc_empty_slot_adapter,
                                             true,
+                                            i18n,
                                         )}
                                     }
                                 }
@@ -3873,6 +3943,160 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod lifespan_tests {
+    use super::*;
+
+    fn y(year: i32, qualifier: DateQualifier) -> Option<QualifiedYear> {
+        Some(QualifiedYear::new(year, qualifier))
+    }
+
+    /// The card for the person this feature was modelled on: born about 1849,
+    /// died before 5 August 1917. Geneanet draws `ca 1849-< 1917`; so do we.
+    #[test]
+    fn a_card_hedges_each_year_independently() {
+        assert_eq!(
+            format_lifespan(
+                y(1849, DateQualifier::About),
+                y(1917, DateQualifier::Before)
+            ),
+            "ca 1849-< 1917"
+        );
+    }
+
+    /// A missing year keeps its dash — the card still says "and then nothing
+    /// is known", which is different from saying nothing at all.
+    #[test]
+    fn a_half_known_life_keeps_its_dash() {
+        assert_eq!(
+            format_lifespan(y(1907, DateQualifier::Before), None),
+            "< 1907-"
+        );
+        assert_eq!(
+            format_lifespan(y(1912, DateQualifier::After), None),
+            "> 1912-"
+        );
+        assert_eq!(
+            format_lifespan(None, y(1940, DateQualifier::Exact)),
+            "-1940"
+        );
+        assert_eq!(format_lifespan(None, None), "");
+    }
+
+    /// Exact dates are the common case and must stay exactly as they were
+    /// before qualifiers existed — no stray space, no mark.
+    #[test]
+    fn exact_years_are_unchanged() {
+        assert_eq!(
+            format_lifespan(y(1879, DateQualifier::Exact), y(1940, DateQualifier::Exact)),
+            "1879-1940"
+        );
+    }
+
+    fn range(from: i32, to: i32, qualifier: DateQualifier) -> Option<QualifiedYear> {
+        Some(QualifiedYear {
+            year: from,
+            qualifier,
+            year2: Some(to),
+        })
+    }
+
+    /// A range is a fact the card can carry: "between 1691 and 1693" says more
+    /// than either year alone, so both are drawn when there is room.
+    #[test]
+    fn a_range_shows_both_of_its_years() {
+        assert_eq!(
+            format_lifespan(None, range(1691, 1693, DateQualifier::Between)),
+            "-1691..1693"
+        );
+        assert_eq!(
+            format_lifespan(None, range(1691, 1693, DateQualifier::Or)),
+            "-1691|1693"
+        );
+    }
+
+    /// Two ranges measure 105.8px, past even the full card's 105px column, so
+    /// the pair degrades to the marks rather than being squeezed unreadably.
+    /// One range fits everywhere.
+    #[test]
+    fn a_lifespan_degrades_when_the_range_will_not_fit() {
+        let both = (
+            range(1691, 1693, DateQualifier::Between),
+            range(1745, 1750, DateQualifier::Between),
+        );
+        assert_eq!(
+            fit_lifespan(both.0, both.1, TEXT_MAX_WIDTH_FULL),
+            ".. 1691-.. 1745",
+            "two ranges do not fit the full card and lose their far ends"
+        );
+
+        // A single range is 49.8px — comfortable on both card widths.
+        let one = range(1691, 1693, DateQualifier::Between);
+        assert_eq!(fit_lifespan(None, one, TEXT_MAX_WIDTH_FULL), "-1691..1693");
+        assert_eq!(
+            fit_lifespan(None, one, TEXT_MAX_WIDTH_COMPACT),
+            "-1691..1693"
+        );
+    }
+
+    /// The narrow form still says *that* it is a range, so a reader is never
+    /// told a hedged date is exact — only that the card ran out of room.
+    #[test]
+    fn the_narrow_form_keeps_the_mark() {
+        let y = range(1691, 1693, DateQualifier::Between).unwrap();
+        assert_eq!(y.wide(), "1691..1693");
+        assert_eq!(y.narrow(), ".. 1691");
+    }
+
+    /// The tooltip is injected as markup, and the marks it sits beside are
+    /// `<` and `>`. Unescaped, `< 1917` would be swallowed as a bogus tag and
+    /// the card would silently lose its death year.
+    #[test]
+    fn the_marks_survive_being_written_as_markup() {
+        assert_eq!(escape_xml("ca 1849-< 1917"), "ca 1849-&lt; 1917");
+        assert_eq!(escape_xml("> 1912-"), "&gt; 1912-");
+        assert_eq!(escape_xml("1879-1940"), "1879-1940");
+    }
+
+    /// The tooltip exists to explain the marks, so it stays empty when there
+    /// is nothing to explain rather than restating the card.
+    #[test]
+    fn the_tooltip_is_silent_on_exact_dates() {
+        let i18n = I18n(crate::i18n::Language::En);
+        assert_eq!(
+            lifespan_tooltip(
+                &i18n,
+                y(1879, DateQualifier::Exact),
+                y(1940, DateQualifier::Exact)
+            ),
+            ""
+        );
+        assert_eq!(
+            lifespan_tooltip(
+                &i18n,
+                y(1849, DateQualifier::About),
+                y(1917, DateQualifier::Before)
+            ),
+            "About 1849 \u{2013} Before 1917"
+        );
+    }
+
+    /// A range reads as one phrase in the tooltip, which is where the far end
+    /// the card had to drop comes back.
+    #[test]
+    fn the_tooltip_spells_out_a_range() {
+        let i18n = I18n(crate::i18n::Language::En);
+        assert_eq!(
+            lifespan_tooltip(&i18n, None, range(1691, 1693, DateQualifier::Between)),
+            "Between 1691 and 1693"
+        );
+        assert_eq!(
+            lifespan_tooltip(&i18n, None, range(1691, 1693, DateQualifier::Or)),
+            "1691 or 1693"
+        );
     }
 }
 

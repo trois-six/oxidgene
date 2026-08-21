@@ -12,7 +12,7 @@
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::{
-    enums::EventType,
+    enums::{DateQualifier, EventType},
     types::{
         Place, Source, join_surname_particle, split_surname_at_head, split_surname_particle,
         year_from_date,
@@ -52,7 +52,12 @@ pub struct PersonUsageEntry {
     pub given_names: Option<String>,
     pub surname: Option<String>,
     pub birth_year: Option<i32>,
+    /// Precision of `birth_year`, so the list hedges the same way the pedigree
+    /// cards do. Beside the year rather than folded into it — the year stays an
+    /// integer the client can sort on.
+    pub birth_qualifier: DateQualifier,
     pub death_year: Option<i32>,
+    pub death_qualifier: DateQualifier,
 }
 
 /// Outcome of [`DictionaryRepo::set_family_name_particle`].
@@ -609,8 +614,8 @@ impl DictionaryRepo {
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        let mut birth_by_person: HashMap<Uuid, i32> = HashMap::new();
-        let mut death_by_person: HashMap<Uuid, i32> = HashMap::new();
+        let mut birth_by_person: HashMap<Uuid, (i32, DateQualifier)> = HashMap::new();
+        let mut death_by_person: HashMap<Uuid, (i32, DateQualifier)> = HashMap::new();
         for e in events {
             let Some(pid) = e.person_id else { continue };
             let Some(year) = year_from_date(e.date_sort, e.date_value.as_deref()) else {
@@ -621,7 +626,9 @@ impl DictionaryRepo {
                 EventType::Death => &mut death_by_person,
                 _ => continue,
             };
-            bucket.entry(pid).or_insert(year);
+            bucket
+                .entry(pid)
+                .or_insert((year, DateQualifier::from(e.date_qualifier)));
         }
 
         let mut out: Vec<PersonUsageEntry> = person_ids
@@ -636,8 +643,16 @@ impl DictionaryRepo {
                         trimmed(n.surname.as_deref())
                             .map(|root| join_surname_particle(n.surname_prefix.as_deref(), &root))
                     }),
-                    birth_year: birth_by_person.get(&person_id).copied(),
-                    death_year: death_by_person.get(&person_id).copied(),
+                    birth_year: birth_by_person.get(&person_id).map(|(y, _)| *y),
+                    birth_qualifier: birth_by_person
+                        .get(&person_id)
+                        .map(|(_, q)| *q)
+                        .unwrap_or_default(),
+                    death_year: death_by_person.get(&person_id).map(|(y, _)| *y),
+                    death_qualifier: death_by_person
+                        .get(&person_id)
+                        .map(|(_, q)| *q)
+                        .unwrap_or_default(),
                 }
             })
             .collect();

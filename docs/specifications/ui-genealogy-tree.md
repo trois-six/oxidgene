@@ -108,6 +108,70 @@ Horizontal arrangement: avatar on the left, text information on the right.
 - Dates in priority order: Birth > Baptism for start date, Death > Burial for end date (`.pc-dates`)
 - Date format: `dd/mm/yyyy`, or year only if day/month is unknown
 
+**Date precision marks.** A card has room for a year and nothing else, so an
+approximate date would otherwise be drawn as a bare number and read as a fact.
+Each year carries the mark for its own `date_qualifier`, giving `ca 1849-< 1917`
+— "born about 1849, died before 1917". The symbols are GeneWeb's
+(`prec_text`, `lib/dateDisplay.ml`), which is what Geneanet draws, so a user
+arriving from a Geneanet tree already reads them:
+
+| Qualifier | Mark | Reads as |
+|---|---|---|
+| `Exact` | *(none)* | `1849` |
+| `About`, `Calculated`, `Estimated`, `FromAge` | `ca ` | `ca 1849` |
+| `Perhaps` | `? ` | `? 1849` |
+| `Before` | `< ` | `< 1917` |
+| `After` | `> ` | `> 1912` |
+| `Or` | `\| ` | `1849\|1852`, or `\| 1849` |
+| `Between` | `.. ` | `1691..1693`, or `.. 1691` |
+
+GEDCOM's `CAL`/`EST` and our own `FromAge` have no GeneWeb counterpart and all
+read as `ca`: each is an approximation reached by a different route, and a card
+wants the same warning from all three. The distinction is not lost — it stays on
+the event, and both the person edit modal and the events panel still name it in
+full (« vers 1849 », « avant 1917 »).
+
+**Ranges get both years when they fit.** `Or` and `Between` name two dates, and
+the range is the fact — `1691..1693` says more than either year alone. Measured
+against the project's own width estimator at 10px:
+
+| Rendering | Width | Full card (105px) | Compact card (72px) |
+|---|---|---|---|
+| `1691..1693` | 49.8px | fits | fits |
+| `ca 1620-1691..1693` | 92.2px | fits | too wide |
+| `1691\|1693-1745\|1750` | 100.8px | fits | too wide |
+| `1691..1693-1745..1750` | 105.8px | **too wide** | too wide |
+
+So the wide form is used when it fits and the narrow one (`.. 1691`) when it
+does not, rather than squeezing glyphs to illegibility. The narrow form keeps
+the mark, so the card understates rather than misleads, and the full text is
+one hover away. The side panel's header always uses the wide form: it is HTML
+and wraps, so it never has to give a range's far end up.
+
+**Falling back to the sacraments.** A parish register very often records a
+baptism and no birth — frequently as an *empty birth stub* someone created to
+hang a source on. The card is dated from `Birth > Baptism` and
+`Death > Burial`, and the fallback triggers on a **missing date, not a missing
+event**: testing `birth.is_none()` keeps the stub and draws a blank year while
+a perfectly good "vers 1620" sits unused on the baptism. GeneWeb tests the date
+for the same reason (`Date.od_of_cdate`, `Gutil.get_birth_death_date`).
+
+What we deliberately do *not* copy from GeneWeb is its single `approx` flag
+covering **both** ends of a life: there, a person whose birth came from a
+baptism gets `ca` stamped on their death year too, which is how Geneanet shows
+`ca 1691` for a death actually recorded as "entre 11 nov. 1691 et 20 août
+1693". Each event keeps its own precision here.
+
+Hovering the date shows the qualifiers spelled out in the current language, as
+a native SVG `<title>` — including the far end a narrowed range had to drop
+(« Entre 1691 et 1693 »). The tooltip is omitted when every year is exact and
+there is nothing to explain. Because the marks include `<` and `>`, the tooltip
+is injected as escaped markup — Dioxus's rsx `title` is the HTML element, and an
+HTML-namespaced `<title>` inside an `<svg>` is inert.
+
+The line is still compressed with `textLength`/`lengthAdjust` when even the
+narrow form overruns: dropping characters off a date would change what it says.
+
 **Date indicators** (`.pc-born`, `.pc-died`):
 | Symbol | Color | Meaning |
 |---|---|---|
@@ -321,6 +385,18 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 ### Content
 
 Header with avatar (default portrait or profile photo), full name and dates of the selected person. Then a chronological list of their events, grouped by year.
+
+The header's dates are **the same lifespan string the card draws** — precision
+marks and all — not the `n. 1620` / `d. 1691` abbreviations it used to carry.
+The panel sits beside the card showing that very person, and two spellings of
+one life read as two different facts.
+
+The **events below keep their own full-text dates** (« entre 11 nov. 1691 et
+20 août 1693 »), rendered through `format_date`. That needs the whole event, so
+`PedigreeNode` carries `birth` / `death` as `ProfileEvent`s rather than an
+extracted year: a year string cannot hold the day, the month, the far end of a
+range, or the calendar, and dropping them is what once made a birth on 2 Nov
+1788 show as a bare "1788".
 
 ```
 +------------------------------+
