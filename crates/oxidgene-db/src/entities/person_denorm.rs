@@ -14,6 +14,11 @@ pub struct Model {
     pub tree_id: Uuid,
     #[sea_orm(column_type = "Text")]
     pub payload: String,
+    /// Which build's [`PersonProfile`](oxidgene_core::projection::PersonProfile)
+    /// shape `payload` holds. Rows below
+    /// `oxidgene_core::projection::PROJECTION_SCHEMA_VERSION` read as absent
+    /// and are rebuilt; see `crate::repo::PersonDenormRepo`.
+    pub schema_version: i32,
     pub updated_at: DateTimeWithTimeZone,
 }
 
