@@ -923,8 +923,8 @@ impl ProfileService {
                                 .and_then(|n| n.given_names.clone()),
                             surname: person.primary_name.as_ref().and_then(|n| n.surname.clone()),
                             sex: person.sex,
-                            birth_year: person.birth.as_ref().and_then(builder::extract_year),
-                            death_year: person.death.as_ref().and_then(builder::extract_year),
+                            birth: person.birth_or_baptism().cloned(),
+                            death: person.death_or_burial().cloned(),
                         });
                     }
                 }
