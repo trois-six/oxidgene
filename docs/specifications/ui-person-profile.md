@@ -95,6 +95,12 @@ Full-width card at the top of the content area.
 
 **Dates**: birth and death with symbols (* / +), place names included. Calculated age displayed if both dates are known.
 
+The dates are written out in full through `format_date`, qualifier included — « vers 1796 », « entre 11 nov. 1691 et 20 août 1693 » — not reduced to a year. Birth falls back to **baptism** and death to **burial** when the primary event carries no date, matching the pedigree card and its side panel; see [Tree View](ui-genealogy-tree.md).
+
+**A clause that would say nothing is not rendered.** A birth event carrying neither a date nor a place used to produce a dangling « Né(e) le » with nothing after it — a stub created to hang a source on is extremely common in a parish tree. The clause is now omitted entirely, and a birth with a place but no date reads « Né à Blain », which is the treatment « Décédé » already had.
+
+**The participle agrees with the sex.** `Sex::Male` gives « Né » / « Décédé », `Sex::Female` « Née » / « Décédée », and the parenthesised « Né(e) » is kept for `Sex::Unknown` — which is exactly what that value records, so the hedge is spent only where there is something to hedge. Implemented by suffixing the i18n key (`_male` / `_female`, bare for unknown); English has no agreement, so its three keys carry the same string and this costs nothing there. See [i18n](i18n.md).
+
 **Gender**: label + colored dot (blue male, pink female, grey unknown).
 
 **Action buttons**:
