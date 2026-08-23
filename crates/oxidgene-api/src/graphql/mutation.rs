@@ -885,6 +885,7 @@ impl MutationRoot {
             page_count: ingested.page_count,
             title: input.title,
             description: input.description,
+            created_at: chrono::Utc::now(),
         };
 
         let media = match input.media_id {
@@ -989,7 +990,8 @@ impl MutationRoot {
     ) -> Result<GqlMedia> {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let media = MediaRepo::create_document(db, Uuid::now_v7(), tid, title).await?;
+        let media =
+            MediaRepo::create_document(db, Uuid::now_v7(), tid, title, chrono::Utc::now()).await?;
         Ok(media.into())
     }
 

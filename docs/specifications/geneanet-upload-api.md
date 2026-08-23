@@ -276,7 +276,7 @@ for new uploads the app expects local file paths. The app filters keys by allowe
 | `views[].files` | object | keys `"normal"`, `"medium"`, `"screen"`, `"thumbnail"` → relative CDN paths (`/public/img/media/deposits/…?t=<ts>`) |
 | `date_create` | string | ISO 8601, e.g. `"2026-08-08T17:02:02+02:00"` |
 
-`GET /media/deposits/{id}` returns the same object shape for a single deposit, plus a `date` field (string, e.g. `"1946-09-03"` — the date attributed to the media, distinct from `date_create` = upload timestamp) **[auth]**. **No original filename is exposed anywhere** — neither in the list nor in the detail; files are only identified by their hashed CDN paths.
+`GET /media/deposits/{id}` returns the same object shape for a single deposit, plus `date` (string, e.g. `"1946-09-03"` — the date attributed to the media, distinct from `date_create` = upload timestamp) and `location` **[auth]**. OxidGene collects this detail only for linked deposits: it converts the date into the normal calendar-aware Media/Event fields and resolves the location through the tree's shared Place table. **No original filename is exposed anywhere** — neither in the list nor in the detail; files are only identified by their hashed CDN paths.
 
 ---
 

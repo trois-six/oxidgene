@@ -1488,6 +1488,10 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
     rsx! {
         div { class: "media-facts",
             MediaFact { label: i18n.t("media.title"), value: media.title.clone() }
+            MediaFact {
+                label: i18n.t("media.created_at"),
+                value: Some(media.created_at.format("%Y-%m-%d %H:%M UTC").to_string()),
+            }
             MediaFact { label: i18n.t("media.date"), value: (!date.is_empty()).then_some(date) }
             MediaFact { label: i18n.t("media.place"), value: place }
             MediaFact {

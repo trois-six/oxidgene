@@ -20,6 +20,14 @@ pub struct Deposit {
     #[serde(default)]
     pub private: bool,
     pub date_create: Option<String>,
+    /// Historical date attributed to the medium, returned by the detail
+    /// endpoint rather than the paginated listing.
+    #[serde(default)]
+    pub date: Option<String>,
+    /// Place attributed to the medium by Geneanet. The website has emitted a
+    /// plain name as well as a named object, so both wire shapes are accepted.
+    #[serde(default)]
+    pub location: Option<Location>,
     #[serde(default)]
     pub views: Vec<View>,
 }
@@ -32,6 +40,24 @@ pub struct View {
     /// Rendition name (`normal`, `medium`, `screen`, `thumbnail`) → URL path.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+}
+
+/// A place returned by Geneanet's media detail endpoint.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum Location {
+    Name(String),
+    Named { name: Option<String> },
+}
+
+impl Location {
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::Name(name) => Some(name),
+            Self::Named { name } => name.as_deref(),
+        }
+    }
 }
 
 /// A person a view is attached to.
@@ -147,6 +173,10 @@ pub struct BrowserCollection {
     /// Links from `/media/api/references`, deposit inline.
     #[serde(default)]
     pub references: Vec<ReferenceEntry>,
+    /// Detail responses for deposits linked to at least one person. This was
+    /// absent from saved collections before detail enrichment existed.
+    #[serde(default)]
+    pub details: Vec<Deposit>,
     /// Links located page by page, keyed `"<depositId>:<viewId>"` — only for
     /// multi-page deposits, which the bulk endpoint cannot pin to a page.
     #[serde(default)]
@@ -161,22 +191,38 @@ impl BrowserCollection {
     /// single-page deposit can only belong to that page, and the rest were
     /// already located by the browser.
     pub fn into_references(self) -> (Vec<Deposit>, LocatedReferences) {
+        let Self {
+            mut deposits,
+            references,
+            details,
+            view_references,
+        } = self;
+        let details: BTreeMap<i64, Deposit> = details
+            .into_iter()
+            .map(|detail| (detail.id, detail))
+            .collect();
+        for deposit in &mut deposits {
+            if let Some(detail) = details.get(&deposit.id) {
+                deposit.date = detail.date.clone();
+                deposit.location = detail.location.clone();
+            }
+        }
         let mut located = LocatedReferences::new();
 
-        for entry in self.references {
+        for entry in references {
             if let [only] = entry.deposit.views.as_slice() {
                 let key = (entry.deposit.id, only.id);
                 located.entry(key).or_default().push(entry.into_reference());
             }
         }
 
-        for (key, refs) in self.view_references {
+        for (key, refs) in view_references {
             if let Some((deposit_id, view_id)) = parse_view_key(&key) {
                 located.insert((deposit_id, view_id), refs);
             }
         }
 
-        (self.deposits, located)
+        (deposits, located)
     }
 }
 
@@ -215,6 +261,12 @@ pub struct ManifestDeposit {
     pub private: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_create: Option<String>,
+    /// Historical media date, in Geneanet's source format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+    /// Name of the historical media place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
     /// Absolute URL of the uncompressed original.
     ///
     /// Deposit-level on purpose: `/media/download/` serves a *deposit*, so this
@@ -336,6 +388,14 @@ impl Manifest {
                     kind: deposit.kind,
                     private: deposit.private,
                     date_create: deposit.date_create,
+                    date: deposit.date,
+                    location: deposit.location.and_then(|location| {
+                        location
+                            .name()
+                            .map(str::trim)
+                            .filter(|name| !name.is_empty())
+                            .map(str::to_string)
+                    }),
                     local_file: None,
                     views,
                 }
@@ -373,6 +433,8 @@ mod tests {
             kind: Some("portraits".to_string()),
             private: true,
             date_create: Some("2019-04-26".to_string()),
+            date: None,
+            location: None,
             views,
         }
     }

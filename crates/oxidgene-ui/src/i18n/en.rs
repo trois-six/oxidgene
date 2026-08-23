@@ -945,6 +945,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.error_too_large", "File is too large."),
         ("media.none", "No media attached."),
         ("media.title", "Title"),
+        ("media.created_at", "Created at"),
         ("media.description", "Description"),
         ("media.profile_image", "Profile image"),
         ("media.set_profile_image", "Use as profile image"),

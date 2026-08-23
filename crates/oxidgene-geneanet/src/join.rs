@@ -291,6 +291,8 @@ mod tests {
                 kind: Some("portraits".to_string()),
                 private: true,
                 date_create: None,
+                date: None,
+                location: None,
                 local_file: None,
                 views,
             }],
