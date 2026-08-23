@@ -214,6 +214,26 @@ A **deposit** is one upload; a **view** is one page of it. Links attach to
 views, not deposits. There is no `original` rendition — only `/media/download`
 serves that.
 
+#### Media classification
+
+The deposit's `type` is retained on import; it is not inferred from the image
+format or the number of pages. OxidGene records the two questions separately:
+
+| Geneanet `type` | `source_media_type` (GEDCOM) | `document_category` (OxidGene) |
+|---|---|---|
+| A GEDCOM medium such as `photo`, `film` or `video` | That exact GEDCOM medium | none |
+| `portraits` | `photo` | `portrait` |
+| `photo_groupe` | `photo` | `group_photo` |
+| `État civil` / `acte_etat_civil` | `manuscript` | `civil_record` |
+| `Registre paroissial`, `Archive notariée`, `Archive militaire`, `Recensement` | `manuscript` | the matching record category |
+| `Blason` | `other` | `coat_of_arms` |
+| `Tombe` | `tombstone` | `grave` |
+| `autres`, absent, or an unrecognised value | `other` | `other` |
+
+The category labels are translated by the UI's i18n catalogs after import. A
+French value such as `Archive notariée` therefore appears as *Notarial record*
+in an English interface, while its GEDCOM export remains `MANUSCRIPT`.
+
 ### `GET /media/api/references?page=N&per_page=100`
 
 **The endpoint the whole pipeline exists for, and the one to use.** Every

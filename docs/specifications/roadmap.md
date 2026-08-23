@@ -19,6 +19,24 @@ timestamp: 2026-07-19T00:00:00Z
 Moved here from [General §8b](general.md) — the sprints below say what is
 planned, and this says what actually landed. Newest first.
 
+**Shipped 2026-08-23 — Geneanet media retain their classification:**
+- **The import no longer defaults every medium to `OTHER`.** A Geneanet
+  deposit's `type` is mapped at write time to OxidGene's two media fields:
+  a GEDCOM medium (`photo`, `film`, `video`, ...) stays an exact
+  `source_media_type`; Geneanet's richer record types (`portraits`, civil,
+  parish, notarial and military records, census, grave, ...) retain their
+  `document_category` and set the GEDCOM medium that category implies. The
+  same mapping is written on a multi-page document and every page below it.
+- **French source labels remain localised.** The import accepts the French and
+  technical Geneanet spellings, then stores enum values rather than source
+  text; the usual i18n keys render `Archive notariée` as *Notarial record* in
+  English, while a GEDCOM export writes `MANUSCRIPT`. Unknown or explicitly
+  `autres` types remain visibly `Other`, rather than being guessed from an
+  image's file format. Existing imports retain their previous values and need
+  a new import to receive this classification.
+- [x] Verified by `cargo fmt` and the targeted
+  `geneanet_categories_keep_their_physical_medium` test.
+
 **Shipped 2026-08-23 — identity follows the reader to the person profile:**
 - **The profile now repeats the tree identity.** A person chosen through Who am
   I? has a blue **Me** badge beside their green SOSA badge. It is a direct link

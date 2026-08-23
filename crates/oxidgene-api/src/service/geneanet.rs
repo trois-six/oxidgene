@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
-    MediaLinkRepo, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, TreeRepo,
+    MediaLinkRepo, MediaPatch, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, TreeRepo,
     UploadedMedia, VignetteInput, VignetteRepo,
 };
 use oxidgene_geneanet::Manifest;
@@ -884,20 +884,22 @@ async fn prepare_single_pages(
                     view.id,
                     photo_file_name(deposit, view, extension),
                     deposit.title.clone(),
+                    media_classification(deposit),
                     bytes,
                 )),
                 Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
             }
         }
 
-        let ingested = futures_util::future::join_all(
-            resolved
-                .iter()
-                .map(|(_, _, name, _, bytes)| media::ingest(store, tree_id, name, bytes.clone())),
-        )
-        .await;
+        let ingested =
+            futures_util::future::join_all(resolved.iter().map(|(_, _, name, _, _, bytes)| {
+                media::ingest(store, tree_id, name, bytes.clone())
+            }))
+            .await;
 
-        for ((deposit_id, view_id, name, title, _), outcome) in resolved.iter().zip(ingested) {
+        for ((deposit_id, view_id, name, title, classification, _), outcome) in
+            resolved.iter().zip(ingested)
+        {
             let ingested = match outcome {
                 Ok(ingested) => ingested,
                 Err(err) => {
@@ -906,7 +908,16 @@ async fn prepare_single_pages(
                 }
             };
 
-            if let Some(id) = write_media(db, tree_id, ingested, title.clone(), summary).await {
+            if let Some(id) = write_media(
+                db,
+                tree_id,
+                ingested,
+                title.clone(),
+                *classification,
+                summary,
+            )
+            .await
+            {
                 summary.media_count += 1;
                 prepared.insert(*deposit_id, (id, HashMap::from([(*view_id, id)])));
             }
@@ -936,8 +947,16 @@ async fn document(
     summary: &mut GeneanetImportSummary,
 ) -> Option<(Uuid, HashMap<i64, Uuid>)> {
     let document_id = Uuid::now_v7();
+    let classification = media_classification(deposit);
     match MediaRepo::create_document(db, document_id, tree_id, deposit.title.clone()).await {
-        Ok(_) => {}
+        Ok(_) => {
+            if let Err(err) = update_media_classification(db, document_id, classification).await {
+                summary
+                    .skipped
+                    .push(format!("deposit {}: {err}", deposit.id));
+                return None;
+            }
+        }
         Err(err) => {
             summary
                 .skipped
@@ -993,7 +1012,9 @@ async fn document(
                 }
             };
 
-            let Some(page_id) = write_media(db, tree_id, ingested, None, summary).await else {
+            let Some(page_id) =
+                write_media(db, tree_id, ingested, None, classification, summary).await
+            else {
                 continue;
             };
 
@@ -1352,6 +1373,10 @@ async fn write_media(
     tree_id: Uuid,
     ingested: crate::media::IngestedMedia,
     title: Option<String>,
+    classification: (
+        oxidgene_core::enums::SourceMediaType,
+        Option<oxidgene_core::enums::DocumentCategory>,
+    ),
     summary: &mut GeneanetImportSummary,
 ) -> Option<Uuid> {
     let upload = UploadedMedia {
@@ -1369,12 +1394,81 @@ async fn write_media(
     };
 
     match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, upload).await {
-        Ok(row) => Some(row.id),
+        Ok(row) => match update_media_classification(db, row.id, classification).await {
+            Ok(_) => Some(row.id),
+            Err(err) => {
+                summary.skipped.push(format!("{err}"));
+                None
+            }
+        },
         Err(err) => {
             summary.skipped.push(format!("{err}"));
             None
         }
     }
+}
+
+async fn update_media_classification(
+    db: &DatabaseConnection,
+    media_id: Uuid,
+    (source_media_type, document_category): (
+        oxidgene_core::enums::SourceMediaType,
+        Option<oxidgene_core::enums::DocumentCategory>,
+    ),
+) -> Result<(), OxidGeneError> {
+    MediaRepo::update(
+        db,
+        media_id,
+        MediaPatch {
+            source_media_type: Some(source_media_type),
+            document_category: Some(document_category),
+            ..MediaPatch::default()
+        },
+    )
+    .await
+    .map(|_| ())
+}
+
+/// Preserve the category Geneanet assigned to the record and its GEDCOM
+/// physical medium. A label already in GEDCOM's vocabulary is a medium;
+/// Geneanet-only labels use the richer document category instead.
+fn media_classification(
+    deposit: &ManifestDeposit,
+) -> (
+    oxidgene_core::enums::SourceMediaType,
+    Option<oxidgene_core::enums::DocumentCategory>,
+) {
+    use oxidgene_core::enums::{DocumentCategory, SourceMediaType};
+
+    let kind = deposit.kind.as_deref().unwrap_or_default().trim();
+    if let Some(source_media_type) = SourceMediaType::parse(kind) {
+        return (source_media_type, None);
+    }
+
+    let category = match kind.to_ascii_lowercase().as_str() {
+        "portrait" | "portraits" => Some(DocumentCategory::Portrait),
+        "photo_groupe" | "photo de groupe" | "photos de groupe" => {
+            Some(DocumentCategory::GroupPhoto)
+        }
+        "document_familial" | "document familial" => Some(DocumentCategory::FamilyDocument),
+        "acte_etat_civil" | "état civil" | "etat civil" => Some(DocumentCategory::CivilRecord),
+        "registre_paroissial" | "registre paroissial" => Some(DocumentCategory::ParishRecord),
+        "acte_notarie" | "archive notariée" | "archive notariale" => {
+            Some(DocumentCategory::NotarialArchive)
+        }
+        "archive_militaire" | "archive militaire" => Some(DocumentCategory::MilitaryArchive),
+        "recensement" | "recensements" => Some(DocumentCategory::Census),
+        "blason" | "blasons" => Some(DocumentCategory::CoatOfArms),
+        "tombe" | "tombeau" | "pierre tombale" => Some(DocumentCategory::Grave),
+        "autres" | "other" | "" => Some(DocumentCategory::Other),
+        // Geneanet's API is undocumented. Keep an unexpected value visibly
+        // unclassified rather than claiming a medium it did not state.
+        _ => Some(DocumentCategory::Other),
+    };
+
+    let source_media_type =
+        category.map_or(SourceMediaType::Other, DocumentCategory::implied_medium);
+    (source_media_type, category)
 }
 
 /// Gets a medium's bytes, preferring a copy the user already has.
@@ -1529,6 +1623,46 @@ mod tests {
             local_file: None,
             views,
         }
+    }
+
+    #[test]
+    fn geneanet_categories_keep_their_physical_medium() {
+        let portrait = deposit(1, vec![view(10, Some(1))]);
+        assert_eq!(
+            media_classification(&portrait),
+            (
+                oxidgene_core::enums::SourceMediaType::Photo,
+                Some(oxidgene_core::enums::DocumentCategory::Portrait),
+            )
+        );
+
+        let mut census = deposit(2, vec![view(20, Some(1))]);
+        census.kind = Some("Archive notariée".to_string());
+        assert_eq!(
+            media_classification(&census),
+            (
+                oxidgene_core::enums::SourceMediaType::Manuscript,
+                Some(oxidgene_core::enums::DocumentCategory::NotarialArchive),
+            )
+        );
+
+        let mut unknown = deposit(3, vec![view(30, Some(1))]);
+        unknown.kind = Some("autres".to_string());
+        assert_eq!(
+            media_classification(&unknown).0,
+            oxidgene_core::enums::SourceMediaType::Other,
+        );
+        assert_eq!(
+            media_classification(&unknown).1,
+            Some(oxidgene_core::enums::DocumentCategory::Other),
+        );
+
+        let mut gedcom = deposit(4, vec![view(40, Some(1))]);
+        gedcom.kind = Some("video".to_string());
+        assert_eq!(
+            media_classification(&gedcom),
+            (oxidgene_core::enums::SourceMediaType::Video, None),
+        );
     }
 
     #[test]
