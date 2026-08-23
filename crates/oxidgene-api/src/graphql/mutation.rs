@@ -8,9 +8,9 @@ use uuid::Uuid;
 
 use oxidgene_db::repo::{
     CitationRepo, DictionaryRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo,
-    FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonNamePieces, PersonNamePiecesPatch,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput,
-    VignettePatch, VignetteRepo,
+    FamilySpouseRepo, MediaLinkRepo, MediaRepo, MediaTagRepo, NoteRepo, PersonNamePieces,
+    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
+    UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
 };
 
 use super::inputs::{
@@ -933,6 +933,32 @@ impl MutationRoot {
             .map_err(|e| async_graphql::Error::new(e.0.to_string()))?;
         let media = MediaRepo::update(db, uuid, media_patch).await?;
         Ok(media.into())
+    }
+
+    /// Atomically add a tag without replacing the media's other tags.
+    async fn add_media_tag(&self, ctx: &Context<'_>, id: ID, tag: String) -> Result<GqlMedia> {
+        let db = db_from_ctx(ctx);
+        let media = MediaRepo::get(db, Uuid::parse_str(id.as_str())?).await?;
+        let (tag, normalized_tag) = crate::rest::media::normalize_tag(tag)
+            .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
+        let target_id = media.parent_media_id.unwrap_or(media.id);
+        MediaTagRepo::create(db, target_id, tag, normalized_tag).await?;
+        Ok(MediaRepo::get(db, target_id).await?.into())
+    }
+
+    /// Atomically remove one tag without replacing the media's other tags.
+    async fn remove_media_tag(&self, ctx: &Context<'_>, id: ID, tag: String) -> Result<bool> {
+        let db = db_from_ctx(ctx);
+        let media = MediaRepo::get(db, Uuid::parse_str(id.as_str())?).await?;
+        let (_, normalized_tag) = crate::rest::media::normalize_tag(tag)
+            .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
+        MediaTagRepo::delete(
+            db,
+            media.parent_media_id.unwrap_or(media.id),
+            &normalized_tag,
+        )
+        .await?;
+        Ok(true)
     }
 
     /// Delete media (soft delete).

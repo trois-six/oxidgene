@@ -1631,6 +1631,8 @@ pub struct GqlMedia {
     pub source_media_type: GqlSourceMediaType,
     /// What kind of record it is; null when unclassified.
     pub document_category: Option<GqlDocumentCategory>,
+    /// Free-form labels for this media or document.
+    pub tags: Vec<String>,
     pub place_id: Option<ID>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -1661,6 +1663,7 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             privacy: m.privacy.into(),
             source_media_type: m.source_media_type.into(),
             document_category: m.document_category.map(Into::into),
+            tags: m.tags,
             place_id: m.place_id.map(|id| ID(id.to_string())),
             created_at: m.created_at,
             updated_at: m.updated_at,

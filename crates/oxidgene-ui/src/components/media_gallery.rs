@@ -791,6 +791,8 @@ fn MediaEditPanel(
     let mut privacy = use_signal(|| tile.media.privacy);
     let mut source_media_type = use_signal(|| tile.media.source_media_type);
     let mut document_category = use_signal(|| tile.media.document_category);
+    let mut tags = use_signal(|| tile.media.tags.clone());
+    let mut show_tag_form = use_signal(|| false);
     let mut note_text = use_signal(String::new);
     let mut note_id = use_signal(|| None::<Uuid>);
     let mut loaded_note = use_signal(|| false);
@@ -865,6 +867,45 @@ fn MediaEditPanel(
         Some(Ok(list)) => list.iter().filter_map(|l| l.event_id).collect(),
         _ => Vec::new(),
     };
+
+    let add_tag = {
+        let api = api.clone();
+        move |value: String| {
+            if value.is_empty() || tags().iter().any(|tag| tag.eq_ignore_ascii_case(&value)) {
+                return;
+            }
+            show_tag_form.set(false);
+            let api = api.clone();
+            spawn(async move {
+                match api.add_media_tag(tree_id, media_id, value).await {
+                    Ok(media) => {
+                        tags.set(media.tags);
+                        on_changed.call(());
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+            });
+        }
+    };
+
+    let remove_tag = use_callback({
+        let api = api.clone();
+        move |tag: String| {
+            let api = api.clone();
+            spawn(async move {
+                match api.remove_media_tag(tree_id, media_id, tag).await {
+                    Ok(()) => {
+                        match api.get_media(tree_id, media_id).await {
+                            Ok(media) => tags.set(media.tags),
+                            Err(err) => error.set(Some(err.to_string())),
+                        }
+                        on_changed.call(());
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+            });
+        }
+    });
 
     let save = {
         let api = api.clone();
@@ -944,7 +985,10 @@ fn MediaEditPanel(
                 };
 
                 match outcome.map(|_| ()).and(note_outcome) {
-                    Ok(()) => on_changed.call(()),
+                    Ok(()) => {
+                        on_changed.call(());
+                        on_close.call(());
+                    }
                     Err(e) => error.set(Some(e.to_string())),
                 }
                 saving.set(false);
@@ -1071,6 +1115,43 @@ fn MediaEditPanel(
                     rows: 3,
                     value: "{description}",
                     oninput: move |e: Event<FormData>| description.set(e.value()),
+                }
+            }
+            div { class: "pf-subblock media-tags-editor",
+                div { class: "pf-block-label",
+                    button {
+                        class: if show_tag_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                        r#type: "button",
+                        onclick: move |_| {
+                            let opening = !show_tag_form();
+                            show_tag_form.set(opening);
+                        },
+                        {i18n.t("media.add_tag")}
+                    }
+                }
+                if show_tag_form() {
+                    MediaTagForm { on_add: add_tag }
+                }
+                if !tags().is_empty() {
+                    div { class: "media-fact-tags media-edit-tags",
+                        for tag in tags().iter() {
+                            {
+                                let tag = tag.clone();
+                                rsx! {
+                                    span { key: "{tag}", class: "media-fact-tag is-editable",
+                                        "{tag}"
+                                        button {
+                                            class: "media-tag-remove",
+                                            r#type: "button",
+                                            title: i18n.t("common.delete"),
+                                            onclick: move |_| remove_tag(tag.clone()),
+                                            "\u{00D7}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1237,6 +1318,13 @@ fn MediaEditPanel(
                 div { class: "error-msg", "{err}" }
             }
             div { class: "media-panel-actions",
+                button {
+                    class: "btn btn-outline",
+                    r#type: "button",
+                    disabled: saving(),
+                    onclick: move |_| on_close.call(()),
+                    {i18n.t("common.cancel")}
+                }
                 button {
                     class: "pf-confirm-btn",
                     r#type: "button",
@@ -1412,7 +1500,12 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
 /// of eight labels reading "—" tells the reader less than four that say
 /// something, and makes the ones that do harder to find.
 #[component]
-fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
+fn MediaFacts(
+    tree_id: Uuid,
+    media: oxidgene_core::types::Media,
+    content_media_id: Uuid,
+    tags: Vec<String>,
+) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let media_id = media.id;
@@ -1440,7 +1533,11 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
         let api = api.clone();
         move || {
             let api = api.clone();
-            async move { api.list_media_vignettes(tree_id, media_id).await.ok() }
+            async move {
+                api.list_media_vignettes(tree_id, content_media_id)
+                    .await
+                    .ok()
+            }
         }
     });
 
@@ -1488,6 +1585,16 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
     rsx! {
         div { class: "media-facts",
             MediaFact { label: i18n.t("media.title"), value: media.title.clone() }
+            if !tags.is_empty() {
+                div { class: "form-group media-fact",
+                    label { {i18n.t("media.tags")} }
+                    div { class: "media-fact-tags",
+                        for tag in tags.iter() {
+                            span { key: "{tag}", class: "media-fact-tag", "{tag}" }
+                        }
+                    }
+                }
+            }
             MediaFact {
                 label: i18n.t("media.created_at"),
                 value: Some(media.created_at.format("%Y-%m-%d %H:%M UTC").to_string()),
@@ -1520,9 +1627,9 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
             MediaFact { label: i18n.t("media.note"), value: note, prose: true }
 
             if !identified.is_empty() {
-                div { class: "media-fact is-prose",
-                    span { class: "media-fact-label", {i18n.t("media.identified")} }
-                    div { class: "media-fact-tags",
+                div { class: "form-group media-fact",
+                    label { {i18n.t("media.identified")} }
+                    div { class: "media-fact-value media-fact-tags",
                         for name in identified.iter() {
                             span { key: "{name}", class: "media-fact-tag", "{name}" }
                         }
@@ -1559,14 +1666,14 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
     }
 }
 
-/// One labelled fact, shown whether or not it has a value.
+/// One read-only field, using the same label/value structure as the forms.
 #[component]
 fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool) -> Element {
     let filled = value.as_ref().is_some_and(|v| !v.trim().is_empty());
     rsx! {
-        div { class: if prose { "media-fact is-prose" } else { "media-fact" },
-            span { class: "media-fact-label", "{label}" }
-            span {
+        div { class: if prose { "form-group media-fact is-prose" } else { "form-group media-fact" },
+            label { "{label}" }
+            div {
                 class: if filled { "media-fact-value" } else { "media-fact-value is-empty" },
                 match value.filter(|v| !v.trim().is_empty()) {
                     Some(value) => value,
@@ -1591,10 +1698,30 @@ fn MediaViewer(
     // The companion column starts as prose. A reader opened this to look at
     // the document, not to fill in a form, so the form is a step they take.
     let mut editing = use_signal(|| false);
+    let mut media_revision = use_signal(|| 0_u32);
 
-    let source = tile.source();
-    let caption = tile.caption().to_string();
-    let is_document = tile.media.is_document;
+    // `viewing` owns the tile that opened the overlay, so it does not change
+    // when the gallery refreshes underneath it. Reload the media itself after
+    // an edit to keep the read-only facts (especially tags) current.
+    let current_media = use_resource({
+        let api = api.clone();
+        let media_id = tile.media.id;
+        move || {
+            let api = api.clone();
+            let _ = media_revision();
+            async move { api.get_media(tree_id, media_id).await.ok() }
+        }
+    });
+    let current_media = match &*current_media.read_unchecked() {
+        Some(Some(media)) => media.clone(),
+        _ => tile.media.clone(),
+    };
+    let mut current_tile = tile.clone();
+    current_tile.media = current_media.clone();
+
+    let source = current_tile.source();
+    let caption = current_tile.caption().to_string();
+    let is_document = current_tile.media.is_document;
     let mut page = use_signal(|| 0_usize);
     // Zoom as a percentage of the natural size; `None` is "fit to the stage",
     // which is where a viewer starts and what the stage's own CSS does. A
@@ -1607,7 +1734,7 @@ fn MediaViewer(
     // page when there is one and the media itself when there is not.
     let pages = use_resource({
         let api = api.clone();
-        let document_id = tile.media.id;
+        let document_id = current_tile.media.id;
         move || {
             let api = api.clone();
             async move {
@@ -1632,12 +1759,12 @@ fn MediaViewer(
     let kind = match shown {
         Some(page) => crate::api::media_kind(&page.mime_type),
         None if is_document => MediaKind::Document,
-        None => tile.kind(),
+        None => current_tile.kind(),
     };
     let url = match (shown, source) {
         (Some(page), _) => Some(api.media_file_url(tree_id, page.id)),
-        (None, MediaSource::Stored) => Some(api.media_file_url(tree_id, tile.media.id)),
-        (None, MediaSource::Remote) => Some(tile.media.file_path.clone()),
+        (None, MediaSource::Stored) => Some(api.media_file_url(tree_id, current_tile.media.id)),
+        (None, MediaSource::Remote) => Some(current_tile.media.file_path.clone()),
         (None, MediaSource::Unheld) => None,
     };
 
@@ -1671,16 +1798,21 @@ fn MediaViewer(
                     if editing() {
                         MediaEditPanel {
                             tree_id,
-                            tile: tile.clone(),
+                            tile: current_tile.clone(),
                             events: events.clone(),
                             embedded: true,
-                            on_changed: move |()| on_changed.call(()),
+                            on_changed: move |()| {
+                                media_revision += 1;
+                                on_changed.call(());
+                            },
                             on_close: move |()| editing.set(false),
                         }
                     } else {
                         MediaFacts {
                             tree_id,
-                            media: shown.cloned().unwrap_or_else(|| tile.media.clone()),
+                            media: current_media.clone(),
+                            content_media_id: shown.map(|page| page.id).unwrap_or(current_media.id),
+                            tags: current_media.tags.clone(),
                         }
                         // Not gated on `read_only`. That flag governs the
                         // *gallery* — uploading, cropping, detaching — which
@@ -1690,7 +1822,7 @@ fn MediaViewer(
                         // it. Sending them to the edit modal to type a date
                         // means leaving the page that prompted them.
                         button {
-                            class: "btn btn-outline media-facts-edit",
+                            class: "pf-confirm-btn media-facts-edit",
                             r#type: "button",
                             onclick: move |_| editing.set(true),
                             {i18n.t("media.edit_details")}
@@ -2188,6 +2320,43 @@ fn extension_for_mime(mime_type: &str) -> Option<&'static str> {
         "text/plain" => "txt",
         _ => return None,
     })
+}
+
+/// Isolated so a keystroke in this short field cannot re-render the entire
+/// media editor and its place, note, event and vignette sections.
+#[component]
+fn MediaTagForm(on_add: EventHandler<String>) -> Element {
+    let i18n = use_i18n();
+
+    rsx! {
+        form {
+            class: "pf-subform media-tag-form",
+            onsubmit: move |event: Event<FormData>| {
+                event.prevent_default();
+                if let Some(FormValue::Text(value)) = event.get_first("media-tag") {
+                    let tag = value.trim().to_string();
+                    if !tag.is_empty() {
+                        on_add.call(tag);
+                    }
+                }
+            },
+            div { class: "form-group",
+                label { {i18n.t("media.tag")} }
+                input {
+                    r#type: "text",
+                    name: "media-tag",
+                    placeholder: i18n.t("media.tag_placeholder"),
+                    autocomplete: "off",
+                    spellcheck: "false",
+                }
+            }
+            button {
+                class: "pf-confirm-btn",
+                r#type: "submit",
+                {i18n.t("media.add_tag")}
+            }
+        }
+    }
 }
 
 /// A file size a person can read at a glance.

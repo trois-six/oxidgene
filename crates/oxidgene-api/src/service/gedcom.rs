@@ -263,6 +263,8 @@ pub(crate) async fn persist_import_result(
                 privacy: Set(m.privacy.into()),
                 source_media_type: Set(m.source_media_type.into()),
                 document_category: Set(m.document_category.map(|c| c.as_str().to_string())),
+                tags: Set(serde_json::to_string(&m.tags)
+                    .expect("serializing a list of media tags cannot fail")),
                 place_id: Set(m.place_id),
                 created_at: Set(now),
                 updated_at: Set(now),

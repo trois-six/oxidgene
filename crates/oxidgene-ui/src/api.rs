@@ -670,6 +670,11 @@ pub struct UpdateMediaBody {
     pub document_category: Option<Option<DocumentCategory>>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct MediaTagBody {
+    pub tag: String,
+}
+
 // ── Vignette DTOs ────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -1231,6 +1236,24 @@ impl ApiClient {
             });
         }
         tracing::debug!("DELETE {url} -> {status}");
+        Ok(())
+    }
+
+    async fn delete_no_content_with_body<B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<(), ApiError> {
+        let url = self.url(path);
+        tracing::debug!("DELETE {url}");
+        let resp = self.client.delete(&url).json(body).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body: resp.text().await.unwrap_or_default(),
+            });
+        }
         Ok(())
     }
 
@@ -2464,6 +2487,39 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(media)
+    }
+
+    /// Add one media tag without replacing the other tags.
+    pub async fn add_media_tag(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        tag: String,
+    ) -> Result<Media, ApiError> {
+        let media = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/media/{media_id}/tags"),
+                &MediaTagBody { tag },
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(media)
+    }
+
+    /// Remove one media tag without replacing the other tags.
+    pub async fn remove_media_tag(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        tag: String,
+    ) -> Result<(), ApiError> {
+        self.delete_no_content_with_body(
+            &format!("/api/v1/trees/{tree_id}/media/{media_id}/tags"),
+            &MediaTagBody { tag },
+        )
+        .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
     }
 
     /// Soft-delete a media record. The stored bytes stay.

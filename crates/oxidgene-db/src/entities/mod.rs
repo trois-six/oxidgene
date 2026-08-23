@@ -8,6 +8,7 @@ pub mod family_child;
 pub mod family_spouse;
 pub mod media;
 pub mod media_link;
+pub mod media_tag;
 pub mod note;
 pub mod person;
 pub mod person_denorm;

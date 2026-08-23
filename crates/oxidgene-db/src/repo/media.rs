@@ -5,9 +5,11 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Media};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::entities::media::{self, ActiveModel, Column, Entity};
+use crate::repo::MediaTagRepo;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// A file whose bytes are already in the media store, ready to be recorded.
@@ -67,7 +69,18 @@ impl MediaRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::ParentMediaId.is_null())
             .filter(Column::DeletedAt.is_null());
-        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+        let mut connection =
+            paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
+        let mut media: Vec<Media> = connection
+            .edges
+            .iter()
+            .map(|edge| edge.node.clone())
+            .collect();
+        hydrate_tags(db, &mut media).await?;
+        for (edge, media) in connection.edges.iter_mut().zip(media) {
+            edge.node = media;
+        }
+        Ok(connection)
     }
 
     /// List all media in a tree without pagination (excludes soft-deleted).
@@ -81,7 +94,9 @@ impl MediaRepo {
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        let mut media: Vec<Media> = models.into_iter().map(into_domain).collect();
+        hydrate_tags(db, &mut media).await?;
+        Ok(media)
     }
 
     /// Get multiple media items by ID (excludes soft-deleted).
@@ -95,21 +110,25 @@ impl MediaRepo {
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        let mut media: Vec<Media> = models.into_iter().map(into_domain).collect();
+        hydrate_tags(db, &mut media).await?;
+        Ok(media)
     }
 
     /// Get a single media by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Media, OxidGeneError> {
-        Entity::find_by_id(id)
+        let mut media = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id,
             })
+            .map(into_domain)?;
+        hydrate_tags(db, std::slice::from_mut(&mut media)).await?;
+        Ok(media)
     }
 
     /// Create a media record that names a file without holding its bytes.
@@ -149,6 +168,7 @@ impl MediaRepo {
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
+            tags: Set("[]".to_string()),
             title: Set(title),
             description: Set(description),
             date_value: Set(None),
@@ -199,6 +219,7 @@ impl MediaRepo {
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
+            tags: Set("[]".to_string()),
             title: Set(upload.title),
             description: Set(upload.description),
             date_value: Set(None),
@@ -296,6 +317,7 @@ impl MediaRepo {
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
+            tags: Set("[]".to_string()),
             title: Set(title),
             description: Set(None),
             date_value: Set(None),
@@ -587,7 +609,9 @@ impl MediaRepo {
             .update(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(into_domain(result))
+        let mut media = into_domain(result);
+        hydrate_tags(db, std::slice::from_mut(&mut media)).await?;
+        Ok(media)
     }
 
     /// Soft-delete a media record.
@@ -642,6 +666,7 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
             .document_category
             .as_deref()
             .and_then(oxidgene_core::enums::DocumentCategory::parse),
+        tags: serde_json::from_str(&m.tags).unwrap_or_default(),
         date_value2: m.date_value2,
         calendar: m.calendar.into(),
         place_id: m.place_id,
@@ -649,4 +674,18 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Replace the legacy JSON value with the canonical rows from `media_tag`.
+async fn hydrate_tags(db: &impl ConnectionTrait, media: &mut [Media]) -> Result<(), OxidGeneError> {
+    let media_ids: Vec<Uuid> = media.iter().map(|item| item.id).collect();
+    let tag_rows = MediaTagRepo::list_for_media_ids(db, &media_ids).await?;
+    let mut tags_by_media: HashMap<Uuid, Vec<String>> = HashMap::new();
+    for row in tag_rows {
+        tags_by_media.entry(row.media_id).or_default().push(row.tag);
+    }
+    for item in media {
+        item.tags = tags_by_media.remove(&item.id).unwrap_or_default();
+    }
+    Ok(())
 }

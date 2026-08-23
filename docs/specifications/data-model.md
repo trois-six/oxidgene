@@ -227,6 +227,7 @@ The `name` is a single string. The recommended format is comma-separated from mo
 | `date_sort` | Date? | Normalized date for sorting |
 | `source_media_type` | Enum | What the medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`. Default `other` |
 | `document_category` | Enum? | What kind of *record* it is. Null when unclassified |
+| `tags` | String[] | Free-form labels. On a multi-page document, they belong to the document, not its pages |
 | `place_id` | UUID v7? | FK → Place — where the media was created/taken |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
@@ -258,6 +259,14 @@ answered GEDCOM's question directly and that answer is not ours to discard.
 `source_media_type` defaults to `other` rather than to `photo`: the table holds
 scans and PDFs as readily as photographs, and a default that guessed would
 mislabel every existing row instead of admitting it does not know.
+
+**Tags.** `tags` is an ordered list of free-form labels for grouping scans and
+documents, materialized from `media_tag` rows. Its compound key
+`(media_id, normalized_tag)` makes concurrent additions idempotent, while a
+single row deletion cannot overwrite another editor's tags. Values are trimmed
+and de-duplicated case-insensitively. A multi-page document owns one list; its
+page rows do not copy it, so every page always presents the document's same
+labels.
 
 **Storage.** Files live on the filesystem, content-addressed under
 `{tree_id}/{aa}/{bb}/{sha256}.{ext}` beneath `OXIDGENE_MEDIA_ROOT` (default: the
