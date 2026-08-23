@@ -23,9 +23,7 @@
 //! - [`DateQualifier::Or`], likewise from GeneWeb, is exported as `BET … AND …`.
 //! - [`DateQualifier::FromAge`] has no date of its own and exports bare.
 
-use std::sync::OnceLock;
-
-use chrono::{Duration, NaiveDate};
+use chrono::NaiveDate;
 use ged_io::types::date::Date as GedDate;
 use ged_io::types::date::calendar::{
     Calendar as GedCalendar, DateQualifier as GedQualifier, ParsedDateTime,
@@ -94,8 +92,9 @@ fn split_range<'a>(rest: &'a str, sep: &str) -> Option<(&'a str, &'a str)> {
         .filter(|(a, b)| !a.is_empty() && !b.is_empty())
 }
 
-/// Sortable date for a bare value, exactly as `ged_io` converts it.
-fn raw_sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
+/// Sortable date for a bare value, normalised to Gregorian so that Julian,
+/// Hebrew and Republican dates order alongside the rest.
+fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
     let escaped = match calendar {
         Calendar::Gregorian => value.to_string(),
         other => format!("{} {value}", to_ged_calendar(other).gedcom_escape()),
@@ -114,50 +113,6 @@ fn raw_sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
     )
 }
 
-/// How many days `ged_io`'s French Republican conversion has to be moved to
-/// land on the right Gregorian day.
-///
-/// It converts from the *start* of the Republican day, and the Republican
-/// calendar is anchored to Paris rather than Greenwich, so that instant falls
-/// 9m21s inside the previous Gregorian day and every Republican date comes
-/// back one day early. (Julian and Hebrew were checked against known dates and
-/// are correct; only this one calendar needs moving.)
-///
-/// The shift is *measured*, not assumed. 1 Vendémiaire An I is 22 September
-/// 1792 — the equinox the calendar was anchored to, and the day the Republic
-/// was proclaimed — so asking `ged_io` for it says exactly how far out its
-/// answers are. Should the conversion be corrected upstream, the measurement
-/// comes back zero and this quietly stops doing anything; a hardcoded "+1 day"
-/// would instead start overshooting by one the day that happened.
-fn republican_day_shift() -> i64 {
-    static SHIFT: OnceLock<i64> = OnceLock::new();
-    *SHIFT.get_or_init(|| {
-        let (Some(epoch), Some(measured)) = (
-            NaiveDate::from_ymd_opt(1792, 9, 22),
-            raw_sort_date("1 VEND 1", Calendar::FrenchRepublican),
-        ) else {
-            // The probe itself did not convert; leave dates alone rather than
-            // move them by a number we could not establish.
-            return 0;
-        };
-        // A conversion that is out by more than a day is not the rounding
-        // question this corrects for, and is not ours to paper over.
-        (epoch - measured).num_days().clamp(-1, 1)
-    })
-}
-
-/// Sortable date for a bare value, normalised to Gregorian so that Julian,
-/// Hebrew and Republican dates order alongside the rest.
-fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
-    let date = raw_sort_date(value, calendar)?;
-    match calendar {
-        Calendar::FrenchRepublican => {
-            date.checked_add_signed(Duration::days(republican_day_shift()))
-        }
-        _ => Some(date),
-    }
-}
-
 /// The sortable Gregorian date a stored date value stands for.
 ///
 /// `date_sort` is what orders events against one another, so it has to be
@@ -169,8 +124,6 @@ fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
 /// Returns `None` for a missing, empty or unparseable value — an event whose
 /// date is a free-text phrase simply has no place in a chronological order.
 ///
-/// French Republican dates carry a correction on the way through — see
-/// [`republican_day_shift`].
 pub fn sort_key(calendar: Calendar, value: Option<&str>) -> Option<NaiveDate> {
     let value = value.map(str::trim).filter(|v| !v.is_empty())?;
     sort_date(value, calendar)
@@ -431,9 +384,7 @@ mod tests {
         assert_eq!(republican.format("%Y-%m").to_string(), "1805-10");
     }
 
-    /// Republican dates land on their documented Gregorian day, which needs
-    /// the correction in `republican_day_shift` — `ged_io` alone answers one
-    /// day early.
+    /// Republican dates land on their documented Gregorian day.
     #[test]
     fn republican_dates_land_on_their_documented_gregorian_day() {
         for (raw, expected) in [
@@ -456,24 +407,7 @@ mod tests {
         }
     }
 
-    /// The correction is measured against the epoch, so it cannot overshoot:
-    /// if `ged_io` is ever fixed the measurement reads zero and the shift
-    /// stops being applied, leaving the dates above still correct.
-    #[test]
-    fn the_republican_shift_is_measured_not_assumed() {
-        let raw =
-            raw_sort_date("1 VEND 1", Calendar::FrenchRepublican).expect("the probe converts");
-        let corrected = sort_date("1 VEND 1", Calendar::FrenchRepublican).expect("and corrects");
-        assert_eq!(
-            (corrected - raw).num_days(),
-            republican_day_shift(),
-            "the shift applied is the one measured"
-        );
-        assert_eq!(corrected, NaiveDate::from_ymd_opt(1792, 9, 22).unwrap());
-    }
-
-    /// The other calendars were checked against known dates and are right as
-    /// they stand — the correction must not touch them.
+    /// The other calendars are checked against known dates too.
     #[test]
     fn the_other_calendars_are_left_alone() {
         for (calendar, raw, expected) in [

@@ -40,7 +40,6 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         .map_err(|e| format!("GEDCOM parse error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
-    attach_object_pointers(gedcom_str, &data, tree_id, &mut result);
     assign_portraits(&mut result);
     Ok(result)
 }
@@ -84,124 +83,6 @@ fn assign_portraits(result: &mut ImportResult) {
     }
 }
 
-/// Recover the `OBJE` pointers that the parser discards.
-///
-/// `ged_io` parses a record-level `OBJE` pointer — `1 OBJE @M1@` under an
-/// `INDI` or `FAM` — by calling `Multimedia::new(.., xref: None)`, and
-/// `Multimedia::parse` opens with "skip current line", which is the line
-/// carrying the pointer. The result is a `Multimedia` with neither an xref nor
-/// a file: the *count* of somebody's media survives and every identity is
-/// gone, so no link can be reconstructed from the model alone.
-///
-/// The consequence is not subtle. A tree exported with 548 person↔photo links
-/// re-imported with none: every photograph arrived, with its bytes, attached to
-/// nobody.
-///
-/// So the pointers are read from the text. That is normally the wrong tool, and
-/// it is bounded here by only ever *adding* links the model failed to carry —
-/// the shape being matched is a level-0 `@XREF@ TAG` line and a deeper `OBJE
-/// @XREF@` beneath it, which is GEDCOM's grammar rather than a guess about one
-/// producer's output. Anything unrecognised is ignored.
-///
-/// Remove once upstream keeps the pointer; the model already has the field.
-fn attach_object_pointers(
-    gedcom_str: &str,
-    data: &ged_io::types::GedcomData,
-    tree_id: Uuid,
-    result: &mut ImportResult,
-) {
-    // The same xref → uuid maps `import_gedcom_data` built, rebuilt the same
-    // way so the ids agree with the rows already in `result`.
-    let media_xrefs: HashMap<&str, Uuid> = data
-        .multimedia
-        .iter()
-        .filter_map(|m| m.xref.as_deref())
-        .zip(result.media.iter().map(|m| m.id))
-        .collect();
-    let person_xrefs: HashMap<&str, Uuid> = data
-        .individuals
-        .iter()
-        .filter_map(|i| i.xref.as_deref())
-        .zip(result.persons.iter().map(|p| p.id))
-        .collect();
-    let family_xrefs: HashMap<&str, Uuid> = data
-        .families
-        .iter()
-        .filter_map(|f| f.xref.as_deref())
-        .zip(result.families.iter().map(|f| f.id))
-        .collect();
-
-    // Links the model did carry, so a producer whose pointers survive is not
-    // given a second copy of every one.
-    let existing: std::collections::HashSet<(Option<Uuid>, Option<Uuid>, Uuid)> = result
-        .media_links
-        .iter()
-        .map(|l| (l.person_id, l.family_id, l.media_id))
-        .collect();
-    let mut added = std::collections::HashSet::new();
-
-    // Which record we are inside, and what it is. Cleared by the next level-0
-    // line, so a pointer can never be attributed to the record before it.
-    let mut current: Option<(bool, Uuid)> = None;
-    // Position within the record being read: the file's order is the gallery's
-    // order, and a person's first picture is the one that represents them.
-    let mut position: i32 = 0;
-    for line in gedcom_str.lines() {
-        let line = line.trim_end_matches('\r');
-        let mut parts = line.trim_start().splitn(3, ' ');
-        let (Some(level), Some(second)) = (parts.next(), parts.next()) else {
-            continue;
-        };
-        let third = parts.next();
-
-        if level == "0" {
-            // `0 @I1@ INDI` — the xref is the second field, the tag the third.
-            current = match (second.starts_with('@'), third) {
-                (true, Some("INDI")) => person_xrefs.get(second).map(|id| (true, *id)),
-                (true, Some("FAM")) => family_xrefs.get(second).map(|id| (false, *id)),
-                _ => None,
-            };
-            position = 0;
-            continue;
-        }
-
-        // `1 OBJE @M1@` — a pointer. An inline `OBJE` has no value here, and
-        // the parser handles that shape correctly, so it is left alone.
-        let Some((is_person, owner)) = current else {
-            continue;
-        };
-        if second != "OBJE" {
-            continue;
-        }
-        let Some(target) = third.filter(|value| value.starts_with('@')) else {
-            continue;
-        };
-        let Some(&media_id) = media_xrefs.get(target) else {
-            continue;
-        };
-
-        let key = if is_person {
-            (Some(owner), None, media_id)
-        } else {
-            (None, Some(owner), media_id)
-        };
-        if existing.contains(&key) || !added.insert(key) {
-            continue;
-        }
-        result.media_links.push(MediaLink {
-            id: Uuid::now_v7(),
-            media_id,
-            person_id: is_person.then_some(owner),
-            event_id: None,
-            source_id: None,
-            family_id: (!is_person).then_some(owner),
-            sort_order: position,
-        });
-        position += 1;
-    }
-    let _ = tree_id;
-}
-
 /// A GEDZIP archive, read: the genealogy it holds and the files it carries.
 ///
 /// See [`import_gedzip`].
@@ -237,20 +118,11 @@ pub struct GedzipImport {
 pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, String> {
     let mut reader = ged_io::gedzip::GedzipReader::new(std::io::Cursor::new(archive))
         .map_err(|e| format!("GEDZIP read error: {e}"))?;
-    // The text as well as the model: the pointers saying *whose* photograph
-    // each medium is do not survive parsing, and are recovered from it. See
-    // `attach_object_pointers`.
-    let gedcom_bytes = reader
-        .read_gedcom_bytes()
-        .map_err(|e| format!("GEDZIP read error: {e}"))?;
     let data = reader
         .parse_gedcom()
         .map_err(|e| format!("GEDZIP parse error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
-    if let Ok(text) = std::str::from_utf8(&gedcom_bytes) {
-        attach_object_pointers(text, &data, tree_id, &mut result);
-    }
     assign_portraits(&mut result);
 
     // Owned up front: `media_files` borrows the reader, and reading an entry

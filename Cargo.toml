@@ -85,7 +85,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # GEDCOM
-ged_io = { version = "0.16.1", features = ["json", "gedzip", "calendar"] }
+ged_io = { version = "0.16.3", features = ["json", "gedzip", "calendar"] }
 
 # GeneWeb .gw reader (converts to the same ged_io model as above)
 geneweb = "0.1.2"

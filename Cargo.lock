@@ -2322,9 +2322,9 @@ dependencies = [
 
 [[package]]
 name = "ged_io"
-version = "0.16.1"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e0e9de5bf1897eb138701598ccdac2a372f6375b714a77b0cff60e2ebbc30c0"
+checksum = "64aa75ec7e0c9e99e1814fa2160ea546495d982b8f8e9927248c1c9e9fb61596"
 dependencies = [
  "calendrical_calculations",
  "calendrier",

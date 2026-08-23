@@ -302,9 +302,6 @@ pub fn export_gedcom(
     }
 
     // ── Export Multimedia ─────────────────────────────────────────────
-    // xref → the `TYPE` value its `FORM` must carry. Written back in after
-    // serialisation; see `insert_media_types`.
-    let mut media_types: HashMap<String, &'static str> = HashMap::new();
     // A multi-page document is a container, and GEDCOM has no container at
     // all. Rather than fake one, the document dissolves: its pages are
     // exported as ordinary standalone media, and anything linked to the
@@ -346,17 +343,12 @@ pub fn export_gedcom(
             (Some(category), SourceMediaType::Other) => category.implied_medium(),
             (_, medium) => medium,
         };
-        if let Some(xref) = &xref {
-            media_types.insert(xref.clone(), medium.gedcom_value());
-        }
         data.multimedia.push(GedMultimedia {
             xref,
             file: Some(Reference {
                 value: Some(path),
                 form: Some(Format {
                     value: Some(m.mime_type.clone()),
-                    // Set for completeness, and ignored by the writer — see
-                    // `insert_media_types`, which is what actually emits it.
                     source_media_type: Some(medium.gedcom_value().to_string()),
                 }),
                 ..Default::default()
@@ -594,55 +586,8 @@ pub fn export_gedcom(
     let gedcom = GedcomWriter::new()
         .write_to_string(&data)
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
-    let gedcom = insert_media_types(&gedcom, &media_types);
 
     Ok(ExportResult { gedcom, warnings })
-}
-
-/// Write each `OBJE`'s `SOURCE_MEDIA_TYPE` into the serialised GEDCOM.
-///
-/// `ged_io` parses `FORM.TYPE` into `Format::source_media_type` and its writer
-/// never emits it — the field is read-only in practice, so setting it on the
-/// record before serialising produces a file without it. Until that is fixed
-/// upstream (see the `ged_io` note in the crate docs), the line is written
-/// here.
-///
-/// This is text manipulation of a GEDCOM, which is normally the wrong tool.
-/// It is safe in this one place because the text was produced by the writer
-/// two statements earlier, so its shape is known exactly rather than guessed:
-/// a record opens with `0 @X@ OBJE`, its `FILE` is at level 1, and the `FORM`
-/// this attaches to is the level-2 line under it. Anything unrecognised is
-/// passed through untouched.
-fn insert_media_types(gedcom: &str, types: &HashMap<String, &'static str>) -> String {
-    if types.is_empty() {
-        return gedcom.to_string();
-    }
-    let mut out = String::with_capacity(gedcom.len() + types.len() * 16);
-    // The type owed to the record currently being read, if it is an `OBJE` we
-    // have one for. Cleared by the next level-0 line, so a `FORM` belonging to
-    // some later record can never pick it up.
-    let mut pending: Option<&'static str> = None;
-    for line in gedcom.split_inclusive('\n') {
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if let Some(rest) = trimmed.strip_prefix("0 ") {
-            pending = rest
-                .strip_suffix(" OBJE")
-                .and_then(|xref| types.get(xref))
-                .copied();
-        }
-        out.push_str(line);
-        if let Some(value) = pending
-            && trimmed.starts_with("2 FORM ")
-        {
-            // The line ending the writer chose, so the file stays consistent.
-            let ending = line.strip_prefix(trimmed).unwrap_or("\n");
-            out.push_str("3 TYPE ");
-            out.push_str(value);
-            out.push_str(ending);
-            pending = None;
-        }
-    }
-    out
 }
 
 /// Where a media's bytes live inside a GEDZIP, if we hold any.
@@ -1571,9 +1516,8 @@ mod tests {
 
     #[test]
     fn a_persons_photographs_are_still_theirs_after_a_round_trip() {
-        // The bug this pins: `ged_io` discards the pointer in `1 OBJE @M1@`,
-        // so a tree exported with 548 person-photo links re-imported with
-        // none — every photograph present, attached to nobody.
+        // A record-level `OBJE` pointer must carry the person-media link
+        // through the full export and import path.
         let person = person_row();
         let medium = medium("portrait.jpg", "image/jpeg", true);
         let link = MediaLink {
