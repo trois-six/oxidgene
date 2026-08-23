@@ -333,6 +333,7 @@ mod tests {
             calendar: Default::default(),
             privacy: Default::default(),
             source_media_type: Default::default(),
+            tags: vec![],
             document_category: None,
             place_id: None,
             created_at: chrono::Utc::now(),

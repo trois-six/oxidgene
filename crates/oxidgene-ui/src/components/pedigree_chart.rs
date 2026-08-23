@@ -4140,6 +4140,7 @@ mod layout_overlap_tests {
             None,
             None,
             SosaBadge::None,
+            false,
             if sex == Sex::Female { 1 } else { 0 },
             false,
             false,

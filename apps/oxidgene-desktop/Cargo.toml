@@ -17,6 +17,7 @@ winres = "0.1"
 # wry — see the `glib::set_prgname` call in `main.rs`.
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 glib = { version = "0.18", default-features = false }
+gtk = { version = "0.18", default-features = false }
 
 [dependencies]
 oxidgene-api = { workspace = true }

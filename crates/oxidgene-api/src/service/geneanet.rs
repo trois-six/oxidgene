@@ -935,12 +935,14 @@ async fn prepare_single_pages(
             if let Some(id) = write_media(
                 db,
                 tree_id,
-                ingested,
-                title.clone(),
-                *classification,
-                *privacy,
-                *created_at,
-                metadata,
+                MediaWrite {
+                    ingested,
+                    title: title.clone(),
+                    classification: *classification,
+                    privacy: *privacy,
+                    created_at: *created_at,
+                    metadata,
+                },
                 summary,
             )
             .await
@@ -1050,12 +1052,14 @@ async fn document(
             let Some(page_id) = write_media(
                 db,
                 tree_id,
-                ingested,
-                None,
-                classification,
-                privacy,
-                created_at,
-                &metadata,
+                MediaWrite {
+                    ingested,
+                    title: None,
+                    classification,
+                    privacy,
+                    created_at,
+                    metadata: &metadata,
+                },
                 summary,
             )
             .await
@@ -1412,10 +1416,7 @@ pub(crate) fn ingest_width() -> usize {
         .clamp(1, 8)
 }
 
-/// Writes the `media` row for something already ingested.
-async fn write_media(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
+struct MediaWrite<'a> {
     ingested: crate::media::IngestedMedia,
     title: Option<String>,
     classification: (
@@ -1424,9 +1425,24 @@ async fn write_media(
     ),
     privacy: Privacy,
     created_at: DateTime<Utc>,
-    metadata: &MediaMetadata,
+    metadata: &'a MediaMetadata,
+}
+
+/// Writes the `media` row for something already ingested.
+async fn write_media(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    media: MediaWrite<'_>,
     summary: &mut GeneanetImportSummary,
 ) -> Option<Uuid> {
+    let MediaWrite {
+        ingested,
+        title,
+        classification,
+        privacy,
+        created_at,
+        metadata,
+    } = media;
     let upload = UploadedMedia {
         file_name: ingested.file_name,
         mime_type: ingested.mime_type,
