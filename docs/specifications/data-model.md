@@ -258,12 +258,6 @@ answered GEDCOM's question directly and that answer is not ours to discard.
 scans and PDFs as readily as photographs, and a default that guessed would
 mislabel every existing row instead of admitting it does not know.
 
-> **`ged_io` gap.** The crate parses `FORM.TYPE` into
-> `Format::source_media_type` but its writer never emits it, so setting the
-> field before serialising produces a file without it. `export::insert_media_types`
-> writes the line into the serialised GEDCOM instead. Remove it once upstream
-> writes the tag.
-
 **Storage.** Files live on the filesystem, content-addressed under
 `{tree_id}/{aa}/{bb}/{sha256}.{ext}` beneath `OXIDGENE_MEDIA_ROOT` (default: the
 platform user-data directory). Uploading the same scan twice writes one file and
