@@ -165,6 +165,9 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Recursive CTE over the family links for ancestor/descendant queries. → see [Data Model](data-model.md) (Ancestry traversal)
 - Streaming GEDCOM parser for large files.
 - Cursor-based pagination to avoid expensive offset scans. → see [API Contract](api.md) (pagination)
+- Desktop window remapping preserves every page's mounted state. Duplicate GTK
+    geometry events are discarded before they can reallocate the WebView; real
+    size, position and display-scale changes still propagate normally.
 
 ---
 

@@ -1333,6 +1333,7 @@ mod tests {
             privacy: Default::default(),
             source_media_type: Default::default(),
             document_category: None,
+            tags: vec![],
             place_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

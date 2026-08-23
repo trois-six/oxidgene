@@ -57,6 +57,60 @@ use tracing_subscriber::EnvFilter;
 
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+type WindowGeometry = (i32, i32, u32, u32, i32);
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn window_geometry_changed(
+    last_geometry: &std::cell::Cell<Option<WindowGeometry>>,
+    geometry: WindowGeometry,
+) -> bool {
+    last_geometry.replace(Some(geometry)) != Some(geometry)
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn suppress_duplicate_configure_events(
+    window: std::sync::Arc<dioxus::desktop::tao::window::Window>,
+) {
+    use std::cell::Cell;
+
+    use dioxus::desktop::tao::platform::unix::WindowExtUnix;
+    use gtk::prelude::*;
+
+    let last_geometry = Cell::new(None);
+    window.gtk_window().connect_event(move |window, event| {
+        if let Some(event) = event.downcast_ref::<gtk::gdk::EventConfigure>() {
+            let (x, y) = event.position();
+            let (width, height) = event.size();
+            let geometry = (x, y, width, height, window.scale_factor());
+
+            if !window_geometry_changed(&last_geometry, geometry) {
+                return glib::Propagation::Stop;
+            }
+        }
+
+        glib::Propagation::Proceed
+    });
+}
+
 /// The whole command line: one flag, read by hand.
 ///
 /// A derive-based parser links its entire help-rendering and error-reporting
@@ -244,6 +298,19 @@ fn main() {
                 .with_title("OxidGene")
                 .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
         );
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        // GTK emits the generic `event` signal before the specialized
+        // `configure-event` consumed by Tao, so duplicates never reach
+        // Dioxus's WebView::set_bounds path.
+        cfg = cfg.with_on_window(|window, _| suppress_duplicate_configure_events(window));
+    }
     if let Some(icon) = window_icon {
         cfg = cfg.with_icon(icon);
     }
@@ -267,4 +334,46 @@ fn main() {
 /// Health check handler returning `200 OK` with a JSON body.
 async fn healthz() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({ "status": "ok" }))
+}
+
+#[cfg(all(
+    test,
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )
+))]
+mod tests {
+    use std::cell::Cell;
+
+    use super::window_geometry_changed;
+
+    #[test]
+    fn configure_events_pass_only_when_geometry_changes() {
+        let last_geometry = Cell::new(None);
+
+        assert!(window_geometry_changed(
+            &last_geometry,
+            (0, 0, 1280, 800, 1)
+        ));
+        assert!(!window_geometry_changed(
+            &last_geometry,
+            (0, 0, 1280, 800, 1)
+        ));
+        assert!(window_geometry_changed(
+            &last_geometry,
+            (0, 0, 1200, 800, 1)
+        ));
+        assert!(window_geometry_changed(
+            &last_geometry,
+            (20, 30, 1200, 800, 1)
+        ));
+        assert!(window_geometry_changed(
+            &last_geometry,
+            (20, 30, 1200, 800, 2)
+        ));
+    }
 }

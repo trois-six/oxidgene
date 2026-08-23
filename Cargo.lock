@@ -4213,6 +4213,7 @@ dependencies = [
  "dirs",
  "futures-channel",
  "glib",
+ "gtk",
  "oxidgene-api",
  "oxidgene-db",
  "oxidgene-geneanet",
