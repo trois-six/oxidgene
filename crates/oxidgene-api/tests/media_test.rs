@@ -1335,6 +1335,68 @@ async fn a_media_carries_a_date_with_its_qualifier_and_calendar() {
 }
 
 #[tokio::test]
+async fn media_tags_are_added_and_removed_independently() {
+    let h = setup().await;
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("archive.png"), &png(200, 200))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
+        Some(json!({ "tag": " archives " })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["tags"], json!(["archives"]));
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
+        Some(json!({ "tag": "Civil record" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["tags"], json!(["archives", "Civil record"]));
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
+        Some(json!({ "tag": "ARCHIVES" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["tags"], json!(["archives", "Civil record"]));
+
+    let (status, _) = json_request(
+        &h.app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
+        Some(json!({ "tag": "ARCHIVES" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["tags"], json!(["Civil record"]));
+}
+
+#[tokio::test]
 async fn a_record_with_no_bytes_can_be_repointed_at_a_url() {
     let h = setup().await;
     let (_, stub) = json_request(

@@ -71,6 +71,10 @@ pub struct Media {
     /// ordinarily is.
     #[serde(default)]
     pub document_category: Option<DocumentCategory>,
+    /// Free-form labels used to group and find this media. Tags belong to the
+    /// document row, not its individual pages.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// Location where the media was created or applies to.
     pub place_id: Option<Uuid>,
     /// Whether this is shown when the tree is published. Recorded now,

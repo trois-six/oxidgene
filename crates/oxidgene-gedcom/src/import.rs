@@ -405,6 +405,7 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             // GEDCOM has no field for this; it stays unset until a user
             // classifies the record or a Geneanet import supplies one.
             document_category: None,
+            tags: Vec::new(),
             place_id: None,
             created_at: now,
             updated_at: now,
@@ -1910,6 +1911,7 @@ fn resolve_or_create_media(
             privacy: Privacy::default(),
             source_media_type,
             document_category: None,
+            tags: Vec::new(),
             place_id: None,
             created_at: now,
             updated_at: now,

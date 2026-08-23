@@ -226,6 +226,10 @@ pub fn build_router(state: AppState) -> Router {
                 .put(media::update_media)
                 .delete(media::delete_media),
         )
+        .route(
+            "/{tree_id}/media/{media_id}/tags",
+            post(media::add_tag).delete(media::remove_tag),
+        )
         // Before `/{media_id}`, same reason as `upload`.
         .route("/{tree_id}/media/document", post(media::create_document))
         .route(

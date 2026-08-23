@@ -3436,7 +3436,24 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-panel-actions {
         display: flex;
         justify-content: flex-end;
+        gap: 8px;
         margin-top: 12px;
+    }
+
+    /* The media viewer's information column leaves 272px inside its padding.
+       The date widget is designed for the wider person forms, where its two
+       selectors and three date fields naturally share a line. Here, make the
+       first pair fill one row and leave the day/month/year triplet together
+       on the next one instead of spilling it over three rows. */
+    .media-panel .pf-date-calendar,
+    .media-panel .pf-date-qualifier-select {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 0;
+    }
+
+    .media-panel .pf-date-month-select {
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     /* ── Vignette list ────────────────────────────────────────────── */
@@ -3703,48 +3720,76 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-facts {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        font-family: var(--font-sans);
     }
 
     .media-fact {
-        display: flex;
-        gap: 8px;
-        align-items: baseline;
-        font-size: 0.82rem;
-    }
-
-    /* A description or a note is a paragraph, not a value beside a label. */
-    .media-fact.is-prose { flex-direction: column; gap: 3px; }
-
-    .media-fact-label {
-        flex: 0 0 auto;
-        color: var(--text-muted);
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
+        margin-bottom: 16px;
     }
 
     .media-fact-value {
+        font-family: var(--font-sans);
+        min-height: 38px;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-panel);
         color: var(--text-primary);
-        line-height: 1.5;
-        margin: 0;
+        font-size: 0.9rem;
+        line-height: 20px;
         overflow-wrap: anywhere;
+        white-space: pre-wrap;
     }
 
+    .media-fact.is-prose .media-fact-value { min-height: 76px; }
+
     /* An unset field is shown, not hidden: it says the fact can be recorded
-       and has not been, which an absent row cannot say. */
+       and has not been, which an absent field cannot say. */
     .media-fact-value.is-empty { color: var(--text-muted); }
 
-    .media-fact-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .media-fact-tags {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 4px;
+    }
 
     .media-fact-tag {
-        background: var(--bg-deep);
+        font-family: var(--font-sans);
+        background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 14px;
         color: var(--text-secondary);
         font-size: 0.74rem;
         padding: 2px 8px;
     }
+
+    .media-tags-editor { margin-bottom: 16px; }
+    .media-tag-form { margin-bottom: 10px; }
+    .media-tag-form .form-group { margin-bottom: 10px; }
+    .media-edit-tags { min-height: 24px; }
+
+    .media-fact-tag.is-editable {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding-right: 3px;
+    }
+
+    .media-tag-remove {
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--text-muted);
+        font-family: var(--font-sans);
+        font-size: 0.95rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+    .media-tag-remove:hover { background: var(--bg-card-hover); color: var(--color-danger-text); }
 
     .media-fact-tech {
         display: flex;
@@ -3756,7 +3801,7 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.72rem;
     }
 
-    .media-facts-edit { width: 100%; margin-top: 14px; }
+    .media-facts-edit { align-self: flex-start; margin-top: 14px; }
 
     /* Inside the viewer the panel is the column, not a card floating in one. */
     .media-panel.is-embedded {

@@ -409,6 +409,12 @@ pub struct UpdateMediaRequest {
     pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
 }
 
+/// One free-form tag to attach to or remove from a media item.
+#[derive(Debug, Deserialize)]
+pub struct MediaTagRequest {
+    pub tag: String,
+}
+
 /// Request body for updating a couple.
 ///
 /// Only privacy so far — a family's own facts live on its events and its

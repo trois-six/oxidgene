@@ -10,15 +10,15 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::Media;
-use oxidgene_db::repo::{MediaPatch, MediaRepo, PaginationParams, UploadedMedia};
+use oxidgene_db::repo::{MediaPatch, MediaRepo, MediaTagRepo, PaginationParams, UploadedMedia};
 use uuid::Uuid;
 
 use crate::media::{self, MAX_UPLOAD_BYTES};
 use crate::service::event_date;
 
 use super::dto::{
-    CreateDocumentRequest, CreateMediaRequest, PaginationQuery, ReorderPagesRequest,
-    UpdateMediaRequest,
+    CreateDocumentRequest, CreateMediaRequest, MediaTagRequest, PaginationQuery,
+    ReorderPagesRequest, UpdateMediaRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -182,6 +182,54 @@ pub(crate) fn media_patch(
         document_category: body.document_category,
         date_sort,
     })
+}
+
+/// Normalize a label once, so both REST and GraphQL use the same identity.
+pub(crate) fn normalize_tag(tag: String) -> Option<(String, String)> {
+    let tag = tag.trim().to_string();
+    (!tag.is_empty()).then(|| (tag.clone(), tag.to_lowercase()))
+}
+
+/// POST /api/v1/trees/:tree_id/media/:media_id/tags
+pub async fn add_tag(
+    State(state): State<AppState>,
+    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<MediaTagRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let media = MediaRepo::get(&state.db, media_id)
+        .await
+        .map_err(ApiError::from)?;
+    let (tag, normalized_tag) = normalize_tag(body.tag)
+        .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
+    let target_id = media.parent_media_id.unwrap_or(media.id);
+    MediaTagRepo::create(&state.db, target_id, tag, normalized_tag)
+        .await
+        .map_err(ApiError::from)?;
+    let media = MediaRepo::get(&state.db, target_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::to_value(media).unwrap()))
+}
+
+/// DELETE /api/v1/trees/:tree_id/media/:media_id/tags
+pub async fn remove_tag(
+    State(state): State<AppState>,
+    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<MediaTagRequest>,
+) -> Result<StatusCode, ApiError> {
+    let media = MediaRepo::get(&state.db, media_id)
+        .await
+        .map_err(ApiError::from)?;
+    let (_, normalized_tag) = normalize_tag(body.tag)
+        .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
+    MediaTagRepo::delete(
+        &state.db,
+        media.parent_media_id.unwrap_or(media.id),
+        &normalized_tag,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// POST /api/v1/trees/:tree_id/media/document
