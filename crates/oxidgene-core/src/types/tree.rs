@@ -11,6 +11,8 @@ pub struct Tree {
     pub name: String,
     pub description: Option<String>,
     pub sosa_root_person_id: Option<Uuid>,
+    /// The person in this tree who represents the current user.
+    pub self_person_id: Option<Uuid>,
     /// What `Privacy::Default` resolves to for every person, couple and
     /// document in this tree. Enforced by nothing yet — see the roadmap.
     #[serde(default)]

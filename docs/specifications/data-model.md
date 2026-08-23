@@ -26,6 +26,7 @@ Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `cr
 | `name` | String | Required |
 | `description` | String? | Optional |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
+| `self_person_id` | UUID v7? | FK → Person — person representing the current user, used only for the blue pedigree badge, set in [Settings](ui-settings.md) §7 |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

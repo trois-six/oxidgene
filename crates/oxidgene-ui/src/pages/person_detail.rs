@@ -1377,6 +1377,19 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         "SOSA {sosa}"
                                     }
                                 }
+                                if matches!(&*tree_resource.read(), Some(Ok(tree)) if tree.self_person_id == Some(person.id)) {
+                                    button {
+                                        class: "badge pd-self-badge",
+                                        title: i18n.t("person.self_badge_settings"),
+                                        onclick: {
+                                            let tree_id = tree_id.clone();
+                                            move |_| {
+                                                nav.push(Route::Settings { tree_id: tree_id.clone() });
+                                            }
+                                        },
+                                        {i18n.t("person.self_badge")}
+                                    }
+                                }
                             }
                             div { class: "pd-header-buttons",
                                 button {

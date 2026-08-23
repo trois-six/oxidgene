@@ -341,6 +341,8 @@ pub struct PedigreeData {
     pub sosa_ancestors: HashSet<Uuid>,
     /// The SOSA root person ID (from tree settings).
     pub sosa_root_id: Option<Uuid>,
+    /// The person this tree identifies as the current user.
+    pub self_person_id: Option<Uuid>,
 }
 
 impl PartialEq for PedigreeData {
@@ -608,6 +610,7 @@ impl PedigreeData {
             photos: HashMap::new(),
             sosa_ancestors: HashSet::new(),
             sosa_root_id: None,
+            self_person_id: None,
         }
     }
 
@@ -806,6 +809,7 @@ struct TreeNode {
     death_year: Option<QualifiedYear>,
     photo_url: Option<String>,
     sosa_badge: SosaBadge,
+    is_self: bool,
     /// Indices into the TreeNode arena of children (for RT traversal).
     children: Vec<usize>,
     /// Spouse node indices (siblings in RT terms).
@@ -836,6 +840,7 @@ impl TreeNode {
         death_year: Option<QualifiedYear>,
         photo_url: Option<String>,
         sosa_badge: SosaBadge,
+        is_self: bool,
         after: i32,
         before_sibling: bool,
         after_sibling: bool,
@@ -850,6 +855,7 @@ impl TreeNode {
             death_year,
             photo_url,
             sosa_badge,
+            is_self,
             children: vec![],
             siblings: vec![],
             parent2: None,
@@ -875,6 +881,7 @@ impl TreeNode {
             death_year: None,
             photo_url: None,
             sosa_badge: SosaBadge::None,
+            is_self: false,
             children: vec![],
             siblings: vec![],
             parent2: None,
@@ -917,6 +924,7 @@ struct PersonNode {
     death_year: Option<QualifiedYear>,
     photo_url: Option<String>,
     sosa_badge: SosaBadge,
+    is_self: bool,
 }
 
 impl PersonNode {
@@ -954,6 +962,7 @@ impl PersonNode {
             death_year,
             photo_url,
             sosa_badge,
+            is_self: data.self_person_id == Some(id),
         }
     }
 }
@@ -988,6 +997,7 @@ fn build_ascending_tree(
         root_pn.death_year,
         root_pn.photo_url,
         root_pn.sosa_badge,
+        root_pn.is_self,
         root_after,
         before_sibling,
         after_sibling,
@@ -1022,6 +1032,7 @@ fn build_ascending_tree(
                 pn.death_year,
                 pn.photo_url,
                 pn.sosa_badge,
+                pn.is_self,
                 0,
                 false,
                 false,
@@ -1048,6 +1059,7 @@ fn build_ascending_tree(
                 pn.death_year,
                 pn.photo_url,
                 pn.sosa_badge,
+                pn.is_self,
                 1,
                 false,
                 false,
@@ -1115,6 +1127,7 @@ fn build_descending_tree(
         root_pn.death_year,
         root_pn.photo_url,
         root_pn.sosa_badge,
+        root_pn.is_self,
         root_after,
         before_sibling,
         after_sibling,
@@ -1169,6 +1182,7 @@ fn build_descending_tree(
                         spn.death_year,
                         spn.photo_url,
                         spn.sosa_badge,
+                        spn.is_self,
                         spouse_after,
                         false,
                         false,
@@ -1210,6 +1224,7 @@ fn build_descending_tree(
                         cpn.death_year,
                         cpn.photo_url,
                         cpn.sosa_badge,
+                        cpn.is_self,
                         child_after,
                         false,
                         false,
@@ -2260,6 +2275,7 @@ struct LayoutNode {
     death_year: Option<QualifiedYear>,
     photo_url: Option<String>,
     sosa_badge: SosaBadge,
+    is_self: bool,
     is_compact: bool,
     /// For empty ancestor slots: which child they belong to.
     child_of: Option<Uuid>,
@@ -2452,6 +2468,7 @@ fn compute_layout(
                     death_year: pn.death_year,
                     photo_url: pn.photo_url,
                     sosa_badge: pn.sosa_badge,
+                    is_self: pn.is_self,
                     is_compact: false,
                     child_of: None,
                     is_father: false,
@@ -2491,6 +2508,7 @@ fn compute_layout(
                     death_year: pn.death_year,
                     photo_url: pn.photo_url,
                     sosa_badge: pn.sosa_badge,
+                    is_self: pn.is_self,
                     is_compact: false,
                     child_of: None,
                     is_father: false,
@@ -2587,6 +2605,7 @@ fn compute_layout(
         death_year: arena[ni].death_year,
         photo_url: arena[ni].photo_url.clone(),
         sosa_badge: arena[ni].sosa_badge.clone(),
+        is_self: arena[ni].is_self,
         is_compact,
         child_of: arena[ni].child_of,
         is_father: arena[ni].is_father,
@@ -3034,6 +3053,7 @@ fn render_pedigree_card(
                 .to_string();
             let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
+            let is_self = node.is_self;
             let fab_x = CARD_PADDING + rw / 2.0;
             let fab_y = CARD_PADDING + rh + EDIT_FAB_GAP;
             let card_class = if is_focus {
@@ -3059,7 +3079,12 @@ fn render_pedigree_card(
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
                     rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:var(--white)" }
                     image { "href": "{portrait_src}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
-                    if is_sosa_root {
+                    if is_self {
+                        g {
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-self)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--white)" }
+                        }
+                    } else if is_sosa_root {
                         g {
                             circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-sosa-root)" }
                             text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:var(--white);font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }

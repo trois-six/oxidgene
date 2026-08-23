@@ -201,6 +201,30 @@ async fn test_tree_crud() {
 }
 
 #[tokio::test]
+async fn tree_self_person_can_be_set_replaced_and_cleared() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let first_person_id = create_person_via_api(&app, &tree_id).await;
+    let second_person_id = create_person_via_api(&app, &tree_id).await;
+
+    for expected in [
+        Some(first_person_id.as_str()),
+        Some(second_person_id.as_str()),
+        None,
+    ] {
+        let (status, body) = send_request(
+            app.clone(),
+            Method::PUT,
+            &format!("/api/v1/trees/{tree_id}"),
+            Some(serde_json::json!({ "self_person_id": expected })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["self_person_id"].as_str(), expected);
+    }
+}
+
+#[tokio::test]
 async fn test_tree_create_validation() {
     let app = setup_app().await;
 

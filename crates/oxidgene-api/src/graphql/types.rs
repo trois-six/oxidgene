@@ -727,6 +727,7 @@ pub struct GqlTree {
     pub name: String,
     pub description: Option<String>,
     pub sosa_root_person_id: Option<ID>,
+    pub self_person_id: Option<ID>,
     /// What `Default` privacy resolves to for everything in this tree.
     pub default_privacy: GqlTreeDefaultPrivacy,
     pub created_at: DateTime<Utc>,
@@ -767,6 +768,7 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             name: t.name,
             description: t.description,
             sosa_root_person_id: t.sosa_root_person_id.map(|id| ID(id.to_string())),
+            self_person_id: t.self_person_id.map(|id| ID(id.to_string())),
             default_privacy: t.default_privacy.into(),
             created_at: t.created_at,
             updated_at: t.updated_at,

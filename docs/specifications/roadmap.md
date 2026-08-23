@@ -19,6 +19,27 @@ timestamp: 2026-07-19T00:00:00Z
 Moved here from [General §8b](general.md) — the sprints below say what is
 planned, and this says what actually landed. Newest first.
 
+**Shipped 2026-08-23 — identity follows the reader to the person profile:**
+- **The profile now repeats the tree identity.** A person chosen through Who am
+  I? has a blue **Me** badge beside their green SOSA badge. It is a direct link
+  back to Tree & Roots, so changing or clearing the preference does not require
+  remembering where it was set.
+
+**Shipped 2026-08-23 — the pedigree can show who the reader is:**
+- **Who am I? is now a real tree preference.** Tree & Roots offers the same
+  picker as SOSA 1, including replace and clear. It stores only a nullable
+  `self_person_id`: no relationship, numbering or genealogical fact changes.
+  The pedigree rebuilds after every save and draws the selected person with a
+  blue badge, taking visual precedence when that person also has a SOSA badge.
+
+**Shipped 2026-08-23 — a tree can be renamed where it is configured:**
+- **Tree & Roots now owns the tree's name as well as its roots.** The same
+  `PUT /trees/{id}` operation behind the homepage card's `...` → Rename action
+  is available in Settings: the field is pre-filled with the current name,
+  refuses an empty value, reports save errors, and refreshes the shared tree
+  metadata so the settings breadcrumb and subsequent navigation use the new
+  name immediately.
+
 **Shipped 2026-08-21 — a stored projection says which build wrote it:**
 - **A projection change used to ship invisible.** Every field added to `PersonProfile` carries `#[serde(default)]` so the rows already in `person_denorm` keep deserializing — right for compatibility, and precisely wrong for visibility: an old payload comes back *looking complete*, and nothing anywhere could tell "this person genuinely has no date qualifier" from "this row predates qualifiers". That is not a hypothetical. The date-qualifier work the day before shipped a feature that did not appear on any existing install; the cards went on drawing bare years and the only cure was knowing to re-import. Whoever added the next projection field would have walked into the same trap.
 - **`person_denorm.schema_version`, compared on every read.** `PROJECTION_SCHEMA_VERSION` stamps every write, and `get` / `get_many` / `count_current` filter on it, so a row from an older build reads as **absent**. That is the whole trick: the callers that already rebuild a projection they could not find rebuild a stale one too, with no second code path and no way to forget one. `ensure_materialized` asks `count_current` rather than `count_tree`, so a tree an older build wrote is rebuilt once, on first read.

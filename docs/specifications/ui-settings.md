@@ -125,6 +125,14 @@ The tree cache is invalidated after each save so that navigating back to the tre
 
 ## 7. Section: Tree & Roots
 
+### Tree name
+
+The section starts with an editable **Tree name** field, pre-filled with the
+current name. Saving validates that the name is not empty, updates the tree
+immediately, and refreshes the breadcrumb and tree metadata without leaving
+the settings page. This is the same rename operation available from a tree
+card's overflow menu on the homepage.
+
 ### SOSA 1 (Root person)
 
 A **person picker** component enclosed in a card: displays the currently selected person as a row with avatar (initials circle), full name. Two buttons on the right:
@@ -142,7 +150,10 @@ When a SOSA root is set, all direct ancestors visible in the tree view display a
 
 Second person picker to designate the current user's own person in the tree. Used to display relationship labels in profile views. Displayed as a separate card below the SOSA card, with the same picker UI.
 
-*Note: Personal identification will be available in a future update.*
+The picker saves immediately, can be changed or cleared, and has no effect on
+the genealogy data or SOSA numbering. It is a local display preference: the
+selected person receives the blue badge in the pedigree view. Changing or
+clearing it invalidates the tree metadata so the badge updates immediately.
 
 ---
 

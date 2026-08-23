@@ -101,6 +101,7 @@ Horizontal arrangement: avatar on the left, text information on the right.
 - Displays a **default portrait silhouette** when no profile photo is available, chosen by gender: male (`portrait_male.png`), female (`portrait_female.png`), unknown (`portrait_unknown.png`) — embedded as data URIs in the binary
 - When a profile photo is available it replaces the default portrait with `object-fit: cover`
 - **SOSA badge**: when the person has a SOSA number (ancestor of SOSA 1), a small colored dot (12px, `var(--green)` for ancestors, `var(--orange)` for SOSA 1) is displayed at the **bottom-center of the avatar circle**, with a 2px card-background border
+- **Self badge**: the person selected in Settings → Tree & Roots → Who am I? displays the same bottom-center indicator in blue. It is a display-only preference; when a person also has a SOSA badge, the blue self badge takes precedence so the selected identity remains visible.
 
 **Text information** (`.pc-body`):
 - First name(s) (`.pc-first`)

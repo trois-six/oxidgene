@@ -12,6 +12,7 @@ pub struct Model {
     pub name: String,
     pub description: Option<String>,
     pub sosa_root_person_id: Option<Uuid>,
+    pub self_person_id: Option<Uuid>,
     /// What `Privacy::Default` means for everything in this tree.
     pub default_privacy: TreeDefaultPrivacy,
     pub created_at: DateTimeUtc,

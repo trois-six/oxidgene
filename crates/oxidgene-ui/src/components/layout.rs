@@ -200,6 +200,7 @@ pub const LAYOUT_STYLES: &str = r#"
         --pn-died:        #4a90d9;
         --pn-sosa:        #95C417;
         --pn-sosa-root:   #6da118;
+        --pn-self:        #006AC4;
         --pn-text:        #111111;
         --pn-text-muted:  #555555;
         --pn-hover-bg:    #cfe3fa;
@@ -464,6 +465,7 @@ pub const LAYOUT_STYLES: &str = r#"
         min-height: 24px;
         display: flex;
         justify-content: flex-end;
+        gap: 6px;
     }
 
     .pd-header-buttons {
@@ -477,6 +479,18 @@ pub const LAYOUT_STYLES: &str = r#"
         color: #fff;
         border-color: var(--green);
         font-size: 0.8rem;
+    }
+
+    .badge.pd-self-badge {
+        background: var(--pn-self);
+        color: #fff;
+        border-color: var(--pn-self);
+        cursor: pointer;
+        font-size: 0.8rem;
+        font-family: var(--font-sans);
+    }
+    .badge.pd-self-badge:hover {
+        filter: brightness(1.1);
     }
 
     .pd-sex-mark {

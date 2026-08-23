@@ -87,6 +87,8 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 - Create trees from scratch or via GEDCOM import.
 - Manage multiple trees.
+- Rename a tree from its homepage card or its Tree & Roots settings.
+- Mark the person who represents the current user for visual orientation in the pedigree and reach that setting from their profile.
 - → see [Homepage spec](ui-home.md)
 
 ### 3.2 GEDCOM Import/Export
