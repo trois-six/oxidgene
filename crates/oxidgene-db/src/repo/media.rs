@@ -1,6 +1,6 @@
 //! Repository for `Media` entities (CRUD with soft delete).
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Media};
 use sea_orm::entity::prelude::*;
@@ -24,6 +24,7 @@ pub struct UploadedMedia {
     pub page_count: i32,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 /// Fields a caller may change on a media record.
@@ -177,7 +178,6 @@ impl MediaRepo {
         tree_id: Uuid,
         upload: UploadedMedia,
     ) -> Result<Media, OxidGeneError> {
-        let now = Utc::now();
         let model = media::ActiveModel {
             id: Set(id),
             tree_id: Set(tree_id),
@@ -207,8 +207,8 @@ impl MediaRepo {
             date_value2: Set(None),
             calendar: Set(oxidgene_core::Calendar::default().into()),
             place_id: Set(None),
-            created_at: Set(now),
-            updated_at: Set(now),
+            created_at: Set(upload.created_at),
+            updated_at: Set(Utc::now()),
             deleted_at: Set(None),
         };
         let result = model
@@ -266,8 +266,8 @@ impl MediaRepo {
         id: Uuid,
         tree_id: Uuid,
         title: Option<String>,
+        created_at: DateTime<Utc>,
     ) -> Result<Media, OxidGeneError> {
-        let now = Utc::now();
         let name = title
             .as_deref()
             .map(str::trim)
@@ -304,8 +304,8 @@ impl MediaRepo {
             date_value2: Set(None),
             calendar: Set(oxidgene_core::Calendar::default().into()),
             place_id: Set(None),
-            created_at: Set(now),
-            updated_at: Set(now),
+            created_at: Set(created_at),
+            updated_at: Set(Utc::now()),
             deleted_at: Set(None),
         };
         let result = model

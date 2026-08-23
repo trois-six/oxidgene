@@ -70,6 +70,32 @@ const LOCATE: &str = r"
   };
 ";
 
+/// Fetches only the detail records that can reach the imported tree.
+///
+/// A detail failure costs that deposit its optional date/place metadata, never
+/// its image or person links. Four concurrent browser requests keep the window
+/// responsive without turning a large collection into a request burst.
+const DETAILS: &str = r"
+  const collectDetails = async (references, onDetail) => {
+    const ids = [...new Set(references.map((r) => r.deposit.id))];
+    const out = [];
+    let next = 0;
+    const worker = async () => {
+      while (next < ids.length) {
+        const id = ids[next++];
+        try {
+          out.push(await api(`/media/api/deposits/${id}`));
+        } catch (_) {
+          // Optional enrichment; the list record remains sufficient to import.
+        }
+        if (onDetail) onDetail(out.length, ids.length);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    return out;
+  };
+";
+
 /// Pre-ticks "Remember me" on the login form, and changes nothing else.
 ///
 /// Why tick it: after sign-in the window stops being something the user
@@ -227,7 +253,7 @@ pub fn ipc_collection() -> String {
         r"
 (async () => {{
   const send = (m) => window.ipc.postMessage(JSON.stringify(m));
-{HELPERS}{LOCATE}
+{HELPERS}{LOCATE}{DETAILS}
   try {{
     send({{ kind: 'progress', stage: 'deposits', done: 0, total: 0 }});
     const deposits = await pages('/media/api/deposits',
@@ -236,11 +262,14 @@ pub fn ipc_collection() -> String {
     const references = await pages('/media/api/references',
       (n) => send({{ kind: 'progress', stage: 'references', done: n, total: 0 }}));
 
+    const details = await collectDetails(references,
+      (done, total) => send({{ kind: 'progress', stage: 'details', done, total }}));
+
     const view_references = await locate(deposits, references,
       (done, total) => send({{ kind: 'progress', stage: 'locate', done, total }}));
 
     send({{ kind: 'collected',
-           data: JSON.stringify({{ deposits, references, view_references }}) }});
+           data: JSON.stringify({{ deposits, references, details, view_references }}) }});
   }} catch (e) {{
     send({{ kind: 'error', message: String(e && e.message ? e.message : e) }});
   }}
@@ -490,9 +519,11 @@ mod tests {
         // without renaming it there would only fail at runtime, on a live
         // account, after a login — so it is pinned.
         let script = ipc_collection();
-        for key in ["deposits", "references", "view_references"] {
+        for key in ["deposits", "references", "details", "view_references"] {
             assert!(script.contains(key), "the IPC collection must send {key}");
         }
+        assert!(script.contains("collectDetails"));
+        assert!(script.contains("Math.min(4, ids.length)"));
         assert!(script.contains("window.ipc.postMessage"));
     }
 

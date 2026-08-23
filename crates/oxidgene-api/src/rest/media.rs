@@ -193,9 +193,15 @@ pub async fn create_document(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateDocumentRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let media = MediaRepo::create_document(&state.db, Uuid::now_v7(), tree_id, body.title)
-        .await
-        .map_err(ApiError::from)?;
+    let media = MediaRepo::create_document(
+        &state.db,
+        Uuid::now_v7(),
+        tree_id,
+        body.title,
+        chrono::Utc::now(),
+    )
+    .await
+    .map_err(ApiError::from)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(media).unwrap()),
@@ -288,6 +294,7 @@ pub async fn upload_media(
         page_count: ingested.page_count,
         title: form.title,
         description: form.description,
+        created_at: chrono::Utc::now(),
     };
 
     let (status, media) = match form.media_id {

@@ -16,12 +16,13 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::Privacy;
 use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
-    MediaLinkRepo, MediaPatch, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, TreeRepo,
-    UploadedMedia, VignetteInput, VignetteRepo,
+    MediaLinkRepo, MediaPatch, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, PlaceRepo,
+    TreeRepo, UploadedMedia, VignetteInput, VignetteRepo,
 };
 use oxidgene_geneanet::Manifest;
 use oxidgene_geneanet::archive::{ArchiveSet, LocalOriginals, PhashIndex};
@@ -614,6 +615,18 @@ async fn attach_media(
     progress.enter(ImportPhase::Matching);
     let hashes = build_content_index(&deposits, &by_deposit, deposit_sizes, &archives);
     progress.enter(ImportPhase::Media);
+    let mut places = match PlaceRepo::list_all(db, tree_id).await {
+        Ok(places) => places
+            .into_iter()
+            .map(|place| (place_key(&place.name), place.id))
+            .collect(),
+        Err(err) => {
+            summary
+                .warnings
+                .push(format!("could not list places: {err}"));
+            HashMap::new()
+        }
+    };
 
     // Every one-page deposit, decoded and stored ahead of the loop below.
     //
@@ -633,6 +646,7 @@ async fn attach_media(
         hashes.as_ref(),
         fetched,
         progress,
+        &mut places,
         summary,
     )
     .await;
@@ -721,6 +735,7 @@ async fn attach_media(
                 hashes.as_ref(),
                 fetched,
                 progress,
+                &mut places,
                 summary,
             )
             .await
@@ -858,6 +873,7 @@ async fn prepare_single_pages(
     hashes: Option<&PhashIndex>,
     fetched: &HashMap<String, String>,
     progress: &ImportProgress,
+    places: &mut HashMap<String, Uuid>,
     summary: &mut GeneanetImportSummary,
 ) -> HashMap<i64, (Uuid, HashMap<i64, Uuid>)> {
     let single: Vec<(i64, &ManifestDeposit, &str)> = by_deposit
@@ -880,27 +896,33 @@ async fn prepare_single_pages(
                 continue;
             };
             match resolve_bytes(deposit, view, deposit_sizes, archives, hashes, fetched).await {
-                Ok(bytes) => resolved.push((
-                    *deposit_id,
-                    view.id,
-                    photo_file_name(deposit, view, extension),
-                    deposit.title.clone(),
-                    media_classification(deposit),
-                    geneanet_privacy(deposit),
-                    bytes,
-                )),
+                Ok(bytes) => {
+                    let metadata = media_metadata(db, tree_id, deposit, places, summary).await;
+                    resolved.push((
+                        *deposit_id,
+                        view.id,
+                        photo_file_name(deposit, view, extension),
+                        deposit.title.clone(),
+                        media_classification(deposit),
+                        geneanet_privacy(deposit),
+                        geneanet_created_at(deposit),
+                        metadata,
+                        bytes,
+                    ));
+                }
                 Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
             }
         }
 
-        let ingested =
-            futures_util::future::join_all(resolved.iter().map(|(_, _, name, _, _, _, bytes)| {
-                media::ingest(store, tree_id, name, bytes.clone())
-            }))
-            .await;
+        let ingested = futures_util::future::join_all(resolved.iter().map(
+            |(_, _, name, _, _, _, _, _, bytes)| media::ingest(store, tree_id, name, bytes.clone()),
+        ))
+        .await;
 
-        for ((deposit_id, view_id, name, title, classification, privacy, _), outcome) in
-            resolved.iter().zip(ingested)
+        for (
+            (deposit_id, view_id, name, title, classification, privacy, created_at, metadata, _),
+            outcome,
+        ) in resolved.iter().zip(ingested)
         {
             let ingested = match outcome {
                 Ok(ingested) => ingested,
@@ -917,6 +939,8 @@ async fn prepare_single_pages(
                 title.clone(),
                 *classification,
                 *privacy,
+                *created_at,
+                metadata,
                 summary,
             )
             .await
@@ -947,14 +971,20 @@ async fn document(
     hashes: Option<&PhashIndex>,
     fetched: &HashMap<String, String>,
     progress: &ImportProgress,
+    places: &mut HashMap<String, Uuid>,
     summary: &mut GeneanetImportSummary,
 ) -> Option<(Uuid, HashMap<i64, Uuid>)> {
     let document_id = Uuid::now_v7();
     let classification = media_classification(deposit);
     let privacy = geneanet_privacy(deposit);
-    match MediaRepo::create_document(db, document_id, tree_id, deposit.title.clone()).await {
+    let created_at = geneanet_created_at(deposit);
+    let metadata = media_metadata(db, tree_id, deposit, places, summary).await;
+    match MediaRepo::create_document(db, document_id, tree_id, deposit.title.clone(), created_at)
+        .await
+    {
         Ok(_) => {
-            if let Err(err) = update_media_metadata(db, document_id, classification, privacy).await
+            if let Err(err) =
+                update_media_metadata(db, document_id, classification, privacy, &metadata).await
             {
                 summary
                     .skipped
@@ -1024,6 +1054,8 @@ async fn document(
                 None,
                 classification,
                 privacy,
+                created_at,
+                &metadata,
                 summary,
             )
             .await
@@ -1391,6 +1423,8 @@ async fn write_media(
         Option<oxidgene_core::enums::DocumentCategory>,
     ),
     privacy: Privacy,
+    created_at: DateTime<Utc>,
+    metadata: &MediaMetadata,
     summary: &mut GeneanetImportSummary,
 ) -> Option<Uuid> {
     let upload = UploadedMedia {
@@ -1405,10 +1439,12 @@ async fn write_media(
         page_count: ingested.page_count,
         title,
         description: None,
+        created_at,
     };
 
     match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, upload).await {
-        Ok(row) => match update_media_metadata(db, row.id, classification, privacy).await {
+        Ok(row) => match update_media_metadata(db, row.id, classification, privacy, metadata).await
+        {
             Ok(_) => Some(row.id),
             Err(err) => {
                 summary.skipped.push(format!("{err}"));
@@ -1422,6 +1458,110 @@ async fn write_media(
     }
 }
 
+/// Returns Geneanet's source creation timestamp when it is an RFC 3339 date.
+///
+/// Collection data is intentionally lenient: a missing or malformed value
+/// must not discard a medium, so it keeps the normal OxidGene creation time.
+fn geneanet_created_at(deposit: &ManifestDeposit) -> DateTime<Utc> {
+    deposit
+        .date_create
+        .as_deref()
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
+        .unwrap_or_else(Utc::now)
+}
+
+/// Date and place attached to a Geneanet deposit, in OxidGene's normal model.
+#[derive(Debug, Clone)]
+struct MediaMetadata {
+    date: oxidgene_gedcom::date::ImportedDate,
+    place_id: Option<Uuid>,
+}
+
+async fn media_metadata(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    deposit: &ManifestDeposit,
+    places: &mut HashMap<String, Uuid>,
+    summary: &mut GeneanetImportSummary,
+) -> MediaMetadata {
+    let place_id = match deposit
+        .location
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => {
+            let key = place_key(name);
+            if let Some(id) = places.get(&key).copied() {
+                Some(id)
+            } else {
+                match PlaceRepo::create(db, Uuid::now_v7(), tree_id, name.to_string(), None, None)
+                    .await
+                {
+                    Ok(place) => {
+                        places.insert(key, place.id);
+                        Some(place.id)
+                    }
+                    Err(err) => {
+                        summary
+                            .warnings
+                            .push(format!("deposit {} place {name:?}: {err}", deposit.id));
+                        None
+                    }
+                }
+            }
+        }
+        None => None,
+    };
+
+    MediaMetadata {
+        date: geneanet_media_date(deposit),
+        place_id,
+    }
+}
+
+fn place_key(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+/// Converts Geneanet's ISO-like partial date to the GEDCOM phrase the rest of
+/// OxidGene parses, validates and sorts. Geneanet exposes no calendar, so the
+/// source is Gregorian; the resulting fields remain editable with the normal
+/// calendar-aware media date widget.
+fn geneanet_media_date(deposit: &ManifestDeposit) -> oxidgene_gedcom::date::ImportedDate {
+    let Some(raw) = deposit
+        .date
+        .as_deref()
+        .map(str::trim)
+        .filter(|date| !date.is_empty())
+    else {
+        return oxidgene_gedcom::date::ImportedDate::default();
+    };
+
+    let parts: Vec<&str> = raw.split('-').collect();
+    let normalized = match parts.as_slice() {
+        [year, month, day] if year.len() == 4 => match (month.parse::<u32>(), day.parse::<u32>()) {
+            (Ok(0), Ok(0)) => (*year).to_string(),
+            (Ok(month), Ok(0)) if (1..=12).contains(&month) => {
+                format!("{} {year}", month_name(month))
+            }
+            (Ok(month), Ok(day)) if (1..=12).contains(&month) && (1..=31).contains(&day) => {
+                format!("{day} {} {year}", month_name(month))
+            }
+            _ => raw.to_string(),
+        },
+        _ => raw.to_string(),
+    };
+    oxidgene_gedcom::date::parse(&normalized)
+}
+
+fn month_name(month: u32) -> &'static str {
+    [
+        "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    ][(month - 1) as usize]
+}
+
 async fn update_media_metadata(
     db: &DatabaseConnection,
     media_id: Uuid,
@@ -1430,6 +1570,7 @@ async fn update_media_metadata(
         Option<oxidgene_core::enums::DocumentCategory>,
     ),
     privacy: Privacy,
+    metadata: &MediaMetadata,
 ) -> Result<(), OxidGeneError> {
     MediaRepo::update(
         db,
@@ -1438,6 +1579,12 @@ async fn update_media_metadata(
             source_media_type: Some(source_media_type),
             document_category: Some(document_category),
             privacy: Some(privacy),
+            date_value: Some(metadata.date.value.clone()),
+            date_value2: Some(metadata.date.value2.clone()),
+            date_qualifier: Some(metadata.date.qualifier),
+            calendar: Some(metadata.date.calendar),
+            date_sort: Some(metadata.date.sort),
+            place_id: Some(metadata.place_id),
             ..MediaPatch::default()
         },
     )
@@ -1646,6 +1793,8 @@ mod tests {
             kind: Some("portraits".to_string()),
             private: true,
             date_create: None,
+            date: None,
+            location: None,
             local_file: None,
             views,
         }
@@ -1694,6 +1843,34 @@ mod tests {
         let mut public = deposit(5, vec![view(50, Some(1))]);
         public.private = false;
         assert_eq!(geneanet_privacy(&public), Privacy::Public);
+    }
+
+    #[test]
+    fn geneanet_creation_date_is_preserved_in_utc() {
+        let mut deposit = deposit(1, vec![view(10, Some(1))]);
+        deposit.date_create = Some("2023-08-17T19:22:56+02:00".to_string());
+
+        assert_eq!(
+            geneanet_created_at(&deposit).to_rfc3339(),
+            "2023-08-17T17:22:56+00:00"
+        );
+    }
+
+    #[test]
+    fn geneanet_historical_dates_use_the_media_date_model() {
+        let mut deposit = deposit(1, vec![view(10, Some(1))]);
+        deposit.date = Some("1924-00-00".to_string());
+        let date = geneanet_media_date(&deposit);
+
+        assert_eq!(date.calendar, oxidgene_core::Calendar::Gregorian);
+        assert_eq!(date.qualifier, oxidgene_core::DateQualifier::Exact);
+        assert_eq!(date.value.as_deref(), Some("1924"));
+        assert_eq!(date.sort, chrono::NaiveDate::from_ymd_opt(1924, 1, 1));
+
+        deposit.date = Some("1946-09-03".to_string());
+        let date = geneanet_media_date(&deposit);
+        assert_eq!(date.value.as_deref(), Some("3 SEP 1946"));
+        assert_eq!(date.sort, chrono::NaiveDate::from_ymd_opt(1946, 9, 3));
     }
 
     #[test]

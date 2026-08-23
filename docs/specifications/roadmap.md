@@ -19,6 +19,27 @@ timestamp: 2026-07-19T00:00:00Z
 Moved here from [General §8b](general.md) — the sprints below say what is
 planned, and this says what actually landed. Newest first.
 
+**Shipped 2026-08-23 — Geneanet deposits retain their creation date:**
+- **`Media.created_at` now follows the source of creation.** A native upload or
+  empty document receives `Utc::now()` explicitly through REST and GraphQL;
+  an imported Geneanet deposit instead preserves its RFC 3339 `date_create`,
+  converted to UTC. The same timestamp is written on a multi-page document and
+  every page it contains. Missing or malformed source dates safely fall back to
+  the import time.
+- **The viewer shows the timestamp.** The read-only facts column now includes
+  the stored creation time, distinct from the historical date carried by the
+  image or document itself.
+- **Historical metadata follows the tree model.** The browser collects the
+  detail of each linked Geneanet deposit. Its ISO-like date is converted into
+  the calendar, qualifier, values and derived sort key shared by events; its
+  location resolves to the tree's ordinary `Place` row. A multi-page document
+  and every imported page receive the same metadata.
+- **External authorship is specified for the future server.** Geneanet's
+  `username_sender` is reserved as source provenance for the eventual
+  multi-user audit model; current imports must not map it, the login name, or
+  `username` onto an OxidGene user.
+- [x] Verified by the focused Geneanet creation-date test and API/UI builds.
+
 **Shipped 2026-08-23 — Geneanet media retain their visibility:**
 - **The `private` flag now survives the import.** It was already collected with
   every deposit, but the rows created by the importer retained OxidGene's

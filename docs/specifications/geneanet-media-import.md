@@ -239,6 +239,45 @@ in an English interface, while its GEDCOM export remains `MANUSCRIPT`.
 to the parent and every page of a multi-page deposit, and the media viewer shows
 the resulting visibility with the normal i18n label.
 
+`date_create` is the creation timestamp of the Geneanet deposit. It writes
+`Media.created_at` (converted from RFC 3339 to UTC) for a single medium, a
+multi-page document and every page beneath it. A missing or malformed source
+timestamp falls back to the import time, so it cannot stop an import. Media
+created directly in OxidGene continue to use their local creation time. This is
+separate from the historical `Media.date_value`, which describes when the image
+was taken or the record was made.
+
+### `GET /media/api/deposits/{depositId}`
+
+After the bulk references are known, OxidGene requests this detail endpoint for
+each distinct **linked** deposit, with at most four requests in flight. A failed
+detail request leaves the media importable; it only omits the optional
+enrichment. The response supplies the historical `date` and `location` that the
+paginated payload does not.
+
+`date` is not retained as a source string. It is converted to the same four
+fields as every Event and Media date: `calendar`, `date_qualifier`,
+`date_value`, `date_value2`, plus the server-derived Gregorian `date_sort`.
+Geneanet's ISO-like partial dates are normalised first: `1924-00-00` becomes
+the Gregorian GEDCOM year `1924`; `1946-09-00` becomes `SEP 1946`; and
+`1946-09-03` becomes `3 SEP 1946`. The ordinary calendar-aware media editor can
+then edit it without a Geneanet-specific path.
+
+`location` is resolved against the tree's existing `Place` rows by trimmed,
+case-insensitive name. A missing name creates one normal `Place`, and the
+resulting id is written to `Media.place_id`. The document and every one of its
+pages receive the same date and place metadata.
+
+#### Source provenance for future multi-user servers
+
+Geneanet exposes `username_sender`, the account that submitted a deposit. The
+future provenance/audit model must preserve this source value alongside an
+imported medium. It is **not** an OxidGene actor id: the Geneanet login,
+`username`, and `username_sender` must never be matched to, or used to create,
+an OxidGene user during import. Account attribution belongs to the later
+multi-user server design, where it can retain both the external source identity
+and the OxidGene actor that performed the import.
+
 ### `GET /media/api/references?page=N&per_page=100`
 
 **The endpoint the whole pipeline exists for, and the one to use.** Every
