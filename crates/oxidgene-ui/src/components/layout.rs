@@ -3692,6 +3692,7 @@ pub const LAYOUT_STYLES: &str = r#"
         flex: 1;
         min-width: 0;
         min-height: 0;
+        position: relative;
     }
 
     .media-viewer-aside {
@@ -3823,12 +3824,33 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-deep);
     }
 
+    /* The viewer borrows the pedigree's compact controls but keeps them in a
+       horizontal row above the document, where they never obscure a scan. */
+    .media-viewer-controls {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 6px 12px 0;
+    }
+
+    .media-viewer-controls .isb-btn { width: 30px; height: 30px; }
+
+    .media-viewer-stage.is-image { cursor: grab; }
+    .media-viewer-stage.is-image.is-dragging { cursor: grabbing; user-select: none; }
+    .media-viewer-stage .media-viewer-static-image {
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
+    }
+
     /* Zoomed, the stage stops centring: an image wider than its container
        must start at the top-left and be scrolled, or the parts that overflow
        are unreachable in both directions at once. */
     .media-viewer-stage.is-zoomed {
         align-items: flex-start;
         justify-content: flex-start;
+        overflow: scroll;
     }
 
     /* Contain, not cover: this is the view where the document is the point,
@@ -3840,50 +3862,7 @@ pub const LAYOUT_STYLES: &str = r#"
         object-fit: contain;
     }
 
-    .media-viewer-stage.is-zoomed .media-viewer-image {
-        /* Nothing to contain into once it is larger than the stage, and
-           `contain` would fight the explicit width. */
-        object-fit: none;
-        height: auto;
-    }
-
-    .media-zoom {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        padding: 6px 0 0;
-    }
-
-    .media-zoom-btn,
-    .media-zoom-level {
-        background: none;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        color: var(--text-secondary);
-        font-family: var(--font-sans);
-        font-size: 0.78rem;
-        cursor: pointer;
-        transition: border-color 0.15s, color 0.15s;
-    }
-
-    .media-zoom-btn {
-        width: 28px;
-        height: 26px;
-        line-height: 1;
-    }
-
-    /* Wide enough for "400 %" so the row does not shift as the number grows. */
-    .media-zoom-level {
-        min-width: 66px;
-        height: 26px;
-        padding: 0 8px;
-    }
-
-    .media-zoom-btn:hover:not(:disabled),
-    .media-zoom-level:hover { border-color: var(--orange); color: var(--text-primary); }
-    .media-zoom-btn:disabled { opacity: 0.4; cursor: default; }
-    .media-zoom-level.is-fit { color: var(--text-muted); }
+    .media-viewer-stage.is-zoomed .media-viewer-image { flex: 0 0 auto; }
 
     .media-viewer-audio { width: min(520px, 100%); }
 
