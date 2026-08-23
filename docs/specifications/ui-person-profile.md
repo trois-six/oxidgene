@@ -103,6 +103,12 @@ The dates are written out in full through `format_date`, qualifier included — 
 
 **Gender**: label + colored dot (blue male, pink female, grey unknown).
 
+**Identity badges.** A person with a SOSA number carries the green SOSA badge.
+When this profile is the person selected by Settings → Tree & Roots → Who am I?,
+a second blue **Me** badge appears beside it. The badge links to Tree & Roots so
+the user can change or clear that cosmetic identity preference directly from the
+person it identifies.
+
 **Action buttons**:
 - **Edit** — opens the [Person Edit Modal](ui-person-edit-modal.md)
 - **View in tree** — returns to the tree view, centered on this person

@@ -251,6 +251,10 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             Some(Ok(pedigree)) => {
                 let mut pd = PedigreeData::from_pedigree(pedigree);
                 pd.photos = photos;
+                pd.self_person_id = match &*tree_resource.read() {
+                    Some(Ok(tree)) => tree.self_person_id,
+                    _ => None,
+                };
                 (Some(pd), Some(pedigree.root_person_id))
             }
             _ => (None, selected_root()),

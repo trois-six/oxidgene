@@ -511,6 +511,7 @@ pub fn Home() -> Element {
                                                 name: Some(name),
                                                 description: None,
                                                 sosa_root_person_id: None,
+                                                self_person_id: None,
                                             };
                                             match api.update_tree(tid, &body).await {
                                                 Ok(tree) => {

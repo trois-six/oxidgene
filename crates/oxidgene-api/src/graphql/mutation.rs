@@ -123,12 +123,18 @@ impl MutationRoot {
             |s| Uuid::parse_str(&s),
             "sosa_root_person_id",
         )?;
+        let self_person = patch_parse(
+            input.self_person_id,
+            |s| Uuid::parse_str(&s),
+            "self_person_id",
+        )?;
         let tree = TreeRepo::update(
             db,
             uuid,
             input.name,
             patch(input.description),
             sosa_root,
+            self_person,
             input.default_privacy.map(Into::into),
         )
         .await?;

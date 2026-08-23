@@ -26,7 +26,7 @@ The API should eventually expose an OpenAPI description in YAML under the path: 
 | `GET` | `/trees` | List trees (cursor-paginated) |
 | `POST` | `/trees` | Create a tree |
 | `GET` | `/trees/{tree_id}` | Get a tree |
-| `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id`) |
+| `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`) |
 | `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
 | `POST` | `/trees/{tree_id}/duplicate` | Duplicate a tree (deep copy) |
 

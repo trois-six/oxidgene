@@ -52,6 +52,9 @@ pub struct UpdateTreeRequest {
     /// `null` clears the root person; absent field leaves it unchanged.
     #[serde(default, deserialize_with = "double_option")]
     pub sosa_root_person_id: Option<Option<uuid::Uuid>>,
+    /// `null` clears the person identifying the current user; absent leaves it unchanged.
+    #[serde(default, deserialize_with = "double_option")]
+    pub self_person_id: Option<Option<uuid::Uuid>>,
     /// What `privacy: "default"` resolves to for everything in this tree.
     pub default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
 }

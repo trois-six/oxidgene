@@ -69,6 +69,7 @@ pub async fn update_tree(
         body.name,
         body.description,
         body.sosa_root_person_id,
+        body.self_person_id,
         body.default_privacy,
     )
     .await

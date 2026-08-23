@@ -362,10 +362,18 @@ fn TreeRootsSection(
     let mut show_search = use_signal(|| false);
     let mut save_message = use_signal(|| None::<String>);
     let mut save_error = use_signal(|| None::<String>);
+    let mut local_tree_name = use_signal(|| None::<String>);
+    let mut rename_loading = use_signal(|| false);
+    let mut rename_error = use_signal(|| None::<String>);
+    let mut rename_success = use_signal(|| None::<String>);
     // Local override so the UI updates immediately after save/clear,
     // without waiting for tree_resource to re-fetch.
     // None = use tree_resource value, Some(x) = override with x.
     let mut local_sosa_override = use_signal(|| None::<Option<Uuid>>);
+    let mut show_self_search = use_signal(|| false);
+    let mut self_save_message = use_signal(|| None::<String>);
+    let mut self_save_error = use_signal(|| None::<String>);
+    let mut local_self_override = use_signal(|| None::<Option<Uuid>>);
 
     // Current sosa_root_person_id: local override takes precedence
     let current_sosa_root = match local_sosa_override() {
@@ -374,6 +382,53 @@ fn TreeRootsSection(
             Some(Some(Ok(tree))) => tree.sosa_root_person_id,
             _ => None,
         },
+    };
+    let current_self_person = match local_self_override() {
+        Some(value) => value,
+        None => match &*tree_resource.read() {
+            Some(Some(Ok(tree))) => tree.self_person_id,
+            _ => None,
+        },
+    };
+    let current_tree_name = local_tree_name().unwrap_or_else(|| match &*tree_resource.read() {
+        Some(Some(Ok(tree))) => tree.name.clone(),
+        _ => String::new(),
+    });
+
+    let api_rename = api.clone();
+    let tree_name_for_rename = current_tree_name.clone();
+    let on_rename = move |_| {
+        let api = api_rename.clone();
+        let name = local_tree_name()
+            .unwrap_or_else(|| tree_name_for_rename.clone())
+            .trim()
+            .to_string();
+        rename_error.set(None);
+        rename_success.set(None);
+        if name.is_empty() {
+            rename_error.set(Some(i18n.t("tree.form.name_required").to_string()));
+            return;
+        }
+        rename_loading.set(true);
+        spawn(async move {
+            let Some(tid) = tree_id_parsed else {
+                rename_loading.set(false);
+                return;
+            };
+            let body = UpdateTreeBody {
+                name: Some(name),
+                ..Default::default()
+            };
+            match api.update_tree(tid, &body).await {
+                Ok(tree) => {
+                    local_tree_name.set(Some(tree.name.clone()));
+                    tree_cache.refresh_tree(tid, tree);
+                    rename_success.set(Some(i18n.t("settings.tree_name_saved").to_string()));
+                }
+                Err(e) => rename_error.set(Some(e.to_string())),
+            }
+            rename_loading.set(false);
+        });
     };
 
     // Fetch root person's names directly (no full tree snapshot needed).
@@ -422,6 +477,47 @@ fn TreeRootsSection(
         }
     };
 
+    let api_self_names = api.clone();
+    let self_names_resource = use_resource(move || {
+        let api = api_self_names.clone();
+        let self_person_id = match local_self_override() {
+            Some(value) => value,
+            None => match &*tree_resource.read() {
+                Some(Some(Ok(tree))) => tree.self_person_id,
+                _ => None,
+            },
+        };
+        let tid = tree_id_parsed;
+        async move {
+            let (Some(person_id), Some(tid)) = (self_person_id, tid) else {
+                return None;
+            };
+            api.list_person_names(tid, person_id).await.ok()
+        }
+    });
+
+    let self_person_name = {
+        if current_self_person.is_some() {
+            let data = self_names_resource.read();
+            match &*data {
+                Some(Some(names_vec)) => {
+                    let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
+                    for name in names_vec.iter() {
+                        name_map
+                            .entry(name.person_id)
+                            .or_default()
+                            .push(name.clone());
+                    }
+                    Some(resolve_name(current_self_person.unwrap(), &name_map, &i18n))
+                }
+                Some(None) => Some(i18n.t("common.unknown")),
+                None => Some(i18n.t("common.loading")),
+            }
+        } else {
+            None
+        }
+    };
+
     // Handler: save the selected person as sosa root
     let api_save = api.clone();
     let on_select_root = move |person_id: Uuid| {
@@ -436,6 +532,7 @@ fn TreeRootsSection(
                     name: None,
                     description: None,
                     sosa_root_person_id: Some(Some(person_id)),
+                    self_person_id: None,
                 };
                 match api.update_tree(tid, &body).await {
                     Ok(_) => {
@@ -464,6 +561,7 @@ fn TreeRootsSection(
                     name: None,
                     description: None,
                     sosa_root_person_id: Some(None),
+                    self_person_id: None,
                 };
                 match api.update_tree(tid, &body).await {
                     Ok(_) => {
@@ -479,12 +577,89 @@ fn TreeRootsSection(
         });
     };
 
+    let api_save_self = api.clone();
+    let on_select_self = move |person_id: Uuid| {
+        let api = api_save_self.clone();
+        show_self_search.set(false);
+        self_save_message.set(None);
+        self_save_error.set(None);
+        spawn(async move {
+            if let Some(tid) = tree_id_parsed {
+                let body = UpdateTreeBody {
+                    self_person_id: Some(Some(person_id)),
+                    ..Default::default()
+                };
+                match api.update_tree(tid, &body).await {
+                    Ok(_) => {
+                        tree_cache.invalidate();
+                        local_self_override.set(Some(Some(person_id)));
+                        self_save_message.set(Some("saved".to_string()));
+                    }
+                    Err(e) => self_save_error.set(Some(e.to_string())),
+                }
+            }
+        });
+    };
+
+    let api_clear_self = api.clone();
+    let on_clear_self = move |_| {
+        let api = api_clear_self.clone();
+        self_save_message.set(None);
+        self_save_error.set(None);
+        spawn(async move {
+            if let Some(tid) = tree_id_parsed {
+                let body = UpdateTreeBody {
+                    self_person_id: Some(None),
+                    ..Default::default()
+                };
+                match api.update_tree(tid, &body).await {
+                    Ok(_) => {
+                        tree_cache.invalidate();
+                        local_self_override.set(Some(None));
+                        self_save_message.set(Some("saved".to_string()));
+                    }
+                    Err(e) => self_save_error.set(Some(e.to_string())),
+                }
+            }
+        });
+    };
+
     rsx! {
         div { class: "settings-section",
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
             h2 { class: "settings-section-title", {i18n.t("settings.tree_roots")} }
             p { class: "settings-section-subtitle",
                 {i18n.t("settings.tree_roots_desc")}
+            }
+
+            div { class: "card", style: "margin-top: 16px;",
+                h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
+                    {i18n.t("settings.tree_name")}
+                }
+                p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
+                    {i18n.t("settings.tree_name_desc")}
+                }
+                div { class: "settings-tree-name-form",
+                    input {
+                        r#type: "text",
+                        value: "{current_tree_name}",
+                        placeholder: i18n.t("tree.form.name_placeholder"),
+                        disabled: rename_loading(),
+                        oninput: move |e: Event<FormData>| local_tree_name.set(Some(e.value())),
+                    }
+                    button {
+                        class: "btn btn-primary",
+                        disabled: rename_loading(),
+                        onclick: on_rename,
+                        if rename_loading() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                    }
+                }
+                if let Some(message) = rename_success() {
+                    div { class: "success-msg", style: "margin-top: 12px;", "{message}" }
+                }
+                if let Some(error) = rename_error() {
+                    div { class: "error-msg", style: "margin-top: 12px;", "{error}" }
+                }
             }
 
             div { class: "card", style: "margin-top: 16px;",
@@ -555,8 +730,53 @@ fn TreeRootsSection(
                 p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
                     {i18n.t("settings.who_am_i_desc")}
                 }
-                div { class: "settings-placeholder",
-                    {i18n.t("settings.who_am_i_future")}
+                if show_self_search() {
+                    if let Some(tid) = tree_id_parsed {
+                        SearchPerson {
+                            tree_id: tid,
+                            placeholder: i18n.t("settings.self_person_search"),
+                            on_select: on_select_self,
+                            on_cancel: move |_| show_self_search.set(false),
+                        }
+                    }
+                } else if let Some(name) = &self_person_name {
+                    div { class: "sosa-root-display",
+                        div { class: "sosa-root-person",
+                            div { class: "sosa-root-avatar",
+                                {name.chars().next().unwrap_or('?').to_string()}
+                            }
+                            span { class: "sosa-root-name", "{name}" }
+                        }
+                        div { class: "sosa-root-actions",
+                            button {
+                                class: "btn btn-outline btn-sm",
+                                onclick: move |_| show_self_search.set(true),
+                                {i18n.t("settings.self_person_change")}
+                            }
+                            button {
+                                class: "btn btn-outline btn-sm btn-danger-outline",
+                                onclick: on_clear_self,
+                                {i18n.t("settings.self_person_clear")}
+                            }
+                        }
+                    }
+                } else {
+                    div { class: "sosa-root-empty",
+                        p { class: "text-muted", {i18n.t("settings.self_person_none")} }
+                        button {
+                            class: "btn btn-primary btn-sm",
+                            onclick: move |_| show_self_search.set(true),
+                            {i18n.t("settings.self_person_change")}
+                        }
+                    }
+                }
+                if self_save_message().is_some() {
+                    div { class: "success-msg", style: "margin-top: 12px;",
+                        {i18n.t("settings.self_person_saved")}
+                    }
+                }
+                if let Some(error) = self_save_error() {
+                    div { class: "error-msg", style: "margin-top: 12px;", "{error}" }
                 }
             }
         }
@@ -896,6 +1116,15 @@ const SETTINGS_STYLES: &str = r#"
         color: var(--text-muted);
         font-size: 0.85rem;
         font-style: italic;
+    }
+
+    .settings-tree-name-form {
+        display: flex;
+        gap: 8px;
+    }
+    .settings-tree-name-form input {
+        min-width: 0;
+        flex: 1;
     }
 
     /* SOSA root person display */

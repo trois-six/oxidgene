@@ -182,6 +182,8 @@ pub struct UpdateTreeBody {
     pub description: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sosa_root_person_id: Option<Option<Uuid>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub self_person_id: Option<Option<Uuid>>,
     /// What `Privacy::Default` resolves to for everything in this tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_privacy: Option<TreeDefaultPrivacy>,

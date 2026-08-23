@@ -33,6 +33,7 @@ pub struct UpdateTreeInput {
     pub name: Option<String>,
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,
+    pub self_person_id: MaybeUndefined<String>,
 }
 
 // ── Person Inputs ────────────────────────────────────────────────────
