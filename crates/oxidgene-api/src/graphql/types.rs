@@ -1625,6 +1625,8 @@ pub struct GqlMedia {
     pub description: Option<String>,
     pub date_value: Option<String>,
     pub date_sort: Option<String>,
+    /// Whether this is shown when the tree is published.
+    pub privacy: GqlPrivacy,
     /// What the medium physically is, in GEDCOM's own vocabulary.
     pub source_media_type: GqlSourceMediaType,
     /// What kind of record it is; null when unclassified.
@@ -1656,6 +1658,7 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             description: m.description,
             date_value: m.date_value,
             date_sort: m.date_sort.map(|d| d.to_string()),
+            privacy: m.privacy.into(),
             source_media_type: m.source_media_type.into(),
             document_category: m.document_category.map(Into::into),
             place_id: m.place_id.map(|id| ID(id.to_string())),

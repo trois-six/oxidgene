@@ -20,7 +20,7 @@
 //! what an `<img>` onto a 404 gives you.
 
 use dioxus::prelude::*;
-use oxidgene_core::enums::{DocumentCategory, SourceMediaType};
+use oxidgene_core::enums::{DocumentCategory, Privacy, SourceMediaType};
 use oxidgene_core::types::Vignette;
 use uuid::Uuid;
 
@@ -1499,6 +1499,14 @@ fn MediaFacts(tree_id: Uuid, media: oxidgene_core::types::Media) -> Element {
             MediaFact {
                 label: i18n.t("media.source_media_type"),
                 value: Some(i18n.t(&format!("media.medium.{}", media.source_media_type.as_str()))),
+            }
+            MediaFact {
+                label: i18n.t("media.privacy"),
+                value: Some(i18n.t(match media.privacy {
+                    Privacy::Default => "privacy.default",
+                    Privacy::Public => "privacy.public",
+                    Privacy::Private => "privacy.private",
+                })),
             }
             MediaFact {
                 label: i18n.t("media.description"),
