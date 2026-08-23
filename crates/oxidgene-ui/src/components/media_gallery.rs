@@ -19,6 +19,7 @@
 //! draws a labelled file icon in that case instead of a broken image, which is
 //! what an `<img>` onto a 404 gives you.
 
+use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use oxidgene_core::enums::{DocumentCategory, Privacy, SourceMediaType};
 use oxidgene_core::types::Vignette;
@@ -1684,6 +1685,12 @@ fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool
     }
 }
 
+#[derive(Clone, Copy)]
+enum MediaZoomAnchor {
+    Center,
+    Pointer(f64, f64),
+}
+
 #[component]
 fn MediaViewer(
     tree_id: Uuid,
@@ -1723,11 +1730,123 @@ fn MediaViewer(
     let caption = current_tile.caption().to_string();
     let is_document = current_tile.media.is_document;
     let mut page = use_signal(|| 0_usize);
-    // Zoom as a percentage of the natural size; `None` is "fit to the stage",
-    // which is where a viewer starts and what the stage's own CSS does. A
-    // scan's whole point is the handwriting in one corner, so this goes well
-    // past 100%.
+    // Zoom as a percentage of the fitted size; `None` is exactly fitted. This
+    // mirrors the pedigree's multiplicative zoom without sacrificing the
+    // scrollbars a large scan needs.
     let mut zoom = use_signal(|| None::<u32>);
+    let mut dragging_image = use_signal(|| false);
+    let mut drag_start_x = use_signal(|| 0.0_f64);
+    let mut drag_start_y = use_signal(|| 0.0_f64);
+    let mut wheel_zooming = use_signal(|| false);
+    let mut fitted_size = use_signal(|| None::<(f64, f64)>);
+    let stage_id = format!("media-viewer-stage-{}", tile.media.id);
+
+    let fit_image = use_callback({
+        let stage_id = stage_id.clone();
+        move |()| {
+            let stage_id = stage_id.clone();
+            spawn(async move {
+                let script = format!(
+                    r#"
+                    const stage = document.getElementById('{stage_id}');
+                    const image = stage?.querySelector('.media-viewer-image');
+                    if (!stage || !image || !image.naturalWidth || !image.naturalHeight) return null;
+                    const style = getComputedStyle(stage);
+                    const availableWidth = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+                    const availableHeight = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+                    const scale = Math.min(availableWidth / image.naturalWidth, availableHeight / image.naturalHeight);
+                    const width = image.naturalWidth * scale;
+                    const height = image.naturalHeight * scale;
+                    image.style.width = `${{width}}px`;
+                    image.style.height = `${{height}}px`;
+                    image.style.maxWidth = 'none';
+                    image.style.maxHeight = 'none';
+                    stage.classList.remove('is-zoomed');
+                    stage.scrollLeft = 0;
+                    stage.scrollTop = 0;
+                    return [width, height];
+                    "#,
+                );
+                if let Ok(value) = document::eval(&script).await
+                    && let (Some(width), Some(height)) = (
+                        value.get(0).and_then(|item| item.as_f64()),
+                        value.get(1).and_then(|item| item.as_f64()),
+                    )
+                {
+                    fitted_size.set(Some((width, height)));
+                    zoom.set(None);
+                }
+            });
+        }
+    });
+
+    // Size and scroll move in one WebView operation, then Rust adopts that
+    // already-visible state. This prevents an intermediate displaced frame.
+    let apply_zoom = use_callback({
+        let stage_id = stage_id.clone();
+        move |(level, anchor): (u32, MediaZoomAnchor)| {
+            let pointer_zoom = matches!(anchor, MediaZoomAnchor::Pointer(_, _));
+            if pointer_zoom && wheel_zooming() {
+                return;
+            }
+            if pointer_zoom {
+                wheel_zooming.set(true);
+            }
+            let Some((fit_width, fit_height)) = fitted_size() else {
+                if pointer_zoom {
+                    wheel_zooming.set(false);
+                }
+                return;
+            };
+            let width = fit_width * level as f64 / FIT_ZOOM as f64;
+            let height = fit_height * level as f64 / FIT_ZOOM as f64;
+            let is_zoomed = level > FIT_ZOOM;
+            let (pointer_x, pointer_y, center) = match anchor {
+                MediaZoomAnchor::Center => ("null".to_string(), "null".to_string(), true),
+                MediaZoomAnchor::Pointer(x, y) => (x.to_string(), y.to_string(), false),
+            };
+            let stage_id = stage_id.clone();
+            spawn(async move {
+                let script = format!(
+                    r#"
+                    const stage = document.getElementById('{stage_id}');
+                    const image = stage?.querySelector('.media-viewer-image');
+                    if (!stage || !image) return;
+                    const rect = stage.getBoundingClientRect();
+                    const oldImageRect = image.getBoundingClientRect();
+                    const clientX = {pointer_x} ?? oldImageRect.left + oldImageRect.width / 2;
+                    const clientY = {pointer_y} ?? oldImageRect.top + oldImageRect.height / 2;
+                    const screenX = clientX - rect.left;
+                    const screenY = clientY - rect.top;
+                    const nx = Math.max(0, Math.min(1, (clientX - oldImageRect.left) / oldImageRect.width));
+                    const ny = Math.max(0, Math.min(1, (clientY - oldImageRect.top) / oldImageRect.height));
+                    image.style.width = '{width}px';
+                    image.style.height = '{height}px';
+                    image.style.maxWidth = 'none';
+                    image.style.maxHeight = 'none';
+                    stage.classList.toggle('is-zoomed', {is_zoomed});
+
+                    if ({center}) {{
+                        stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2);
+                        stage.scrollTop = Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2);
+                    }} else {{
+                        const newImageRect = image.getBoundingClientRect();
+                        const imageLeft = newImageRect.left - rect.left + stage.scrollLeft;
+                        const imageTop = newImageRect.top - rect.top + stage.scrollTop;
+                        stage.scrollLeft = imageLeft + nx * newImageRect.width - screenX;
+                        stage.scrollTop = imageTop + ny * newImageRect.height - screenY;
+                    }}
+                    "#,
+                );
+                let _ = document::eval(&script).await;
+                zoom.set(Some(level));
+                if pointer_zoom {
+                    wheel_zooming.set(false);
+                }
+            });
+        }
+    });
+    let stage_id_for_move = stage_id.clone();
 
     // A document has no bytes of its own: what is shown is its current page,
     // which is a media in its own right. Everything below therefore reads the
@@ -1767,6 +1886,69 @@ fn MediaViewer(
         (None, MediaSource::Remote) => Some(current_tile.media.file_path.clone()),
         (None, MediaSource::Unheld) => None,
     };
+    let content_media_id = shown.map(|media| media.id).unwrap_or(current_tile.media.id);
+    let image_id = format!("media-viewer-image-{content_media_id}");
+    let image_style = match (zoom(), fitted_size()) {
+        (Some(level), Some((width, height))) => format!(
+            "width: {}px; height: {}px; max-width: none; max-height: none;",
+            width * level as f64 / FIT_ZOOM as f64,
+            height * level as f64 / FIT_ZOOM as f64,
+        ),
+        (Some(_), None) => "width: auto; max-width: none; max-height: none;".to_string(),
+        (None, Some((width, height))) => {
+            format!("width: {width}px; height: {height}px; max-width: none; max-height: none;",)
+        }
+        (None, None) => String::new(),
+    };
+    use_effect({
+        let image_id = image_id.clone();
+        let stage_id = stage_id.clone();
+        move || {
+            let image_id = image_id.clone();
+            let stage_id = stage_id.clone();
+            spawn(async move {
+                let script = format!(
+                    r#"
+                    const image = document.getElementById('{image_id}');
+                    const stage = document.getElementById('{stage_id}');
+                    if (!image || !stage) return null;
+                    for (let frame = 0; frame < 8 && (!image.complete || !image.naturalWidth); frame += 1) {{
+                        await new Promise(requestAnimationFrame);
+                    }}
+                    if (!image.naturalWidth || !image.naturalHeight) return null;
+                    const style = getComputedStyle(stage);
+                    return [
+                        image.naturalWidth,
+                        image.naturalHeight,
+                        stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+                        stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+                    ];
+                    "#,
+                );
+                if let Ok(value) = document::eval(&script).await {
+                    let width = value.get(0).and_then(|item| item.as_f64());
+                    let height = value.get(1).and_then(|item| item.as_f64());
+                    let space_width = value.get(2).and_then(|item| item.as_f64());
+                    let space_height = value.get(3).and_then(|item| item.as_f64());
+                    if let (Some(width), Some(height), Some(space_width), Some(space_height)) =
+                        (width, height, space_width, space_height)
+                        && width > 0.0
+                        && height > 0.0
+                    {
+                        let scale = (space_width / width).min(space_height / height);
+                        let fitted = (width * scale, height * scale);
+                        let fit_changed = fitted_size().is_none_or(|(old_width, old_height)| {
+                            (old_width - fitted.0).abs() > 0.5
+                                || (old_height - fitted.1).abs() > 0.5
+                        });
+                        if fit_changed {
+                            fitted_size.set(Some(fitted));
+                        }
+                    }
+                }
+            });
+        }
+    });
 
     rsx! {
         div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
@@ -1833,55 +2015,117 @@ fn MediaViewer(
                 div { class: "media-viewer-main",
                 // Zoom belongs to images alone: a video and an audio track
                 // have their own controls, and a fallback has nothing to
-                // magnify. It sits over the image rather than over the whole
-                // dialog, so it reads as belonging to what it acts on.
+                // magnify. These use the tree sidebar's visual language so
+                // they remain compact beside a large scan.
                 if matches!(kind, MediaKind::Image) && url.is_some() {
-                    div { class: "media-zoom",
+                    div { class: "media-viewer-controls",
                         button {
-                            class: "media-zoom-btn",
+                            class: "isb-btn",
                             r#type: "button",
-                            title: i18n.t("media.zoom_out"),
-                            disabled: zoom().is_some_and(|z| z <= MIN_ZOOM),
-                            onclick: move |_| zoom.set(Some(zoom_out(zoom()))),
-                            "\u{2212}"
-                        }
-                        button {
-                            class: if zoom().is_none() { "media-zoom-level is-fit" } else { "media-zoom-level" },
-                            r#type: "button",
-                            title: i18n.t("media.zoom_fit"),
-                            onclick: move |_| zoom.set(None),
-                            match zoom() {
-                                Some(level) => format!("{level}\u{2009}%"),
-                                None => i18n.t("media.zoom_fit"),
+                            title: i18n.t("media.zoom_in"),
+                            disabled: fitted_size().is_none() || zoom().is_some_and(|z| z >= MAX_ZOOM),
+                            onclick: move |_| apply_zoom.call((zoom_in(zoom()), MediaZoomAnchor::Center)),
+                            svg {
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                circle { cx: "11", cy: "11", r: "8" }
+                                line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
+                                line { x1: "11", y1: "8", x2: "11", y2: "14" }
+                                line { x1: "8", y1: "11", x2: "14", y2: "11" }
                             }
                         }
                         button {
-                            class: "media-zoom-btn",
+                            class: "isb-btn",
                             r#type: "button",
-                            title: i18n.t("media.zoom_in"),
-                            disabled: zoom().is_some_and(|z| z >= MAX_ZOOM),
-                            onclick: move |_| zoom.set(Some(zoom_in(zoom()))),
-                            "+"
+                            title: i18n.t("media.zoom_fit"),
+                            onclick: move |_| fit_image.call(()),
+                            svg {
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                path { d: "M3 8V5a2 2 0 0 1 2-2h3" }
+                                path { d: "M16 3h3a2 2 0 0 1 2 2v3" }
+                                path { d: "M21 16v3a2 2 0 0 1-2 2h-3" }
+                                path { d: "M8 21H5a2 2 0 0 1-2-2v-3" }
+                            }
+                        }
+                        button {
+                            class: "isb-btn",
+                            r#type: "button",
+                            title: i18n.t("media.zoom_out"),
+                            disabled: fitted_size().is_none() || zoom().is_some_and(|z| z <= MIN_ZOOM),
+                            onclick: move |_| apply_zoom.call((zoom_out(zoom()), MediaZoomAnchor::Center)),
+                            svg {
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                circle { cx: "11", cy: "11", r: "8" }
+                                line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
+                                line { x1: "8", y1: "11", x2: "14", y2: "11" }
+                            }
                         }
                     }
                 }
                 div {
-                    class: if zoom().is_some() { "media-viewer-stage is-zoomed" } else { "media-viewer-stage" },
+                    id: "{stage_id}",
+                    class: match (
+                        dragging_image(),
+                        zoom().is_some_and(|level| level > FIT_ZOOM),
+                    ) {
+                        (true, true) => "media-viewer-stage is-image is-zoomed is-dragging",
+                        (true, false) => "media-viewer-stage is-image is-dragging",
+                        (false, true) => "media-viewer-stage is-image is-zoomed",
+                        (false, false) => "media-viewer-stage is-image",
+                    },
+                    onpointermove: move |event| {
+                        let coords = event.client_coordinates();
+                        if dragging_image() {
+                            let stage_id = stage_id_for_move.clone();
+                            let delta_x = coords.x - drag_start_x();
+                            let delta_y = coords.y - drag_start_y();
+                            drag_start_x.set(coords.x);
+                            drag_start_y.set(coords.y);
+                            spawn(async move {
+                                let script = format!(
+                                    "const stage = document.getElementById('{stage_id}'); if (stage) {{ stage.scrollLeft -= {delta_x}; stage.scrollTop -= {delta_y}; }}"
+                                );
+                                let _ = document::eval(&script).await;
+                            });
+                        }
+                    },
+                    onpointerdown: move |event| {
+                        if !matches!(kind, MediaKind::Image) { return; }
+                        event.prevent_default();
+                        let coords = event.client_coordinates();
+                        drag_start_x.set(coords.x);
+                        drag_start_y.set(coords.y);
+                        dragging_image.set(true);
+                    },
+                    ondragstart: move |event| event.prevent_default(),
+                    onpointerup: move |_| dragging_image.set(false),
+                    onpointerleave: move |_| dragging_image.set(false),
+                    onwheel: move |event| {
+                        event.prevent_default();
+                        let coords = event.client_coordinates();
+                        let delta_y = match event.delta() {
+                            WheelDelta::Lines(lines) => lines.y,
+                            WheelDelta::Pixels(pixels) => pixels.y,
+                            WheelDelta::Pages(pages) => pages.y,
+                        };
+                        let next = if delta_y > 0.0 {
+                            zoom_out(zoom())
+                        } else {
+                            zoom_in(zoom())
+                        };
+                        apply_zoom.call((next, MediaZoomAnchor::Pointer(coords.x, coords.y)));
+                    },
                     match (url.clone(), kind) {
                         (Some(url), MediaKind::Image) => rsx! {
                             img {
-                                class: "media-viewer-image",
+                                id: "{image_id}",
+                                class: "media-viewer-image media-viewer-static-image",
                                 src: "{url}",
                                 alt: "{caption}",
-                                // Fit is the stage's own CSS; a zoom level
-                                // overrides it and lets the stage scroll,
-                                // which is what makes a corner readable.
-                                style: match zoom() {
-                                    Some(level) => format!(
-                                        "width: {level}%; max-width: none; max-height: none;",
-                                    ),
-                                    None => String::new(),
-                                },
+                                draggable: "false",
+                                style: "{image_style}",
                             }
                         },
                         (Some(url), MediaKind::Video) => rsx! {
@@ -2224,31 +2468,29 @@ pub(crate) fn page_window(current: usize, total: usize) -> Vec<PagerSlot> {
     slots
 }
 
-/// Zoom bounds and step, as percentages of natural size.
+/// Zoom bounds and step, as percentages of the fitted size.
 ///
 /// The ceiling is high on purpose: the reason to zoom a parish register is to
 /// read one word of secretary hand in a corner, and 200% does not get there.
 pub(crate) const MIN_ZOOM: u32 = 25;
-pub(crate) const MAX_ZOOM: u32 = 800;
+pub(crate) const MAX_ZOOM: u32 = 3200;
 
-/// Where "fit" sits when the reader first steps away from it. Not 100%: on a
-/// scan larger than the stage, fit is already well below that, and jumping
-/// straight to full size would feel like a leap rather than a step.
+/// The fitted image is the zoom baseline.
 const FIT_ZOOM: u32 = 100;
 
 /// One step in, from the current level (`None` meaning "fit").
 pub(crate) fn zoom_in(current: Option<u32>) -> u32 {
     match current {
-        None => FIT_ZOOM,
-        Some(level) => (level.saturating_mul(3) / 2).min(MAX_ZOOM),
+        None => FIT_ZOOM * 6 / 5,
+        Some(level) => (level.saturating_mul(6) / 5).min(MAX_ZOOM),
     }
 }
 
 /// One step out, from the current level (`None` meaning "fit").
 pub(crate) fn zoom_out(current: Option<u32>) -> u32 {
     match current {
-        None => FIT_ZOOM * 2 / 3,
-        Some(level) => (level * 2 / 3).max(MIN_ZOOM),
+        None => FIT_ZOOM * 5 / 6,
+        Some(level) => (level * 5 / 6).max(MIN_ZOOM),
     }
 }
 
@@ -2470,11 +2712,11 @@ mod tests {
 
     #[test]
     fn zooming_in_and_out_stays_within_its_bounds() {
-        // From fit, the first step is a step and not a leap.
-        assert_eq!(zoom_in(None), 100);
-        assert_eq!(zoom_out(None), 66);
-        assert_eq!(zoom_in(Some(100)), 150);
-        assert_eq!(zoom_out(Some(150)), 100);
+        // Match the pedigree's 1.2 factor around the fitted size.
+        assert_eq!(zoom_in(None), 120);
+        assert_eq!(zoom_out(None), 83);
+        assert_eq!(zoom_in(Some(120)), 144);
+        assert_eq!(zoom_out(Some(144)), 120);
         assert_eq!(zoom_in(Some(MAX_ZOOM)), MAX_ZOOM);
         assert_eq!(zoom_out(Some(MIN_ZOOM)), MIN_ZOOM);
         // No overflow at the ceiling, whatever it is set to.
@@ -2485,7 +2727,7 @@ mod tests {
     fn zooming_reaches_far_enough_to_read_a_corner_of_a_scan() {
         // The reason to zoom a register is one word of secretary hand.
         let mut level = zoom_in(None);
-        for _ in 0..12 {
+        for _ in 0..40 {
             level = zoom_in(Some(level));
         }
         assert_eq!(level, MAX_ZOOM);
