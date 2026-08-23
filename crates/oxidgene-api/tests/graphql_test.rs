@@ -670,12 +670,13 @@ async fn test_media_and_media_link() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateMedia(id: "{media_id}", input: {{ title: "New Portrait" }}) {{ id title }} }}"#
+            r#"mutation {{ updateMedia(id: "{media_id}", input: {{ title: "New Portrait", privacy: PRIVATE }}) {{ id title privacy }} }}"#
         ),
         None,
     )
     .await;
     assert_eq!(data(&resp)["updateMedia"]["title"], "New Portrait");
+    assert_eq!(data(&resp)["updateMedia"]["privacy"], "PRIVATE");
 
     // Delete media link
     let resp = graphql(

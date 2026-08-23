@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::enums::Privacy;
 use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
     MediaLinkRepo, MediaPatch, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, TreeRepo,
@@ -885,6 +886,7 @@ async fn prepare_single_pages(
                     photo_file_name(deposit, view, extension),
                     deposit.title.clone(),
                     media_classification(deposit),
+                    geneanet_privacy(deposit),
                     bytes,
                 )),
                 Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
@@ -892,12 +894,12 @@ async fn prepare_single_pages(
         }
 
         let ingested =
-            futures_util::future::join_all(resolved.iter().map(|(_, _, name, _, _, bytes)| {
+            futures_util::future::join_all(resolved.iter().map(|(_, _, name, _, _, _, bytes)| {
                 media::ingest(store, tree_id, name, bytes.clone())
             }))
             .await;
 
-        for ((deposit_id, view_id, name, title, classification, _), outcome) in
+        for ((deposit_id, view_id, name, title, classification, privacy, _), outcome) in
             resolved.iter().zip(ingested)
         {
             let ingested = match outcome {
@@ -914,6 +916,7 @@ async fn prepare_single_pages(
                 ingested,
                 title.clone(),
                 *classification,
+                *privacy,
                 summary,
             )
             .await
@@ -948,9 +951,11 @@ async fn document(
 ) -> Option<(Uuid, HashMap<i64, Uuid>)> {
     let document_id = Uuid::now_v7();
     let classification = media_classification(deposit);
+    let privacy = geneanet_privacy(deposit);
     match MediaRepo::create_document(db, document_id, tree_id, deposit.title.clone()).await {
         Ok(_) => {
-            if let Err(err) = update_media_classification(db, document_id, classification).await {
+            if let Err(err) = update_media_metadata(db, document_id, classification, privacy).await
+            {
                 summary
                     .skipped
                     .push(format!("deposit {}: {err}", deposit.id));
@@ -1012,8 +1017,16 @@ async fn document(
                 }
             };
 
-            let Some(page_id) =
-                write_media(db, tree_id, ingested, None, classification, summary).await
+            let Some(page_id) = write_media(
+                db,
+                tree_id,
+                ingested,
+                None,
+                classification,
+                privacy,
+                summary,
+            )
+            .await
             else {
                 continue;
             };
@@ -1377,6 +1390,7 @@ async fn write_media(
         oxidgene_core::enums::SourceMediaType,
         Option<oxidgene_core::enums::DocumentCategory>,
     ),
+    privacy: Privacy,
     summary: &mut GeneanetImportSummary,
 ) -> Option<Uuid> {
     let upload = UploadedMedia {
@@ -1394,7 +1408,7 @@ async fn write_media(
     };
 
     match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, upload).await {
-        Ok(row) => match update_media_classification(db, row.id, classification).await {
+        Ok(row) => match update_media_metadata(db, row.id, classification, privacy).await {
             Ok(_) => Some(row.id),
             Err(err) => {
                 summary.skipped.push(format!("{err}"));
@@ -1408,13 +1422,14 @@ async fn write_media(
     }
 }
 
-async fn update_media_classification(
+async fn update_media_metadata(
     db: &DatabaseConnection,
     media_id: Uuid,
     (source_media_type, document_category): (
         oxidgene_core::enums::SourceMediaType,
         Option<oxidgene_core::enums::DocumentCategory>,
     ),
+    privacy: Privacy,
 ) -> Result<(), OxidGeneError> {
     MediaRepo::update(
         db,
@@ -1422,6 +1437,7 @@ async fn update_media_classification(
         MediaPatch {
             source_media_type: Some(source_media_type),
             document_category: Some(document_category),
+            privacy: Some(privacy),
             ..MediaPatch::default()
         },
     )
@@ -1469,6 +1485,16 @@ fn media_classification(
     let source_media_type =
         category.map_or(SourceMediaType::Other, DocumentCategory::implied_medium);
     (source_media_type, category)
+}
+
+/// Geneanet's flag is an explicit visibility choice, not a request to follow
+/// the tree default, so both values map to explicit OxidGene variants.
+fn geneanet_privacy(deposit: &ManifestDeposit) -> Privacy {
+    if deposit.private {
+        Privacy::Private
+    } else {
+        Privacy::Public
+    }
 }
 
 /// Gets a medium's bytes, preferring a copy the user already has.
@@ -1626,7 +1652,7 @@ mod tests {
     }
 
     #[test]
-    fn geneanet_categories_keep_their_physical_medium() {
+    fn geneanet_metadata_keeps_its_physical_medium_and_privacy() {
         let portrait = deposit(1, vec![view(10, Some(1))]);
         assert_eq!(
             media_classification(&portrait),
@@ -1663,6 +1689,11 @@ mod tests {
             media_classification(&gedcom),
             (oxidgene_core::enums::SourceMediaType::Video, None),
         );
+
+        assert_eq!(geneanet_privacy(&portrait), Privacy::Private);
+        let mut public = deposit(5, vec![view(50, Some(1))]);
+        public.private = false;
+        assert_eq!(geneanet_privacy(&public), Privacy::Public);
     }
 
     #[test]

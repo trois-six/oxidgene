@@ -234,6 +234,11 @@ The category labels are translated by the UI's i18n catalogs after import. A
 French value such as `Archive notariée` therefore appears as *Notarial record*
 in an English interface, while its GEDCOM export remains `MANUSCRIPT`.
 
+`private` is likewise retained rather than treated as the tree default:
+`true` writes `Media.privacy = private`, and `false` writes `public`. It applies
+to the parent and every page of a multi-page deposit, and the media viewer shows
+the resulting visibility with the normal i18n label.
+
 ### `GET /media/api/references?page=N&per_page=100`
 
 **The endpoint the whole pipeline exists for, and the one to use.** Every

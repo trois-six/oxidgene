@@ -19,6 +19,18 @@ timestamp: 2026-07-19T00:00:00Z
 Moved here from [General §8b](general.md) — the sprints below say what is
 planned, and this says what actually landed. Newest first.
 
+**Shipped 2026-08-23 — Geneanet media retain their visibility:**
+- **The `private` flag now survives the import.** It was already collected with
+  every deposit, but the rows created by the importer retained OxidGene's
+  default setting instead. `private: true` writes explicit `Private`; `false`
+  writes explicit `Public`, on a single medium as well as a document and each
+  of its pages. This records the Geneanet owner's decision rather than making
+  the media follow an unrelated tree default.
+- **The viewer now shows confidentiality.** The edit panel could already change
+  the field, while the read-only facts column omitted it. It now renders the
+  stored value through the existing French and English i18n labels.
+- [x] Verified by the focused Geneanet metadata mapping test.
+
 **Shipped 2026-08-23 — Geneanet media retain their classification:**
 - **The import no longer defaults every medium to `OTHER`.** A Geneanet
   deposit's `type` is mapped at write time to OxidGene's two media fields:
