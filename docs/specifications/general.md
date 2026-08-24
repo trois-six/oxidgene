@@ -185,7 +185,8 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 The MVP covers EPICs A through D (see [Roadmap](roadmap.md)):
 
 - Interactive tree visualization. → [Tree View](ui-genealogy-tree.md)
-- Person selection and detail view.
+- Person selection and detail view, whose identity dates retain both the real
+    event label (birth/baptism, death/burial) and French gender agreement.
 - Full CRUD editing (persons, families, events, sources, media, places, notes). → [Person Edit Modal](ui-person-edit-modal.md)
 - GEDCOM import/export.
 - Language switching.

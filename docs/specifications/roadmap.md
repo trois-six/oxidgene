@@ -19,6 +19,13 @@ timestamp: 2026-07-19T00:00:00Z
 Moved here from [General §8b](general.md) — the sprints below say what is
 planned, and this says what actually landed. Newest first.
 
+**Shipped 2026-08-24 — profile fallback dates name the event they came from:**
+- **A baptism is no longer presented as a birth, nor a burial as a death.** The
+  profile identity header already preferred a dated baptism over an empty birth
+  stub, and burial over an undated death, but kept saying « Né(e) le » and
+  « Décédé(e) le ». It now says « Baptisé(e) le » or « Inhumé(e) le », with the
+  same male/female/unknown agreement as birth and death.
+
 **Shipped 2026-08-23 — Geneanet deposits retain their creation date:**
 - **`Media.created_at` now follows the source of creation.** A native upload or
   empty document receives `Utc::now()` explicitly through REST and GraphQL;
