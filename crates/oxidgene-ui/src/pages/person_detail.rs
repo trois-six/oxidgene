@@ -46,6 +46,53 @@ struct EnrichedEvent {
     context: Option<String>,
 }
 
+/// The vitals key matching both the displayed event and the person's sex.
+fn vitals_event_key(event_type: EventType, has_date: bool, sex: Sex) -> String {
+    let event = match event_type {
+        EventType::Birth => "born",
+        EventType::Baptism => "baptized",
+        EventType::Death => "died",
+        EventType::Burial => "buried",
+        _ => unreachable!("only birth/death vital events have a header label"),
+    };
+    let date = if has_date { "prefix" } else { "no_date" };
+    let base = format!("person.vitals.{event}_{date}");
+
+    match sex {
+        Sex::Male => format!("{base}_male"),
+        Sex::Female => format!("{base}_female"),
+        Sex::Unknown => base,
+    }
+}
+
+#[cfg(test)]
+mod vitals_event_tests {
+    use super::*;
+    use crate::i18n::{I18n, Language};
+
+    #[test]
+    fn fallback_events_keep_their_own_gendered_label() {
+        let fr = I18n(Language::Fr);
+
+        assert_eq!(
+            fr.t(&vitals_event_key(EventType::Baptism, true, Sex::Male)),
+            "Baptisé le"
+        );
+        assert_eq!(
+            fr.t(&vitals_event_key(EventType::Baptism, true, Sex::Female)),
+            "Baptisée le"
+        );
+        assert_eq!(
+            fr.t(&vitals_event_key(EventType::Burial, true, Sex::Female)),
+            "Inhumée le"
+        );
+        assert_eq!(
+            fr.t(&vitals_event_key(EventType::Burial, false, Sex::Unknown)),
+            "Inhumé(e)"
+        );
+    }
+}
+
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
 #[component]
 pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
@@ -449,8 +496,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // One clause of the birth/death vitals sentence — kept structured (rather
     // than a flat formatted string) so the date/age can be rendered in bold.
     enum VitalClause {
-        Born { date: String, place: Option<String> },
-        Died { date: String, place: Option<String> },
+        Event {
+            event_type: EventType,
+            date: String,
+            place: Option<String>,
+        },
         Age(AgeSpan),
         Occupation(Vec<String>),
     }
@@ -459,20 +509,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // "Born on **10 December 1700** in Paris — **43 years old**."
     let event_date = |e: &DomainEvent| format_event_date(&i18n, e);
 
-    /// The vitals key agreeing with the person's sex.
-    ///
-    /// French inflects the participle — « Né », « Née » — and the
-    /// parenthesised « Né(e) » is a hedge worth spending only when the sex is
-    /// genuinely unknown, which is precisely what `Sex::Unknown` records.
-    /// English has no agreement, so its three keys carry the same string and
-    /// this costs nothing there.
-    fn vitals_key(base: &str, sex: Sex) -> String {
-        match sex {
-            Sex::Male => format!("{base}_male"),
-            Sex::Female => format!("{base}_female"),
-            Sex::Unknown => base.to_string(),
-        }
-    }
     let vital_clauses: Vec<VitalClause> = match &*events_resource.read() {
         Some(Ok(conn)) => {
             // Prefer the birth, but skip a dateless stub in favour of a dated
@@ -502,11 +538,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 // A birth event carrying neither a date nor a place says
                 // nothing; rendering it produced the dangling "Né(e) le ".
                 if !date.is_empty() || place.is_some() {
-                    clauses.push(VitalClause::Born { date, place });
+                    clauses.push(VitalClause::Event {
+                        event_type: b.event_type,
+                        date,
+                        place,
+                    });
                 }
             }
             if let Some(d) = death {
-                clauses.push(VitalClause::Died {
+                clauses.push(VitalClause::Event {
+                    event_type: d.event_type,
                     date: event_date(d),
                     place: d.place_id.map(&place_name),
                 });
@@ -1293,44 +1334,30 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         for (i, clause) in vital_clauses.iter().enumerate() {
                                             if i > 0 {
                                                 match clause {
-                                                    VitalClause::Died { .. }
+                                                    VitalClause::Event {
+                                                        event_type: EventType::Death | EventType::Burial,
+                                                        ..
+                                                    }
                                                     | VitalClause::Occupation(_) => rsx! { br {} },
                                                     _ => rsx! { " \u{2014} " },
                                                 }
                                             }
                                             {
                                                 match clause {
-                                                    VitalClause::Born { date, place } => {
+                                                    VitalClause::Event { event_type, date, place } => {
                                                         let place_clause = place
                                                             .as_ref()
                                                             .map(|p| format!(" {}", i18n.t_args("person.vitals.in_place", &[("place", p)])))
                                                             .unwrap_or_default();
+                                                        let label = i18n.t(&vitals_event_key(*event_type, !date.is_empty(), person_sex));
                                                         if date.is_empty() {
                                                             rsx! {
-                                                                b { "{i18n.t(&vitals_key(\"person.vitals.born_no_date\", person_sex))}" }
+                                                                b { "{label}" }
                                                                 "{place_clause}"
                                                             }
                                                         } else {
                                                             rsx! {
-                                                                "{i18n.t(&vitals_key(\"person.vitals.born_prefix\", person_sex))} "
-                                                                b { "{date}" }
-                                                                "{place_clause}"
-                                                            }
-                                                        }
-                                                    }
-                                                    VitalClause::Died { date, place } => {
-                                                        let place_clause = place
-                                                            .as_ref()
-                                                            .map(|p| format!(" {}", i18n.t_args("person.vitals.in_place", &[("place", p)])))
-                                                            .unwrap_or_default();
-                                                        if date.is_empty() {
-                                                            rsx! {
-                                                                b { "{i18n.t(&vitals_key(\"person.vitals.died_no_date\", person_sex))}" }
-                                                                "{place_clause}"
-                                                            }
-                                                        } else {
-                                                            rsx! {
-                                                                "{i18n.t(&vitals_key(\"person.vitals.died_prefix\", person_sex))} "
+                                                                "{label} "
                                                                 b { "{date}" }
                                                                 "{place_clause}"
                                                             }
