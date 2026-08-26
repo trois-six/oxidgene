@@ -52,8 +52,12 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
 - Use an imperative English subject and a detailed English body explaining the
   implementation, important design decisions, migrations, compatibility
   impact, and verification performed.
-- Run `just check` before every commit. Do not commit until formatting, Clippy,
-  and the full test suite pass and the expected CI checks are accounted for.
+- Run `just check` before committing code changes. Do not commit code until
+  formatting, Clippy, and the full test suite pass and the expected CI checks
+  are accounted for.
+- `just check` is not required for changes limited to documentation, the
+  `README`, Dockerfiles, Docker Compose files, or GitHub Actions workflows. Use
+  focused validation appropriate to the changed files instead.
 - Create a commit after each substantial feature. Split work earlier when the
   uncommitted change becomes difficult to review or when the work changes
   focus.
@@ -194,7 +198,9 @@ just server         # Run the development web server
 just desktop        # Run the development desktop app
 ```
 
-Use focused tests while iterating, then run `just check` before committing.
+Use focused tests while iterating, then run `just check` before committing code
+changes. For documentation and infrastructure-only changes, use the focused
+validation described under Git and delivery.
 
 ## Assets
 

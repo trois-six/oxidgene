@@ -270,7 +270,13 @@ Every feature verifies, as applicable:
 - logs contain no sensitive values in success and failure paths;
 - UI loading, empty, error, offline, and accessibility states;
 - fixtures and documentation are anonymized;
-- focused tests followed by `just check` before commit.
+- focused tests followed by `just check` before committing code changes.
+
+`just check` is not required when a change is limited to documentation, the
+repository `README`, Dockerfiles, Docker Compose files, or GitHub Actions
+workflows. Such changes use focused validation appropriate to their file type,
+such as Markdown diagnostics, link checks, configuration validation, or a
+workflow syntax check.
 
 ### 8.1 Optional performance and load tests
 
