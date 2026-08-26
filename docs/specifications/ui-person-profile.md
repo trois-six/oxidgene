@@ -28,7 +28,7 @@ Uses the standard `sub-page` layout pattern (see [General](general.md) section 8
 +----------------------------------------------------------------------+
 | NAVBAR                                                                |
 +----------------------------------------------------------------------+
-| [logo] tree_name / MARTIN Jean-Baptiste                              |  <- td-topbar
+| [logo] <tree name> / <person A>                                      |  <- td-topbar
 +----------------------------------------------------------------------+
 |                                                                       |
 |   +-------------------------------------------------------------+    |
@@ -60,7 +60,7 @@ Content: `max-width: 1200px`, centered, scrollable.
 Uses the shared `td-topbar` + `td-bc` breadcrumb component:
 
 ```
-[logo] tree_name / MARTIN Jean-Baptiste
+[logo] <tree name> / <person A>
 ```
 
 - Logo icon links to the homepage
@@ -79,9 +79,9 @@ Full-width card at the top of the content area.
 ```
 +-------------------------------------------------------------+
 |  +----------+                                                |
-|  |          |  MARTIN                                        |
-|  | avatar   |  Jean-Baptiste                                 |
-|  |          |  * 12/03/1842, Beaune  -  + 07/11/1918, Pommard|
+|  |          |  <surname A>                                   |
+|  | avatar   |  <given names A>                               |
+|  |          |  * 12/03/1842, <place A> - + 07/11/1918, <place B>|
 |  |          |  Male - 76 years old                           |
 |  +----------+                                                |
 |                                                               |
@@ -97,9 +97,14 @@ Full-width card at the top of the content area.
 
 The dates are written out in full through `format_date`, qualifier included — « vers 1796 », « entre 11 nov. 1691 et 20 août 1693 » — not reduced to a year. Birth falls back to **baptism** and death to **burial** when the primary event carries no date, matching the pedigree card and its side panel; see [Tree View](ui-genealogy-tree.md). The label follows the event actually displayed: a baptism reads « Baptisé(e) le » rather than « Né(e) le », and a burial reads « Inhumé(e) le » rather than « Décédé(e) le ».
 
-**A clause that would say nothing is not rendered.** A birth event carrying neither a date nor a place used to produce a dangling « Né(e) le » with nothing after it — a stub created to hang a source on is extremely common in a parish tree. The clause is now omitted entirely, and a birth with a place but no date reads « Né à Blain », which is the treatment « Décédé » already had.
+**A clause that would say nothing is not rendered.** A birth event carrying
+neither a date nor a place omits the clause entirely. A birth with a place but
+no date reads `Born in <place A>`, following the same treatment as death.
 
-**The participle agrees with the sex.** `Sex::Male` gives « Né » / « Baptisé » / « Décédé » / « Inhumé », `Sex::Female` « Née » / « Baptisée » / « Décédée » / « Inhumée », and the parenthesised form is kept for `Sex::Unknown` — which is exactly what that value records, so the hedge is spent only where there is something to hedge. Implemented by suffixing the i18n key (`_male` / `_female`, bare for unknown); English has no agreement, so its three keys carry the same string and this costs nothing there. See [i18n](i18n.md).
+**The participle agrees with the sex.** `Sex::Male` and `Sex::Female` use their
+localized forms; the parenthesized form is reserved for `Sex::Unknown`.
+English keeps the same three keys even where their values are identical. See
+[Cross-cutting Rules §3.4](cross-cutting.md).
 
 **Gender**: label + colored dot (blue male, pink female, grey unknown).
 
@@ -126,10 +131,10 @@ Displayed as a card in the left column of the two-column layout.
 +------------------------------+
 |  PARENTS                     |
 +------------------------------+
-|  [avatar] MARTIN Pierre      |
+|  [avatar] <person B>         |
 |           * 1810  + 1878     |
 |                              |
-|  [avatar] DUBOIS Marie       |
+|  [avatar] <person C>         |
 |           * 1815  + 1890     |
 +------------------------------+
 ```
@@ -142,13 +147,13 @@ One sub-section per union, ordered chronologically by marriage date (if known).
 
 ```
 +--------------------------------------+
-|  UNION WITH LEMAIRE Marguerite       |
-|  (ring) 1865, Beaune                |
+|  UNION WITH <person D>               |
+|  (ring) 1865, <place A>              |
 +--------------------------------------+
 |  Children:                           |
-|  [avatar] MARTIN Henri    * 1868     |
-|  [avatar] MARTIN Louise   * 1871     |
-|  [avatar] MARTIN Pierre   * 1875    |
+|  [avatar] <person E>      * 1868     |
+|  [avatar] <person F>      * 1871     |
+|  [avatar] <person G>      * 1875     |
 +--------------------------------------+
 ```
 
@@ -162,9 +167,9 @@ Listed below the parents section, grouped by shared parents.
 +------------------------------+
 |  SIBLINGS                    |
 +------------------------------+
-|  [avatar] MARTIN Jeanne      |
+|  [avatar] <person H>         |
 |           * 1838  + 1910     |
-|  [avatar] MARTIN Louis       |
+|  [avatar] <person I>         |
 |           * 1845  + 1920     |
 +------------------------------+
 ```
@@ -185,20 +190,20 @@ Displayed as a card in the right column. A vertical chronological list of all ev
 +-----------------------------------------+
 |                                         |
 |  1842  *  Birth                         |
-|           Beaune, Cote-d'Or, France     |
-|           (clip) Acte de naissance n42  |
+|           <place A, region, country>    |
+|           (clip) <source A>             |
 |                                         |
 |  1842  (cross)  Baptism                 |
-|           Eglise Notre-Dame, Beaune     |
+|           <place B>                     |
 |                                         |
-|  1860  (tool)  Occupation: Vigneron     |
+|  1860  (tool)  Occupation: <label A>    |
 |                                         |
-|  1865  (ring) Marriage with M. LEMAIRE  |
-|           Mairie de Beaune              |
-|           Witnesses: Pierre DUVAL, ...  |
+|  1865  (ring) Marriage with <person B>  |
+|           <place C>                     |
+|           Witnesses: <person C>, ...    |
 |                                         |
 |  1918  +  Death                         |
-|           Pommard, Cote-d'Or            |
+|           <place D, region>             |
 |                                         |
 +-----------------------------------------+
 ```
@@ -234,21 +239,25 @@ Displayed as a full-width card below the two-column layout.
 +--------------------------------------------------------------+
 ```
 
-**Implemented in Sprint F.2.** Literally the same component as the
-[Person Edit Modal](ui-person-edit-modal.md) media section, rendered with
+This is the same component as the [Person Edit Modal](ui-person-edit-modal.md)
+media section, rendered with
 `read_only: true` — not a second grid that looks similar. A reader who then
 clicks Edit finds the gallery they were just looking at, with controls, rather
 than a different arrangement of the same files. The ★ badge marks the profile
 image; a tile's ↗ opens the file.
 
-The section **hides itself** when the person has no media, rather than leaving
-an empty frame on every profile in the tree. Deciding that needs the list, so
-the page fetches it — the client's response cache answers the gallery's
-identical request, making it one round trip rather than two.
+Right-clicking a media tile opens **Link an event**, listing this person's own
+events and the events of their conjugal families. A linked event is removable
+from the same menu through **Unlink an event**. Under the media title, each
+linked event shows its date (as `dd/mm/yyyy` for an exact Gregorian date) and
+its event type.
 
-> **Not yet built:** the `[+ Add]` button, and the **lightbox overlay** on a
-> thumbnail. Both are follow-ups; today a tile's ↗ opens the file in a new tab,
-> and adding media means opening the edit modal by hand.
+The section remains visible when the person has no media. A compact `+` button
+beside its title opens the file picker. This is the one mutation available from
+the profile gallery, while cropping, retitling and detaching stay in the edit
+modal.
+
+A tile opens the media viewer.
 
 ---
 
@@ -282,12 +291,12 @@ All citations linked to this person, grouped by source:
 +--------------------------------------+
 |  SOURCES (3)                         |
 +--------------------------------------+
-|  (clip) Archives departementales 21  |
-|     Page: 3E 42/128, f. 12          |
+|  (clip) <source A>                   |
+|     Page: <reference A>              |
 |     Confidence: High                |
 |                                      |
-|  (clip) Registre paroissial Beaune   |
-|     Page: Baptemes 1842, n15        |
+|  (clip) <source B>                   |
+|     Page: <reference B>              |
 |     Confidence: High                |
 +--------------------------------------+
 ```

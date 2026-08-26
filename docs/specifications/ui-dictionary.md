@@ -10,7 +10,7 @@ timestamp: 2026-07-22T00:00:00Z
 # Visual & Functional Specifications — Dictionary
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Genealogy Tree](ui-genealogy-tree.md) (left sidebar icon) · [Person Profile](ui-person-profile.md) (left sidebar icon) · [Search Results](ui-search-results.md) (family-name drill-down) · [Settings](ui-settings.md) (this page replaces the former §16 Dictionary tool) · [Data Model](data-model.md) (PersonName, Source, Place, Event) · [API Contract](api.md) · [i18n](i18n.md)
+> See also: [Genealogy Tree](ui-genealogy-tree.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md) · [Cross-cutting Rules](cross-cutting.md)
 
 ---
 
@@ -18,7 +18,8 @@ timestamp: 2026-07-22T00:00:00Z
 
 The Dictionary page (`/trees/{id}/dictionary`) is a dedicated full-page view for browsing the distinct values entered across a tree for four fields: **family names**, **sources**, **places**, and **occupations**. Each value is shown once alongside a usage count, so recurring or inconsistent entries (a surname spelled two ways, a source cited from a dozen places, a place name entered slightly differently each time) are easy to spot.
 
-This is a **read-only V1**. It exists to surface where mass-editing would help; the actual merge/rename-everywhere actions are a V2 (see section 11).
+The page is read-only except for surname-particle correction. It surfaces
+inconsistent values without offering a general merge or rename operation.
 
 It is reached via the **Book/index icon** in the shared left icon sidebar (`TreeIconSidebar`), which makes it accessible identically from the [Genealogy Tree](ui-genealogy-tree.md) (pedigree canvas) and from the [Person Profile](ui-person-profile.md) page — the same component renders that icon in both places.
 
@@ -128,7 +129,8 @@ The pencil on a row opens a small modal:
 Two rules keep the operation safe, both enforced server-side rather than only in the dialog:
 
 - **The particle must already be at the head of the surname.** A particle that is absent is rejected instead of being prepended — otherwise the edit would inject a word the tree never contained, and clearing the particle afterwards could not take it back out (it would have become part of the surname by then).
-- **The displayed surname never changes**, only the boundary inside it. Re-cutting moves where a name files; it is not a rename. Renaming across rows is [section 11](#11-future-bulk-editing-v2--not-built-in-this-pass)'s job.
+- **The displayed surname never changes**, only the boundary inside it.
+  Re-cutting moves where a name files; it is not a rename.
 
 Rows already cut the requested way are skipped, so re-applying the same cut is a no-op rather than a pointless `updated_at` bump. Because a surname reaches every projection that embeds a display name, a change triggers a full projection rebuild for the tree.
 
@@ -296,23 +298,11 @@ The user experiences exactly **two** navigation steps (the two "REAL BRANCH" poi
 
 ---
 
-## 8 (OLD — Archive Reference)
-
-Sorted/grouped alphabetically by title (same letter-header pattern as section 7). Each row:
-
-- Title
-- Author / Repository, shown as secondary muted text when present
-- Usage count badge: number of `Citation` rows referencing this source
-
-Clicking a row **expands it inline** (accordion, no navigation — there is no dedicated Source detail page today) to show the full source metadata (author, publisher, abbreviation, repository) and a list of the persons/events/families that cite it, each a link to the relevant [Person Profile](ui-person-profile.md).
-
----
-
 ## 9. Places Tab
 
 Grouped by first letter of the place name (same pattern as section 7). Each row:
 
-- Place name (as entered — full free-text string, e.g. "Beaune, 21200, Côte-d'Or, Bourgogne-Franche-Comté, France")
+- Place name as entered, shown as a full free-text hierarchy
 - A small pin icon (📍-style, filled) when `latitude`/`longitude` are set, outline/muted when not
 - Usage count badge: number of `Event` + `Media` rows referencing this place
 
@@ -331,30 +321,9 @@ Clicking a row expands it inline listing the persons with that occupation, each 
 
 ---
 
-## 11. Future: Bulk Editing (V2 — not built in this pass)
+## 11. Empty States
 
-The usage counts in V1 exist specifically to surface merge/rename candidates (a surname split across two spellings, a source or place duplicated with slightly different text). V2 adds, per row, a selection checkbox (hidden until a "Select" toggle is active, keeping V1's list visually unchanged); selecting two or more rows raises a floating action bar with **Merge** / **Rename everywhere**, applying the change to every underlying `PersonName` / `Source` / `Place` / `Event` row at once. No UI for this ships in V1 — this section only documents the design constraint that the row layout must leave room for a leading checkbox later.
-
----
-
-## 12. Future: Family Names — Genealogical Descent View (planned)
-
-> Not built in this pass. Tracked as [Sprint E.8](roadmap.md) in the roadmap.
-
-Today's flat, alphabetical-by-given-name usage list (section 7) is a good index but doesn't show how the people carrying a surname relate to each other. A planned V1.1 replaces that flat list, for the **Family Names** tab only, with a genealogical **descent view**: people sharing the surname are grouped into disjoint family branches and rendered as a nested, numbered list — each root ancestor (a surname carrier with no known parent who also carries the surname, within this tree) numbered at the top level, their spouse(s) and marriage date shown inline, and children indented one level per generation beneath them, recursively. Distinct, unconnected branches (e.g. two unrelated families that happen to share a spelling) get their own top-level number and sit one after another.
-
-Each row keeps the existing per-person building blocks — "SURNAME Given" (section 7), the birth-death lifespan (`format_lifespan`, which carries each year's precision mark: `ca 1849-< 1917`, see [Tree View](ui-genealogy-tree.md)) — and adds:
-
-- **Marriage line**: a spouse marker (⚭) followed by the spouse's name and marriage year/date, on the same line as the person when they have a `FamilySpouse` link, sourced from `family_spouse` + `family` events (`EventType::Marriage`).
-- **SOSA badge**: any person in the descent list who is also a direct ancestor of the tree's configured SOSA root person (`Tree.sosa_root_person_id`) gets the same green concentric-circle badge already used in the pedigree canvas and the [Person Profile](ui-person-profile.md) family narrative (`.pd-sosa-mark`, `var(--pn-sosa)`) — computed from the same ancestry query as `person_detail.rs`'s `sosa_ancestors_resource` (`GET .../ancestors` from the SOSA root, collect `person_id`), not a new algorithm.
-
-Open design questions for the implementation sprint: whether a child who doesn't carry the surname (e.g. through a female line, depending on local naming convention) still appears indented under their parent, or is only listed as "m. {spouse}" without a further sub-tree; and whether this view fully replaces the flat list or is offered as a toggle next to it.
-
----
-
-## 13. Empty States
-
-Reuses the shared `EmptyState` component (see [Shared Components](ui-shared-components.md) section 8).
+Reuses the shared `EmptyState` component (see [Common UI §4.7](ui-common.md)).
 
 ### No entries at all (e.g. a brand-new tree with no sources yet)
 
@@ -382,7 +351,7 @@ Message text is tab-specific (see i18n keys, section 14).
 
 ---
 
-## 14. Responsive
+## 12. Responsive
 
 - Content max-width: 1200px, responsive padding, same as [Search Results](ui-search-results.md) section 11
 - Below **640px**: the alphabet index becomes a horizontally scrollable strip (no wrapping); letter headers stay sticky
@@ -390,9 +359,11 @@ Message text is tab-specific (see i18n keys, section 14).
 
 ---
 
-## 15. Internationalization
+## 13. Internationalization
 
-All labels are translated — no hardcoded UI strings — following the `page.section.element` key convention from [i18n](i18n.md) section 4, under the `dictionary.` prefix. Values themselves (surnames, source titles, place names, occupation labels) are user content and are **not** translated, per [i18n](i18n.md) section 2.
+All labels use i18n keys under the `dictionary.` prefix. Surnames, source
+titles, place names, and occupation labels are user content and are not
+translated; see [Cross-cutting Rules §3](cross-cutting.md).
 
 | Key | English | French |
 |---|---|---|
@@ -424,7 +395,7 @@ All labels are translated — no hardcoded UI strings — following the `page.se
 
 ---
 
-## 16. Navigation & Access Point
+## 14. Navigation & Access Point
 
 - New route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`
 - Entry point: a new **Book/index** button in the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), grouped with the Gear/Settings button after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). Because this component is reused by both the pedigree canvas and the person-profile page, the icon requires no separate wiring to be available from both.
@@ -432,13 +403,13 @@ All labels are translated — no hardcoded UI strings — following the `page.se
 
 ---
 
-## 17. Data Sources (backend work required)
+## 15. Data Sources
 
 None of the following aggregations exist yet; they must be added before this page can be implemented:
 
 | Tab | Aggregation needed |
 |---|---|
-| Family Names | `GROUP BY surname, COUNT(*)` over `person_search_fts` (already indexed per tree — see [Read Projections](read-projections.md) §4) |
+| Family Names | `GROUP BY surname, COUNT(*)` over indexed `person_search_fts`; see [Data Model §4.3](data-model.md) |
 | Sources | `COUNT(Citation)` per `source_id`, joined onto the existing `SourceRepo::list` |
 | Places | `COUNT(Event) + COUNT(Media)` per `place_id`, joined onto the existing `PlaceRepo::list` |
 | Occupations | `GROUP BY description, COUNT(*)` over `Event` where `event_type = Occupation` — new aggregation, no existing index |
@@ -447,7 +418,7 @@ None of the following aggregations exist yet; they must be added before this pag
 
 ---
 
-## 18. Backend Support for Sources Smart Drill-Down (implemented)
+## 16. Backend Support for Sources Smart Drill-Down
 
 Two endpoints back the intelligent Sources navigation (section 8), both taking a `prefix` query parameter (absent/empty = top level):
 
@@ -478,7 +449,7 @@ No schema changes — prefixes are computed on the fly from `source.title` on ev
 
 ---
 
-## 19. Implementation Notes (implemented)
+## 17. Implementation Notes
 
 ### UI State Management
 

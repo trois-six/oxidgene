@@ -408,15 +408,15 @@ range, or the calendar, and dropping them is what once made a birth on 2 Nov
 +------------------------------+
 | 1842                         |
 |  *  Birth                    |
-|     Beaune, Cote-d'Or       |
+|     <place A, region>       |
 |                              |
 | 1865                         |
 |  (ring) Marriage             |
-|     with Marguerite L.      |
+|     with <person B>         |
 |                              |
 | 1918                         |
 |  +  Death                    |
-|     Pommard                  |
+|     <place B>                |
 +------------------------------+
 ```
 

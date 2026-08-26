@@ -1,7 +1,7 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
-description: "The import modal: choosing a file, or importing a Geneanet tree with its media."
+description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
 timestamp: 2026-08-18T00:00:00Z
 ---
@@ -10,8 +10,8 @@ timestamp: 2026-08-18T00:00:00Z
 # Visual & Functional Specifications — Import
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Geneanet Import](ui-geneanet-import.md) (the Geneanet tab in full) ·
-> [Geneanet Media Import](geneanet-media-import.md) (the pipeline behind it) ·
+> See also: [Geneanet Media Import](geneanet-media-import.md) (the pipeline
+> behind the Geneanet tab) · [Geneanet Upload API](geneanet-upload-api.md) ·
 > [Homepage](ui-home.md) · [Settings](ui-settings.md) (export) ·
 > [API Contract](api.md)
 
@@ -29,7 +29,7 @@ Two tabs, because there are two genuinely different jobs:
 | Tab | What it is |
 |---|---|
 | **A file** | Pick or drop a `.ged`, `.gdz` or `.gw` and import it. Seconds, one decision. |
-| **From Geneanet** | Five steps, most of them instructions. The user has work to do on another website first, and two of the three inputs cannot be downloaded at all. Specified in full in [Geneanet Import](ui-geneanet-import.md). |
+| **From Geneanet** | Five guided steps that import a GeneWeb tree and recover its media through an authenticated desktop session. |
 
 Splitting them across a modal and a page was tried and rejected: they are one
 decision made at one moment, and separating them made the cheap route feel like
@@ -43,7 +43,7 @@ the real one and the complete route like an excursion.
 scrolls.
 
 ```
-┌─ Import into "Famille Dupont" ────────────────────────── [×] ─┐
+┌─ Import into "<tree name>" ───────────────────────────── [×] ─┐
 │  ● A file        ○ From Geneanet                              │
 ├───────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────────┐  │
@@ -87,6 +87,12 @@ thumbnailed, croppable, exactly as if they had been uploaded. A `.ged` and a
 `.gw` name files nobody handed us, and those stay unheld records the user can
 attach bytes to later. A file the archive turns out not to carry, or one no
 `OBJE` names, is a warning on the result — never a failed import.
+
+The association between an event and its media is standard GEDCOM: the event
+carries an `OBJE` reference to the global multimedia record. It therefore
+survives both formats. The difference is only the bytes: a `.ged` keeps the
+`FILE` reference, while a `.gdz` embeds each stored file it names. Remote and
+unheld media remain references in either format.
 
 What a GEDZIP round trip does **not** carry back is the structure GEDCOM has no
 tag for: a multi-page document's pages export as separate `OBJE` records, so
@@ -184,9 +190,8 @@ These GEDCOM tags are parsed by ged_io but not mapped to the OxidGene data model
 | `Enter` | Activate the focused control |
 | `Tab` | Move between controls |
 
-The Geneanet tab's own keyboard behaviour — collapsed steps as buttons, focus
-into the expanded step, live regions on the progress bars — is in
-[Geneanet Import §10](ui-geneanet-import.md).
+The Geneanet tab uses collapsed steps as buttons, moves focus into the expanded
+step, and announces progress stage changes through a live region.
 
 ---
 
@@ -234,3 +239,146 @@ So the scans survive a round trip, with their bytes and their owners. The
 grouping does not: a thirty-eight page dossier comes back as thirty-eight
 pictures. Re-assembling them into a document is a manual step, and the pages
 keep their order in the gallery because the links were written in it.
+
+---
+
+## 9. From Geneanet tab
+
+Geneanet provides genealogy and media information separately. The `.gw` file
+contains the GeneWeb key required to distinguish same-named people, while the
+person-to-media links are available only through an authenticated Geneanet
+session. This tab is both an instructional guide and an import form.
+
+Every user-visible instruction, state, warning, error, tooltip, screenshot
+description, and accessibility label uses the i18n mechanism with English and
+French key parity.
+
+### 9.1 Five-step structure
+
+Exactly one of these steps is expanded at a time:
+
+1. Select the GeneWeb tree file.
+2. Select optional Geneanet data archives.
+3. Connect to Geneanet.
+4. Review and gather the import.
+5. Write the import.
+
+A completed step collapses to a one-line receipt with a status icon, aggregate
+counts, and an **Edit** action. Reopening it collapses the current step.
+Unreachable steps remain visible but disabled.
+
+### 9.2 Platform capabilities
+
+| Step | Web | Desktop | Reason |
+|---|---|---|---|
+| GeneWeb file | Yes | Yes | Small file read through the shared file API. |
+| Data archives | No | Yes | Multi-gigabyte ZIPs are indexed by path without loading their contents. |
+| Geneanet login | No | Yes | Collection runs in a second authenticated WebView. |
+| Preview and gathering | Genealogy only | Yes | Media gathering depends on archives and login. |
+| Import | Genealogy only | Yes | Media bytes are desktop-only. |
+
+Unavailable web controls are replaced by an explanation naming the desktop
+application. The web build can still import the `.gw` genealogy.
+
+### 9.3 Step 1: GeneWeb tree
+
+The UI explains how to export GeneWeb (`.gw`) from Geneanet and why GEDCOM is
+insufficient for media recovery. The file is parsed immediately, before any
+network operation.
+
+- A valid file collapses to a sanitized filename and person count.
+- A GEDCOM file explains that the GeneWeb export is required.
+- A file containing no people is rejected.
+- Recoverable skipped blocks are reported as warnings.
+
+Instructions stand on their own. Optional screenshots may illustrate external
+steps, but they use an anonymized account, tightly crop unrelated data, include
+localized alt text, and are never required to complete the flow.
+
+### 9.4 Step 2: data archives
+
+This optional desktop step accepts multiple Geneanet data-export ZIP files.
+The user is told not to extract them. Each archive's central directory is
+indexed without reading media bytes.
+
+- Selected archives can be removed individually.
+- Duplicate archives are ignored.
+- A corrupt archive affects only that archive.
+- An archive with no supported images is accepted with a warning.
+- Skipping the step means unmatched media will be downloaded in step 4.
+
+### 9.5 Step 3: authenticated collection
+
+The desktop app opens an incognito Geneanet WebView at the media manager. The
+user authenticates directly in that window, including any captcha or
+Cloudflare challenge. OxidGene never receives or stores the password.
+
+- Requests execute inside the WebView session; the server and
+	`oxidgene-geneanet` crate perform no direct Geneanet HTTP requests.
+- The remember-me control may be preselected but remains visible and editable.
+- The incognito context is destroyed when the window closes.
+- After authentication, the window becomes a visible status panel. The import
+	modal owns progress so two counters cannot disagree.
+- Closing the window cancels collection and resets the step.
+- Session expiry permits reauthentication without discarding completed work.
+- Saved collection payloads are sensitive and must never be committed.
+
+Collection first reads media links, then matches media against selected archive
+indexes. The login window closes once no remaining request needs its session.
+
+### 9.6 Step 4: preview and gathering
+
+This step writes nothing. It shows aggregate counts for people, media, people
+with media, and links, plus expandable mismatch summaries. It then asks the
+login WebView for bytes that archives cannot supply.
+
+If fewer than 10 percent of keyed references match people in the `.gw`, the
+account and export are likely unrelated. The flow blocks by default and offers
+actions to replace the file or explicitly continue.
+
+Media resolution uses, in order:
+
+1. exact archive size matches for single-page media;
+2. perceptual matches against gathered renditions when size is unavailable;
+3. gathered bytes when no archive match exists.
+
+All direct Geneanet access ends before the final write.
+
+### 9.7 Step 5: local write
+
+The genealogy uses the shared GeneWeb persistence path. Media use the ordinary
+storage path, preserving validation, deduplication, type detection, thumbnails,
+and projection refresh.
+
+- Shared media are stored once and linked many times.
+- Failed media are reported and skipped without rolling back the genealogy.
+- Archive matches are never downloaded again.
+- A multi-page deposit imports as one document plus ordered page media.
+- Missing pages are reported by page number.
+
+The receipt contains aggregate counts and skipped-item summaries, followed by
+**Open the tree** and **Import another**. It never displays an account name.
+
+### 9.8 Known limitations
+
+- Per-media determinate write progress and cancellation are not implemented.
+	Interrupting the media pass can leave complete genealogy with partial media.
+- Unlinked media are counted but not imported.
+- Event links are created only when type, date, and optional normalized place
+	identify exactly one event; ambiguous references remain person-media links.
+- Re-import is not incremental and does not merge existing data.
+- The flow never writes to Geneanet or automates password entry.
+- Only one Geneanet login window may run at a time.
+
+### 9.9 Privacy and accessibility
+
+- Import content, archive indexes, sessions, logs, screenshots, and error
+	reports are sensitive.
+- Diagnostics expose aggregate counts and sanitized filenames, not account or
+	person identifiers.
+- Tests, fixtures, screenshots, and documentation use fictitious people,
+	accounts, trees, places, and archive references.
+- Collapsed steps are buttons; `Enter` and `Space` reopen them.
+- The first control receives focus when a step expands.
+- Progress bars expose their values and announce stage changes, not every tick.
+- The login WebView manages its own focus while open.

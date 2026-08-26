@@ -10,14 +10,89 @@ timestamp: 2026-06-17T00:00:00Z
 # API Contract
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Data Model](data-model.md) · [Architecture](architecture.md)
+> See also: [Data Model](data-model.md) · [Cross-cutting Rules](cross-cutting.md) ·
+> [Architecture](architecture.md)
 
 ---
 
-## 1. REST API
+## 1. Contract Conventions
 
-Base path: `/api/v1`
-The API should eventually expose an OpenAPI description in YAML under the path: `/api/swagger.yaml` — **not implemented yet**.
+### Surfaces and parity
+
+OxidGene has one product API exposed through two transports. REST uses
+`/api/v1`; GraphQL uses `/graphql`. Every product operation must have both a
+REST mapping and a GraphQL mapping. A feature is complete only when both
+surfaces provide the same capabilities, validation, authorization, domain
+errors, update behavior, projection refresh, and integration-test coverage.
+
+REST-only and GraphQL-only product operations are not part of the accepted
+contract. A temporary implementation gap is a defect to close, not an API
+exception to document. Changes to an operation update both mappings, their
+tests, and this specification in the same change.
+
+Transport-specific representation differences are allowed only where the
+protocol requires them. REST may accept binary bodies while GraphQL carries
+the same bytes as base64, and pagination envelopes follow each transport's
+conventions. Both mappings still execute the same domain workflow and expose
+equivalent inputs, outputs, side effects, and failure semantics.
+
+Direct media reads (`/file`, `/archive`, `/thumbnail`, and vignette `/image`)
+remain HTTP representations because their cache validators, content types,
+download disposition and conditional `ETag` semantics are HTTP behaviour rather
+than product operations. GraphQL exposes the underlying metadata and uses
+base64 for archive-shaped product results (`exportGedzip` and Geneanet session
+archives); clients use REST when they need a cacheable or streaming file response.
+
+### Stability and versioning
+
+- `/api/v1` is the current REST compatibility boundary.
+- GraphQL evolves additively where possible.
+- Projection schema versions are internal storage metadata, not API versions;
+  see [Data Model §4](data-model.md).
+- Removed names and endpoints are not retained as dead aliases unless a
+  documented compatibility window requires them.
+- Deprecation requires a replacement, migration note, tests during the
+  compatibility window, and a planned removal milestone.
+
+### Representation
+
+- REST JSON uses `snake_case`; GraphQL uses `camelCase`.
+- UUID v7 identifiers are serialized as opaque strings.
+- Timestamps are RFC 3339 UTC strings.
+- Enums use stable English technical values and are localized only by clients.
+- Tree-scoped IDs from another tree return `not_found` rather than disclosing
+  the existence of another tree's resource.
+- Soft-deleted records are excluded by default.
+- User and imported content is returned verbatim and never translated.
+
+### Authentication and privacy
+
+Authentication and authorization are not implemented in the current MVP.
+Privacy values are stored but not enforced, so clients must not claim that
+private records are hidden. Future authorization uses the same domain checks
+for REST and GraphQL.
+
+### Errors and consistency
+
+Error envelopes, stable codes, safe messages, request IDs, logging, and
+anonymization follow [Cross-cutting Rules §4–5](cross-cutting.md). Neither
+surface returns stack traces, SQL, filesystem paths, credentials, or genealogy
+in error details.
+
+Mutations refresh affected projections in the same database transaction as the
+normalized write. A successful response guarantees read-after-write
+consistency for profiles, pedigrees, and search. Import operations may report
+partial media warnings only where their endpoint contract says so.
+
+### Machine-readable schema
+
+GraphQL introspection is the current executable schema. A generated OpenAPI
+description for REST remains missing and is tracked as documentation work. A
+handwritten file must not claim to be authoritative without CI drift checks.
+
+## 2. REST API
+
+Base path: `/api/v1`.
 
 ### Trees
 
@@ -142,7 +217,10 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata |
 | `POST` | `/trees/{tree_id}/media/{media_id}/tags` | Add one tag (`{tag}`), idempotently by case-insensitive value |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}/tags` | Remove one tag (`{tag}`) without replacing the other tags |
-| `DELETE` | `/trees/{tree_id}/media/{media_id}` | Soft-delete media. The bytes stay: content addressing means another record may share them, and a tree purge removes the directory |
+| `GET` | `/trees/{tree_id}/media/{media_id}/deletion-status?allowed_link_id={link_id}` | Whether the gallery link is the sole external reference (`{can_delete: bool}`); used to ask for confirmation only when deletion is certain |
+| `DELETE` | `/trees/{tree_id}/media/{media_id}` | Permanently delete the media, its related rows and unshared stored objects. With `?only_if_unreferenced_elsewhere=true&allowed_link_id={link_id}`, keep it when any reference other than that gallery link remains (`204` deleted, `200` retained) |
+
+GraphQL mirrors the status endpoint with `canDeleteMedia(treeId:, id:, allowedLinkId:)`, returning the same eligibility boolean before `deleteMedia` is called.
 
 **Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 128 MiB — comfortably above what the services we exchange with take (Geneanet caps a media file at 50 MB and accepts only JPEG, PNG, GIF and PDF), because a 1200 dpi register spread or a few-hundred-page dossier clears 64 MiB unremarkably. Larger still is EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
 
@@ -165,10 +243,10 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media/{media_id}/vignettes` | Vignettes on a media file, in page order |
-| `POST` | `/trees/{tree_id}/media/{media_id}/vignettes` | Create one. Body: `x`, `y`, `width`, `height` (required), `page`, `title`, `person_id`, `event_id` |
+| `POST` | `/trees/{tree_id}/media/{media_id}/vignettes` | Create one. Body: `x`, `y`, `width`, `height` (required), `page`, `person_id`, `event_id` |
 | `GET` | `/trees/{tree_id}/vignettes?person_id=…` / `?event_id=…` | Vignettes attributed to a person, or standing as evidence for an event. Exactly one filter is required |
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}` | Get one |
-| `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move, retitle or re-attribute. The four rectangle fields travel together — all or none |
+| `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move or re-attribute. The four rectangle fields travel together — all or none |
 | `DELETE` | `/trees/{tree_id}/vignettes/{vignette_id}` | Delete it. Hard delete; the media is untouched |
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read. `400` for a PDF — rasterising one needs a rendering engine OxidGene does not ship |
 
@@ -232,7 +310,9 @@ round-trips.
 |---|---|---|
 | `GET` | `/trees/{tree_id}/snapshot` | Full tree snapshot (persons, names, events, places, spouses, children) in one response |
 
-> Legacy endpoint predating the read projections. Still used by the person profile page to enrich events (witness/family context). Candidate for removal once the person projection payload covers those needs — see [Read Projections](read-projections.md).
+> Legacy endpoint still used by the person profile to enrich events with
+> witness and family context. It must be removed, together with both REST and
+> GraphQL coverage, once [Data Model §4](data-model.md) includes that context.
 
 ### Dictionary
 
@@ -271,7 +351,7 @@ Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md)
 
 ### Geneanet import
 
-Backs the [Geneanet import wizard](ui-geneanet-import.md). The first three are
+Backs the [Import](ui-import.md) Geneanet flow. The first three are
 **not tree-scoped**: they run before the user has committed to importing
 anything, which is the point — the wizard's whole design is that you find out
 whether the two halves belong together before a row is written.
@@ -302,11 +382,13 @@ is added, and that number grows with tree size rather than with how many
 photographs somebody owns. The tree-scoped routes here share the **1 GiB**
 allowance of a plain import.
 
-Used by: [Geneanet import wizard](ui-geneanet-import.md)
+Used by: [Import](ui-import.md) (From Geneanet tab)
 
 ### Profiles & Pedigree
 
-Pre-built, denormalized read models for instant page rendering. Person profiles are materialized in the `person_denorm` table; pedigrees are assembled per request by walking the family links and joining the reached persons against those profiles. See [Read Projections](read-projections.md) for the full architecture.
+Person profiles are materialized in `person_denorm`; pedigrees are assembled
+per request by walking family links and joining reached people against those
+profiles. See [Data Model §4](data-model.md).
 
 | Method | Path | Description |
 |---|---|---|
@@ -318,30 +400,44 @@ Pre-built, denormalized read models for instant page rendering. Person profiles 
 | `GET` | `/trees/{tree_id}/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Assemble a windowed pedigree for a root person |
 | `PATCH` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
 
-> **Sprint E.9 renamed these routes** off `/cache/*`, which named an implementation that no longer exists: `/cache/persons*` → `/profiles*`, `/cache/pedigree/*` → `/pedigree/*`, `/cache/invalidate` → `/profiles/drop`. GraphQL field and type names are unchanged.
+The profile and pedigree vocabulary is identical across REST and GraphQL. No
+legacy `/cache/*` routes or `cached*` GraphQL aliases are part of the contract.
 
 **A pedigree node carries whole events, not extracted years.** `PedigreeNode` and `PedigreeFamilyMember` expose `birth` / `death` as `ProfileEvent`s. They used to hold a `birth_year` string plus a `birth_place` string, and everything that did not fit those two — the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id — was gone before any client saw it: a birth on 2 Nov 1788 arrived as `"1788"`, and a death recorded as "between 11 Nov 1691 and 20 Aug 1693" as a qualifier promising a second date the payload could not carry. `ProfileEvent` therefore also carries `date_qualifier`, `date_value2` and `calendar`, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
 
 `birth` falls back to the **baptism** and `death` to the **burial**, and the fallback triggers on a missing *date*, not a missing event — a parish tree is full of empty birth stubs created to hang a source on, and one of those would otherwise mask a perfectly good "vers 1620" on the baptism. Each event keeps its own precision; there is deliberately no single "approximate" flag spanning both ends of a life. See [Tree View](ui-genealogy-tree.md) for how a client draws these.
 
-**Projection payloads are versioned.** Every stored profile carries a `schema_version`, and a row written by an older build is treated as absent and rebuilt on first read — so a client never receives a payload whose missing fields are indistinguishable from empty ones. Nothing in the API surfaces the version; it is why `POST /profiles/rebuild` is no longer needed after an upgrade. See [Read Projections §2.1.1](read-projections.md).
+**Projection payloads are versioned.** A row written by an older build is
+treated as absent and rebuilt on first read, so missing fields cannot appear as
+genuinely empty data. The internal version is not exposed. See
+[Data Model §4.1](data-model.md).
 
-**Search (Sprint E.6):** person search moved to the normal search path — `GET /trees/{tree_id}/persons/search?q=query&limit=20&offset=0` (paginated `SearchResult`, backed by the `person_search_fts` DB table; empty or missing `q` = browse mode, sorted by name). The former `GET /cache/search` endpoint and the legacy `surname`/`given_names`/`sex` field filters were removed.
+Person search uses `GET /trees/{tree_id}/persons/search?q=query&limit=20&offset=0`
+and returns a paginated `SearchResult` backed by `person_search_fts`. An empty
+or missing `q` selects browse mode sorted by name.
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
 
-**Note:** All mutation endpoints (create/update/delete) include a synchronous projection refresh after the DB write. The response waits for it, guaranteeing consistency on subsequent reads. See [Read Projections](read-projections.md) §5.
+All mutation endpoints refresh affected projections in their write transaction.
+See [Data Model §4.4](data-model.md).
 
 ### Reference Content
 
-Read-only lookup of static reference content (occupation sheets, given-name meanings) shown as a hover tooltip on the person profile page. Not tied to a tree — `term` is the raw free-text GEDCOM value (occupation label or given name); matching is case/accent/punctuation-insensitive with alias support (e.g. gendered variants), and given-name lookups fall back to the first token of a compound name (e.g. "Marie-Claire" → "Marie"). Source content lives in `oxidgene-api/src/reference/data/*.json` (one file per language per data type), gzip-compressed at build time and decompressed once into an in-memory table (see `oxidgene-api::reference`).
+Read-only lookup of static reference content (occupation sheets and given-name
+meanings) shown on the person profile. It is not tied to a tree: `term` is the
+raw free-text GEDCOM value. Matching ignores case, accents, and punctuation,
+supports aliases such as gendered variants, and falls back to the first token
+of a compound given name. Source content lives in
+`oxidgene-api/src/reference/data/*.json`, one file per language and data type,
+is compressed at build time, and is loaded once in memory.
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/reference/{lang}/occupations?term=...` | Occupation fiche (label, summary, text) for `lang` (`fr`/`en`); 404 if none |
 | `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
 
-Note the path prefix: these sit at `/api/v1/reference/...`, not under `/api/v1/trees/{tree_id}/...`. Used by: [Person Profile](ui-person-profile.md) (`ReferenceHover`/`ReferenceBubble` tooltip over the occupation and given name). Content set is seeded with 5 occupations + 5 given names (fr/en) as of Sprint E.7 — growing the data set is a separate content task, not a code change.
+These routes sit at `/api/v1/reference/...`, not under a tree. Used by:
+[Person Profile](ui-person-profile.md).
 
 ### Update semantics — omitted vs `null`
 
@@ -384,9 +480,10 @@ Responses use a connection envelope:
 
 ---
 
-## 2. GraphQL API
+## 3. GraphQL API
 
-Endpoint: `/graphql` (POST for queries/mutations, WebSocket for subscriptions).
+Endpoint: `/graphql` using POST for queries and mutations. No subscription
+contract is currently exposed.
 
 ### Queries
 
@@ -399,8 +496,30 @@ type Query {
   # Persons
   persons(treeId: ID!, first: Int, after: String, search: String): PersonConnection!
   person(treeId: ID!, id: ID!): Person
+  personBySosa(treeId: ID!, number: Int!): Person
   ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   descendants(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
+  portraits(treeId: ID!): [Portrait!]!
+
+  # Dictionary and static reference content
+  dictionaryFamilyNames(treeId: ID!): [DictionaryEntry!]!
+  dictionaryOccupations(treeId: ID!): [DictionaryEntry!]!
+  dictionarySources(treeId: ID!, prefix: String): [SourceDictionaryEntry!]!
+  dictionarySourceDrill(treeId: ID!, prefix: String): SourceDictionaryDrill!
+  dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
+  familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
+  occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
+  sourceUsage(sourceId: ID!): [PersonUsageEntry!]!
+  placeUsage(placeId: ID!): [PersonUsageEntry!]!
+  occupationReference(language: String!, term: String!): OccupationReference
+  givenNameReference(language: String!, term: String!): GivenNameReference
+
+  # Geneanet import wizard (the archive path operation is desktop-only)
+  inspectGeneweb(gwBase64: String!, fileName: String!): GeneanetInspection!
+  indexGeneanetArchives(paths: [String!]!): GeneanetArchiveIndex!
+  geneanetPreview(input: GeneanetPreviewInput!): GeneanetPreview!
+  geneanetPlan(input: GeneanetPreviewInput!): [GeneanetNeededMedia!]!
+  geneanetImportProgress(progressId: ID!): GeneanetImportProgress
 
   # Families
   families(treeId: ID!, first: Int, after: String): FamilyConnection!
@@ -434,12 +553,14 @@ type Query {
 
   # GEDCOM (export is a read — it lives on Query, not Mutation)
   exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedcomResult!
+  exportGedzip(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedzipResult!
 
-  # Read projections (see Read Projections spec) — mirrors the REST routes
+  # Read projections (see Data Model section 4) — mirrors the REST routes
   personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
   personProfiles(treeId: ID!): [GqlPersonProfile!]!
   pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
   searchPersons(treeId: ID!, query: String!, limit: Int, offset: Int): GqlSearchResult!
+  treeSnapshot(treeId: ID!): TreeSnapshot!
 }
 ```
 
@@ -449,6 +570,7 @@ type Query {
 type Mutation {
   # Trees
   createTree(input: CreateTreeInput!): Tree!
+  duplicateTree(treeId: ID!, name: String!): Tree!
   updateTree(id: ID!, input: UpdateTreeInput!): Tree!
   deleteTree(id: ID!): Boolean!
 
@@ -500,9 +622,11 @@ type Mutation {
   uploadMedia(treeId: ID!, input: UploadMediaInput!): Media!          # metadata only
   uploadMediaFile(treeId: ID!, input: UploadMediaFileInput!): Media!  # bytes, base64
   updateMedia(treeId: ID!, id: ID!, input: UpdateMediaInput!): Media!
-  deleteMedia(treeId: ID!, id: ID!): Boolean!
+  # Permanently deletes media. With onlyIfUnreferencedElsewhere, allowedLinkId
+  # is required and the result is false when another reference retains it.
+  deleteMedia(id: ID!, onlyIfUnreferencedElsewhere: Boolean! = false, allowedLinkId: ID): Boolean!
   createMediaLink(treeId: ID!, input: CreateMediaLinkInput!): MediaLink!
-  setProfileMediaLink(treeId: ID!, id: ID!, isProfile: Boolean!): MediaLink!
+  setPersonPortrait(treeId: ID!, personId: ID!, mediaId: ID, vignetteId: ID): Person!
 
   # Multi-page documents
   createMediaDocument(treeId: ID!, title: String): Media!
@@ -530,13 +654,27 @@ type Mutation {
   # large one: base64 adds a third to an archive that is mostly photographs.
   importGedzip(treeId: ID!, input: ImportGedzipInput!): ImportResult!
 
-  # Read projections (see Read Projections spec) — mirrors the REST routes
+  # Geneanet wizard archives use base64; decoded media are staged locally for
+  # the same desktop import workflow as REST.
+  encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GeneanetSessionArchive!
+  decodeGeneanetSession(archiveBase64: String!): GeneanetSession!
+  importGeneanet(treeId: ID!, input: GeneanetImportInput!): GeneanetImportResult!
+
+  # Read projections (see Data Model section 4) — mirrors the REST routes
   expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
   rebuildTreeProfiles(treeId: ID!): GqlProfileRebuildResult!
   rebuildPersonProfile(treeId: ID!, personId: ID!): GqlProfileRebuildResult!
   dropTreeProfiles(treeId: ID!): Boolean!
 }
 ```
+
+`GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size
+and archive-path data as REST's preview and plan bodies. `GeneanetImportInput`
+adds the fetched local media paths and optional progress id. `indexGeneanetArchives`
+and paths returned from `decodeGeneanetSession` are desktop-only because they
+refer to the local filesystem. A caller polls `geneanetImportProgress` while
+`importGeneanet` is running; completed and unknown ids return `null`, matching
+REST's import-progress endpoint.
 
 ### Key Types
 
@@ -666,7 +804,7 @@ type PageInfo {
 
 # Similar connection types for Person, Family, Event, Place, Source, Media
 
-# --- Cache types (see Caching spec for full details) ---
+# --- Read projection types (see Data Model section 4) ---
 
 type GqlPersonProfile {
   personId: ID!
@@ -802,7 +940,7 @@ enum PedigreeDirection {
 
 ---
 
-## 3. GEDCOM Compatibility Reference
+## 4. GEDCOM Compatibility Reference
 
 The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Architecture](architecture.md) §1). See [Data Model](data-model.md) for the full enum-to-GEDCOM-tag mapping.
 
@@ -821,7 +959,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import |
 | Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Full | Page, text, confidence level |
-| Media (OBJE) | Metadata only | Metadata only | File path, MIME type, title. Binaries are uploaded and served separately (see Media above); GEDZIP export writes the GEDCOM alone — bundling the stored files is a Sprint F.1 follow-up |
+| Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, MIME type, title and physical medium. Person, family and event links are exported as standard `OBJE` references. A plain `.ged` never carries file bytes; a GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry. Remote and unheld media retain only their original `FILE` reference. |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes |
 | Cause (CAUS) | Full | Full | On any event |

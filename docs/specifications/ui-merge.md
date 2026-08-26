@@ -47,23 +47,23 @@ The source person is already selected (the person on which "Merge with…" was c
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Merge MARTIN Jean-Baptiste                    [×]  │
+│  Merge <person A>                              [×]  │
 │  Step 1 of 3 — Select the duplicate                 │
 │  ═══════════●─────────────────────                  │
 ├─────────────────────────────────────────────────────┤
 │                                                      │
 │  SOURCE PERSON (kept)                               │
 │  ┌────────────────────────────────────────────────┐ │
-│  │ [photo] MARTIN Jean-Baptiste  ✦ 1842  ✝ 1918  │ │
+│  │ [photo] <person A>             ✦ 1842  ✝ 1918  │ │
 │  └────────────────────────────────────────────────┘ │
 │                                                      │
 │  Search for the duplicate to merge:                  │
 │  [Last name ________] [First name ________]         │
 │                                                      │
 │  Results:                                            │
-│  ○ [photo] MARTIN Jean-Bapt.   ✦ 1842  ✝ 1918     │
-│  ○ [photo] MARTIN Jean         ✦ 1843              │
-│  ○ [photo] MARTIN J.B.         ✦ c.1840  ✝ 1918   │
+│  ○ [photo] <person B>          ✦ 1842  ✝ 1918     │
+│  ○ [photo] <person C>          ✦ 1843              │
+│  ○ [photo] <person D>          ✦ c.1840  ✝ 1918   │
 │                                                      │
 ├─────────────────────────────────────────────────────┤
 │                               [Cancel]   [Next →]   │
@@ -87,23 +87,23 @@ A side-by-side comparison of all fields from both persons. For each field or gro
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Merge MARTIN Jean-Baptiste                                [×]  │
+│  Merge <person A>                                          [×]  │
 │  Step 2 of 3 — Compare and choose                              │
 │  ───────────═══════════●───────                                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  ┌── Person A (source) ────┐  ┌── Person B (target) ────────┐  │
 │  │  [photo]                 │  │  [photo]                     │  │
-│  │  MARTIN Jean-Baptiste    │  │  MARTIN Jean Bapt.           │  │
+│  │  <person A>              │  │  <person B>                  │  │
 │  │  ✦ 12/03/1842            │  │  ✦ 1842                      │  │
 │  │  ✝ 07/11/1918            │  │  ✝ 1918                      │  │
 │  └──────────────────────────┘  └──────────────────────────────┘  │
 │                                                                  │
 │  SURNAME                                                         │
-│  ● [A] MARTIN                  ○ [B] MARTIN               ═     │
+│  ● [A] <surname A>             ○ [B] <surname A>          ═     │
 │                                                                  │
 │  FIRST NAME(S)                                                   │
-│  ● [A] Jean-Baptiste           ○ [B] Jean Bapt.                 │
+│  ● [A] <given form A>          ○ [B] <given form B>             │
 │                                                                  │
 │  GENDER                                                          │
 │  ● [A] Male                    ○ [B] Male                  ═    │
@@ -112,7 +112,7 @@ A side-by-side comparison of all fields from both persons. For each field or gro
 │  ● [A] 12/03/1842              ○ [B] 1842                       │
 │                                                                  │
 │  BIRTH PLACE                                                     │
-│  ○ [A] Beaune                  ● [B] Beaune, Côte-d'Or          │
+│  ○ [A] <place A>               ● [B] <place A, region>          │
 │                                                                  │
 │  DEATH DATE                                                      │
 │  ● [A] 07/11/1918              ○ [B] 1918                       │
@@ -120,15 +120,15 @@ A side-by-side comparison of all fields from both persons. For each field or gro
 │  ... (more fields)                                               │
 │                                                                  │
 │  EVENTS (combined)                                               │
-│  ☑ ✦ Birth — 12/03/1842, Beaune              from A             │
+│  ☑ ✦ Birth — 12/03/1842, <place A>           from A             │
 │  ☑ 💍 Marriage — 1865                         from A             │
 │  ☑ ⚒ Occupation — Vigneron                    from B            │
 │  ☑ ✝ Death — 07/11/1918                       from A            │
 │  ☐ ✦ Birth — 1842 (duplicate)                 from B            │
 │                                                                  │
 │  FAMILY LINKS (combined)                                         │
-│  ☑ Spouse: LEMAIRE Marguerite                 from A             │
-│  ☑ Child: MARTIN Henri                        from A & B         │
+│  ☑ Spouse: <person E>                          from A             │
+│  ☑ Child: <person F>                           from A & B         │
 │                                                                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                          [← Back]   [Cancel]   [Next →]         │
@@ -161,21 +161,21 @@ A preview of the merged result, shown as a read-only person profile card.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Merge MARTIN Jean-Baptiste                                [×]  │
+│  Merge <person A>                                          [×]  │
 │  Step 3 of 3 — Review and confirm                              │
 │  ─────────────────────═══════════●                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  MERGED RESULT                                                   │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │  [photo]  MARTIN Jean-Baptiste                             │  │
+│  │  [photo]  <person A>                                      │  │
 │  │           Male                                             │  │
-│  │           ✦ 12/03/1842, Beaune, Côte-d'Or                 │  │
+│  │           ✦ 12/03/1842, <place A, region>                 │  │
 │  │           ✝ 07/11/1918                                     │  │
 │  │                                                            │  │
 │  │  Events: Birth, Marriage (1865), Occupation, Death         │  │
-│  │  Spouse: LEMAIRE Marguerite                                │  │
-│  │  Children: MARTIN Henri, MARTIN Louise, MARTIN Pierre     │  │
+│  │  Spouse: <person E>                                        │  │
+│  │  Children: <person F>, <person G>, <person H>              │  │
 │  │  Media: 3 items                                            │  │
 │  │  Notes: 2 notes                                            │  │
 │  └────────────────────────────────────────────────────────────┘  │
