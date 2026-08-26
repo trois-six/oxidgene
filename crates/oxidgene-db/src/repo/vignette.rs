@@ -11,6 +11,7 @@ use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
+use crate::entities::person;
 use crate::entities::vignette::{self, ActiveModel, Column, Entity};
 
 /// The rectangle and attribution a vignette records.
@@ -22,7 +23,6 @@ pub struct VignetteInput {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-    pub title: Option<String>,
     pub person_id: Option<Uuid>,
     pub event_id: Option<Uuid>,
 }
@@ -30,13 +30,11 @@ pub struct VignetteInput {
 /// Fields a caller may change on an existing vignette.
 ///
 /// Every field is a `Some`-means-change patch: re-cropping moves the
-/// rectangle, retitling touches only the title, and clearing an attribution
-/// sends `Some(None)`.
+/// rectangle, and clearing an attribution sends `Some(None)`.
 #[derive(Debug, Clone, Default)]
 pub struct VignettePatch {
     pub page: Option<i32>,
     pub rect: Option<(i32, i32, i32, i32)>,
-    pub title: Option<Option<String>>,
     pub person_id: Option<Option<Uuid>>,
     pub event_id: Option<Option<Uuid>>,
 }
@@ -136,7 +134,6 @@ impl VignetteRepo {
             y: Set(input.y),
             width: Set(input.width),
             height: Set(input.height),
-            title: Set(input.title),
             person_id: Set(input.person_id),
             event_id: Set(input.event_id),
             created_at: Set(now),
@@ -174,9 +171,6 @@ impl VignetteRepo {
             active.width = Set(width);
             active.height = Set(height);
         }
-        if let Some(title) = patch.title {
-            active.title = Set(title);
-        }
         if let Some(person_id) = patch.person_id {
             active.person_id = Set(person_id);
         }
@@ -194,6 +188,15 @@ impl VignetteRepo {
 
     /// Delete a vignette outright.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
+        person::Entity::update_many()
+            .col_expr(
+                person::Column::PortraitVignetteId,
+                sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
+            )
+            .filter(person::Column::PortraitVignetteId.eq(id))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         let result = Entity::delete_by_id(id)
             .exec(db)
             .await
@@ -217,7 +220,6 @@ fn into_domain(v: vignette::Model) -> Vignette {
         y: v.y,
         width: v.width,
         height: v.height,
-        title: v.title,
         person_id: v.person_id,
         event_id: v.event_id,
         created_at: v.created_at,

@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::context_menu::ContextMenuSurface;
 use crate::components::import_modal::ImportModal;
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
@@ -59,12 +60,9 @@ pub fn Home() -> Element {
     // Duplicate state.
     let mut duplicating_tree_id = use_signal(|| None::<Uuid>);
 
-    // Id of the tree card whose "⋮" dropdown is open, at most one at a time.
-    // Owned here rather than by `TreeCard` so the click-outside backdrop can be
-    // rendered at the page root, clear of the grid's animation and the card's
-    // hover `transform` — either would become the containing block for its
-    // `position: fixed` and shrink it away from the viewport.
-    let mut open_menu = use_signal(|| None::<String>);
+    // Tree card whose action menu is open, with the fixed menu's viewport
+    // coordinates. Only one card menu may be open at a time.
+    let open_menu = use_signal(|| None::<(String, f64, f64)>);
 
     // Search & sort state.
     let mut search_query = use_signal(String::new);
@@ -132,13 +130,6 @@ pub fn Home() -> Element {
         div { class: "gear-bg gear-2" }
 
         div { class: "home-page",
-            if open_menu.read().is_some() {
-                div {
-                    class: "tree-card-menu-backdrop",
-                    onclick: move |_| open_menu.set(None),
-                }
-            }
-
             div { class: "home-main",
 
                 // ── Page header ──────────────────────────────────────
@@ -576,7 +567,7 @@ fn TreeCard(
     duplicating: bool,
     /// Id of the card whose dropdown is open, owned by [`Home`] so the
     /// click-outside backdrop can be rendered outside the animated grid.
-    open_menu: Signal<Option<String>>,
+    open_menu: Signal<Option<(String, f64, f64)>>,
     on_rename: EventHandler<()>,
     on_duplicate: EventHandler<()>,
     on_delete: EventHandler<()>,
@@ -584,7 +575,11 @@ fn TreeCard(
 ) -> Element {
     let i18n = use_i18n();
     let mut open_menu = open_menu;
-    let menu_open = open_menu.read().as_deref() == Some(tree_id.as_str());
+    let menu_position = open_menu
+        .read()
+        .as_ref()
+        .and_then(|(id, x, y)| (id == &tree_id).then_some((*x, *y)));
+    let menu_open = menu_position.is_some();
     let toggle_id = tree_id.clone();
 
     let now = Utc::now();
@@ -668,21 +663,29 @@ fn TreeCard(
                                 if menu_open {
                                     open_menu.set(None);
                                 } else {
-                                    open_menu.set(Some(toggle_id.clone()));
+                                    let point = e.client_coordinates();
+                                    open_menu.set(Some((
+                                        toggle_id.clone(),
+                                        point.x - 168.0,
+                                        point.y + 18.0,
+                                    )));
                                 }
                             },
                             "⋮"
                         }
-                        if menu_open {
-                            div { class: "tree-card-dropdown",
+                        if let Some((x, y)) = menu_position {
+                            ContextMenuSurface {
+                                x,
+                                y,
+                                on_close: move |_| open_menu.set(None),
                                 Link {
                                     to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                                    class: "tree-card-dropdown-item",
+                                    class: "context-menu-item",
                                     onclick: move |_| open_menu.set(None),
                                     {i18n.t("common.open")}
                                 }
                                 button {
-                                    class: "tree-card-dropdown-item",
+                                    class: "context-menu-item",
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
                                         open_menu.set(None);
@@ -691,7 +694,7 @@ fn TreeCard(
                                     {i18n.t("common.rename")}
                                 }
                                 button {
-                                    class: "tree-card-dropdown-item",
+                                    class: "context-menu-item",
                                     disabled: duplicating,
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
@@ -701,7 +704,7 @@ fn TreeCard(
                                     if duplicating { {i18n.t("common.duplicating")} } else { {i18n.t("common.duplicate")} }
                                 }
                                 button {
-                                    class: "tree-card-dropdown-item",
+                                    class: "context-menu-item",
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
                                         open_menu.set(None);
@@ -711,12 +714,12 @@ fn TreeCard(
                                 }
                                 Link {
                                     to: Route::Settings { tree_id: tree_id.clone() },
-                                    class: "tree-card-dropdown-item",
+                                    class: "context-menu-item",
                                     onclick: move |_| open_menu.set(None),
                                     {i18n.t("common.settings")}
                                 }
                                 button {
-                                    class: "tree-card-dropdown-item tree-card-dropdown-danger",
+                                    class: "context-menu-item context-menu-danger",
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
                                         open_menu.set(None);
@@ -1045,56 +1048,12 @@ const HOME_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
-    .tree-card-dropdown {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        z-index: 100;
-        min-width: 140px;
-        background: var(--bg-panel);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow-black) 40%, transparent);
-        padding: 4px;
-        margin-top: 4px;
-    }
-
-    .tree-card-dropdown-item {
-        display: block;
-        width: 100%;
-        padding: 8px 12px;
-        background: none;
-        border: none;
-        border-radius: 5px;
-        text-align: left;
-        font-size: 0.82rem;
-        font-family: var(--font-sans);
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: background 0.12s, color 0.12s;
-        text-decoration: none;
-    }
-
-    .tree-card-dropdown-item:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-    }
-
-    .tree-card-dropdown-danger:hover {
-        background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-        color: var(--color-danger);
-    }
-
-    .tree-card-menu-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 99;
-    }
-
-    /* Keep the open card (and its dropdown) painted above the backdrop, even
-       when hover `transform` turns the card into a stacking context. */
-    .tree-card-menu-open {
-        z-index: 101;
+    /* A transformed ancestor becomes the containing block for a fixed menu.
+       Keep the selected card still while its shared menu surface is open. */
+    .tree-card-menu-open,
+    .tree-card-menu-open:hover {
+        transform: none;
+        z-index: 320;
     }
 
     .tree-card-desc {

@@ -822,6 +822,184 @@ async fn media_and_media_link_lifecycle() {
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 }
 
+#[tokio::test]
+async fn media_is_purged_only_when_its_gallery_link_is_unique() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let first_person_id = create_person(&db, tree_id).await;
+    let second_person_id = create_person(&db, tree_id).await;
+
+    let unique_media_id = Uuid::now_v7();
+    MediaRepo::create(
+        &db,
+        unique_media_id,
+        tree_id,
+        "unique.jpg".into(),
+        "image/jpeg".into(),
+        "/uploads/unique.jpg".into(),
+        1024,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let unique_link_id = Uuid::now_v7();
+    MediaLinkRepo::create(
+        &db,
+        unique_link_id,
+        unique_media_id,
+        Some(first_person_id),
+        None,
+        None,
+        None,
+        0,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        MediaRepo::can_purge_if_unreferenced_elsewhere(&db, unique_media_id, unique_link_id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        MediaRepo::purge_if_unreferenced_elsewhere(&db, unique_media_id, unique_link_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(matches!(
+        MediaRepo::get(&db, unique_media_id).await,
+        Err(OxidGeneError::NotFound { .. })
+    ));
+
+    let shared_media_id = Uuid::now_v7();
+    MediaRepo::create(
+        &db,
+        shared_media_id,
+        tree_id,
+        "shared.jpg".into(),
+        "image/jpeg".into(),
+        "/uploads/shared.jpg".into(),
+        1024,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let first_link_id = Uuid::now_v7();
+    MediaLinkRepo::create(
+        &db,
+        first_link_id,
+        shared_media_id,
+        Some(first_person_id),
+        None,
+        None,
+        None,
+        0,
+    )
+    .await
+    .unwrap();
+    MediaLinkRepo::create(
+        &db,
+        Uuid::now_v7(),
+        shared_media_id,
+        Some(second_person_id),
+        None,
+        None,
+        None,
+        0,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        !MediaRepo::can_purge_if_unreferenced_elsewhere(&db, shared_media_id, first_link_id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        MediaRepo::purge_if_unreferenced_elsewhere(&db, shared_media_id, first_link_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(MediaRepo::get(&db, shared_media_id).await.is_ok());
+}
+
+#[tokio::test]
+async fn a_media_can_document_only_one_event() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let person_id = create_person(&db, tree_id).await;
+    let media_id = Uuid::now_v7();
+    MediaRepo::create(
+        &db,
+        media_id,
+        tree_id,
+        "certificate.jpg".into(),
+        "image/jpeg".into(),
+        "/uploads/certificate.jpg".into(),
+        1024,
+        None,
+        None,
+    )
+    .await
+    .expect("create media");
+
+    let event_ids = [Uuid::now_v7(), Uuid::now_v7()];
+    for event_id in event_ids {
+        EventRepo::create(
+            &db,
+            event_id,
+            tree_id,
+            EventType::Occupation,
+            None,
+            None,
+            None,
+            Some(person_id),
+            None,
+            None,
+            DateQualifier::default(),
+            None,
+            Calendar::default(),
+            None,
+        )
+        .await
+        .expect("create event");
+    }
+
+    MediaLinkRepo::create(
+        &db,
+        Uuid::now_v7(),
+        media_id,
+        None,
+        Some(event_ids[0]),
+        None,
+        None,
+        0,
+    )
+    .await
+    .expect("link first event");
+
+    let err = MediaLinkRepo::create(
+        &db,
+        Uuid::now_v7(),
+        media_id,
+        None,
+        Some(event_ids[1]),
+        None,
+        None,
+        0,
+    )
+    .await
+    .expect_err("a second event link must be refused");
+
+    assert!(
+        matches!(err, OxidGeneError::Validation(message) if message == "a media can be linked to only one event")
+    );
+}
+
 // ───────────────────────── Note tests ─────────────────────────
 
 #[tokio::test]

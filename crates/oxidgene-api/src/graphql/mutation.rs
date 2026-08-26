@@ -4,6 +4,8 @@ use crate::profile::invalidation;
 use crate::rest::state::{begin_tx, commit_tx};
 use crate::service::event_date;
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
+use base64::Engine as _;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
@@ -16,18 +18,20 @@ use oxidgene_db::repo::{
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
-    CreateTreeInput, CreateVignetteInput, ImportGedcomInput, ImportGedzipInput, ImportGenewebInput,
-    PersonNameInput, SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput,
-    UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
-    UpdateSourceInput, UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput,
-    UploadMediaInput,
+    CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
+    ImportGedcomInput, ImportGedzipInput, ImportGenewebInput, PersonNameInput,
+    SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput,
+    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput,
+    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
+    geneanet_deposit_sizes, geneanet_media_paths,
 };
 use super::types::{
     GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilyNameParticleUpdate,
-    GqlFamilySpouse, GqlImportResult, GqlMedia, GqlMediaLink, GqlNote, GqlPedigreeDelta,
-    GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace, GqlPrivacy, GqlProfileRebuildResult,
-    GqlSource, GqlTree, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
-    purge_from_ctx,
+    GqlFamilySpouse, GqlGeneanetDepositSize, GqlGeneanetImportResult, GqlGeneanetMediaPath,
+    GqlGeneanetSession, GqlGeneanetSessionArchive, GqlImportResult, GqlMedia, GqlMediaLink,
+    GqlNote, GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
+    GqlPrivacy, GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx,
+    imports_from_ctx, media_from_ctx, profiles_from_ctx, purge_from_ctx,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -94,6 +98,34 @@ fn import_result(summary: crate::service::gedcom::ImportSummary) -> GqlImportRes
     }
 }
 
+fn stage_geneanet_media(
+    media: &std::collections::HashMap<String, String>,
+) -> Result<Vec<GqlGeneanetMediaPath>> {
+    if media.is_empty() {
+        return Ok(Vec::new());
+    }
+    let directory = std::env::temp_dir().join(format!("oxidgene-geneanet-{}", Uuid::now_v7()));
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        async_graphql::Error::new(format!("creating {}: {error}", directory.display()))
+    })?;
+
+    Ok(media
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (url, encoded))| {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .ok()?;
+            let path = directory.join(format!("{index:05}"));
+            std::fs::write(&path, bytes).ok()?;
+            Some(GqlGeneanetMediaPath {
+                url: url.clone(),
+                path: path.display().to_string(),
+            })
+        })
+        .collect())
+}
+
 /// The root mutation type.
 pub struct MutationRoot;
 
@@ -106,6 +138,33 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let id = Uuid::now_v7();
         let tree = TreeRepo::create(db, id, input.name, input.description).await?;
+        Ok(tree.into())
+    }
+
+    /// Duplicate a tree through a lossless GEDCOM round trip.
+    ///
+    /// The duplication path deliberately never enables export compatibility
+    /// options: those are for third-party interchange, not a copy inside
+    /// OxidGene. Mirrors `POST /trees/:tree_id/duplicate`.
+    async fn duplicate_tree(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        name: String,
+    ) -> Result<GqlTree> {
+        if name.trim().is_empty() {
+            return Err(async_graphql::Error::new("name must not be empty"));
+        }
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let source_tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let export =
+            crate::service::gedcom::load_and_export(db, source_tree_id, false, false, false)
+                .await?;
+        let new_tree_id = Uuid::now_v7();
+        let tree = TreeRepo::create(db, new_tree_id, name, None).await?;
+        crate::service::gedcom::import_and_persist(db, new_tree_id, &export.gedcom).await?;
+        profiles.rebuild_tree_full(db, new_tree_id).await?;
         Ok(tree.into())
     }
 
@@ -961,12 +1020,38 @@ impl MutationRoot {
         Ok(true)
     }
 
-    /// Delete media (soft delete).
-    async fn delete_media(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    /// Permanently delete media and its associated data.
+    ///
+    /// With `onlyIfUnreferencedElsewhere`, the supplied gallery link is
+    /// ignored while checking references; `false` means another reference
+    /// retained the media. This is the GraphQL mirror of REST's
+    /// `only_if_unreferenced_elsewhere` query parameter.
+    async fn delete_media(
+        &self,
+        ctx: &Context<'_>,
+        id: ID,
+        #[graphql(default = false)] only_if_unreferenced_elsewhere: bool,
+        allowed_link_id: Option<ID>,
+    ) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        MediaRepo::delete(db, uuid).await?;
-        Ok(true)
+        let allowed_link_id = if only_if_unreferenced_elsewhere {
+            let link_id = allowed_link_id.ok_or_else(|| {
+                async_graphql::Error::new(
+                    "allowedLinkId is required for conditional media deletion",
+                )
+            })?;
+            Some(Uuid::parse_str(link_id.as_str())?)
+        } else {
+            None
+        };
+        Ok(crate::service::media::purge_media(
+            db,
+            media_from_ctx(ctx).as_ref(),
+            uuid,
+            allowed_link_id,
+        )
+        .await?)
     }
 
     /// Make a media link the person's profile image, or clear the flag.
@@ -1064,7 +1149,7 @@ impl MutationRoot {
 
     // ── Vignette Mutations ───────────────────────────────────────────
 
-    /// Crop a named region out of a media file.
+    /// Crop a region out of a media file.
     async fn create_vignette(
         &self,
         ctx: &Context<'_>,
@@ -1092,7 +1177,6 @@ impl MutationRoot {
                 y: input.y,
                 width: input.width,
                 height: input.height,
-                title: input.title,
                 person_id: input
                     .person_id
                     .as_deref()
@@ -1105,7 +1189,7 @@ impl MutationRoot {
         Ok(vignette.into())
     }
 
-    /// Move, retitle or re-attribute a vignette.
+    /// Move or re-attribute a vignette.
     async fn update_vignette(
         &self,
         ctx: &Context<'_>,
@@ -1140,7 +1224,6 @@ impl MutationRoot {
             VignettePatch {
                 page: input.page,
                 rect,
-                title: patch(input.title),
                 person_id: patch_parse(input.person_id, |s| Uuid::parse_str(&s), "personId")?,
                 event_id: patch_parse(input.event_id, |s| Uuid::parse_str(&s), "eventId")?,
             },
@@ -1363,6 +1446,130 @@ impl MutationRoot {
         // Same rationale as `import_gedcom` above.
         profiles.rebuild_tree_full(db, tid).await?;
         Ok(import_result(summary))
+    }
+
+    // ── Geneanet import wizard ───────────────────────────────────────
+
+    /// Encode a Geneanet wizard session as a base64 archive.
+    async fn encode_geneanet_session(
+        &self,
+        input: GeneanetSessionEncodeInput,
+    ) -> Result<GqlGeneanetSessionArchive> {
+        let media = input
+            .media
+            .iter()
+            .filter_map(|entry| {
+                std::fs::read(&entry.path).ok().map(|bytes| {
+                    (
+                        entry.url.clone(),
+                        base64::engine::general_purpose::STANDARD.encode(bytes),
+                    )
+                })
+            })
+            .collect();
+        let archive = oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
+            collection: input.collection,
+            deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
+            account: input.account,
+            media,
+        })
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+        Ok(GqlGeneanetSessionArchive {
+            archive_base64: base64::engine::general_purpose::STANDARD.encode(archive),
+        })
+    }
+
+    /// Decode a saved Geneanet session. Its media are staged as local files
+    /// for a following desktop import, just as they are through REST.
+    async fn decode_geneanet_session(&self, archive_base64: String) -> Result<GqlGeneanetSession> {
+        let archive = base64::engine::general_purpose::STANDARD
+            .decode(archive_base64)
+            .map_err(|error| {
+                async_graphql::Error::new(format!("invalid session base64: {error}"))
+            })?;
+        let session = oxidgene_geneanet::session::decode(&archive)
+            .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+        let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
+            .map(|manifest| manifest.view_count as i64)
+            .unwrap_or(0);
+        Ok(GqlGeneanetSession {
+            collection: session.collection,
+            deposit_sizes: session
+                .deposit_sizes
+                .into_iter()
+                .map(|(deposit_id, size)| GqlGeneanetDepositSize {
+                    deposit_id,
+                    size: size as i64,
+                })
+                .collect(),
+            account: session.account,
+            photo_count,
+            media: stage_geneanet_media(&session.media)?,
+        })
+    }
+
+    /// Import a Geneanet tree and attach media collected by the signed-in
+    /// desktop window. Query `geneanetImportProgress` while it is running.
+    async fn import_geneanet(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: GeneanetImportInput,
+    ) -> Result<GqlGeneanetImportResult> {
+        let db = db_from_ctx(ctx);
+        let media = media_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let progress_id = input
+            .progress_id
+            .as_deref()
+            .map(Uuid::parse_str)
+            .transpose()?;
+        let progress = Arc::new(crate::service::geneanet::ImportProgress::default());
+        if let Some(progress_id) = progress_id
+            && let Ok(mut imports) = imports_from_ctx(ctx).lock()
+        {
+            imports.insert(progress_id, Arc::clone(&progress));
+        }
+        let gw = base64::engine::general_purpose::STANDARD
+            .decode(&input.gw_base64)
+            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+        let result = crate::service::geneanet::import(
+            db,
+            &**media,
+            tree_id,
+            &gw,
+            &input.file_name,
+            &input.collection,
+            &geneanet_deposit_sizes(&input.deposit_sizes)?,
+            &input.archive_paths,
+            &geneanet_media_paths(&input.fetched),
+            &progress,
+        )
+        .await;
+        progress.enter(crate::service::geneanet::ImportPhase::Finishing);
+        if let Some(progress_id) = progress_id
+            && let Ok(mut imports) = imports_from_ctx(ctx).lock()
+        {
+            imports.remove(&progress_id);
+        }
+        let result = result?;
+        profiles.rebuild_tree_full(db, tree_id).await?;
+        Ok(GqlGeneanetImportResult {
+            persons_count: result.persons_count as i64,
+            families_count: result.families_count as i64,
+            events_count: result.events_count as i64,
+            sources_count: result.sources_count as i64,
+            places_count: result.places_count as i64,
+            notes_count: result.notes_count as i64,
+            media_count: result.media_count as i64,
+            links_count: result.links_count as i64,
+            portraits_count: result.portraits_count as i64,
+            isolated_count: result.isolated_count as i64,
+            vignettes_count: result.vignettes_count as i64,
+            skipped: result.skipped,
+            warnings: result.warnings,
+        })
     }
 
     // ── Projection Admin Mutations ───────────────────────────────────

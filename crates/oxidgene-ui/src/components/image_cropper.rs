@@ -78,7 +78,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     // The live rectangle, in *displayed* pixels — converted only on save, so
     // dragging never accumulates rounding error.
     let mut drag_rect = use_signal(|| None::<(f64, f64, f64, f64)>);
-    let mut title = use_signal(String::new);
     let mut event_id = use_signal(String::new);
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
@@ -145,7 +144,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let save = move |_| {
         let Some(rect) = to_source() else { return };
         let api = api.clone();
-        let title_value = title().trim().to_string();
         let event = Uuid::parse_str(event_id().trim()).ok();
         spawn(async move {
             saving.set(true);
@@ -156,7 +154,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                 y: rect.y,
                 width: rect.width,
                 height: rect.height,
-                title: (!title_value.is_empty()).then_some(title_value),
                 person_id,
                 event_id: event,
             };
@@ -166,7 +163,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                     // entries is four crops in a row, and closing after each
                     // would mean reopening the same scan four times.
                     drag_rect.set(None);
-                    title.set(String::new());
                     event_id.set(String::new());
                     on_saved.call(vignette);
                 }
@@ -245,9 +241,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                                 class: "cropper-existing",
                                 style: "left:{existing.x as f64 * s}px;top:{existing.y as f64 * s}px;\
                                         width:{existing.width as f64 * s}px;height:{existing.height as f64 * s}px",
-                                if let Some(label) = existing.title.as_ref() {
-                                    span { class: "cropper-existing-label", "{label}" }
-                                }
                             }
                         }
                     }
@@ -274,15 +267,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                             )}
                         }
                         div { class: "cropper-fields",
-                            div { class: "form-group",
-                                label { {i18n.t("media.crop_title")} }
-                                input {
-                                    r#type: "text",
-                                    value: "{title}",
-                                    placeholder: i18n.t("media.crop_title_placeholder"),
-                                    oninput: move |e: Event<FormData>| title.set(e.value()),
-                                }
-                            }
                             if !events.is_empty() {
                                 div { class: "form-group",
                                     label { {i18n.t("media.crop_event")} }

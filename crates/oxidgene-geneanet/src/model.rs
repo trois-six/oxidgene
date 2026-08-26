@@ -69,6 +69,9 @@ pub struct Reference {
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub reference_extra_geneweb: Option<GenewebReference>,
+    /// The event this media documents, when the media manager provides one.
+    #[serde(default)]
+    pub event: Option<GeneanetEvent>,
     /// Where on the picture this person is, if the owner drew a box round them.
     ///
     /// Geneanet's media manager shows these as labelled rectangles, and they
@@ -76,6 +79,17 @@ pub struct Reference {
     /// account 245 of 550 links carry one.
     #[serde(default)]
     pub face: Option<Face>,
+}
+
+/// An event attached to a media reference by Geneanet's media manager.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneanetEvent {
+    pub id: i64,
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+    pub date: Option<String>,
+    pub location: Option<String>,
 }
 
 /// A rectangle drawn round somebody on a picture.
@@ -143,6 +157,8 @@ pub struct ReferenceEntry {
     pub lastname: Option<String>,
     pub reference_extra_geneweb: Option<GenewebReference>,
     #[serde(default)]
+    pub event: Option<GeneanetEvent>,
+    #[serde(default)]
     pub face: Option<Face>,
 }
 
@@ -153,6 +169,7 @@ impl ReferenceEntry {
             firstname: self.firstname,
             lastname: self.lastname,
             reference_extra_geneweb: self.reference_extra_geneweb,
+            event: self.event,
             face: self.face,
         }
     }
@@ -318,6 +335,9 @@ pub struct ManifestReference {
     /// `lastname|firstname|occurrence`, or `None` for a person outside the tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geneweb_ref: Option<String>,
+    /// The event Geneanet says this reference documents, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<GeneanetEvent>,
     /// The box drawn round this person, as percentages. Kept so the import can
     /// turn it into a vignette on the stored picture.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -368,6 +388,7 @@ impl Manifest {
                                     firstname: r.firstname,
                                     lastname: r.lastname,
                                     geneweb_ref,
+                                    event: r.event,
                                     face: r.face.map(|f| f.position),
                                 }
                             })
@@ -444,6 +465,7 @@ mod tests {
             firstname: Some("person_a".to_string()),
             lastname: Some("BRANCH_A".to_string()),
             reference_extra_geneweb: key.map(|k| GenewebReference { key: k.to_string() }),
+            event: None,
             face: None,
         }
     }

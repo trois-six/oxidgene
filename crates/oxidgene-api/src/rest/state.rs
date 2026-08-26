@@ -13,6 +13,9 @@ use crate::profile::ProfileService;
 use crate::service::geneanet::ImportProgress;
 use crate::service::purge::{self, PurgeQueue};
 
+/// Runs currently reporting their Geneanet import progress.
+pub type ImportProgressRegistry = Arc<std::sync::Mutex<HashMap<Uuid, Arc<ImportProgress>>>>;
+
 /// Shared state available to all Axum handlers.
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -28,7 +31,7 @@ pub struct AppState {
     /// An import holds its request open for minutes, so it cannot report
     /// progress in its own response. The wizard names the run when it starts
     /// it and asks a second endpoint how it is going.
-    pub imports: Arc<std::sync::Mutex<HashMap<Uuid, Arc<ImportProgress>>>>,
+    pub imports: ImportProgressRegistry,
 }
 
 impl AppState {

@@ -19,22 +19,26 @@
 //! draws a labelled file icon in that case instead of a broken image, which is
 //! what an `<img>` onto a 404 gives you.
 
+use chrono::NaiveDate;
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use oxidgene_core::enums::{DocumentCategory, Privacy, SourceMediaType};
-use oxidgene_core::types::Vignette;
+use oxidgene_core::types::{PersonName, Vignette};
 use uuid::Uuid;
 
 use crate::api::{
     ApiClient, CreateMediaLinkBody, CreateNoteBody, MediaKind, MediaSource, MediaWithLink,
-    SetPortraitBody, UpdateMediaBody, UpdateNoteBody,
+    SetPortraitBody, UpdateMediaBody, UpdateNoteBody, UpdateVignetteBody,
 };
+use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::context_menu::ContextMenuSurface;
 use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
 use crate::components::person_form::render_place_select;
-use crate::components::vignette_linker::VignetteLinker;
+use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
+use crate::router::Route;
 use crate::utils::parse_privacy;
 
 /// What the gallery's media are attached to.
@@ -47,6 +51,48 @@ pub enum MediaOwner {
     /// same file — "the act that proves this marriage" and "a picture of this
     /// person" are two claims, and only the first belongs in a citation.
     Event(Uuid),
+}
+
+/// An event available from a person's read-only media gallery.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaEventLinkOption {
+    pub event_id: Uuid,
+    pub label: String,
+    pub date: Option<String>,
+    pub date_sort: Option<NaiveDate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MediaEventMenu {
+    Link,
+}
+
+fn scroll_event_menu(id: &str, offset: i32) {
+    let script = format!(
+        "document.getElementById('{id}')?.scrollBy({{ top: {offset}, behavior: 'smooth' }});"
+    );
+    document::eval(&script);
+}
+
+fn measure_event_menu_overflow(id: String, mut overflow: Signal<(bool, bool)>) {
+    spawn(async move {
+        let script = format!(
+            "const list = document.getElementById('{id}'); \
+             return list ? [list.scrollTop > 1, list.scrollTop + list.clientHeight < list.scrollHeight - 1] : [false, false];"
+        );
+        if let Ok(value) = document::eval(&script).await {
+            overflow.set((
+                value
+                    .get(0)
+                    .and_then(|item| item.as_bool())
+                    .unwrap_or(false),
+                value
+                    .get(1)
+                    .and_then(|item| item.as_bool())
+                    .unwrap_or(false),
+            ));
+        }
+    });
 }
 
 impl MediaOwner {
@@ -78,6 +124,9 @@ pub struct MediaGalleryProps {
     /// Events a media or a crop may be attached to, as (id, label) pairs.
     #[props(default)]
     pub events: Vec<(Uuid, String)>,
+    /// Events the reader may link from a person's media gallery.
+    #[props(default)]
+    pub profile_event_links: Vec<MediaEventLinkOption>,
     /// Show the files without offering to change them.
     ///
     /// The person profile page is a reader's view: it shows what is attached
@@ -87,6 +136,12 @@ pub struct MediaGalleryProps {
     /// which is what a reader who then clicks Edit expects to find.
     #[props(default = false)]
     pub read_only: bool,
+    /// Render only the linked media as a compact row of tiles.
+    #[props(default = false)]
+    pub compact: bool,
+    /// Bumped by a host that uploads media outside the gallery itself.
+    #[props(default)]
+    pub external_revision: u32,
     /// Fired after any change to what is attached here — an upload, a detach,
     /// a retitle, a portrait being chosen.
     ///
@@ -106,7 +161,13 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let tree_id = props.tree_id;
     let owner = props.owner;
     let events = props.events.clone();
+    let profile_event_links = props.profile_event_links.clone();
     let read_only = props.read_only;
+    let compact = props.compact;
+    let mut external_revision = use_signal(|| props.external_revision);
+    if *external_revision.peek() != props.external_revision {
+        external_revision.set(props.external_revision);
+    }
 
     // Bumped after every write; the resource re-runs when it changes. Cheaper
     // and less error-prone than mutating a local list in eight handlers and
@@ -191,6 +252,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         move || {
             let api = api.clone();
             let _ = revision();
+            let _ = external_revision();
             let (tree_id, owner) = showing();
             async move {
                 api.list_entity_media(tree_id, owner.entity_type(), owner.id())
@@ -268,7 +330,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let open_tile = editing().and_then(|id| items.iter().find(|t| t.media.id == id).cloned());
 
     rsx! {
-        div { class: "media-grid",
+        div { class: if compact { "media-grid media-grid-compact" } else { "media-grid" },
             for tile in items.iter().cloned() {
                 MediaTile {
                     key: "{tile.media.id}",
@@ -278,6 +340,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     person_id: portrait_owner,
                     is_portrait: portrait_media_id == Some(tile.media.id),
                     read_only,
+                    profile_event_links: profile_event_links.clone(),
                     is_open: editing() == Some(tile.media.id),
                     on_edit: move |id| {
                         editing.set(if editing() == Some(id) { None } else { Some(id) });
@@ -298,11 +361,13 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     on_changed: move |()| changed.call(()),
                 }
             }
-            if !read_only {
+            if !compact && !read_only {
                 MediaInput {
                     tree_id,
                     on_uploaded: link_uploaded,
                 }
+            }
+            if !compact && !read_only {
                 // A document is created empty and then filled: the user says
                 // "this is a register" first, and adds its scans afterwards,
                 // which is the order the scans come out of a scanner in.
@@ -321,7 +386,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
 
         // A reader looking at a person with no photographs should be told so,
         // not left with an empty rectangle that could equally mean "loading".
-        if read_only && items.is_empty() && tiles.read_unchecked().is_some() {
+        if !compact && read_only && items.is_empty() && tiles.read_unchecked().is_some() {
             div { class: "media-empty", {use_i18n().t("media.none")} }
         }
 
@@ -378,6 +443,7 @@ fn MediaTile(
     /// Whether this media is currently that person's portrait.
     is_portrait: bool,
     read_only: bool,
+    profile_event_links: Vec<MediaEventLinkOption>,
     is_open: bool,
     on_edit: EventHandler<Uuid>,
     on_crop: EventHandler<MediaWithLink>,
@@ -390,8 +456,15 @@ fn MediaTile(
     let mut confirming = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let mut delete_confirming = use_signal(|| false);
+    let mut checking_delete = use_signal(|| false);
+    let mut deleting = use_signal(|| false);
+    let mut delete_error = use_signal(|| None::<String>);
     // Where the right-click menu sits, if it is open.
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
+    let mut event_menu = use_signal(|| None::<MediaEventMenu>);
+    let mut event_menu_overflow = use_signal(|| (false, false));
+    let mut event_link_revision = use_signal(|| 0_u32);
 
     let media_id = tile.media.id;
     let link_id = tile.link_id;
@@ -400,6 +473,44 @@ fn MediaTile(
     let kind_label = tile.kind_label();
     let caption = tile.caption().to_string();
     let pages = tile.media.page_count;
+
+    let event_links = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let _ = event_link_revision();
+            async move { api.list_media_links_of(tree_id, media_id).await }
+        }
+    });
+    let media_event_ids: Vec<Uuid> = match &*event_links.read_unchecked() {
+        Some(Ok(links)) => links.iter().filter_map(|link| link.event_id).collect(),
+        _ => Vec::new(),
+    };
+    let has_event_link = !media_event_ids.is_empty();
+    let linked_events: Vec<MediaEventLinkOption> = profile_event_links
+        .iter()
+        .filter(|event| media_event_ids.contains(&event.event_id))
+        .cloned()
+        .collect();
+    let menu_mode = event_menu();
+    let mut menu_events: Vec<MediaEventLinkOption> = menu_mode
+        .map(|_| {
+            profile_event_links
+                .iter()
+                .filter(|event| {
+                    let linked = linked_events
+                        .iter()
+                        .any(|linked| linked.event_id == event.event_id);
+                    !linked
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    // Dated events come first in their natural chronology; incomplete facts
+    // remain available but cannot jump ahead of a known date.
+    menu_events.sort_by_key(|event| (event.date_sort.is_none(), event.date_sort));
+    let event_list_id = format!("media-event-menu-{media_id}");
 
     // What the tile links to, and what it draws.
     //
@@ -468,6 +579,104 @@ fn MediaTile(
         }
     };
 
+    let delete_if_unreferenced_elsewhere = {
+        let api = api.clone();
+        let retained_message = i18n.t("media.delete_kept_referenced");
+        move |_| {
+            let api = api.clone();
+            let retained_message = retained_message.clone();
+            spawn(async move {
+                deleting.set(true);
+                delete_error.set(None);
+                match api
+                    .delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
+                    .await
+                {
+                    Ok(true) => {
+                        delete_confirming.set(false);
+                        menu_at.set(None);
+                        on_changed.call(());
+                    }
+                    Ok(false) => {
+                        delete_confirming.set(false);
+                        error.set(Some(retained_message.clone()));
+                    }
+                    Err(err) => delete_error.set(Some(err.to_string())),
+                }
+                deleting.set(false);
+            });
+        }
+    };
+
+    let request_delete_confirmation = {
+        let api = api.clone();
+        let retained_message = i18n.t("media.delete_kept_referenced");
+        move |_| {
+            let api = api.clone();
+            let retained_message = retained_message.clone();
+            spawn(async move {
+                checking_delete.set(true);
+                error.set(None);
+                menu_at.set(None);
+                match api
+                    .can_delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
+                    .await
+                {
+                    Ok(true) => {
+                        delete_error.set(None);
+                        delete_confirming.set(true);
+                    }
+                    Ok(false) => error.set(Some(retained_message)),
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                checking_delete.set(false);
+            });
+        }
+    };
+
+    let toggle_event_link = use_callback({
+        let api = api.clone();
+        move |(event_id, attach): (Uuid, bool)| {
+            let api = api.clone();
+            spawn(async move {
+                busy.set(true);
+                let result = if attach {
+                    api.create_media_link(
+                        tree_id,
+                        &CreateMediaLinkBody {
+                            media_id,
+                            person_id: None,
+                            event_id: Some(event_id),
+                            source_id: None,
+                            family_id: None,
+                            sort_order: 0,
+                        },
+                    )
+                    .await
+                    .map(|_| ())
+                } else {
+                    match api.list_media_links_of(tree_id, media_id).await {
+                        Ok(links) => {
+                            match links.iter().find(|link| link.event_id == Some(event_id)) {
+                                Some(link) => api.delete_media_link(tree_id, link.id).await,
+                                None => Ok(()),
+                            }
+                        }
+                        Err(err) => Err(err),
+                    }
+                };
+                match result {
+                    Ok(()) => {
+                        event_link_revision += 1;
+                        on_changed.call(());
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    });
+
     let tile_for_crop = tile.clone();
     let is_profile = is_portrait;
 
@@ -488,11 +697,13 @@ fn MediaTile(
                 // them to the edit modal to do it means leaving the page that
                 // prompted it. Every other action stays behind the modal.
                 oncontextmenu: move |e: Event<MouseData>| {
-                    if !show_profile {
+                    if !read_only && !show_profile && profile_event_links.is_empty() {
                         return;
                     }
                     e.prevent_default();
                     let point = e.client_coordinates();
+                    event_menu.set(None);
+                    event_menu_overflow.set((false, false));
                     menu_at.set(Some((point.x, point.y)));
                 },
                 if let Some(preview) = preview_url.clone() {
@@ -585,34 +796,170 @@ fn MediaTile(
                 }
             }
             div { class: "media-caption", title: "{caption}", "{caption}" }
+            for event in linked_events.iter() {
+                div { key: "{event.event_id}", class: "media-event-link",
+                    if let Some(date) = &event.date {
+                        div { class: "media-event-date", "{date}" }
+                    }
+                    div { class: "media-event-type", "{event.label}" }
+                }
+            }
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
             }
 
             if let Some((x, y)) = menu_at() {
-                div {
-                    class: "context-menu-backdrop",
-                    onclick: move |_| menu_at.set(None),
-                    oncontextmenu: move |e: Event<MouseData>| {
-                        e.prevent_default();
-                        menu_at.set(None);
-                    },
-                }
-                div { class: "context-menu", style: "left: {x}px; top: {y}px;",
-                    button {
-                        class: "context-menu-item",
-                        r#type: "button",
-                        disabled: busy(),
-                        onclick: move |_| {
-                            menu_at.set(None);
-                            toggle_profile.call(());
-                        },
-                        if is_profile {
-                            {i18n.t("media.clear_profile_image")}
-                        } else {
-                            {i18n.t("media.set_profile_image")}
+                ContextMenuSurface {
+                    x,
+                    y,
+                    menu_class: if menu_mode.is_some() { "context-menu-events".to_string() } else { String::new() },
+                    on_close: move |_| menu_at.set(None),
+                    if menu_mode.is_some() {
+                        button {
+                            class: "context-menu-item context-menu-back",
+                            r#type: "button",
+                            onclick: move |_| {
+                                event_menu.set(None);
+                                event_menu_overflow.set((false, false));
+                            },
+                            "\u{2190} {i18n.t(\"common.back\")}"
+                        }
+                        hr { class: "context-menu-divider" }
+                        div { class: "context-menu-event-picker",
+                            if event_menu_overflow().0 {
+                                button {
+                                    class: "context-menu-event-scroll",
+                                    r#type: "button",
+                                    onmouseenter: {
+                                        let event_list_id = event_list_id.clone();
+                                        move |_| scroll_event_menu(&event_list_id, -180)
+                                    },
+                                    onclick: {
+                                        let event_list_id = event_list_id.clone();
+                                        move |_| scroll_event_menu(&event_list_id, -180)
+                                    },
+                                    "\u{25B2}"
+                                }
+                            }
+                            div {
+                                id: "{event_list_id}",
+                                class: "context-menu-event-list",
+                                onmounted: {
+                                    let event_list_id = event_list_id.clone();
+                                    move |_| measure_event_menu_overflow(event_list_id.clone(), event_menu_overflow)
+                                },
+                                onscroll: {
+                                    let event_list_id = event_list_id.clone();
+                                    move |_| measure_event_menu_overflow(event_list_id.clone(), event_menu_overflow)
+                                },
+                                for event in &menu_events {
+                                    {
+                                        let event_id = event.event_id;
+                                        let label = match &event.date {
+                                            Some(date) if !date.is_empty() => {
+                                                format!("{date} - {}", event.label)
+                                            }
+                                            _ => event.label.clone(),
+                                        };
+                                        rsx! {
+                                            button {
+                                                key: "{event_id}",
+                                                class: "context-menu-item context-menu-event-item",
+                                                r#type: "button",
+                                                disabled: busy(),
+                                                title: "{label}",
+                                                onclick: move |_| {
+                                                    toggle_event_link.call((event_id, true));
+                                                    event_menu.set(None);
+                                                    menu_at.set(None);
+                                                },
+                                                "{label}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if event_menu_overflow().1 {
+                                button {
+                                    class: "context-menu-event-scroll",
+                                    r#type: "button",
+                                    onmouseenter: {
+                                        let event_list_id = event_list_id.clone();
+                                        move |_| scroll_event_menu(&event_list_id, 180)
+                                    },
+                                    onclick: {
+                                        let event_list_id = event_list_id.clone();
+                                        move |_| scroll_event_menu(&event_list_id, 180)
+                                    },
+                                    "\u{25BC}"
+                                }
+                            }
+                        }
+                    } else {
+                        if show_profile {
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                disabled: busy(),
+                                onclick: move |_| {
+                                    menu_at.set(None);
+                                    toggle_profile.call(());
+                                },
+                                if is_profile {
+                                    {i18n.t("media.clear_profile_image")}
+                                } else {
+                                    {i18n.t("media.set_profile_image")}
+                                }
+                            }
+                        }
+                        if !profile_event_links.is_empty() && !has_event_link {
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    event_menu_overflow.set((false, false));
+                                    event_menu.set(Some(MediaEventMenu::Link));
+                                },
+                                {i18n.t("media.link_event")}
+                            }
+                        }
+                        if let Some(event_id) = media_event_ids.first().copied() {
+                            button {
+                                class: "context-menu-item context-menu-danger",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    toggle_event_link.call((event_id, false));
+                                    menu_at.set(None);
+                                },
+                                {i18n.t("media.unlink_event")}
+                            }
+                        }
+                        if read_only {
+                            button {
+                                class: "context-menu-item context-menu-danger",
+                                r#type: "button",
+                                disabled: checking_delete(),
+                                onclick: move |_| {
+                                    request_delete_confirmation(());
+                                },
+                                {i18n.t("media.delete")}
+                            }
                         }
                     }
+                }
+            }
+            if delete_confirming() {
+                ConfirmDialog {
+                    title: i18n.t("media.delete_title"),
+                    message: i18n.t("media.delete_message"),
+                    confirm_label: i18n.t("media.delete"),
+                    error: delete_error(),
+                    busy: deleting(),
+                    on_confirm: delete_if_unreferenced_elsewhere,
+                    on_cancel: move |_| {
+                        delete_confirming.set(false);
+                        delete_error.set(None);
+                    },
                 }
             }
         }
@@ -646,10 +993,7 @@ fn VignetteTile(
 
     let vignette_id = vignette.id;
     let url = api.vignette_image_url(tree_id, vignette_id);
-    let caption = vignette
-        .title
-        .clone()
-        .unwrap_or_else(|| i18n.t("media.vignette"));
+    let caption = i18n.t("media.vignette");
 
     let toggle_portrait = use_callback({
         let api = api.clone();
@@ -676,6 +1020,25 @@ fn VignetteTile(
             });
         }
     });
+
+    let delete_identification = {
+        let api = api.clone();
+        move |_| {
+            let api = api.clone();
+            spawn(async move {
+                busy.set(true);
+                error.set(None);
+                match api.delete_vignette(tree_id, vignette_id).await {
+                    Ok(()) => {
+                        menu_at.set(None);
+                        on_changed.call(());
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    };
 
     rsx! {
         div { class: "media-tile",
@@ -723,15 +1086,10 @@ fn VignetteTile(
             }
 
             if let Some((x, y)) = menu_at() {
-                div {
-                    class: "context-menu-backdrop",
-                    onclick: move |_| menu_at.set(None),
-                    oncontextmenu: move |e: Event<MouseData>| {
-                        e.prevent_default();
-                        menu_at.set(None);
-                    },
-                }
-                div { class: "context-menu", style: "left: {x}px; top: {y}px;",
+                ContextMenuSurface {
+                    x,
+                    y,
+                    on_close: move |_| menu_at.set(None),
                     button {
                         class: "context-menu-item",
                         r#type: "button",
@@ -745,6 +1103,17 @@ fn VignetteTile(
                         } else {
                             {i18n.t("media.set_profile_image")}
                         }
+                    }
+                    button {
+                        class: "context-menu-item context-menu-danger",
+                        r#type: "button",
+                        disabled: busy(),
+                        onclick: move |_| {
+                            error.set(None);
+                            menu_at.set(None);
+                            delete_identification(());
+                        },
+                        {i18n.t("media.delete_identification")}
                     }
                 }
             }
@@ -799,18 +1168,8 @@ fn MediaEditPanel(
     let mut loaded_note = use_signal(|| false);
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
-    let mut vignette_revision = use_signal(|| 0_u32);
     let mut link_revision = use_signal(|| 0_u32);
     let mut page_revision = use_signal(|| 0_u32);
-
-    let vignettes = use_resource({
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let _ = vignette_revision();
-            async move { api.list_media_vignettes(tree_id, media_id).await }
-        }
-    });
 
     let places = use_resource({
         let api = api.clone();
@@ -1036,11 +1395,6 @@ fn MediaEditPanel(
             });
         }
     });
-
-    let crops: Vec<Vignette> = match &*vignettes.read_unchecked() {
-        Some(Ok(list)) => list.clone(),
-        _ => Vec::new(),
-    };
 
     let dimensions = match (tile.media.width, tile.media.height) {
         (Some(w), Some(h)) => Some(format!("{w} × {h}")),
@@ -1303,18 +1657,6 @@ fn MediaEditPanel(
                 }
             }
 
-            if !crops.is_empty() || (tile.is_croppable() && !events.is_empty()) {
-                div { class: "media-panel-section",
-                    label { {i18n.t("media.vignettes")} }
-                    VignetteLinker {
-                        tree_id,
-                        vignettes: crops,
-                        events: events.clone(),
-                        on_changed: move |_| vignette_revision += 1,
-                    }
-                }
-            }
-
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
             }
@@ -1504,8 +1846,13 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
 fn MediaFacts(
     tree_id: Uuid,
     media: oxidgene_core::types::Media,
-    content_media_id: Uuid,
     tags: Vec<String>,
+    vignettes: Vec<Vignette>,
+    person_names: Vec<PersonName>,
+    events: Vec<(Uuid, String)>,
+    on_vignettes_changed: EventHandler<()>,
+    on_identify: EventHandler<()>,
+    on_changed: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
@@ -1529,19 +1876,6 @@ fn MediaFacts(
             async move { api.list_all_places(tree_id).await.ok() }
         }
     });
-    // Who is identified on this scan, and what it stands as evidence for.
-    let vignettes = use_resource({
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            async move {
-                api.list_media_vignettes(tree_id, content_media_id)
-                    .await
-                    .ok()
-            }
-        }
-    });
-
     let date = format_date(
         &i18n,
         media.calendar,
@@ -1563,18 +1897,6 @@ fn MediaFacts(
         .as_ref()
         .and_then(|n| n.as_ref())
         .and_then(|list| list.first().map(|n| n.text.clone()));
-    let identified: Vec<String> = vignettes
-        .read_unchecked()
-        .as_ref()
-        .and_then(|v| v.as_ref())
-        .map(|list| {
-            list.iter()
-                .filter(|v| v.person_id.is_some())
-                .filter_map(|v| v.title.clone())
-                .collect()
-        })
-        .unwrap_or_default();
-
     // Every field is listed, set or not. Omitting the empty ones was tidier
     // and told the reader nothing: a scan with no date looked identical to a
     // viewer that could not record one, so the feature read as missing rather
@@ -1627,14 +1949,23 @@ fn MediaFacts(
             }
             MediaFact { label: i18n.t("media.note"), value: note, prose: true }
 
-            if !identified.is_empty() {
-                div { class: "form-group media-fact",
-                    label { {i18n.t("media.identified")} }
-                    div { class: "media-fact-value media-fact-tags",
-                        for name in identified.iter() {
-                            span { key: "{name}", class: "media-fact-tag", "{name}" }
-                        }
-                    }
+            div { class: "form-group media-fact",
+                label { {i18n.t("media.identified")} }
+                MediaIdentifications {
+                    tree_id,
+                    vignettes,
+                    person_names,
+                    on_changed: on_vignettes_changed,
+                    on_identify: on_identify,
+                }
+            }
+
+            if !events.is_empty() {
+                MediaEventLinks {
+                    tree_id,
+                    media_id,
+                    events,
+                    on_changed,
                 }
             }
 
@@ -1667,6 +1998,186 @@ fn MediaFacts(
     }
 }
 
+/// The media-to-event links shown in the reader. The `media_id` is always
+/// that of the opened media, so a document's pages are never linked alone.
+#[component]
+fn MediaEventLinks(
+    tree_id: Uuid,
+    media_id: Uuid,
+    events: Vec<(Uuid, String)>,
+    on_changed: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut revision = use_signal(|| 0_u32);
+    let mut error = use_signal(|| None::<String>);
+    let links = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let _ = revision();
+            async move { api.list_media_links_of(tree_id, media_id).await.ok() }
+        }
+    });
+    let attached: Vec<Uuid> = links
+        .read_unchecked()
+        .as_ref()
+        .and_then(|links| links.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|link| link.event_id)
+        .collect();
+    let toggle = use_callback({
+        let api = api.clone();
+        move |(event_id, attach): (Uuid, bool)| {
+            let api = api.clone();
+            spawn(async move {
+                let result = if attach {
+                    api.create_media_link(
+                        tree_id,
+                        &CreateMediaLinkBody {
+                            media_id,
+                            person_id: None,
+                            event_id: Some(event_id),
+                            source_id: None,
+                            family_id: None,
+                            sort_order: 0,
+                        },
+                    )
+                    .await
+                    .map(|_| ())
+                } else {
+                    match api.list_media_links_of(tree_id, media_id).await {
+                        Ok(links) => {
+                            match links.iter().find(|link| link.event_id == Some(event_id)) {
+                                Some(link) => api.delete_media_link(tree_id, link.id).await,
+                                None => Ok(()),
+                            }
+                        }
+                        Err(err) => Err(err),
+                    }
+                };
+                match result {
+                    Ok(()) => {
+                        revision += 1;
+                        on_changed.call(());
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+            });
+        }
+    });
+
+    rsx! {
+        div { class: "form-group media-fact",
+            label { {i18n.t("media.documents_events")} }
+            div { class: "media-events",
+                for (event_id, label) in events.iter() {
+                    {
+                        let event_id = *event_id;
+                        let attached = attached.contains(&event_id);
+                        rsx! {
+                            label { key: "{event_id}", class: "media-event-row",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: attached,
+                                    onchange: move |event: Event<FormData>| toggle.call((event_id, event.checked())),
+                                }
+                                span { "{label}" }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(message) = error() {
+                div { class: "error-msg", "{message}" }
+            }
+        }
+    }
+}
+
+/// Reader-side controls for the regions identifying people on a media.
+#[component]
+fn MediaIdentifications(
+    tree_id: Uuid,
+    vignettes: Vec<Vignette>,
+    person_names: Vec<PersonName>,
+    on_changed: EventHandler<()>,
+    on_identify: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+
+    let delete_identification = use_callback({
+        let api = api.clone();
+        move |vignette_id: Uuid| {
+            let api = api.clone();
+            spawn(async move {
+                busy.set(true);
+                error.set(None);
+                match api.delete_vignette(tree_id, vignette_id).await {
+                    Ok(_) => {
+                        on_changed.call(());
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    });
+
+    rsx! {
+        div { class: "media-vignette-list",
+            button {
+                class: "media-identification-add",
+                r#type: "button",
+                disabled: busy(),
+                onclick: move |_| on_identify.call(()),
+                {i18n.t("media.identify_person")}
+            }
+            for vignette in vignettes.iter().filter(|vignette| vignette.person_id.is_some()) {
+                {
+                    let vignette_id = vignette.id;
+                    let identified = vignette
+                        .person_id
+                        .and_then(|person_id| primary_person_name(&person_names, person_id).map(|name| (person_id, name)));
+                    let image_url = api.vignette_image_url(tree_id, vignette_id);
+                    rsx! {
+                        div { key: "{vignette_id}", class: "media-identification",
+                            div { class: "media-vignette-item",
+                                img { src: "{image_url}", alt: "" }
+                                if let Some((person_id, name)) = identified {
+                                    Link {
+                                        to: Route::TreeDetail {
+                                            tree_id: tree_id.to_string(),
+                                            person: Some(person_id.to_string()),
+                                        },
+                                        class: "media-identification-person",
+                                        "{name}"
+                                    }
+                                    button {
+                                        class: "media-identification-delete",
+                                        r#type: "button",
+                                        disabled: busy(),
+                                        title: i18n.t("media.delete_identification"),
+                                        onclick: move |_| delete_identification.call(vignette_id),
+                                        "\u{00D7}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(message) = error() {
+            div { class: "error-msg", "{message}" }
+        }
+    }
+}
+
 /// One read-only field, using the same label/value structure as the forms.
 #[component]
 fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool) -> Element {
@@ -1691,6 +2202,31 @@ enum MediaZoomAnchor {
     Pointer(f64, f64),
 }
 
+fn vignette_overlay_style(vignette: &Vignette, width: Option<i32>, height: Option<i32>) -> String {
+    let width = width.unwrap_or(1).max(1) as f64;
+    let height = height.unwrap_or(1).max(1) as f64;
+    format!(
+        "left:{}%;top:{}%;width:{}%;height:{}%",
+        vignette.x as f64 * 100.0 / width,
+        vignette.y as f64 * 100.0 / height,
+        vignette.width as f64 * 100.0 / width,
+        vignette.height as f64 * 100.0 / height,
+    )
+}
+
+fn primary_person_name_record(names: &[PersonName], person_id: Uuid) -> Option<&PersonName> {
+    names
+        .iter()
+        .find(|name| name.person_id == person_id && name.is_primary)
+        .or_else(|| names.iter().find(|name| name.person_id == person_id))
+}
+
+fn primary_person_name(names: &[PersonName], person_id: Uuid) -> Option<String> {
+    primary_person_name_record(names, person_id)
+        .map(PersonName::display_name)
+        .filter(|name| !name.is_empty())
+}
+
 #[component]
 fn MediaViewer(
     tree_id: Uuid,
@@ -1705,7 +2241,32 @@ fn MediaViewer(
     // The companion column starts as prose. A reader opened this to look at
     // the document, not to fill in a form, so the form is a step they take.
     let mut editing = use_signal(|| false);
+    let mut identifying = use_signal(|| false);
     let mut media_revision = use_signal(|| 0_u32);
+    let mut delete_confirming = use_signal(|| false);
+    let mut deleting = use_signal(|| false);
+    let mut delete_error = use_signal(|| None::<String>);
+
+    let delete_media = {
+        let api = api.clone();
+        let media_id = tile.media.id;
+        move |_| {
+            let api = api.clone();
+            spawn(async move {
+                deleting.set(true);
+                delete_error.set(None);
+                match api.delete_media(tree_id, media_id).await {
+                    Ok(()) => {
+                        delete_confirming.set(false);
+                        on_changed.call(());
+                        on_close.call(());
+                    }
+                    Err(err) => delete_error.set(Some(err.to_string())),
+                }
+                deleting.set(false);
+            });
+        }
+    };
 
     // `viewing` owns the tile that opened the overlay, so it does not change
     // when the gallery refreshes underneath it. Reload the media itself after
@@ -1739,6 +2300,7 @@ fn MediaViewer(
     let mut drag_start_y = use_signal(|| 0.0_f64);
     let mut wheel_zooming = use_signal(|| false);
     let mut fitted_size = use_signal(|| None::<(f64, f64)>);
+    let mut zoom_overflow = use_signal(|| (false, false));
     let stage_id = format!("media-viewer-stage-{}", tile.media.id);
 
     let fit_image = use_callback({
@@ -1762,6 +2324,7 @@ fn MediaViewer(
                     image.style.maxWidth = 'none';
                     image.style.maxHeight = 'none';
                     stage.classList.remove('is-zoomed');
+                    stage.classList.remove('is-overflow-x', 'is-overflow-y');
                     stage.scrollLeft = 0;
                     stage.scrollTop = 0;
                     return [width, height];
@@ -1775,6 +2338,7 @@ fn MediaViewer(
                 {
                     fitted_size.set(Some((width, height)));
                     zoom.set(None);
+                    zoom_overflow.set((false, false));
                 }
             });
         }
@@ -1825,6 +2389,13 @@ fn MediaViewer(
                     image.style.maxWidth = 'none';
                     image.style.maxHeight = 'none';
                     stage.classList.toggle('is-zoomed', {is_zoomed});
+                    const style = getComputedStyle(stage);
+                    const availableWidth = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+                    const availableHeight = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+                    const overflowX = {width} > availableWidth;
+                    const overflowY = {height} > availableHeight;
+                    stage.classList.toggle('is-overflow-x', overflowX);
+                    stage.classList.toggle('is-overflow-y', overflowY);
 
                     if ({center}) {{
                         stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2);
@@ -1836,9 +2407,21 @@ fn MediaViewer(
                         stage.scrollLeft = imageLeft + nx * newImageRect.width - screenX;
                         stage.scrollTop = imageTop + ny * newImageRect.height - screenY;
                     }}
+                    return [overflowX, overflowY];
                     "#,
                 );
-                let _ = document::eval(&script).await;
+                if let Ok(value) = document::eval(&script).await {
+                    zoom_overflow.set((
+                        value
+                            .get(0)
+                            .and_then(|item| item.as_bool())
+                            .unwrap_or(false),
+                        value
+                            .get(1)
+                            .and_then(|item| item.as_bool())
+                            .unwrap_or(false),
+                    ));
+                }
                 zoom.set(Some(level));
                 if pointer_zoom {
                     wheel_zooming.set(false);
@@ -1887,6 +2470,48 @@ fn MediaViewer(
         (None, MediaSource::Unheld) => None,
     };
     let content_media_id = shown.map(|media| media.id).unwrap_or(current_tile.media.id);
+    let (content_width, content_height) = shown
+        .map(|media| (media.width, media.height))
+        .unwrap_or((current_media.width, current_media.height));
+    let content_media = shown.cloned().unwrap_or_else(|| current_media.clone());
+    // A document's visible image changes with its page. Keep that id reactive
+    // so the regions in both the facts column and the image follow it.
+    let mut vignette_media_id = use_signal(|| content_media_id);
+    let mut vignette_revision = use_signal(|| 0_u32);
+    if *vignette_media_id.peek() != content_media_id {
+        vignette_media_id.set(content_media_id);
+    }
+    let content_vignettes = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let media_id = vignette_media_id();
+            let _ = vignette_revision();
+            async move { api.list_media_vignettes(tree_id, media_id).await.ok() }
+        }
+    });
+    let content_vignettes: Vec<Vignette> = content_vignettes
+        .read_unchecked()
+        .as_ref()
+        .and_then(|vignettes| vignettes.clone())
+        .unwrap_or_default();
+    let person_names = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move {
+                api.get_tree_snapshot(tree_id)
+                    .await
+                    .ok()
+                    .map(|snapshot| snapshot.names)
+            }
+        }
+    });
+    let person_names: Vec<PersonName> = person_names
+        .read_unchecked()
+        .as_ref()
+        .and_then(|names| names.clone())
+        .unwrap_or_default();
     let image_id = format!("media-viewer-image-{content_media_id}");
     let image_style = match (zoom(), fitted_size()) {
         (Some(level), Some((width, height))) => format!(
@@ -1950,6 +2575,21 @@ fn MediaViewer(
         }
     });
 
+    let (overflow_x, overflow_y) = zoom_overflow();
+    let mut stage_class = "media-viewer-stage is-image".to_string();
+    if zoom().is_some_and(|level| level > FIT_ZOOM) {
+        stage_class.push_str(" is-zoomed");
+    }
+    if overflow_x {
+        stage_class.push_str(" is-overflow-x");
+    }
+    if overflow_y {
+        stage_class.push_str(" is-overflow-y");
+    }
+    if dragging_image() {
+        stage_class.push_str(" is-dragging");
+    }
+
     rsx! {
         div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
             div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
@@ -1993,8 +2633,13 @@ fn MediaViewer(
                         MediaFacts {
                             tree_id,
                             media: current_media.clone(),
-                            content_media_id: shown.map(|page| page.id).unwrap_or(current_media.id),
                             tags: current_media.tags.clone(),
+                            vignettes: content_vignettes.clone(),
+                            person_names: person_names.clone(),
+                            events: events.clone(),
+                            on_vignettes_changed: move |_| vignette_revision += 1,
+                            on_identify: move |_| identifying.set(true),
+                            on_changed,
                         }
                         // Not gated on `read_only`. That flag governs the
                         // *gallery* — uploading, cropping, detaching — which
@@ -2003,11 +2648,23 @@ fn MediaViewer(
                         // the moment a reader knows that is while looking at
                         // it. Sending them to the edit modal to type a date
                         // means leaving the page that prompted them.
-                        button {
-                            class: "pf-confirm-btn media-facts-edit",
-                            r#type: "button",
-                            onclick: move |_| editing.set(true),
-                            {i18n.t("media.edit_details")}
+                        div { class: "media-facts-actions",
+                            button {
+                                class: "pf-confirm-btn media-facts-edit",
+                                r#type: "button",
+                                onclick: move |_| editing.set(true),
+                                {i18n.t("media.viewer_edit")}
+                            }
+                            button {
+                                class: "pf-delete-person-btn media-facts-delete",
+                                r#type: "button",
+                                disabled: deleting(),
+                                onclick: move |_| {
+                                    delete_error.set(None);
+                                    delete_confirming.set(true);
+                                },
+                                {i18n.t("media.viewer_delete")}
+                            }
                         }
                     }
                 }
@@ -2066,15 +2723,7 @@ fn MediaViewer(
                 }
                 div {
                     id: "{stage_id}",
-                    class: match (
-                        dragging_image(),
-                        zoom().is_some_and(|level| level > FIT_ZOOM),
-                    ) {
-                        (true, true) => "media-viewer-stage is-image is-zoomed is-dragging",
-                        (true, false) => "media-viewer-stage is-image is-dragging",
-                        (false, true) => "media-viewer-stage is-image is-zoomed",
-                        (false, false) => "media-viewer-stage is-image",
-                    },
+                    class: "{stage_class}",
                     onpointermove: move |event| {
                         let coords = event.client_coordinates();
                         if dragging_image() {
@@ -2119,13 +2768,35 @@ fn MediaViewer(
                     },
                     match (url.clone(), kind) {
                         (Some(url), MediaKind::Image) => rsx! {
-                            img {
-                                id: "{image_id}",
-                                class: "media-viewer-image media-viewer-static-image",
-                                src: "{url}",
-                                alt: "{caption}",
-                                draggable: "false",
-                                style: "{image_style}",
+                            div { class: "media-viewer-image-frame",
+                                img {
+                                    id: "{image_id}",
+                                    class: "media-viewer-image media-viewer-static-image",
+                                    src: "{url}",
+                                    alt: "{caption}",
+                                    draggable: "false",
+                                    style: "{image_style}",
+                                }
+                                for vignette in content_vignettes.iter() {
+                                    div {
+                                        key: "{vignette.id}",
+                                        class: "media-viewer-vignette",
+                                        style: "{vignette_overlay_style(vignette, content_width, content_height)}",
+                                        onpointerdown: move |event| event.stop_propagation(),
+                                        if let Some(person_id) = vignette.person_id
+                                            && let Some(person) = primary_person_name_record(&person_names, person_id)
+                                        {
+                                            span { class: "media-viewer-vignette-label",
+                                                if let Some(surname) = person.full_surname() {
+                                                    span { class: "media-viewer-vignette-surname", "{surname.to_uppercase()}" }
+                                                }
+                                                if let Some(given_names) = person.given_names.as_ref() {
+                                                    span { class: "media-viewer-vignette-given", "{given_names}" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         },
                         (Some(url), MediaKind::Video) => rsx! {
@@ -2276,6 +2947,30 @@ fn MediaViewer(
                     }
                 }
             }
+            if identifying() {
+                IdentificationCropperHost {
+                    tree_id,
+                    media: content_media,
+                    on_complete: move |_| {
+                        identifying.set(false);
+                        vignette_revision += 1;
+                    },
+                }
+            }
+        }
+        if delete_confirming() {
+            ConfirmDialog {
+                title: i18n.t("media.delete_title"),
+                message: i18n.t("media.delete_message"),
+                confirm_label: i18n.t("media.delete"),
+                error: delete_error(),
+                busy: deleting(),
+                on_confirm: delete_media,
+                on_cancel: move |_| {
+                    delete_confirming.set(false);
+                    delete_error.set(None);
+                },
+            }
         }
     }
 }
@@ -2415,6 +3110,81 @@ fn CropperHost(
             events,
             on_saved: move |_| revision += 1,
             on_close: move |_| on_close.call(()),
+        }
+    }
+}
+
+/// Creates an identification as one uninterrupted reader workflow: first the
+/// region on the image, then the person it represents.
+#[component]
+fn IdentificationCropperHost(
+    tree_id: Uuid,
+    media: oxidgene_core::types::Media,
+    on_complete: EventHandler<()>,
+) -> Element {
+    let api = use_context::<ApiClient>();
+    let media_id = media.id;
+    let mut pending = use_signal(|| None::<Vignette>);
+    let existing = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move { api.list_media_vignettes(tree_id, media_id).await.ok() }
+        }
+    });
+    let existing: Vec<Vignette> = existing
+        .read_unchecked()
+        .as_ref()
+        .and_then(|vignettes| vignettes.clone())
+        .unwrap_or_default();
+
+    if let Some(vignette) = pending() {
+        let vignette_id = vignette.id;
+        let api_for_select = api.clone();
+        let api_for_cancel = api.clone();
+        return rsx! {
+            div { class: "cropper-backdrop",
+                div { class: "cropper-panel", onclick: move |event| event.stop_propagation(),
+                    div { class: "cropper-head",
+                        span { class: "cropper-title", {use_i18n().t("media.identify_person")} }
+                    }
+                    SearchPerson {
+                        tree_id,
+                        on_select: move |person_id| {
+                            let api = api_for_select.clone();
+                            spawn(async move {
+                                if api.update_vignette(
+                                    tree_id,
+                                    vignette_id,
+                                    &UpdateVignetteBody {
+                                        person_id: Some(Some(person_id)),
+                                        ..Default::default()
+                                    },
+                                ).await.is_ok() {
+                                    on_complete.call(());
+                                }
+                            });
+                        },
+                        on_cancel: move |_| {
+                            let api = api_for_cancel.clone();
+                            spawn(async move {
+                                let _ = api.delete_vignette(tree_id, vignette_id).await;
+                                on_complete.call(());
+                            });
+                        },
+                    }
+                }
+            }
+        };
+    }
+
+    rsx! {
+        ImageCropper {
+            tree_id,
+            media,
+            existing,
+            on_saved: move |vignette| pending.set(Some(vignette)),
+            on_close: move |_| on_complete.call(()),
         }
     }
 }

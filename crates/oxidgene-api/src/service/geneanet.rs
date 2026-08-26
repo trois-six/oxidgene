@@ -16,9 +16,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::enums::Privacy;
+use oxidgene_core::enums::{EventType, Privacy};
 use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
     MediaLinkRepo, MediaPatch, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, PlaceRepo,
@@ -27,7 +27,7 @@ use oxidgene_db::repo::{
 use oxidgene_geneanet::Manifest;
 use oxidgene_geneanet::archive::{ArchiveSet, LocalOriginals, PhashIndex};
 use oxidgene_geneanet::join::{self, UnjoinedReason};
-use oxidgene_geneanet::model::{ManifestDeposit, ManifestView};
+use oxidgene_geneanet::model::{GeneanetEvent, ManifestDeposit, ManifestView};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -498,6 +498,7 @@ pub async fn import(
     // The URL *is* one of the renditions the collection lists, so this is an
     // exact match on the path, not a guess — and it tells us which view is the
     // person's portrait, which is the only place that fact exists.
+    let event_matcher = GeneanetEventMatcher::from_import(&import_result);
     let portraits = take_portrait_urls(&mut import_result, &manifest);
     let person_by_xref = import_result.person_by_xref.clone();
     let people = persist_import_result(db, import_result).await?;
@@ -547,6 +548,7 @@ pub async fn import(
         &manifest,
         &joined,
         &person_by_xref,
+        &event_matcher,
         &isolated,
         deposit_sizes,
         archive_paths,
@@ -586,6 +588,7 @@ async fn attach_media(
     manifest: &Manifest,
     joined: &join::Join,
     person_by_xref: &HashMap<String, Uuid>,
+    event_matcher: &GeneanetEventMatcher,
     // `isolated`: folded name → the person created for an out-of-tree
     // identification.
     isolated: &HashMap<String, Uuid>,
@@ -663,6 +666,7 @@ async fn attach_media(
         // they are, whether this deposit holds their portrait, and where on
         // the picture they were boxed.
         let mut people: Vec<Attached> = Vec::new();
+        let mut event_references: Vec<(Uuid, GeneanetEvent)> = Vec::new();
         for attachment in &attachments {
             // `GwDatabase::persons[i]` becomes the individual with xref
             // `@I{i+1}@` — the positional correspondence the whole join rests
@@ -682,6 +686,9 @@ async fn attach_media(
             let is_portrait = portraits
                 .get(&xref)
                 .is_some_and(|view_id| *view_id == attachment.view_id);
+            if let Some(event) = attachment.event.clone() {
+                event_references.push((person_id, event));
+            }
             people.push(Attached {
                 person_id,
                 is_portrait,
@@ -745,6 +752,35 @@ async fn attach_media(
             }
         };
 
+        // Several people in a group photograph may each point at the shared
+        // family event. The link belongs to the file, so persist it once.
+        let mut linked_event_ids = std::collections::HashSet::new();
+        for (person_id, event) in event_references {
+            let Some(event_id) = event_matcher.resolve(person_id, &event) else {
+                continue;
+            };
+            if !linked_event_ids.insert(event_id) {
+                continue;
+            }
+            if let Err(err) = MediaLinkRepo::create(
+                db,
+                Uuid::now_v7(),
+                owner,
+                None,
+                Some(event_id),
+                None,
+                None,
+                0,
+            )
+            .await
+            {
+                summary.skipped.push(format!(
+                    "deposit {deposit_id}: could not link Geneanet event {}: {err}",
+                    event.id
+                ));
+            }
+        }
+
         for (order, attached) in people.into_iter().enumerate() {
             let created = MediaLinkRepo::create(
                 db,
@@ -807,6 +843,187 @@ struct Attached {
     face: Option<oxidgene_geneanet::model::FacePosition>,
 }
 
+/// Imported events indexed by the people whose media may document them.
+/// Family events are indexed under both spouses because Geneanet puts its
+/// marriage reference on each person while OxidGene stores one family event.
+struct GeneanetEventMatcher {
+    candidates_by_person: HashMap<Uuid, Vec<ImportedEvent>>,
+}
+
+struct ImportedEvent {
+    id: Uuid,
+    event_type: EventType,
+    date: Option<NaiveDate>,
+    place: Option<String>,
+}
+
+impl GeneanetEventMatcher {
+    fn from_import(result: &oxidgene_gedcom::ImportResult) -> Self {
+        let places: HashMap<Uuid, String> = result
+            .places
+            .iter()
+            .map(|place| (place.id, place_key(&place.name)))
+            .collect();
+        let mut candidates_by_person: HashMap<Uuid, Vec<ImportedEvent>> = HashMap::new();
+        let mut candidates_by_family: HashMap<Uuid, Vec<ImportedEvent>> = HashMap::new();
+
+        for event in &result.events {
+            let candidate = ImportedEvent {
+                id: event.id,
+                event_type: event.event_type,
+                date: event.date_sort,
+                place: event.place_id.and_then(|id| places.get(&id).cloned()),
+            };
+            if let Some(person_id) = event.person_id {
+                candidates_by_person
+                    .entry(person_id)
+                    .or_default()
+                    .push(candidate);
+            } else if let Some(family_id) = event.family_id {
+                candidates_by_family
+                    .entry(family_id)
+                    .or_default()
+                    .push(candidate);
+            }
+        }
+
+        for spouse in &result.family_spouses {
+            if let Some(events) = candidates_by_family.get(&spouse.family_id) {
+                candidates_by_person
+                    .entry(spouse.person_id)
+                    .or_default()
+                    .extend(events.iter().map(|event| ImportedEvent {
+                        id: event.id,
+                        event_type: event.event_type,
+                        date: event.date,
+                        place: event.place.clone(),
+                    }));
+            }
+        }
+
+        Self {
+            candidates_by_person,
+        }
+    }
+
+    fn resolve(&self, person_id: Uuid, source: &GeneanetEvent) -> Option<Uuid> {
+        let event_type = geneanet_event_type(source.name.as_deref())?;
+        let date = source
+            .date
+            .as_deref()
+            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())?;
+        let place = source.location.as_deref().map(geneanet_place_key);
+        let matches: Vec<&ImportedEvent> = self
+            .candidates_by_person
+            .get(&person_id)?
+            .iter()
+            .filter(|candidate| {
+                candidate.event_type == event_type
+                    && candidate.date == Some(date)
+                    && place
+                        .as_ref()
+                        .is_none_or(|place| candidate.place.as_ref() == Some(place))
+            })
+            .collect();
+        match matches.as_slice() {
+            [candidate] => Some(candidate.id),
+            _ => None,
+        }
+    }
+}
+
+fn geneanet_event_type(name: Option<&str>) -> Option<EventType> {
+    let name = name?.strip_prefix("gw_event_")?;
+    Some(match name {
+        "birth" => EventType::Birth,
+        "death" => EventType::Death,
+        "baptism" => EventType::Baptism,
+        "confirmation" => EventType::Confirmation,
+        "first_communion" => EventType::FirstCommunion,
+        "bar_mitzvah" | "bat_mitzvah" => EventType::BarBatMitzvah,
+        "military_service" => EventType::MilitaryService,
+        "burial" => EventType::Burial,
+        "cremation" => EventType::Cremation,
+        "graduation" => EventType::Graduation,
+        "immigration" => EventType::Immigration,
+        "emigration" => EventType::Emigration,
+        "naturalization" => EventType::Naturalization,
+        "census" => EventType::Census,
+        "occupation" => EventType::Occupation,
+        "residence" => EventType::Residence,
+        "retirement" => EventType::Retirement,
+        "will" => EventType::Will,
+        "probate" => EventType::Probate,
+        "adoption" => EventType::Adoption,
+        "caste_name" => EventType::CasteName,
+        "physical_description" => EventType::PhysicalDescription,
+        "education" => EventType::Education,
+        "national_id" => EventType::NationalId,
+        "national_origin" => EventType::NationalOrigin,
+        "children_count" => EventType::ChildrenCount,
+        "marriages_count" => EventType::MarriagesCount,
+        "property" => EventType::Property,
+        "religion" => EventType::Religion,
+        "social_security_number" => EventType::SocialSecurityNumber,
+        "nobility_title" => EventType::NobilityTitle,
+        "fact" => EventType::Fact,
+        "marriage" => EventType::Marriage,
+        "divorce" => EventType::Divorce,
+        "annulment" => EventType::Annulment,
+        "engagement" => EventType::Engagement,
+        "marriage_bann" => EventType::MarriageBann,
+        "marriage_contract" => EventType::MarriageContract,
+        "marriage_license" => EventType::MarriageLicense,
+        "marriage_settlement" => EventType::MarriageSettlement,
+        "civil_union" => EventType::CivilUnion,
+        "separation" => EventType::Separation,
+        "divorce_filed" => EventType::DivorceFiled,
+        "blessing" => EventType::Blessing,
+        "ordination" => EventType::Ordination,
+        "christening" => EventType::Christening,
+        "adult_christening" => EventType::AdultChristening,
+        "accomplishment" => EventType::Accomplishment,
+        "acquisition" => EventType::Acquisition,
+        "membership" => EventType::Membership,
+        "change_name" => EventType::ChangeName,
+        "circumcision" => EventType::Circumcision,
+        "award" => EventType::Award,
+        "military_discharge" => EventType::MilitaryDischarge,
+        "degree" => EventType::Degree,
+        "distinction" => EventType::Distinction,
+        "election" => EventType::Election,
+        "excommunication" => EventType::Excommunication,
+        "funeral" => EventType::Funeral,
+        "hospitalization" => EventType::Hospitalization,
+        "illness" => EventType::Illness,
+        "passenger_list" => EventType::PassengerList,
+        "military_distinction" => EventType::MilitaryDistinction,
+        "military_promotion" => EventType::MilitaryPromotion,
+        "military_mobilization" => EventType::MilitaryMobilization,
+        "property_sale" => EventType::PropertySale,
+        "endl" => EventType::Endowment,
+        "dotationlds" => EventType::LdsDotation,
+        "slgc" => EventType::SealingChild,
+        "slgs" => EventType::SealingSpouse,
+        "scellent_parent_lds" => EventType::SealingParent,
+        "family_link_lds" => EventType::FamilyLinkLds,
+        "unmarried" => EventType::NoMarriage,
+        "nomen" => EventType::NoMention,
+        "bapl" => EventType::LdsBaptism,
+        "conl" => EventType::LdsConfirmation,
+        _ => return None,
+    })
+}
+
+fn geneanet_place_key(value: &str) -> String {
+    place_key(
+        &value
+            .replace("&#39;", "'")
+            .replace("&#x27;", "'")
+            .replace("&amp;", "&"),
+    )
+}
+
 /// Records Geneanet's identification box as a vignette on the stored picture.
 ///
 /// Geneanet gives percentages, which is fortunate: they survive whichever
@@ -837,7 +1054,6 @@ async fn add_vignette(
         y,
         width: w,
         height: h,
-        title: None,
         person_id: Some(person_id),
         event_id: None,
     };
@@ -2075,6 +2291,91 @@ mod tests {
         let ids: Vec<i64> = pages_in_order(&odd).iter().map(|view| view.id).collect();
 
         assert_eq!(ids, vec![10, 20, 30]);
+    }
+
+    fn geneanet_event(name: &str, date: &str, location: Option<&str>) -> GeneanetEvent {
+        GeneanetEvent {
+            id: 1,
+            name: Some(name.to_string()),
+            kind: None,
+            date: Some(date.to_string()),
+            location: location.map(str::to_string),
+        }
+    }
+
+    fn event_matcher(person_id: Uuid, candidates: Vec<ImportedEvent>) -> GeneanetEventMatcher {
+        GeneanetEventMatcher {
+            candidates_by_person: HashMap::from([(person_id, candidates)]),
+        }
+    }
+
+    #[test]
+    fn geneanet_event_names_cover_individual_and_family_vocabularies() {
+        assert_eq!(
+            geneanet_event_type(Some("gw_event_burial")),
+            Some(EventType::Burial)
+        );
+        assert_eq!(
+            geneanet_event_type(Some("gw_event_civil_union")),
+            Some(EventType::CivilUnion)
+        );
+        assert_eq!(
+            geneanet_event_type(Some("gw_event_military_promotion")),
+            Some(EventType::MilitaryPromotion)
+        );
+        assert_eq!(geneanet_event_type(Some("gw_event_future")), None);
+    }
+
+    #[test]
+    fn a_geneanet_event_link_requires_one_exact_imported_event() {
+        let person_id = Uuid::now_v7();
+        let event_id = Uuid::now_v7();
+        let matcher = event_matcher(
+            person_id,
+            vec![ImportedEvent {
+                id: event_id,
+                event_type: EventType::Marriage,
+                date: NaiveDate::from_ymd_opt(1912, 6, 15),
+                place: Some(place_key("Paris, France")),
+            }],
+        );
+
+        assert_eq!(
+            matcher.resolve(
+                person_id,
+                &geneanet_event("gw_event_marriage", "1912-06-15", Some("Paris, France")),
+            ),
+            Some(event_id)
+        );
+        assert_eq!(
+            matcher.resolve(
+                person_id,
+                &geneanet_event("gw_event_marriage", "1912-06-15", Some("Lyon, France")),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_geneanet_event_link_is_not_imported() {
+        let person_id = Uuid::now_v7();
+        let candidates = (0..2)
+            .map(|_| ImportedEvent {
+                id: Uuid::now_v7(),
+                event_type: EventType::Death,
+                date: NaiveDate::from_ymd_opt(1944, 8, 20),
+                place: None,
+            })
+            .collect();
+        let matcher = event_matcher(person_id, candidates);
+
+        assert_eq!(
+            matcher.resolve(
+                person_id,
+                &geneanet_event("gw_event_death", "1944-08-20", None),
+            ),
+            None
+        );
     }
 
     #[test]

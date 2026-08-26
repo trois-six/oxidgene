@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use geneweb::database::GwDatabase;
 
 use crate::key::geneanet_key;
-use crate::model::{Manifest, ManifestDeposit, ManifestView};
+use crate::model::{GeneanetEvent, Manifest, ManifestDeposit, ManifestView};
 
 /// Maps a folded GeneWeb key to the persons that carry it.
 pub struct PersonIndex {
@@ -57,6 +57,8 @@ pub struct Attachment {
     pub extension: String,
     /// Where this person is on the picture, if the owner boxed them.
     pub face: Option<crate::model::FacePosition>,
+    /// The event this reference documents, when Geneanet supplied one.
+    pub event: Option<GeneanetEvent>,
 }
 
 /// A reference that could not be attached, and why.
@@ -188,6 +190,7 @@ pub fn join(manifest: &Manifest, index: &PersonIndex) -> Join {
                             title: deposit.title.clone(),
                             extension: extension(deposit, view),
                             face: reference.face.clone(),
+                            event: reference.event.clone(),
                         });
                         continue;
                     }
@@ -272,6 +275,7 @@ mod tests {
             firstname: Some("person_a".to_string()),
             lastname: Some("BRANCH_A".to_string()),
             geneweb_ref: key.map(str::to_string),
+            event: None,
             face: None,
         }
     }

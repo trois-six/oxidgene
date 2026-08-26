@@ -2,7 +2,7 @@
 //!
 //! Converts domain model entities into a GEDCOM 5.5.1 string using `ged_io`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use ged_io::GedcomWriter;
 use ged_io::types::GedcomData;
@@ -358,6 +358,49 @@ pub fn export_gedcom(
         });
     }
 
+    // ged_io 0.16.3 models and parses event-level multimedia, but its writer
+    // omits that field. Keep a record-order-preserving insertion plan so the
+    // standard `OBJE` links can be restored after it serializes the rest.
+    let mut event_media_by_record: HashMap<String, Vec<EventMediaInsertion>> = HashMap::new();
+    for person in persons {
+        let Some(xref) = person_xref.get(&person.id) else {
+            continue;
+        };
+        let events = events_by_person
+            .get(&person.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        event_media_by_record.insert(
+            xref.clone(),
+            event_media_insertions(
+                events,
+                &mlinks_by_event,
+                &media_by_id,
+                &media_xref,
+                &pages_of,
+            ),
+        );
+    }
+    for family in families {
+        let Some(xref) = family_xref.get(&family.id) else {
+            continue;
+        };
+        let events = events_by_family
+            .get(&family.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        event_media_by_record.insert(
+            xref.clone(),
+            event_media_insertions(
+                events,
+                &mlinks_by_event,
+                &media_by_id,
+                &media_xref,
+                &pages_of,
+            ),
+        );
+    }
+
     // ── Export Individuals ────────────────────────────────────────────
     for person in persons {
         let xref = person_xref.get(&person.id).cloned();
@@ -586,6 +629,7 @@ pub fn export_gedcom(
     let gedcom = GedcomWriter::new()
         .write_to_string(&data)
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
+    let gedcom = inject_event_media_links(gedcom, event_media_by_record);
 
     Ok(ExportResult { gedcom, warnings })
 }
@@ -1268,6 +1312,159 @@ fn to_ged_multimedia_refs(
         .collect()
 }
 
+struct EventMediaInsertion {
+    tag: &'static str,
+    references: Vec<String>,
+}
+
+fn event_media_insertions(
+    events: &[&Event],
+    links_by_event: &HashMap<Uuid, Vec<&MediaLink>>,
+    media_by_id: &HashMap<Uuid, &Media>,
+    media_xref: &HashMap<Uuid, String>,
+    pages_of: &HashMap<Uuid, Vec<&Media>>,
+) -> Vec<EventMediaInsertion> {
+    let mut details = Vec::new();
+    let mut attributes = Vec::new();
+
+    for event in events {
+        let references = links_by_event
+            .get(&event.id)
+            .into_iter()
+            .flatten()
+            .flat_map(|link| {
+                to_ged_multimedia_refs(link.media_id, media_by_id, media_xref, pages_of)
+            })
+            .filter_map(|media| media.xref)
+            .collect();
+        let insertion = EventMediaInsertion {
+            tag: event_gedcom_tag(event.event_type),
+            references,
+        };
+        if event_type_to_attribute(event.event_type).is_some() {
+            attributes.push(insertion);
+        } else {
+            details.push(insertion);
+        }
+    }
+    details.extend(attributes);
+    details
+}
+
+fn event_gedcom_tag(event_type: EventType) -> &'static str {
+    if let Some(attribute) = event_type_to_attribute(event_type) {
+        return match attribute {
+            GedIndividualAttribute::CastName => "CAST",
+            GedIndividualAttribute::PhysicalDescription => "DSCR",
+            GedIndividualAttribute::ScholasticAchievement => "EDUC",
+            GedIndividualAttribute::NationalIDNumber => "IDNO",
+            GedIndividualAttribute::NationalOrTribalOrigin => "NATI",
+            GedIndividualAttribute::CountOfChildren => "NCHI",
+            GedIndividualAttribute::CountOfMarriages => "NMR",
+            GedIndividualAttribute::Occupation => "OCCU",
+            GedIndividualAttribute::Possessions => "PROP",
+            GedIndividualAttribute::ReligiousAffiliation => "RELI",
+            GedIndividualAttribute::ResidesAt => "RESI",
+            GedIndividualAttribute::SocialSecurityNumber => "SSN",
+            GedIndividualAttribute::NobilityTypeTitle => "TITL",
+            GedIndividualAttribute::Fact => "FACT",
+        };
+    }
+
+    match convert_event_type(event_type) {
+        GedEvent::Adoption => "ADOP",
+        GedEvent::Birth => "BIRT",
+        GedEvent::Baptism => "BAPM",
+        GedEvent::BarMitzvah => "BARM",
+        GedEvent::BasMitzvah => "BASM",
+        GedEvent::Blessing => "BLES",
+        GedEvent::Burial => "BURI",
+        GedEvent::Census => "CENS",
+        GedEvent::Christening => "CHR",
+        GedEvent::AdultChristening => "CHRA",
+        GedEvent::Confirmation => "CONF",
+        GedEvent::Cremation => "CREM",
+        GedEvent::Death => "DEAT",
+        GedEvent::Emigration => "EMIG",
+        GedEvent::FirstCommunion => "FCOM",
+        GedEvent::Graduation => "GRAD",
+        GedEvent::Immigration => "IMMI",
+        GedEvent::Naturalization => "NATU",
+        GedEvent::Ordination => "ORDN",
+        GedEvent::Retired => "RETI",
+        GedEvent::Probate => "PROB",
+        GedEvent::Will => "WILL",
+        GedEvent::Marriage => "MARR",
+        GedEvent::Annulment => "ANUL",
+        GedEvent::Divorce => "DIV",
+        GedEvent::DivorceFiled => "DIVF",
+        GedEvent::Engagement => "ENGA",
+        GedEvent::MarriageBann => "MARB",
+        GedEvent::MarriageContract => "MARC",
+        GedEvent::MarriageLicense => "MARL",
+        GedEvent::MarriageSettlement => "MARS",
+        GedEvent::Residence => "RESI",
+        GedEvent::Separated => "SEP",
+        GedEvent::Event | GedEvent::Other | GedEvent::SourceData(_) => "EVEN",
+    }
+}
+
+fn inject_event_media_links(
+    gedcom: String,
+    insertions_by_record: HashMap<String, Vec<EventMediaInsertion>>,
+) -> String {
+    let mut pending: HashMap<String, VecDeque<EventMediaInsertion>> = insertions_by_record
+        .into_iter()
+        .map(|(xref, insertions)| (xref, insertions.into()))
+        .collect();
+    let mut current_record = None::<String>;
+    let mut output = Vec::<String>::new();
+
+    for line in gedcom.lines() {
+        output.push(line.to_string());
+        let fields: Vec<_> = line.split_whitespace().collect();
+        let Some(level) = fields.first().and_then(|value| value.parse::<u8>().ok()) else {
+            continue;
+        };
+
+        if level == 0 {
+            current_record = match fields.as_slice() {
+                [_, xref, "INDI" | "FAM", ..] if pending.contains_key(*xref) => {
+                    Some((*xref).to_string())
+                }
+                _ => None,
+            };
+            continue;
+        }
+
+        if level != 1 {
+            continue;
+        }
+        let (Some(record), Some(tag)) = (current_record.as_deref(), fields.get(1)) else {
+            continue;
+        };
+        let Some(queue) = pending.get_mut(record) else {
+            continue;
+        };
+        let Some(next) = queue.front() else {
+            continue;
+        };
+        if next.tag != *tag {
+            continue;
+        }
+        let next = queue.pop_front().expect("event media insertion exists");
+        for reference in next.references {
+            output.push(format!("2 OBJE {reference}"));
+        }
+    }
+
+    let mut output = output.join("\n");
+    if gedcom.ends_with('\n') {
+        output.push('\n');
+    }
+    output
+}
+
 /// Format a float coordinate as a GEDCOM coordinate string.
 ///
 /// Latitude: positive → `N`, negative → `S`
@@ -1564,6 +1761,66 @@ mod tests {
             back.media_links[0].person_id,
             back.persons.first().map(|p| p.id)
         );
+        assert_eq!(back.media_links[0].media_id, back.media[0].id);
+    }
+
+    #[test]
+    fn an_events_media_link_survives_a_round_trip() {
+        let person = person_row();
+        let event = Event {
+            id: Uuid::now_v7(),
+            tree_id: person.tree_id,
+            event_type: EventType::Birth,
+            date_value: None,
+            date_sort: None,
+            date_qualifier: Default::default(),
+            date_value2: None,
+            calendar: Default::default(),
+            cause: None,
+            place_id: None,
+            person_id: Some(person.id),
+            family_id: None,
+            description: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted_at: None,
+        };
+        let medium = medium("birth-record.jpg", "image/jpeg", true);
+        let link = MediaLink {
+            id: Uuid::now_v7(),
+            media_id: medium.id,
+            person_id: None,
+            event_id: Some(event.id),
+            source_id: None,
+            family_id: None,
+            sort_order: 0,
+        };
+
+        let export = export_gedcom(
+            std::slice::from_ref(&person),
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&event),
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&medium),
+            std::slice::from_ref(&link),
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("2 OBJE @M1@"), "{}", export.gedcom);
+
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        assert_eq!(back.events.len(), 1);
+        assert_eq!(back.media_links.len(), 1);
+        assert_eq!(back.media_links[0].event_id, Some(back.events[0].id));
         assert_eq!(back.media_links[0].media_id, back.media[0].id);
     }
 

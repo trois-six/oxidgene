@@ -123,17 +123,13 @@ fn VignetteRow(
             img { class: "vg-thumb", src: "{image_url}", alt: "" }
             div { class: "vg-body",
                 div { class: "vg-name",
-                    if let Some(title) = vignette.title.as_ref() {
-                        "{title}"
-                    } else {
-                        {i18n.t_args(
-                            "media.crop_readout_short",
-                            &[
-                                ("width", &vignette.width.to_string()),
-                                ("height", &vignette.height.to_string()),
-                            ],
-                        )}
-                    }
+                    {i18n.t_args(
+                        "media.crop_readout_short",
+                        &[
+                            ("width", &vignette.width.to_string()),
+                            ("height", &vignette.height.to_string()),
+                        ],
+                    )}
                 }
                 if !events.is_empty() {
                     select {

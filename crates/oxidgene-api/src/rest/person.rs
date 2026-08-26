@@ -90,7 +90,7 @@ async fn compute_sosa_number(
 /// `number` (root = 1, father = 2n, mother = 2n+1). Returns `Ok(None)` if
 /// the tree has no SOSA root configured, `number` is 0, or the chain breaks
 /// before reaching `number` (a missing parent along the path).
-async fn resolve_sosa_number(
+pub(crate) async fn resolve_sosa_number(
     db: &DatabaseConnection,
     tree_id: Uuid,
     number: u64,

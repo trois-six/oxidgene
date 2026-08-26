@@ -13,7 +13,6 @@ pub struct Model {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-    pub title: Option<String>,
     pub person_id: Option<Uuid>,
     pub event_id: Option<Uuid>,
     pub created_at: DateTimeUtc,

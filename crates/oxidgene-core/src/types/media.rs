@@ -159,7 +159,6 @@ pub struct Vignette {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-    pub title: Option<String>,
     /// Who the region shows, if attributed.
     pub person_id: Option<Uuid>,
     /// The event this region is evidence for, if any.
