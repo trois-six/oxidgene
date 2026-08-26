@@ -70,10 +70,10 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. The search fields ar
 
 ---
 
-## 4. Page Header
+## 4. Results Toolbar
 
-- **Title**: "Search results for ..." with the query terms highlighted in orange
-- **Count**: total number of matching persons (e.g. "18 person(s) found")
+The toolbar reports the exact total returned by the server, exposes the sort
+selector, and switches between list and pedigree-grid views.
 
 ---
 
@@ -83,11 +83,16 @@ A collapsible filter bar below the page header, toggled by a "Filters" button wi
 
 | Filter | Type | Options / Format |
 |---|---|---|
+| **Surname / given names** | Text inputs | Case- and accent-insensitive partial matching |
 | **Gender** | Dropdown | All (default) / Male / Female / Unknown |
-| **Born between** | Two date inputs | `yyyy` or `dd/mm/yyyy` — start and end |
-| **Died between** | Two date inputs | `yyyy` or `dd/mm/yyyy` — start and end |
-| **Place** | Text input with autocomplete | Matches on birth, death, or any event place |
-| **Event type** | Dropdown | All (default) / Birth / Death / Marriage / Baptism / Residence / Occupation / Other |
+| **Occupation** | Text input | Matches occupation-event descriptions |
+| **Born between** | Two year inputs | Inclusive start and end years |
+| **Died between** | Two year inputs | Inclusive start and end years |
+| **Place** | Text input | Matches any individual or family event place |
+| **Event type** | Dropdown | All (default) / Birth / Death / Baptism / Burial / Marriage / Residence / Occupation / Census |
+| **Event between** | Two year inputs | Inclusive start and end years for matching events |
+| **Spouse** | Surname and given-name inputs | Matches another spouse in the same family |
+| **Father / mother** | Surname and given-name inputs | Matches the corresponding parent through family links |
 | **Has media** | Toggle | When enabled, only shows persons with at least one attached media |
 
 A **"Clear filters"** link resets all filters to their default state.
@@ -102,7 +107,7 @@ A sort selector in the toolbar row above the results:
 
 | Option | Description |
 |---|---|
-| Relevance (default) | Best name match first (fuzzy matching score) |
+| Relevance (default) | Stable surname and given-name order; no fuzzy score is currently computed |
 | Name A -> Z | Alphabetical by surname, then first name |
 | Name Z -> A | Reverse alphabetical |
 | Birth date (oldest first) | Oldest first |
@@ -126,7 +131,7 @@ Each result is a horizontal row:
 ```
 
 Each row shows:
-- **Avatar** (circular, ~40px) — initials with gendered background color. When a profile photo is available, it replaces the initials
+- **Avatar** (circular, ~40px) — initials with gendered background color
 - **Full name** (surname uppercase + first name), with search term matches highlighted in orange
 - **Birth / death dates** with green/blue symbols
 - **Family summary** (one line): spouse name + child count
@@ -163,7 +168,8 @@ Pagination controls at the bottom of the results:
 - Page number buttons (first, last, current +/- 2)
 - Current page indicator: "Page 2 of 5"
 
-Changing page scrolls the content area to the top.
+The server computes the exact total and applies sorting before `limit` and
+`offset`; the UI never truncates to a fixed client-side result set.
 
 ---
 
@@ -189,8 +195,7 @@ If the user navigates to the search page directly without a query, both search f
 
 ```
 +--------------------------------------+
-|  Enter a name to search              |
-|  in this tree.                       |
+|  Enter at least one search criterion.|
 +--------------------------------------+
 ```
 
@@ -199,9 +204,8 @@ If the user navigates to the search page directly without a query, both search f
 ## 11. Responsive
 
 - Content max-width: 1200px, responsive padding
-- Below **640px**: card view is forced (list view disabled), single column, reduced padding
+- Below **760px**: relation fields use a single column and content padding is reduced
 - Filters collapse behind a "Filters" toggle button (already the default)
-- Pagination switches to Previous/Next only (no page numbers)
 
 ---
 
@@ -209,7 +213,6 @@ If the user navigates to the search page directly without a query, both search f
 
 | Key | Behavior |
 |---|---|
-| `Escape` | Returns to the tree view |
-| `Up` / `Down` | Navigate between results in list view |
-| `Enter` (on focused result) | Opens person profile for that person |
+| `Enter` in either topbar search field | Applies the surname and given-name criteria |
+| `Enter` on a focused result | Opens the result through its link |
 | `Tab` | Moves focus between filter fields and results |

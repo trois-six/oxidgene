@@ -16,6 +16,7 @@ This directory contains all functional, technical, and visual specifications for
 |----------|-------------|
 | [General](general.md) | Project vision, objectives, target users, core features, security, performance, MVP scope, consistent page layout |
 | [Architecture](architecture.md) | Technology stack, backend/frontend architecture, project structure, crate dependencies, build & deployment |
+| [Development](development.md) | Development environment, prerequisites, local workflows, and `just` command reference |
 | [Data Model](data-model.md) | Entities, enums, ERD, durable person projections, pedigree assembly, and search models |
 | [API Contract](api.md) | REST (`/api/v1`) and GraphQL (`/graphql`) endpoints, pagination, types, GEDCOM compatibility |
 | [Roadmap](roadmap.md) | Delivery status, active priorities, and future milestones |
@@ -65,6 +66,7 @@ index.md  <- you are here
 |- Foundation
 |  |- general.md           Vision, users, features, MVP scope
 |  |- architecture.md      Tech stack, crate layout, deployment
+|  |- development.md       Development environment and just workflows
 |  |- data-model.md        Entities, projections, pedigree, search
 |  |- api.md               REST and GraphQL contract
 |  |- roadmap.md           Status and remaining milestones

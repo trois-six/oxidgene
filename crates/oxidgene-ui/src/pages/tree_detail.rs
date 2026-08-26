@@ -225,7 +225,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 return std::collections::HashMap::new();
             };
             match api.list_portraits(tid).await {
-                Ok(rows) => api.portrait_map(tid, &rows),
+                Ok(rows) => api.portrait_map(tid, &rows).await,
                 Err(_) => std::collections::HashMap::new(),
             }
         }
@@ -889,10 +889,22 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                             .as_ref()
                             .and_then(|data| data.families_as_child.get(&child_id))
                             .and_then(|fids| fids.first().copied());
+                        let child_surname = pedigree_data_empty
+                            .as_ref()
+                            .and_then(|data| data.names.get(&child_id))
+                            .and_then(|names| {
+                                names
+                                    .iter()
+                                    .find(|name| name.is_primary)
+                                    .or_else(|| names.first())
+                            })
+                            .and_then(|name| name.full_surname())
+                            .filter(|surname| !surname.trim().is_empty());
                         creating_person_ctx.set(Some(PersonFormCreateContext::AddParent {
                             child_id,
                             family_id,
                             is_father,
+                            child_surname,
                         }));
                     },
                     on_add_spouse_slot: move |person_id| {

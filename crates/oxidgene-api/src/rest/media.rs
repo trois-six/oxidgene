@@ -21,7 +21,7 @@ use super::dto::{
     MediaTagRequest, PaginationQuery, ReorderPagesRequest, UpdateMediaRequest,
 };
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/media
 pub async fn list_media(
@@ -87,8 +87,11 @@ pub async fn create_media(
 /// GET /api/v1/trees/:tree_id/media/:media_id
 pub async fn get_media(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -98,9 +101,12 @@ pub async fn get_media(
 /// PUT /api/v1/trees/:tree_id/media/:media_id
 pub async fn update_media(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMediaRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let stored = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -193,9 +199,12 @@ pub(crate) fn normalize_tag(tag: String) -> Option<(String, String)> {
 /// POST /api/v1/trees/:tree_id/media/:media_id/tags
 pub async fn add_tag(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MediaTagRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -214,9 +223,12 @@ pub async fn add_tag(
 /// DELETE /api/v1/trees/:tree_id/media/:media_id/tags
 pub async fn remove_tag(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MediaTagRequest>,
 ) -> Result<StatusCode, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -259,8 +271,11 @@ pub async fn create_document(
 /// GET /api/v1/trees/:tree_id/media/:media_id/pages
 pub async fn list_pages(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let pages = MediaRepo::list_pages(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -273,9 +288,17 @@ pub async fn list_pages(
 /// each — a partial list is refused rather than guessed at.
 pub async fn reorder_pages(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<ReorderPagesRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
+    for page_id in &body.page_ids {
+        require_tree_resource(&state.db, tree_id, TreeResource::Media, *page_id)
+            .await
+            .map_err(ApiError)?;
+    }
     let pages = MediaRepo::reorder_pages(&state.db, media_id, &body.page_ids)
         .await
         .map_err(ApiError::from)?;
@@ -288,8 +311,14 @@ pub async fn reorder_pages(
 /// somebody made, and removing it from a document is not a reason to lose it.
 pub async fn detach_page(
     State(state): State<AppState>,
-    Path((_tree_id, _media_id, page_id)): Path<(Uuid, Uuid, Uuid)>,
+    Path((tree_id, media_id, page_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, page_id)
+        .await
+        .map_err(ApiError)?;
     let page = MediaRepo::detach_page(&state.db, page_id)
         .await
         .map_err(ApiError::from)?;
@@ -305,15 +334,22 @@ pub async fn detach_page(
 /// the media. A `204` means deleted; `200` means it is still referenced.
 pub async fn delete_media(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteMediaQuery>,
 ) -> Result<StatusCode, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let allowed_link_id = if query.only_if_unreferenced_elsewhere {
-        Some(query.allowed_link_id.ok_or_else(|| {
+        let link_id = query.allowed_link_id.ok_or_else(|| {
             ApiError(OxidGeneError::Validation(
                 "allowed_link_id is required for conditional media deletion".into(),
             ))
-        })?)
+        })?;
+        require_tree_resource(&state.db, tree_id, TreeResource::MediaLink, link_id)
+            .await
+            .map_err(ApiError)?;
+        Some(link_id)
     } else {
         None
     };
@@ -338,9 +374,20 @@ pub async fn delete_media(
 /// reference. The UI calls this before asking for definitive deletion.
 pub async fn media_deletion_status(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<MediaDeletionStatusQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(
+        &state.db,
+        tree_id,
+        TreeResource::MediaLink,
+        query.allowed_link_id,
+    )
+    .await
+    .map_err(ApiError)?;
     let can_delete =
         MediaRepo::can_purge_if_unreferenced_elsewhere(&state.db, media_id, query.allowed_link_id)
             .await
@@ -383,12 +430,17 @@ pub async fn upload_media(
     };
 
     let (status, media) = match form.media_id {
-        Some(media_id) => (
-            StatusCode::OK,
-            MediaRepo::attach_file(&state.db, media_id, upload)
+        Some(media_id) => {
+            require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
                 .await
-                .map_err(ApiError::from)?,
-        ),
+                .map_err(ApiError)?;
+            (
+                StatusCode::OK,
+                MediaRepo::attach_file(&state.db, media_id, upload)
+                    .await
+                    .map_err(ApiError::from)?,
+            )
+        }
         None => (
             StatusCode::CREATED,
             MediaRepo::create_uploaded(&state.db, Uuid::now_v7(), tree_id, upload)
@@ -401,9 +453,14 @@ pub async fn upload_media(
     // succeeded but was not attached would sit in the tree as a loose scan
     // nobody meant to create.
     let media = match form.document_id {
-        Some(document_id) => MediaRepo::append_page(&state.db, document_id, media.id)
-            .await
-            .map_err(ApiError::from)?,
+        Some(document_id) => {
+            require_tree_resource(&state.db, tree_id, TreeResource::Media, document_id)
+                .await
+                .map_err(ApiError)?;
+            MediaRepo::append_page(&state.db, document_id, media.id)
+                .await
+                .map_err(ApiError::from)?
+        }
         None => media,
     };
 
@@ -415,9 +472,12 @@ pub async fn upload_media(
 /// The stored bytes, served inline.
 pub async fn download_media(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -453,8 +513,11 @@ pub async fn download_media(
 /// so deflate would spend CPU to save nothing.
 pub async fn download_archive(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let document = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -556,9 +619,12 @@ fn archive_stem(file_name: &str) -> String {
 /// gallery can fall back to an icon on the status code alone.
 pub async fn download_thumbnail(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;

@@ -63,6 +63,15 @@ pub async fn update_tree(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<UpdateTreeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    if body
+        .name
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
+            "name must not be empty".to_string(),
+        )));
+    }
     let tree = TreeRepo::update(
         &state.db,
         tree_id,

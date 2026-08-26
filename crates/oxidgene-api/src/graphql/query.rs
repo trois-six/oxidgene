@@ -5,10 +5,13 @@ use base64::Engine as _;
 use oxidgene_geneanet::archive::LocalOriginals;
 use uuid::Uuid;
 
+use crate::rest::state::{TreeResource, require_tree_resource};
+
 use oxidgene_db::repo::{
     AncestryRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo, FamilyRepo,
     FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, PaginationParams, PersonNameRepo,
-    PersonRepo, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
+    PersonRepo, PersonSearchFilters, PersonSearchSort, PlaceRepo, SOURCE_DRILL_THRESHOLD,
+    SourceRepo, TreeRepo, VignetteRepo,
 };
 
 use super::inputs::{GeneanetPreviewInput, geneanet_deposit_sizes};
@@ -18,12 +21,26 @@ use super::types::{
     GqlGeneanetImportPhase, GqlGeneanetImportProgress, GqlGeneanetIndexedArchive,
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
     GqlMedia, GqlMediaConnection, GqlMediaLink, GqlMediaWithLink, GqlOccupationReference,
-    GqlPedigree, GqlPerson, GqlPersonConnection, GqlPersonProfile, GqlPersonUsageEntry,
-    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
-    GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
+    GqlPedigree, GqlPerson, GqlPersonConnection, GqlPersonProfile, GqlPersonSearchSort,
+    GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry,
+    GqlPortrait, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
     GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
-    GqlTreeSnapshot, GqlVignette, db_from_ctx, imports_from_ctx, media_from_ctx, profiles_from_ctx,
+    GqlTreeMediaLink, GqlTreeSnapshot, GqlVignette, db_from_ctx, imports_from_ctx, media_from_ctx,
+    profiles_from_ctx,
 };
+
+async fn tree_resource_exists(
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+    resource: TreeResource,
+    id: Uuid,
+) -> Result<bool> {
+    match require_tree_resource(db, tree_id, resource, id).await {
+        Ok(()) => Ok(true),
+        Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
 
 /// The root query type.
 pub struct QueryRoot;
@@ -68,6 +85,7 @@ impl QueryRoot {
         tree_id: ID,
         first: Option<u64>,
         after: Option<String>,
+        search: Option<String>,
     ) -> Result<GqlPersonConnection> {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
@@ -75,16 +93,16 @@ impl QueryRoot {
             first: first.unwrap_or(25),
             after,
         };
-        let conn = PersonRepo::list(db, tid, &params).await?;
+        let conn = PersonRepo::list_filtered(db, tid, search.as_deref(), &params).await?;
         Ok(conn.into())
     }
 
     /// Get a single person by ID.
     async fn person(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlPerson>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        match PersonRepo::get(db, uuid).await {
+        match PersonRepo::get_in_tree(db, tid, uuid).await {
             Ok(p) => Ok(Some(p.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
@@ -128,8 +146,9 @@ impl QueryRoot {
         max_depth: Option<i32>,
     ) -> Result<Vec<GqlPersonWithDepth>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
         let rows = AncestryRepo::ancestors(db, pid, max_depth).await?;
         let mut result = Vec::new();
         for row in rows {
@@ -151,8 +170,9 @@ impl QueryRoot {
         max_depth: Option<i32>,
     ) -> Result<Vec<GqlPersonWithDepth>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
         let rows = AncestryRepo::descendants(db, pid, max_depth).await?;
         let mut result = Vec::new();
         for row in rows {
@@ -188,8 +208,11 @@ impl QueryRoot {
     /// Get a single family by ID.
     async fn family(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlFamily>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        if !tree_resource_exists(db, tid, TreeResource::Family, uuid).await? {
+            return Ok(None);
+        }
         match FamilyRepo::get(db, uuid).await {
             Ok(f) => Ok(Some(f.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
@@ -224,6 +247,12 @@ impl QueryRoot {
                 .map(|id| Uuid::parse_str(id.as_str()))
                 .transpose()?,
         };
+        if let Some(person_id) = filter.person_id {
+            require_tree_resource(db, tid, TreeResource::Person, person_id).await?;
+        }
+        if let Some(family_id) = filter.family_id {
+            require_tree_resource(db, tid, TreeResource::Family, family_id).await?;
+        }
         let params = PaginationParams {
             first: first.unwrap_or(25),
             after,
@@ -235,8 +264,11 @@ impl QueryRoot {
     /// Get a single event by ID.
     async fn event(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlEvent>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        if !tree_resource_exists(db, tid, TreeResource::Event, uuid).await? {
+            return Ok(None);
+        }
         match EventRepo::get(db, uuid).await {
             Ok(e) => Ok(Some(e.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
@@ -268,8 +300,11 @@ impl QueryRoot {
     /// Get a single place by ID.
     async fn place(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlPlace>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        if !tree_resource_exists(db, tid, TreeResource::Place, uuid).await? {
+            return Ok(None);
+        }
         match PlaceRepo::get(db, uuid).await {
             Ok(p) => Ok(Some(p.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
@@ -300,8 +335,11 @@ impl QueryRoot {
     /// Get a single source by ID.
     async fn source(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlSource>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        if !tree_resource_exists(db, tid, TreeResource::Source, uuid).await? {
+            return Ok(None);
+        }
         match SourceRepo::get(db, uuid).await {
             Ok(s) => Ok(Some(s.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
@@ -557,8 +595,11 @@ impl QueryRoot {
     /// Get a single media by ID.
     async fn media(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlMedia>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        if !tree_resource_exists(db, tid, TreeResource::Media, uuid).await? {
+            return Ok(None);
+        }
         match MediaRepo::get(db, uuid).await {
             Ok(m) => Ok(Some(m.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
@@ -576,13 +617,12 @@ impl QueryRoot {
         allowed_link_id: ID,
     ) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
-        Ok(MediaRepo::can_purge_if_unreferenced_elsewhere(
-            db,
-            Uuid::parse_str(id.as_str())?,
-            Uuid::parse_str(allowed_link_id.as_str())?,
-        )
-        .await?)
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let media_id = Uuid::parse_str(id.as_str())?;
+        let link_id = Uuid::parse_str(allowed_link_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        require_tree_resource(db, tid, TreeResource::MediaLink, link_id).await?;
+        Ok(MediaRepo::can_purge_if_unreferenced_elsewhere(db, media_id, link_id).await?)
     }
 
     /// Every media attached to one entity, with its link.
@@ -597,14 +637,21 @@ impl QueryRoot {
         entity_id: ID,
     ) -> Result<Vec<GqlMediaWithLink>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let target = MediaLinkTarget::parse(&entity_type).ok_or_else(|| {
             async_graphql::Error::new(format!(
                 "unknown entityType `{entity_type}`; expected person, family, event or source"
             ))
         })?;
-        let rows = MediaLinkRepo::list_with_media(db, target, Uuid::parse_str(entity_id.as_str())?)
-            .await?;
+        let entity_id = Uuid::parse_str(entity_id.as_str())?;
+        let resource = match target {
+            MediaLinkTarget::Person => TreeResource::Person,
+            MediaLinkTarget::Family => TreeResource::Family,
+            MediaLinkTarget::Event => TreeResource::Event,
+            MediaLinkTarget::Source => TreeResource::Source,
+        };
+        require_tree_resource(db, tid, resource, entity_id).await?;
+        let rows = MediaLinkRepo::list_with_media(db, target, entity_id).await?;
         Ok(rows
             .into_iter()
             .map(|(link, media)| GqlMediaWithLink {
@@ -627,8 +674,23 @@ impl QueryRoot {
         media_id: ID,
     ) -> Result<Vec<GqlMediaLink>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
-        let links = MediaLinkRepo::list_by_media(db, Uuid::parse_str(media_id.as_str())?).await?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let media_id = Uuid::parse_str(media_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        let links = MediaLinkRepo::list_by_media(db, media_id).await?;
+        Ok(links.into_iter().map(Into::into).collect())
+    }
+
+    /// Every person and event media link in a tree.
+    async fn tree_media_links(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<Vec<GqlTreeMediaLink>> {
+        let db = db_from_ctx(ctx);
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        TreeRepo::get(db, tree_id).await?;
+        let links = MediaLinkRepo::list_for_tree(db, tree_id).await?;
         Ok(links.into_iter().map(Into::into).collect())
     }
 
@@ -640,8 +702,10 @@ impl QueryRoot {
         media_id: ID,
     ) -> Result<Vec<GqlMedia>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
-        let pages = MediaRepo::list_pages(db, Uuid::parse_str(media_id.as_str())?).await?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let media_id = Uuid::parse_str(media_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        let pages = MediaRepo::list_pages(db, media_id).await?;
         Ok(pages.into_iter().map(Into::into).collect())
     }
 
@@ -655,8 +719,9 @@ impl QueryRoot {
         media_id: ID,
     ) -> Result<Vec<GqlVignette>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let mid = Uuid::parse_str(media_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, mid).await?;
         let vignettes = VignetteRepo::list_for_media(db, mid).await?;
         Ok(vignettes.into_iter().map(Into::into).collect())
     }
@@ -673,13 +738,17 @@ impl QueryRoot {
         event_id: Option<ID>,
     ) -> Result<Vec<GqlVignette>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let vignettes = match (person_id, event_id) {
             (Some(person_id), None) => {
-                VignetteRepo::list_for_person(db, Uuid::parse_str(person_id.as_str())?).await?
+                let person_id = Uuid::parse_str(person_id.as_str())?;
+                require_tree_resource(db, tid, TreeResource::Person, person_id).await?;
+                VignetteRepo::list_for_person(db, person_id).await?
             }
             (None, Some(event_id)) => {
-                VignetteRepo::list_for_event(db, Uuid::parse_str(event_id.as_str())?).await?
+                let event_id = Uuid::parse_str(event_id.as_str())?;
+                require_tree_resource(db, tid, TreeResource::Event, event_id).await?;
+                VignetteRepo::list_for_event(db, event_id).await?
             }
             _ => {
                 return Err(async_graphql::Error::new(
@@ -698,8 +767,11 @@ impl QueryRoot {
         id: ID,
     ) -> Result<Option<GqlVignette>> {
         let db = db_from_ctx(ctx);
-        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        if !tree_resource_exists(db, tid, TreeResource::Vignette, uuid).await? {
+            return Ok(None);
+        }
         match VignetteRepo::get(db, uuid).await {
             Ok(v) => Ok(Some(v.into())),
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
@@ -766,9 +838,10 @@ impl QueryRoot {
         for (key, path) in &data.media_files {
             match media.get(key).await {
                 Ok(bytes) => files.push((path.clone(), bytes)),
-                Err(error) => {
-                    tracing::warn!(%key, %error, "media absent from the store; not packed")
-                }
+                Err(_) => tracing::warn!(
+                    error = "media_store_read",
+                    "media absent from the store; not packed"
+                ),
             }
         }
         let archive = oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files)
@@ -915,6 +988,7 @@ impl QueryRoot {
     ///
     /// Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL)
     /// with accent-folded, normalised matching. Returns paginated results.
+    #[allow(clippy::too_many_arguments)]
     async fn search_persons(
         &self,
         ctx: &Context<'_>,
@@ -922,10 +996,60 @@ impl QueryRoot {
         query: String,
         #[graphql(default = 25)] limit: usize,
         #[graphql(default = 0)] offset: usize,
+        sex: Option<super::types::GqlSex>,
+        surname: Option<String>,
+        given_names: Option<String>,
+        occupation: Option<String>,
+        spouse_surname: Option<String>,
+        spouse_given_names: Option<String>,
+        father_surname: Option<String>,
+        father_given_names: Option<String>,
+        mother_surname: Option<String>,
+        mother_given_names: Option<String>,
+        birth_from: Option<i32>,
+        birth_to: Option<i32>,
+        death_from: Option<i32>,
+        death_to: Option<i32>,
+        place: Option<String>,
+        event_type: Option<GqlEventType>,
+        event_from: Option<i32>,
+        event_to: Option<i32>,
+        #[graphql(default = false)] has_media: bool,
+        sort: Option<GqlPersonSearchSort>,
     ) -> Result<GqlSearchResult> {
         let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let result = profiles.search(tid, &query, limit.min(100), offset).await?;
+        let filters = PersonSearchFilters {
+            sex: sex.map(Into::into),
+            surname,
+            given_names,
+            occupation,
+            spouse_surname,
+            spouse_given_names,
+            father_surname,
+            father_given_names,
+            mother_surname,
+            mother_given_names,
+            birth_from,
+            birth_to,
+            death_from,
+            death_to,
+            place,
+            event_type: event_type.map(Into::into),
+            event_from,
+            event_to,
+            has_media,
+        };
+        let result = profiles
+            .search_filtered(
+                tid,
+                &query,
+                &filters,
+                sort.map(Into::into).unwrap_or(PersonSearchSort::Relevance),
+                limit.min(100),
+                offset,
+            )
+            .await?;
         Ok(result.into())
     }
 

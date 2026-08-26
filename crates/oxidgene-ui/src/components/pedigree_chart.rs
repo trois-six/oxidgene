@@ -2798,7 +2798,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         let anchor_bottom = props.descendant_levels == 0;
         spawn(async move {
             // Small delay so the DOM has rendered the viewport element.
-            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            crate::utils::sleep_ms(30).await;
             if let Ok(val) = document::eval(
                 "var el = document.querySelector('.mini-pedigree'); return el ? [el.clientWidth, el.clientHeight] : [400, 280]"
             ).await {
@@ -3357,7 +3357,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         needs_fit.set(false);
         spawn(async move {
             // Small delay so the DOM has rendered the viewport element.
-            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            crate::utils::sleep_ms(30).await;
             fit_graph_in_viewport(
                 scale,
                 offset_x,
@@ -3369,7 +3369,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             )
             .await;
             // Re-enable animation after fitting.
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            crate::utils::sleep_ms(20).await;
             animating.set(true);
         });
     }
@@ -3584,7 +3584,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         // Close after 200ms unless mouse re-enters (generation changes).
                         let leave_gen = depth_hover_gen();
                         spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            crate::utils::sleep_ms(200).await;
                             if depth_hover_gen() == leave_gen {
                                 depth_hover.set(false);
                             }

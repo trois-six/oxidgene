@@ -165,7 +165,12 @@ pub struct UpdatePersonNameInput {
 // ── Family Inputs ────────────────────────────────────────────────────
 
 // Family has no extra fields beyond tree_id, so create doesn't need an input.
-// Update just touches updated_at, so no input needed either.
+
+/// Input for updating a family.
+#[derive(Debug, InputObject)]
+pub struct UpdateFamilyInput {
+    pub privacy: Option<GqlPrivacy>,
+}
 
 // ── FamilySpouse / FamilyChild Inputs ────────────────────────────────
 

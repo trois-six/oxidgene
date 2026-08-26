@@ -42,10 +42,13 @@ async fn enable_wal(db: &DatabaseConnection) {
         return;
     }
     let stmt = Statement::from_string(DatabaseBackend::Sqlite, "PRAGMA journal_mode=WAL");
-    match db.query_one(stmt).await {
+    match db.query_one_raw(stmt).await {
         // In-memory databases silently stay in `memory` journal mode.
         Ok(_) => info!("SQLite journal_mode set to WAL"),
-        Err(e) => warn!(%e, "could not enable WAL; writes will block readers"),
+        Err(_) => warn!(
+            error = "sqlite_wal",
+            "could not enable WAL; writes will block readers"
+        ),
     }
 }
 
@@ -77,7 +80,7 @@ async fn reclaim_free_pages(db: &DatabaseConnection) {
     }
 
     let free_pages = match db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "PRAGMA freelist_count",
         ))
@@ -93,12 +96,15 @@ async fn reclaim_free_pages(db: &DatabaseConnection) {
 
     info!(free_pages, "reclaiming free database pages (VACUUM)");
     match db
-        .execute(Statement::from_string(DatabaseBackend::Sqlite, "VACUUM"))
+        .execute_raw(Statement::from_string(DatabaseBackend::Sqlite, "VACUUM"))
         .await
     {
         Ok(_) => info!("database file compacted"),
         // Not fatal: the database is correct, just larger than it needs to be.
-        Err(e) => warn!(%e, "VACUUM failed; database file stays at its current size"),
+        Err(_) => warn!(
+            error = "sqlite_vacuum",
+            "VACUUM failed; database file stays at its current size"
+        ),
     }
 }
 

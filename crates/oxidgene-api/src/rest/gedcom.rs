@@ -118,9 +118,10 @@ pub async fn export_gedcom_handler(
         for (key, path) in &data.media_files {
             match state.media.get(key).await {
                 Ok(bytes) => files.push((path.clone(), bytes)),
-                Err(e) => {
-                    tracing::warn!(%key, error = %e, "media absent from the store; not packed")
-                }
+                Err(_) => tracing::warn!(
+                    error = "media_store_read",
+                    "media absent from the store; not packed"
+                ),
             }
         }
 

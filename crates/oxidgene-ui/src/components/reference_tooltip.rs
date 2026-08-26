@@ -97,7 +97,7 @@ pub fn ReferenceHover(kind: ReferenceKind, term: String, children: Element) -> E
                 hover_gen += 1;
                 let my_gen = hover_gen();
                 spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(SHOW_DELAY_MS)).await;
+                    crate::utils::sleep_ms(SHOW_DELAY_MS as u32).await;
                     if hover_gen() == my_gen {
                         visible.set(true);
                     }
@@ -113,7 +113,7 @@ pub fn ReferenceHover(kind: ReferenceKind, term: String, children: Element) -> E
                 hover_gen += 1;
                 let leave_gen = hover_gen();
                 spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(HIDE_DELAY_MS)).await;
+                    crate::utils::sleep_ms(HIDE_DELAY_MS as u32).await;
                     if hover_gen() == leave_gen {
                         visible.set(false);
                     }

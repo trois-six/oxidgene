@@ -15,9 +15,9 @@ services:
       POSTGRES_PASSWORD: oxidgene
       POSTGRES_DB: oxidgene
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U oxidgene -d oxidgene"]
       interval: 5s
@@ -35,9 +35,9 @@ services:
       OXIDGENE_PORT: "8080"
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
       OXIDGENE_LOG_LEVEL: "info"
-      OXIDGENE_CORS_ORIGIN: "*"
+      OXIDGENE_CORS_ORIGIN: "http://127.0.0.1:8081"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy

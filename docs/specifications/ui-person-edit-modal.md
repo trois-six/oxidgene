@@ -287,13 +287,19 @@ Section divider label: "Death".
 
 A single selector displayed below the Death section.
 
+This selector records future visibility intent only. Until authentication and
+authorization land in EPIC G, choosing `private` does not hide the person from
+the UI, API, search, export, or media access. The interface must state this
+limitation beside the selector and must not present the setting as protection
+already in effect.
+
 **Options** (radio group):
 
 | Value | Label | Description |
 |---|---|---|
-| `default` | Default | Follows the tree-level privacy settings |
-| `public` | Public | Always visible regardless of tree settings |
-| `private` | Private | Always hidden regardless of tree settings |
+| `default` | Default | Records the tree-level privacy intent |
+| `public` | Public | Records an explicit public override |
+| `private` | Private | Records an explicit private override |
 
 ---
 

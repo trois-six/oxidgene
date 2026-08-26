@@ -4,12 +4,18 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use serde::Serialize;
+use tracing::error;
+use uuid::Uuid;
+
+use crate::error_contract::classify;
 
 /// JSON error body returned to clients.
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
     pub error: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<Uuid>,
 }
 
 /// Wrapper around `OxidGeneError` that implements `IntoResponse`.
@@ -23,20 +29,56 @@ impl From<OxidGeneError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, error_type) = match &self.0 {
-            OxidGeneError::NotFound { .. } => (StatusCode::NOT_FOUND, "not_found"),
-            OxidGeneError::Validation(_) => (StatusCode::BAD_REQUEST, "validation_error"),
-            OxidGeneError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "database_error"),
-            OxidGeneError::Gedcom(_) => (StatusCode::BAD_REQUEST, "gedcom_error"),
-            OxidGeneError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error"),
-            OxidGeneError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
-        };
+        let contract = classify(&self.0);
+        let status = status(&self.0);
+
+        let request_id = contract.unexpected.then(Uuid::now_v7);
+        if let Some(request_id) = request_id {
+            error!(%request_id, error = contract.code, "request failed");
+        }
 
         let body = ErrorBody {
-            error: error_type.to_string(),
-            message: self.0.to_string(),
+            error: contract.code.to_string(),
+            message: contract.message.to_string(),
+            request_id,
         };
 
         (status, axum::Json(body)).into_response()
+    }
+}
+
+fn status(error: &OxidGeneError) -> StatusCode {
+    match error {
+        OxidGeneError::NotFound { .. } => StatusCode::NOT_FOUND,
+        OxidGeneError::Validation(_) | OxidGeneError::Gedcom(_) => StatusCode::BAD_REQUEST,
+        OxidGeneError::Database(_) | OxidGeneError::Io(_) | OxidGeneError::Internal(_) => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validation_errors_do_not_expose_their_internal_message() {
+        let contract = classify(&OxidGeneError::Validation(
+            "private field value".to_string(),
+        ));
+
+        assert_eq!(contract.code, "validation_error");
+        assert_eq!(contract.message, "The request is invalid");
+        assert!(!contract.unexpected);
+    }
+
+    #[test]
+    fn unexpected_errors_receive_a_request_id() {
+        let contract = classify(&OxidGeneError::Database("private SQL".to_string()));
+        let request_id = contract.unexpected.then(Uuid::now_v7);
+
+        assert_eq!(contract.code, "database_error");
+        assert_eq!(contract.message, "The request could not be completed");
+        assert!(request_id.is_some());
     }
 }

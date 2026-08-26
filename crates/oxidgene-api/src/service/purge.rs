@@ -42,10 +42,7 @@ impl PurgeQueue {
     /// purge it.
     pub fn enqueue(&self, tree_id: Uuid) {
         if self.tx.send(tree_id).is_err() {
-            warn!(
-                %tree_id,
-                "purge worker stopped; tree stays soft-deleted until next start"
-            );
+            warn!("purge worker stopped; tree stays soft-deleted until next start");
         }
     }
 }
@@ -71,7 +68,10 @@ pub fn spawn_worker(
                 }
             }
             Ok(_) => {}
-            Err(e) => error!(%e, "could not list soft-deleted trees; skipping startup sweep"),
+            Err(_) => error!(
+                error = "purgeable_tree_listing",
+                "could not list soft-deleted trees; skipping startup sweep"
+            ),
         }
 
         while let Some(tree_id) = rx.recv().await {
@@ -101,8 +101,11 @@ async fn purge_tree(
     let started = Instant::now();
 
     // Projections first: `person_search_fts` has no FK to cascade through.
-    if let Err(e) = profiles.invalidate_tree(db, tree_id).await {
-        error!(%tree_id, %e, "could not drop projections; retrying at next start");
+    if profiles.invalidate_tree(db, tree_id).await.is_err() {
+        error!(
+            error = "projection_invalidation",
+            "could not drop projections; retrying at next start"
+        );
         return;
     }
 
@@ -112,17 +115,19 @@ async fn purge_tree(
     // tree row survives, so the next sweep finds it again and finishes the
     // job. The reverse order would drop the row and strand the bytes with
     // nothing left pointing at them.
-    if let Err(e) = media.delete_tree(tree_id).await {
-        error!(%tree_id, %e, "could not remove media files; retrying at next start");
+    if media.delete_tree(tree_id).await.is_err() {
+        error!(
+            error = "media_deletion",
+            "could not remove media files; retrying at next start"
+        );
         return;
     }
 
     match TreeRepo::purge(db, tree_id).await {
         Ok(()) => info!(
-            %tree_id,
             elapsed_ms = started.elapsed().as_millis(),
             "purged soft-deleted tree"
         ),
-        Err(e) => error!(%tree_id, %e, "purge failed; retrying at next start"),
+        Err(_) => error!(error = "tree_purge", "purge failed; retrying at next start"),
     }
 }

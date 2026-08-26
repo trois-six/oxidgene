@@ -182,9 +182,25 @@ struct Session {
     /// URLs still to fetch once the window has reached the right origin.
     queued_fetch: Vec<String>,
     /// Where this run's media are being written, once anything has been.
-    staging: Option<std::path::PathBuf>,
+    staging: Option<Staging>,
     /// How many have been written, which is also how they are named.
     written: usize,
+}
+
+struct Staging(tempfile::TempDir);
+
+impl Staging {
+    fn create() -> Result<Self, String> {
+        tempfile::Builder::new()
+            .prefix("oxidgene-geneanet-")
+            .tempdir()
+            .map(Self)
+            .map_err(|error| format!("could not create Geneanet staging directory: {error}"))
+    }
+
+    fn path(&self) -> &std::path::Path {
+        self.0.path()
+    }
 }
 
 impl Session {
@@ -206,6 +222,7 @@ impl Session {
             .decode(encoded)
             .map_err(|e| format!("{url}: {e}"))?;
 
+        let index = self.written;
         let directory = self.staging()?;
         let extension = url
             .split('?')
@@ -216,7 +233,7 @@ impl Session {
             })
             .map_or_else(String::new, |ext| format!(".{}", ext.to_ascii_lowercase()));
 
-        let path = directory.join(format!("{:05}{extension}", self.written));
+        let path = directory.join(format!("{index:05}{extension}"));
         std::fs::write(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         self.written += 1;
 
@@ -227,15 +244,11 @@ impl Session {
     ///
     /// Under the OS temp directory rather than the app's data directory: these
     /// are working files that exist only until the import has read them.
-    fn staging(&mut self) -> Result<std::path::PathBuf, String> {
-        if let Some(directory) = &self.staging {
-            return Ok(directory.clone());
+    fn staging(&mut self) -> Result<&std::path::Path, String> {
+        if self.staging.is_none() {
+            self.staging = Some(Staging::create()?);
         }
-        let directory =
-            std::env::temp_dir().join(format!("oxidgene-geneanet-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).map_err(|e| format!("{}: {e}", directory.display()))?;
-        self.staging = Some(directory.clone());
-        Ok(directory)
+        Ok(self.staging.as_ref().expect("staging was created").path())
     }
 
     /// Puts a status line on the window's panel, creating it if needed.
@@ -263,8 +276,11 @@ impl Session {
         };
 
         self.queued_fetch = urls;
-        if let Err(e) = self.webview.load_url(&origin) {
-            warn!(%e, "could not move the Geneanet window to {origin}");
+        if self.webview.load_url(&origin).is_err() {
+            warn!(
+                error = "window_navigation",
+                "could not move the Geneanet window"
+            );
             // Try from where we are; same-origin URLs still work.
             self.run_queued_fetch();
         }
@@ -295,8 +311,11 @@ impl Session {
     }
 
     fn eval(&self, script: &str) {
-        if let Err(e) = self.webview.evaluate_script(script) {
-            warn!(%e, "could not run the collection script in the login window");
+        if self.webview.evaluate_script(script).is_err() {
+            warn!(
+                error = "collection_script",
+                "could not run the collection script in the login window"
+            );
         }
     }
 
@@ -594,8 +613,11 @@ fn single_page_deposits(collection: &str) -> Vec<i64> {
             .filter(|deposit| deposit.views.len() == 1)
             .map(|deposit| deposit.id)
             .collect(),
-        Err(e) => {
-            warn!(%e, "could not read the collection the login window produced");
+        Err(_) => {
+            warn!(
+                error = "collection_parse",
+                "could not read the collection the login window produced"
+            );
             Vec::new()
         }
     }
@@ -612,7 +634,12 @@ fn open<T: 'static>(
         .with_title("Geneanet")
         .with_inner_size(LogicalSize::new(1100.0, 820.0))
         .build(target)
-        .inspect_err(|e| warn!(%e, "could not create the Geneanet login window"))
+        .inspect_err(|_| {
+            warn!(
+                error = "window_creation",
+                "could not create the Geneanet login window"
+            )
+        })
         .ok()?;
 
     let builder = WebViewBuilder::new()
@@ -642,7 +669,7 @@ fn open<T: 'static>(
                 }
                 // Geneanet's own pages post to this channel too; anything we
                 // cannot read is not ours.
-                Err(e) => debug!(%e, "ignoring an unrecognised IPC message"),
+                Err(_) => debug!("ignoring an unrecognised IPC message"),
             }
         });
 
@@ -683,7 +710,12 @@ fn open<T: 'static>(
     };
 
     let webview = built
-        .inspect_err(|e| warn!(%e, "could not create the Geneanet WebView"))
+        .inspect_err(|_| {
+            warn!(
+                error = "webview_creation",
+                "could not create the Geneanet WebView"
+            )
+        })
         .ok()?;
 
     let _ = events.unbounded_send(GeneanetEvent::Opened);
@@ -705,6 +737,19 @@ fn open<T: 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staging_is_removed_when_its_owner_is_dropped() {
+        let path = {
+            let staging = Staging::create().expect("staging directory");
+            let path = staging.path().to_path_buf();
+            std::fs::write(path.join("00000.jpg"), b"temporary media").unwrap();
+            assert!(path.exists());
+            path
+        };
+
+        assert!(!path.exists());
+    }
 
     #[test]
     fn an_origin_is_taken_from_an_absolute_url() {

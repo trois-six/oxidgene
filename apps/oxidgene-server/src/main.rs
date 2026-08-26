@@ -45,19 +45,21 @@ async fn main() {
         host = %cfg.host,
         port = %cfg.port,
         log_level = %cfg.log_level,
-        media_root = %cfg.media_root.display(),
         "Starting OxidGene server"
     );
 
     // ── Connect to database ──────────────────────────────────────────
-    let db = connect(&cfg.database_url).await.unwrap_or_else(|e| {
-        error!(%e, "Failed to connect to database");
+    let db = connect(&cfg.database_url).await.unwrap_or_else(|_| {
+        error!(
+            error = "database_connection",
+            "Failed to connect to database"
+        );
         std::process::exit(1);
     });
 
     // ── Run migrations ───────────────────────────────────────────────
-    run_migrations(&db).await.unwrap_or_else(|e| {
-        error!(%e, "Failed to run migrations");
+    run_migrations(&db).await.unwrap_or_else(|_| {
+        error!(error = "database_migration", "Failed to run migrations");
         std::process::exit(1);
     });
 
@@ -65,25 +67,25 @@ async fn main() {
     let state = AppState::new(db, &cfg.media_root);
     let api_router = build_router(state);
 
-    // CORS
-    let cors = if cfg.cors_origin == "*" {
-        CorsLayer::permissive()
-    } else {
-        CorsLayer::new()
-            .allow_origin(
-                cfg.cors_origin
-                    .parse::<HeaderValue>()
-                    .expect("invalid CORS origin"),
-            )
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::OPTIONS,
-            ])
-            .allow_headers(tower_http::cors::Any)
-    };
+    // CORS remains single-origin until authentication and authorization ship.
+    if cfg.cors_origin == "*" {
+        error!(error = "cors_origin", "Wildcard CORS origin is not allowed");
+        std::process::exit(1);
+    }
+    let cors_origin = cfg.cors_origin.parse::<HeaderValue>().unwrap_or_else(|_| {
+        error!(error = "cors_origin", "Invalid CORS origin");
+        std::process::exit(1);
+    });
+    let cors = CorsLayer::new()
+        .allow_origin(cors_origin)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(tower_http::cors::Any);
 
     let app = Router::new()
         .route("/healthz", get(healthz))
@@ -93,8 +95,8 @@ async fn main() {
 
     // ── Bind and serve ───────────────────────────────────────────────
     let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);
-    let listener = TcpListener::bind(addr).await.unwrap_or_else(|e| {
-        error!(%e, %addr, "Failed to bind TCP listener");
+    let listener = TcpListener::bind(addr).await.unwrap_or_else(|_| {
+        error!(error = "listener_bind", %addr, "Failed to bind TCP listener");
         std::process::exit(1);
     });
 
@@ -103,8 +105,8 @@ async fn main() {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .unwrap_or_else(|e| {
-            error!(%e, "Server error");
+        .unwrap_or_else(|_| {
+            error!(error = "server_runtime", "Server error");
             std::process::exit(1);
         });
 

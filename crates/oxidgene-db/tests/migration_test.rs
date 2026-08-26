@@ -69,7 +69,7 @@ async fn test_migrate_up_and_down_postgres() {
 async fn assert_media_storage_schema(db: &DatabaseConnection) {
     let backend = db.get_database_backend();
 
-    db.query_all(Statement::from_string(
+    db.query_all_raw(Statement::from_string(
         backend,
         "SELECT storage_key, sha256, thumbnail_key, width, height, page_count FROM media"
             .to_owned(),
@@ -77,7 +77,7 @@ async fn assert_media_storage_schema(db: &DatabaseConnection) {
     .await
     .expect("media should carry the storage columns");
 
-    db.query_all(Statement::from_string(
+    db.query_all_raw(Statement::from_string(
         backend,
         "SELECT id, media_id, page, x, y, width, height, person_id, event_id, \
          created_at, updated_at FROM vignette"

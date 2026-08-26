@@ -115,7 +115,7 @@ impl AncestryRepo {
         );
 
         let rows = db
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 backend,
                 &sql,
                 [Value::from(person_id), Value::from(depth_limit)],

@@ -50,39 +50,21 @@ Full specifications are available in [`docs/specifications/`](docs/specification
 
 - [Rust](https://rustup.rs/) (stable)
 - [just](https://github.com/casey/just) (task runner)
-- PostgreSQL 16+ (for web deployment)
-
-## Quick Start
+- PostgreSQL 16+ or Docker Compose (for the web backend)
+- The `wasm32-unknown-unknown` Rust target
+- [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) 0.7.10
+- `cargo-watch` (optional, for backend hot reload)
 
 ```bash
-# Build all crates
-just build
-
-# Run all tests
-just test
-
-# Run all checks (format, lint, test)
-just check
-
-# See all available commands
-just
+rustup target add wasm32-unknown-unknown
+cargo install dioxus-cli --version 0.7.10 --locked
+cargo install cargo-watch --locked
 ```
 
 ## Development
 
-```bash
-# Format code
-just fmt
-
-# Run clippy
-just clippy
-
-# Run the web server (dev)
-just server
-
-# Run the desktop app (dev)
-just desktop
-```
+The development environment, prerequisites, and `just` command reference are
+documented in [Development](docs/specifications/development.md).
 
 ## License
 

@@ -40,6 +40,17 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let mut query = use_signal(String::new);
     let tree_id = props.tree_id;
 
+    let api_portraits = api.clone();
+    let portraits_resource = use_resource(move || {
+        let api = api_portraits.clone();
+        async move {
+            match api.list_portraits(tree_id).await {
+                Ok(rows) => api.portrait_map(tree_id, &rows).await,
+                Err(_) => Default::default(),
+            }
+        }
+    });
+
     let placeholder = if props.placeholder.is_empty() {
         i18n.t("search.placeholder")
     } else {
@@ -51,10 +62,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let _debounce_task = use_resource(move || {
         let raw = query();
         async move {
-            #[cfg(target_arch = "wasm32")]
-            gloo_timers::future::TimeoutFuture::new(200).await;
-            #[cfg(not(target_arch = "wasm32"))]
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            crate::utils::sleep_ms(200).await;
             debounced_query.set(raw);
         }
     });
@@ -82,6 +90,13 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     };
 
     let is_loading = search_resource.read().is_none();
+    let portrait_urls = {
+        let data = portraits_resource.read();
+        match &*data {
+            Some(urls) => urls.clone(),
+            _ => Default::default(),
+        }
+    };
 
     rsx! {
         div { class: "search-person",
@@ -108,7 +123,11 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
             } else {
                 div { class: "search-person-results",
                     for entry in results.iter() {
-                        {render_search_entry(entry, props.on_select)}
+                        {render_search_entry(
+                            entry,
+                            props.on_select,
+                            portrait_urls.get(&entry.person_id).cloned(),
+                        )}
                     }
                 }
             }
@@ -117,7 +136,11 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
 }
 
 /// Render a single search result row.
-fn render_search_entry(entry: &SearchEntry, on_select: EventHandler<Uuid>) -> Element {
+fn render_search_entry(
+    entry: &SearchEntry,
+    on_select: EventHandler<Uuid>,
+    portrait_url: Option<String>,
+) -> Element {
     let rid = entry.person_id;
     let sex_class = match entry.sex {
         Sex::Male => "male",
@@ -144,7 +167,11 @@ fn render_search_entry(entry: &SearchEntry, on_select: EventHandler<Uuid>) -> El
             class: "search-person-result {sex_class}",
             onclick: move |_| on_select.call(rid),
             div { class: "sp-result-photo",
-                span { class: "sp-result-initials {sex_class}", "{initials}" }
+                if let Some(url) = portrait_url {
+                    img { class: "sp-result-portrait", src: "{url}", alt: "" }
+                } else {
+                    span { class: "sp-result-initials {sex_class}", "{initials}" }
+                }
             }
             div { class: "sp-result-info",
                 div { class: "sp-result-name",

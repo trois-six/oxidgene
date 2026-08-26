@@ -70,7 +70,16 @@ archives); clients use REST when they need a cacheable or streaming file respons
 Authentication and authorization are not implemented in the current MVP.
 Privacy values are stored but not enforced, so clients must not claim that
 private records are hidden. Future authorization uses the same domain checks
-for REST and GraphQL.
+for REST and GraphQL. Until that work is complete, the API is local or private
+infrastructure only and must not be published directly to an untrusted network.
+Server defaults, container publication, CORS, and UI media rendering follow
+[Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication).
+
+Direct HTTP media representations remain API-client transports, not browser
+navigation destinations. Frontends fetch their bytes through the typed client
+and render a local `data:`/`blob:` resource; they never emit `/api/v1`,
+`/graphql`, or an API origin in user-visible links, image sources, form actions,
+redirects, or new-window targets.
 
 ### Errors and consistency
 
@@ -113,7 +122,7 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 |---|---|---|
 | `GET` | `/trees/{tree_id}/persons` | List persons (cursor-paginated, filterable) |
 | `POST` | `/trees/{tree_id}/persons` | Create a person |
-| `GET` | `/trees/{tree_id}/persons/search?q=...&limit=N&offset=N` | Server-side person search (paginated `SearchResult`, backed by `person_search_fts`; empty `q` = browse mode) |
+| `GET` | `/trees/{tree_id}/persons/search` | Server-side person search with structured filters, sorting, and offset pagination (see below) |
 | `GET` | `/trees/{tree_id}/persons/sosa/{number}` | Resolve a SOSA number to a person (relative to `Tree.sosa_root_person_id`) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}` | Get a person (with names, events, families) |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}` | Update a person |
@@ -417,9 +426,21 @@ treated as absent and rebuilt on first read, so missing fields cannot appear as
 genuinely empty data. The internal version is not exposed. See
 [Data Model §4.1](data-model.md).
 
-Person search uses `GET /trees/{tree_id}/persons/search?q=query&limit=20&offset=0`
-and returns a paginated `SearchResult` backed by `person_search_fts`. An empty
-or missing `q` selects browse mode sorted by name.
+Person search uses `GET /trees/{tree_id}/persons/search` and returns a paginated
+`SearchResult` backed by `person_search_fts`. Supported query parameters are:
+
+| Category | Parameters |
+|---|---|
+| Text and paging | `q`, `limit` (default 25, maximum 100), `offset` |
+| Individual | `sex`, `surname`, `given_names`, `occupation`, `birth_from`, `birth_to`, `death_from`, `death_to` |
+| Relations | `spouse_surname`, `spouse_given_names`, `father_surname`, `father_given_names`, `mother_surname`, `mother_given_names` |
+| Events | `place`, `event_type`, `event_from`, `event_to` |
+| Media and ordering | `has_media`, `sort` (`relevance`, `name_asc`, `name_desc`, `birth_asc`, `birth_desc`) |
+
+All supplied filters are combined with AND. Name and free-text matching is
+case- and accent-insensitive. An empty or missing `q` is valid: structured
+filters can be used alone, and no filters at all select browse mode. The
+response's `total_count` is computed before `limit` and `offset` are applied.
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
 
@@ -548,6 +569,7 @@ type Query {
 
   # Media galleries
   entityMedia(treeId: ID!, entityType: String!, entityId: ID!): [MediaWithLink!]!
+  treeMediaLinks(treeId: ID!): [TreeMediaLink!]!              # all person/event links in a tree
   mediaLinks(treeId: ID!, mediaId: ID!): [MediaLink!]!       # what one file is attached to
   mediaPages(treeId: ID!, mediaId: ID!): [Media!]!           # a document's pages, in order
 
@@ -564,7 +586,32 @@ type Query {
   personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
   personProfiles(treeId: ID!): [GqlPersonProfile!]!
   pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
-  searchPersons(treeId: ID!, query: String!, limit: Int, offset: Int): GqlSearchResult!
+  searchPersons(
+    treeId: ID!
+    query: String!
+    limit: Int
+    offset: Int
+    sex: Sex
+    surname: String
+    givenNames: String
+    occupation: String
+    spouseSurname: String
+    spouseGivenNames: String
+    fatherSurname: String
+    fatherGivenNames: String
+    motherSurname: String
+    motherGivenNames: String
+    birthFrom: Int
+    birthTo: Int
+    deathFrom: Int
+    deathTo: Int
+    place: String
+    eventType: EventType
+    eventFrom: Int
+    eventTo: Int
+    hasMedia: Boolean = false
+    sort: PersonSearchSort
+  ): GqlSearchResult!
   treeSnapshot(treeId: ID!): TreeSnapshot!
 }
 ```

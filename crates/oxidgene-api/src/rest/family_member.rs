@@ -9,15 +9,18 @@ use uuid::Uuid;
 
 use super::dto::{AddChildRequest, AddSpouseRequest};
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 // ── Spouses ──────────────────────────────────────────────────────────
 
 /// GET /api/v1/trees/:tree_id/families/:family_id/spouses
 pub async fn list_spouses(
     State(state): State<AppState>,
-    Path((_tree_id, family_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
     let spouses = FamilySpouseRepo::list_by_family(&state.db, family_id)
         .await
         .map_err(ApiError::from)?;
@@ -32,6 +35,12 @@ pub async fn add_spouse(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Person, body.person_id)
+        .await
+        .map_err(ApiError)?;
     let spouse = FamilySpouseRepo::create(
         &txn,
         id,
@@ -64,6 +73,12 @@ pub async fn remove_spouse(
     Path((tree_id, family_id, spouse_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::FamilySpouse, spouse_id)
+        .await
+        .map_err(ApiError)?;
     // Look up which person this spouse link refers to BEFORE deletion.
     let spouses = FamilySpouseRepo::list_by_families(&txn, &[family_id])
         .await
@@ -99,8 +114,11 @@ pub async fn remove_spouse(
 /// GET /api/v1/trees/:tree_id/families/:family_id/children
 pub async fn list_children(
     State(state): State<AppState>,
-    Path((_tree_id, family_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
     let children = FamilyChildRepo::list_by_family(&state.db, family_id)
         .await
         .map_err(ApiError::from)?;
@@ -115,6 +133,12 @@ pub async fn add_child(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Person, body.person_id)
+        .await
+        .map_err(ApiError)?;
     let child = FamilyChildRepo::create(
         &txn,
         id,
@@ -147,6 +171,12 @@ pub async fn remove_child(
     Path((tree_id, family_id, child_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::FamilyChild, child_id)
+        .await
+        .map_err(ApiError)?;
     // Look up which person this child link refers to BEFORE deletion.
     let children = FamilyChildRepo::list_by_families(&txn, &[family_id])
         .await

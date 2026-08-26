@@ -18,9 +18,9 @@ use oxidgene_core::projection::{
     PedigreeNode, PersonProfile, SearchResult,
 };
 use oxidgene_db::repo::{
-    AncestryRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaRepo, NoteRepo, PersonDenormRepo, PersonNameRepo, PersonRepo, PersonSearchRepo, PlaceRepo,
-    VignetteRepo,
+    AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
+    MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonNameRepo, PersonRepo,
+    PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo, VignetteRepo,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use tracing::{debug, info, instrument};
@@ -61,24 +61,24 @@ impl ProfileService {
     ///
     /// Used after a GEDCOM import, and lazily the first time a tree is read
     /// after the `person_denorm` migration.
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id))]
+    #[instrument(skip_all)]
     pub async fn rebuild_tree_full(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<usize, OxidGeneError> {
-        info!("Starting full projection rebuild for tree {}", tree_id);
+        info!("Starting full projection rebuild");
 
         let tree_data = self.fetch_tree_data(conn, tree_id).await?;
         let persons = build_all_persons(tree_id, &tree_data);
-        debug!("Built {} projections for tree {}", persons.len(), tree_id);
+        debug!(count = persons.len(), "Built projections");
 
         PersonDenormRepo::replace_tree(conn, tree_id, &persons).await?;
 
         let search_entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
         PersonSearchRepo::replace_tree(conn, tree_id, &search_entries).await?;
 
-        info!("Completed full projection rebuild for tree {}", tree_id);
+        info!(count = persons.len(), "Completed full projection rebuild");
         Ok(persons.len())
     }
 
@@ -102,8 +102,8 @@ impl ProfileService {
         }
 
         debug!(
-            "Tree {} not materialized ({} usable projections, {} search rows), building",
-            tree_id, denorm_rows, search_rows
+            denorm_rows,
+            search_rows, "Tree projections are not materialized"
         );
         self.rebuild_tree_full(conn, tree_id).await?;
         Ok(())
@@ -112,7 +112,7 @@ impl ProfileService {
     // ── Person projections ───────────────────────────────────────────────
 
     /// Read a person's projection, building it on demand if absent.
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id, person_id = %person_id))]
+    #[instrument(skip_all)]
     pub async fn get_or_build_person(
         &self,
         conn: &impl ConnectionTrait,
@@ -123,12 +123,12 @@ impl ProfileService {
             return Ok(stored);
         }
 
-        debug!("No projection for person {}, building from DB", person_id);
+        debug!("Person projection is not materialized");
         self.rebuild_person(conn, tree_id, person_id).await
     }
 
     /// Rebuild one person's projection and its search row.
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id, person_id = %person_id))]
+    #[instrument(skip_all)]
     pub async fn rebuild_person(
         &self,
         conn: &impl ConnectionTrait,
@@ -145,7 +145,7 @@ impl ProfileService {
     ///
     /// Does not touch the search rows — callers that need them refreshed go
     /// through [`Self::rebuild_affected`].
-    #[instrument(skip(self, conn, person_ids), fields(tree_id = %tree_id, count = person_ids.len()))]
+    #[instrument(skip_all, fields(count = person_ids.len()))]
     pub async fn rebuild_persons(
         &self,
         conn: &impl ConnectionTrait,
@@ -172,7 +172,7 @@ impl ProfileService {
         };
 
         PersonDenormRepo::upsert(conn, &built).await?;
-        debug!("Rebuilt {} projections for tree {}", built.len(), tree_id);
+        debug!(count = built.len(), "Rebuilt projections");
         Ok(built)
     }
 
@@ -193,7 +193,7 @@ impl ProfileService {
     /// Built fresh on every call by walking the family links and joining the
     /// reached persons against `person_denorm` — there is nothing to cache and
     /// nothing to invalidate.
-    #[instrument(skip(self), fields(tree_id = %tree_id, root_person_id = %root_person_id))]
+    #[instrument(skip_all)]
     pub async fn get_or_build_pedigree(
         &self,
         tree_id: Uuid,
@@ -220,7 +220,7 @@ impl ProfileService {
     /// pass it so the reported `*_depth_loaded` values match what the caller
     /// actually holds. Both windows are assembled and diffed — cheap now that
     /// a pedigree is a closure-table read plus a projection batch read.
-    #[instrument(skip(self), fields(tree_id = %tree_id, root_person_id = %root_person_id))]
+    #[instrument(skip_all)]
     #[allow(clippy::too_many_arguments)]
     pub async fn expand_pedigree(
         &self,
@@ -278,7 +278,7 @@ impl ProfileService {
 
     /// Search persons in a tree via the DB-native `person_search_fts` table
     /// (SQLite FTS5 / plain PostgreSQL table).
-    #[instrument(skip(self), fields(tree_id = %tree_id, query = %query))]
+    #[instrument(skip_all)]
     pub async fn search(
         &self,
         tree_id: Uuid,
@@ -286,10 +286,41 @@ impl ProfileService {
         limit: usize,
         offset: usize,
     ) -> Result<SearchResult, OxidGeneError> {
+        self.search_filtered(
+            tree_id,
+            query,
+            &PersonSearchFilters::default(),
+            PersonSearchSort::Relevance,
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    /// Search persons with all filters, ordering, and pagination applied by
+    /// the database before rows are returned.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn search_filtered(
+        &self,
+        tree_id: Uuid,
+        query: &str,
+        filters: &PersonSearchFilters,
+        sort: PersonSearchSort,
+        limit: usize,
+        offset: usize,
+    ) -> Result<SearchResult, OxidGeneError> {
         let conn = &self.db;
         self.ensure_materialized(conn, tree_id).await?;
-        let page =
-            PersonSearchRepo::search(conn, tree_id, query, limit as u64, offset as u64).await?;
+        let page = PersonSearchRepo::search_filtered(
+            conn,
+            tree_id,
+            query,
+            filters,
+            sort,
+            limit as u64,
+            offset as u64,
+        )
+        .await?;
         Ok(SearchResult {
             entries: page.entries.into_iter().map(search_entry_from_db).collect(),
             total_count: page.total_count as usize,
@@ -304,7 +335,7 @@ impl ProfileService {
     /// This is the primary entry point: it computes the affected set — the
     /// person plus everyone whose projection embeds their name — and rewrites
     /// those rows.
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id, person_id = %person_id))]
+    #[instrument(skip_all)]
     pub async fn invalidate_for_person(
         &self,
         conn: &impl ConnectionTrait,
@@ -313,15 +344,14 @@ impl ProfileService {
     ) -> Result<(), OxidGeneError> {
         let affected = invalidation::affected_persons(conn, person_id).await?;
         debug!(
-            "Refreshing {} projections for mutation on person {}",
-            affected.len(),
-            person_id
+            count = affected.len(),
+            "Refreshing projections after person mutation"
         );
         self.rebuild_affected(conn, tree_id, &affected).await
     }
 
     /// Refresh projections after a family event mutation (marriage, divorce…).
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id, family_id = %family_id))]
+    #[instrument(skip_all)]
     pub async fn invalidate_for_family_event(
         &self,
         conn: &impl ConnectionTrait,
@@ -330,15 +360,14 @@ impl ProfileService {
     ) -> Result<(), OxidGeneError> {
         let affected = invalidation::affected_persons_for_family(conn, family_id).await?;
         debug!(
-            "Refreshing {} projections for family event on family {}",
-            affected.len(),
-            family_id
+            count = affected.len(),
+            "Refreshing projections after family event mutation"
         );
         self.rebuild_affected(conn, tree_id, &affected).await
     }
 
     /// Refresh projections after a spouse is added to or removed from a family.
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id, family_id = %family_id))]
+    #[instrument(skip_all)]
     pub async fn invalidate_for_family_spouse_change(
         &self,
         conn: &impl ConnectionTrait,
@@ -353,15 +382,14 @@ impl ProfileService {
         )
         .await?;
         debug!(
-            "Refreshing {} projections for spouse change in family {}",
-            affected.len(),
-            family_id
+            count = affected.len(),
+            "Refreshing projections after spouse mutation"
         );
         self.rebuild_affected(conn, tree_id, &affected).await
     }
 
     /// Refresh projections after a child is added to or removed from a family.
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id, family_id = %family_id))]
+    #[instrument(skip_all)]
     pub async fn invalidate_for_family_child_change(
         &self,
         conn: &impl ConnectionTrait,
@@ -376,9 +404,8 @@ impl ProfileService {
         )
         .await?;
         debug!(
-            "Refreshing {} projections for child change in family {}",
-            affected.len(),
-            family_id
+            count = affected.len(),
+            "Refreshing projections after child mutation"
         );
         self.rebuild_affected(conn, tree_id, &affected).await
     }
@@ -389,7 +416,7 @@ impl ProfileService {
     /// The `person_denorm` row would also go away on its own for a hard
     /// delete (`ON DELETE CASCADE`), but persons are soft-deleted by default,
     /// so it has to be removed explicitly.
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id, person_id = %person_id))]
+    #[instrument(skip_all)]
     pub async fn invalidate_for_person_delete(
         &self,
         conn: &impl ConnectionTrait,
@@ -409,22 +436,21 @@ impl ProfileService {
         }
 
         debug!(
-            "Dropped projection for deleted person {}, refreshed {} related persons",
-            person_id,
-            remaining.len()
+            count = remaining.len(),
+            "Dropped projection and refreshed related persons"
         );
         Ok(())
     }
 
     /// Drop every projection and search row of a tree (used when the tree
     /// itself is deleted).
-    #[instrument(skip(self, conn), fields(tree_id = %tree_id))]
+    #[instrument(skip_all)]
     pub async fn invalidate_tree(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
-        info!("Dropping all projections for tree {}", tree_id);
+        info!("Dropping all projections for deleted tree");
         PersonSearchRepo::delete_tree(conn, tree_id).await?;
         PersonDenormRepo::delete_tree(conn, tree_id).await
     }
@@ -433,7 +459,7 @@ impl ProfileService {
     ///
     /// Used by REST and GraphQL handlers that call into the `invalidation`
     /// module themselves before mutating.
-    #[instrument(skip(self, conn, affected), fields(tree_id = %tree_id, count = affected.len()))]
+    #[instrument(skip_all, fields(count = affected.len()))]
     pub async fn invalidate_for_mutation(
         &self,
         conn: &impl ConnectionTrait,
@@ -504,12 +530,13 @@ impl ProfileService {
         family_ids.dedup();
 
         // 2. All members of those families, plus attached entities.
-        let (spouses, children, person_events, family_events, media_links, notes) = tokio::try_join!(
+        let (spouses, children, person_events, family_events, media_links, citations, notes) = tokio::try_join!(
             FamilySpouseRepo::list_by_families(conn, &family_ids),
             FamilyChildRepo::list_by_families(conn, &family_ids),
             EventRepo::list_by_person(conn, person_id),
             EventRepo::list_by_families(conn, &family_ids),
             MediaLinkRepo::list_by_person(conn, person_id),
+            CitationRepo::list_by_person(conn, person_id),
             NoteRepo::list_by_entity(conn, tree_id, Some(person_id), None, None, None, None),
         )?;
 
@@ -563,6 +590,7 @@ impl ProfileService {
             media,
             media_links,
             portrait_vignettes,
+            citations,
             notes,
         })
     }
@@ -573,12 +601,13 @@ impl ProfileService {
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<TreeData, OxidGeneError> {
-        let (persons, events, families, places, media, notes) = tokio::try_join!(
+        let (persons, events, families, places, media, citations, notes) = tokio::try_join!(
             PersonRepo::list_all(conn, tree_id),
             EventRepo::list_all(conn, tree_id),
             FamilyRepo::list_all(conn, tree_id),
             PlaceRepo::list_all(conn, tree_id),
             MediaRepo::list_all(conn, tree_id),
+            CitationRepo::list_all(conn, tree_id),
             NoteRepo::list_all(conn, tree_id),
         )?;
 
@@ -612,6 +641,7 @@ impl ProfileService {
             media,
             media_links,
             portrait_vignettes,
+            citations,
             notes,
         })
     }
@@ -656,10 +686,7 @@ impl ProfileService {
         ancestor_depth: u32,
         descendant_depth: u32,
     ) -> Result<Pedigree, OxidGeneError> {
-        debug!(
-            "Building pedigree for root {} (ancestors: {}, descendants: {})",
-            root_person_id, ancestor_depth, descendant_depth
-        );
+        debug!(ancestor_depth, descendant_depth, "Building pedigree");
 
         // 1. Walk the family links for ancestor and descendant IDs.
         let (ancestors, descendants) = tokio::try_join!(
@@ -991,11 +1018,10 @@ impl ProfileService {
         };
 
         debug!(
-            "Built pedigree with {} nodes, {} edges, {} families for root {}",
-            pedigree.persons.len(),
-            pedigree.edges.len(),
-            pedigree.families.len(),
-            root_person_id
+            nodes = pedigree.persons.len(),
+            edges = pedigree.edges.len(),
+            families = pedigree.families.len(),
+            "Built pedigree"
         );
 
         Ok(pedigree)

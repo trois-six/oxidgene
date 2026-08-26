@@ -512,10 +512,8 @@ async fn a_crop_larger_than_its_scan_is_refused() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "validation_error");
-    assert!(
-        body["message"].as_str().unwrap().contains("400×300"),
-        "the message should say what it did not fit in: {body}"
-    );
+    assert_eq!(body["message"], "The request is invalid");
+    assert!(body.get("request_id").is_none());
 }
 
 #[tokio::test]

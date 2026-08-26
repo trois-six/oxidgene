@@ -194,7 +194,7 @@ pub async fn get_person(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let person = PersonRepo::get(&state.db, person_id)
+    let person = PersonRepo::get_in_tree(&state.db, tree_id, person_id)
         .await
         .map_err(ApiError::from)?;
     let sosa_number = compute_sosa_number(&state.db, tree_id, person_id)
@@ -216,6 +216,9 @@ pub async fn update_person(
     Json(body): Json<UpdatePersonRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    PersonRepo::get_in_tree(&txn, tree_id, person_id)
+        .await
+        .map_err(ApiError::from)?;
     let person = PersonRepo::update(&txn, person_id, body.sex, body.privacy)
         .await
         .map_err(ApiError::from)?;
@@ -237,6 +240,9 @@ pub async fn delete_person(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    PersonRepo::get_in_tree(&txn, tree_id, person_id)
+        .await
+        .map_err(ApiError::from)?;
     PersonRepo::delete(&txn, person_id)
         .await
         .map_err(ApiError::from)?;
@@ -254,9 +260,12 @@ pub async fn delete_person(
 /// GET /api/v1/trees/:tree_id/persons/:person_id/ancestors
 pub async fn get_ancestors(
     State(state): State<AppState>,
-    Path((_tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    PersonRepo::get_in_tree(&state.db, tree_id, person_id)
+        .await
+        .map_err(ApiError::from)?;
     let ancestors = AncestryRepo::ancestors(&state.db, person_id, query.max_depth)
         .await
         .map_err(ApiError::from)?;
@@ -266,9 +275,12 @@ pub async fn get_ancestors(
 /// GET /api/v1/trees/:tree_id/persons/:person_id/descendants
 pub async fn get_descendants(
     State(state): State<AppState>,
-    Path((_tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    PersonRepo::get_in_tree(&state.db, tree_id, person_id)
+        .await
+        .map_err(ApiError::from)?;
     let descendants = AncestryRepo::descendants(&state.db, person_id, query.max_depth)
         .await
         .map_err(ApiError::from)?;
@@ -290,9 +302,30 @@ pub async fn search_persons(
     let q = query.q.unwrap_or_default();
     let limit = query.limit.unwrap_or(25).min(100);
     let offset = query.offset.unwrap_or(0);
+    let filters = oxidgene_db::repo::PersonSearchFilters {
+        sex: query.sex,
+        surname: query.surname,
+        given_names: query.given_names,
+        occupation: query.occupation,
+        spouse_surname: query.spouse_surname,
+        spouse_given_names: query.spouse_given_names,
+        father_surname: query.father_surname,
+        father_given_names: query.father_given_names,
+        mother_surname: query.mother_surname,
+        mother_given_names: query.mother_given_names,
+        birth_from: query.birth_from,
+        birth_to: query.birth_to,
+        death_from: query.death_from,
+        death_to: query.death_to,
+        place: query.place,
+        event_type: query.event_type,
+        event_from: query.event_from,
+        event_to: query.event_to,
+        has_media: query.has_media,
+    };
     let results = state
         .profiles
-        .search(tree_id, &q, limit, offset)
+        .search_filtered(tree_id, &q, &filters, query.sort.into(), limit, offset)
         .await
         .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(results).unwrap()))

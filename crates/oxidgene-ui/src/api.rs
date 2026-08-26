@@ -5,6 +5,7 @@
 //! from [`oxidgene_core`] directly, since those types already derive
 //! `Serialize` / `Deserialize`.
 
+use base64::Engine as _;
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, SearchResult};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse,
@@ -44,6 +45,55 @@ pub struct PersonDetail {
 /// Paginated response returned by list endpoints.
 /// Re-uses the same shape as `oxidgene_core::types::Connection<T>`.
 type PaginatedResponse<T> = Connection<T>;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum PersonSearchSort {
+    #[default]
+    Relevance,
+    NameAsc,
+    NameDesc,
+    BirthAsc,
+    BirthDesc,
+}
+
+impl PersonSearchSort {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Relevance => "relevance",
+            Self::NameAsc => "name_asc",
+            Self::NameDesc => "name_desc",
+            Self::BirthAsc => "birth_asc",
+            Self::BirthDesc => "birth_desc",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PersonSearchParams {
+    pub query: String,
+    pub limit: u32,
+    pub offset: u32,
+    pub sex: Option<Sex>,
+    pub surname: Option<String>,
+    pub given_names: Option<String>,
+    pub occupation: Option<String>,
+    pub spouse_surname: Option<String>,
+    pub spouse_given_names: Option<String>,
+    pub father_surname: Option<String>,
+    pub father_given_names: Option<String>,
+    pub mother_surname: Option<String>,
+    pub mother_given_names: Option<String>,
+    pub birth_from: Option<i32>,
+    pub birth_to: Option<i32>,
+    pub death_from: Option<i32>,
+    pub death_to: Option<i32>,
+    pub place: Option<String>,
+    pub event_type: Option<EventType>,
+    pub event_from: Option<i32>,
+    pub event_to: Option<i32>,
+    pub has_media: bool,
+    pub sort: PersonSearchSort,
+}
 
 // ── Dictionary — distinct-value aggregations with usage counts ──────
 
@@ -443,6 +493,26 @@ pub struct PortraitRow {
     pub vignette_id: Option<uuid::Uuid>,
     pub file_path: String,
     pub has_thumbnail: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PortraitSource {
+    Vignette(Uuid),
+    Thumbnail(Uuid),
+    Remote(String),
+    Unavailable,
+}
+
+fn portrait_source(row: &PortraitRow) -> PortraitSource {
+    if let Some(vignette_id) = row.vignette_id {
+        PortraitSource::Vignette(vignette_id)
+    } else if let Some(media_id) = row.media_id.filter(|_| row.has_thumbnail) {
+        PortraitSource::Thumbnail(media_id)
+    } else if row.media_id.is_some() && is_remote(&row.file_path) {
+        PortraitSource::Remote(row.file_path.clone())
+    } else {
+        PortraitSource::Unavailable
+    }
 }
 
 /// A media together with the link that attached it — one gallery tile.
@@ -996,11 +1066,11 @@ impl ApiClient {
     /// The `base_url` should include scheme and port, e.g.
     /// `http://127.0.0.1:3000`.
     pub fn new(base_url: &str) -> Self {
+        let builder = reqwest::Client::builder();
+        #[cfg(not(target_arch = "wasm32"))]
+        let builder = builder.timeout(std::time::Duration::from_secs(300));
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(300))
-                .build()
-                .expect("failed to build reqwest client"),
+            client: builder.build().expect("failed to build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
             cache: ResponseCache::default(),
         }
@@ -1021,27 +1091,22 @@ impl ApiClient {
         if let Some(cached) = self.cache.get(path)
             && let Ok(val) = serde_json::from_slice(&cached)
         {
-            tracing::debug!("GET {} (cached)", path);
+            tracing::debug!(method = "GET", cached = true, "API request completed");
             return Ok(val);
         }
         let url = self.url(path);
-        tracing::debug!("GET {url}");
         let resp = self.client.get(&url).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!("GET {url} -> {status} {body}");
+            tracing::debug!(method = "GET", %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = resp.bytes().await?;
-        tracing::debug!(
-            "GET {url} -> {status} ({} bytes): {}",
-            bytes.len(),
-            String::from_utf8_lossy(&bytes)
-        );
+        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(path.to_string(), bytes.to_vec());
         Ok(val)
@@ -1076,30 +1141,22 @@ impl ApiClient {
         if let Some(cached) = self.cache.get(&cache_key)
             && let Ok(val) = serde_json::from_slice(&cached)
         {
-            tracing::debug!("GET {} (cached)", cache_key);
+            tracing::debug!(method = "GET", cached = true, "API request completed");
             return Ok(val);
         }
         let url = self.url(path);
-        tracing::debug!(
-            "GET {url} query={}",
-            serde_json::to_string(query).unwrap_or_default()
-        );
         let resp = self.client.get(&url).query(query).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!("GET {url} -> {status} {body}");
+            tracing::debug!(method = "GET", %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = resp.bytes().await?;
-        tracing::debug!(
-            "GET {url} -> {status} ({} bytes): {}",
-            bytes.len(),
-            String::from_utf8_lossy(&bytes)
-        );
+        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(cache_key, bytes.to_vec());
         Ok(val)
@@ -1113,22 +1170,18 @@ impl ApiClient {
         query: &Q,
     ) -> Result<Vec<u8>, ApiError> {
         let url = self.url(path);
-        tracing::debug!(
-            "GET {url} query={}",
-            serde_json::to_string(query).unwrap_or_default()
-        );
         let resp = self.client.get(&url).query(query).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!("GET {url} -> {status} {body}");
+            tracing::debug!(method = "GET", %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = resp.bytes().await?;
-        tracing::debug!("GET {url} -> {status} ({} bytes)", bytes.len());
+        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
         Ok(bytes.to_vec())
     }
 
@@ -1139,10 +1192,8 @@ impl ApiClient {
         body: &B,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        let body_json = serde_json::to_string(body).unwrap_or_default();
-        tracing::debug!("POST {url} body={body_json}");
         let resp = self.client.post(&url).json(body).send().await?;
-        Self::handle_response(&url, "POST", resp).await
+        Self::handle_response("POST", resp).await
     }
 
     /// Helper: send a POST request with a raw binary body.
@@ -1157,7 +1208,7 @@ impl ApiClient {
         query: &Q,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        tracing::debug!("POST {url} ({} bytes)", body.len());
+        let bytes = body.len();
         let resp = self
             .client
             .post(&url)
@@ -1166,7 +1217,8 @@ impl ApiClient {
             .body(body)
             .send()
             .await?;
-        Self::handle_response(&url, "POST", resp).await
+        tracing::debug!(method = "POST", bytes, "API binary request sent");
+        Self::handle_response("POST", resp).await
     }
 
     /// Helper: send a PUT request with a JSON body.
@@ -1176,10 +1228,8 @@ impl ApiClient {
         body: &B,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        let body_json = serde_json::to_string(body).unwrap_or_default();
-        tracing::debug!("PUT {url} body={body_json}");
         let resp = self.client.put(&url).json(body).send().await?;
-        Self::handle_response(&url, "PUT", resp).await
+        Self::handle_response("PUT", resp).await
     }
 
     /// Helper: send a PATCH request with a JSON body.
@@ -1189,10 +1239,8 @@ impl ApiClient {
         body: &B,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        let body_json = serde_json::to_string(body).unwrap_or_default();
-        tracing::debug!("PATCH {url} body={body_json}");
         let resp = self.client.patch(&url).json(body).send().await?;
-        Self::handle_response(&url, "PATCH", resp).await
+        Self::handle_response("PATCH", resp).await
     }
 
     /// Helper: send a DELETE request expecting 204 No Content.
@@ -1200,43 +1248,40 @@ impl ApiClient {
     /// the endpoints that answer with it (see `delete_source_if_unused`).
     async fn delete_status(&self, path: &str) -> Result<u16, ApiError> {
         let url = self.url(path);
-        tracing::debug!("DELETE {url}");
         let resp = self.client.delete(&url).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!("DELETE {url} -> {status} {body}");
+            tracing::debug!(method = "DELETE", %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
-        tracing::debug!("DELETE {url} -> {status}");
+        tracing::debug!(method = "DELETE", %status, "API request completed");
         Ok(status.as_u16())
     }
 
     /// Helper: send a DELETE whose response carries a body.
     async fn delete_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         let url = self.url(path);
-        tracing::debug!("DELETE {url}");
         let resp = self.client.delete(&url).send().await?;
-        Self::handle_response(&url, "DELETE", resp).await
+        Self::handle_response("DELETE", resp).await
     }
 
     async fn delete_no_content(&self, path: &str) -> Result<(), ApiError> {
         let url = self.url(path);
-        tracing::debug!("DELETE {url}");
         let resp = self.client.delete(&url).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!("DELETE {url} -> {status} {body}");
+            tracing::debug!(method = "DELETE", %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
-        tracing::debug!("DELETE {url} -> {status}");
+        tracing::debug!(method = "DELETE", %status, "API request completed");
         Ok(())
     }
 
@@ -1246,7 +1291,6 @@ impl ApiClient {
         body: &B,
     ) -> Result<(), ApiError> {
         let url = self.url(path);
-        tracing::debug!("DELETE {url}");
         let resp = self.client.delete(&url).json(body).send().await?;
         let status = resp.status();
         if !status.is_success() {
@@ -1260,25 +1304,20 @@ impl ApiClient {
 
     /// Handle HTTP response: check status, parse JSON.
     async fn handle_response<T: serde::de::DeserializeOwned>(
-        url: &str,
         method: &str,
         resp: reqwest::Response,
     ) -> Result<T, ApiError> {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!("{method} {url} -> {status} {body}");
+            tracing::debug!(method, %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = resp.bytes().await?;
-        tracing::debug!(
-            "{method} {url} -> {status} ({} bytes): {}",
-            bytes.len(),
-            String::from_utf8_lossy(&bytes)
-        );
+        tracing::debug!(method, %status, bytes = bytes.len(), "API request completed");
         Ok(serde_json::from_slice(&bytes)?)
     }
 
@@ -1359,6 +1398,58 @@ impl ApiClient {
             ("limit", limit.to_string()),
             ("offset", offset.to_string()),
         ];
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/persons/search"), &params)
+            .await
+    }
+
+    pub async fn search_persons_filtered(
+        &self,
+        tree_id: Uuid,
+        search: &PersonSearchParams,
+    ) -> Result<SearchResult, ApiError> {
+        let mut params = vec![
+            ("q", search.query.clone()),
+            ("limit", search.limit.to_string()),
+            ("offset", search.offset.to_string()),
+            ("sort", search.sort.as_str().to_string()),
+        ];
+        for (name, value) in [
+            ("surname", search.surname.as_deref()),
+            ("given_names", search.given_names.as_deref()),
+            ("occupation", search.occupation.as_deref()),
+            ("spouse_surname", search.spouse_surname.as_deref()),
+            ("spouse_given_names", search.spouse_given_names.as_deref()),
+            ("father_surname", search.father_surname.as_deref()),
+            ("father_given_names", search.father_given_names.as_deref()),
+            ("mother_surname", search.mother_surname.as_deref()),
+            ("mother_given_names", search.mother_given_names.as_deref()),
+            ("place", search.place.as_deref()),
+        ] {
+            if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+                params.push((name, value.trim().to_string()));
+            }
+        }
+        for (name, value) in [
+            ("birth_from", search.birth_from),
+            ("birth_to", search.birth_to),
+            ("death_from", search.death_from),
+            ("death_to", search.death_to),
+            ("event_from", search.event_from),
+            ("event_to", search.event_to),
+        ] {
+            if let Some(value) = value {
+                params.push((name, value.to_string()));
+            }
+        }
+        if let Some(sex) = search.sex {
+            params.push(("sex", sex.to_string()));
+        }
+        if let Some(event_type) = search.event_type {
+            params.push(("event_type", event_type.to_string()));
+        }
+        if search.has_media {
+            params.push(("has_media", "true".to_string()));
+        }
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/persons/search"), &params)
             .await
     }
@@ -2267,8 +2358,54 @@ impl ApiClient {
     /// an `<img src>`: letting the engine fetch them means it also gets the
     /// `ETag` revalidation the endpoint offers, which pulling them through
     /// this client would throw away.
-    pub fn media_file_url(&self, tree_id: Uuid, media_id: Uuid) -> String {
-        self.url(&format!("/api/v1/trees/{tree_id}/media/{media_id}/file"))
+    async fn get_binary(&self, path: &str) -> Result<(Vec<u8>, String), ApiError> {
+        let response = self.client.get(self.url(path)).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            tracing::debug!(method = "GET", %status, "API binary request failed");
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        let bytes = response.bytes().await?.to_vec();
+        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API binary request completed");
+        Ok((bytes, content_type))
+    }
+
+    async fn get_binary_data_url(&self, path: &str) -> Result<String, ApiError> {
+        let (bytes, content_type) = self.get_binary(path).await?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Ok(format!("data:{content_type};base64,{encoded}"))
+    }
+
+    /// Load a media through the API client without exposing its endpoint as a
+    /// browser or WebView navigation target.
+    pub async fn media_file_data_url(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<String, ApiError> {
+        self.get_binary_data_url(&format!("/api/v1/trees/{tree_id}/media/{media_id}/file"))
+            .await
+    }
+
+    /// Load a media's bytes for a client-managed download.
+    pub async fn media_file_bytes(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<Vec<u8>, ApiError> {
+        self.get_binary(&format!("/api/v1/trees/{tree_id}/media/{media_id}/file"))
+            .await
+            .map(|(bytes, _)| bytes)
     }
 
     /// Where a person's portrait can actually be shown from, if anywhere.
@@ -2293,25 +2430,36 @@ impl ApiClient {
     ///     is;
     ///   - otherwise **nothing to show**, and `None` lets the caller draw the
     ///     silhouette rather than ask the browser for bytes that will 404.
-    pub fn portrait_url(&self, tree_id: Uuid, row: &PortraitRow) -> Option<String> {
-        if let Some(vignette_id) = row.vignette_id {
-            return Some(self.vignette_image_url(tree_id, vignette_id));
-        }
-        let media_id = row.media_id?;
-        if row.has_thumbnail {
-            Some(self.media_thumbnail_url(tree_id, media_id))
-        } else if is_remote(&row.file_path) {
-            Some(row.file_path.clone())
-        } else {
-            None
+    pub async fn portrait_url(
+        &self,
+        tree_id: Uuid,
+        row: &PortraitRow,
+    ) -> Result<Option<String>, ApiError> {
+        match portrait_source(row) {
+            PortraitSource::Vignette(vignette_id) => self
+                .vignette_image_data_url(tree_id, vignette_id)
+                .await
+                .map(Some),
+            PortraitSource::Thumbnail(media_id) => self
+                .media_thumbnail_data_url(tree_id, media_id)
+                .await
+                .map(Some),
+            PortraitSource::Remote(url) => Ok(Some(url)),
+            PortraitSource::Unavailable => Ok(None),
         }
     }
 
-    /// One portrait per person, ready to put in an `<img src>`.
-    pub fn portrait_map(&self, tree_id: Uuid, rows: &[PortraitRow]) -> HashMap<Uuid, String> {
-        rows.iter()
-            .filter_map(|row| Some((row.person_id, self.portrait_url(tree_id, row)?)))
-            .collect()
+    /// Load every displayable portrait without placing backend URLs in the DOM.
+    pub async fn portrait_map(&self, tree_id: Uuid, rows: &[PortraitRow]) -> HashMap<Uuid, String> {
+        let portraits = futures_util::future::join_all(rows.iter().map(|row| async move {
+            self.portrait_url(tree_id, row)
+                .await
+                .ok()
+                .flatten()
+                .map(|url| (row.person_id, url))
+        }))
+        .await;
+        portraits.into_iter().flatten().collect()
     }
 
     /// Every person's portrait in a tree, in one request.
@@ -2343,28 +2491,39 @@ impl ApiClient {
             .await
     }
 
-    /// Absolute URL of a document's pages, packed into one ZIP.
-    ///
-    /// Only meaningful for a media with pages: a forty-page register is one
-    /// document to the reader, and saving it a page at a time is forty save
-    /// dialogs and a directory whose alphabetical order has nothing to do
-    /// with the document's.
-    pub fn media_archive_url(&self, tree_id: Uuid, media_id: Uuid) -> String {
-        self.url(&format!("/api/v1/trees/{tree_id}/media/{media_id}/archive"))
+    /// Load a document archive through the API client.
+    pub async fn media_archive_bytes(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<Vec<u8>, ApiError> {
+        self.get_binary(&format!("/api/v1/trees/{tree_id}/media/{media_id}/archive"))
+            .await
+            .map(|(bytes, _)| bytes)
     }
 
-    /// Absolute URL of a media's generated thumbnail.
-    pub fn media_thumbnail_url(&self, tree_id: Uuid, media_id: Uuid) -> String {
-        self.url(&format!(
+    /// Load a generated thumbnail without exposing its API URL.
+    pub async fn media_thumbnail_data_url(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<String, ApiError> {
+        self.get_binary_data_url(&format!(
             "/api/v1/trees/{tree_id}/media/{media_id}/thumbnail"
         ))
+        .await
     }
 
-    /// Absolute URL of a vignette's cropped image.
-    pub fn vignette_image_url(&self, tree_id: Uuid, vignette_id: Uuid) -> String {
-        self.url(&format!(
+    /// Load a vignette image without exposing its API URL.
+    pub async fn vignette_image_data_url(
+        &self,
+        tree_id: Uuid,
+        vignette_id: Uuid,
+    ) -> Result<String, ApiError> {
+        self.get_binary_data_url(&format!(
             "/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"
         ))
+        .await
     }
 
     /// Upload a file and record it.
@@ -2386,7 +2545,11 @@ impl ApiClient {
             attach_to,
             as_page_of,
         } = upload;
-        tracing::debug!("POST {url} ({} bytes, {file_name})", bytes.len());
+        tracing::debug!(
+            method = "POST",
+            bytes = bytes.len(),
+            "API media upload started"
+        );
 
         let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
         let mut form = reqwest::multipart::Form::new().part("file", part);
@@ -2408,7 +2571,7 @@ impl ApiClient {
         }
 
         let resp = self.client.post(&url).multipart(form).send().await?;
-        let media = Self::handle_response(&url, "POST", resp).await?;
+        let media = Self::handle_response("POST", resp).await?;
         self.invalidate_tree(tree_id);
         Ok(media)
     }
@@ -2929,12 +3092,8 @@ impl ApiClient {
         query: &Q,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        tracing::debug!(
-            "PATCH {url} query={}",
-            serde_json::to_string(query).unwrap_or_default()
-        );
         let resp = self.client.patch(&url).query(query).send().await?;
-        Self::handle_response(&url, "PATCH", resp).await
+        Self::handle_response("PATCH", resp).await
     }
 
     /// Fetch a windowed pedigree for a root person.
@@ -3033,79 +3192,60 @@ mod tests {
     }
 
     #[test]
-    fn a_stored_portrait_is_served_from_our_thumbnail_not_the_producers_path() {
-        let api = ApiClient::new("http://localhost:3000");
-        let (tree, media) = (Uuid::now_v7(), Uuid::now_v7());
+    fn a_stored_portrait_uses_our_thumbnail_not_the_producers_path() {
+        let media = Uuid::now_v7();
         // The address a Geneanet deposit was recorded under. Loading it
         // directly is what turned every card holding a real photograph into a
         // broken-image icon.
         let row = portrait_row(Some(media), "https://www.geneanet.org/deposit/4713", true);
-        assert_eq!(
-            api.portrait_url(tree, &row),
-            Some(api.media_thumbnail_url(tree, media))
-        );
+        assert_eq!(portrait_source(&row), PortraitSource::Thumbnail(media));
     }
 
     #[test]
     fn a_portrait_that_is_a_face_in_a_group_photo_is_served_as_the_crop() {
-        let api = ApiClient::new("http://localhost:3000");
-        let (tree, vignette) = (Uuid::now_v7(), Uuid::now_v7());
+        let vignette = Uuid::now_v7();
         // The portrait most people in an old family archive actually have.
         // Serving the containing scan here would show the whole wedding party
         // on a card meant to show one face.
         let mut row = portrait_row(None, "", false);
         row.vignette_id = Some(vignette);
-        assert_eq!(
-            api.portrait_url(tree, &row),
-            Some(api.vignette_image_url(tree, vignette))
-        );
+        assert_eq!(portrait_source(&row), PortraitSource::Vignette(vignette));
     }
 
     #[test]
     fn a_crop_wins_over_a_media_if_a_row_somehow_carries_both() {
-        let api = ApiClient::new("http://localhost:3000");
-        let (tree, vignette) = (Uuid::now_v7(), Uuid::now_v7());
+        let vignette = Uuid::now_v7();
         // The write path refuses both, but a deterministic answer beats an
         // arbitrary one if a row ever escapes it: the crop is the more
         // specific statement.
         let mut row = portrait_row(Some(Uuid::now_v7()), "", true);
         row.vignette_id = Some(vignette);
-        assert_eq!(
-            api.portrait_url(tree, &row),
-            Some(api.vignette_image_url(tree, vignette))
-        );
+        assert_eq!(portrait_source(&row), PortraitSource::Vignette(vignette));
     }
 
     #[test]
     fn a_remote_media_we_never_fetched_is_shown_from_its_own_url() {
-        let api = ApiClient::new("http://localhost:3000");
         let row = portrait_row(Some(Uuid::now_v7()), "https://example.org/photo.jpg", false);
         assert_eq!(
-            api.portrait_url(Uuid::now_v7(), &row).as_deref(),
-            Some("https://example.org/photo.jpg")
+            portrait_source(&row),
+            PortraitSource::Remote("https://example.org/photo.jpg".to_string())
         );
     }
 
     #[test]
     fn a_record_naming_a_file_nobody_uploaded_has_no_portrait() {
-        let api = ApiClient::new("http://localhost:3000");
         // No thumbnail, and a path that is not an address: there is nothing to
         // load. `None` lets the card draw the silhouette rather than ask the
         // browser for bytes that will 404.
         let row = portrait_row(Some(Uuid::now_v7()), "C:\\Photos\\scan.jpg", false);
-        assert_eq!(api.portrait_url(Uuid::now_v7(), &row), None);
+        assert_eq!(portrait_source(&row), PortraitSource::Unavailable);
     }
 
     #[test]
-    fn a_person_with_nothing_loadable_is_left_out_of_the_map() {
-        let api = ApiClient::new("http://localhost:3000");
-        let (tree, person) = (Uuid::now_v7(), Uuid::now_v7());
+    fn a_person_with_nothing_loadable_is_classified_as_unavailable() {
+        let person = Uuid::now_v7();
         let mut unheld = portrait_row(Some(Uuid::now_v7()), "scan.jpg", false);
         unheld.person_id = person;
-        assert!(api.portrait_map(tree, &[unheld]).is_empty());
-
-        let mut held = portrait_row(Some(Uuid::now_v7()), "", true);
-        held.person_id = person;
-        assert!(api.portrait_map(tree, &[held]).contains_key(&person));
+        assert_eq!(portrait_source(&unheld), PortraitSource::Unavailable);
     }
 }

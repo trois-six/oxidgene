@@ -129,6 +129,31 @@ async fn test_tree_update_and_delete() {
 }
 
 #[tokio::test]
+async fn graphql_errors_use_safe_messages_and_stable_codes() {
+    let app = setup_app().await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Error Contract" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"].as_str().unwrap();
+
+    let resp = graphql(
+        app,
+        &format!(r#"mutation {{ updateTree(id: "{tree_id}", input: {{ name: "" }}) {{ id }} }}"#),
+        None,
+    )
+    .await;
+    let error = &resp["errors"][0];
+
+    assert_eq!(error["message"], "The request is invalid");
+    assert_eq!(error["extensions"]["code"], "VALIDATION_ERROR");
+    assert!(error["extensions"].get("requestId").is_none());
+}
+
+#[tokio::test]
 async fn test_tree_duplicate_preserves_genealogy() {
     let app = setup_app().await;
     let source_tree_id = data(
@@ -158,7 +183,7 @@ async fn test_tree_duplicate_preserves_genealogy() {
     graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Ada", surname: "Lovelace", isPrimary: true }}) {{ id }} }}"#
+            r#"mutation {{ addPersonName(treeId: "{source_tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Ada", surname: "Lovelace", isPrimary: true }}) {{ id }} }}"#
         ),
         None,
     )
@@ -353,7 +378,7 @@ async fn test_person_crud_with_names() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "John", surname: "Doe", isPrimary: true }}) {{ id givenNames surname isPrimary }} }}"#
+            r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "John", surname: "Doe", isPrimary: true }}) {{ id givenNames surname isPrimary }} }}"#
         ),
         None,
     )
@@ -382,7 +407,7 @@ async fn test_person_crud_with_names() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updatePerson(id: "{person_id}", input: {{ sex: FEMALE }}) {{ id sex }} }}"#
+            r#"mutation {{ updatePerson(treeId: "{tree_id}", id: "{person_id}", input: {{ sex: FEMALE }}) {{ id sex }} }}"#
         ),
         None,
     )
@@ -392,14 +417,155 @@ async fn test_person_crud_with_names() {
     // Delete person
     let resp = graphql(
         app,
-        &format!(r#"mutation {{ deletePerson(id: "{person_id}") }}"#),
+        &format!(r#"mutation {{ deletePerson(treeId: "{tree_id}", id: "{person_id}") }}"#),
         None,
     )
     .await;
     assert_eq!(data(&resp)["deletePerson"], true);
 }
 
+#[tokio::test]
+async fn person_from_another_tree_is_not_exposed_by_graphql() {
+    let app = setup_app().await;
+    let first_tree = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "First" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let second_tree = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Second" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let person_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{second_tree}", input: {{ sex: UNKNOWN }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = graphql(
+        app.clone(),
+        &format!(r#"{{ person(treeId: "{first_tree}", id: "{person_id}") {{ id }} }}"#),
+        None,
+    )
+    .await;
+    assert!(data(&response)["person"].is_null());
+
+    let response = graphql(
+        app,
+        &format!(
+            r#"mutation {{ updatePerson(treeId: "{first_tree}", id: "{person_id}", input: {{ sex: MALE }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert!(response.get("errors").is_some());
+}
+
 // ── Family with spouses and children ─────────────────────────────────
+
+#[tokio::test]
+async fn test_search_persons_filters_by_spouse() {
+    let app = setup_app().await;
+    let tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Search tree" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut person_ids = Vec::new();
+    for (sex, given_names, surname) in [
+        ("MALE", "SearchSubject", "Subject"),
+        ("FEMALE", "RelatedPerson", "RelativeMatch"),
+    ] {
+        let person_id = data(
+            &graphql(
+                app.clone(),
+                &format!(
+                    r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: {sex} }}) {{ id }} }}"#
+                ),
+                None,
+            )
+            .await,
+        )["createPerson"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        data(
+            &graphql(
+                app.clone(),
+                &format!(
+                    r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "{given_names}", surname: "{surname}", isPrimary: true }}) {{ id }} }}"#
+                ),
+                None,
+            )
+            .await,
+        );
+        person_ids.push(person_id);
+    }
+
+    let family_id = data(
+        &graphql(
+            app.clone(),
+            &format!(r#"mutation {{ createFamily(treeId: "{tree_id}") {{ id }} }}"#),
+            None,
+        )
+        .await,
+    )["createFamily"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (person_id, role) in person_ids.iter().zip(["HUSBAND", "WIFE"]) {
+        data(
+            &graphql(
+                app.clone(),
+                &format!(
+                    r#"mutation {{ addSpouse(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{person_id}", role: {role} }}) {{ id }} }}"#
+                ),
+                None,
+            )
+            .await,
+        );
+    }
+
+    let response = graphql(
+        app,
+        &format!(
+            r#"{{ searchPersons(treeId: "{tree_id}", query: "", surname: "subject", spouseSurname: "relative") {{ totalCount entries {{ displayName }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = &data(&response)["searchPersons"];
+    assert_eq!(result["totalCount"], 1);
+    assert_eq!(result["entries"][0]["displayName"], "SearchSubject Subject");
+}
 
 #[tokio::test]
 async fn test_family_with_members() {
@@ -468,11 +634,21 @@ async fn test_family_with_members() {
         .unwrap()
         .to_string();
 
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateFamily(treeId: "{tree_id}", id: "{family_id}", input: {{ privacy: PRIVATE }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["updateFamily"]["id"], family_id);
+
     // Add spouses
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addSpouse(familyId: "{family_id}", input: {{ personId: "{husband_id}", role: HUSBAND }}) {{ id role }} }}"#
+            r#"mutation {{ addSpouse(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{husband_id}", role: HUSBAND }}) {{ id role }} }}"#
         ),
         None,
     )
@@ -483,7 +659,7 @@ async fn test_family_with_members() {
     graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addSpouse(familyId: "{family_id}", input: {{ personId: "{wife_id}", role: WIFE }}) {{ id }} }}"#
+            r#"mutation {{ addSpouse(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{wife_id}", role: WIFE }}) {{ id }} }}"#
         ),
         None,
     )
@@ -493,7 +669,7 @@ async fn test_family_with_members() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addChild(familyId: "{family_id}", input: {{ personId: "{child_id}", childType: BIOLOGICAL }}) {{ id childType }} }}"#
+            r#"mutation {{ addChild(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{child_id}", childType: BIOLOGICAL }}) {{ id childType }} }}"#
         ),
         None,
     )
@@ -516,7 +692,7 @@ async fn test_family_with_members() {
     // Remove spouse
     let resp = graphql(
         app.clone(),
-        &format!(r#"mutation {{ removeSpouse(familyId: "{family_id}", id: "{spouse_link_id}") }}"#),
+        &format!(r#"mutation {{ removeSpouse(treeId: "{tree_id}", familyId: "{family_id}", id: "{spouse_link_id}") }}"#),
         None,
     )
     .await;
@@ -582,6 +758,34 @@ async fn test_event_with_place() {
     assert_eq!(event["dateSort"], "1900-01-01");
     let event_id = event["id"].as_str().unwrap().to_string();
 
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ birth {{ placeName }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["birth"]["placeName"], "Paris");
+
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updatePlace(treeId: "{tree_id}", id: "{place_id}", input: {{ name: "Lyon" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ birth {{ placeName }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["birth"]["placeName"], "Lyon");
+
     // Query event with resolved place
     let resp = graphql(
         app.clone(),
@@ -592,14 +796,14 @@ async fn test_event_with_place() {
     )
     .await;
     let ev = &data(&resp)["event"];
-    assert_eq!(ev["place"]["name"], "Paris");
+    assert_eq!(ev["place"]["name"], "Lyon");
     assert!(ev["person"]["id"].as_str().is_some());
 
     // Update event
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateEvent(id: "{event_id}", input: {{ description: "Updated birth" }}) {{ id description }} }}"#
+            r#"mutation {{ updateEvent(treeId: "{tree_id}", id: "{event_id}", input: {{ description: "Updated birth" }}) {{ id description }} }}"#
         ),
         None,
     )
@@ -609,7 +813,7 @@ async fn test_event_with_place() {
     // Delete event
     let resp = graphql(
         app,
-        &format!(r#"mutation {{ deleteEvent(id: "{event_id}") }}"#),
+        &format!(r#"mutation {{ deleteEvent(treeId: "{tree_id}", id: "{event_id}") }}"#),
         None,
     )
     .await;
@@ -646,7 +850,7 @@ async fn test_dictionary_snapshot_and_reference_over_graphql() {
     graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Marie", surname: "Durand", isPrimary: true }}) {{ id }} }}"#
+            r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Marie", surname: "Durand", isPrimary: true }}) {{ id }} }}"#
         ),
         None,
     )
@@ -688,7 +892,7 @@ async fn test_dictionary_snapshot_and_reference_over_graphql() {
     graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ createCitation(input: {{ sourceId: "{source_id}", personId: "{person_id}", confidence: HIGH }}) {{ id }} }}"#
+            r#"mutation {{ createCitation(treeId: "{tree_id}", input: {{ sourceId: "{source_id}", personId: "{person_id}", confidence: HIGH }}) {{ id }} }}"#
         ),
         None,
     )
@@ -783,7 +987,7 @@ async fn a_republican_date_is_sorted_where_it_belongs() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateEvent(id: "{event_id}", input: {{ calendar: GREGORIAN }}) {{ dateSort }} }}"#
+            r#"mutation {{ updateEvent(treeId: "{tree_id}", id: "{event_id}", input: {{ calendar: GREGORIAN }}) {{ dateSort }} }}"#
         ),
         None,
     )
@@ -795,7 +999,7 @@ async fn a_republican_date_is_sorted_where_it_belongs() {
     let resp = graphql(
         app,
         &format!(
-            r#"mutation {{ updateEvent(id: "{event_id}", input: {{ dateValue: null }}) {{ dateValue dateSort }} }}"#
+            r#"mutation {{ updateEvent(treeId: "{tree_id}", id: "{event_id}", input: {{ dateValue: null }}) {{ dateValue dateSort }} }}"#
         ),
         None,
     )
@@ -822,6 +1026,28 @@ async fn test_source_and_citation() {
         .unwrap()
         .to_string();
 
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: UNKNOWN }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let person_id = data(&resp)["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ citationCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["citationCount"], 0);
+
     // Create source
     let resp = graphql(
         app.clone(),
@@ -840,7 +1066,7 @@ async fn test_source_and_citation() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ createCitation(input: {{ sourceId: "{source_id}", page: "42", confidence: HIGH, text: "entry text" }}) {{ id page confidence text }} }}"#
+            r#"mutation {{ createCitation(treeId: "{tree_id}", input: {{ sourceId: "{source_id}", personId: "{person_id}", page: "42", confidence: HIGH, text: "entry text" }}) {{ id page confidence text }} }}"#
         ),
         None,
     )
@@ -849,6 +1075,16 @@ async fn test_source_and_citation() {
     assert_eq!(cit["page"], "42");
     assert_eq!(cit["confidence"], "HIGH");
     let citation_id = cit["id"].as_str().unwrap().to_string();
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ citationCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["citationCount"], 1);
 
     // Query source with nested citations
     let resp = graphql(
@@ -866,7 +1102,7 @@ async fn test_source_and_citation() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateCitation(id: "{citation_id}", input: {{ page: "43" }}) {{ id page }} }}"#
+            r#"mutation {{ updateCitation(treeId: "{tree_id}", id: "{citation_id}", input: {{ page: "43" }}) {{ id page }} }}"#
         ),
         None,
     )
@@ -875,12 +1111,21 @@ async fn test_source_and_citation() {
 
     // Delete citation
     let resp = graphql(
-        app,
-        &format!(r#"mutation {{ deleteCitation(id: "{citation_id}") }}"#),
+        app.clone(),
+        &format!(r#"mutation {{ deleteCitation(treeId: "{tree_id}", id: "{citation_id}") }}"#),
         None,
     )
     .await;
     assert_eq!(data(&resp)["deleteCitation"], true);
+    let resp = graphql(
+        app,
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ citationCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["citationCount"], 0);
 }
 
 // ── Media + MediaLink CRUD ───────────────────────────────────────────
@@ -913,6 +1158,16 @@ async fn test_media_and_media_link() {
         .unwrap()
         .to_string();
 
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ noteCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["noteCount"], 0);
+
     // Upload media
     let resp = graphql(
         app.clone(),
@@ -931,7 +1186,7 @@ async fn test_media_and_media_link() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ createMediaLink(input: {{ mediaId: "{media_id}", personId: "{person_id}" }}) {{ id mediaId personId }} }}"#
+            r#"mutation {{ createMediaLink(treeId: "{tree_id}", input: {{ mediaId: "{media_id}", personId: "{person_id}" }}) {{ id mediaId personId }} }}"#
         ),
         None,
     )
@@ -940,11 +1195,39 @@ async fn test_media_and_media_link() {
     assert_eq!(link["mediaId"], media_id);
     let link_id = link["id"].as_str().unwrap().to_string();
 
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ treeMediaLinks(treeId: "{tree_id}") {{ linkId entityId entityType mediaId fileName mimeType hasThumbnail }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let tree_links = data(&resp)["treeMediaLinks"].as_array().unwrap();
+    assert_eq!(tree_links.len(), 1);
+    assert_eq!(tree_links[0]["linkId"], link_id);
+    assert_eq!(tree_links[0]["entityId"], person_id);
+    assert_eq!(tree_links[0]["entityType"], "person");
+    assert_eq!(tree_links[0]["mediaId"], media_id);
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ mediaLinks(treeId: "{tree_id}", mediaId: "{media_id}") {{ id personId }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let media_links = data(&resp)["mediaLinks"].as_array().unwrap();
+    assert_eq!(media_links.len(), 1);
+    assert_eq!(media_links[0]["id"], link_id);
+    assert_eq!(media_links[0]["personId"], person_id);
+
     // Update media
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateMedia(id: "{media_id}", input: {{ title: "New Portrait", privacy: PRIVATE }}) {{ id title privacy }} }}"#
+            r#"mutation {{ updateMedia(treeId: "{tree_id}", id: "{media_id}", input: {{ title: "New Portrait", privacy: PRIVATE }}) {{ id title privacy }} }}"#
         ),
         None,
     )
@@ -955,7 +1238,7 @@ async fn test_media_and_media_link() {
     // Delete media link
     let resp = graphql(
         app.clone(),
-        &format!(r#"mutation {{ deleteMediaLink(id: "{link_id}") }}"#),
+        &format!(r#"mutation {{ deleteMediaLink(treeId: "{tree_id}", id: "{link_id}") }}"#),
         None,
     )
     .await;
@@ -964,7 +1247,7 @@ async fn test_media_and_media_link() {
     // Delete media
     let resp = graphql(
         app,
-        &format!(r#"mutation {{ deleteMedia(id: "{media_id}") }}"#),
+        &format!(r#"mutation {{ deleteMedia(treeId: "{tree_id}", id: "{media_id}") }}"#),
         None,
     )
     .await;
@@ -1014,11 +1297,21 @@ async fn test_note_crud() {
     assert_eq!(note["text"], "Important note");
     let note_id = note["id"].as_str().unwrap().to_string();
 
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ noteCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["noteCount"], 1);
+
     // Update note
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateNote(id: "{note_id}", input: {{ text: "Updated note" }}) {{ id text }} }}"#
+            r#"mutation {{ updateNote(treeId: "{tree_id}", id: "{note_id}", input: {{ text: "Updated note" }}) {{ id text }} }}"#
         ),
         None,
     )
@@ -1039,12 +1332,21 @@ async fn test_note_crud() {
 
     // Delete note
     let resp = graphql(
-        app,
-        &format!(r#"mutation {{ deleteNote(id: "{note_id}") }}"#),
+        app.clone(),
+        &format!(r#"mutation {{ deleteNote(treeId: "{tree_id}", id: "{note_id}") }}"#),
         None,
     )
     .await;
     assert_eq!(data(&resp)["deleteNote"], true);
+    let resp = graphql(
+        app,
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{person_id}") {{ noteCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["personProfile"]["noteCount"], 0);
 }
 
 // ── Ancestors / Descendants (empty) ──────────────────────────────────
@@ -1215,7 +1517,7 @@ async fn test_person_name_update_delete() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "John", surname: "Smith", isPrimary: true }}) {{ id }} }}"#
+            r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "John", surname: "Smith", isPrimary: true }}) {{ id }} }}"#
         ),
         None,
     )
@@ -1229,7 +1531,7 @@ async fn test_person_name_update_delete() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updatePersonName(id: "{name_id}", input: {{ surname: "Jones" }}) {{ id surname }} }}"#
+            r#"mutation {{ updatePersonName(treeId: "{tree_id}", personId: "{person_id}", id: "{name_id}", input: {{ surname: "Jones" }}) {{ id surname }} }}"#
         ),
         None,
     )
@@ -1239,7 +1541,7 @@ async fn test_person_name_update_delete() {
     // Delete name
     let resp = graphql(
         app,
-        &format!(r#"mutation {{ deletePersonName(personId: "{person_id}", id: "{name_id}") }}"#),
+        &format!(r#"mutation {{ deletePersonName(treeId: "{tree_id}", personId: "{person_id}", id: "{name_id}") }}"#),
         None,
     )
     .await;
@@ -1749,7 +2051,7 @@ async fn test_projection_graphql_surface() {
     graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{
+            r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{
                 nameType: BIRTH, givenNames: "Jean", surname: "Dupont", isPrimary: true
             }}) {{ id }} }}"#
         ),
@@ -1879,7 +2181,7 @@ async fn test_update_can_clear_a_nullable_field() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Jean", surname: "MARTIN", surnamePrefix: "de", nickname: "Jeannot", isPrimary: true }}) {{ id surnamePrefix }} }}"#
+            r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Jean", surname: "MARTIN", surnamePrefix: "de", nickname: "Jeannot", isPrimary: true }}) {{ id surnamePrefix }} }}"#
         ),
         None,
     )
@@ -1892,7 +2194,7 @@ async fn test_update_can_clear_a_nullable_field() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updatePersonName(id: "{name_id}", input: {{ surname: "MARTIN", surnamePrefix: null }}) {{ surname surnamePrefix nickname }} }}"#
+            r#"mutation {{ updatePersonName(treeId: "{tree_id}", personId: "{person_id}", id: "{name_id}", input: {{ surname: "MARTIN", surnamePrefix: null }}) {{ surname surnamePrefix nickname }} }}"#
         ),
         None,
     )
@@ -2003,11 +2305,10 @@ async fn test_upload_media_file_rejects_content_that_is_not_base64() {
     )
     .await;
 
-    let errors = resp.get("errors").expect("should have errored");
-    assert!(
-        errors.to_string().contains("base64"),
-        "the message should name the problem: {errors}"
-    );
+    let error = &resp["errors"][0];
+    assert_eq!(error["message"], "The request is invalid");
+    assert_eq!(error["extensions"]["code"], "VALIDATION_ERROR");
+    assert!(error["extensions"].get("requestId").is_none());
 }
 
 #[tokio::test]
@@ -2035,7 +2336,7 @@ async fn test_vignette_lifecycle_over_graphql() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ createVignette(input: {{
+            r#"mutation {{ createVignette(treeId: "{tree_id}", input: {{
                                  mediaId: "{media_id}", x: 10, y: 20, width: 200, height: 150
                              }}) {{ id x y width height page }} }}"#
         ),
@@ -2060,7 +2361,7 @@ async fn test_vignette_lifecycle_over_graphql() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateVignette(id: "{vignette_id}", input: {{
+            r#"mutation {{ updateVignette(treeId: "{tree_id}", id: "{vignette_id}", input: {{
                  x: 100, y: 100, width: 300, height: 200
              }}) {{ x y width height }} }}"#
         ),
@@ -2074,7 +2375,7 @@ async fn test_vignette_lifecycle_over_graphql() {
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ updateVignette(id: "{vignette_id}", input: {{
+            r#"mutation {{ updateVignette(treeId: "{tree_id}", id: "{vignette_id}", input: {{
                  x: 700, y: 500, width: 300, height: 200
                }}) {{ x }} }}"#
         ),
@@ -2089,7 +2390,7 @@ async fn test_vignette_lifecycle_over_graphql() {
     // Delete
     let resp = graphql(
         app.clone(),
-        &format!(r#"mutation {{ deleteVignette(id: "{vignette_id}") }}"#),
+        &format!(r#"mutation {{ deleteVignette(treeId: "{tree_id}", id: "{vignette_id}") }}"#),
         None,
     )
     .await;

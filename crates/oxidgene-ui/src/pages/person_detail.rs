@@ -355,7 +355,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 return HashMap::new();
             };
             match api.list_portraits(tid).await {
-                Ok(rows) => api.portrait_map(tid, &rows),
+                Ok(rows) => api.portrait_map(tid, &rows).await,
                 Err(_) => HashMap::new(),
             }
         }

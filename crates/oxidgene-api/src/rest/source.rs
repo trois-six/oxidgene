@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use super::dto::{CreateSourceRequest, DeleteSourceQuery, PaginationQuery, UpdateSourceRequest};
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/sources
 pub async fn list_sources(
@@ -59,8 +59,11 @@ pub async fn create_source(
 /// GET /api/v1/trees/:tree_id/sources/:source_id
 pub async fn get_source(
     State(state): State<AppState>,
-    Path((_tree_id, source_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id)
+        .await
+        .map_err(ApiError)?;
     let source = SourceRepo::get(&state.db, source_id)
         .await
         .map_err(ApiError::from)?;
@@ -70,9 +73,12 @@ pub async fn get_source(
 /// PUT /api/v1/trees/:tree_id/sources/:source_id
 pub async fn update_source(
     State(state): State<AppState>,
-    Path((_tree_id, source_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateSourceRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id)
+        .await
+        .map_err(ApiError)?;
     let source = SourceRepo::update(
         &state.db,
         source_id,
@@ -90,9 +96,12 @@ pub async fn update_source(
 /// DELETE /api/v1/trees/:tree_id/sources/:source_id
 pub async fn delete_source(
     State(state): State<AppState>,
-    Path((_tree_id, source_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteSourceQuery>,
 ) -> Result<StatusCode, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id)
+        .await
+        .map_err(ApiError)?;
     // `only_if_unused` turns the delete into a cleanup: a source still cited
     // anywhere is kept, which the 200/204 split reports back.
     if query.only_if_unused {

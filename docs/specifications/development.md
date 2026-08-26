@@ -1,0 +1,92 @@
+---
+type: "Development Specification"
+title: "Development Environment and Workflows"
+description: "Local development prerequisites and just command reference for OxidGene."
+tags: [oxidgene, specification, development, rust, just]
+timestamp: 2026-08-26T00:00:00Z
+---
+
+# Development Environment and Workflows
+
+> Part of the [OxidGene Specifications](index.md).
+> See also: [Architecture](architecture.md) · [Cross-cutting Rules](cross-cutting.md)
+
+---
+
+## 1. Prerequisites
+
+- [Rust](https://rustup.rs/) stable toolchain.
+- [just](https://github.com/casey/just) task runner.
+- PostgreSQL 16+ or Docker Compose for the web backend.
+- The `wasm32-unknown-unknown` Rust target for the browser application.
+- [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) 0.7.10.
+- `cargo-nextest` for the workspace test recipes.
+- `cargo-watch` for backend hot reload; optional unless using `just dev-web-watch`.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install cargo-nextest --locked
+cargo install dioxus-cli --version 0.7.10 --locked
+cargo install cargo-watch --locked
+```
+
+## 2. Command Reference
+
+Run `just` without arguments to list available recipes. All commands run from
+the repository root.
+
+### 2.1 Build and Quality
+
+| Command | Purpose |
+|---------|---------|
+| `just build` | Build all workspace crates in debug mode. |
+| `just build-release` | Build all workspace crates in release mode. |
+| `just test` | Run the workspace test suite with `cargo-nextest`. |
+| `just test-verbose` | Run tests while preserving test output. |
+| `just fmt` | Format all Rust source files. |
+| `just fmt-check` | Check Rust formatting without changing files. |
+| `just clippy` | Run Clippy for all workspace targets and deny warnings. |
+| `just check` | Run formatting verification, Clippy, and tests. |
+| `just clean` | Remove Cargo build artifacts. |
+| `just doc` | Generate and open workspace API documentation. |
+
+Run `just check` before committing code changes.
+
+### 2.2 Backend and Database
+
+| Command | Purpose |
+|---------|---------|
+| `just server` | Run the Axum development server on `http://127.0.0.1:8080`. |
+| `just dev-db-up` | Start the PostgreSQL development container and wait until it is ready. |
+| `just dev-db-down` | Stop the PostgreSQL development container without deleting its data. |
+
+### 2.3 Browser Application
+
+| Command | Purpose |
+|---------|---------|
+| `just web-check` | Check the browser application for the `wasm32-unknown-unknown` target. |
+| `just web` | Run the browser application on `http://127.0.0.1:8081` against the local API by default. |
+| `just web-build` | Build the production browser bundle. |
+| `just dev-web` | Run the API and browser application together; the browser application hot reloads. |
+| `just dev-web-watch` | Run the API and browser application with hot reload for both processes. |
+
+`just web` uses `OXIDGENE_API_URL` when set; otherwise it connects to
+`http://127.0.0.1:8080`.
+
+### 2.4 Desktop Application
+
+| Command | Purpose |
+|---------|---------|
+| `just desktop` | Run the desktop application in development mode. |
+| `just build-desktop-release` | Build the desktop application in release mode. |
+
+## 3. Local Web Workflow
+
+1. Start the database with `just dev-db-up`.
+2. Run `just dev-web` for frontend hot reload, or `just dev-web-watch` to also
+   restart the backend when its Rust sources change.
+3. Open `http://127.0.0.1:8081` in a browser.
+4. Stop the database with `just dev-db-down` when it is no longer needed.
+
+The local workflow does not replace the complete containerized
+frontend/backend deployment tracked in the roadmap.

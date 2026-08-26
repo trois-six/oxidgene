@@ -9,13 +9,16 @@ use uuid::Uuid;
 
 use super::dto::{CreatePersonNameRequest, UpdatePersonNameRequest};
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/persons/:person_id/names
 pub async fn list_person_names(
     State(state): State<AppState>,
-    Path((_tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Person, person_id)
+        .await
+        .map_err(ApiError)?;
     let names = PersonNameRepo::list_by_person(&state.db, person_id)
         .await
         .map_err(ApiError::from)?;
@@ -30,6 +33,9 @@ pub async fn create_person_name(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Person, person_id)
+        .await
+        .map_err(ApiError)?;
     let name = PersonNameRepo::create(
         &txn,
         id,
@@ -71,6 +77,12 @@ pub async fn update_person_name(
     Json(body): Json<UpdatePersonNameRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Person, person_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::PersonName, name_id)
+        .await
+        .map_err(ApiError)?;
     let name = PersonNameRepo::update(
         &txn,
         name_id,
@@ -106,6 +118,12 @@ pub async fn delete_person_name(
     Path((tree_id, person_id, name_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Person, person_id)
+        .await
+        .map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::PersonName, name_id)
+        .await
+        .map_err(ApiError)?;
     PersonNameRepo::delete(&txn, name_id)
         .await
         .map_err(ApiError::from)?;

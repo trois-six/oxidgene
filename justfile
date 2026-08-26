@@ -44,6 +44,34 @@ clean:
 server:
     cargo run --package oxidgene-server
 
+# Start the PostgreSQL development database
+dev-db-up:
+    docker compose -f docker/docker-compose.yml up -d --wait postgres
+
+# Stop the PostgreSQL development database without deleting its data
+dev-db-down:
+    docker compose -f docker/docker-compose.yml stop postgres
+
+# Check the browser frontend for its actual WebAssembly target
+web-check:
+    cargo check --package oxidgene-web --target wasm32-unknown-unknown
+
+# Run the browser frontend against the development backend on port 8080
+web:
+    OXIDGENE_API_URL="${OXIDGENE_API_URL:-http://127.0.0.1:8080}" dx serve --package oxidgene-web --platform web --port 8081
+
+# Build the production browser bundle
+web-build:
+    dx build --package oxidgene-web --platform web --release
+
+# Run the backend and browser frontend together (frontend hot reload)
+dev-web:
+    bash scripts/dev-web.sh
+
+# Run the backend and browser frontend with hot reload for both
+dev-web-watch:
+    bash scripts/dev-web.sh --watch-backend
+
 # Run the desktop app (dev mode)
 desktop:
     cargo run --package oxidgene-desktop

@@ -80,6 +80,51 @@ pub struct PersonSearchQuery {
     pub limit: Option<usize>,
     /// Offset for pagination (default: 0).
     pub offset: Option<usize>,
+    pub sex: Option<Sex>,
+    pub surname: Option<String>,
+    pub given_names: Option<String>,
+    pub occupation: Option<String>,
+    pub spouse_surname: Option<String>,
+    pub spouse_given_names: Option<String>,
+    pub father_surname: Option<String>,
+    pub father_given_names: Option<String>,
+    pub mother_surname: Option<String>,
+    pub mother_given_names: Option<String>,
+    pub birth_from: Option<i32>,
+    pub birth_to: Option<i32>,
+    pub death_from: Option<i32>,
+    pub death_to: Option<i32>,
+    pub place: Option<String>,
+    pub event_type: Option<EventType>,
+    pub event_from: Option<i32>,
+    pub event_to: Option<i32>,
+    #[serde(default)]
+    pub has_media: bool,
+    #[serde(default)]
+    pub sort: PersonSearchSortQuery,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersonSearchSortQuery {
+    #[default]
+    Relevance,
+    NameAsc,
+    NameDesc,
+    BirthAsc,
+    BirthDesc,
+}
+
+impl From<PersonSearchSortQuery> for oxidgene_db::repo::PersonSearchSort {
+    fn from(value: PersonSearchSortQuery) -> Self {
+        match value {
+            PersonSearchSortQuery::Relevance => Self::Relevance,
+            PersonSearchSortQuery::NameAsc => Self::NameAsc,
+            PersonSearchSortQuery::NameDesc => Self::NameDesc,
+            PersonSearchSortQuery::BirthAsc => Self::BirthAsc,
+            PersonSearchSortQuery::BirthDesc => Self::BirthDesc,
+        }
+    }
 }
 
 /// Response for GET /api/v1/trees/:tree_id/persons/:person_id.

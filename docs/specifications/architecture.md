@@ -23,7 +23,7 @@ timestamp: 2026-06-17T00:00:00Z
 | Desktop shell | Wry (WebView) | via Dioxus | System WebView, small binary size |
 | Backend framework | Axum | 0.8+ | Tokio-based, tower middleware |
 | GraphQL | async-graphql | 7.2+ | With async-graphql-axum integration |
-| ORM | SeaORM | 1.1+ | Async, supports PostgreSQL + SQLite |
+| ORM | SeaORM | 2.0+ | Async, supports PostgreSQL + SQLite |
 | Web database | PostgreSQL | 16+ | Production web deployment |
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
 | GEDCOM | ged_io | 0.16+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
@@ -51,7 +51,7 @@ For full entity definitions, see [Data Model](data-model.md).
 | Pagination | Cursor-based (Relay-style) | Handles concurrent modifications, natural fit for GraphQL connections |
 | Deletion | Soft delete (`deleted_at`) | Undo capability, audit trail, filtered out by default |
 | Desktop architecture | Single binary | Embeds Axum on localhost + SQLite + Dioxus WebView |
-| Authentication | Deferred to EPIC G | No auth in MVP; single-user desktop, open web for now |
+| Authentication | Deferred to EPIC G | No auth in MVP; backend access remains local/private and is never directly public |
 
 ---
 
@@ -63,7 +63,8 @@ For full entity definitions, see [Data Model](data-model.md).
 - GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `ged_io` model, so both formats share one conversion into the domain.
 - Denormalized read projections materialized in the database and maintained by
     `oxidgene-api::profile`. See [Data Model §4](data-model.md).
-- Two binary crates: the web server and desktop application. There is no CLI.
+- Application crates provide the web server, browser frontend, and desktop
+    application. There is no CLI.
 
 API endpoints are documented in [API Contract](api.md).
 
@@ -74,7 +75,16 @@ API endpoints are documented in [API Contract](api.md).
 - Dioxus components crate (`oxidgene-ui`).
 - Shared between web and desktop targets.
 - Communicates with the backend via REST/GraphQL.
+- In the browser, `oxidgene-web` compiles the shared UI to WebAssembly and
+    injects the separately deployed Axum API URL.
 - On desktop: points to `http://127.0.0.1:<port>` served by the embedded Axum server.
+- The embedded and standalone servers bind to loopback by default. Before
+    authentication and authorization ship, no deployment exposes Axum directly
+    to an untrusted network; a container that listens on its private network is
+    reachable only through a trusted same-origin gateway.
+- The UI fetches backend media through `ApiClient` and gives the rendering
+    engine only local `data:`/`blob:` resources. API URLs never become links,
+    image sources, redirects, or new-window destinations.
 - Geneanet import separates control and data planes: REST/GraphQL carry import
     metadata and local paths, while the login WebView and embedded backend
     exchange media bytes through their shared filesystem. No Geneanet media byte
@@ -101,6 +111,9 @@ UI specifications:
 ## 7. Build & Testing
 
 - Unified `justfile` for build, test, lint, format, migration, and deployment tasks.
+- `just dev-web` runs the Axum backend and `dx serve` browser frontend together;
+    the frontend hot-reloads. `just dev-web-watch` also restarts the backend via
+    `cargo-watch`. PostgreSQL can be started separately with `just dev-db-up`.
 - Unit and integration tests across the workspace. End-to-end UI coverage is a
     remaining quality goal where the roadmap names it.
 - CI/CD pipelines (GitHub Actions).
@@ -111,8 +124,12 @@ UI specifications:
 
 ### 8.1 Web Deployment
 
-- Docker Compose for local development.
+- The host development workflow runs the backend on port 8080 and the Dioxus
+    frontend on port 8081, with PostgreSQL optionally provided by Docker Compose.
 - Current server deployment uses Docker and PostgreSQL.
+- Development Compose publishes PostgreSQL and Axum on host loopback only.
+    Direct public backend deployment is blocked until EPIC G authentication and
+    per-tree authorization are enforced across every transport and media read.
 - The release images, development Compose stack, and Kubernetes deliverables
     are tracked in [Roadmap §5](roadmap.md).
 
@@ -150,6 +167,7 @@ oxidgene/
 │   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
+│   ├── oxidgene-web/       # Browser frontend (Dioxus/WASM)
 │   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + Dioxus WebView)
 └── docker/                 # Docker files
 ```
@@ -167,6 +185,7 @@ oxidgene-geneanet (no internal deps)
 oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-gedcom, oxidgene-geneanet)
     ↑
 oxidgene-server (depends on: oxidgene-api, oxidgene-db)
+oxidgene-web (depends on: oxidgene-ui)
 oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui, oxidgene-geneanet)
 
 oxidgene-ui (depends on: oxidgene-core)
@@ -180,7 +199,8 @@ Where it needs something only the desktop can do — the
 and injects as context. The web build simply finds none and renders the
 explanation instead of the control.
 
-The workspace keeps libraries under `crates/` and the two binaries under
-`apps/`. A former CLI was removed after its workflows moved into the desktop
-application. The initial migration holds the baseline schema; every subsequent
-schema change adds a migration and existing migrations are not squashed.
+The workspace keeps libraries under `crates/` and application entry points
+under `apps/`. A former CLI was removed after its workflows moved into the
+desktop application. The initial migration holds the baseline schema; every
+subsequent schema change adds a migration and existing migrations are not
+squashed.
