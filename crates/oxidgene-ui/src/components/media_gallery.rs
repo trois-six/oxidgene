@@ -62,6 +62,51 @@ pub struct MediaEventLinkOption {
     pub date_sort: Option<NaiveDate>,
 }
 
+#[component]
+fn PrivateThumbnail(tree_id: Uuid, media_id: Uuid, alt: String, class: Option<String>) -> Element {
+    let api = use_context::<ApiClient>();
+    let image = use_resource(move || {
+        let api = api.clone();
+        async move { api.media_thumbnail_data_url(tree_id, media_id).await }
+    });
+    let url = image
+        .read_unchecked()
+        .as_ref()
+        .and_then(|result| result.as_ref().ok())
+        .cloned();
+
+    rsx! {
+        if let Some(url) = url {
+            img { class, src: "{url}", alt, loading: "lazy" }
+        }
+    }
+}
+
+#[component]
+fn PrivateVignetteImage(
+    tree_id: Uuid,
+    vignette_id: Uuid,
+    alt: String,
+    class: Option<String>,
+) -> Element {
+    let api = use_context::<ApiClient>();
+    let image = use_resource(move || {
+        let api = api.clone();
+        async move { api.vignette_image_data_url(tree_id, vignette_id).await }
+    });
+    let url = image
+        .read_unchecked()
+        .as_ref()
+        .and_then(|result| result.as_ref().ok())
+        .cloned();
+
+    rsx! {
+        if let Some(url) = url {
+            img { class, src: "{url}", alt, loading: "lazy" }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MediaEventMenu {
     Link,
@@ -512,22 +557,8 @@ fn MediaTile(
     menu_events.sort_by_key(|event| (event.date_sort.is_none(), event.date_sort));
     let event_list_id = format!("media-event-menu-{media_id}");
 
-    // What the tile links to, and what it draws.
-    //
-    //  - stored:  our own endpoints. A thumbnail if the server made one.
-    //  - remote:  the URL itself. No thumbnail — we never fetch it — so an
-    //             image is previewed from the original and everything else
-    //             falls back to its icon.
-    //  - unheld:  nothing to open at all; the icon says what it would be.
-    let preview_url = match (source, kind) {
-        (MediaSource::Stored, _) if tile.media.thumbnail_key.is_some() => {
-            Some(api.media_thumbnail_url(tree_id, media_id))
-        }
-        // A remote image is previewed from the original: it is the only copy
-        // there is, and the browser scales it into the tile anyway.
-        (MediaSource::Remote, MediaKind::Image) => Some(tile.media.file_path.clone()),
-        _ => None,
-    };
+    let remote_preview = (source == MediaSource::Remote && kind == MediaKind::Image)
+        .then(|| tile.media.file_path.clone());
 
     // Called from two places — the hover button and the right-click menu —
     // so it takes no ownership of anything it cannot clone.
@@ -706,7 +737,9 @@ fn MediaTile(
                     event_menu_overflow.set((false, false));
                     menu_at.set(Some((point.x, point.y)));
                 },
-                if let Some(preview) = preview_url.clone() {
+                if source == MediaSource::Stored && tile.media.thumbnail_key.is_some() {
+                    PrivateThumbnail { tree_id, media_id, alt: caption.clone() }
+                } else if let Some(preview) = remote_preview.clone() {
                     img { src: "{preview}", alt: "{caption}", loading: "lazy" }
                 } else {
                     // An icon that says what the file is, rather than the
@@ -992,7 +1025,6 @@ fn VignetteTile(
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
 
     let vignette_id = vignette.id;
-    let url = api.vignette_image_url(tree_id, vignette_id);
     let caption = i18n.t("media.vignette");
 
     let toggle_portrait = use_callback({
@@ -1072,7 +1104,11 @@ fn VignetteTile(
                     let point = e.client_coordinates();
                     menu_at.set(Some((point.x, point.y)));
                 },
-                img { src: "{url}", alt: "{caption}", loading: "lazy" }
+                PrivateVignetteImage {
+                    tree_id,
+                    vignette_id,
+                    alt: caption.clone(),
+                }
                 if is_portrait {
                     span { class: "media-star", title: i18n.t("media.profile_image"), "\u{2605}" }
                 }
@@ -1758,14 +1794,13 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                 {
                     let page_id = page.id;
                     let has_thumbnail = page.thumbnail_key.is_some();
-                    let thumbnail = api.media_thumbnail_url(tree_id, page_id);
                     let name = page.file_name.clone();
                     rsx! {
                         div { key: "{page_id}", class: "doc-page",
                             span { class: "doc-page-number", "{index + 1}" }
                             div { class: "doc-page-thumb",
                                 if has_thumbnail {
-                                    img { src: "{thumbnail}", alt: "{name}", loading: "lazy" }
+                                    PrivateThumbnail { tree_id, media_id: page_id, alt: name }
                                 } else {
                                     span { class: "media-glyph", "\u{1F4C4}" }
                                 }
@@ -2143,11 +2178,14 @@ fn MediaIdentifications(
                     let identified = vignette
                         .person_id
                         .and_then(|person_id| primary_person_name(&person_names, person_id).map(|name| (person_id, name)));
-                    let image_url = api.vignette_image_url(tree_id, vignette_id);
                     rsx! {
                         div { key: "{vignette_id}", class: "media-identification",
                             div { class: "media-vignette-item",
-                                img { src: "{image_url}", alt: "" }
+                                PrivateVignetteImage {
+                                    tree_id,
+                                    vignette_id,
+                                    alt: String::new(),
+                                }
                                 if let Some((person_id, name)) = identified {
                                     Link {
                                         to: Route::TreeDetail {
@@ -2463,12 +2501,6 @@ fn MediaViewer(
         None if is_document => MediaKind::Document,
         None => current_tile.kind(),
     };
-    let url = match (shown, source) {
-        (Some(page), _) => Some(api.media_file_url(tree_id, page.id)),
-        (None, MediaSource::Stored) => Some(api.media_file_url(tree_id, current_tile.media.id)),
-        (None, MediaSource::Remote) => Some(current_tile.media.file_path.clone()),
-        (None, MediaSource::Unheld) => None,
-    };
     let content_media_id = shown.map(|media| media.id).unwrap_or(current_tile.media.id);
     let (content_width, content_height) = shown
         .map(|media| (media.width, media.height))
@@ -2481,6 +2513,32 @@ fn MediaViewer(
     if *vignette_media_id.peek() != content_media_id {
         vignette_media_id.set(content_media_id);
     }
+    let requested_asset_id = match (shown, source) {
+        (Some(page), _) => Some(page.id),
+        (None, MediaSource::Stored) => Some(current_tile.media.id),
+        _ => None,
+    };
+    let mut asset_media_id = use_signal(|| requested_asset_id);
+    if *asset_media_id.peek() != requested_asset_id {
+        asset_media_id.set(requested_asset_id);
+    }
+    let media_asset = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let media_id = asset_media_id();
+            async move {
+                match media_id {
+                    Some(media_id) => api.media_file_data_url(tree_id, media_id).await.ok(),
+                    None => None,
+                }
+            }
+        }
+    });
+    let url = match source {
+        MediaSource::Remote if shown.is_none() => Some(current_tile.media.file_path.clone()),
+        _ => media_asset.read_unchecked().as_ref().and_then(Clone::clone),
+    };
     let content_vignettes = use_resource({
         let api = api.clone();
         move || {
@@ -2918,7 +2976,15 @@ fn MediaViewer(
                     div { class: "cropper-actions",
                         if let Some(url) = url.clone() {
                             DownloadMediaButton {
-                                url,
+                                source: match source {
+                                    MediaSource::Remote if shown.is_none() => {
+                                        MediaDownloadSource::Remote(url)
+                                    }
+                                    _ => MediaDownloadSource::File {
+                                        tree_id,
+                                        media_id: content_media_id,
+                                    },
+                                },
                                 // The page's own name when looking at a page,
                                 // and either way one the file system can open:
                                 // a Geneanet deposit is titled, not named.
@@ -2933,7 +2999,10 @@ fn MediaViewer(
                         // so unzipping restores the reading order.
                         if total_pages > 1 {
                             DownloadMediaButton {
-                                url: api.media_archive_url(tree_id, tile.media.id),
+                                source: MediaDownloadSource::Archive {
+                                    tree_id,
+                                    media_id: tile.media.id,
+                                },
                                 file_name: format!("{}.zip", archive_stem(&caption)),
                                 label: i18n.t("media.download_all_pages"),
                             }
@@ -2975,6 +3044,35 @@ fn MediaViewer(
     }
 }
 
+#[derive(Clone, PartialEq)]
+enum MediaDownloadSource {
+    File { tree_id: Uuid, media_id: Uuid },
+    Archive { tree_id: Uuid, media_id: Uuid },
+    Remote(String),
+}
+
+impl MediaDownloadSource {
+    async fn load(&self, api: &ApiClient) -> Result<Vec<u8>, crate::api::ApiError> {
+        match self {
+            Self::File { tree_id, media_id } => api.media_file_bytes(*tree_id, *media_id).await,
+            Self::Archive { tree_id, media_id } => {
+                api.media_archive_bytes(*tree_id, *media_id).await
+            }
+            Self::Remote(url) => {
+                let response = reqwest::get(url).await?;
+                let status = response.status();
+                if !status.is_success() {
+                    return Err(crate::api::ApiError::Api {
+                        status: status.as_u16(),
+                        body: String::new(),
+                    });
+                }
+                Ok(response.bytes().await?.to_vec())
+            }
+        }
+    }
+}
+
 /// The one download control, implemented per platform.
 ///
 /// One button rather than two, because a reader looking at a photograph has
@@ -2990,7 +3088,7 @@ fn MediaViewer(
 ///     all — the link would look like a button and be inert.
 #[component]
 fn DownloadMediaButton(
-    url: String,
+    source: MediaDownloadSource,
     file_name: String,
     /// What the button says. Defaults to "Download file"; the archive button
     /// passes its own, since two identical buttons side by side would leave
@@ -2998,28 +3096,65 @@ fn DownloadMediaButton(
     label: Option<String>,
 ) -> Element {
     let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
     let label = label.unwrap_or_else(|| i18n.t("media.download_file"));
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
 
     #[cfg(target_arch = "wasm32")]
     {
+        let download = move |_| {
+            let api = api.clone();
+            let source = source.clone();
+            let file_name = file_name.clone();
+            spawn(async move {
+                busy.set(true);
+                error.set(None);
+                match source.load(&api).await {
+                    Ok(bytes) => {
+                        let byte_array =
+                            serde_json::to_string(&bytes).unwrap_or_else(|_| "[]".to_string());
+                        let download_name = serde_json::to_string(&file_name)
+                            .unwrap_or_else(|_| "\"media\"".to_string());
+                        document::eval(&format!(
+                            r#"
+                            const bytes = new Uint8Array({byte_array});
+                            const blob = new Blob([bytes]);
+                            const url = URL.createObjectURL(blob);
+                            const anchor = document.createElement('a');
+                            anchor.href = url;
+                            anchor.download = {download_name};
+                            document.body.appendChild(anchor);
+                            anchor.click();
+                            anchor.remove();
+                            URL.revokeObjectURL(url);
+                            "#
+                        ));
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                busy.set(false);
+            });
+        };
         rsx! {
-            a {
+            button {
                 class: "btn btn-outline",
-                href: "{url}",
-                target: "_blank",
-                download: file_name,
-                {label}
+                r#type: "button",
+                disabled: busy(),
+                onclick: download,
+                if busy() { {i18n.t("common.saving")} } else { {label} }
+            }
+            if let Some(err) = error() {
+                div { class: "error-msg", "{err}" }
             }
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let mut busy = use_signal(|| false);
-        let mut error = use_signal(|| None::<String>);
-
         let save = move |_| {
-            let url = url.clone();
+            let api = api.clone();
+            let source = source.clone();
             let file_name = file_name.clone();
             spawn(async move {
                 busy.set(true);
@@ -3039,15 +3174,12 @@ fn DownloadMediaButton(
                     busy.set(false);
                     return;
                 };
-                match reqwest::get(&url).await {
-                    Ok(response) => match response.bytes().await {
-                        Ok(bytes) => {
-                            if let Err(e) = tokio::fs::write(target.path(), &bytes).await {
-                                error.set(Some(e.to_string()));
-                            }
+                match source.load(&api).await {
+                    Ok(bytes) => {
+                        if let Err(err) = target.write(&bytes).await {
+                            error.set(Some(err.to_string()));
                         }
-                        Err(e) => error.set(Some(e.to_string())),
-                    },
+                    }
                     Err(e) => error.set(Some(e.to_string())),
                 }
                 busy.set(false);

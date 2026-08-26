@@ -127,6 +127,38 @@ async fn unknown_tree_id_is_not_found() {
     assert_eq!(status, StatusCode::OK);
 }
 
+#[tokio::test]
+async fn person_from_another_tree_is_not_readable_or_mutable() {
+    let app = setup_app().await;
+    let first_tree = create_tree_via_api(&app).await;
+    let second_tree = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &second_tree).await;
+
+    for (method, body) in [
+        (Method::GET, None),
+        (Method::PUT, Some(serde_json::json!({ "sex": "female" }))),
+        (Method::DELETE, None),
+    ] {
+        let (status, _) = send_request(
+            app.clone(),
+            method,
+            &format!("/api/v1/trees/{first_tree}/persons/{person_id}"),
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    let (status, _) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{second_tree}/persons/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
 // ───────────────────────── Tree tests ─────────────────────────
 
 #[tokio::test]
@@ -172,6 +204,19 @@ async fn test_tree_crud() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["name"], "Doe-Pdoe Family");
+
+    // An invalid rename uses the public validation contract.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}"),
+        Some(serde_json::json!({ "name": "" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error");
+    assert_eq!(body["message"], "The request is invalid");
+    assert!(body.get("request_id").is_none());
 
     // List trees
     let (status, body) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
@@ -393,6 +438,37 @@ async fn create_person_via_api(app: &axum::Router, tree_id: &str) -> String {
     )
     .await;
     body["id"].as_str().unwrap().to_string()
+}
+
+async fn create_named_person_via_api(
+    app: &axum::Router,
+    tree_id: &str,
+    sex: &str,
+    given_names: &str,
+    surname: &str,
+) -> String {
+    let (_, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        Some(serde_json::json!({ "sex": sex })),
+    )
+    .await;
+    let person_id = body["id"].as_str().unwrap().to_string();
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+        Some(serde_json::json!({
+            "name_type": "birth",
+            "given_names": given_names,
+            "surname": surname,
+            "is_primary": true
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    person_id
 }
 
 #[tokio::test]
@@ -662,6 +738,62 @@ async fn test_person_search_free_text() {
     assert_eq!(status, StatusCode::OK, "browse mode failed: {body}");
     assert_eq!(body["total_count"], 1);
     assert_eq!(body["entries"][0]["display_name"], "Jane Smith");
+}
+
+#[tokio::test]
+async fn test_person_search_combines_relations_and_pagination() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let subject_one = create_named_person_via_api(&app, &tree_id, "male", "One", "Subject").await;
+    let subject_two = create_named_person_via_api(&app, &tree_id, "male", "Two", "Subject").await;
+    let relative_alpha =
+        create_named_person_via_api(&app, &tree_id, "female", "Alpha", "RelativeMatch").await;
+    let relative_beta =
+        create_named_person_via_api(&app, &tree_id, "female", "Beta", "RelativeMatch").await;
+
+    for (subject, relative) in [
+        (&subject_one, &relative_alpha),
+        (&subject_two, &relative_beta),
+    ] {
+        let (status, family) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/families"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let family_id = family["id"].as_str().unwrap();
+
+        for (person_id, role) in [(subject, "husband"), (relative, "wife")] {
+            let (status, _) = send_request(
+                app.clone(),
+                Method::POST,
+                &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
+                Some(serde_json::json!({
+                    "person_id": person_id,
+                    "role": role,
+                    "sort_order": 0
+                })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+    }
+
+    let (status, body) = send_request(
+        app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{tree_id}/persons/search?surname=subject&spouse_surname=relative&sort=name_asc&limit=1&offset=1"
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "advanced search failed: {body}");
+    assert_eq!(body["total_count"], 2);
+    assert_eq!(body["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(body["entries"][0]["display_name"], "Two Subject");
 }
 
 // ───────────────────────── Family tests ─────────────────────────

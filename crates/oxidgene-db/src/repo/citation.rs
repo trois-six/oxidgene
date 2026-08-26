@@ -5,16 +5,47 @@ use oxidgene_core::enums::Confidence;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Citation;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter, QuerySelect, Set,
+};
 use uuid::Uuid;
 
 use crate::entities::citation::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
+use crate::entities::source;
 
 /// Repository for citation operations.
 pub struct CitationRepo;
 
 impl CitationRepo {
+    /// List all citations belonging to sources in one tree.
+    pub async fn list_all(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<Citation>, OxidGeneError> {
+        let models = Entity::find()
+            .join(JoinType::InnerJoin, citation::Relation::Source.def())
+            .filter(source::Column::TreeId.eq(tree_id))
+            .filter(source::Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
+    /// List citations directly linked to one person.
+    pub async fn list_by_person(
+        db: &impl ConnectionTrait,
+        person_id: Uuid,
+    ) -> Result<Vec<Citation>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::PersonId.eq(person_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// List citations for a given source.
     pub async fn list_by_source(
         db: &impl ConnectionTrait,

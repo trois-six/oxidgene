@@ -708,7 +708,7 @@ impl MigrationTrait for Migration {
         let conn = manager.get_connection();
         match manager.get_database_backend() {
             DbBackend::Sqlite => {
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     DbBackend::Sqlite,
                     r#"
                     CREATE VIRTUAL TABLE IF NOT EXISTS person_search_fts USING fts5(
@@ -730,7 +730,7 @@ impl MigrationTrait for Migration {
                 .await?;
             }
             backend => {
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     backend,
                     r#"
                     CREATE TABLE IF NOT EXISTS person_search_fts (
@@ -750,7 +750,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
                 ))
                 .await?;
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     backend,
                     "CREATE INDEX IF NOT EXISTS idx_person_search_fts_tree_id \
                      ON person_search_fts (tree_id)"
@@ -763,7 +763,7 @@ impl MigrationTrait for Migration {
         // ── folded in from m20260724_000001_search_display_names ──
 
         let conn = manager.get_connection();
-        conn.execute(Statement::from_string(
+        conn.execute_raw(Statement::from_string(
             manager.get_database_backend(),
             "DROP TABLE IF EXISTS person_search_fts".to_owned(),
         ))
@@ -771,7 +771,7 @@ impl MigrationTrait for Migration {
 
         match manager.get_database_backend() {
             DbBackend::Sqlite => {
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     DbBackend::Sqlite,
                     r#"
                     CREATE VIRTUAL TABLE IF NOT EXISTS person_search_fts USING fts5(
@@ -795,7 +795,7 @@ impl MigrationTrait for Migration {
                 .await?;
             }
             backend => {
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     backend,
                     r#"
                     CREATE TABLE IF NOT EXISTS person_search_fts (
@@ -817,7 +817,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
                 ))
                 .await?;
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     backend,
                     "CREATE INDEX IF NOT EXISTS idx_person_search_fts_tree_id \
                      ON person_search_fts (tree_id)"
@@ -1005,7 +1005,7 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let conn = manager.get_connection();
-        conn.execute(Statement::from_string(
+        conn.execute_raw(Statement::from_string(
             manager.get_database_backend(),
             "DROP TABLE IF EXISTS person_search_fts".to_owned(),
         ))

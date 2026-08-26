@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::dto::{CreateMediaLinkRequest, MediaLinkListQuery, MediaLinkListRow, MediaWithLink};
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/media-links
 ///
@@ -29,6 +29,15 @@ pub async fn list_media_links(
                 "unknown entity_type `{entity_type}`; expected person, family, event or source"
             )))
         })?;
+        let resource = match target {
+            MediaLinkTarget::Person => TreeResource::Person,
+            MediaLinkTarget::Family => TreeResource::Family,
+            MediaLinkTarget::Event => TreeResource::Event,
+            MediaLinkTarget::Source => TreeResource::Source,
+        };
+        require_tree_resource(&state.db, tree_id, resource, entity_id)
+            .await
+            .map_err(ApiError)?;
         let rows = MediaLinkRepo::list_with_media(&state.db, target, entity_id)
             .await
             .map_err(ApiError::from)?;
@@ -52,6 +61,9 @@ pub async fn list_media_links(
     // what lets a media's own panel say which events it documents, without
     // the caller having to walk every event's gallery to find out.
     if let Some(media_id) = query.media_id {
+        require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+            .await
+            .map_err(ApiError)?;
         let links = MediaLinkRepo::list_by_media(&state.db, media_id)
             .await
             .map_err(ApiError::from)?;
@@ -83,6 +95,21 @@ pub async fn create_media_link(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateMediaLinkRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, body.media_id)
+        .await
+        .map_err(ApiError)?;
+    for (resource, id) in [
+        (TreeResource::Person, body.person_id),
+        (TreeResource::Event, body.event_id),
+        (TreeResource::Source, body.source_id),
+        (TreeResource::Family, body.family_id),
+    ] {
+        if let Some(id) = id {
+            require_tree_resource(&state.db, tree_id, resource, id)
+                .await
+                .map_err(ApiError)?;
+        }
+    }
     let id = Uuid::now_v7();
     let link = MediaLinkRepo::create(
         &state.db,
@@ -119,6 +146,9 @@ pub async fn delete_media_link(
     State(state): State<AppState>,
     Path((tree_id, link_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::MediaLink, link_id)
+        .await
+        .map_err(ApiError)?;
     // Read the link before it goes: afterwards there is nothing left to say
     // whose projection is now wrong.
     let person_id = MediaLinkRepo::get(&state.db, link_id)

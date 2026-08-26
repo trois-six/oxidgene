@@ -9,6 +9,7 @@
 //! [`oxidgene_core::search::normalize_for_search`]; queries are normalized
 //! here, so both backends match identically.
 
+use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::normalize_for_search;
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value};
@@ -48,6 +49,41 @@ pub struct PersonSearchEntry {
 pub struct PersonSearchPage {
     pub entries: Vec<PersonSearchEntry>,
     pub total_count: u64,
+}
+
+/// Structured filters applied before search pagination.
+#[derive(Debug, Clone, Default)]
+pub struct PersonSearchFilters {
+    pub sex: Option<Sex>,
+    pub surname: Option<String>,
+    pub given_names: Option<String>,
+    pub occupation: Option<String>,
+    pub spouse_surname: Option<String>,
+    pub spouse_given_names: Option<String>,
+    pub father_surname: Option<String>,
+    pub father_given_names: Option<String>,
+    pub mother_surname: Option<String>,
+    pub mother_given_names: Option<String>,
+    pub birth_from: Option<i32>,
+    pub birth_to: Option<i32>,
+    pub death_from: Option<i32>,
+    pub death_to: Option<i32>,
+    pub place: Option<String>,
+    pub event_type: Option<EventType>,
+    pub event_from: Option<i32>,
+    pub event_to: Option<i32>,
+    pub has_media: bool,
+}
+
+/// Stable server-side ordering for person search.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum PersonSearchSort {
+    #[default]
+    Relevance,
+    NameAsc,
+    NameDesc,
+    BirthAsc,
+    BirthDesc,
 }
 
 const COLUMNS: &str = "person_id, tree_id, surname, given_names, maiden_name, \
@@ -105,7 +141,7 @@ impl PersonSearchRepo {
             DbBackend::Sqlite => "DELETE FROM person_search_fts WHERE tree_id = ?",
             _ => "DELETE FROM person_search_fts WHERE tree_id = $1",
         };
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             backend,
             sql,
             [Value::from(tree_id.to_string())],
@@ -126,7 +162,7 @@ impl PersonSearchRepo {
             _ => "SELECT COUNT(*) AS cnt FROM person_search_fts WHERE tree_id = $1",
         };
         let row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 backend,
                 sql,
                 [Value::from(tree_id.to_string())],
@@ -155,23 +191,39 @@ impl PersonSearchRepo {
         limit: u64,
         offset: u64,
     ) -> Result<PersonSearchPage, OxidGeneError> {
+        Self::search_filtered(
+            db,
+            tree_id,
+            query,
+            &PersonSearchFilters::default(),
+            PersonSearchSort::Relevance,
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    /// Search persons with filters, sorting, and pagination applied in SQL.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn search_filtered(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        query: &str,
+        filters: &PersonSearchFilters,
+        sort: PersonSearchSort,
+        limit: u64,
+        offset: u64,
+    ) -> Result<PersonSearchPage, OxidGeneError> {
         let backend = db.get_database_backend();
         let words: Vec<String> = normalize_for_search(query)
             .split_whitespace()
             .map(str::to_owned)
             .collect();
 
-        let stmt = if words.is_empty() {
-            Self::browse_statement(backend, tree_id, limit, offset)
-        } else {
-            match backend {
-                DbBackend::Sqlite => Self::fts_statement(tree_id, &words, limit, offset),
-                _ => Self::like_statement(backend, tree_id, &words, limit, offset),
-            }
-        };
+        let stmt = Self::filtered_statement(backend, tree_id, &words, filters, sort, limit, offset);
 
         let rows = db
-            .query_all(stmt)
+            .query_all_raw(stmt)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
@@ -193,87 +245,217 @@ impl PersonSearchRepo {
 
     // ── Statement builders ──────────────────────────────────────────────
 
-    fn browse_statement(backend: DbBackend, tree_id: Uuid, limit: u64, offset: u64) -> Statement {
-        let sql = match backend {
-            DbBackend::Sqlite => format!(
-                "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count \
-                 FROM person_search_fts WHERE tree_id = ? \
-                 ORDER BY surname, given_names LIMIT ? OFFSET ?"
-            ),
-            _ => format!(
-                "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count \
-                 FROM person_search_fts WHERE tree_id = $1 \
-                 ORDER BY surname, given_names LIMIT $2 OFFSET $3"
-            ),
-        };
-        Statement::from_sql_and_values(
-            backend,
-            sql,
-            [
-                Value::from(tree_id.to_string()),
-                Value::from(limit as i64),
-                Value::from(offset as i64),
-            ],
-        )
-    }
-
-    /// SQLite FTS5: match every word as a prefix query across the indexed
-    /// columns (surname, given_names, maiden_name, birth_year, death_year).
-    fn fts_statement(tree_id: Uuid, words: &[String], limit: u64, offset: u64) -> Statement {
-        let match_expr = words
-            .iter()
-            .map(|w| format!("\"{}\"*", w.replace('"', "\"\"")))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let sql = format!(
-            "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count \
-             FROM person_search_fts \
-             WHERE person_search_fts MATCH ? AND tree_id = ? \
-             ORDER BY surname, given_names LIMIT ? OFFSET ?"
-        );
-        Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            sql,
-            [
-                Value::from(match_expr),
-                Value::from(tree_id.to_string()),
-                Value::from(limit as i64),
-                Value::from(offset as i64),
-            ],
-        )
-    }
-
-    /// PostgreSQL fallback: every word must appear (substring) in one of the
-    /// searchable columns.
-    fn like_statement(
+    #[allow(clippy::too_many_arguments)]
+    fn filtered_statement(
         backend: DbBackend,
         tree_id: Uuid,
         words: &[String],
+        filters: &PersonSearchFilters,
+        sort: PersonSearchSort,
         limit: u64,
         offset: u64,
     ) -> Statement {
-        let mut values: Vec<Value> = vec![Value::from(tree_id.to_string())];
-        let mut conditions = Vec::with_capacity(words.len());
-        for word in words {
-            let idx = values.len() + 1;
-            conditions.push(format!(
-                "(surname LIKE ${idx} OR given_names LIKE ${idx} \
-                 OR COALESCE(maiden_name, '') LIKE ${idx} \
-                 OR COALESCE(birth_year, '') LIKE ${idx} \
-                 OR COALESCE(death_year, '') LIKE ${idx})"
-            ));
-            values.push(Value::from(format!("%{word}%")));
-        }
-        let limit_idx = values.len() + 1;
-        let offset_idx = values.len() + 2;
-        values.push(Value::from(limit as i64));
-        values.push(Value::from(offset as i64));
+        let mut values = Vec::new();
+        let mut conditions = Vec::new();
 
+        conditions.push(format!(
+            "tree_id = {}",
+            push_value(&mut values, backend, tree_id.to_string().into())
+        ));
+
+        if !words.is_empty() {
+            if backend == DbBackend::Sqlite {
+                let match_expr = words
+                    .iter()
+                    .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                conditions.push(format!(
+                    "person_search_fts MATCH {}",
+                    push_value(&mut values, backend, match_expr.into())
+                ));
+            } else {
+                for word in words {
+                    let param = push_value(&mut values, backend, format!("%{word}%").into());
+                    conditions.push(format!(
+                        "(surname LIKE {param} OR given_names LIKE {param} OR \
+                         COALESCE(maiden_name, '') LIKE {param} OR \
+                         COALESCE(birth_year, '') LIKE {param} OR \
+                         COALESCE(death_year, '') LIKE {param})"
+                    ));
+                }
+            }
+        }
+
+        if let Some(sex) = filters.sex {
+            let param = push_value(&mut values, backend, sex.to_string().into());
+            conditions.push(format!("sex = {param}"));
+        }
+        for (column, value) in [
+            ("surname", filters.surname.as_deref()),
+            ("given_names", filters.given_names.as_deref()),
+        ] {
+            if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+                let param = push_value(
+                    &mut values,
+                    backend,
+                    format!("%{}%", normalize_for_search(value.trim())).into(),
+                );
+                conditions.push(format!("{column} LIKE {param}"));
+            }
+        }
+        for (column, operator, year) in [
+            ("birth_year", ">=", filters.birth_from),
+            ("birth_year", "<=", filters.birth_to),
+            ("death_year", ">=", filters.death_from),
+            ("death_year", "<=", filters.death_to),
+        ] {
+            if let Some(year) = year {
+                let param = push_value(&mut values, backend, i64::from(year).into());
+                conditions.push(format!("CAST({column} AS INTEGER) {operator} {param}"));
+            }
+        }
+
+        if filters
+            .place
+            .as_ref()
+            .is_some_and(|place| !place.trim().is_empty())
+            || filters.event_type.is_some()
+            || filters.event_from.is_some()
+            || filters.event_to.is_some()
+        {
+            let event_person_id = uuid_as_text(backend, "e.person_id");
+            let spouse_person_id = uuid_as_text(backend, "fs.person_id");
+            let mut event_conditions = vec![
+                "e.deleted_at IS NULL".to_string(),
+                format!(
+                    "({event_person_id} = person_search_fts.person_id OR EXISTS (\
+                    SELECT 1 FROM family_spouse fs WHERE fs.family_id = e.family_id \
+                    AND {spouse_person_id} = person_search_fts.person_id))"
+                ),
+            ];
+            if let Some(place) = filters
+                .place
+                .as_ref()
+                .filter(|place| !place.trim().is_empty())
+            {
+                let param = push_value(
+                    &mut values,
+                    backend,
+                    format!("%{}%", place.trim().to_lowercase()).into(),
+                );
+                event_conditions.push(format!("LOWER(p.name) LIKE {param}"));
+            }
+            if let Some(event_type) = filters.event_type {
+                let param = push_value(&mut values, backend, event_type.to_string().into());
+                event_conditions.push(format!("e.event_type = {param}"));
+            }
+            if let Some(year) = filters.event_from {
+                let param = push_value(&mut values, backend, format!("{year:04}-01-01").into());
+                event_conditions.push(format!("CAST(e.date_sort AS TEXT) >= {param}"));
+            }
+            if let Some(year) = filters.event_to {
+                let param = push_value(&mut values, backend, format!("{year:04}-12-31").into());
+                event_conditions.push(format!("CAST(e.date_sort AS TEXT) <= {param}"));
+            }
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM event e LEFT JOIN place p ON p.id = e.place_id WHERE {})",
+                event_conditions.join(" AND ")
+            ));
+        }
+
+        if let Some(occupation) = filters
+            .occupation
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let param = push_value(
+                &mut values,
+                backend,
+                format!("%{}%", occupation.trim().to_lowercase()).into(),
+            );
+            let occupation_person_id = uuid_as_text(backend, "oe.person_id");
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM event oe WHERE oe.deleted_at IS NULL \
+                 AND oe.event_type = 'occupation' \
+                 AND {occupation_person_id} = person_search_fts.person_id \
+                 AND LOWER(COALESCE(oe.description, '')) LIKE {param})"
+            ));
+        }
+
+        if has_name_filter(&filters.spouse_surname, &filters.spouse_given_names) {
+            let person_relation = format!(
+                "{} = person_search_fts.person_id",
+                uuid_as_text(backend, "self_fs.person_id")
+            );
+            conditions.push(related_name_condition(
+                &mut values,
+                backend,
+                "family_spouse self_fs JOIN family_spouse related_fs \
+                 ON related_fs.family_id = self_fs.family_id AND related_fs.person_id <> self_fs.person_id \
+                 JOIN person_name related_name ON related_name.person_id = related_fs.person_id",
+                &person_relation,
+                filters.spouse_surname.as_deref(),
+                filters.spouse_given_names.as_deref(),
+            ));
+        }
+        if has_name_filter(&filters.father_surname, &filters.father_given_names) {
+            let person_relation = format!(
+                "{} = person_search_fts.person_id AND parent.sex = 'male'",
+                uuid_as_text(backend, "child_link.person_id")
+            );
+            conditions.push(related_name_condition(
+                &mut values,
+                backend,
+                "family_child child_link JOIN family_spouse parent_link \
+                 ON parent_link.family_id = child_link.family_id \
+                 JOIN person parent ON parent.id = parent_link.person_id \
+                 JOIN person_name related_name ON related_name.person_id = parent.id",
+                &person_relation,
+                filters.father_surname.as_deref(),
+                filters.father_given_names.as_deref(),
+            ));
+        }
+        if has_name_filter(&filters.mother_surname, &filters.mother_given_names) {
+            let person_relation = format!(
+                "{} = person_search_fts.person_id AND parent.sex = 'female'",
+                uuid_as_text(backend, "child_link.person_id")
+            );
+            conditions.push(related_name_condition(
+                &mut values,
+                backend,
+                "family_child child_link JOIN family_spouse parent_link \
+                 ON parent_link.family_id = child_link.family_id \
+                 JOIN person parent ON parent.id = parent_link.person_id \
+                 JOIN person_name related_name ON related_name.person_id = parent.id",
+                &person_relation,
+                filters.mother_surname.as_deref(),
+                filters.mother_given_names.as_deref(),
+            ));
+        }
+
+        if filters.has_media {
+            let media_person_id = uuid_as_text(backend, "ml.person_id");
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM media_link ml JOIN media m ON m.id = ml.media_id \
+                 WHERE {media_person_id} = person_search_fts.person_id \
+                 AND m.deleted_at IS NULL)"
+            ));
+        }
+
+        let order = match sort {
+            PersonSearchSort::Relevance | PersonSearchSort::NameAsc => "surname, given_names",
+            PersonSearchSort::NameDesc => "surname DESC, given_names DESC",
+            PersonSearchSort::BirthAsc => "date_sort IS NULL, date_sort, surname, given_names",
+            PersonSearchSort::BirthDesc => {
+                "date_sort IS NULL, date_sort DESC, surname, given_names"
+            }
+        };
+        let limit_param = push_value(&mut values, backend, (limit as i64).into());
+        let offset_param = push_value(&mut values, backend, (offset as i64).into());
         let sql = format!(
-            "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count \
-             FROM person_search_fts \
-             WHERE tree_id = $1 AND {} \
-             ORDER BY surname, given_names LIMIT ${limit_idx} OFFSET ${offset_idx}",
+            "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count FROM person_search_fts \
+             WHERE {} ORDER BY {order} LIMIT {limit_param} OFFSET {offset_param}",
             conditions.join(" AND ")
         );
         Statement::from_sql_and_values(backend, sql, values)
@@ -303,7 +485,7 @@ impl PersonSearchRepo {
             .iter()
             .map(|id| Value::from(id.to_string()))
             .collect();
-        db.execute(Statement::from_sql_and_values(backend, sql, values))
+        db.execute_raw(Statement::from_sql_and_values(backend, sql, values))
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         Ok(())
@@ -363,7 +545,7 @@ impl PersonSearchRepo {
                 "INSERT INTO person_search_fts ({COLUMNS}) VALUES {}",
                 rows.join(", ")
             );
-            db.execute(Statement::from_sql_and_values(backend, sql, values))
+            db.execute_raw(Statement::from_sql_and_values(backend, sql, values))
                 .await
                 .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         }
@@ -398,5 +580,63 @@ impl PersonSearchRepo {
             birth_place: get_opt("birth_place")?,
             date_sort: get_opt("date_sort")?,
         })
+    }
+}
+
+fn push_value(values: &mut Vec<Value>, backend: DbBackend, value: Value) -> String {
+    values.push(value);
+    match backend {
+        DbBackend::Postgres => format!("${}", values.len()),
+        _ => "?".to_string(),
+    }
+}
+
+fn has_name_filter(surname: &Option<String>, given_names: &Option<String>) -> bool {
+    [surname, given_names]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.trim().is_empty())
+}
+
+fn related_name_condition(
+    values: &mut Vec<Value>,
+    backend: DbBackend,
+    joins: &str,
+    relation: &str,
+    surname: Option<&str>,
+    given_names: Option<&str>,
+) -> String {
+    let mut conditions = vec![
+        relation.to_string(),
+        "related_name.is_primary = TRUE".to_string(),
+    ];
+    for (column, value) in [("surname", surname), ("given_names", given_names)] {
+        if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+            let param = push_value(
+                values,
+                backend,
+                format!("%{}%", value.trim().to_lowercase()).into(),
+            );
+            conditions.push(format!(
+                "LOWER(COALESCE(related_name.{column}, '')) LIKE {param}"
+            ));
+        }
+    }
+    format!(
+        "EXISTS (SELECT 1 FROM {joins} WHERE {})",
+        conditions.join(" AND ")
+    )
+}
+
+fn uuid_as_text(backend: DbBackend, column: &str) -> String {
+    match backend {
+        DbBackend::Sqlite => format!(
+            "LOWER(SUBSTR(HEX({column}), 1, 8) || '-' || \
+             SUBSTR(HEX({column}), 9, 4) || '-' || \
+             SUBSTR(HEX({column}), 13, 4) || '-' || \
+             SUBSTR(HEX({column}), 17, 4) || '-' || \
+             SUBSTR(HEX({column}), 21, 12))"
+        ),
+        _ => format!("CAST({column} AS TEXT)"),
     }
 }

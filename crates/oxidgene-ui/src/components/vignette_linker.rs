@@ -70,7 +70,18 @@ fn VignetteRow(
     let mut confirming = use_signal(|| false);
 
     let vignette_id = vignette.id;
-    let image_url = api.vignette_image_url(tree_id, vignette_id);
+    let image = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move { api.vignette_image_data_url(tree_id, vignette_id).await }
+        }
+    });
+    let image_url = image
+        .read_unchecked()
+        .as_ref()
+        .and_then(|result| result.as_ref().ok())
+        .cloned();
     let selected_event = vignette
         .event_id
         .map(|id| id.to_string())
@@ -120,7 +131,9 @@ fn VignetteRow(
 
     rsx! {
         div { class: "vg-row",
-            img { class: "vg-thumb", src: "{image_url}", alt: "" }
+            if let Some(image_url) = image_url {
+                img { class: "vg-thumb", src: "{image_url}", alt: "" }
+            }
             div { class: "vg-body",
                 div { class: "vg-name",
                     {i18n.t_args(

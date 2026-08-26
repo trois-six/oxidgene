@@ -25,6 +25,7 @@ Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `cr
 | `id` | UUID v7 | PK |
 | `name` | String | Required |
 | `description` | String? | Optional |
+| `default_privacy` | TreeDefaultPrivacy | Stored tree-wide intent (`Private` by default); not enforced in the current MVP |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
 | `self_person_id` | UUID v7? | FK → Person — person representing the current user, used only for the blue pedigree badge, set in [Settings](ui-settings.md) §7 |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |
@@ -96,6 +97,7 @@ a per-viewer preference (`/app-settings` → Noms), defaulting to "included".
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree |
+| `privacy` | Privacy | Per-family privacy intent (default `Default`); not enforced in the current MVP |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -451,7 +453,7 @@ enum ChildType {
 enum Privacy {
     Default,   // Follows the tree-level privacy settings
     Public,    // Always visible regardless of tree settings
-    Private,   // Always hidden regardless of tree settings
+    Private,   // Hidden once viewer-aware enforcement is implemented
 }
 
 /// Precision/shape of a date entry (see ui-person-edit-modal.md §5).

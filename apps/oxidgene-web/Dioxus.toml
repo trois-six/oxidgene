@@ -1,0 +1,6 @@
+[application]
+name = "oxidgene-web"
+default_platform = "web"
+
+[web.app]
+title = "OxidGene"

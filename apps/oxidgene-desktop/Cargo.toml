@@ -15,6 +15,8 @@ winres = "0.1"
 # WebKitGTK derives a few of its own default paths (notably HSTS storage)
 # from GLib's program name instead of the WebView data directory we pass to
 # wry — see the `glib::set_prgname` call in `main.rs`.
+# Keep these on the GTK 3 bindings used by Dioxus Desktop, Wry, and Tao. GLib
+# 0.22 belongs to the GTK 4 binding stack and its object types are incompatible.
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 glib = { version = "0.18", default-features = false }
 gtk = { version = "0.18", default-features = false }
@@ -37,3 +39,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 dirs = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }

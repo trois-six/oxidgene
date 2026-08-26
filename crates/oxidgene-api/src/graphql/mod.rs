@@ -1,5 +1,6 @@
 //! GraphQL API layer: schema construction, Axum handlers, and module declarations.
 
+mod error;
 pub mod inputs;
 pub mod mutation;
 pub mod query;
@@ -19,6 +20,8 @@ use std::sync::Arc;
 use mutation::MutationRoot;
 use query::QueryRoot;
 
+use self::error::SafeErrors;
+
 /// The full GraphQL schema type.
 pub type OxidGeneSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
@@ -32,6 +35,7 @@ pub fn build_schema(
     imports: ImportProgressRegistry,
 ) -> OxidGeneSchema {
     Schema::build(QueryRoot, MutationRoot, EmptySubscription)
+        .extension(SafeErrors)
         .data(db)
         .data(profiles)
         .data(purge)

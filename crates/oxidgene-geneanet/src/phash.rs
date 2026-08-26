@@ -89,7 +89,7 @@ fn hash_samples(samples: &[f32; SAMPLE * SAMPLE]) -> Phash {
     let basis = dct_basis();
 
     let mut rows = [0f32; SAMPLE * SAMPLE];
-    for (u, row) in rows.chunks_exact_mut(SAMPLE).enumerate() {
+    for (u, row) in rows.as_chunks_mut::<SAMPLE>().0.iter_mut().enumerate() {
         for (x, cell) in row.iter_mut().enumerate() {
             *cell = (0..SAMPLE)
                 .map(|y| samples[u * SAMPLE + y] * basis[y * SAMPLE + x])

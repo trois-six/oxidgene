@@ -51,7 +51,6 @@ use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
 use oxidgene_ui::api::ApiClient;
 use tokio::net::TcpListener;
-use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -191,14 +190,14 @@ fn main() {
         .expect("could not determine platform data directory")
         .join("oxidgene");
 
-    std::fs::create_dir_all(&data_dir).unwrap_or_else(|e| {
-        error!(%e, "Failed to create data directory");
+    std::fs::create_dir_all(&data_dir).unwrap_or_else(|_| {
+        error!(error = "data_directory", "Failed to create data directory");
         std::process::exit(1);
     });
 
     let db_path = data_dir.join("oxidgene.db");
     let database_url = format!("sqlite://{}?mode=rwc", db_path.display());
-    info!(%database_url, "Using SQLite database");
+    info!("Using local SQLite database");
 
     // ── Start embedded Axum server in a background tokio runtime ─────
     let (tx, rx) = std::sync::mpsc::channel::<u16>();
@@ -211,14 +210,17 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
             // Connect to SQLite
-            let db = connect(&database_url).await.unwrap_or_else(|e| {
-                error!(%e, "Failed to connect to database");
+            let db = connect(&database_url).await.unwrap_or_else(|_| {
+                error!(
+                    error = "database_connection",
+                    "Failed to connect to database"
+                );
                 std::process::exit(1);
             });
 
             // Run migrations
-            run_migrations(&db).await.unwrap_or_else(|e| {
-                error!(%e, "Failed to run migrations");
+            run_migrations(&db).await.unwrap_or_else(|_| {
+                error!(error = "database_migration", "Failed to run migrations");
                 std::process::exit(1);
             });
 
@@ -230,13 +232,12 @@ fn main() {
 
             let app = Router::new()
                 .route("/healthz", get(healthz))
-                .merge(api_router)
-                .layer(CorsLayer::permissive());
+                .merge(api_router);
 
             // Bind to random port on loopback
             let addr = SocketAddr::from(([127, 0, 0, 1], 0));
-            let listener = TcpListener::bind(addr).await.unwrap_or_else(|e| {
-                error!(%e, "Failed to bind TCP listener");
+            let listener = TcpListener::bind(addr).await.unwrap_or_else(|_| {
+                error!(error = "listener_bind", "Failed to bind TCP listener");
                 std::process::exit(1);
             });
 
@@ -262,8 +263,8 @@ fn main() {
             axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown)
                 .await
-                .unwrap_or_else(|e| {
-                    error!(%e, "Server error");
+                .unwrap_or_else(|_| {
+                    error!(error = "server_runtime", "Server error");
                 });
         });
     });

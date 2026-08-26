@@ -8,10 +8,14 @@ use oxidgene_core::enums::{Privacy, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Person, Portrait};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, Condition, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter,
+    QuerySelect, Set,
+};
 use uuid::Uuid;
 
 use crate::entities::person::{self, ActiveModel, Column, Entity};
+use crate::entities::person_name;
 use crate::entities::sea_enums;
 use crate::repo::pagination::{PaginationParams, paginate};
 
@@ -41,6 +45,33 @@ impl PersonRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null());
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+    }
+
+    /// List persons in a tree, optionally matching any stored name.
+    pub async fn list_filtered(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        search: Option<&str>,
+        params: &PaginationParams,
+    ) -> Result<Connection<Person>, OxidGeneError> {
+        let mut query = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null());
+        if let Some(search) = search.map(str::trim).filter(|value| !value.is_empty()) {
+            query = query
+                .join(JoinType::InnerJoin, person::Relation::PersonName.def())
+                .filter(
+                    Condition::any()
+                        .add(person_name::Column::GivenNames.contains(search))
+                        .add(person_name::Column::Surname.contains(search))
+                        .add(person_name::Column::Nickname.contains(search)),
+                )
+                .distinct();
+        }
+        paginate(db, query, Column::Id, params, |model| {
+            (model.id, into_domain(model))
+        })
+        .await
     }
 
     /// List all persons in a tree without pagination (excludes soft-deleted).
@@ -74,6 +105,25 @@ impl PersonRepo {
     /// Get a single person by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Person, OxidGeneError> {
         Entity::find_by_id(id)
+            .filter(Column::DeletedAt.is_null())
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map(into_domain)
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Person",
+                id,
+            })
+    }
+
+    /// Get a person only when it belongs to the requested tree.
+    pub async fn get_in_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        id: Uuid,
+    ) -> Result<Person, OxidGeneError> {
+        Entity::find_by_id(id)
+            .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
@@ -245,7 +295,7 @@ impl PersonRepo {
         );
         let stmt = Statement::from_sql_and_values(backend, &sql, vec![tree_id.into()]);
         let results = db
-            .query_all(stmt)
+            .query_all_raw(stmt)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 

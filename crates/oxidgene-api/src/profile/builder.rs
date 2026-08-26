@@ -9,7 +9,8 @@ use oxidgene_core::enums::*;
 use oxidgene_core::projection::*;
 
 use oxidgene_core::types::{
-    Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place, Vignette,
+    Citation, Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place,
+    Vignette,
 };
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -32,6 +33,7 @@ pub struct TreeData {
     /// for a field that is usually null.
     #[allow(clippy::struct_field_names)]
     pub portrait_vignettes: Vec<Vignette>,
+    pub citations: Vec<Citation>,
     pub notes: Vec<Note>,
 }
 
@@ -59,6 +61,8 @@ struct IndexedData {
     portrait_vignette_by_id: HashMap<Uuid, Vignette>,
     /// Media indexed by media_id
     media_by_id: HashMap<Uuid, Media>,
+    /// Citation count by person_id
+    citation_count_by_person: HashMap<Uuid, u32>,
     /// Note count by person_id
     note_count_by_person: HashMap<Uuid, u32>,
     /// Primary name display string by person_id (for cross-references)
@@ -147,6 +151,14 @@ impl IndexedData {
         let media_by_id: HashMap<Uuid, Media> =
             data.media.iter().map(|m| (m.id, m.clone())).collect();
 
+        // Count citations directly linked to each person.
+        let mut citation_count_by_person: HashMap<Uuid, u32> = HashMap::new();
+        for citation in &data.citations {
+            if let Some(pid) = citation.person_id {
+                *citation_count_by_person.entry(pid).or_default() += 1;
+            }
+        }
+
         // Count notes by person
         let mut note_count_by_person: HashMap<Uuid, u32> = HashMap::new();
         for note in &data.notes {
@@ -171,6 +183,7 @@ impl IndexedData {
             media_links_by_person,
             portrait_vignette_by_id,
             media_by_id,
+            citation_count_by_person,
             note_count_by_person,
             display_names,
             sex_by_person,
@@ -475,10 +488,7 @@ fn build_one_person(
         });
 
     // ── Citation count ───────────────────────────────────────────────────
-    // Citations reference persons directly via person_id, but we don't have
-    // a tree-wide citation list indexed by person. For now, store 0 and
-    // fill in when we add citation batch loading to TreeData.
-    let citation_count = 0;
+    let citation_count = idx.citation_count_by_person.get(&pid).copied().unwrap_or(0);
 
     // ── Note count ───────────────────────────────────────────────────────
     let note_count = idx.note_count_by_person.get(&pid).copied().unwrap_or(0);

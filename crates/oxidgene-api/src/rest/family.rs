@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::dto::PaginationQuery;
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/families
 pub async fn list_families(
@@ -46,8 +46,11 @@ pub async fn create_family(
 /// GET /api/v1/trees/:tree_id/families/:family_id
 pub async fn get_family(
     State(state): State<AppState>,
-    Path((_tree_id, family_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
     let family = FamilyRepo::get(&state.db, family_id)
         .await
         .map_err(ApiError::from)?;
@@ -57,12 +60,15 @@ pub async fn get_family(
 /// PUT /api/v1/trees/:tree_id/families/:family_id
 pub async fn update_family(
     State(state): State<AppState>,
-    Path((_tree_id, family_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
     body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Read from the raw bytes rather than through `Json`: this route already
     // existed as a bare "touch updated_at" and is still called with no body at
     // all, which an extractor expecting JSON refuses before the handler runs.
+    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
     let privacy = serde_json::from_slice::<super::dto::UpdateFamilyRequest>(&body)
         .ok()
         .and_then(|b| b.privacy);
@@ -78,6 +84,9 @@ pub async fn delete_family(
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
+        .await
+        .map_err(ApiError)?;
     // Compute affected BEFORE delete.
     let affected = invalidation::affected_persons_for_family(&txn, family_id)
         .await

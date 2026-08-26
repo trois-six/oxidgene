@@ -4,11 +4,11 @@
 //!
 //! | Variable                | Default                                    | Description            |
 //! |-------------------------|--------------------------------------------|------------------------|
-//! | `OXIDGENE_HOST`         | `0.0.0.0`                                  | Bind address           |
+//! | `OXIDGENE_HOST`         | `127.0.0.1`                                | Bind address           |
 //! | `OXIDGENE_PORT`         | `8080`                                     | Bind port              |
 //! | `OXIDGENE_DATABASE_URL` | `postgres://oxidgene:oxidgene@localhost/oxidgene` | Database connection URL |
 //! | `OXIDGENE_LOG_LEVEL`    | `info`                                     | Tracing filter         |
-//! | `OXIDGENE_CORS_ORIGIN`  | `*`                                        | Allowed CORS origin    |
+//! | `OXIDGENE_CORS_ORIGIN`  | `http://127.0.0.1:8081`                    | Allowed CORS origin    |
 //! | `OXIDGENE_MEDIA_ROOT`   | platform data dir (see below)              | Media file storage root |
 //!
 //! `OXIDGENE_MEDIA_ROOT` defaults to the platform's user-data directory —
@@ -26,7 +26,7 @@ use serde::Deserialize;
 /// Application configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
-    /// Bind address (default: `0.0.0.0`).
+    /// Bind address (default: loopback only).
     #[serde(default = "default_host")]
     pub host: String,
 
@@ -42,7 +42,7 @@ pub struct ServerConfig {
     #[serde(default = "default_log_level")]
     pub log_level: String,
 
-    /// Allowed CORS origin (default: `*`).
+    /// Allowed CORS origin (default: `http://127.0.0.1:8081`).
     #[serde(default = "default_cors_origin")]
     pub cors_origin: String,
 
@@ -52,7 +52,7 @@ pub struct ServerConfig {
 }
 
 fn default_host() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 fn default_port() -> u16 {
@@ -68,7 +68,7 @@ fn default_log_level() -> String {
 }
 
 fn default_cors_origin() -> String {
-    "*".to_string()
+    "http://127.0.0.1:8081".to_string()
 }
 
 fn default_media_root() -> PathBuf {
@@ -91,5 +91,16 @@ impl ServerConfig {
             .build()?;
 
         config.try_deserialize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_defaults_do_not_expose_the_unauthenticated_backend() {
+        assert_eq!(default_host(), "127.0.0.1");
+        assert_eq!(default_cors_origin(), "http://127.0.0.1:8081");
     }
 }

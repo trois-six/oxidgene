@@ -792,13 +792,13 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
     // byte what they were, only the version they were written under moves.
     // Then corrupt one so that *serving* it would be unmistakable.
     let backend = db.get_database_backend();
-    db.execute(Statement::from_string(
+    db.execute_raw(Statement::from_string(
         backend,
         "UPDATE person_denorm SET schema_version = 0",
     ))
     .await
     .unwrap();
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         backend,
         "UPDATE person_denorm SET payload = replace(payload, 'Pierre', 'STALE') WHERE person_id = $1",
         [child.into()],

@@ -261,6 +261,26 @@ user cannot lose entered data.
 - Privacy settings must not claim to enforce protection before authorization
   is implemented; the UI states the current limitation.
 
+### 7.1 Backend exposure before authentication
+
+Until authentication and per-tree authorization are implemented and enforced
+equally by REST, GraphQL, exports, search, and direct media reads, the backend
+must never be exposed directly to an untrusted network:
+
+- standalone and development servers bind to loopback by default;
+- host-published container ports bind to loopback; a container may listen on
+  its private network only when a trusted same-origin gateway is its sole
+  ingress;
+- CORS uses an explicit trusted frontend origin and never `*`;
+- UI markup never places a backend URL in `href`, `src`, `action`, redirects,
+  new-window navigation, or other user-visible navigation targets;
+- media, thumbnails, crops, archives, and exports are fetched through the
+  typed client, then exposed to the rendering engine as local `data:` or
+  `blob:` resources or written through a platform save dialog.
+
+Public backend deployment is blocked until the authentication flow and all
+authorization checks are complete. Privacy flags do not relax this rule.
+
 ## 8. Verification
 
 Every feature verifies, as applicable:
@@ -270,6 +290,7 @@ Every feature verifies, as applicable:
 - logs contain no sensitive values in success and failure paths;
 - UI loading, empty, error, offline, and accessibility states;
 - fixtures and documentation are anonymized;
+- deployment defaults and UI navigation expose no unauthenticated backend URL;
 - focused tests followed by `just check` before committing code changes.
 
 `just check` is not required when a change is limited to documentation, the

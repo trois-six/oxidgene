@@ -1,15 +1,15 @@
 //! Full-page search results powered by the server-side cache search index.
 //!
-//! Combines server-side accent-folded name matching with lightweight
-//! client-side filters (gender, date range), sorting, and pagination.
+//! Combines server-side accent-folded matching with genealogical filters,
+//! sorting, and pagination.
 //! Uses the `sub-page` layout pattern (no left sidebar).
 
 use dioxus::prelude::*;
-use oxidgene_core::Sex;
 use oxidgene_core::projection::SearchEntry;
+use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, PersonSearchParams, PersonSearchSort};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 
@@ -18,9 +18,6 @@ const RESULTS_PER_PAGE: usize = 25;
 /// mini-pedigree, so a full list-sized page would overload the layout
 /// (and fire as many pedigree fetches).
 const GRID_RESULTS_PER_PAGE: usize = 20;
-/// How many results to request from the server (enough for client-side filtering).
-const SERVER_LIMIT: u32 = 500;
-
 // ── Enums ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,6 +41,52 @@ enum GenderFilter {
 enum ViewMode {
     List,
     Card,
+}
+
+fn non_empty(value: String) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+fn parse_filter_year(value: &str) -> Option<i32> {
+    value.trim().parse().ok()
+}
+
+fn parse_event_type(value: &str) -> Option<EventType> {
+    match value {
+        "birth" => Some(EventType::Birth),
+        "death" => Some(EventType::Death),
+        "baptism" => Some(EventType::Baptism),
+        "burial" => Some(EventType::Burial),
+        "marriage" => Some(EventType::Marriage),
+        "residence" => Some(EventType::Residence),
+        "occupation" => Some(EventType::Occupation),
+        "census" => Some(EventType::Census),
+        _ => None,
+    }
+}
+
+fn has_search_criteria(search: &PersonSearchParams) -> bool {
+    !search.query.trim().is_empty()
+        || search.sex.is_some()
+        || search.surname.is_some()
+        || search.given_names.is_some()
+        || search.occupation.is_some()
+        || search.spouse_surname.is_some()
+        || search.spouse_given_names.is_some()
+        || search.father_surname.is_some()
+        || search.father_given_names.is_some()
+        || search.mother_surname.is_some()
+        || search.mother_given_names.is_some()
+        || search.birth_from.is_some()
+        || search.birth_to.is_some()
+        || search.death_from.is_some()
+        || search.death_to.is_some()
+        || search.place.is_some()
+        || search.event_type.is_some()
+        || search.event_from.is_some()
+        || search.event_to.is_some()
+        || search.has_media
 }
 
 // ── Component Props ──────────────────────────────────────────────────────
@@ -73,13 +116,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     // ── Search query state ──
     let mut search_last = use_signal(|| props.last.clone());
     let mut search_first = use_signal(|| props.first.clone());
-    let mut committed_query = use_signal(|| {
-        let parts: Vec<&str> = [props.last.as_str(), props.first.as_str()]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect();
-        parts.join(" ")
-    });
+    let mut committed_last = use_signal(|| props.last.clone());
+    let mut committed_first = use_signal(|| props.first.clone());
 
     // ── Filter/sort/view state ──
     let mut gender_filter = use_signal(|| GenderFilter::All);
@@ -91,6 +129,18 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let mut born_to = use_signal(String::new);
     let mut died_from = use_signal(String::new);
     let mut died_to = use_signal(String::new);
+    let mut occupation_filter = use_signal(String::new);
+    let mut spouse_surname = use_signal(String::new);
+    let mut spouse_given_names = use_signal(String::new);
+    let mut father_surname = use_signal(String::new);
+    let mut father_given_names = use_signal(String::new);
+    let mut mother_surname = use_signal(String::new);
+    let mut mother_given_names = use_signal(String::new);
+    let mut place_filter = use_signal(String::new);
+    let mut event_type_filter = use_signal(|| None::<EventType>);
+    let mut event_from = use_signal(String::new);
+    let mut event_to = use_signal(String::new);
+    let mut has_media = use_signal(|| false);
 
     // Sync props into signals when navigation changes the query parameters.
     let prop_last = props.last.clone();
@@ -98,11 +148,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     use_effect(move || {
         search_last.set(prop_last.clone());
         search_first.set(prop_first.clone());
-        let parts: Vec<&str> = [prop_last.as_str(), prop_first.as_str()]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect();
-        committed_query.set(parts.join(" "));
+        committed_last.set(prop_last.clone());
+        committed_first.set(prop_first.clone());
         current_page.set(1);
     });
 
@@ -110,15 +157,60 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let api_search = api.clone();
     let search_resource = use_resource(move || {
         let api = api_search.clone();
-        let q = committed_query();
+        let page = current_page();
+        let per_page = match view_mode() {
+            ViewMode::List => RESULTS_PER_PAGE,
+            ViewMode::Card => GRID_RESULTS_PER_PAGE,
+        };
+        let params = PersonSearchParams {
+            query: String::new(),
+            limit: per_page as u32,
+            offset: ((page.saturating_sub(1)) * per_page) as u32,
+            sex: match gender_filter() {
+                GenderFilter::All => None,
+                GenderFilter::Male => Some(Sex::Male),
+                GenderFilter::Female => Some(Sex::Female),
+                GenderFilter::Unknown => Some(Sex::Unknown),
+            },
+            surname: non_empty(committed_last()),
+            given_names: non_empty(committed_first()),
+            occupation: non_empty(occupation_filter()),
+            spouse_surname: non_empty(spouse_surname()),
+            spouse_given_names: non_empty(spouse_given_names()),
+            father_surname: non_empty(father_surname()),
+            father_given_names: non_empty(father_given_names()),
+            mother_surname: non_empty(mother_surname()),
+            mother_given_names: non_empty(mother_given_names()),
+            birth_from: parse_filter_year(&born_from()),
+            birth_to: parse_filter_year(&born_to()),
+            death_from: parse_filter_year(&died_from()),
+            death_to: parse_filter_year(&died_to()),
+            place: non_empty(place_filter()),
+            event_type: event_type_filter(),
+            event_from: parse_filter_year(&event_from()),
+            event_to: parse_filter_year(&event_to()),
+            has_media: has_media(),
+            sort: match sort_order() {
+                SortOrder::Relevance => PersonSearchSort::Relevance,
+                SortOrder::NameAZ => PersonSearchSort::NameAsc,
+                SortOrder::NameZA => PersonSearchSort::NameDesc,
+                SortOrder::BirthAsc => PersonSearchSort::BirthAsc,
+                SortOrder::BirthDesc => PersonSearchSort::BirthDesc,
+            },
+        };
+        let has_criteria = has_search_criteria(&params);
         async move {
+            if !has_criteria {
+                return Ok(None);
+            }
             let Some(tid) = tree_id else {
                 return Err(crate::api::ApiError::Api {
                     status: 400,
                     body: "Invalid tree ID".into(),
                 });
             };
-            api.search_persons(tid, &q, SERVER_LIMIT, 0).await
+            crate::utils::sleep_ms(200).await;
+            api.search_persons_filtered(tid, &params).await.map(Some)
         }
     });
 
@@ -164,7 +256,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                         }
                     }
                     Err(_) => {
-                        committed_query.set(last);
+                        committed_last.set(last);
+                        committed_first.set(String::new());
                         current_page.set(1);
                     }
                 }
@@ -172,14 +265,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             return;
         }
 
-        let parts: Vec<String> = [last, first]
-            .into_iter()
-            .filter(|s| !s.trim().is_empty())
-            .collect();
-        if !parts.is_empty() {
-            committed_query.set(parts.join(" "));
-            current_page.set(1);
-        }
+        committed_last.set(last);
+        committed_first.set(first);
+        current_page.set(1);
     };
 
     let mut do_search2 = do_search.clone();
@@ -195,85 +283,31 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
         }
     };
 
-    // ── Apply client-side filters, sort, and paginate ──
+    // ── Server-filtered, sorted, and paginated result ──
     let all_entries: Vec<SearchEntry> = {
         let data = search_resource.read();
         match &*data {
-            Some(Ok(sr)) => sr.entries.clone(),
+            Some(Ok(Some(sr))) => sr.entries.clone(),
             _ => vec![],
         }
     };
-
-    // 1) Gender filter
-    let gender = gender_filter();
-    let after_gender: Vec<&SearchEntry> = all_entries
-        .iter()
-        .filter(|e| match gender {
-            GenderFilter::All => true,
-            GenderFilter::Male => e.sex == Sex::Male,
-            GenderFilter::Female => e.sex == Sex::Female,
-            GenderFilter::Unknown => e.sex == Sex::Unknown,
-        })
-        .collect();
-
-    // 2) Date range filters
-    let bf = born_from().parse::<i32>().ok();
-    let bt = born_to().parse::<i32>().ok();
-    let df = died_from().parse::<i32>().ok();
-    let dt = died_to().parse::<i32>().ok();
-
-    let after_dates: Vec<&SearchEntry> = after_gender
-        .into_iter()
-        .filter(|e| {
-            let by = e.birth_year.as_ref().and_then(|y| y.parse::<i32>().ok());
-            let dy = e.death_year.as_ref().and_then(|y| y.parse::<i32>().ok());
-            if bf.is_some_and(|min| by.is_none_or(|y| y < min)) {
-                return false;
-            }
-            if bt.is_some_and(|max| by.is_none_or(|y| y > max)) {
-                return false;
-            }
-            if df.is_some_and(|min| dy.is_none_or(|y| y < min)) {
-                return false;
-            }
-            if dt.is_some_and(|max| dy.is_none_or(|y| y > max)) {
-                return false;
-            }
-            true
-        })
-        .collect();
-
-    // 3) Sort
-    let sort = sort_order();
-    let mut sorted: Vec<&SearchEntry> = after_dates;
-    match sort {
-        SortOrder::Relevance => {} // Server already returns relevance order
-        SortOrder::NameAZ => sorted.sort_by(|a, b| {
-            a.surname_normalized
-                .cmp(&b.surname_normalized)
-                .then(a.given_names_normalized.cmp(&b.given_names_normalized))
-        }),
-        SortOrder::NameZA => sorted.sort_by(|a, b| {
-            b.surname_normalized
-                .cmp(&a.surname_normalized)
-                .then(b.given_names_normalized.cmp(&a.given_names_normalized))
-        }),
-        SortOrder::BirthAsc => sorted.sort_by_key(|a| a.date_sort),
-        SortOrder::BirthDesc => sorted.sort_by_key(|b| std::cmp::Reverse(b.date_sort)),
-    }
-
-    // 4) Paginate (the grid view holds fewer results per page)
     let per_page = match view_mode() {
         ViewMode::List => RESULTS_PER_PAGE,
         ViewMode::Card => GRID_RESULTS_PER_PAGE,
     };
-    let total_filtered = sorted.len();
+    let total_filtered = {
+        let data = search_resource.read();
+        match &*data {
+            Some(Ok(Some(result))) => result.total_count,
+            _ => 0,
+        }
+    };
     let page = current_page();
-    let total_pages = (total_filtered + per_page - 1).max(1) / per_page;
-    let start = (page - 1) * per_page;
-    let page_results: Vec<&SearchEntry> = sorted.into_iter().skip(start).take(per_page).collect();
+    let total_pages = total_filtered.div_ceil(per_page).max(1);
+    let page_results: Vec<&SearchEntry> = all_entries.iter().collect();
 
-    let is_loading = search_resource.read().is_none();
+    let no_query = matches!(&*search_resource.read(), Some(Ok(None)));
+    let is_loading = !no_query && search_resource.read().is_none();
     let is_error = matches!(&*search_resource.read(), Some(Err(_)));
 
     // ── Render ──
@@ -346,7 +380,34 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                 }
                 if show_filters() {
                     div { class: "sr-filters",
+                        h3 { class: "sr-filter-heading", {i18n.t("search.person_criteria")} }
                         div { class: "sr-filter-row",
+                            div { class: "sr-filter-group sr-filter-wide",
+                                label { {i18n.t("search.surname")} }
+                                input {
+                                    r#type: "text",
+                                    value: "{search_last}",
+                                    oninput: move |e: Event<FormData>| {
+                                        let value = e.value();
+                                        search_last.set(value.clone());
+                                        committed_last.set(value);
+                                        current_page.set(1);
+                                    },
+                                }
+                            }
+                            div { class: "sr-filter-group sr-filter-wide",
+                                label { {i18n.t("search.given_names")} }
+                                input {
+                                    r#type: "text",
+                                    value: "{search_first}",
+                                    oninput: move |e: Event<FormData>| {
+                                        let value = e.value();
+                                        search_first.set(value.clone());
+                                        committed_first.set(value);
+                                        current_page.set(1);
+                                    },
+                                }
+                            }
                             div { class: "sr-filter-group",
                                 label { {i18n.t("search.gender")} }
                                 select {
@@ -364,6 +425,17 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     option { value: "Male", {i18n.t("search.male")} }
                                     option { value: "Female", {i18n.t("search.female")} }
                                     option { value: "Unknown", {i18n.t("search.unknown")} }
+                                }
+                            }
+                            div { class: "sr-filter-group sr-filter-wide",
+                                label { {i18n.t("search.occupation")} }
+                                input {
+                                    r#type: "text",
+                                    value: "{occupation_filter}",
+                                    oninput: move |e: Event<FormData>| {
+                                        occupation_filter.set(e.value());
+                                        current_page.set(1);
+                                    },
                                 }
                             }
                             div { class: "sr-filter-group",
@@ -414,18 +486,298 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     }
                                 }
                             }
+                            label { class: "sr-media-filter",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: has_media(),
+                                    onchange: move |e: Event<FormData>| {
+                                        has_media.set(e.checked());
+                                        current_page.set(1);
+                                    },
+                                }
+                                span { {i18n.t("search.has_media")} }
+                            }
+                        }
+
+                        h3 { class: "sr-filter-heading", {i18n.t("search.event_criteria")} }
+                        div { class: "sr-filter-row",
+                            div { class: "sr-filter-group sr-filter-wide",
+                                label { {i18n.t("search.event_type")} }
+                                select {
+                                    value: event_type_filter().map(|event| event.to_string()).unwrap_or_default(),
+                                    onchange: move |e: Event<FormData>| {
+                                        event_type_filter.set(parse_event_type(&e.value()));
+                                        current_page.set(1);
+                                    },
+                                    option { value: "", {i18n.t("search.all_events")} }
+                                    option { value: "birth", {i18n.t("event.type.birth")} }
+                                    option { value: "death", {i18n.t("event.type.death")} }
+                                    option { value: "baptism", {i18n.t("event.type.baptism")} }
+                                    option { value: "burial", {i18n.t("event.type.burial")} }
+                                    option { value: "marriage", {i18n.t("event.type.marriage")} }
+                                    option { value: "residence", {i18n.t("event.type.residence")} }
+                                    option { value: "occupation", {i18n.t("event.type.occupation")} }
+                                    option { value: "census", {i18n.t("event.type.census")} }
+                                }
+                            }
+                            div { class: "sr-filter-group sr-filter-wide",
+                                label { {i18n.t("search.place")} }
+                                input {
+                                    r#type: "text",
+                                    value: "{place_filter}",
+                                    oninput: move |e: Event<FormData>| {
+                                        place_filter.set(e.value());
+                                        current_page.set(1);
+                                    },
+                                }
+                            }
+                            div { class: "sr-filter-group",
+                                label { {i18n.t("search.event_between")} }
+                                div { class: "sr-date-range",
+                                    input {
+                                        r#type: "number",
+                                        placeholder: "1800",
+                                        value: "{event_from}",
+                                        oninput: move |e: Event<FormData>| {
+                                            event_from.set(e.value());
+                                            current_page.set(1);
+                                        },
+                                    }
+                                    span { "\u{2013}" }
+                                    input {
+                                        r#type: "number",
+                                        placeholder: "2000",
+                                        value: "{event_to}",
+                                        oninput: move |e: Event<FormData>| {
+                                            event_to.set(e.value());
+                                            current_page.set(1);
+                                        },
+                                    }
+                                }
+                            }
+                        }
+
+                        h3 { class: "sr-filter-heading", {i18n.t("search.relation_criteria")} }
+                        div { class: "sr-relations-grid",
+                            div { class: "sr-relation-group",
+                                span { class: "sr-relation-label", {i18n.t("search.spouse")} }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"search.surname\")}",
+                                    value: "{spouse_surname}",
+                                    oninput: move |e: Event<FormData>| {
+                                        spouse_surname.set(e.value());
+                                        current_page.set(1);
+                                    },
+                                }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"search.given_names\")}",
+                                    value: "{spouse_given_names}",
+                                    oninput: move |e: Event<FormData>| {
+                                        spouse_given_names.set(e.value());
+                                        current_page.set(1);
+                                    },
+                                }
+                            }
+                            div { class: "sr-relation-group",
+                                span { class: "sr-relation-label", {i18n.t("search.father")} }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"search.surname\")}",
+                                    value: "{father_surname}",
+                                    oninput: move |e: Event<FormData>| {
+                                        father_surname.set(e.value());
+                                        current_page.set(1);
+                                    },
+                                }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"search.given_names\")}",
+                                    value: "{father_given_names}",
+                                    oninput: move |e: Event<FormData>| {
+                                        father_given_names.set(e.value());
+                                        current_page.set(1);
+                                    },
+                                }
+                            }
+                            div { class: "sr-relation-group",
+                                span { class: "sr-relation-label", {i18n.t("search.mother")} }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"search.surname\")}",
+                                    value: "{mother_surname}",
+                                    oninput: move |e: Event<FormData>| {
+                                        mother_surname.set(e.value());
+                                        current_page.set(1);
+                                    },
+                                }
+                                input {
+                                    r#type: "text",
+                                    placeholder: "{i18n.t(\"search.given_names\")}",
+                                    value: "{mother_given_names}",
+                                    oninput: move |e: Event<FormData>| {
+                                        mother_given_names.set(e.value());
+                                        current_page.set(1);
+                                    },
+                                }
+                            }
+                        }
+                        div { class: "sr-filter-actions",
                             button {
                                 class: "sr-clear-filters",
                                 onclick: move |_| {
+                                    search_last.set(String::new());
+                                    search_first.set(String::new());
+                                    committed_last.set(String::new());
+                                    committed_first.set(String::new());
                                     gender_filter.set(GenderFilter::All);
+                                    occupation_filter.set(String::new());
                                     born_from.set(String::new());
                                     born_to.set(String::new());
                                     died_from.set(String::new());
                                     died_to.set(String::new());
+                                    spouse_surname.set(String::new());
+                                    spouse_given_names.set(String::new());
+                                    father_surname.set(String::new());
+                                    father_given_names.set(String::new());
+                                    mother_surname.set(String::new());
+                                    mother_given_names.set(String::new());
+                                    place_filter.set(String::new());
+                                    event_type_filter.set(None);
+                                    event_from.set(String::new());
+                                    event_to.set(String::new());
+                                    has_media.set(false);
                                     current_page.set(1);
                                 },
                                 {i18n.t("search.clear_filters")}
                             }
+                        }
+                    }
+                }
+
+                div { class: "sr-active-filters",
+                    if gender_filter() != GenderFilter::All {
+                        button {
+                            class: "sr-filter-chip",
+                            title: "{i18n.t(\"search.clear_filters\")}",
+                            onclick: move |_| {
+                                gender_filter.set(GenderFilter::All);
+                                current_page.set(1);
+                            },
+                            {match gender_filter() {
+                                GenderFilter::Male => i18n.t("search.male"),
+                                GenderFilter::Female => i18n.t("search.female"),
+                                GenderFilter::Unknown => i18n.t("search.unknown"),
+                                GenderFilter::All => String::new(),
+                            }}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if !occupation_filter().trim().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                occupation_filter.set(String::new());
+                                current_page.set(1);
+                            },
+                            {format!("{}: {}", i18n.t("search.occupation"), occupation_filter())}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if !born_from().is_empty() || !born_to().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                born_from.set(String::new());
+                                born_to.set(String::new());
+                                current_page.set(1);
+                            },
+                            {i18n.t("search.born_between")}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if !died_from().is_empty() || !died_to().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                died_from.set(String::new());
+                                died_to.set(String::new());
+                                current_page.set(1);
+                            },
+                            {i18n.t("search.died_between")}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if !place_filter().trim().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                place_filter.set(String::new());
+                                current_page.set(1);
+                            },
+                            {format!("{}: {}", i18n.t("search.place"), place_filter())}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if event_type_filter().is_some() || !event_from().is_empty() || !event_to().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                event_type_filter.set(None);
+                                event_from.set(String::new());
+                                event_to.set(String::new());
+                                current_page.set(1);
+                            },
+                            {i18n.t("search.event_criteria")}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if !spouse_surname().trim().is_empty() || !spouse_given_names().trim().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                spouse_surname.set(String::new());
+                                spouse_given_names.set(String::new());
+                                current_page.set(1);
+                            },
+                            {i18n.t("search.spouse")}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if !father_surname().trim().is_empty() || !father_given_names().trim().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                father_surname.set(String::new());
+                                father_given_names.set(String::new());
+                                current_page.set(1);
+                            },
+                            {i18n.t("search.father")}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if !mother_surname().trim().is_empty() || !mother_given_names().trim().is_empty() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                mother_surname.set(String::new());
+                                mother_given_names.set(String::new());
+                                current_page.set(1);
+                            },
+                            {i18n.t("search.mother")}
+                            span { " \u{00D7}" }
+                        }
+                    }
+                    if has_media() {
+                        button {
+                            class: "sr-filter-chip",
+                            onclick: move |_| {
+                                has_media.set(false);
+                                current_page.set(1);
+                            },
+                            {i18n.t("search.has_media")}
+                            span { " \u{00D7}" }
                         }
                     }
                 }
@@ -481,7 +833,11 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                 }
 
                 // ── Results ──
-                if is_loading {
+                if no_query {
+                    div { class: "sr-empty",
+                        p { {i18n.t("search.start_search")} }
+                    }
+                } else if is_loading {
                     div { class: "sr-empty", {i18n.t("search.loading")} }
                 } else if is_error {
                     div { class: "sr-empty", {i18n.t("search.error")} }

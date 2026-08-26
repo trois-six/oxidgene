@@ -9,6 +9,7 @@ members = [
     "crates/oxidgene-ui",
     "apps/oxidgene-server",
     "apps/oxidgene-desktop",
+    "apps/oxidgene-web",
 ]
 
 [workspace.package]
@@ -53,7 +54,7 @@ async-graphql-axum = "7.2"
 # The TLS-less runtime is the base: SQLite is a file, and a driver that speaks
 # no TLS is exactly right for it. The server re-adds rustls through the
 # `postgres` feature, where a connection really does cross a network.
-sea-orm = { version = "1.1", default-features = false, features = [
+sea-orm = { version = "2.0", default-features = false, features = [
     "sqlx-sqlite",
     "runtime-tokio",
     "macros",
@@ -61,7 +62,7 @@ sea-orm = { version = "1.1", default-features = false, features = [
     "with-uuid",
     "with-chrono",
 ] }
-sea-orm-migration = { version = "1.1", default-features = false, features = [
+sea-orm-migration = { version = "2.0", default-features = false, features = [
     "sqlx-sqlite",
     "runtime-tokio",
 ] }
@@ -71,7 +72,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # UUID
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v7", "serde", "js"] }
 
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
@@ -79,6 +80,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Error handling
 thiserror = "2"
 anyhow = "1"
+tempfile = "3"
 
 # Logging & tracing
 tracing = "0.1"
@@ -97,11 +99,11 @@ unicode-normalization = "0.1"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
 # Base64 (GraphQL transport for binary .gw and media payloads)
-base64 = "0.22"
+base64 = "0.23"
 
 # Media storage (Sprint F.1)
 # Content addressing: the SHA-256 of a file is both its store key and its ETag.
-sha2 = "0.10"
+sha2 = "0.11"
 # Thumbnails + intrinsic dimensions. `rayon` is off: thumbnailing already runs
 # on a blocking task, one file at a time, so a second thread pool buys nothing.
 #
@@ -128,7 +130,7 @@ ammonia = "4"
 config = { version = "0.15", default-features = false, features = ["toml"] }
 
 # Dioxus (frontend)
-dioxus = "0.7"
+dioxus = "0.7.10"
 
 # HTTP client. TLS stays: the download button on a remote medium fetches an
 # arbitrary https URL. `charset` and `http2` go: we read JSON and bytes, never a

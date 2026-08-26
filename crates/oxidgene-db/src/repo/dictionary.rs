@@ -21,7 +21,7 @@ use oxidgene_core::{
 use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue::Set, Unchanged};
+use sea_orm::{ActiveValue::Set, Condition, Unchanged};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -607,9 +607,9 @@ impl DictionaryRepo {
             .filter(event::Column::PersonId.is_in(person_ids.to_vec()))
             .filter(event::Column::DeletedAt.is_null())
             .filter(
-                event::Column::EventType
-                    .eq(sea_enums::EventType::from(EventType::Birth))
-                    .or(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Death))),
+                Condition::any()
+                    .add(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Birth)))
+                    .add(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Death))),
             )
             .all(db)
             .await

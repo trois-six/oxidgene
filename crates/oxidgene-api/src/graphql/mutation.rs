@@ -1,7 +1,7 @@
 //! GraphQL mutation root with all write operations.
 
 use crate::profile::invalidation;
-use crate::rest::state::{begin_tx, commit_tx};
+use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::event_date;
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
@@ -20,18 +20,18 @@ use super::inputs::{
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
     CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
     ImportGedcomInput, ImportGedzipInput, ImportGenewebInput, PersonNameInput,
-    SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput, UpdateMediaInput,
-    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput,
-    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
-    geneanet_deposit_sizes, geneanet_media_paths,
+    SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput, UpdateFamilyInput,
+    UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
+    UpdateSourceInput, UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput,
+    UploadMediaInput, geneanet_deposit_sizes, geneanet_media_paths,
 };
 use super::types::{
     GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilyNameParticleUpdate,
     GqlFamilySpouse, GqlGeneanetDepositSize, GqlGeneanetImportResult, GqlGeneanetMediaPath,
     GqlGeneanetSession, GqlGeneanetSessionArchive, GqlImportResult, GqlMedia, GqlMediaLink,
     GqlNote, GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
-    GqlPrivacy, GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx,
-    imports_from_ctx, media_from_ctx, profiles_from_ctx, purge_from_ctx,
+    GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx, imports_from_ctx,
+    media_from_ctx, profiles_from_ctx, purge_from_ctx,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -175,6 +175,13 @@ impl MutationRoot {
         id: ID,
         input: UpdateTreeInput,
     ) -> Result<GqlTree> {
+        if input
+            .name
+            .as_deref()
+            .is_some_and(|name| name.trim().is_empty())
+        {
+            return Err(async_graphql::Error::new("name must not be empty"));
+        }
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
         let sosa_root = patch_parse(
@@ -238,13 +245,16 @@ impl MutationRoot {
     async fn update_person(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdatePersonInput,
     ) -> Result<GqlPerson> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
+        PersonRepo::get_in_tree(&txn, tid, uuid).await?;
         let person = PersonRepo::update(
             &txn,
             uuid,
@@ -255,24 +265,25 @@ impl MutationRoot {
         // Rebuild the affected set (person + spouses + children + parents).
         let affected = invalidation::affected_persons(&txn, uuid).await?;
         profiles
-            .invalidate_for_mutation(&txn, person.tree_id, &affected)
+            .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
         commit_tx(txn).await?;
         Ok(person.into())
     }
 
     /// Delete a person (soft delete).
-    async fn delete_person(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_person(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
-        let person = PersonRepo::get(&txn, uuid).await?;
+        PersonRepo::get_in_tree(&txn, tid, uuid).await?;
         PersonRepo::delete(&txn, uuid).await?;
         // Drops the person's projection + search row and refreshes the
         // relatives that referenced them.
         profiles
-            .invalidate_for_person_delete(&txn, person.tree_id, uuid)
+            .invalidate_for_person_delete(&txn, tid, uuid)
             .await?;
         commit_tx(txn).await?;
         Ok(true)
@@ -284,14 +295,17 @@ impl MutationRoot {
     async fn add_person_name(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         person_id: ID,
         input: PersonNameInput,
     ) -> Result<GqlPersonName> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
         let id = Uuid::now_v7();
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
         let name = PersonNameRepo::create(
             &txn,
             id,
@@ -311,9 +325,8 @@ impl MutationRoot {
         .await?;
         // Name changes affect display_name references across relatives.
         let affected = invalidation::affected_persons(&txn, pid).await?;
-        let person = PersonRepo::get(&txn, pid).await?;
         profiles
-            .invalidate_for_mutation(&txn, person.tree_id, &affected)
+            .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
         commit_tx(txn).await?;
         Ok(name.into())
@@ -323,13 +336,19 @@ impl MutationRoot {
     async fn update_person_name(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
         id: ID,
         input: UpdatePersonNameInput,
     ) -> Result<GqlPersonName> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let pid = Uuid::parse_str(person_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
+        require_tree_resource(&txn, tid, TreeResource::PersonName, uuid).await?;
         let name = PersonNameRepo::update(
             &txn,
             uuid,
@@ -347,26 +366,33 @@ impl MutationRoot {
         )
         .await?;
         let affected = invalidation::affected_persons(&txn, name.person_id).await?;
-        let person = PersonRepo::get(&txn, name.person_id).await?;
         profiles
-            .invalidate_for_mutation(&txn, person.tree_id, &affected)
+            .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
         commit_tx(txn).await?;
         Ok(name.into())
     }
 
     /// Delete a person name (hard delete).
-    async fn delete_person_name(&self, ctx: &Context<'_>, person_id: ID, id: ID) -> Result<bool> {
+    async fn delete_person_name(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
+        id: ID,
+    ) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
+        require_tree_resource(&txn, tid, TreeResource::PersonName, uuid).await?;
         PersonNameRepo::delete(&txn, uuid).await?;
         let affected = invalidation::affected_persons(&txn, pid).await?;
-        let person = PersonRepo::get(&txn, pid).await?;
         profiles
-            .invalidate_for_mutation(&txn, person.tree_id, &affected)
+            .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
         commit_tx(txn).await?;
         Ok(true)
@@ -388,28 +414,32 @@ impl MutationRoot {
     async fn update_family(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
-        privacy: Option<GqlPrivacy>,
+        input: UpdateFamilyInput,
     ) -> Result<GqlFamily> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        let family = FamilyRepo::update(db, uuid, privacy.map(Into::into)).await?;
+        require_tree_resource(db, tid, TreeResource::Family, uuid).await?;
+        let family = FamilyRepo::update(db, uuid, input.privacy.map(Into::into)).await?;
         Ok(family.into())
     }
 
     /// Delete a family (soft delete).
-    async fn delete_family(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_family(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
-        let family = FamilyRepo::get(&txn, uuid).await?;
+        require_tree_resource(&txn, tid, TreeResource::Family, uuid).await?;
         // Compute affected BEFORE delete.
         let affected = invalidation::affected_persons_for_family(&txn, uuid).await?;
         FamilyRepo::delete(&txn, uuid).await?;
         if !affected.is_empty() {
             profiles
-                .invalidate_for_mutation(&txn, family.tree_id, &affected)
+                .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
         commit_tx(txn).await?;
@@ -420,39 +450,50 @@ impl MutationRoot {
     async fn add_spouse(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         family_id: ID,
         input: AddSpouseInput,
     ) -> Result<GqlFamilySpouse> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let fid = Uuid::parse_str(family_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
+        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
         let spouse =
             FamilySpouseRepo::create(&txn, id, fid, pid, input.role.into(), input.sort_order)
                 .await?;
         let affected =
             invalidation::affected_persons_for_family_spouse_change(&txn, fid, pid).await?;
-        let family = FamilyRepo::get(&txn, fid).await?;
         profiles
-            .invalidate_for_mutation(&txn, family.tree_id, &affected)
+            .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
         commit_tx(txn).await?;
         Ok(spouse.into())
     }
 
     /// Remove a spouse from a family (hard delete).
-    async fn remove_spouse(&self, ctx: &Context<'_>, family_id: ID, id: ID) -> Result<bool> {
+    async fn remove_spouse(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        family_id: ID,
+        id: ID,
+    ) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let fid = Uuid::parse_str(family_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
+        require_tree_resource(&txn, tid, TreeResource::FamilySpouse, uuid).await?;
         // Look up which person this spouse link refers to BEFORE deletion.
         let spouses = FamilySpouseRepo::list_by_families(&txn, &[fid]).await?;
         let person_id = spouses.iter().find(|s| s.id == uuid).map(|s| s.person_id);
-        let family = FamilyRepo::get(&txn, fid).await?;
         // Compute affected BEFORE delete.
         let affected = if let Some(pid) = person_id {
             invalidation::affected_persons_for_family_spouse_change(&txn, fid, pid).await?
@@ -462,7 +503,7 @@ impl MutationRoot {
         FamilySpouseRepo::delete(&txn, uuid).await?;
         if !affected.is_empty() {
             profiles
-                .invalidate_for_mutation(&txn, family.tree_id, &affected)
+                .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
         commit_tx(txn).await?;
@@ -473,15 +514,19 @@ impl MutationRoot {
     async fn add_child(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         family_id: ID,
         input: AddChildInput,
     ) -> Result<GqlFamilyChild> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let fid = Uuid::parse_str(family_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
+        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
         let child = FamilyChildRepo::create(
             &txn,
             id,
@@ -493,25 +538,32 @@ impl MutationRoot {
         .await?;
         let affected =
             invalidation::affected_persons_for_family_child_change(&txn, fid, pid).await?;
-        let family = FamilyRepo::get(&txn, fid).await?;
         profiles
-            .invalidate_for_mutation(&txn, family.tree_id, &affected)
+            .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
         commit_tx(txn).await?;
         Ok(child.into())
     }
 
     /// Remove a child from a family (hard delete).
-    async fn remove_child(&self, ctx: &Context<'_>, family_id: ID, id: ID) -> Result<bool> {
+    async fn remove_child(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        family_id: ID,
+        id: ID,
+    ) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let fid = Uuid::parse_str(family_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
+        require_tree_resource(&txn, tid, TreeResource::FamilyChild, uuid).await?;
         // Look up which person this child link refers to BEFORE deletion.
         let children = FamilyChildRepo::list_by_families(&txn, &[fid]).await?;
         let person_id = children.iter().find(|c| c.id == uuid).map(|c| c.person_id);
-        let family = FamilyRepo::get(&txn, fid).await?;
         let affected = if let Some(pid) = person_id {
             invalidation::affected_persons_for_family_child_change(&txn, fid, pid).await?
         } else {
@@ -520,7 +572,7 @@ impl MutationRoot {
         FamilyChildRepo::delete(&txn, uuid).await?;
         if !affected.is_empty() {
             profiles
-                .invalidate_for_mutation(&txn, family.tree_id, &affected)
+                .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
         commit_tx(txn).await?;
@@ -555,6 +607,15 @@ impl MutationRoot {
         // Derived here, never taken from the input — see `service::event_date`.
         let date_sort = event_date::derive(calendar, input.date_value.as_deref());
         let txn = begin_tx(db).await?;
+        if let Some(place_id) = place_id {
+            require_tree_resource(&txn, tid, TreeResource::Place, place_id).await?;
+        }
+        if let Some(person_id) = person_id {
+            require_tree_resource(&txn, tid, TreeResource::Person, person_id).await?;
+        }
+        if let Some(family_id) = family_id {
+            require_tree_resource(&txn, tid, TreeResource::Family, family_id).await?;
+        }
         let event = EventRepo::create(
             &txn,
             id,
@@ -592,16 +653,22 @@ impl MutationRoot {
     async fn update_event(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdateEventInput,
     ) -> Result<GqlEvent> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let place_id = patch_parse(input.place_id, |s| Uuid::parse_str(&s), "place_id")?;
         let date_value = patch(input.date_value);
         let calendar = patch_scalar(input.calendar);
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Event, uuid).await?;
+        if let Some(Some(place_id)) = place_id {
+            require_tree_resource(&txn, tid, TreeResource::Place, place_id).await?;
+        }
         // Derived from the patched state, reading whichever half the patch
         // leaves alone off the stored event — see `service::event_date`.
         let stored = EventRepo::get(&txn, uuid).await?;
@@ -629,12 +696,12 @@ impl MutationRoot {
         if let Some(pid) = event.person_id {
             let affected = invalidation::affected_persons(&txn, pid).await?;
             profiles
-                .invalidate_for_mutation(&txn, event.tree_id, &affected)
+                .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         } else if let Some(fid) = event.family_id {
             let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
             profiles
-                .invalidate_for_mutation(&txn, event.tree_id, &affected)
+                .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
         commit_tx(txn).await?;
@@ -642,22 +709,24 @@ impl MutationRoot {
     }
 
     /// Delete an event (soft delete).
-    async fn delete_event(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_event(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Event, uuid).await?;
         let event = EventRepo::get(&txn, uuid).await?;
         EventRepo::delete(&txn, uuid).await?;
         if let Some(pid) = event.person_id {
             let affected = invalidation::affected_persons(&txn, pid).await?;
             profiles
-                .invalidate_for_mutation(&txn, event.tree_id, &affected)
+                .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         } else if let Some(fid) = event.family_id {
             let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
             profiles
-                .invalidate_for_mutation(&txn, event.tree_id, &affected)
+                .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
         commit_tx(txn).await?;
@@ -668,22 +737,28 @@ impl MutationRoot {
     async fn add_event_witness(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         event_id: ID,
         input: AddEventWitnessInput,
     ) -> Result<GqlEventWitness> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let eid = Uuid::parse_str(event_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
+        require_tree_resource(db, tid, TreeResource::Event, eid).await?;
+        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
         let witness =
             EventWitnessRepo::create(db, id, eid, pid, input.relation, input.sort_order).await?;
         Ok(witness.into())
     }
 
     /// Remove a witness from an event (hard delete).
-    async fn remove_event_witness(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn remove_event_witness(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::EventWitness, uuid).await?;
         EventWitnessRepo::delete(db, uuid).await?;
         Ok(true)
     }
@@ -709,31 +784,46 @@ impl MutationRoot {
     async fn update_place(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdatePlaceInput,
     ) -> Result<GqlPlace> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Place, uuid).await?;
+        let affected = invalidation::affected_persons_for_place(&txn, uuid).await?;
         let place = PlaceRepo::update(
-            db,
+            &txn,
             uuid,
             input.name,
             patch(input.latitude),
             patch(input.longitude),
         )
         .await?;
-        // Place changes could affect event display — but a person projection
-        // stores the place *name* snapshot. For now, place edits don't refresh
-        // the projections that embed the old name; a full rebuild is needed
-        // after a place rename.
+        profiles
+            .invalidate_for_mutation(&txn, tid, &affected)
+            .await?;
+        commit_tx(txn).await?;
         Ok(place.into())
     }
 
     /// Delete a place (hard delete).
-    async fn delete_place(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_place(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        PlaceRepo::delete(db, uuid).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Place, uuid).await?;
+        let affected = invalidation::affected_persons_for_place(&txn, uuid).await?;
+        PlaceRepo::delete(&txn, uuid).await?;
+        profiles
+            .invalidate_for_mutation(&txn, tid, &affected)
+            .await?;
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -767,11 +857,14 @@ impl MutationRoot {
     async fn update_source(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdateSourceInput,
     ) -> Result<GqlSource> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Source, uuid).await?;
         let source = SourceRepo::update(
             db,
             uuid,
@@ -791,11 +884,14 @@ impl MutationRoot {
     async fn delete_source(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         #[graphql(default = false)] only_if_unused: bool,
     ) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Source, uuid).await?;
         if only_if_unused {
             return Ok(SourceRepo::delete_if_unused(db, uuid).await?);
         }
@@ -809,9 +905,12 @@ impl MutationRoot {
     async fn create_citation(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         input: CreateCitationInput,
     ) -> Result<GqlCitation> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let source_id = Uuid::parse_str(&input.source_id)?;
         let person_id = input
@@ -825,8 +924,19 @@ impl MutationRoot {
             .as_deref()
             .map(Uuid::parse_str)
             .transpose()?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Source, source_id).await?;
+        if let Some(person_id) = person_id {
+            require_tree_resource(&txn, tid, TreeResource::Person, person_id).await?;
+        }
+        if let Some(event_id) = event_id {
+            require_tree_resource(&txn, tid, TreeResource::Event, event_id).await?;
+        }
+        if let Some(family_id) = family_id {
+            require_tree_resource(&txn, tid, TreeResource::Family, family_id).await?;
+        }
         let citation = CitationRepo::create(
-            db,
+            &txn,
             id,
             source_id,
             person_id,
@@ -837,6 +947,12 @@ impl MutationRoot {
             input.text,
         )
         .await?;
+        if let Some(person_id) = citation.person_id {
+            profiles
+                .invalidate_for_mutation(&txn, tid, &[person_id])
+                .await?;
+        }
+        commit_tx(txn).await?;
         Ok(citation.into())
     }
 
@@ -844,17 +960,26 @@ impl MutationRoot {
     async fn update_citation(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdateCitationInput,
     ) -> Result<GqlCitation> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Citation, uuid).await?;
+        let previous = CitationRepo::get(&txn, uuid).await?;
         let source_id = input
             .source_id
             .map(|id| Uuid::parse_str(id.as_str()))
             .transpose()?;
+        if let Some(source_id) = source_id {
+            require_tree_resource(&txn, tid, TreeResource::Source, source_id).await?;
+        }
         let citation = CitationRepo::update(
-            db,
+            &txn,
             uuid,
             source_id,
             patch(input.page),
@@ -862,14 +987,31 @@ impl MutationRoot {
             patch(input.text),
         )
         .await?;
+        if let Some(person_id) = previous.person_id {
+            profiles
+                .invalidate_for_mutation(&txn, tid, &[person_id])
+                .await?;
+        }
+        commit_tx(txn).await?;
         Ok(citation.into())
     }
 
     /// Delete a citation (hard delete).
-    async fn delete_citation(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_citation(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        CitationRepo::delete(db, uuid).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Citation, uuid).await?;
+        let citation = CitationRepo::get(&txn, uuid).await?;
+        CitationRepo::delete(&txn, uuid).await?;
+        if let Some(person_id) = citation.person_id {
+            profiles
+                .invalidate_for_mutation(&txn, tid, &[person_id])
+                .await?;
+        }
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -949,7 +1091,9 @@ impl MutationRoot {
 
         let media = match input.media_id {
             Some(media_id) => {
-                MediaRepo::attach_file(db, Uuid::parse_str(&media_id)?, upload).await?
+                let media_id = Uuid::parse_str(&media_id)?;
+                require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+                MediaRepo::attach_file(db, media_id, upload).await?
             }
             None => MediaRepo::create_uploaded(db, Uuid::now_v7(), tid, upload).await?,
         };
@@ -960,11 +1104,14 @@ impl MutationRoot {
     async fn update_media(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdateMediaInput,
     ) -> Result<GqlMedia> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, uuid).await?;
         let stored = MediaRepo::get(db, uuid).await?;
 
         // Built as the REST request shape and handed to the REST patch
@@ -995,9 +1142,18 @@ impl MutationRoot {
     }
 
     /// Atomically add a tag without replacing the media's other tags.
-    async fn add_media_tag(&self, ctx: &Context<'_>, id: ID, tag: String) -> Result<GqlMedia> {
+    async fn add_media_tag(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        tag: String,
+    ) -> Result<GqlMedia> {
         let db = db_from_ctx(ctx);
-        let media = MediaRepo::get(db, Uuid::parse_str(id.as_str())?).await?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let media_id = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        let media = MediaRepo::get(db, media_id).await?;
         let (tag, normalized_tag) = crate::rest::media::normalize_tag(tag)
             .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
         let target_id = media.parent_media_id.unwrap_or(media.id);
@@ -1006,9 +1162,18 @@ impl MutationRoot {
     }
 
     /// Atomically remove one tag without replacing the media's other tags.
-    async fn remove_media_tag(&self, ctx: &Context<'_>, id: ID, tag: String) -> Result<bool> {
+    async fn remove_media_tag(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        tag: String,
+    ) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        let media = MediaRepo::get(db, Uuid::parse_str(id.as_str())?).await?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let media_id = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        let media = MediaRepo::get(db, media_id).await?;
         let (_, normalized_tag) = crate::rest::media::normalize_tag(tag)
             .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
         MediaTagRepo::delete(
@@ -1029,19 +1194,24 @@ impl MutationRoot {
     async fn delete_media(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         #[graphql(default = false)] only_if_unreferenced_elsewhere: bool,
         allowed_link_id: Option<ID>,
     ) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, uuid).await?;
         let allowed_link_id = if only_if_unreferenced_elsewhere {
             let link_id = allowed_link_id.ok_or_else(|| {
                 async_graphql::Error::new(
                     "allowedLinkId is required for conditional media deletion",
                 )
             })?;
-            Some(Uuid::parse_str(link_id.as_str())?)
+            let link_id = Uuid::parse_str(link_id.as_str())?;
+            require_tree_resource(db, tid, TreeResource::MediaLink, link_id).await?;
+            Some(link_id)
         } else {
             None
         };
@@ -1075,6 +1245,7 @@ impl MutationRoot {
         let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let pid = Uuid::parse_str(person_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
 
         let request = crate::rest::dto::SetPortraitRequest {
             media_id: media_id
@@ -1084,6 +1255,12 @@ impl MutationRoot {
                 .map(|id| Uuid::parse_str(id.as_str()))
                 .transpose()?,
         };
+        if let Some(media_id) = request.media_id {
+            require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        }
+        if let Some(vignette_id) = request.vignette_id {
+            require_tree_resource(db, tid, TreeResource::Vignette, vignette_id).await?;
+        }
         let portrait = request.portrait().map_err(async_graphql::Error::new)?;
         let person = PersonRepo::set_portrait(db, pid, portrait).await?;
         // The portrait is embedded in `person_denorm`, so the projection has
@@ -1110,16 +1287,17 @@ impl MutationRoot {
     async fn append_media_page(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         document_id: ID,
         media_id: ID,
     ) -> Result<GqlMedia> {
         let db = db_from_ctx(ctx);
-        let page = MediaRepo::append_page(
-            db,
-            Uuid::parse_str(document_id.as_str())?,
-            Uuid::parse_str(media_id.as_str())?,
-        )
-        .await?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let document_id = Uuid::parse_str(document_id.as_str())?;
+        let media_id = Uuid::parse_str(media_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        let page = MediaRepo::append_page(db, document_id, media_id).await?;
         Ok(page.into())
     }
 
@@ -1127,23 +1305,37 @@ impl MutationRoot {
     async fn reorder_media_pages(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         document_id: ID,
         page_ids: Vec<ID>,
     ) -> Result<Vec<GqlMedia>> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let document_id = Uuid::parse_str(document_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
         let ids: Vec<Uuid> = page_ids
             .iter()
             .map(|id| Uuid::parse_str(id.as_str()))
             .collect::<Result<_, _>>()?;
-        let pages =
-            MediaRepo::reorder_pages(db, Uuid::parse_str(document_id.as_str())?, &ids).await?;
+        for page_id in &ids {
+            require_tree_resource(db, tid, TreeResource::Media, *page_id).await?;
+        }
+        let pages = MediaRepo::reorder_pages(db, document_id, &ids).await?;
         Ok(pages.into_iter().map(Into::into).collect())
     }
 
     /// Detach a page, leaving it as an ordinary media.
-    async fn detach_media_page(&self, ctx: &Context<'_>, page_id: ID) -> Result<GqlMedia> {
+    async fn detach_media_page(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        page_id: ID,
+    ) -> Result<GqlMedia> {
         let db = db_from_ctx(ctx);
-        let page = MediaRepo::detach_page(db, Uuid::parse_str(page_id.as_str())?).await?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let page_id = Uuid::parse_str(page_id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Media, page_id).await?;
+        let page = MediaRepo::detach_page(db, page_id).await?;
         Ok(page.into())
     }
 
@@ -1153,10 +1345,13 @@ impl MutationRoot {
     async fn create_vignette(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         input: CreateVignetteInput,
     ) -> Result<GqlVignette> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let media_id = Uuid::parse_str(&input.media_id)?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
         let media = MediaRepo::get(db, media_id).await?;
         crate::media::validate_crop(
             &media,
@@ -1193,11 +1388,14 @@ impl MutationRoot {
     async fn update_vignette(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdateVignetteInput,
     ) -> Result<GqlVignette> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Vignette, uuid).await?;
         let existing = VignetteRepo::get(db, uuid).await?;
 
         let rect = match (input.x, input.y, input.width, input.height) {
@@ -1233,9 +1431,12 @@ impl MutationRoot {
     }
 
     /// Delete a vignette. The media it cropped is untouched.
-    async fn delete_vignette(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_vignette(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
-        VignetteRepo::delete(db, Uuid::parse_str(id.as_str())?).await?;
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::Vignette, uuid).await?;
+        VignetteRepo::delete(db, uuid).await?;
         Ok(true)
     }
 
@@ -1243,9 +1444,11 @@ impl MutationRoot {
     async fn create_media_link(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         input: CreateMediaLinkInput,
     ) -> Result<GqlMediaLink> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let media_id = Uuid::parse_str(&input.media_id)?;
         let person_id = input
@@ -1264,6 +1467,17 @@ impl MutationRoot {
             .as_deref()
             .map(Uuid::parse_str)
             .transpose()?;
+        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
+        for (resource, id) in [
+            (TreeResource::Person, person_id),
+            (TreeResource::Event, event_id),
+            (TreeResource::Source, source_id),
+            (TreeResource::Family, family_id),
+        ] {
+            if let Some(id) = id {
+                require_tree_resource(db, tid, resource, id).await?;
+            }
+        }
         let link = MediaLinkRepo::create(
             db,
             id,
@@ -1279,9 +1493,11 @@ impl MutationRoot {
     }
 
     /// Delete a media link (hard delete).
-    async fn delete_media_link(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_media_link(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
+        require_tree_resource(db, tid, TreeResource::MediaLink, uuid).await?;
         MediaLinkRepo::delete(db, uuid).await?;
         Ok(true)
     }
@@ -1296,6 +1512,7 @@ impl MutationRoot {
         input: CreateNoteInput,
     ) -> Result<GqlNote> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
         let person_id = input
@@ -1315,10 +1532,28 @@ impl MutationRoot {
             .map(Uuid::parse_str)
             .transpose()?;
         let media_id = input.media_id.as_deref().map(Uuid::parse_str).transpose()?;
+        let txn = begin_tx(db).await?;
+        for (resource, id) in [
+            (TreeResource::Person, person_id),
+            (TreeResource::Event, event_id),
+            (TreeResource::Family, family_id),
+            (TreeResource::Source, source_id),
+            (TreeResource::Media, media_id),
+        ] {
+            if let Some(id) = id {
+                require_tree_resource(&txn, tid, resource, id).await?;
+            }
+        }
         let note = NoteRepo::create(
-            db, id, tid, input.text, person_id, event_id, family_id, source_id, media_id,
+            &txn, id, tid, input.text, person_id, event_id, family_id, source_id, media_id,
         )
         .await?;
+        if let Some(person_id) = note.person_id {
+            profiles
+                .invalidate_for_mutation(&txn, tid, &[person_id])
+                .await?;
+        }
+        commit_tx(txn).await?;
         Ok(note.into())
     }
 
@@ -1326,20 +1561,43 @@ impl MutationRoot {
     async fn update_note(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         id: ID,
         input: UpdateNoteInput,
     ) -> Result<GqlNote> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        let note = NoteRepo::update(db, uuid, input.text).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Note, uuid).await?;
+        let previous = NoteRepo::get(&txn, uuid).await?;
+        let note = NoteRepo::update(&txn, uuid, input.text).await?;
+        if let Some(person_id) = previous.person_id {
+            profiles
+                .invalidate_for_mutation(&txn, tid, &[person_id])
+                .await?;
+        }
+        commit_tx(txn).await?;
         Ok(note.into())
     }
 
     /// Delete a note (soft delete).
-    async fn delete_note(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+    async fn delete_note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        NoteRepo::delete(db, uuid).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Note, uuid).await?;
+        let note = NoteRepo::get(&txn, uuid).await?;
+        NoteRepo::delete(&txn, uuid).await?;
+        if let Some(person_id) = note.person_id {
+            profiles
+                .invalidate_for_mutation(&txn, tid, &[person_id])
+                .await?;
+        }
+        commit_tx(txn).await?;
         Ok(true)
     }
 

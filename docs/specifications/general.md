@@ -67,7 +67,11 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Professional or advanced users.
 - Paid subscribers (future phases).
 
-### 2.2 User Roles (per tree)
+### 2.2 Planned User Roles (per tree)
+
+These roles describe the authorization target for EPIC G. They are not
+implemented in the current MVP, which has no authentication or viewer-aware
+access control.
 
 - **Guest**: limited access, contemporary individuals hidden. → see [Settings](ui-settings.md) (privacy section)
 - **Full Read-only**: full tree access.
@@ -75,9 +79,12 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 ### 2.3 Access Control
 
-- Trees can be private, shared, or public.
-- Access rights defined per tree.
-- Authentication deferred to EPIC G (not in MVP). → see [Roadmap](roadmap.md)
+- Target behavior: trees can be private, shared, or public, with access rights
+    defined per tree.
+- Current behavior: privacy values record the user's intent but do not restrict
+    any API query, search, export, media download, or UI view.
+- Authentication, authorization, and privacy enforcement are deferred to EPIC
+    G (not in MVP). → see [Roadmap](roadmap.md)
 
 ---
 
@@ -162,10 +169,19 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 ## 4. Security & Privacy
 
+Privacy metadata is persisted now, but it is **not a security boundary in the
+current MVP**. Marking a tree, person, family, or media item private does not
+hide it from reads, searches, exports, media downloads, or the UI.
+
+The following behavior is planned for EPIC G:
+
 - Mask contemporary individuals (< 100 years old) for guest users. → see [Settings](ui-settings.md) (privacy section)
 - Optional last/first name masking.
+- Authentication and per-tree authorization.
+- Privacy enforcement across REST, GraphQL, exports, media, and UI views.
 - Full audit logging.
-- Authentication and authorization in EPIC G. → see [Roadmap](roadmap.md)
+
+See [Roadmap](roadmap.md) for delivery status.
 
 ---
 

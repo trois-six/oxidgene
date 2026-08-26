@@ -1707,6 +1707,34 @@ pub struct GqlMediaWithLink {
     pub media: GqlMedia,
 }
 
+/// A flat media link with the display fields needed by tree-wide consumers.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTreeMediaLink {
+    pub link_id: ID,
+    pub entity_id: ID,
+    pub entity_type: String,
+    pub media_id: ID,
+    pub file_path: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub has_thumbnail: bool,
+}
+
+impl From<oxidgene_db::repo::MediaLinkRow> for GqlTreeMediaLink {
+    fn from(link: oxidgene_db::repo::MediaLinkRow) -> Self {
+        Self {
+            link_id: ID(link.link_id.to_string()),
+            entity_id: ID(link.entity_id.to_string()),
+            entity_type: link.entity_type,
+            media_id: ID(link.media_id.to_string()),
+            file_path: link.file_path,
+            file_name: link.file_name,
+            mime_type: link.mime_type,
+            has_thumbnail: link.has_thumbnail,
+        }
+    }
+}
+
 // ── Vignette ─────────────────────────────────────────────────────────
 
 /// A rectangular region of a media file, kept as coordinates rather than as a
@@ -2165,6 +2193,28 @@ pub struct GqlSearchEntry {
 pub struct GqlSearchResult {
     pub entries: Vec<GqlSearchEntry>,
     pub total_count: i32,
+}
+
+/// Server-side ordering for person search results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlPersonSearchSort {
+    Relevance,
+    NameAsc,
+    NameDesc,
+    BirthAsc,
+    BirthDesc,
+}
+
+impl From<GqlPersonSearchSort> for oxidgene_db::repo::PersonSearchSort {
+    fn from(value: GqlPersonSearchSort) -> Self {
+        match value {
+            GqlPersonSearchSort::Relevance => Self::Relevance,
+            GqlPersonSearchSort::NameAsc => Self::NameAsc,
+            GqlPersonSearchSort::NameDesc => Self::NameDesc,
+            GqlPersonSearchSort::BirthAsc => Self::BirthAsc,
+            GqlPersonSearchSort::BirthDesc => Self::BirthDesc,
+        }
+    }
 }
 
 /// A distinct dictionary value with the number of people who use it.

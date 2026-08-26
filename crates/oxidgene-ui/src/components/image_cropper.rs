@@ -86,7 +86,18 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let media = props.media.clone();
     let media_id = media.id;
     let source = (media.width.unwrap_or(0), media.height.unwrap_or(0));
-    let image_url = api.media_file_url(tree_id, media_id);
+    let image = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move { api.media_file_data_url(tree_id, media_id).await }
+        }
+    });
+    let image_url = image
+        .read_unchecked()
+        .as_ref()
+        .and_then(|result| result.as_ref().ok())
+        .cloned();
     let on_saved = props.on_saved;
     let on_close = props.on_close;
     let person_id = props.person_id;
@@ -223,13 +234,15 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                     onmouseup: move |_| drag_start.set(None),
                     onmouseleave: move |_| drag_start.set(None),
 
-                    img {
-                        class: "cropper-image",
-                        src: "{image_url}",
-                        alt: "{media.file_name}",
-                        // The browser would otherwise start its own drag of the
-                        // image, which cancels ours halfway through.
-                        draggable: "false",
+                    if let Some(image_url) = image_url {
+                        img {
+                            class: "cropper-image",
+                            src: "{image_url}",
+                            alt: "{media.file_name}",
+                            // The browser would otherwise start its own drag of the
+                            // image, which cancels ours halfway through.
+                            draggable: "false",
+                        }
                     }
 
                     // Crops already on this page, so the user can see what is

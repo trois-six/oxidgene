@@ -5,6 +5,7 @@
 //! - GraphQL schema and resolvers at `/graphql`
 //! - A router builder to wire up all routes
 
+mod error_contract;
 #[cfg(feature = "graphql")]
 pub mod graphql;
 pub mod media;

@@ -38,7 +38,24 @@ pub enum PersonFormCreateContext {
         child_id: Uuid,
         family_id: Option<Uuid>,
         is_father: bool,
+        child_surname: Option<String>,
     },
+}
+
+impl PersonFormCreateContext {
+    fn initial_surname(&self) -> Option<String> {
+        match self {
+            Self::AddParent {
+                is_father: true,
+                child_surname: Some(child_surname),
+                ..
+            } => {
+                let child_surname = child_surname.trim();
+                (!child_surname.is_empty()).then(|| child_surname.to_string())
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Props, Clone, PartialEq)]
@@ -323,6 +340,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
         sex_loaded.set(true);
         privacy_loaded.set(true);
+    }
+
+    if is_create && !birth_identity_loaded() {
+        if let Some(child_surname) = props
+            .create_context
+            .as_ref()
+            .and_then(PersonFormCreateContext::initial_surname)
+        {
+            birth_surname.set(child_surname);
+        }
+        birth_identity_loaded.set(true);
     }
 
     if !sex_loaded()
@@ -850,6 +878,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             child_id,
                             family_id,
                             is_father,
+                            ..
                         } => {
                             let fid = if let Some(fid) = family_id {
                                 fid
@@ -3199,6 +3228,42 @@ fn render_information_form(
 #[cfg(test)]
 mod information_form_tests {
     use super::*;
+
+    #[test]
+    fn father_inherits_the_child_surname() {
+        let context = PersonFormCreateContext::AddParent {
+            child_id: Uuid::nil(),
+            family_id: None,
+            is_father: true,
+            child_surname: Some(" de la Cruz ".to_string()),
+        };
+
+        assert_eq!(context.initial_surname().as_deref(), Some("de la Cruz"));
+    }
+
+    #[test]
+    fn mother_does_not_inherit_the_child_surname() {
+        let context = PersonFormCreateContext::AddParent {
+            child_id: Uuid::nil(),
+            family_id: None,
+            is_father: false,
+            child_surname: Some("DUPONT".to_string()),
+        };
+
+        assert_eq!(context.initial_surname(), None);
+    }
+
+    #[test]
+    fn father_does_not_inherit_an_empty_child_surname() {
+        let context = PersonFormCreateContext::AddParent {
+            child_id: Uuid::nil(),
+            family_id: None,
+            is_father: true,
+            child_surname: Some("  ".to_string()),
+        };
+
+        assert_eq!(context.initial_surname(), None);
+    }
 
     #[test]
     fn prefix_and_suffix_reach_their_own_pieces() {

@@ -57,7 +57,7 @@ impl MigrationTrait for Migration {
         // Carry the existing choices over before the column holding them goes.
         let db = manager.get_connection();
         let backend = db.get_database_backend();
-        db.execute(sea_orm::Statement::from_string(
+        db.execute_raw(sea_orm::Statement::from_string(
             backend,
             "UPDATE person SET portrait_media_id = (
                  SELECT ml.media_id FROM media_link ml
@@ -119,7 +119,7 @@ impl MigrationTrait for Migration {
         // Only whole-media portraits can travel back; a vignette portrait has
         // nowhere to go in the old shape, and is dropped rather than
         // misrepresented as its containing scan.
-        db.execute(sea_orm::Statement::from_string(
+        db.execute_raw(sea_orm::Statement::from_string(
             backend,
             "UPDATE media_link SET is_profile = true
              WHERE EXISTS (

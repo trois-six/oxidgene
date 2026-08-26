@@ -14,13 +14,16 @@ use uuid::Uuid;
 
 use super::dto::{CreateVignetteRequest, UpdateVignetteRequest, VignetteListQuery};
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/vignettes
 pub async fn list_media_vignettes(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<Vignette>>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
     let vignettes = VignetteRepo::list_for_media(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -33,9 +36,19 @@ pub async fn list_media_vignettes(
 /// is not a view anything needs, and paginating one would be busywork.
 pub async fn list_vignettes(
     State(state): State<AppState>,
-    Path(_tree_id): Path<Uuid>,
+    Path(tree_id): Path<Uuid>,
     Query(query): Query<VignetteListQuery>,
 ) -> Result<Json<Vec<Vignette>>, ApiError> {
+    if let Some(person_id) = query.person_id {
+        require_tree_resource(&state.db, tree_id, TreeResource::Person, person_id)
+            .await
+            .map_err(ApiError)?;
+    }
+    if let Some(event_id) = query.event_id {
+        require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id)
+            .await
+            .map_err(ApiError)?;
+    }
     let vignettes = match (query.person_id, query.event_id) {
         (Some(person_id), None) => VignetteRepo::list_for_person(&state.db, person_id).await,
         (None, Some(event_id)) => VignetteRepo::list_for_event(&state.db, event_id).await,
@@ -52,9 +65,22 @@ pub async fn list_vignettes(
 /// POST /api/v1/trees/:tree_id/media/:media_id/vignettes
 pub async fn create_vignette(
     State(state): State<AppState>,
-    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<CreateVignetteRequest>,
 ) -> Result<(StatusCode, Json<Vignette>), ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+        .await
+        .map_err(ApiError)?;
+    if let Some(person_id) = body.person_id {
+        require_tree_resource(&state.db, tree_id, TreeResource::Person, person_id)
+            .await
+            .map_err(ApiError)?;
+    }
+    if let Some(event_id) = body.event_id {
+        require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id)
+            .await
+            .map_err(ApiError)?;
+    }
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
@@ -83,8 +109,11 @@ pub async fn create_vignette(
 /// GET /api/v1/trees/:tree_id/vignettes/:vignette_id
 pub async fn get_vignette(
     State(state): State<AppState>,
-    Path((_tree_id, vignette_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vignette>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
+        .await
+        .map_err(ApiError)?;
     let vignette = VignetteRepo::get(&state.db, vignette_id)
         .await
         .map_err(ApiError::from)?;
@@ -94,9 +123,12 @@ pub async fn get_vignette(
 /// PUT /api/v1/trees/:tree_id/vignettes/:vignette_id
 pub async fn update_vignette(
     State(state): State<AppState>,
-    Path((_tree_id, vignette_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateVignetteRequest>,
 ) -> Result<Json<Vignette>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
+        .await
+        .map_err(ApiError)?;
     let existing = VignetteRepo::get(&state.db, vignette_id)
         .await
         .map_err(ApiError::from)?;
@@ -142,8 +174,11 @@ pub async fn update_vignette(
 /// DELETE /api/v1/trees/:tree_id/vignettes/:vignette_id
 pub async fn delete_vignette(
     State(state): State<AppState>,
-    Path((_tree_id, vignette_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
+        .await
+        .map_err(ApiError)?;
     VignetteRepo::delete(&state.db, vignette_id)
         .await
         .map_err(ApiError::from)?;
@@ -159,8 +194,11 @@ pub async fn delete_vignette(
 /// rows, not eight copies of a 40 MB scan.
 pub async fn vignette_image(
     State(state): State<AppState>,
-    Path((_tree_id, vignette_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
+        .await
+        .map_err(ApiError)?;
     let vignette = VignetteRepo::get(&state.db, vignette_id)
         .await
         .map_err(ApiError::from)?;

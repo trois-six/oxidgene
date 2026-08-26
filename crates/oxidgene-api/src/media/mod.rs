@@ -172,8 +172,11 @@ pub async fn ingest(
         let thumb = if thumbnail::can_thumbnail(mime_type) {
             match thumbnail::generate(&bytes) {
                 Ok(thumb) => Some(thumb),
-                Err(err) => {
-                    tracing::warn!(%err, mime_type, "thumbnail generation failed");
+                Err(_) => {
+                    tracing::warn!(
+                        error = "thumbnail_generation",
+                        "thumbnail generation failed"
+                    );
                     None
                 }
             }
@@ -189,8 +192,8 @@ pub async fn ingest(
     let thumbnail_key = match thumb {
         Some(thumb) => match store.put(tree_id, thumb.extension, &thumb.bytes).await {
             Ok(stored) => Some(stored.key),
-            Err(err) => {
-                tracing::warn!(%err, "could not store thumbnail");
+            Err(_) => {
+                tracing::warn!(error = "thumbnail_storage", "could not store thumbnail");
                 None
             }
         },

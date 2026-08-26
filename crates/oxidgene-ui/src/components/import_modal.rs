@@ -712,7 +712,7 @@ fn GeneanetTab(
                 // keep alive, and a missed tick costs nothing. Ends when the
                 // server forgets the run, which it does as the import returns.
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+                    crate::utils::sleep_ms(700).await;
                     match api.geneanet_import_progress(run).await {
                         Ok(Some(progress)) => import_progress.set(Some(progress)),
                         Ok(None) | Err(_) => break,
@@ -1064,7 +1064,7 @@ fn ArchiveStep(
             // is in-process and shares the filesystem.
             let mut paths: Vec<String> = archives.read().iter().map(|a| a.path.clone()).collect();
             for file in &files {
-                paths.push(file.path().display().to_string());
+                paths.push(selected_file_path(file));
             }
 
             busy.set(true);
@@ -1166,6 +1166,17 @@ fn ArchiveStep(
                 {i18n.t("common.continue")}
             }
         }
+    }
+}
+
+fn selected_file_path(file: &rfd::FileHandle) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        file.path().display().to_string()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        file.file_name()
     }
 }
 

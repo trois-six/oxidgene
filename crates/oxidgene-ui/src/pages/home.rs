@@ -77,7 +77,7 @@ pub fn Home() -> Element {
         let desc = new_desc().trim().to_string();
         spawn(async move {
             if name.is_empty() {
-                form_error.set(Some("Name is required".to_string()));
+                form_error.set(Some(i18n.t("tree.form.name_required")));
                 return;
             }
             let body = CreateTreeBody {
@@ -343,11 +343,11 @@ pub fn Home() -> Element {
                             }
                         }
                     },
-                    Some(Err(e)) => rsx! {
-                        div { class: "error-msg", "Failed to load trees: {e}" }
+                    Some(Err(_)) => rsx! {
+                        div { class: "error-msg", {i18n.t("home.load_error")} }
                     },
                     None => rsx! {
-                        div { class: "loading", "Loading trees…" }
+                        div { class: "loading", {i18n.t("home.loading")} }
                     },
                 }
             }

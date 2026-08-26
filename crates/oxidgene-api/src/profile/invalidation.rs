@@ -96,6 +96,36 @@ pub async fn affected_persons_for_family(
     Ok(affected)
 }
 
+/// Compute the persons whose individual or family events reference a place.
+pub async fn affected_persons_for_place(
+    db: &impl ConnectionTrait,
+    place_id: Uuid,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    use oxidgene_db::entities::event;
+    use oxidgene_db::sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+    let events = event::Entity::find()
+        .filter(event::Column::PlaceId.eq(place_id))
+        .filter(event::Column::DeletedAt.is_null())
+        .all(db)
+        .await
+        .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+
+    let mut affected: Vec<Uuid> = events.iter().filter_map(|event| event.person_id).collect();
+    let family_ids: Vec<Uuid> = events.iter().filter_map(|event| event.family_id).collect();
+    if !family_ids.is_empty() {
+        affected.extend(
+            FamilySpouseRepo::list_by_families(db, &family_ids)
+                .await?
+                .into_iter()
+                .map(|spouse| spouse.person_id),
+        );
+    }
+    affected.sort();
+    affected.dedup();
+    Ok(affected)
+}
+
 /// Compute affected persons when a family membership changes (spouse added/removed).
 ///
 /// This is broader than a simple person edit: both spouses, all children in the

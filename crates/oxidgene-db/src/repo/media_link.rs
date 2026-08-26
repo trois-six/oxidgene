@@ -105,7 +105,7 @@ impl MediaLinkRepo {
             Statement::from_sql_and_values(backend, &sql, vec![tree_id.into(), tree_id.into()]);
 
         let query_results = db
-            .query_all(stmt)
+            .query_all_raw(stmt)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
