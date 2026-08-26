@@ -8,25 +8,25 @@ use uuid::Uuid;
 use crate::rest::state::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
-    AncestryRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo, FamilyRepo,
-    FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, PaginationParams, PersonNameRepo,
-    PersonRepo, PersonSearchFilters, PersonSearchSort, PlaceRepo, SOURCE_DRILL_THRESHOLD,
-    SourceRepo, TreeRepo, VignetteRepo,
+    AncestryRepo, CitationFilter, CitationRepo, DictionaryRepo, EventFilter, EventRepo,
+    FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo,
+    NoteFilter, NoteRepo, PaginationParams, PersonNameRepo, PersonRepo, PersonSearchFilters,
+    PersonSearchSort, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
 };
 
 use super::inputs::{GeneanetPreviewInput, geneanet_deposit_sizes};
 use super::types::{
-    GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult,
-    GqlExportGedzipResult, GqlFamily, GqlFamilyConnection, GqlGeneanetArchiveIndex,
-    GqlGeneanetImportPhase, GqlGeneanetImportProgress, GqlGeneanetIndexedArchive,
-    GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
-    GqlMedia, GqlMediaConnection, GqlMediaLink, GqlMediaWithLink, GqlOccupationReference,
-    GqlPedigree, GqlPerson, GqlPersonConnection, GqlPersonProfile, GqlPersonSearchSort,
-    GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry,
-    GqlPortrait, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
-    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
-    GqlTreeMediaLink, GqlTreeSnapshot, GqlVignette, db_from_ctx, imports_from_ctx, media_from_ctx,
-    profiles_from_ctx,
+    GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
+    GqlExportGedcomResult, GqlExportGedzipResult, GqlFamily, GqlFamilyConnection,
+    GqlGeneanetArchiveIndex, GqlGeneanetImportPhase, GqlGeneanetImportProgress,
+    GqlGeneanetIndexedArchive, GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview,
+    GqlGivenNameReference, GqlMedia, GqlMediaConnection, GqlMediaLink, GqlMediaWithLink,
+    GqlNoteConnection, GqlOccupationReference, GqlPedigree, GqlPerson, GqlPersonConnection,
+    GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace,
+    GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait, GqlSearchResult, GqlSource,
+    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
+    GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlTreeSnapshot,
+    GqlVignette, db_from_ctx, imports_from_ctx, media_from_ctx, profiles_from_ctx,
 };
 
 async fn tree_resource_exists(
@@ -345,6 +345,84 @@ impl QueryRoot {
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// List citations in a tree with optional entity filters and pagination.
+    #[allow(clippy::too_many_arguments)]
+    async fn citations(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: Option<ID>,
+        event_id: Option<ID>,
+        family_id: Option<ID>,
+        source_id: Option<ID>,
+        first: Option<u64>,
+        after: Option<String>,
+    ) -> Result<GqlCitationConnection> {
+        let db = db_from_ctx(ctx);
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let filter = CitationFilter {
+            person_id: person_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            event_id: event_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            family_id: family_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            source_id: source_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+        };
+        let params = PaginationParams {
+            first: first.unwrap_or(25),
+            after,
+        };
+        Ok(CitationRepo::list(db, tree_id, &filter, &params)
+            .await?
+            .into())
+    }
+
+    /// List notes in a tree with optional entity filters and pagination.
+    #[allow(clippy::too_many_arguments)]
+    async fn notes(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: Option<ID>,
+        event_id: Option<ID>,
+        family_id: Option<ID>,
+        source_id: Option<ID>,
+        media_id: Option<ID>,
+        first: Option<u64>,
+        after: Option<String>,
+    ) -> Result<GqlNoteConnection> {
+        let db = db_from_ctx(ctx);
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let filter = NoteFilter {
+            person_id: person_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            event_id: event_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            family_id: family_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            source_id: source_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            media_id: media_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+        };
+        let params = PaginationParams {
+            first: first.unwrap_or(25),
+            after,
+        };
+        Ok(NoteRepo::list(db, tree_id, &filter, &params).await?.into())
     }
 
     // ── Dictionary and reference content ────────────────────────────

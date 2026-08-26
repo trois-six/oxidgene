@@ -38,13 +38,13 @@ fn load() -> Vec<(String, Vec<u8>)> {
     };
 
     let mut entries = Vec::new();
-    for path in list.split(':').filter(|p| !p.is_empty()) {
+    for (archive_index, path) in list.split(':').filter(|p| !p.is_empty()).enumerate() {
         let Ok(file) = std::fs::File::open(path) else {
-            eprintln!("skipping {path}: cannot open");
+            eprintln!("skipping archive {archive_index}: cannot open");
             continue;
         };
         let Ok(mut zip) = zip::ZipArchive::new(file) else {
-            eprintln!("skipping {path}: not a ZIP");
+            eprintln!("skipping archive {archive_index}: not a ZIP");
             continue;
         };
         for index in 0..zip.len() {
@@ -133,7 +133,7 @@ fn a_rendition_is_never_matched_to_the_wrong_original() {
         .collect();
 
     let (mut matched, mut declined, mut skipped) = (0usize, 0usize, 0usize);
-    let mut wrong: Vec<String> = Vec::new();
+    let mut wrong = 0usize;
 
     for (index, query) in renditions.iter().enumerate() {
         let Some(query) = query else {
@@ -154,7 +154,7 @@ fn a_rendition_is_never_matched_to_the_wrong_original() {
                 if interchangeable {
                     matched += 1;
                 } else {
-                    wrong.push(format!("{} matched to {}", names[index], names[found]));
+                    wrong += 1;
                 }
             }
             Match::None => declined += 1,
@@ -174,11 +174,11 @@ fn a_rendition_is_never_matched_to_the_wrong_original() {
         }
     }
 
-    let total = matched + declined + wrong.len();
+    let total = matched + declined + wrong;
     println!(
         "radius {MAX_DISTANCE}, margin {MIN_MARGIN}: {matched} matched, {declined} declined \
          (downloaded instead), {} wrong, {skipped} unrenderable",
-        wrong.len()
+        wrong
     );
     println!(
         "resolved without a download: {:.1}%",
@@ -186,9 +186,7 @@ fn a_rendition_is_never_matched_to_the_wrong_original() {
     );
 
     assert!(
-        wrong.is_empty(),
-        "a rendition was matched to the wrong original — this is the failure \
-         that puts one person's photograph on another:\n  {}",
-        wrong.join("\n  ")
+        wrong == 0,
+        "{wrong} rendition(s) matched the wrong original"
     );
 }

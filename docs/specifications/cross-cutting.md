@@ -198,6 +198,12 @@ Never log or commit:
 Use aggregate counts, stable error categories, sanitized extensions, and
 fictitious fixtures. Debug logging does not weaken this rule.
 
+HTTP request spans record the method and aggregate response outcome, never the
+raw URI or query string. Search terms and resource identifiers may be carried
+by either and are therefore treated as genealogy rather than routing metadata.
+Configuration failures likewise log a stable category without echoing the
+rejected value.
+
 ### 5.4 Operational behavior
 
 - Panic and unexpected error boundaries attach a correlation ID and preserve

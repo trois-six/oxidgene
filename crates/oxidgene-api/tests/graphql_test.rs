@@ -1349,6 +1349,117 @@ async fn test_note_crud() {
     assert_eq!(data(&resp)["personProfile"]["noteCount"], 0);
 }
 
+#[tokio::test]
+async fn notes_and_citations_use_cursor_pagination() {
+    let app = setup_app().await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Pagination" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut person_ids = Vec::new();
+    for _ in 0..2 {
+        let resp = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: UNKNOWN }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        person_ids.push(
+            data(&resp)["createPerson"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    let person_id = &person_ids[0];
+    let other_person_id = &person_ids[1];
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createSource(treeId: "{tree_id}", input: {{ title: "Pagination source" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let source_id = data(&resp)["createSource"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for (text, linked_person_id) in [
+        ("First note", person_id),
+        ("Second note", person_id),
+        ("Other note", other_person_id),
+    ] {
+        graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createNote(treeId: "{tree_id}", input: {{ text: "{text}", personId: "{linked_person_id}" }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+    }
+    for (page, linked_person_id) in [("1", person_id), ("2", person_id), ("3", other_person_id)] {
+        graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createCitation(treeId: "{tree_id}", input: {{ sourceId: "{source_id}", personId: "{linked_person_id}", page: "{page}", confidence: HIGH }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+    }
+
+    for resource in ["notes", "citations"] {
+        let resp = graphql(
+            app.clone(),
+            &format!(
+                r#"{{ {resource}(treeId: "{tree_id}", personId: "{person_id}", first: 1) {{ totalCount edges {{ node {{ id }} }} pageInfo {{ hasNextPage endCursor }} }} }}"#
+            ),
+            None,
+        )
+        .await;
+        let first_page = &data(&resp)[resource];
+        assert_eq!(first_page["totalCount"], 2);
+        assert_eq!(first_page["edges"].as_array().unwrap().len(), 1);
+        assert_eq!(first_page["pageInfo"]["hasNextPage"], true);
+        let first_id = first_page["edges"][0]["node"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let cursor = first_page["pageInfo"]["endCursor"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let resp = graphql(
+            app.clone(),
+            &format!(
+                r#"{{ {resource}(treeId: "{tree_id}", personId: "{person_id}", first: 1, after: "{cursor}") {{ totalCount edges {{ node {{ id }} }} pageInfo {{ hasNextPage }} }} }}"#
+            ),
+            None,
+        )
+        .await;
+        let second_page = &data(&resp)[resource];
+        assert_eq!(second_page["totalCount"], 2);
+        assert_eq!(second_page["edges"].as_array().unwrap().len(), 1);
+        assert_eq!(second_page["pageInfo"]["hasNextPage"], false);
+        assert_ne!(second_page["edges"][0]["node"]["id"], first_id);
+    }
+}
+
 // ── Ancestors / Descendants (empty) ──────────────────────────────────
 
 #[tokio::test]

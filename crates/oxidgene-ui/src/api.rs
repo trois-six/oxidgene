@@ -2270,21 +2270,35 @@ impl ApiClient {
         family_id: Option<Uuid>,
         source_id: Option<Uuid>,
     ) -> Result<Vec<Citation>, ApiError> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(pid) = person_id {
-            params.push(("person_id", pid.to_string()));
+        let mut citations = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut params = vec![("first", "100".to_string())];
+            if let Some(person_id) = person_id {
+                params.push(("person_id", person_id.to_string()));
+            }
+            if let Some(event_id) = event_id {
+                params.push(("event_id", event_id.to_string()));
+            }
+            if let Some(family_id) = family_id {
+                params.push(("family_id", family_id.to_string()));
+            }
+            if let Some(source_id) = source_id {
+                params.push(("source_id", source_id.to_string()));
+            }
+            if let Some(after) = cursor.as_ref() {
+                params.push(("after", after.clone()));
+            }
+            let page: PaginatedResponse<Citation> = self
+                .get_with_query(&format!("/api/v1/trees/{tree_id}/citations"), &params)
+                .await?;
+            citations.extend(page.edges.into_iter().map(|edge| edge.node));
+            if !page.page_info.has_next_page {
+                break;
+            }
+            cursor = page.page_info.end_cursor;
         }
-        if let Some(eid) = event_id {
-            params.push(("event_id", eid.to_string()));
-        }
-        if let Some(fid) = family_id {
-            params.push(("family_id", fid.to_string()));
-        }
-        if let Some(sid) = source_id {
-            params.push(("source_id", sid.to_string()));
-        }
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/citations"), &params)
-            .await
+        Ok(citations)
     }
 
     // ── Notes ─────────────────────────────────────────────────────────
@@ -2298,24 +2312,38 @@ impl ApiClient {
         source_id: Option<Uuid>,
         media_id: Option<Uuid>,
     ) -> Result<Vec<Note>, ApiError> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(mid) = media_id {
-            params.push(("media_id", mid.to_string()));
+        let mut notes = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut params = vec![("first", "100".to_string())];
+            if let Some(media_id) = media_id {
+                params.push(("media_id", media_id.to_string()));
+            }
+            if let Some(person_id) = person_id {
+                params.push(("person_id", person_id.to_string()));
+            }
+            if let Some(event_id) = event_id {
+                params.push(("event_id", event_id.to_string()));
+            }
+            if let Some(family_id) = family_id {
+                params.push(("family_id", family_id.to_string()));
+            }
+            if let Some(source_id) = source_id {
+                params.push(("source_id", source_id.to_string()));
+            }
+            if let Some(after) = cursor.as_ref() {
+                params.push(("after", after.clone()));
+            }
+            let page: PaginatedResponse<Note> = self
+                .get_with_query(&format!("/api/v1/trees/{tree_id}/notes"), &params)
+                .await?;
+            notes.extend(page.edges.into_iter().map(|edge| edge.node));
+            if !page.page_info.has_next_page {
+                break;
+            }
+            cursor = page.page_info.end_cursor;
         }
-        if let Some(pid) = person_id {
-            params.push(("person_id", pid.to_string()));
-        }
-        if let Some(eid) = event_id {
-            params.push(("event_id", eid.to_string()));
-        }
-        if let Some(fid) = family_id {
-            params.push(("family_id", fid.to_string()));
-        }
-        if let Some(sid) = source_id {
-            params.push(("source_id", sid.to_string()));
-        }
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/notes"), &params)
-            .await
+        Ok(notes)
     }
 
     pub async fn create_note(

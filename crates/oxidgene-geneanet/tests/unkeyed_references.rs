@@ -95,7 +95,6 @@ fn unkeyed_references_can_be_joined_by_the_name_they_carry() {
     println!("{keyed} references carry a key, {} do not", unkeyed.len());
 
     let (mut one, mut several, mut none) = (0usize, 0usize, 0usize);
-    let mut unmatched = Vec::new();
     for (lastname, firstname) in &unkeyed {
         // Occurrence 0: the reference carries none, and 0 is what a person
         // with no namesake has.
@@ -105,11 +104,9 @@ fn unkeyed_references_can_be_joined_by_the_name_they_carry() {
         match by_name.get(&key).copied().unwrap_or(0) {
             0 => {
                 none += 1;
-                unmatched.push(key);
             }
             1 => {
                 one += 1;
-                println!("  RECOVERABLE: {key}");
             }
             _ => several += 1,
         }
@@ -120,10 +117,4 @@ fn unkeyed_references_can_be_joined_by_the_name_they_carry() {
     println!("  exactly one person  {one}   <- recoverable");
     println!("  several persons     {several}   <- must stay unattached");
     println!("  no person           {none}");
-    if !unmatched.is_empty() {
-        println!("  keys that found nobody, e.g.:");
-        for key in &unmatched {
-            println!("    {key}");
-        }
-    }
 }

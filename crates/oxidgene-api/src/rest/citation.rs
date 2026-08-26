@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::{CitationRepo, SourceRepo};
+use oxidgene_db::repo::{CitationFilter, CitationRepo, PaginationParams};
 use uuid::Uuid;
 
 use super::dto::{CitationListQuery, CreateCitationRequest, UpdateCitationRequest};
@@ -16,35 +16,24 @@ pub async fn list_citations(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<CitationListQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let source_ids = if let Some(source_id) = query.source_id {
+    if let Some(source_id) = query.source_id {
         require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id)
             .await
             .map_err(ApiError)?;
-        vec![source_id]
-    } else {
-        SourceRepo::list_all(&state.db, tree_id)
-            .await
-            .map_err(ApiError::from)?
-            .into_iter()
-            .map(|source| source.id)
-            .collect()
+    }
+    let filter = CitationFilter {
+        person_id: query.person_id,
+        event_id: query.event_id,
+        family_id: query.family_id,
+        source_id: query.source_id,
     };
-    let citations = CitationRepo::list_by_sources(&state.db, &source_ids)
+    let params = PaginationParams {
+        first: query.first.unwrap_or(25),
+        after: query.after,
+    };
+    let citations = CitationRepo::list(&state.db, tree_id, &filter, &params)
         .await
-        .map_err(ApiError::from)?
-        .into_iter()
-        .filter(|citation| {
-            query
-                .person_id
-                .is_none_or(|pid| citation.person_id == Some(pid))
-                && query
-                    .event_id
-                    .is_none_or(|eid| citation.event_id == Some(eid))
-                && query
-                    .family_id
-                    .is_none_or(|fid| citation.family_id == Some(fid))
-        })
-        .collect::<Vec<_>>();
+        .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(citations).unwrap()))
 }
 

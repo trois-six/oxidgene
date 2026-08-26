@@ -24,16 +24,37 @@ A modern, high-performance genealogy platform built entirely in Rust.
   </tr>
 </table>
 
-## Overview
+## Features
 
-OxidGene is a multiplatform genealogy application featuring:
+- **Complete tree editing**: Manage multiple trees, people, families,
+  relationships, events, places, sources, citations, notes, and media.
+- **Interactive genealogy views**: Browse pedigrees, person profiles, timelines,
+  family connections, and merge duplicate people.
+- **Powerful discovery tools**: Search with genealogical filters and explore
+  dictionaries of family names, occupations, places, and sources.
+- **Interoperable imports and exports**: Import and export GEDCOM 5.5.1,
+  GEDCOM 7.0, and GEDZIP archives; import GeneWeb `.gw` files, including the
+  `gwplus` extension.
+- **Geneanet media recovery**: Use the guided desktop workflow to recover a
+  tree's Geneanet media, shared-photo links, portraits, documents, and event
+  evidence.
+- **Rich media management**: Upload images, PDFs, audio, and video; organize
+  galleries and multi-page documents; generate thumbnails; identify people in
+  image regions; and choose portrait crops.
+- **Web and desktop from one codebase**: Run the Dioxus interface as a WASM web
+  app or as a native desktop application for Linux, Windows, and macOS.
+- **Offline desktop mode**: Keep genealogy and content-addressed media locally
+  with an embedded Axum backend and SQLite database.
+- **REST and GraphQL parity**: Access the same validated, cursor-paginated
+  product operations through both API surfaces.
+- **Customizable interface**: Switch between English and French and choose
+  from the built-in visual themes without restarting.
+- **Rust throughout**: Durable read projections and indexed ancestry traversal
+  keep profiles, pedigrees, and searches responsive.
 
-- **Dual API**: REST + GraphQL with full feature parity
-- **Cross-platform**: Web (WASM) and Desktop from a single Dioxus codebase
-- **GEDCOM support**: Import/export GEDCOM 5.5.1 and 7.0 files
-- **GeneWeb support**: Import GeneWeb `.gw` files, including the `gwplus` extension
-- **Offline-capable**: Desktop app with embedded SQLite database
-- **Performant**: Rust from top to bottom, closure table for fast tree traversal
+Authentication, authorization, and privacy enforcement are planned but not yet
+implemented. Current deployments must keep the backend on a trusted local or
+private network; see the [roadmap](docs/specifications/roadmap.md).
 
 ## Documentation
 
@@ -46,25 +67,10 @@ Full specifications are available in [`docs/specifications/`](docs/specification
 - [Roadmap](docs/specifications/roadmap.md) — EPICs & sprints
 - UI specs: [Homepage](docs/specifications/ui-home.md) · [Tree View](docs/specifications/ui-genealogy-tree.md) · [Person Edit](docs/specifications/ui-person-edit-modal.md) · [Settings](docs/specifications/ui-settings.md)
 
-## Prerequisites
-
-- [Rust](https://rustup.rs/) (stable)
-- [just](https://github.com/casey/just) (task runner)
-- PostgreSQL 16+ or Docker Compose (for the web backend)
-- The `wasm32-unknown-unknown` Rust target
-- [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) 0.7.10
-- `cargo-watch` (optional, for backend hot reload)
-
-```bash
-rustup target add wasm32-unknown-unknown
-cargo install dioxus-cli --version 0.7.10 --locked
-cargo install cargo-watch --locked
-```
-
 ## Development
 
-The development environment, prerequisites, and `just` command reference are
-documented in [Development](docs/specifications/development.md).
+See [Development](docs/specifications/development.md) for prerequisites, local
+workflows, and the `just` command reference.
 
 ## License
 

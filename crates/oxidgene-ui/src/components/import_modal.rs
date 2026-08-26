@@ -451,9 +451,8 @@ fn GeneanetTab(
     let override_mismatch = use_signal(|| false);
 
     let mut importing = busy;
-    // Media the login window retrieved, keyed by URL and base64-encoded.
-    // Gathered in step 4 and spent in step 5, so the window is finished with
-    // before anything is written.
+    // Media the login window retrieved, keyed by URL and represented by a
+    // staged local path. The window session owns those files through step 5.
     let mut fetched = use_signal(HashMap::<String, String>::new);
     let mut gathering = use_signal(|| false);
     let mut import_progress = use_signal(|| None::<crate::api::ImportProgress>);
@@ -680,16 +679,17 @@ fn GeneanetTab(
             fetch_progress.set(None);
             gathering.set(false);
 
-            // Nothing left for it to do: everything after this is local.
-            bridge.close();
-            window_closed.set(true);
+            // The window has no more network work, but its session owns the
+            // staged files until the local import has consumed them.
         });
     };
 
     // ── Step 5 — write, with no network left to wait on ──────────────
     let api_import = api.clone();
+    let bridge_import = bridge.clone();
     let run_import = move |_| {
         let api = api_import.clone();
+        let bridge = bridge_import.clone();
         let (Some(file), Some(collected)) = (gw(), collected()) else {
             return;
         };
@@ -737,6 +737,10 @@ fn GeneanetTab(
 
             match outcome {
                 Ok(result) => {
+                    if let Some(bridge) = &bridge {
+                        bridge.close();
+                    }
+                    window_closed.set(true);
                     import_result.set(Some(result.clone()));
                     on_imported.call(ImportOutcome::Geneanet(result));
                 }

@@ -33,6 +33,14 @@ live there too)
 > through REST or GraphQL. A shared photo is stored once and linked many times,
 > while multi-page documents preserve their page structure.
 
+The staging directory is created lazily under the operating system's temporary
+directory and belongs to the desktop login-window session. That session remains
+alive after network gathering until the embedded backend has consumed every
+staged path. A successful import or dismissal of the wizard closes the session
+and removes the directory. A failed local import keeps it for an in-place retry;
+dismissing the wizard still removes it. When archives cover every required
+medium, the window closes before import because no staging directory exists.
+
 ---
 
 ## 1. The problem

@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::NoteRepo;
+use oxidgene_db::repo::{NoteFilter, NoteRepo, PaginationParams};
 use uuid::Uuid;
 
 use super::dto::{CreateNoteRequest, NoteListQuery, UpdateNoteRequest};
@@ -16,17 +16,20 @@ pub async fn list_notes(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<NoteListQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let notes = NoteRepo::list_by_entity(
-        &state.db,
-        tree_id,
-        query.person_id,
-        query.event_id,
-        query.family_id,
-        query.source_id,
-        query.media_id,
-    )
-    .await
-    .map_err(ApiError::from)?;
+    let filter = NoteFilter {
+        person_id: query.person_id,
+        event_id: query.event_id,
+        family_id: query.family_id,
+        source_id: query.source_id,
+        media_id: query.media_id,
+    };
+    let params = PaginationParams {
+        first: query.first.unwrap_or(25),
+        after: query.after,
+    };
+    let notes = NoteRepo::list(&state.db, tree_id, &filter, &params)
+        .await
+        .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(notes).unwrap()))
 }
 

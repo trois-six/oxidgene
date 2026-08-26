@@ -411,6 +411,8 @@ pub struct CitationListQuery {
     pub event_id: Option<uuid::Uuid>,
     pub family_id: Option<uuid::Uuid>,
     pub source_id: Option<uuid::Uuid>,
+    pub first: Option<u64>,
+    pub after: Option<String>,
 }
 
 // ── Media DTOs ──────────────────────────────────────────────────────
@@ -627,6 +629,8 @@ pub struct NoteListQuery {
     pub family_id: Option<uuid::Uuid>,
     pub source_id: Option<uuid::Uuid>,
     pub media_id: Option<uuid::Uuid>,
+    pub first: Option<u64>,
+    pub after: Option<String>,
 }
 
 /// Request body for creating a note.
