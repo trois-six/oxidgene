@@ -1618,7 +1618,7 @@ async fn test_note_crud() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body["edges"].as_array().unwrap().len(), 1);
 
     // Delete the note
     let (status, _) = send_request(
@@ -1708,8 +1708,8 @@ async fn test_note_list_by_multiple_entities() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body.as_array().unwrap().len(), 1);
-    assert_eq!(body[0]["text"], "Person note");
+    assert_eq!(body["edges"].as_array().unwrap().len(), 1);
+    assert_eq!(body["edges"][0]["node"]["text"], "Person note");
 
     // List by family — should get 1
     let (status, body) = send_request(
@@ -1720,8 +1720,98 @@ async fn test_note_list_by_multiple_entities() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body.as_array().unwrap().len(), 1);
-    assert_eq!(body[0]["text"], "Family note");
+    assert_eq!(body["edges"].as_array().unwrap().len(), 1);
+    assert_eq!(body["edges"][0]["node"]["text"], "Family note");
+}
+
+#[tokio::test]
+async fn notes_and_citations_use_cursor_pagination() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+    let other_person_id = create_person_via_api(&app, &tree_id).await;
+    let source_id = create_source_via_api(&app, &tree_id).await;
+
+    for text in ["First note", "Second note"] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/notes"),
+            Some(serde_json::json!({ "text": text, "person_id": person_id })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(serde_json::json!({
+            "text": "Other person's note",
+            "person_id": other_person_id
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    for page in ["1", "2"] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/citations"),
+            Some(serde_json::json!({
+                "source_id": source_id,
+                "person_id": person_id,
+                "page": page,
+                "confidence": "high"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/citations"),
+        Some(serde_json::json!({
+            "source_id": source_id,
+            "person_id": other_person_id,
+            "page": "3",
+            "confidence": "high"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    for resource in ["notes", "citations"] {
+        let (status, first_page) = send_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/{resource}?person_id={person_id}&first=1"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(first_page["total_count"], 2);
+        assert_eq!(first_page["edges"].as_array().unwrap().len(), 1);
+        assert_eq!(first_page["page_info"]["has_next_page"], true);
+        let first_id = first_page["edges"][0]["node"]["id"].as_str().unwrap();
+        let cursor = first_page["page_info"]["end_cursor"].as_str().unwrap();
+
+        let (status, second_page) = send_request(
+            app.clone(),
+            Method::GET,
+            &format!(
+                "/api/v1/trees/{tree_id}/{resource}?person_id={person_id}&first=1&after={cursor}"
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(second_page["total_count"], 2);
+        assert_eq!(second_page["edges"].as_array().unwrap().len(), 1);
+        assert_eq!(second_page["page_info"]["has_next_page"], false);
+        assert_ne!(second_page["edges"][0]["node"]["id"], first_id);
+    }
 }
 
 // ── GEDCOM Import/Export ─────────────────────────────────────────────

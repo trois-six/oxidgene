@@ -1615,6 +1615,41 @@ impl From<oxidgene_core::types::Citation> for GqlCitation {
     }
 }
 
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlCitationEdge {
+    pub cursor: String,
+    pub node: GqlCitation,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlCitationConnection {
+    pub edges: Vec<GqlCitationEdge>,
+    pub page_info: GqlPageInfo,
+    pub total_count: i64,
+}
+
+impl From<oxidgene_core::types::Connection<oxidgene_core::types::Citation>>
+    for GqlCitationConnection
+{
+    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Citation>) -> Self {
+        Self {
+            edges: c
+                .edges
+                .into_iter()
+                .map(|edge| GqlCitationEdge {
+                    cursor: edge.cursor,
+                    node: edge.node.into(),
+                })
+                .collect(),
+            page_info: GqlPageInfo {
+                has_next_page: c.page_info.has_next_page,
+                end_cursor: c.page_info.end_cursor,
+            },
+            total_count: c.total_count,
+        }
+    }
+}
+
 // ── Media ────────────────────────────────────────────────────────────
 
 /// A media file.
@@ -1900,6 +1935,7 @@ pub struct GqlNote {
     pub event_id: Option<ID>,
     pub family_id: Option<ID>,
     pub source_id: Option<ID>,
+    pub media_id: Option<ID>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1914,8 +1950,42 @@ impl From<oxidgene_core::types::Note> for GqlNote {
             event_id: n.event_id.map(|id| ID(id.to_string())),
             family_id: n.family_id.map(|id| ID(id.to_string())),
             source_id: n.source_id.map(|id| ID(id.to_string())),
+            media_id: n.media_id.map(|id| ID(id.to_string())),
             created_at: n.created_at,
             updated_at: n.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlNoteEdge {
+    pub cursor: String,
+    pub node: GqlNote,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlNoteConnection {
+    pub edges: Vec<GqlNoteEdge>,
+    pub page_info: GqlPageInfo,
+    pub total_count: i64,
+}
+
+impl From<oxidgene_core::types::Connection<oxidgene_core::types::Note>> for GqlNoteConnection {
+    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Note>) -> Self {
+        Self {
+            edges: c
+                .edges
+                .into_iter()
+                .map(|edge| GqlNoteEdge {
+                    cursor: edge.cursor,
+                    node: edge.node.into(),
+                })
+                .collect(),
+            page_info: GqlPageInfo {
+                has_next_page: c.page_info.has_next_page,
+                end_cursor: c.page_info.end_cursor,
+            },
+            total_count: c.total_count,
         }
     }
 }

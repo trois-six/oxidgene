@@ -203,7 +203,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/citations` | List citations (filterable by person/event/family) |
+| `GET` | `/trees/{tree_id}/citations` | List citations in a cursor connection, filterable by `person_id`, `event_id`, `family_id`, and `source_id` |
 | `POST` | `/trees/{tree_id}/citations` | Create a citation |
 | `PUT` | `/trees/{tree_id}/citations/{citation_id}` | Update a citation — including `source_id`, which repoints it at another source in place |
 | `DELETE` | `/trees/{tree_id}/citations/{citation_id}` | Delete a citation |
@@ -307,7 +307,7 @@ round-trips.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/notes` | List notes (filterable by target) |
+| `GET` | `/trees/{tree_id}/notes` | List notes in a cursor connection, filterable by `person_id`, `event_id`, `family_id`, `source_id`, and `media_id` |
 | `POST` | `/trees/{tree_id}/notes` | Create a note |
 | `GET` | `/trees/{tree_id}/notes/{note_id}` | Get a note |
 | `PUT` | `/trees/{tree_id}/notes/{note_id}` | Update a note |
@@ -562,6 +562,29 @@ type Query {
   # Sources
   sources(treeId: ID!, first: Int, after: String): SourceConnection!
   source(treeId: ID!, id: ID!): Source
+
+  # Citations
+  citations(
+    treeId: ID!
+    personId: ID
+    eventId: ID
+    familyId: ID
+    sourceId: ID
+    first: Int
+    after: String
+  ): CitationConnection!
+
+  # Notes
+  notes(
+    treeId: ID!
+    personId: ID
+    eventId: ID
+    familyId: ID
+    sourceId: ID
+    mediaId: ID
+    first: Int
+    after: String
+  ): NoteConnection!
 
   # Media
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
@@ -855,7 +878,8 @@ type PageInfo {
   endCursor: String
 }
 
-# Similar connection types for Person, Family, Event, Place, Source, Media
+# The same edge/pageInfo/totalCount shape is exposed by Person, Family, Event,
+# Place, Source, Citation, Note, and Media connection types.
 
 # --- Read projection types (see Data Model section 4) ---
 

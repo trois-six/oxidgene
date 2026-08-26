@@ -29,8 +29,8 @@ use crate::config::ServerConfig;
 #[tokio::main]
 async fn main() {
     // ── Load configuration ───────────────────────────────────────────
-    let cfg = ServerConfig::load().unwrap_or_else(|e| {
-        eprintln!("Failed to load configuration: {e}");
+    let cfg = ServerConfig::load().unwrap_or_else(|_| {
+        eprintln!("Failed to load configuration");
         std::process::exit(1);
     });
 
@@ -91,7 +91,11 @@ async fn main() {
         .route("/healthz", get(healthz))
         .merge(api_router)
         .layer(cors)
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http().make_span_with(
+            |request: &axum::http::Request<_>| {
+                tracing::debug_span!("http_request", method = %request.method())
+            },
+        ));
 
     // ── Bind and serve ───────────────────────────────────────────────
     let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);

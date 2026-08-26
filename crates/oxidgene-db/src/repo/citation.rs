@@ -3,7 +3,7 @@
 use chrono::Utc;
 use oxidgene_core::enums::Confidence;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::Citation;
+use oxidgene_core::types::{Citation, Connection};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter, QuerySelect, Set,
@@ -13,11 +13,52 @@ use uuid::Uuid;
 use crate::entities::citation::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 use crate::entities::source;
+use crate::repo::pagination::{PaginationParams, paginate};
+
+/// Optional entity filters for listing citations.
+#[derive(Debug, Clone, Default)]
+pub struct CitationFilter {
+    pub person_id: Option<Uuid>,
+    pub event_id: Option<Uuid>,
+    pub family_id: Option<Uuid>,
+    pub source_id: Option<Uuid>,
+}
 
 /// Repository for citation operations.
 pub struct CitationRepo;
 
 impl CitationRepo {
+    /// List citations in a tree with optional entity filters and pagination.
+    pub async fn list(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        filter: &CitationFilter,
+        params: &PaginationParams,
+    ) -> Result<Connection<Citation>, OxidGeneError> {
+        let mut query = Entity::find()
+            .join(JoinType::InnerJoin, citation::Relation::Source.def())
+            .filter(source::Column::TreeId.eq(tree_id))
+            .filter(source::Column::DeletedAt.is_null());
+
+        if let Some(person_id) = filter.person_id {
+            query = query.filter(Column::PersonId.eq(person_id));
+        }
+        if let Some(event_id) = filter.event_id {
+            query = query.filter(Column::EventId.eq(event_id));
+        }
+        if let Some(family_id) = filter.family_id {
+            query = query.filter(Column::FamilyId.eq(family_id));
+        }
+        if let Some(source_id) = filter.source_id {
+            query = query.filter(Column::SourceId.eq(source_id));
+        }
+
+        paginate(db, query, Column::Id, params, |model| {
+            (model.id, into_domain(model))
+        })
+        .await
+    }
+
     /// List all citations belonging to sources in one tree.
     pub async fn list_all(
         db: &impl ConnectionTrait,

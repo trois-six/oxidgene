@@ -7,18 +7,62 @@
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::Note;
+use oxidgene_core::types::{Connection, Note};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::note::{self, ActiveModel, Column, Entity};
 use crate::html::sanitize_note_html;
+use crate::repo::pagination::{PaginationParams, paginate};
+
+/// Optional entity filters for listing notes.
+#[derive(Debug, Clone, Default)]
+pub struct NoteFilter {
+    pub person_id: Option<Uuid>,
+    pub event_id: Option<Uuid>,
+    pub family_id: Option<Uuid>,
+    pub source_id: Option<Uuid>,
+    pub media_id: Option<Uuid>,
+}
 
 /// Repository for note CRUD operations.
 pub struct NoteRepo;
 
 impl NoteRepo {
+    /// List notes in a tree with optional entity filters and pagination.
+    pub async fn list(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        filter: &NoteFilter,
+        params: &PaginationParams,
+    ) -> Result<Connection<Note>, OxidGeneError> {
+        let mut query = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null());
+
+        if let Some(person_id) = filter.person_id {
+            query = query.filter(Column::PersonId.eq(person_id));
+        }
+        if let Some(event_id) = filter.event_id {
+            query = query.filter(Column::EventId.eq(event_id));
+        }
+        if let Some(family_id) = filter.family_id {
+            query = query.filter(Column::FamilyId.eq(family_id));
+        }
+        if let Some(source_id) = filter.source_id {
+            query = query.filter(Column::SourceId.eq(source_id));
+        }
+        if let Some(media_id) = filter.media_id {
+            query = query.filter(Column::MediaId.eq(media_id));
+        }
+
+        paginate(db, query, Column::Id, params, |model| {
+            (model.id, into_domain(model))
+        })
+        .await
+    }
+
     /// Get a single note by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Note, OxidGeneError> {
         Entity::find_by_id(id)

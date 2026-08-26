@@ -727,6 +727,42 @@ async fn a_pdf_cannot_be_cropped() {
 // ── Tree purge ──────────────────────────────────────────────────────
 
 #[tokio::test]
+async fn deleting_an_isolated_media_removes_its_record_and_files() {
+    let h = setup().await;
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("isolated.png"), &png(300, 300))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+    let storage_key = media["storage_key"].as_str().unwrap();
+    let thumbnail_key = media["thumbnail_key"].as_str().unwrap();
+    assert!(h.root.0.join(storage_key).exists());
+    assert!(h.root.0.join(thumbnail_key).exists());
+
+    let (status, _) = json_request(
+        &h.app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    assert!(!h.root.0.join(storage_key).exists());
+    assert!(!h.root.0.join(thumbnail_key).exists());
+    let (status, _) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn deleting_a_tree_takes_its_media_files_with_it() {
     let h = setup().await;
     let (_, media) = upload(
@@ -1460,7 +1496,7 @@ async fn a_note_can_be_about_a_document_rather_than_a_person() {
         None,
     )
     .await;
-    assert_eq!(listed.as_array().unwrap().len(), 1, "{listed}");
+    assert_eq!(listed["edges"].as_array().unwrap().len(), 1, "{listed}");
 }
 
 #[tokio::test]

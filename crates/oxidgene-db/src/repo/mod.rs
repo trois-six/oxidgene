@@ -30,7 +30,7 @@ mod tree;
 mod vignette;
 
 pub use ancestry::AncestryRepo;
-pub use citation::CitationRepo;
+pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{connect, rollback_migrations, run_migrations};
 pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, PersonUsageEntry,
@@ -44,7 +44,7 @@ pub use family_spouse::FamilySpouseRepo;
 pub use media::{MediaPatch, MediaRepo, UploadedMedia};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 pub use media_tag::MediaTagRepo;
-pub use note::NoteRepo;
+pub use note::{NoteFilter, NoteRepo};
 pub use pagination::PaginationParams;
 pub use person::{PersonRepo, PortraitRow};
 
