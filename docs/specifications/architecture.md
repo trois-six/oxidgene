@@ -75,6 +75,10 @@ API endpoints are documented in [API Contract](api.md).
 - Shared between web and desktop targets.
 - Communicates with the backend via REST/GraphQL.
 - On desktop: points to `http://127.0.0.1:<port>` served by the embedded Axum server.
+- Geneanet import separates control and data planes: REST/GraphQL carry import
+    metadata and local paths, while the login WebView and embedded backend
+    exchange media bytes through their shared filesystem. No Geneanet media byte
+    payload is uploaded through either API surface.
 
 UI specifications:
 - [Common UI](ui-common.md) — shared layout, tokens, and components

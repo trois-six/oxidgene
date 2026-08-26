@@ -27,9 +27,11 @@ live there too)
 > wants a `.gdz` exports one afterwards.
 >
 > Files are stored on the filesystem, content-addressed and scoped per tree,
-> behind `MediaStore`, and reach the server through
-> `POST /trees/{id}/media/upload`. A shared photo is stored once and linked many
-> times, while multi-page documents preserve their page structure.
+> behind `MediaStore`. During Geneanet import, the login WebView first writes
+> gathered media to a temporary staging directory. The embedded backend reads
+> those files directly from the shared filesystem; media bytes do not pass
+> through REST or GraphQL. A shared photo is stored once and linked many times,
+> while multi-page documents preserve their page structure.
 
 ---
 
@@ -639,6 +641,12 @@ reusable indefinitely, so it need only succeed once.
 **A tree.** The `.gw` goes through the existing `import_geneweb` →
 `persist_import_result` path, and the manifest then produces `Media` rows plus
 one `MediaLink` per person the photo is attached to.
+
+REST and GraphQL are control planes for this desktop workflow: their import
+inputs contain collection metadata, archive paths, and a map from each source
+URL to its staged local path. They never contain the gathered media bytes. The
+service reads archive and staged-media paths locally, then writes validated
+content through `MediaStore`.
 
 A photo shared by several people is **stored once** with several `MediaLink`
 rows — precisely what the original export could not express, and what

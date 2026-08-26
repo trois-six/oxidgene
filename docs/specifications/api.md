@@ -361,6 +361,12 @@ person↔photo mapping happens inside the desktop app's login window, because
 that is the only place a Geneanet session exists; what reaches the server is
 its output, carried by the steps that follow.
 
+Geneanet media use a desktop-only filesystem data plane. The login WebView
+writes gathered bytes to a temporary staging directory shared with the
+embedded backend. REST and GraphQL carry collection metadata, archive paths,
+and a `source URL -> local path` map, but never the media bytes themselves. The
+backend reads those files locally and persists them through `MediaStore`.
+
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/geneweb/inspect?filename=name.gw` | **Step 1.** Parse a `.gw` and report `person_count`, `family_count` and `skipped_blocks`, writing nothing. Body is the raw file bytes, for the same encoding reason as the import above |
@@ -368,14 +374,13 @@ its output, carried by the steps that follow.
 | `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all |
 | `POST` | `/geneanet/session/decode` | Read one back. Body is the file itself; a ZIP and a bare JSON collection are told apart by content, not extension. Refuses anything that is not a collection, so a wrong file is reported rather than producing an import that attaches nothing |
 | `POST` | `/geneanet/preview` | **Step 4.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on |
-| `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Import the tree, then attach every photo that joins onto it — one `media` row per photo with one `media_link` per person on it. A photo that cannot be fetched is reported in `skipped` and the run continues. Triggers a full projection rebuild |
+| `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Import the tree, then attach every photo that joins onto it. `fetched` maps source URLs to staged filesystem paths; it never carries media bytes. A missing or unreadable file is reported in `skipped`. Triggers a full projection rebuild |
 
 The preview and import bodies carry the `.gw` **base64-encoded** (`gw_base64`)
 because they bundle it with other fields and JSON cannot hold raw bytes — the
 two endpoints that send nothing else take it as a raw body instead. They also
-carry `deposit_sizes`, the per-deposit byte lengths gathered in the login
-window, which is what decides whether a photo is already in the archives; and
-optionally `cookie`, needed only when the archives do not cover every photo.
+carry `deposit_sizes`, archive paths, and the `fetched` URL-to-local-path map.
+Media bytes are never included in these request bodies.
 The two wizard routes that sit outside the tree nest run under a **32 MiB body
 limit**: a 10 000-person tree is around 8 MiB base64-encoded before the mapping
 is added, and that number grows with tree size rather than with how many
@@ -654,8 +659,8 @@ type Mutation {
   # large one: base64 adds a third to an archive that is mostly photographs.
   importGedzip(treeId: ID!, input: ImportGedzipInput!): ImportResult!
 
-  # Geneanet wizard archives use base64; decoded media are staged locally for
-  # the same desktop import workflow as REST.
+  # Geneanet session archives use base64. Gathered media are staged on the
+  # shared desktop filesystem; import inputs carry paths, never media bytes.
   encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GeneanetSessionArchive!
   decodeGeneanetSession(archiveBase64: String!): GeneanetSession!
   importGeneanet(treeId: ID!, input: GeneanetImportInput!): GeneanetImportResult!
@@ -670,11 +675,12 @@ type Mutation {
 
 `GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size
 and archive-path data as REST's preview and plan bodies. `GeneanetImportInput`
-adds the fetched local media paths and optional progress id. `indexGeneanetArchives`
-and paths returned from `decodeGeneanetSession` are desktop-only because they
-refer to the local filesystem. A caller polls `geneanetImportProgress` while
-`importGeneanet` is running; completed and unknown ids return `null`, matching
-REST's import-progress endpoint.
+adds the source-URL-to-local-path map and optional progress id. These paths are
+the complete media handoff: GraphQL does not carry the corresponding bytes.
+`indexGeneanetArchives` and paths returned from `decodeGeneanetSession` are
+desktop-only because they refer to the local filesystem. A caller polls
+`geneanetImportProgress` while `importGeneanet` is running; completed and
+unknown ids return `null`, matching REST's import-progress endpoint.
 
 ### Key Types
 

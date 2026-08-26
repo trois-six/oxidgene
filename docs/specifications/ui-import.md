@@ -350,6 +350,14 @@ The genealogy uses the shared GeneWeb persistence path. Media use the ordinary
 storage path, preserving validation, deduplication, type detection, thumbnails,
 and projection refresh.
 
+Geneanet media bytes use the desktop filesystem as their data plane. The login
+WebView writes each gathered medium to a temporary staging directory shared
+with the embedded backend. The final REST or GraphQL call carries only the
+`source URL -> local path` map and import metadata; it never uploads, embeds,
+or base64-encodes those media bytes. The backend reads each staged file locally
+and passes it to `MediaStore`. This workflow is desktop-only and requires the
+UI and embedded backend to share a filesystem.
+
 - Shared media are stored once and linked many times.
 - Failed media are reported and skipped without rolling back the genealogy.
 - Archive matches are never downloaded again.
