@@ -7,7 +7,7 @@
 //! frontend (which renders them) depend on this module.
 //!
 //! The person profile is materialized into the `person_denorm` table on every
-//! mutation — see `docs/specifications/read-projections.md`.
+//! mutation — see `docs/specifications/data-model.md`.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};

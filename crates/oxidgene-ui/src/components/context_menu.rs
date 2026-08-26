@@ -8,6 +8,43 @@ use uuid::Uuid;
 
 use crate::i18n::use_i18n;
 
+/// Shared fixed-position surface for contextual action menus.
+///
+/// It owns the click-outside backdrop and the native context-menu dismissal;
+/// callers supply only their domain-specific actions.
+#[derive(Props, Clone, PartialEq)]
+pub struct ContextMenuSurfaceProps {
+    pub x: f64,
+    pub y: f64,
+    /// Extra class for menus with a specialised width or child layout.
+    #[props(default)]
+    pub menu_class: String,
+    pub on_close: EventHandler<()>,
+    pub children: Element,
+}
+
+#[component]
+pub fn ContextMenuSurface(props: ContextMenuSurfaceProps) -> Element {
+    let style = format!("left: {}px; top: {}px;", props.x, props.y);
+    let menu_class = if props.menu_class.is_empty() {
+        "context-menu".to_string()
+    } else {
+        format!("context-menu {}", props.menu_class)
+    };
+
+    rsx! {
+        div {
+            class: "context-menu-backdrop",
+            onclick: move |_| props.on_close.call(()),
+            oncontextmenu: move |evt: Event<MouseData>| {
+                evt.prevent_default();
+                props.on_close.call(());
+            },
+        }
+        div { class: "{menu_class}", style: "{style}", {props.children} }
+    }
+}
+
 /// Actions that can be triggered from the context menu.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PersonAction {
@@ -40,23 +77,15 @@ pub struct ContextMenuProps {
 #[component]
 pub fn ContextMenu(props: ContextMenuProps) -> Element {
     let i18n = use_i18n();
-    let style = format!("left: {}px; top: {}px;", props.x, props.y);
     let mut show_union_sub = use_signal(|| false);
 
     let union_count = props.unions.len();
 
     rsx! {
-        div {
-            class: "context-menu-backdrop",
-            onclick: move |_| props.on_close.call(()),
-            oncontextmenu: move |evt: Event<MouseData>| {
-                evt.prevent_default();
-                props.on_close.call(());
-            },
-        }
-        div {
-            class: "context-menu",
-            style: style,
+        ContextMenuSurface {
+            x: props.x,
+            y: props.y,
+            on_close: props.on_close,
             div { class: "context-menu-header", "{props.person_name}" }
 
             if show_union_sub() {

@@ -9,7 +9,8 @@
 //! `double_option` deserializer on the REST side, so both surfaces behave
 //! identically.
 
-use async_graphql::{ID, InputObject, MaybeUndefined};
+use async_graphql::{Error, ID, InputObject, MaybeUndefined, Result};
+use std::collections::HashMap;
 
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
@@ -34,6 +35,80 @@ pub struct UpdateTreeInput {
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,
     pub self_person_id: MaybeUndefined<String>,
+}
+
+// ── Geneanet import wizard inputs ───────────────────────────────────
+
+/// One deposit's byte size, collected by the desktop login window.
+#[derive(Debug, InputObject)]
+pub struct GeneanetDepositSizeInput {
+    pub deposit_id: i64,
+    pub size: i64,
+}
+
+/// A string-keyed path entry used for locally staged media.
+#[derive(Debug, InputObject)]
+pub struct GeneanetMediaPathInput {
+    pub url: String,
+    pub path: String,
+}
+
+/// Shared inputs for Geneanet preview and fetch planning.
+#[derive(Debug, InputObject)]
+pub struct GeneanetPreviewInput {
+    pub gw_base64: String,
+    pub file_name: String,
+    pub collection: String,
+    #[graphql(default)]
+    pub deposit_sizes: Vec<GeneanetDepositSizeInput>,
+    #[graphql(default)]
+    pub archive_paths: Vec<String>,
+}
+
+/// Session content to encode as a downloadable Geneanet archive.
+#[derive(Debug, InputObject)]
+pub struct GeneanetSessionEncodeInput {
+    pub collection: String,
+    #[graphql(default)]
+    pub deposit_sizes: Vec<GeneanetDepositSizeInput>,
+    pub account: Option<String>,
+    #[graphql(default)]
+    pub media: Vec<GeneanetMediaPathInput>,
+}
+
+/// Inputs needed to import a Geneanet tree and its already fetched media.
+#[derive(Debug, InputObject)]
+pub struct GeneanetImportInput {
+    pub gw_base64: String,
+    pub file_name: String,
+    pub collection: String,
+    #[graphql(default)]
+    pub deposit_sizes: Vec<GeneanetDepositSizeInput>,
+    #[graphql(default)]
+    pub archive_paths: Vec<String>,
+    #[graphql(default)]
+    pub fetched: Vec<GeneanetMediaPathInput>,
+    pub progress_id: Option<String>,
+}
+
+pub(crate) fn geneanet_deposit_sizes(
+    entries: &[GeneanetDepositSizeInput],
+) -> Result<HashMap<i64, u64>> {
+    entries
+        .iter()
+        .map(|entry| {
+            u64::try_from(entry.size)
+                .map(|size| (entry.deposit_id, size))
+                .map_err(|_| Error::new("Geneanet deposit sizes cannot be negative"))
+        })
+        .collect()
+}
+
+pub(crate) fn geneanet_media_paths(entries: &[GeneanetMediaPathInput]) -> HashMap<String, String> {
+    entries
+        .iter()
+        .map(|entry| (entry.url.clone(), entry.path.clone()))
+        .collect()
 }
 
 // ── Person Inputs ────────────────────────────────────────────────────
@@ -293,12 +368,11 @@ pub struct CreateVignetteInput {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-    pub title: Option<String>,
     pub person_id: Option<String>,
     pub event_id: Option<String>,
 }
 
-/// Input for moving, retitling or re-attributing a vignette.
+/// Input for moving or re-attributing a vignette.
 ///
 /// The four rectangle fields travel together: send all of them or none.
 #[derive(Debug, InputObject)]
@@ -308,7 +382,6 @@ pub struct UpdateVignetteInput {
     pub y: Option<i32>,
     pub width: Option<i32>,
     pub height: Option<i32>,
-    pub title: MaybeUndefined<String>,
     pub person_id: MaybeUndefined<String>,
     pub event_id: MaybeUndefined<String>,
 }

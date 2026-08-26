@@ -429,9 +429,7 @@ fn build_one_person(
     // travels with it so a card can ask for the cropped image rather than the
     // whole wedding party.
     // A crop resolves through the scan it sits on, and carries its own id so a
-    // card asks for the cropped image rather than the whole wedding party. The
-    // title prefers the vignette's — "Jeanne, second from the left" says more
-    // than the scan's own caption.
+    // card asks for the cropped image rather than the whole wedding party.
     let primary_media = person
         .portrait_vignette_id
         .and_then(|vignette_id| {
@@ -442,7 +440,7 @@ fn build_one_person(
                 vignette_id: Some(vignette_id),
                 file_path: media.file_path.clone(),
                 mime_type: media.mime_type.clone(),
-                title: vignette.title.clone().or_else(|| media.title.clone()),
+                title: media.title.clone(),
             })
         })
         .or_else(|| {

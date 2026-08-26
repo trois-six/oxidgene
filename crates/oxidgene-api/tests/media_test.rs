@@ -610,37 +610,6 @@ async fn half_a_rectangle_is_not_a_move() {
 }
 
 #[tokio::test]
-async fn retitling_a_vignette_leaves_its_rectangle_alone() {
-    let h = setup().await;
-    let media_id = scan(&h, 500, 500).await;
-    let base = format!("/api/v1/trees/{}", h.tree_id);
-
-    let (_, vignette) = json_request(
-        &h.app,
-        Method::POST,
-        &format!("{base}/media/{media_id}/vignettes"),
-        Some(json!({"x": 10, "y": 20, "width": 100, "height": 100, "title": "before"})),
-    )
-    .await;
-    let id = vignette["id"].as_str().unwrap();
-
-    let (status, updated) = json_request(
-        &h.app,
-        Method::PUT,
-        &format!("{base}/vignettes/{id}"),
-        Some(json!({"title": "after"})),
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["title"], "after");
-    assert_eq!(
-        (updated["x"].as_i64(), updated["y"].as_i64()),
-        (Some(10), Some(20))
-    );
-}
-
-#[tokio::test]
 async fn vignettes_can_be_listed_by_who_they_show() {
     let h = setup().await;
     let media_id = scan(&h, 600, 600).await;
@@ -1509,7 +1478,7 @@ async fn a_crop_portrait_reaches_the_read_projection() {
         &format!("{base}/media/{media_id}/vignettes"),
         Some(json!({
             "x": 10, "y": 10, "width": 30, "height": 30,
-            "person_id": person_id, "title": "second from the left"
+            "person_id": person_id
         })),
     )
     .await;
@@ -1535,8 +1504,7 @@ async fn a_crop_portrait_reaches_the_read_projection() {
     let portrait = &profile["primary_media"];
     assert_eq!(portrait["vignette_id"], vignette["id"], "{profile}");
     assert_eq!(portrait["media_id"], media_id.as_str());
-    // The crop's title says more than the scan's caption ever could.
-    assert_eq!(portrait["title"], "second from the left");
+    assert!(portrait["title"].is_null());
 }
 
 #[tokio::test]

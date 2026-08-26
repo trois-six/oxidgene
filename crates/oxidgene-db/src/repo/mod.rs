@@ -46,7 +46,7 @@ pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 pub use media_tag::MediaTagRepo;
 pub use note::NoteRepo;
 pub use pagination::PaginationParams;
-pub use person::PersonRepo;
+pub use person::{PersonRepo, PortraitRow};
 
 pub use person_denorm::PersonDenormRepo;
 pub use person_name::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};

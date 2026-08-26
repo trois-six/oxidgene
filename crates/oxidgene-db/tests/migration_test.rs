@@ -79,7 +79,7 @@ async fn assert_media_storage_schema(db: &DatabaseConnection) {
 
     db.query_all(Statement::from_string(
         backend,
-        "SELECT id, media_id, page, x, y, width, height, title, person_id, event_id, \
+        "SELECT id, media_id, page, x, y, width, height, person_id, event_id, \
          created_at, updated_at FROM vignette"
             .to_owned(),
     ))

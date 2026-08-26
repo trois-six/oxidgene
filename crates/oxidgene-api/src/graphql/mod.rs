@@ -7,6 +7,7 @@ pub mod types;
 
 use crate::media::MediaStore;
 use crate::profile::ProfileService;
+use crate::rest::state::ImportProgressRegistry;
 use crate::service::purge::PurgeQueue;
 use async_graphql::{EmptySubscription, Schema, http::GraphiQLSource};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
@@ -28,12 +29,14 @@ pub fn build_schema(
     profiles: Arc<ProfileService>,
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
+    imports: ImportProgressRegistry,
 ) -> OxidGeneSchema {
     Schema::build(QueryRoot, MutationRoot, EmptySubscription)
         .data(db)
         .data(profiles)
         .data(purge)
         .data(media)
+        .data(imports)
         .finish()
 }
 

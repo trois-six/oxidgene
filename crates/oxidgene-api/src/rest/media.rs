@@ -17,8 +17,8 @@ use crate::media::{self, MAX_UPLOAD_BYTES};
 use crate::service::event_date;
 
 use super::dto::{
-    CreateDocumentRequest, CreateMediaRequest, MediaTagRequest, PaginationQuery,
-    ReorderPagesRequest, UpdateMediaRequest,
+    CreateDocumentRequest, CreateMediaRequest, DeleteMediaQuery, MediaDeletionStatusQuery,
+    MediaTagRequest, PaginationQuery, ReorderPagesRequest, UpdateMediaRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -298,17 +298,54 @@ pub async fn detach_page(
 
 /// DELETE /api/v1/trees/:tree_id/media/:media_id
 ///
-/// Soft-deletes the record and leaves the bytes in the store. Content
-/// addressing means another record may be sharing them, and the tree purge
-/// removes the whole directory anyway.
+/// Permanently deletes the record, its related data and unshared stored bytes.
+///
+/// `only_if_unreferenced_elsewhere` protects a gallery's context-menu cleanup:
+/// the gallery link is allowed, but any other link, crop or portrait retains
+/// the media. A `204` means deleted; `200` means it is still referenced.
 pub async fn delete_media(
     State(state): State<AppState>,
     Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<DeleteMediaQuery>,
 ) -> Result<StatusCode, ApiError> {
-    MediaRepo::delete(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(StatusCode::NO_CONTENT)
+    let allowed_link_id = if query.only_if_unreferenced_elsewhere {
+        Some(query.allowed_link_id.ok_or_else(|| {
+            ApiError(OxidGeneError::Validation(
+                "allowed_link_id is required for conditional media deletion".into(),
+            ))
+        })?)
+    } else {
+        None
+    };
+    let deleted = crate::service::media::purge_media(
+        &state.db,
+        state.media.as_ref(),
+        media_id,
+        allowed_link_id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(if deleted {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::OK
+    })
+}
+
+/// GET /api/v1/trees/:tree_id/media/:media_id/deletion-status
+///
+/// Reports whether the current gallery link is the media's sole external
+/// reference. The UI calls this before asking for definitive deletion.
+pub async fn media_deletion_status(
+    State(state): State<AppState>,
+    Path((_tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<MediaDeletionStatusQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let can_delete =
+        MediaRepo::can_purge_if_unreferenced_elsewhere(&state.db, media_id, query.allowed_link_id)
+            .await
+            .map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "can_delete": can_delete })))
 }
 
 /// POST /api/v1/trees/:tree_id/media/upload

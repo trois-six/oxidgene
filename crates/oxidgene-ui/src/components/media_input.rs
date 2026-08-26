@@ -37,6 +37,9 @@ pub struct MediaInputProps {
     /// Label shown on the cell. Defaults to the ordinary "Upload".
     #[props(default)]
     pub label: Option<String>,
+    /// Render as a compact icon button for a section header.
+    #[props(default = false)]
+    pub compact: bool,
     /// Called once per successfully uploaded file, with the new media's id.
     ///
     /// Per file rather than per batch so the caller can link and show each
@@ -63,6 +66,7 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
         .label
         .clone()
         .unwrap_or_else(|| i18n.t("media.upload"));
+    let compact = props.compact;
     let on_uploaded = props.on_uploaded;
     let on_batch_done = props.on_batch_done;
 
@@ -115,7 +119,12 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
 
     rsx! {
         div {
-            class: if dragging() { "media-drop is-dragging" } else { "media-drop" },
+            class: match (dragging(), compact) {
+                (true, true) => "media-drop media-upload-icon is-dragging",
+                (true, false) => "media-drop is-dragging",
+                (false, true) => "media-drop media-upload-icon",
+                (false, false) => "media-drop",
+            },
             // Both handlers must cancel the default, or the engine navigates
             // away to the dropped file and the whole app disappears.
             ondragover: move |e| {
@@ -156,19 +165,26 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                 });
             },
             button {
-                class: "media-drop-btn",
+                class: if compact { "media-upload-icon-btn" } else { "media-drop-btn" },
                 r#type: "button",
                 disabled: busy,
+                title: "{label}",
                 onclick: pick_files,
                 if let Some(p) = progress() {
-                    span { class: "media-drop-icon", "\u{2191}" }
-                    span { class: "media-drop-label",
-                        {i18n.t_args(
-                            "media.uploading_n_of_m",
-                            &[("done", &(p.done + 1).to_string()), ("total", &p.total.to_string())],
-                        )}
+                    if compact {
+                        span { class: "media-upload-icon-glyph", "\u{2191}" }
+                    } else {
+                        span { class: "media-drop-icon", "\u{2191}" }
+                        span { class: "media-drop-label",
+                            {i18n.t_args(
+                                "media.uploading_n_of_m",
+                                &[("done", &(p.done + 1).to_string()), ("total", &p.total.to_string())],
+                            )}
+                        }
+                        span { class: "media-drop-hint", "{p.current}" }
                     }
-                    span { class: "media-drop-hint", "{p.current}" }
+                } else if compact {
+                    span { class: "media-upload-icon-glyph", "+" }
                 } else {
                     span { class: "media-drop-icon", "+" }
                     span { class: "media-drop-label", "{label}" }

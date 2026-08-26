@@ -1,19 +1,28 @@
 //! GraphQL query root with all read operations.
 
 use async_graphql::{Context, ID, Object, Result};
+use base64::Engine as _;
+use oxidgene_geneanet::archive::LocalOriginals;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    AncestryRepo, EventFilter, EventRepo, FamilyRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo,
-    PaginationParams, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, VignetteRepo,
+    AncestryRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo, FamilyRepo,
+    FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, PaginationParams, PersonNameRepo,
+    PersonRepo, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
 };
 
+use super::inputs::{GeneanetPreviewInput, geneanet_deposit_sizes};
 use super::types::{
-    GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult, GqlFamily,
-    GqlFamilyConnection, GqlMedia, GqlMediaConnection, GqlMediaLink, GqlMediaWithLink, GqlPedigree,
-    GqlPerson, GqlPersonConnection, GqlPersonProfile, GqlPersonWithDepth, GqlPlace,
-    GqlPlaceConnection, GqlSearchResult, GqlSource, GqlSourceConnection, GqlTree,
-    GqlTreeConnection, GqlVignette, db_from_ctx, profiles_from_ctx,
+    GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType, GqlExportGedcomResult,
+    GqlExportGedzipResult, GqlFamily, GqlFamilyConnection, GqlGeneanetArchiveIndex,
+    GqlGeneanetImportPhase, GqlGeneanetImportProgress, GqlGeneanetIndexedArchive,
+    GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
+    GqlMedia, GqlMediaConnection, GqlMediaLink, GqlMediaWithLink, GqlOccupationReference,
+    GqlPedigree, GqlPerson, GqlPersonConnection, GqlPersonProfile, GqlPersonUsageEntry,
+    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
+    GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
+    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
+    GqlTreeSnapshot, GqlVignette, db_from_ctx, imports_from_ctx, media_from_ctx, profiles_from_ctx,
 };
 
 /// The root query type.
@@ -80,6 +89,34 @@ impl QueryRoot {
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Resolve one SOSA-Stradonitz number from the tree's configured root.
+    ///
+    /// Returns null when the tree has no SOSA root or the ancestry chain is
+    /// incomplete at that number, matching REST's not-found outcome.
+    async fn person_by_sosa(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        number: u64,
+    ) -> Result<Option<GqlPerson>> {
+        let db = db_from_ctx(ctx);
+        let person = crate::rest::person::resolve_sosa_number(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            number,
+        )
+        .await?;
+        Ok(person.map(Into::into))
+    }
+
+    /// Every person's selected portrait, with enough data for a pedigree to
+    /// choose its thumbnail, original file or cropped vignette endpoint.
+    async fn portraits(&self, ctx: &Context<'_>, tree_id: ID) -> Result<Vec<GqlPortrait>> {
+        let db = db_from_ctx(ctx);
+        let portraits = PersonRepo::list_portraits(db, Uuid::parse_str(tree_id.as_str())?).await?;
+        Ok(portraits.into_iter().map(Into::into).collect())
     }
 
     /// Get ancestors of a person.
@@ -272,6 +309,231 @@ impl QueryRoot {
         }
     }
 
+    // ── Dictionary and reference content ────────────────────────────
+
+    /// Distinct family names and their person counts.
+    async fn dictionary_family_names(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<Vec<GqlDictionaryEntry>> {
+        let db = db_from_ctx(ctx);
+        Ok(
+            DictionaryRepo::family_names(db, Uuid::parse_str(tree_id.as_str())?)
+                .await?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        )
+    }
+
+    /// Distinct occupation labels and their person counts.
+    async fn dictionary_occupations(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<Vec<GqlDictionaryEntry>> {
+        let db = db_from_ctx(ctx);
+        Ok(
+            DictionaryRepo::occupations(db, Uuid::parse_str(tree_id.as_str())?)
+                .await?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        )
+    }
+
+    /// Sources whose titles match a prefix, with citation counts.
+    async fn dictionary_sources(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        prefix: Option<String>,
+    ) -> Result<Vec<GqlSourceDictionaryEntry>> {
+        let db = db_from_ctx(ctx);
+        let entries = DictionaryRepo::sources_with_usage_by_prefix(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            prefix.as_deref().unwrap_or_default(),
+        )
+        .await?;
+        Ok(entries
+            .into_iter()
+            .map(|(source, count)| GqlSourceDictionaryEntry {
+                source: source.into(),
+                count,
+            })
+            .collect())
+    }
+
+    /// The next selectable source-title prefixes for the smart drill-down.
+    async fn dictionary_source_drill(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        prefix: Option<String>,
+    ) -> Result<GqlSourceDictionaryDrill> {
+        let db = db_from_ctx(ctx);
+        let (prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            prefix.as_deref().unwrap_or_default(),
+            SOURCE_DRILL_THRESHOLD,
+        )
+        .await?;
+        Ok(GqlSourceDictionaryDrill {
+            prefix,
+            total,
+            groups: groups
+                .into_iter()
+                .map(|(label, count)| GqlSourceDictionaryGroup { label, count })
+                .collect(),
+        })
+    }
+
+    /// Places with their event and media usage count.
+    async fn dictionary_places(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<Vec<GqlPlaceDictionaryEntry>> {
+        let db = db_from_ctx(ctx);
+        let entries =
+            DictionaryRepo::places_with_usage(db, Uuid::parse_str(tree_id.as_str())?).await?;
+        Ok(entries
+            .into_iter()
+            .map(|(place, count)| GqlPlaceDictionaryEntry {
+                place: place.into(),
+                count,
+            })
+            .collect())
+    }
+
+    /// People who carry one family name.
+    async fn family_name_usage(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        value: String,
+    ) -> Result<Vec<GqlPersonUsageEntry>> {
+        let db = db_from_ctx(ctx);
+        let ids = DictionaryRepo::family_name_usage_person_ids(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            &value,
+        )
+        .await?;
+        Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    /// People whose occupation exactly matches one dictionary value.
+    async fn occupation_usage(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        value: String,
+    ) -> Result<Vec<GqlPersonUsageEntry>> {
+        let db = db_from_ctx(ctx);
+        let ids = DictionaryRepo::occupation_usage_person_ids(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            &value,
+        )
+        .await?;
+        Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    /// People cited by one source, directly or through an individual event.
+    async fn source_usage(
+        &self,
+        ctx: &Context<'_>,
+        source_id: ID,
+    ) -> Result<Vec<GqlPersonUsageEntry>> {
+        let db = db_from_ctx(ctx);
+        let ids = DictionaryRepo::source_usage_person_ids(db, Uuid::parse_str(source_id.as_str())?)
+            .await?;
+        Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    /// People with an individual event at one place.
+    async fn place_usage(
+        &self,
+        ctx: &Context<'_>,
+        place_id: ID,
+    ) -> Result<Vec<GqlPersonUsageEntry>> {
+        let db = db_from_ctx(ctx);
+        let ids =
+            DictionaryRepo::place_usage_person_ids(db, Uuid::parse_str(place_id.as_str())?).await?;
+        Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    /// Resolve static occupation reference content for `fr` or `en`.
+    async fn occupation_reference(
+        &self,
+        _ctx: &Context<'_>,
+        language: String,
+        term: String,
+    ) -> Result<Option<GqlOccupationReference>> {
+        let language = crate::reference::ReferenceLang::from_code(&language)
+            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+        Ok(crate::reference::lookup_occupation(language, &term).map(Into::into))
+    }
+
+    /// Resolve static given-name reference content for `fr` or `en`.
+    async fn given_name_reference(
+        &self,
+        _ctx: &Context<'_>,
+        language: String,
+        term: String,
+    ) -> Result<Option<GqlGivenNameReference>> {
+        let language = crate::reference::ReferenceLang::from_code(&language)
+            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+        Ok(crate::reference::lookup_given_name(language, &term).map(Into::into))
+    }
+
+    /// Return the legacy all-at-once tree snapshot.
+    async fn tree_snapshot(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlTreeSnapshot> {
+        let db = db_from_ctx(ctx);
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let (persons, families) = tokio::try_join!(
+            PersonRepo::list_all(db, tree_id),
+            FamilyRepo::list_all(db, tree_id),
+        )?;
+        let person_ids: Vec<Uuid> = persons.iter().map(|person| person.id).collect();
+        let family_ids: Vec<Uuid> = families.iter().map(|family| family.id).collect();
+        let (names, events, places, spouses, children) = tokio::try_join!(
+            PersonNameRepo::list_by_persons(db, &person_ids),
+            EventRepo::list_all(db, tree_id),
+            PlaceRepo::list_all(db, tree_id),
+            FamilySpouseRepo::list_by_families(db, &family_ids),
+            FamilyChildRepo::list_by_families(db, &family_ids),
+        )?;
+        Ok(GqlTreeSnapshot {
+            persons: persons.into_iter().map(Into::into).collect(),
+            names: names.into_iter().map(Into::into).collect(),
+            events: events.into_iter().map(Into::into).collect(),
+            places: places.into_iter().map(Into::into).collect(),
+            spouses: spouses.into_iter().map(Into::into).collect(),
+            children: children.into_iter().map(Into::into).collect(),
+        })
+    }
+
     // ── Media ────────────────────────────────────────────────────────
 
     /// List media in a tree with cursor-based pagination.
@@ -302,6 +564,25 @@ impl QueryRoot {
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Whether the supplied gallery link is this media's sole external
+    /// reference. Mirrors REST's `deletion-status` endpoint.
+    async fn can_delete_media(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        allowed_link_id: ID,
+    ) -> Result<bool> {
+        let db = db_from_ctx(ctx);
+        let _tid = Uuid::parse_str(tree_id.as_str())?;
+        Ok(MediaRepo::can_purge_if_unreferenced_elsewhere(
+            db,
+            Uuid::parse_str(id.as_str())?,
+            Uuid::parse_str(allowed_link_id.as_str())?,
+        )
+        .await?)
     }
 
     /// Every media attached to one entity, with its link.
@@ -457,6 +738,143 @@ impl QueryRoot {
             gedcom: data.gedcom,
             warnings: data.warnings,
         })
+    }
+
+    /// Export a GEDZIP archive containing GEDCOM and stored media, encoded as
+    /// base64 for GraphQL's JSON transport.
+    async fn export_gedzip(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        merge_occupations: Option<bool>,
+        merge_names: Option<bool>,
+    ) -> Result<GqlExportGedzipResult> {
+        use base64::Engine as _;
+
+        let db = db_from_ctx(ctx);
+        let media = media_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let data = crate::service::gedcom::load_and_export(
+            db,
+            tid,
+            merge_occupations.unwrap_or(false),
+            merge_names.unwrap_or(false),
+            true,
+        )
+        .await?;
+        let mut files = Vec::with_capacity(data.media_files.len());
+        for (key, path) in &data.media_files {
+            match media.get(key).await {
+                Ok(bytes) => files.push((path.clone(), bytes)),
+                Err(error) => {
+                    tracing::warn!(%key, %error, "media absent from the store; not packed")
+                }
+            }
+        }
+        let archive = oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files)
+            .map_err(oxidgene_core::OxidGeneError::Gedcom)?;
+
+        Ok(GqlExportGedzipResult {
+            gedzip_base64: base64::engine::general_purpose::STANDARD.encode(archive),
+            warnings: data.warnings,
+        })
+    }
+
+    // ── Geneanet import wizard ───────────────────────────────────────
+
+    /// Inspect a GeneWeb export before selecting its destination tree.
+    async fn inspect_geneweb(
+        &self,
+        gw_base64: String,
+        file_name: String,
+    ) -> Result<GqlGeneanetInspection> {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(gw_base64)
+            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+        let inspection = crate::service::geneanet::inspect_gw(&bytes, &file_name)?;
+        Ok(GqlGeneanetInspection {
+            person_count: inspection.person_count as i64,
+            family_count: inspection.family_count as i64,
+            skipped_blocks: inspection.skipped_blocks as i64,
+        })
+    }
+
+    /// Index local Geneanet archives by path. This is desktop-only in practice.
+    async fn index_geneanet_archives(&self, paths: Vec<String>) -> Result<GqlGeneanetArchiveIndex> {
+        let (set, reports) = crate::service::geneanet::index_archives(&paths);
+        Ok(GqlGeneanetArchiveIndex {
+            file_count: set.file_count() as i64,
+            archives: reports
+                .into_iter()
+                .map(|report| GqlGeneanetIndexedArchive {
+                    path: report.path,
+                    file_name: report.file_name,
+                    file_count: report.file_count as i64,
+                    image_count: report.image_count as i64,
+                    error: report.error,
+                })
+                .collect(),
+        })
+    }
+
+    /// Preview a Geneanet import without writing a tree or fetching media.
+    async fn geneanet_preview(&self, input: GeneanetPreviewInput) -> Result<GqlGeneanetPreview> {
+        let gw = base64::engine::general_purpose::STANDARD
+            .decode(&input.gw_base64)
+            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+        let deposit_sizes = geneanet_deposit_sizes(&input.deposit_sizes)?;
+        let (archives, _) = crate::service::geneanet::index_archives(&input.archive_paths);
+        Ok(crate::service::geneanet::preview(
+            &gw,
+            &input.file_name,
+            &input.collection,
+            &deposit_sizes,
+            &archives,
+        )?
+        .into())
+    }
+
+    /// List the media that the signed-in Geneanet window still has to fetch.
+    async fn geneanet_plan(
+        &self,
+        input: GeneanetPreviewInput,
+    ) -> Result<Vec<GqlGeneanetNeededMedia>> {
+        let gw = base64::engine::general_purpose::STANDARD
+            .decode(&input.gw_base64)
+            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+        let deposit_sizes = geneanet_deposit_sizes(&input.deposit_sizes)?;
+        let (archives, _) = crate::service::geneanet::index_archives(&input.archive_paths);
+        Ok(crate::service::geneanet::plan(
+            &gw,
+            &input.file_name,
+            &input.collection,
+            &deposit_sizes,
+            &archives,
+        )?
+        .into_iter()
+        .map(Into::into)
+        .collect())
+    }
+
+    /// Report the state of a currently running Geneanet import.
+    async fn geneanet_import_progress(
+        &self,
+        ctx: &Context<'_>,
+        progress_id: ID,
+    ) -> Result<Option<GqlGeneanetImportProgress>> {
+        let progress_id = Uuid::parse_str(progress_id.as_str())?;
+        let progress = imports_from_ctx(ctx)
+            .lock()
+            .ok()
+            .and_then(|imports| imports.get(&progress_id).cloned());
+        Ok(progress.map(|progress| {
+            let (phase, done, total) = progress.read();
+            GqlGeneanetImportProgress {
+                phase: GqlGeneanetImportPhase::from(phase),
+                done: done as i64,
+                total: total as i64,
+            }
+        }))
     }
 
     // ── Projection queries ───────────────────────────────────────────

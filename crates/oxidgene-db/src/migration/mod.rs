@@ -12,6 +12,7 @@ pub mod m20260821_000001_person_denorm_schema_version;
 pub mod m20260823_000001_tree_self_person;
 pub mod m20260823_000002_media_tags;
 pub mod m20260823_000003_media_tag_relation;
+pub mod m20260825_000001_remove_vignette_title;
 
 use sea_orm_migration::prelude::*;
 
@@ -33,6 +34,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260823_000001_tree_self_person::Migration),
             Box::new(m20260823_000002_media_tags::Migration),
             Box::new(m20260823_000003_media_tag_relation::Migration),
+            Box::new(m20260825_000001_remove_vignette_title::Migration),
         ]
     }
 }

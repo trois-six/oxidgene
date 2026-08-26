@@ -4,11 +4,15 @@ use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Media};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
-use std::collections::HashMap;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
+    QueryOrder, Set,
+};
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::entities::media::{self, ActiveModel, Column, Entity};
+use crate::entities::{media_link, media_tag, note, person, vignette};
 use crate::repo::MediaTagRepo;
 use crate::repo::pagination::{PaginationParams, paginate};
 
@@ -51,6 +55,12 @@ pub struct MediaPatch {
     pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
     /// Derived by the caller, never sent by a client. See [`MediaRepo::update`].
     pub date_sort: Option<Option<chrono::NaiveDate>>,
+}
+
+/// Store objects which became unreachable after a definitive deletion.
+#[derive(Debug, Clone, Default)]
+pub struct MediaPurge {
+    pub storage_keys: Vec<String>,
 }
 
 /// Repository for media CRUD operations.
@@ -633,6 +643,202 @@ impl MediaRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         Ok(())
+    }
+
+    /// Delete a media record, every page it owns and every associated row.
+    ///
+    /// The returned keys are no longer used by another active media row; the
+    /// API layer removes those objects from its configured media store after
+    /// its transaction commits.
+    pub async fn purge(db: &impl ConnectionTrait, id: Uuid) -> Result<MediaPurge, OxidGeneError> {
+        let root = Entity::find_by_id(id)
+            .filter(Column::DeletedAt.is_null())
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Media",
+                id,
+            })?;
+        let pages = if root.is_document {
+            Entity::find()
+                .filter(Column::ParentMediaId.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?
+        } else {
+            Vec::new()
+        };
+        let page_ids: Vec<Uuid> = pages.iter().map(|page| page.id).collect();
+        let mut media_ids = page_ids.clone();
+        media_ids.push(id);
+
+        let vignette_ids: Vec<Uuid> = vignette::Entity::find()
+            .filter(vignette::Column::MediaId.is_in(media_ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .into_iter()
+            .map(|vignette| vignette.id)
+            .collect();
+
+        // Content-addressed files can be shared. Preserve a key as long as a
+        // different active media record still points at it.
+        let candidate_keys: HashSet<String> = std::iter::once(&root)
+            .chain(pages.iter())
+            .flat_map(|media| {
+                [media.storage_key.as_ref(), media.thumbnail_key.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+            })
+            .collect();
+        let retained_keys: HashSet<String> = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Id.is_not_in(media_ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .into_iter()
+            .flat_map(|media| {
+                [media.storage_key, media.thumbnail_key]
+                    .into_iter()
+                    .flatten()
+            })
+            .collect();
+
+        media_tag::Entity::delete_many()
+            .filter(media_tag::Column::MediaId.is_in(media_ids.iter().copied()))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        media_link::Entity::delete_many()
+            .filter(media_link::Column::MediaId.is_in(media_ids.iter().copied()))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        note::Entity::delete_many()
+            .filter(note::Column::MediaId.is_in(media_ids.iter().copied()))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        if !vignette_ids.is_empty() {
+            person::Entity::update_many()
+                .col_expr(
+                    person::Column::PortraitVignetteId,
+                    sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
+                )
+                .filter(person::Column::PortraitVignetteId.is_in(vignette_ids.iter().copied()))
+                .exec(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            vignette::Entity::delete_many()
+                .filter(vignette::Column::Id.is_in(vignette_ids))
+                .exec(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        }
+        person::Entity::update_many()
+            .col_expr(
+                person::Column::PortraitMediaId,
+                sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
+            )
+            .filter(person::Column::PortraitMediaId.is_in(media_ids.iter().copied()))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        if !page_ids.is_empty() {
+            Entity::delete_many()
+                .filter(Column::Id.is_in(page_ids))
+                .exec(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        }
+        Entity::delete_by_id(id)
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        Ok(MediaPurge {
+            storage_keys: candidate_keys.difference(&retained_keys).cloned().collect(),
+        })
+    }
+
+    /// Whether the gallery link being removed is the media's sole external
+    /// reference. Another link, crop, portrait or parent document returns
+    /// `false`, leaving the media eligible for neither a confirmation nor a
+    /// conditional purge.
+    pub async fn can_purge_if_unreferenced_elsewhere(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        allowed_link_id: Uuid,
+    ) -> Result<bool, OxidGeneError> {
+        let media = Entity::find_by_id(id)
+            .filter(Column::DeletedAt.is_null())
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Media",
+                id,
+            })?;
+        if media.parent_media_id.is_some() {
+            return Ok(false);
+        }
+        let pages = if media.is_document {
+            Entity::find()
+                .filter(Column::ParentMediaId.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?
+        } else {
+            Vec::new()
+        };
+        let mut media_ids: Vec<Uuid> = pages.iter().map(|page| page.id).collect();
+        media_ids.push(id);
+
+        let has_other_link = media_link::Entity::find()
+            .filter(media_link::Column::MediaId.is_in(media_ids.iter().copied()))
+            .filter(media_link::Column::Id.ne(allowed_link_id))
+            .count(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            > 0;
+        let has_vignette = vignette::Entity::find()
+            .filter(vignette::Column::MediaId.is_in(media_ids.iter().copied()))
+            .count(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            > 0;
+        let has_portrait = person::Entity::find()
+            .filter(person::Column::PortraitMediaId.is_in(media_ids.iter().copied()))
+            .count(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            > 0;
+
+        if has_other_link || has_vignette || has_portrait {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// Purge only when [`Self::can_purge_if_unreferenced_elsewhere`] allows
+    /// it. The eligibility is re-evaluated at deletion time because a second
+    /// reference may have appeared after the UI asked whether to confirm.
+    pub async fn purge_if_unreferenced_elsewhere(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        allowed_link_id: Uuid,
+    ) -> Result<Option<MediaPurge>, OxidGeneError> {
+        if !Self::can_purge_if_unreferenced_elsewhere(db, id, allowed_link_id).await? {
+            return Ok(None);
+        }
+        Self::purge(db, id).await.map(Some)
     }
 }
 

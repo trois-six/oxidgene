@@ -242,6 +242,20 @@ impl MediaLinkRepo {
         family_id: Option<Uuid>,
         sort_order: i32,
     ) -> Result<MediaLink, OxidGeneError> {
+        if event_id.is_some()
+            && Entity::find()
+                .filter(Column::MediaId.eq(media_id))
+                .filter(Column::EventId.is_not_null())
+                .one(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                .is_some()
+        {
+            return Err(OxidGeneError::Validation(
+                "a media can be linked to only one event".to_string(),
+            ));
+        }
+
         let model = media_link::ActiveModel {
             id: Set(id),
             media_id: Set(media_id),

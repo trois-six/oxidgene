@@ -221,6 +221,10 @@ pub fn build_router(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::max(media::UPLOAD_BODY_LIMIT)),
         )
         .route(
+            "/{tree_id}/media/{media_id}/deletion-status",
+            get(media::media_deletion_status),
+        )
+        .route(
             "/{tree_id}/media/{media_id}",
             get(media::get_media)
                 .put(media::update_media)
@@ -423,6 +427,7 @@ pub fn build_router(state: AppState) -> Router {
         state.profiles.clone(),
         state.purge.clone(),
         state.media.clone(),
+        state.imports.clone(),
     );
 
     let rest_router = Router::new()

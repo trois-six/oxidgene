@@ -457,6 +457,11 @@ pub struct MediaWithLink {
     pub media: Media,
 }
 
+#[derive(Debug, Deserialize)]
+struct MediaDeletionStatus {
+    can_delete: bool,
+}
+
 /// Where a media's bytes actually are.
 ///
 /// Three states, and every view has to tell them apart. A media OxidGene holds
@@ -686,8 +691,6 @@ pub struct CreateVignetteBody {
     pub width: i32,
     pub height: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub person_id: Option<uuid::Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<uuid::Uuid>,
@@ -706,8 +709,6 @@ pub struct UpdateVignetteBody {
     pub width: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_id: Option<Option<uuid::Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2522,12 +2523,48 @@ impl ApiClient {
         Ok(())
     }
 
-    /// Soft-delete a media record. The stored bytes stay.
+    /// Permanently delete a media record and its associated information.
     pub async fn delete_media(&self, tree_id: Uuid, media_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/media/{media_id}"))
             .await?;
         self.invalidate_tree(tree_id);
         Ok(())
+    }
+
+    /// Delete a media only when the supplied gallery link is its sole external
+    /// reference. Returns `false` when another reference keeps it alive.
+    pub async fn delete_media_if_unreferenced_elsewhere(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        allowed_link_id: Uuid,
+    ) -> Result<bool, ApiError> {
+        let status = self
+            .delete_status(&format!(
+                "/api/v1/trees/{tree_id}/media/{media_id}?only_if_unreferenced_elsewhere=true&allowed_link_id={allowed_link_id}"
+            ))
+            .await?;
+        if status == 204 {
+            self.invalidate_tree(tree_id);
+        }
+        Ok(status == 204)
+    }
+
+    /// Whether the supplied gallery link is the media's sole external
+    /// reference, and therefore whether showing a definitive-delete
+    /// confirmation is truthful.
+    pub async fn can_delete_media_if_unreferenced_elsewhere(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        allowed_link_id: Uuid,
+    ) -> Result<bool, ApiError> {
+        let status: MediaDeletionStatus = self
+            .get(&format!(
+                "/api/v1/trees/{tree_id}/media/{media_id}/deletion-status?allowed_link_id={allowed_link_id}"
+            ))
+            .await?;
+        Ok(status.can_delete)
     }
 
     // ── MediaLinks ──────────────────────────────────────────────────

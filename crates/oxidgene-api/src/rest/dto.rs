@@ -342,6 +342,23 @@ pub struct DeleteSourceQuery {
     pub only_if_unused: bool,
 }
 
+/// Query parameters for definitively deleting a media record.
+#[derive(Debug, Default, Deserialize)]
+pub struct DeleteMediaQuery {
+    /// Keep the media when anything other than this gallery link references
+    /// it. The status says the result: `204` deleted, `200` retained.
+    #[serde(default)]
+    pub only_if_unreferenced_elsewhere: bool,
+    pub allowed_link_id: Option<uuid::Uuid>,
+}
+
+/// Query parameters for checking whether a profile-gallery media can be
+/// permanently deleted without affecting another record.
+#[derive(Debug, Deserialize)]
+pub struct MediaDeletionStatusQuery {
+    pub allowed_link_id: uuid::Uuid,
+}
+
 /// Query parameters for listing citations by entity.
 #[derive(Debug, Deserialize)]
 pub struct CitationListQuery {
@@ -455,12 +472,11 @@ pub struct CreateVignetteRequest {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-    pub title: Option<String>,
     pub person_id: Option<uuid::Uuid>,
     pub event_id: Option<uuid::Uuid>,
 }
 
-/// Request body for moving, retitling or re-attributing a vignette.
+/// Request body for moving or re-attributing a vignette.
 ///
 /// The four rectangle fields travel together: send all of them or none.
 #[derive(Debug, Deserialize)]
@@ -470,8 +486,6 @@ pub struct UpdateVignetteRequest {
     pub y: Option<i32>,
     pub width: Option<i32>,
     pub height: Option<i32>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub title: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub person_id: Option<Option<uuid::Uuid>>,
     #[serde(default, deserialize_with = "double_option")]

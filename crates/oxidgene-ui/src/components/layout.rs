@@ -987,7 +987,7 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 200;
+        z-index: 1300;
         backdrop-filter: blur(4px);
     }
 
@@ -1504,6 +1504,49 @@ pub const LAYOUT_STYLES: &str = r#"
     .context-menu-back {
         font-weight: 600;
         color: var(--text-secondary);
+    }
+
+    .context-menu-events {
+        min-width: 252px;
+        max-width: calc(100vw - 24px);
+    }
+
+    .context-menu-event-picker {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .context-menu-event-list {
+        max-height: 180px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+    }
+
+    .context-menu-event-item {
+        box-sizing: border-box;
+        min-height: 36px;
+        line-height: 20px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .context-menu-event-scroll {
+        display: block;
+        width: 100%;
+        height: 28px;
+        border: none;
+        background: var(--bg-panel);
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-family: var(--font-sans);
+        line-height: 1;
+    }
+
+    .context-menu-event-scroll:hover {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
     }
 
     /* ── Reference tooltip (occupation sheets, given-name meanings) ──── */
@@ -3190,6 +3233,20 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 14px;
     }
 
+    /* Evidence belongs to its event, so it reads as a short row of documents
+       rather than a second, full gallery inside the timeline. The tiles keep
+       their ordinary click and context-menu behaviour. */
+    .media-grid.media-grid-compact {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .media-grid-compact .media-tile { width: 44px; flex: 0 0 44px; gap: 0; }
+    .media-grid-compact .media-thumb { width: 44px; height: 44px; aspect-ratio: auto; }
+    .media-grid-compact .media-caption,
+    .media-grid-compact .media-event-link,
+    .media-grid-compact .error-msg { display: none; }
+
     .media-tile {
         display: flex;
         flex-direction: column;
@@ -3338,6 +3395,20 @@ pub const LAYOUT_STYLES: &str = r#"
         white-space: nowrap;
     }
 
+    .media-event-link {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        line-height: 1.25;
+        text-align: center;
+    }
+
+    .media-event-date { color: var(--text-primary); }
+    .media-event-type { color: var(--orange); }
+
     .media-empty {
         font-size: 0.82rem;
         color: var(--text-muted);
@@ -3346,7 +3417,11 @@ pub const LAYOUT_STYLES: &str = r#"
 
     /* ── Upload cell ──────────────────────────────────────────────── */
 
-    .media-drop { aspect-ratio: 1; }
+    .media-drop {
+        display: flex;
+        aspect-ratio: 1;
+        min-width: 0;
+    }
 
     .media-drop-btn {
         display: flex;
@@ -3354,6 +3429,7 @@ pub const LAYOUT_STYLES: &str = r#"
         align-items: center;
         justify-content: center;
         gap: 4px;
+        flex: 1;
         width: 100%;
         height: 100%;
         padding: 8px;
@@ -3389,6 +3465,45 @@ pub const LAYOUT_STYLES: &str = r#"
         white-space: nowrap;
         max-width: 100%;
     }
+
+    .pd-media-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .pd-media-header h2 { margin: 0; }
+    .media-upload-icon {
+        display: inline-flex;
+        flex: 0 0 auto;
+        aspect-ratio: auto;
+    }
+    .media-upload-icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--bg-panel);
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-family: var(--font-sans);
+        transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+    .media-upload-icon-btn:hover:not(:disabled) {
+        border-color: var(--orange);
+        background: var(--bg-card-hover);
+        color: var(--orange);
+    }
+    .media-upload-icon.is-dragging .media-upload-icon-btn {
+        border-color: var(--orange);
+        color: var(--orange);
+    }
+    .media-upload-icon-btn:disabled { cursor: default; }
+    .media-upload-icon-glyph { font-size: 1.15rem; line-height: 1; }
 
     /* ── Inline media edit panel ──────────────────────────────────── */
 
@@ -3669,8 +3784,10 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-viewer {
         display: flex;
         flex-direction: column;
-        max-width: min(1400px, 100%);
-        max-height: 100%;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
         background: var(--bg-panel);
         border: 1px solid var(--border);
         border-radius: var(--radius);
@@ -3802,7 +3919,16 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.72rem;
     }
 
-    .media-facts-edit { align-self: flex-start; margin-top: 14px; }
+    .media-facts-actions {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .media-facts-actions .media-facts-edit { align-self: flex-start; margin: 0; }
+    .media-facts-actions .media-facts-delete { margin: 0; width: auto; }
 
     /* Inside the viewer the panel is the column, not a card floating in one. */
     .media-panel.is-embedded {
@@ -3844,25 +3970,138 @@ pub const LAYOUT_STYLES: &str = r#"
         -webkit-user-drag: none;
     }
 
-    /* Zoomed, the stage stops centring: an image wider than its container
-       must start at the top-left and be scrolled, or the parts that overflow
-       are unreachable in both directions at once. */
+     /* Scroll only in the dimension that needs it. An image wider than its
+         container must begin at the left so every column remains reachable, but
+         a short register strip should stay vertically centred. */
     .media-viewer-stage.is-zoomed {
-        align-items: flex-start;
-        justify-content: flex-start;
         overflow: scroll;
     }
+
+     .media-viewer-stage.is-overflow-x { justify-content: flex-start; }
+     .media-viewer-stage.is-overflow-y { align-items: flex-start; }
 
     /* Contain, not cover: this is the view where the document is the point,
        so nothing may be cropped out of it. The inline `width` a zoom level
        sets overrides both maxima. */
     .media-viewer-image {
         max-width: 100%;
-        max-height: 70vh;
+        max-height: 100%;
         object-fit: contain;
     }
 
     .media-viewer-stage.is-zoomed .media-viewer-image { flex: 0 0 auto; }
+
+     /* The frame takes the image's rendered dimensions, so percentages based
+         on source pixels keep each identification region aligned while fitting
+         and zooming. */
+    .media-viewer-image-frame {
+        position: relative;
+        display: inline-block;
+        line-height: 0;
+    }
+
+    .media-viewer-vignette {
+        position: absolute;
+        box-sizing: border-box;
+        border: 2px solid rgba(232,223,200,0.95);
+        background: rgba(18,22,31,0.10);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.45);
+        opacity: 0;
+        pointer-events: auto;
+    }
+
+    .media-viewer-vignette:hover {
+        opacity: 1;
+    }
+
+    .media-viewer-vignette-label {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        max-width: 180px;
+        overflow: hidden;
+        padding: 2px 5px;
+        background: rgba(0,0,0,0.72);
+        color: #fff;
+        font-family: var(--font-sans);
+        font-size: 0.68rem;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: normal;
+    }
+
+    .media-viewer-vignette-surname,
+    .media-viewer-vignette-given { display: block; }
+
+    .media-vignette-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .media-vignette-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        color: var(--text-primary);
+        font-size: 0.78rem;
+        text-decoration: none;
+    }
+
+    .media-vignette-item:hover { color: var(--orange); }
+
+    .media-identification { position: relative; }
+
+    .media-identification-person {
+        min-width: 0;
+        overflow: hidden;
+        color: inherit;
+        text-decoration: none;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .media-identification-delete,
+    .media-identification-add {
+        margin-left: auto;
+        border: none;
+        background: none;
+        cursor: pointer;
+        font: inherit;
+    }
+
+    .media-identification-delete {
+        width: 22px;
+        padding: 0;
+        color: var(--text-muted);
+        font-size: 1.25rem;
+        line-height: 1;
+    }
+
+    .media-identification-add {
+        padding: 3px 0;
+        color: var(--orange);
+    }
+
+    .media-identification-delete:hover,
+    .media-identification-delete:focus-visible,
+    .media-identification-add:hover,
+    .media-identification-add:focus-visible { color: var(--orange-light); }
+
+    .media-vignette-item img {
+        width: 42px;
+        height: 34px;
+        flex: 0 0 auto;
+        border: 1px solid var(--border);
+        object-fit: cover;
+    }
+
+    .media-vignette-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 
     .media-viewer-audio { width: min(520px, 100%); }
 

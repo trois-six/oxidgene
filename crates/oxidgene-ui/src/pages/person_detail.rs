@@ -2,16 +2,18 @@
 
 use std::collections::{HashMap, HashSet};
 
+use chrono::NaiveDate;
 use dioxus::prelude::*;
-use oxidgene_core::EventType;
+use oxidgene_core::enums::{Calendar, DateQualifier, EventType};
 use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{Event as DomainEvent, QualifiedYear};
 use uuid::Uuid;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, CreateMediaLinkBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::date_input::format_event_date;
-use crate::components::media_gallery::{MediaGallery, MediaOwner};
+use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
+use crate::components::media_input::MediaInput;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::reference_tooltip::{GivenNamesHover, ReferenceHover, ReferenceKind};
 use crate::components::topbar_search::TopbarSearch;
@@ -643,6 +645,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         move || {
             let api = api.clone();
             let tid = tree_id_parsed();
+            let _ = media_revision();
             async move {
                 let Some(tid) = tid else {
                     return HashMap::new();
@@ -657,28 +660,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
         }
     });
-
-    // Whether this person has any media at all — the section is hidden
-    // otherwise rather than shown empty on every profile in the tree. The
-    // gallery below issues the same GET, which the client's response cache
-    // answers, so asking here costs one request rather than two.
-    let media_resource = use_resource({
-        let api = api.clone();
-        let person_id = person_id.clone();
-        move || {
-            let api = api.clone();
-            let tid = tree_id_parsed();
-            let pid = Uuid::parse_str(&person_id).ok();
-            async move {
-                match (tid, pid) {
-                    (Some(tid), Some(pid)) => api.list_entity_media(tid, "person", pid).await.ok(),
-                    _ => None,
-                }
-            }
-        }
-    });
-    let has_media =
-        move || matches!(&*media_resource.read_unchecked(), Some(Some(list)) if !list.is_empty());
 
     // ── Handlers ─────────────────────────────────────────────────────
 
@@ -958,18 +939,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     };
 
-    /// Where a media-link row's file can actually be opened.
-    ///
-    /// A stored file goes through our endpoint; a remote one is the URL itself,
-    /// which is the only copy there is.
-    fn media_href(api: &ApiClient, tree_id: Uuid, row: &crate::api::MediaLinkRow) -> String {
-        if row.file_path.starts_with("http://") || row.file_path.starts_with("https://") {
-            row.file_path.clone()
-        } else {
-            api.media_file_url(tree_id, row.media_id)
-        }
-    }
-
     // ── Build enriched event list ───────────────────────────────────
     //
     // Combines three sources:
@@ -1151,6 +1120,43 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             _ => Vec::new(),
         }
     };
+
+    // A person's media may document their own events or the events of one of
+    // their conjugal families, never the derived parental and child events
+    // shown only for narrative context in the timeline.
+    let media_event_links: Vec<MediaEventLinkOption> = enriched_events
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.origin,
+                EventOrigin::Individual | EventOrigin::ConjugalFamily
+            )
+        })
+        .map(|entry| {
+            let event = &entry.event;
+            let date = if event.calendar == Calendar::Gregorian
+                && event.date_qualifier == DateQualifier::Exact
+            {
+                event
+                    .date_value
+                    .as_deref()
+                    .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+                    .map(|value| value.format("%d/%m/%Y").to_string())
+            } else {
+                None
+            }
+            .or_else(|| {
+                let date = format_event_date(&i18n, event);
+                (!date.is_empty()).then_some(date)
+            });
+            MediaEventLinkOption {
+                event_id: event.id,
+                label: i18n.t(event_type_label_key(event.event_type)),
+                date,
+                date_sort: event.date_sort,
+            }
+        })
+        .collect();
 
     // ── Build per-event source citations ──────────────────────────────
     //
@@ -1485,21 +1491,42 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
 
         // ── Media section ─────────────────────────────────────────────
-        // Read-only: the same grid the edit modal shows, with its controls
-        // withheld. A tile opens its file; changing anything is a click on
-        // Edit away. The section hides itself when the person has no files,
-        // rather than leaving an empty frame on every profile in the tree.
-        if let (Some(media_tid), Ok(pid), true) = (
-            tree_id_parsed(),
-            Uuid::parse_str(&person_id),
-            has_media(),
-        ) {
+        // The profile keeps its gallery read-only but exposes a compact upload
+        // action next to the section title, including before the first media.
+        if let (Some(media_tid), Ok(pid)) = (tree_id_parsed(), Uuid::parse_str(&person_id)) {
             div { class: "card", style: "margin-bottom: 24px;",
-                h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t("media.section")} }
+                div { class: "pd-media-header",
+                    h2 { style: "font-size: 1.1rem;", {i18n.t("media.section")} }
+                    MediaInput {
+                        tree_id: media_tid,
+                        compact: true,
+                        on_uploaded: {
+                            let api = api.clone();
+                            move |media_id| {
+                                let api = api.clone();
+                                spawn(async move {
+                                    let body = CreateMediaLinkBody {
+                                        media_id,
+                                        person_id: Some(pid),
+                                        family_id: None,
+                                        event_id: None,
+                                        source_id: None,
+                                        sort_order: 0,
+                                    };
+                                    if api.create_media_link(media_tid, &body).await.is_ok() {
+                                        media_revision += 1;
+                                    }
+                                });
+                            }
+                        },
+                    }
+                }
                 MediaGallery {
                     tree_id: media_tid,
                     owner: MediaOwner::Person(pid),
+                    profile_event_links: media_event_links,
                     read_only: true,
+                    external_revision: media_revision(),
                     on_changed: move |()| media_revision += 1,
                 }
             }
@@ -1750,37 +1777,23 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                         ": {sources.join(\"; \")}"
                                                     }
                                                 }
-                                                // The documents that prove this
-                                                // event. A thumbnail where the
-                                                // server made one, an icon
-                                                // where it could not.
+                                                // The documents that prove this event use the
+                                                // very same gallery, viewer and context menu as
+                                                // the profile's main media section.
                                                 if let Some(tid) = tree_id_parsed()
-                                                    && let Some(evidence) = evidence_by_event
+                                                    && let Some(_) = evidence_by_event
                                                         .read_unchecked()
                                                         .as_ref()
                                                         .and_then(|m| m.get(&eid))
                                                         .filter(|rows| !rows.is_empty())
                                                 {
                                                     div { class: "pd-ev-evidence",
-                                                        for row in evidence.iter() {
-                                                            a {
-                                                                key: "{row.media_id}",
-                                                                class: "pd-ev-doc",
-                                                                href: media_href(&api, tid, row),
-                                                                target: "_blank",
-                                                                title: "{row.file_name}",
-                                                                if row.has_thumbnail {
-                                                                    img {
-                                                                        src: api.media_thumbnail_url(tid, row.media_id),
-                                                                        alt: "{row.file_name}",
-                                                                        loading: "lazy",
-                                                                    }
-                                                                } else {
-                                                                    span { class: "media-glyph",
-                                                                        {crate::api::media_kind(&row.mime_type).icon()}
-                                                                    }
-                                                                }
-                                                            }
+                                                        MediaGallery {
+                                                            tree_id: tid,
+                                                            owner: MediaOwner::Event(eid),
+                                                            read_only: true,
+                                                            compact: true,
+                                                            on_changed: move |()| media_revision += 1,
                                                         }
                                                     }
                                                 }

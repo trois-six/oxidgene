@@ -45,7 +45,7 @@ async fn graphql(app: axum::Router, query: &str, variables: Option<Value>) -> Va
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::OK, "GraphQL query: {query}");
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
 }
@@ -126,6 +126,155 @@ async fn test_tree_update_and_delete() {
     // Verify gone from list
     let resp = graphql(app, "{ trees { totalCount } }", None).await;
     assert_eq!(data(&resp)["trees"]["totalCount"], 0);
+}
+
+#[tokio::test]
+async fn test_tree_duplicate_preserves_genealogy() {
+    let app = setup_app().await;
+    let source_tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Original" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let person_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{source_tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Ada", surname: "Lovelace", isPrimary: true }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+
+    let duplicate = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ duplicateTree(treeId: "{source_tree_id}", name: "Copy") {{ id name personCount }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["duplicateTree"]
+        .clone();
+    assert_eq!(duplicate["name"], "Copy");
+    assert_eq!(duplicate["personCount"], 1);
+
+    let copied_tree_id = duplicate["id"].as_str().unwrap();
+    let people = data(
+        &graphql(
+            app,
+            &format!(
+                r#"{{ persons(treeId: "{copied_tree_id}") {{ edges {{ node {{ primaryName {{ givenNames surname }} }} }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["persons"]["edges"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(people.len(), 1);
+    assert_eq!(people[0]["node"]["primaryName"]["givenNames"], "Ada");
+    assert_eq!(people[0]["node"]["primaryName"]["surname"], "Lovelace");
+}
+
+#[tokio::test]
+async fn test_sosa_and_portraits_are_available_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let person_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateTree(id: "{tree_id}", input: {{ sosaRootPersonId: "{person_id}" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+
+    let sosa = data(
+        &graphql(
+            app.clone(),
+            &format!(r#"{{ personBySosa(treeId: "{tree_id}", number: 1) {{ id }} }}"#),
+            None,
+        )
+        .await,
+    )["personBySosa"]
+        .clone();
+    assert_eq!(sosa["id"], person_id);
+
+    let media_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ fileName: "portrait.png", contentBase64: "{}" }}) {{ id }} }}"#,
+                png_base64(20, 20)
+            ),
+            None,
+        )
+        .await,
+    )["uploadMediaFile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ setPersonPortrait(treeId: "{tree_id}", personId: "{person_id}", mediaId: "{media_id}") {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+
+    let portraits = data(
+        &graphql(
+            app,
+            &format!(
+                r#"{{ portraits(treeId: "{tree_id}") {{ personId mediaId vignetteId hasThumbnail }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["portraits"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(portraits.len(), 1);
+    assert_eq!(portraits[0]["personId"], person_id);
+    assert_eq!(portraits[0]["mediaId"], media_id);
+    assert!(portraits[0]["vignetteId"].is_null());
+    assert_eq!(portraits[0]["hasThumbnail"], true);
 }
 
 #[tokio::test]
@@ -465,6 +614,131 @@ async fn test_event_with_place() {
     )
     .await;
     assert_eq!(data(&resp)["deleteEvent"], true);
+}
+
+#[tokio::test]
+async fn test_dictionary_snapshot_and_reference_over_graphql() {
+    let app = setup_app().await;
+    let tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Dictionary" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let person_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ addPersonName(personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Marie", surname: "Durand", isPrimary: true }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let place_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPlace(treeId: "{tree_id}", input: {{ name: "Lyon" }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPlace"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: OCCUPATION, personId: "{person_id}", placeId: "{place_id}", description: "Agriculteur" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let source_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createSource(treeId: "{tree_id}", input: {{ title: "Lyon register" }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createSource"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createCitation(input: {{ sourceId: "{source_id}", personId: "{person_id}", confidence: HIGH }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"{{
+                dictionaryFamilyNames(treeId: "{tree_id}") {{ value count }}
+                dictionaryOccupations(treeId: "{tree_id}") {{ value count }}
+                dictionarySources(treeId: "{tree_id}") {{ source {{ id title }} count }}
+                dictionaryPlaces(treeId: "{tree_id}") {{ place {{ id name }} count }}
+                familyNameUsage(treeId: "{tree_id}", value: "Durand") {{ personId }}
+                occupationUsage(treeId: "{tree_id}", value: "Agriculteur") {{ personId }}
+                sourceUsage(sourceId: "{source_id}") {{ personId }}
+                placeUsage(placeId: "{place_id}") {{ personId }}
+                treeSnapshot(treeId: "{tree_id}") {{ persons {{ id }} names {{ surname }} events {{ eventType }} places {{ name }} }}
+                occupationReference(language: "fr", term: "Agriculteur") {{ label }}
+                givenNameReference(language: "fr", term: "Marie") {{ label }}
+            }}"#
+        ),
+        None,
+    )
+    .await;
+    let response = data(&response);
+
+    assert_eq!(response["dictionaryFamilyNames"][0]["value"], "Durand");
+    assert_eq!(response["dictionaryOccupations"][0]["value"], "Agriculteur");
+    assert_eq!(response["dictionarySources"][0]["source"]["id"], source_id);
+    assert_eq!(response["dictionarySources"][0]["count"], 1);
+    assert_eq!(response["dictionaryPlaces"][0]["place"]["id"], place_id);
+    assert_eq!(response["dictionaryPlaces"][0]["count"], 1);
+    for key in [
+        "familyNameUsage",
+        "occupationUsage",
+        "sourceUsage",
+        "placeUsage",
+    ] {
+        assert_eq!(response[key][0]["personId"], person_id, "{key}: {response}");
+    }
+    assert_eq!(response["treeSnapshot"]["persons"][0]["id"], person_id);
+    assert_eq!(response["treeSnapshot"]["names"][0]["surname"], "Durand");
+    assert_eq!(
+        response["treeSnapshot"]["events"][0]["eventType"],
+        "OCCUPATION"
+    );
+    assert_eq!(response["treeSnapshot"]["places"][0]["name"], "Lyon");
+    assert_eq!(response["occupationReference"]["label"], "Agriculteur");
+    assert_eq!(response["givenNameReference"]["label"], "Marie");
 }
 
 // ── date_sort is the server's to derive ───────────────────────────────
@@ -1034,6 +1308,87 @@ fn minimal_geneweb() -> &'static str {
     )
 }
 
+#[tokio::test]
+async fn test_geneanet_wizard_operations_over_graphql() {
+    use base64::Engine as _;
+
+    let app = setup_app().await;
+    let gw_base64 = base64::engine::general_purpose::STANDARD.encode(minimal_geneweb());
+    let collection = r#"{"deposits":[],"references":[],"view_references":{}}"#;
+    let collection_graphql = collection.replace('"', "\\\"");
+    let inspection = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ inspectGeneweb(gwBase64: "{gw_base64}", fileName: "family.gw") {{ personCount familyCount skippedBlocks }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&inspection)["inspectGeneweb"]["personCount"], 3);
+    assert_eq!(data(&inspection)["inspectGeneweb"]["familyCount"], 1);
+
+    let encoded = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{
+            encodeGeneanetSession(input: {{ collection: "{collection_graphql}", account: "test-account" }}) {{
+                archiveBase64
+            }}
+        }}"#
+        ),
+        None,
+    )
+    .await;
+    let archive_base64 = data(&encoded)["encodeGeneanetSession"]["archiveBase64"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let decoded = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ decodeGeneanetSession(archiveBase64: "{archive_base64}") {{ collection account photoCount media {{ url path }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let session = &data(&decoded)["decodeGeneanetSession"];
+    let restored_collection: Value =
+        serde_json::from_str(session["collection"].as_str().unwrap()).unwrap();
+    assert_eq!(restored_collection["deposits"], serde_json::json!([]));
+    assert_eq!(restored_collection["references"], serde_json::json!([]));
+    assert_eq!(
+        restored_collection["view_references"],
+        serde_json::json!({})
+    );
+    assert_eq!(session["account"], "test-account");
+    assert_eq!(session["photoCount"], 0);
+    assert!(session["media"].as_array().unwrap().is_empty());
+
+    let indexed = graphql(
+        app.clone(),
+        r#"{ indexGeneanetArchives(paths: []) { fileCount archives { path } } }"#,
+        None,
+    )
+    .await;
+    assert_eq!(data(&indexed)["indexGeneanetArchives"]["fileCount"], 0);
+    assert!(
+        data(&indexed)["indexGeneanetArchives"]["archives"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let rejected = graphql(
+        app,
+        &format!(
+            r#"{{ geneanetPreview(input: {{ gwBase64: "{gw_base64}", fileName: "family.gw", collection: "{collection_graphql}", depositSizes: [{{ depositId: 1, size: -1 }}] }}) {{ personCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert!(rejected.get("errors").is_some());
+}
+
 /// A note whose two lines are one break apart, in each format's own spelling:
 /// GEDCOM continues the line with `CONT`, GeneWeb ends it with `<br/>` *and*
 /// the newline that follows in the file. The sample Geneanet exports in `samples/`
@@ -1268,6 +1623,38 @@ async fn test_graphql_export_gedcom() {
     let resp = graphql(app.clone(), &query, None).await;
     let result = &data(&resp)["exportGedcom"];
     assert!(result["gedcom"].as_str().unwrap().contains("HEAD"));
+    assert!(result["warnings"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_graphql_export_gedzip() {
+    use base64::Engine as _;
+
+    let app = setup_app().await;
+    let response = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "GQL GEDZIP Export" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&response)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = graphql(
+        app,
+        &format!(r#"{{ exportGedzip(treeId: "{tree_id}") {{ gedzipBase64 warnings }} }}"#),
+        None,
+    )
+    .await;
+    let result = &data(&response)["exportGedzip"];
+    let archive = base64::engine::general_purpose::STANDARD
+        .decode(result["gedzipBase64"].as_str().unwrap())
+        .unwrap();
+    let imported = oxidgene_gedcom::import::import_gedzip(&archive, uuid::Uuid::now_v7()).unwrap();
+
+    assert!(imported.result.persons.is_empty());
     assert!(result["warnings"].as_array().unwrap().is_empty());
 }
 
@@ -1649,8 +2036,8 @@ async fn test_vignette_lifecycle_over_graphql() {
         app.clone(),
         &format!(
             r#"mutation {{ createVignette(input: {{
-                 mediaId: "{media_id}", x: 10, y: 20, width: 200, height: 150, title: "Entry 1"
-               }}) {{ id x y width height title page }} }}"#
+                                 mediaId: "{media_id}", x: 10, y: 20, width: 200, height: 150
+                             }}) {{ id x y width height page }} }}"#
         ),
         None,
     )
@@ -1675,14 +2062,13 @@ async fn test_vignette_lifecycle_over_graphql() {
         &format!(
             r#"mutation {{ updateVignette(id: "{vignette_id}", input: {{
                  x: 100, y: 100, width: 300, height: 200
-               }}) {{ x y width height title }} }}"#
+             }}) {{ x y width height }} }}"#
         ),
         None,
     )
     .await;
     let moved = &data(&resp)["updateVignette"];
     assert_eq!(moved["x"], 100);
-    assert_eq!(moved["title"], "Entry 1", "the title should be untouched");
 
     // Off the edge
     let resp = graphql(

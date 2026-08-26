@@ -5,6 +5,7 @@
 
 use crate::media::MediaStore;
 use crate::profile::ProfileService;
+use crate::rest::state::ImportProgressRegistry;
 use crate::service::purge::PurgeQueue;
 use async_graphql::{ComplexObject, Context, Enum, ID, Result, SimpleObject};
 use chrono::{DateTime, Utc};
@@ -15,6 +16,7 @@ use uuid::Uuid;
 use oxidgene_db::repo::{
     CitationRepo, EventFilter, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilySpouseRepo,
     MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams, PersonNameRepo, PersonRepo, PlaceRepo,
+    PortraitRow,
 };
 
 // ── GraphQL Enums ────────────────────────────────────────────────────
@@ -25,6 +27,28 @@ pub enum GqlSex {
     Male,
     Female,
     Unknown,
+}
+
+/// Stage of a running Geneanet import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlGeneanetImportPhase {
+    Starting,
+    People,
+    Matching,
+    Media,
+    Finishing,
+}
+
+impl From<crate::service::geneanet::ImportPhase> for GqlGeneanetImportPhase {
+    fn from(phase: crate::service::geneanet::ImportPhase) -> Self {
+        match phase {
+            crate::service::geneanet::ImportPhase::Starting => Self::Starting,
+            crate::service::geneanet::ImportPhase::People => Self::People,
+            crate::service::geneanet::ImportPhase::Matching => Self::Matching,
+            crate::service::geneanet::ImportPhase::Media => Self::Media,
+            crate::service::geneanet::ImportPhase::Finishing => Self::Finishing,
+        }
+    }
 }
 
 impl From<oxidgene_core::Sex> for GqlSex {
@@ -706,6 +730,10 @@ pub(crate) fn purge_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a PurgeQueue {
 
 pub(crate) fn media_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<dyn MediaStore> {
     ctx.data_unchecked::<Arc<dyn MediaStore>>()
+}
+
+pub(crate) fn imports_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a ImportProgressRegistry {
+    ctx.data_unchecked::<ImportProgressRegistry>()
 }
 
 // ── PageInfo ─────────────────────────────────────────────────────────
@@ -1697,7 +1725,6 @@ pub struct GqlVignette {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-    pub title: Option<String>,
     pub person_id: Option<ID>,
     pub event_id: Option<ID>,
     pub created_at: DateTime<Utc>,
@@ -1714,7 +1741,6 @@ impl From<oxidgene_core::types::Vignette> for GqlVignette {
             y: v.y,
             width: v.width,
             height: v.height,
-            title: v.title,
             person_id: v.person_id.map(|id| ID(id.to_string())),
             event_id: v.event_id.map(|id| ID(id.to_string())),
             created_at: v.created_at,
@@ -1888,6 +1914,155 @@ pub struct GqlExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
+/// Result of a GEDZIP export, encoded for GraphQL's JSON transport.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlExportGedzipResult {
+    pub gedzip_base64: String,
+    pub warnings: Vec<String>,
+}
+
+// ── Geneanet import wizard ──────────────────────────────────────────
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetInspection {
+    pub person_count: i64,
+    pub family_count: i64,
+    pub skipped_blocks: i64,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetIndexedArchive {
+    pub path: String,
+    pub file_name: String,
+    pub file_count: i64,
+    pub image_count: i64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetArchiveIndex {
+    pub archives: Vec<GqlGeneanetIndexedArchive>,
+    pub file_count: i64,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetPreview {
+    pub person_count: i64,
+    pub photo_count: i64,
+    pub persons_with_photo: i64,
+    pub attachment_count: i64,
+    pub in_archives: i64,
+    pub to_match: i64,
+    pub to_download: i64,
+    pub group_photos: i64,
+    pub unlinked_views: i64,
+    pub documents: i64,
+    pub document_pages: i64,
+    pub unlinked_names: i64,
+    pub outside_tree: i64,
+    pub ambiguous: i64,
+    pub unlinked_names_sample: Vec<String>,
+    pub outside_tree_names: Vec<String>,
+    pub ambiguous_names: Vec<String>,
+    pub mismatch: bool,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetNeededMedia {
+    pub deposit_id: i64,
+    pub view_id: i64,
+    pub page: Option<i64>,
+    pub url: String,
+    pub original: bool,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetDepositSize {
+    pub deposit_id: i64,
+    pub size: i64,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetMediaPath {
+    pub url: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetSession {
+    pub collection: String,
+    pub deposit_sizes: Vec<GqlGeneanetDepositSize>,
+    pub account: Option<String>,
+    pub photo_count: i64,
+    pub media: Vec<GqlGeneanetMediaPath>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetSessionArchive {
+    pub archive_base64: String,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetImportResult {
+    pub persons_count: i64,
+    pub families_count: i64,
+    pub events_count: i64,
+    pub sources_count: i64,
+    pub places_count: i64,
+    pub notes_count: i64,
+    pub media_count: i64,
+    pub links_count: i64,
+    pub portraits_count: i64,
+    pub isolated_count: i64,
+    pub vignettes_count: i64,
+    pub skipped: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetImportProgress {
+    pub phase: GqlGeneanetImportPhase,
+    pub done: i64,
+    pub total: i64,
+}
+
+impl From<crate::service::geneanet::Preview> for GqlGeneanetPreview {
+    fn from(preview: crate::service::geneanet::Preview) -> Self {
+        Self {
+            person_count: preview.person_count as i64,
+            photo_count: preview.photo_count as i64,
+            persons_with_photo: preview.persons_with_photo as i64,
+            attachment_count: preview.attachment_count as i64,
+            in_archives: preview.in_archives as i64,
+            to_match: preview.to_match as i64,
+            to_download: preview.to_download as i64,
+            group_photos: preview.group_photos as i64,
+            unlinked_views: preview.unlinked_views as i64,
+            documents: preview.documents as i64,
+            document_pages: preview.document_pages as i64,
+            unlinked_names: preview.unlinked_names as i64,
+            outside_tree: preview.outside_tree as i64,
+            ambiguous: preview.ambiguous as i64,
+            unlinked_names_sample: preview.unlinked_names_sample,
+            outside_tree_names: preview.outside_tree_names,
+            ambiguous_names: preview.ambiguous_names,
+            mismatch: preview.mismatch,
+        }
+    }
+}
+
+impl From<crate::service::geneanet::NeededMedia> for GqlGeneanetNeededMedia {
+    fn from(needed: crate::service::geneanet::NeededMedia) -> Self {
+        Self {
+            deposit_id: needed.deposit_id,
+            view_id: needed.view_id,
+            page: needed.page,
+            url: needed.url,
+            original: needed.original,
+        }
+    }
+}
+
 // ── Projection GraphQL types ────────────────────────────────────────────────
 
 /// A denormalized person profile — everything needed for card/detail
@@ -1990,6 +2165,152 @@ pub struct GqlSearchEntry {
 pub struct GqlSearchResult {
     pub entries: Vec<GqlSearchEntry>,
     pub total_count: i32,
+}
+
+/// A distinct dictionary value with the number of people who use it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlDictionaryEntry {
+    pub value: String,
+    pub sort_key: String,
+    pub count: i64,
+}
+
+impl From<oxidgene_db::repo::DictionaryValueEntry> for GqlDictionaryEntry {
+    fn from(entry: oxidgene_db::repo::DictionaryValueEntry) -> Self {
+        Self {
+            value: entry.value,
+            sort_key: entry.sort_key,
+            count: entry.count,
+        }
+    }
+}
+
+/// A person reached from a dictionary usage drill-down.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPersonUsageEntry {
+    pub person_id: ID,
+    pub given_names: Option<String>,
+    pub surname: Option<String>,
+    pub birth_year: Option<i32>,
+    pub birth_qualifier: GqlDateQualifier,
+    pub death_year: Option<i32>,
+    pub death_qualifier: GqlDateQualifier,
+}
+
+impl From<oxidgene_db::repo::PersonUsageEntry> for GqlPersonUsageEntry {
+    fn from(entry: oxidgene_db::repo::PersonUsageEntry) -> Self {
+        Self {
+            person_id: ID(entry.person_id.to_string()),
+            given_names: entry.given_names,
+            surname: entry.surname,
+            birth_year: entry.birth_year,
+            birth_qualifier: entry.birth_qualifier.into(),
+            death_year: entry.death_year,
+            death_qualifier: entry.death_qualifier.into(),
+        }
+    }
+}
+
+/// A source paired with the number of citations that use it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSourceDictionaryEntry {
+    pub source: GqlSource,
+    pub count: i64,
+}
+
+/// A place paired with its event and media usage count.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPlaceDictionaryEntry {
+    pub place: GqlPlace,
+    pub count: i64,
+}
+
+/// One selectable prefix in the source dictionary drill-down.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSourceDictionaryGroup {
+    pub label: String,
+    pub count: i64,
+}
+
+/// The next level of the source dictionary drill-down.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSourceDictionaryDrill {
+    pub prefix: String,
+    pub total: i64,
+    pub groups: Vec<GqlSourceDictionaryGroup>,
+}
+
+/// Static reference information for one occupation label.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlOccupationReference {
+    pub label: String,
+    pub summary: String,
+    pub text: String,
+}
+
+impl From<crate::reference::OccupationEntry> for GqlOccupationReference {
+    fn from(entry: crate::reference::OccupationEntry) -> Self {
+        Self {
+            label: entry.label,
+            summary: entry.summary,
+            text: entry.text,
+        }
+    }
+}
+
+/// Static reference information for one given name.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGivenNameReference {
+    pub label: String,
+    pub origin: String,
+    pub meaning: String,
+    pub text: String,
+    pub feast_day: Option<String>,
+}
+
+impl From<crate::reference::GivenNameEntry> for GqlGivenNameReference {
+    fn from(entry: crate::reference::GivenNameEntry) -> Self {
+        Self {
+            label: entry.label,
+            origin: entry.origin,
+            meaning: entry.meaning,
+            text: entry.text,
+            feast_day: entry.feast_day,
+        }
+    }
+}
+
+/// The legacy all-at-once tree view, kept in GraphQL for REST parity.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTreeSnapshot {
+    pub persons: Vec<GqlPerson>,
+    pub names: Vec<GqlPersonName>,
+    pub events: Vec<GqlEvent>,
+    pub places: Vec<GqlPlace>,
+    pub spouses: Vec<GqlFamilySpouse>,
+    pub children: Vec<GqlFamilyChild>,
+}
+
+/// The media or vignette selected to represent one person.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPortrait {
+    pub person_id: ID,
+    pub media_id: Option<ID>,
+    pub vignette_id: Option<ID>,
+    pub file_path: String,
+    pub has_thumbnail: bool,
+}
+
+impl From<PortraitRow> for GqlPortrait {
+    fn from(portrait: PortraitRow) -> Self {
+        Self {
+            person_id: ID(portrait.person_id.to_string()),
+            media_id: portrait.media_id.map(|id| ID(id.to_string())),
+            vignette_id: portrait.vignette_id.map(|id| ID(id.to_string())),
+            file_path: portrait.file_path,
+            has_thumbnail: portrait.has_thumbnail,
+        }
+    }
 }
 
 /// Result of a projection rebuild operation.

@@ -71,7 +71,6 @@ pub async fn create_vignette(
             y: body.y,
             width: body.width,
             height: body.height,
-            title: body.title,
             person_id: body.person_id,
             event_id: body.event_id,
         },
@@ -131,7 +130,6 @@ pub async fn update_vignette(
         VignettePatch {
             page: body.page,
             rect,
-            title: body.title,
             person_id: body.person_id,
             event_id: body.event_id,
         },
