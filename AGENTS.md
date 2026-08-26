@@ -81,6 +81,12 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
   behavior, errors, and test coverage must be available through both surfaces.
 - Add focused regression tests for bug fixes and behavior tests for new
   features. Use anonymized test data only.
+- Keep benchmarks, performance tests, load tests, and tests requiring external
+  infrastructure opt-in. Mark test-harness cases `#[ignore]` (or use an
+  equivalent dedicated target) and run them only through an explicit command;
+  `just check` must never execute them.
+- Keep fast correctness assertions extracted from performance or load scenarios
+  in the normal test suite when they provide useful regression coverage.
 - Update API and data-model specifications whenever a public contract or stored
   shape changes.
 - Bump `PROJECTION_SCHEMA_VERSION` whenever `PersonProfile` or any nested

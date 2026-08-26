@@ -271,3 +271,16 @@ Every feature verifies, as applicable:
 - UI loading, empty, error, offline, and accessibility states;
 - fixtures and documentation are anonymized;
 - focused tests followed by `just check` before commit.
+
+### 8.1 Optional performance and load tests
+
+- Benchmarks, performance tests, load tests, soak tests, and tests requiring
+  external infrastructure are opt-in and must not run as part of `just check`.
+- Test-harness cases use `#[ignore]`; suites that do not use the Rust test
+  harness use an equivalent dedicated target or explicit opt-in flag.
+- Run these tests only with an explicit command that selects the relevant test,
+  ignored-test set, benchmark, or load-test target.
+- Keep deterministic, fast correctness assertions derived from these scenarios
+  in the normal suite when they provide useful regression coverage.
+- Document prerequisites, expected duration, resource requirements, and the
+  invocation command next to each optional suite.
