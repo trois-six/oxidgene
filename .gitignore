@@ -2,9 +2,14 @@
 /target/
 **/*.rs.bk
 
-# IDE
-.idea/
-.vscode/
+# IDE and local tooling
+/.idea/
+/.vscode/
+/.claude/
+/.codegraph/
+/.cargo/config.toml
+/.mcp.json
+/opencode.jsonc
 *.swp
 *.swo
 *~
@@ -22,7 +27,7 @@ Thumbs.db
 *.db
 *.db-shm
 *.db-wal
-samples
+/samples/
 
 # Media uploads (local dev)
 /uploads/
@@ -33,6 +38,3 @@ samples
 *.profraw
 lcov.info
 
-.claude
-.cargo/config.toml
-.codegraph
