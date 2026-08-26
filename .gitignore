@@ -36,6 +36,3 @@ lcov.info
 .claude
 .cargo/config.toml
 .codegraph
-
-# Local trash
-.Trash-1000
