@@ -32,7 +32,7 @@ The application is designed to be:
     - frontend container (static WASM assets served by a lightweight HTTP server),
     - backend container (Axum server),
     - database container (PostgreSQL),
-    - queuing application container (for EPIC F — Asynchronous Pipeline, post-MVP).
+    - optional worker infrastructure for EPIC H asynchronous processing.
 
 For technical details, see [Architecture](architecture.md).
 
@@ -77,7 +77,7 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 - Trees can be private, shared, or public.
 - Access rights defined per tree.
-- Authentication deferred to EPIC E (not in MVP). → see [Roadmap](roadmap.md)
+- Authentication deferred to EPIC G (not in MVP). → see [Roadmap](roadmap.md)
 
 ---
 
@@ -93,14 +93,21 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 ### 3.2 GEDCOM Import/Export
 
-- Full import/export using Rust crate `ged_io` (v0.12+). Also Support exporting a subpart of the tree by selecting a root person when exporting.
-- Support for GEDCOM 5.5.1 and 7.0 (auto-detected).
-- Streaming parser for large files.
-- Error logging and normalization.
-- GeneWeb `.gw` import (crate `geneweb`), converted through the same `ged_io` model.
-- **GEDZIP `.gdz` import and export.** The archive form of GEDCOM 7.0: a `gedcom.ged` and the media files it references in one ZIP. Import is the one file format that arrives with its photographs — each medium the archive carries is stored, thumbnailed and written as a held medium, where a `.ged` or a `.gw` names files nobody handed us. A missing or unreferenced file is a warning, never a failed import.
-- **Geneanet trees keep their photos.** A Geneanet export carries at most one medium per individual, as a URL that `403`s for anyone not logged in — losing ~55 % of the person↔photo links and every group photo. The full mapping is recovered from Geneanet's media API and joined onto the `.gw` by GeneWeb key, then imported straight into a tree as `Media` + `MediaLink` rows, so a group photo lands on everyone in it. The import preserves each deposit's Geneanet creation time on `Media.created_at`, and enriches each linked deposit with its historical date and place through the same calendar-aware date and shared-place models as the rest of the tree; media created directly in OxidGene instead receive their local creation time. A guided single-page flow walks the user through the Geneanet side, including an in-app login window. Exporting that tree to `.gdz` afterwards is the existing export path. See [Geneanet Media Import](geneanet-media-import.md) for the mechanism and [Geneanet Import](ui-geneanet-import.md) for the flow. Depends on Sprint F.1 for media storage.
-- → see [API Contract](api.md) (GEDCOM endpoints) · [Settings](ui-settings.md) (export section)
+- Import GEDCOM 5.5.1 and 7.0 with automatic version detection through
+    `ged_io`; export the whole tree or a selected subtree.
+- Import GeneWeb `.gw` files through `geneweb`, converted into the same domain
+    mapping as GEDCOM.
+- Import and export GEDZIP `.gdz` archives. Embedded media use the ordinary
+    storage, validation, thumbnail, and linking pipeline; missing or unsupported
+    files produce warnings without discarding valid genealogy.
+- Recover Geneanet media links through a guided desktop flow. Authentication
+    and collection run in an incognito browser window, media shared by several
+    people are stored once, and event evidence links are created only on an
+    unambiguous match.
+- Preserve supported source metadata and report unsupported or ambiguous data
+    explicitly rather than inventing a mapping.
+- See [Import](ui-import.md), [Geneanet Media Import](geneanet-media-import.md),
+    [API Contract](api.md), and [Settings](ui-settings.md).
 
 ### 3.3 Collaborative Editing (Web) — Post-MVP
 
@@ -131,8 +138,12 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 ### 3.8 Media Management
 
 - Upload images/PDF/videos.
-- Metadata and viewer integration.
-- Post-MVP: identify someone in a subpart of an image, the selection will be seen as a media for the identified person.
+- Metadata and viewer integration. The viewer fills the available overlay area;
+    its media stays contained within that full frame rather than shrinking the
+    reader to the media's intrinsic dimensions.
+- Identify someone in a subpart of an image: the reader draws a region, chooses the person through search, and sees the identification as a linked vignette in the viewer and the person's media gallery.
+- A vignette's context menu can remove that identification immediately; if it was a portrait, the person falls back to no portrait rather than retaining a stale region.
+- A profile gallery can permanently delete an unshared media after confirmation; the viewer can force-delete it with all associated information. REST and GraphQL expose the same conditional-deletion contract.
 - Async upload pipeline (post-MVP).
 - → see [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
@@ -154,14 +165,15 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Mask contemporary individuals (< 100 years old) for guest users. → see [Settings](ui-settings.md) (privacy section)
 - Optional last/first name masking.
 - Full audit logging.
-- Authentication and authorization in EPIC E. → see [Roadmap](roadmap.md)
+- Authentication and authorization in EPIC G. → see [Roadmap](roadmap.md)
 
 ---
 
 ## 5. Performance
 
 - Lazy loading of tree branches.
-- Server-side caching.
+- Durable database read projections with transactional refresh; no cache tier.
+    → see [Data Model](data-model.md) §4
 - Recursive CTE over the family links for ancestor/descendant queries. → see [Data Model](data-model.md) (Ancestry traversal)
 - Streaming GEDCOM parser for large files.
 - Cursor-based pagination to avoid expensive offset scans. → see [API Contract](api.md) (pagination)
@@ -198,95 +210,12 @@ The MVP covers EPICs A through D (see [Roadmap](roadmap.md)):
 
 ---
 
-## 8. Consistent Page Layout
+## 8. Common User Interface
 
-All pages share a common layout structure to ensure visual consistency across the application.
-
-### Navbar
-
-A minimal branding bar at the very top of every page. Contains only the logo (linking to homepage) in MVP. See [Topbar](ui-topbar.md) for full specification.
-
-### Page types
-
-The application has two distinct page layout patterns:
-
-#### 1. Homepage (`/`)
-
-Full-page scrollable layout. Content is constrained by `.home-main` (`max-width: 1200px`, centered, responsive padding). No topbar breadcrumb — the page header contains the title and subtitle directly.
-
-#### 2. Tree-scoped pages (`/trees/{id}/...` and `/settings`)
-
-All tree-scoped and app settings pages use the **`sub-page`** layout pattern:
-
-```
-+----------------------------------------------------------------------+
-| NAVBAR                                                                |
-+----------------------------------------------------------------------+
-| td-topbar (breadcrumb + optional actions)                            |
-+----------------------------------------------------------------------+
-|                                                                       |
-|   sub-page-content (max-width: 1200px, centered, scrollable)        |
-|                                                                       |
-|   Page-specific content here                                         |
-|                                                                       |
-+----------------------------------------------------------------------+
-```
-
-**CSS classes:**
-
-| Class | Purpose |
-|---|---|
-| `.sub-page` | Flex column container, fills available height (`flex: 1`), hides overflow |
-| `.td-topbar` | Full-width breadcrumb bar with bottom border. Contains `.td-bc` breadcrumb navigation |
-| `.sub-page-content` | Scrollable content area. `max-width: 1200px`, centered with `margin: 0 auto`, `padding: 24px` |
-
-**Exception — Pedigree tree view** (`/trees/{id}`): Uses its own layout with left sidebar (ISB), canvas, and events panel. Does not use `sub-page-content`. See [Tree View](ui-genealogy-tree.md) for details.
-
-### Breadcrumb pattern
-
-All pages (except homepage) display a breadcrumb in the `td-topbar`:
-
-| Page | Breadcrumb |
-|---|---|
-| Tree view | `logo` tree_name `/` Tree |
-| Tree settings | `logo` tree_name `/` Settings |
-| Search results | `logo` tree_name `/` Search |
-| Person profile | `logo` tree_name `/` Person Name |
-| App settings | Home `/` Settings |
-
-### Responsive behavior
-
-| Breakpoint | Behavior |
-|---|---|
-| >= 1200px | Full layout, content at max-width |
-| < 640px | `sub-page-content` padding reduces to `16px 12px`. `td-topbar` padding reduces to `10px 12px`. Homepage padding reduces to `2rem 1rem` |
-
-### Max-width consistency
-
-All content areas use `max-width: 1200px` for a unified reading width across all pages. This applies to:
-- Homepage (`.home-main`)
-- Tree settings, app settings, person profile, search results (`.sub-page-content`)
-
----
-
-## 8b. Development Status
-
-> For sprint details see [Roadmap](roadmap.md).
-
-| EPIC | Title | Status |
-|------|-------|--------|
-| A | Technical Foundation | ✅ Complete |
-| B | GEDCOM Engine | ✅ Complete |
-| C | Tree Editing (Frontend) | ✅ Complete |
-| D | UX, Languages, Performance | ✅ Complete |
-| E | Read Projections & Search | ✅ E.9 Complete; 🔄 E.8 (dictionary descent view) planned |
-| F | Media Management | 🔄 F.1–F.3, the Geneanet import (including type mapping into GEDCOM `SOURCE_MEDIA_TYPE` + document category and privacy retention), media typing, media tags, the `.gdz` media fix, GEDZIP import, and portraits-as-crops shipped (S3 backend, PostgreSQL verification, PDF page rendering outstanding); F.4 planned |
-| G | Security & Deployment | ⏳ Post-Media |
-| H | Asynchronous Pipeline | ⏳ Post-MVP |
-
-Shipped work is recorded in [Roadmap §Recently shipped](roadmap.md#recently-shipped),
-beside the sprints it came out of — this page says *what OxidGene is*, not what
-landed last month.
+Shared layout, navigation, components, design tokens, accessibility, responsive
+behavior, loading, and error presentation are defined once in
+[Common UI](ui-common.md) and [Cross-cutting Rules](cross-cutting.md). Each page
+specification documents only its own behavior.
 
 ## 9. Respect of norms and standards
 

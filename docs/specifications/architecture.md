@@ -28,7 +28,7 @@ timestamp: 2026-06-17T00:00:00Z
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
 | GEDCOM | ged_io | 0.16+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
 | GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.1+ | Read only, incl. `gwplus`; converts to the same `ged_io` model, so one domain mapping serves both formats |
-| Read projections | (none — same DB) | — | Denormalized read models live in `person_denorm` / `person_search_fts`. No cache tier. See [Read Projections](read-projections.md) |
+| Read projections | Same database | — | `person_denorm` and `person_search_fts`; no cache tier. See [Data Model §4](data-model.md) |
 | Build orchestration | just | latest | Unified justfile for all tasks |
 
 ---
@@ -51,7 +51,7 @@ For full entity definitions, see [Data Model](data-model.md).
 | Pagination | Cursor-based (Relay-style) | Handles concurrent modifications, natural fit for GraphQL connections |
 | Deletion | Soft delete (`deleted_at`) | Undo capability, audit trail, filtered out by default |
 | Desktop architecture | Single binary | Embeds Axum on localhost + SQLite + Dioxus WebView |
-| Authentication | Deferred to EPIC E | No auth in MVP; single-user desktop, open web for now |
+| Authentication | Deferred to EPIC G | No auth in MVP; single-user desktop, open web for now |
 
 ---
 
@@ -61,8 +61,9 @@ For full entity definitions, see [Data Model](data-model.md).
 - SeaORM entities crate (`oxidgene-db`) with migrations.
 - API crate (`oxidgene-api`) with Axum handlers (REST) and async-graphql resolvers.
 - GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `ged_io` model, so both formats share one conversion into the domain.
-- Denormalized read projections materialized in the database (`person_denorm`), assembled by `oxidgene-api::profile`. See [Read Projections](read-projections.md).
-- Separate binary crates for web server, desktop app, and CLI tool.
+- Denormalized read projections materialized in the database and maintained by
+    `oxidgene-api::profile`. See [Data Model §4](data-model.md).
+- Two binary crates: the web server and desktop application. There is no CLI.
 
 API endpoints are documented in [API Contract](api.md).
 
@@ -76,6 +77,7 @@ API endpoints are documented in [API Contract](api.md).
 - On desktop: points to `http://127.0.0.1:<port>` served by the embedded Axum server.
 
 UI specifications:
+- [Common UI](ui-common.md) — shared layout, tokens, and components
 - [Homepage](ui-home.md) — tree dashboard
 - [Genealogy Tree](ui-genealogy-tree.md) — pedigree canvas
 - [Person Edit Modal](ui-person-edit-modal.md) — edit forms
@@ -83,7 +85,7 @@ UI specifications:
 
 ---
 
-## 6. Asynchronous Processing — Post-MVP (EPIC F)
+## 6. Asynchronous Processing — Post-MVP (EPIC H)
 
 - Message queue container (Redis/RabbitMQ/NATS).
 - `document-queue` orchestration service.
@@ -95,9 +97,9 @@ UI specifications:
 ## 7. Build & Testing
 
 - Unified `justfile` for build, test, lint, format, migration, and deployment tasks.
-- Full test suite: unit tests, integration tests, and end-to-end tests.
+- Unit and integration tests across the workspace. End-to-end UI coverage is a
+    remaining quality goal where the roadmap names it.
 - CI/CD pipelines (GitHub Actions).
-- Code coverage reporting.
 
 ---
 
@@ -106,16 +108,20 @@ UI specifications:
 ### 8.1 Web Deployment
 
 - Docker Compose for local development.
-- Kubernetes deployment for production (dev & prod).
-- GitOps with FluxCD.
-- Liveness/readiness probes on the Axum server.
+- Current server deployment uses Docker and PostgreSQL.
+- The release images, development Compose stack, and Kubernetes deliverables
+    are tracked in [Roadmap §5](roadmap.md).
 
 ### 8.2 Desktop Distribution
 
 - Single binary per platform (Windows, Linux, macOS).
 - Built via `cargo build --release` with appropriate target.
 - No external runtime dependencies (SQLite embedded, WebView from system).
-- Offline place databases (SQLite files per country) stored in the app data directory; downloaded on demand from [Settings](ui-settings.md) §10. See [PlaceInput](ui-shared-components.md) §5.1.
+- Offline place databases, when installed, live in the application data
+    directory and are managed from [Settings](ui-settings.md). See
+    [Common UI §4.4](ui-common.md).
+- Release artifacts and their platform verification are tracked in
+    [Roadmap §5](roadmap.md).
 
 ---
 
@@ -165,9 +171,12 @@ oxidgene-ui (depends on: oxidgene-core)
 **`oxidgene-ui` stays platform-free.** It is compiled for wasm as well as for
 the desktop, so it depends on neither `dioxus-desktop` nor `oxidgene-geneanet`.
 Where it needs something only the desktop can do — the
-[Geneanet login window](ui-geneanet-import.md) — it declares a trait
+[Geneanet login window](ui-import.md) — it declares a trait
 (`oxidgene_ui::geneanet::GeneanetCollector`) that `oxidgene-desktop` implements
 and injects as context. The web build simply finds none and renders the
 explanation instead of the control.
 
-**Current layout:** All 7 crates are co-located in `crates/`, and there are two binaries — the web server and the desktop app. A CLI existed until 2026-08-18 and was removed: half its commands needed direct HTTP to Geneanet, which Cloudflare now refuses outright, and the rest were superseded by the import wizard. The base migration `m20250101_000001_initial.rs` holds the bulk of the schema (13 tables + the `person_search_fts` FTS5 index); later changes add their own files (`m20260724_*`, `m20260728_000001_person_denorm`). No incremental migration squashing.
+The workspace keeps libraries under `crates/` and the two binaries under
+`apps/`. A former CLI was removed after its workflows moved into the desktop
+application. The initial migration holds the baseline schema; every subsequent
+schema change adds a migration and existing migrations are not squashed.

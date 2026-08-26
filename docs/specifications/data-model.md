@@ -54,7 +54,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (person cards) · [Person Edit M
 | `id` | UUID v7 | PK |
 | `person_id` | UUID v7 | FK → Person |
 | `name_type` | NameType | Enum |
-| `given_names` | String? | GEDCOM `GIVN`. Multiple given names stay in one string ("Jean Baptiste Marie") — they are one name, not three |
+| `given_names` | String? | GEDCOM `GIVN`. Multiple given names stay in one string (`<given name 1> <given name 2>`) rather than becoming separate names |
 | `surname` | String? | GEDCOM `SURN` — the surname **root**, particle excluded ("Cruz") |
 | `surname_prefix` | String? | GEDCOM `SPFX` — the surname particle ("de la", "van der") |
 | `prefix` | String? | GEDCOM `NPFX` — title of address ("Dr.", "Rév. Père") |
@@ -167,13 +167,15 @@ Exposed via `GET/POST /events/{id}/witnesses` (REST) and `addEventWitness`/`remo
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree |
-| `name` | String | Required — single free-text string (e.g. "Beaune, 21200, Côte-d'Or, Bourgogne-Franche-Comté, France") |
+| `name` | String | Required single free-text hierarchy, for example `<locality>, <postal code>, <region>, <country>` |
 | `latitude` | f64? | Filled when selected from offline database or geocoding |
 | `longitude` | f64? | Filled when selected from offline database or geocoding |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 
-The `name` is a single string. The recommended format is comma-separated from most specific to least specific (see [PlaceInput](ui-shared-components.md) §5), but any text is valid.
+The `name` is a single string. The recommended format is comma-separated from
+most specific to least specific (see [Common UI §4.4](ui-common.md)), but any
+text is valid.
 
 ### Source
 
@@ -318,7 +320,6 @@ its own image.
 | `y` | i32 | |
 | `width` | i32 | |
 | `height` | i32 | |
-| `title` | String? | |
 | `person_id` | UUID v7? | FK → Person — who the region shows, if attributed |
 | `event_id` | UUID v7? | FK → Event — the event this region is evidence for |
 | `created_at` | DateTime | Auto |
@@ -390,11 +391,17 @@ rebuild on every re-parenting.
 Traversal is bounded at 64 generations when no depth is given, because the
 schema does not prevent a cycle in the family links.
 
-Used by: ancestor/descendant [API endpoints](api.md) · pedigree assembly ([Read Projections](read-projections.md)) · SOSA badge computation ([Person Profile](ui-person-profile.md), [Dictionary](ui-dictionary.md) §12)
+Used by: ancestor/descendant [API endpoints](api.md) · pedigree assembly (§4) ·
+SOSA badge computation ([Person Profile](ui-person-profile.md),
+[Dictionary](ui-dictionary.md) §12)
 
 ### person_search_fts (Search Table — Sprint E.6)
 
-DB-native person search index; not a domain entity (no UUID PK, maintained by `PersonSearchRepo`). SQLite FTS5 virtual table on desktop, plain indexed table on PostgreSQL. Columns: normalized `surname`, `given_names`, `maiden_name`, `birth_year`, `death_year` plus unindexed display fields. See [Read Projections](read-projections.md) §4.
+DB-native person search index; not a domain entity (no UUID PK, maintained by
+`PersonSearchRepo`). SQLite uses an FTS5 virtual table and PostgreSQL uses a
+plain indexed table. Columns include normalized `surname`, `given_names`,
+`maiden_name`, `birth_year`, and `death_year`, plus unindexed display fields.
+See §4.3 for maintenance and query behavior.
 
 ---
 
@@ -582,3 +589,115 @@ erDiagram
     Event ||--o{ Vignette : "illustrated by"
 
 ```
+
+---
+
+## 4. Read Models and Projections
+
+Read models are durable database data, not a cache tier. They are derived from
+the normalized entities above, refreshed with mutations, and rebuilt when
+their schema version changes. The same design is used by SQLite and PostgreSQL.
+
+### 4.1 Person projection: `person_denorm`
+
+`person_denorm` stores one `PersonProfile` JSON payload per active person.
+
+| Column | Purpose |
+|---|---|
+| `person_id` | Primary key and FK to `person`. |
+| `tree_id` | Tree scoping and whole-tree rebuild selection. |
+| `payload` | Serialized `oxidgene_core::projection::PersonProfile`. |
+| `schema_version` | Version of the payload shape written by the current build. |
+| `built_at` | Time the projection was derived. |
+
+The payload contains the person's primary and alternate names, sex, complete
+birth/death/baptism/burial events, other events, family links, portrait
+reference, and aggregate citation, note, and media counts. Nested event values
+retain qualifier, both date bounds, calendar, place ID, and place display name.
+
+`PROJECTION_SCHEMA_VERSION` is incremented whenever `PersonProfile` or any
+nested projection type changes. Reads filter by the current version. An older
+row is treated as absent and rebuilt lazily, because `#[serde(default)]` alone
+would deserialize a missing new field as if it were genuine empty data.
+Migration defaults intentionally leave old rows stale rather than fabricating
+current payloads.
+
+### 4.2 Pedigree assembly
+
+Pedigrees are computed on request and are never stored as a second projection.
+The API:
+
+1. runs the bounded recursive ancestry/descendant traversal;
+2. loads reached `person_denorm` rows in a batch;
+3. lazily rebuilds missing or stale profiles;
+4. assembles nodes and family edges for the requested depth window.
+
+Nodes carry whole projected birth and death events rather than extracted year
+and place strings. A missing birth date may fall back to baptism; a missing
+death date may fall back to burial. Each event retains its own precision.
+
+Expansion returns only nodes and edges beyond the depth already held by the
+client. The opposite loaded depth is part of the request so crossing edges are
+complete.
+
+### 4.3 Search projection: `person_search_fts`
+
+Search is rebuilt or upserted by `PersonSearchRepo` whenever names, identity
+events, or related display fields change. It stores normalized tokens for
+matching and original-cased fields for display; the UI never reconstructs a
+name by splitting `display_name`.
+
+SQLite uses FTS5 for token matching. PostgreSQL uses the same logical columns
+behind ordinary indexes. Empty queries provide browse mode. Search ordering,
+filters, and API pagination are documented in [API](api.md).
+
+### 4.4 Refresh and consistency
+
+Every mutation that can affect a profile computes the affected person set and
+refreshes those rows in the same database transaction as the normalized write.
+The response is returned only after commit, guaranteeing that a subsequent
+read cannot observe new domain data with an old projection.
+
+The affected set includes the directly changed person and any relatives whose
+display name, family link, portrait, event, aggregate count, or pedigree card
+depends on that change. The algorithm lives in
+`oxidgene-api/src/profile/invalidation.rs`; repository methods accept a generic
+SeaORM `ConnectionTrait` so they work on a transaction as well as a pooled
+connection.
+
+Whole-tree imports and explicit maintenance rebuilds perform idempotent bulk
+work. On startup or first read, `ensure_materialized` compares the count of
+current-version projections with active people and rebuilds when necessary.
+
+### 4.5 Deletion and recovery
+
+- Soft-deleted people are excluded from projections and search.
+- Dropping projections does not remove domain data; rows rebuild lazily.
+- A failed or rolled-back mutation leaves neither normalized changes nor new
+    projection payloads.
+- Projection rows survive application restart in the same database.
+- There is no Redis, process-memory, or disk-snapshot projection backend.
+
+### 4.6 Code ownership
+
+| Area | Location |
+|---|---|
+| Projection types | `oxidgene-core/src/projection.rs` |
+| `person_denorm` entity and repository | `oxidgene-db` |
+| Search entity and repository | `oxidgene-db` |
+| Builder, invalidation, and service | `oxidgene-api/src/profile/` |
+| REST and GraphQL contract | [API](api.md) |
+
+`oxidgene-ui` depends on projection types through `oxidgene-core`; it does not
+depend on the database or API implementation crates.
+
+### 4.7 Performance targets
+
+- A single current profile read should be a primary-key lookup.
+- Pedigree assembly should issue bounded traversal and batched profile reads,
+    never one profile query per node.
+- Search should use backend-native indexes and avoid offset scans for ordinary
+    list APIs.
+- Refresh latency is part of mutation latency and must remain bounded to the
+    affected set; whole-tree rebuilds are reserved for imports, maintenance, or
+    schema-version changes.

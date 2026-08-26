@@ -40,7 +40,7 @@ The modal opens in **edit mode** when the user selects "Edit individual" from th
 
 ```
 ┌─────────────────────────────────────────────────┐  ← fixed header
-│  MARTIN Jean-Baptiste            [×]            │
+│  <person A>                      [×]            │
 │  Edit individual / New person                   │
 ├─────────────────────────────────────────────────┤
 │                                                 │  ← scrollable body
@@ -125,7 +125,7 @@ In create mode, the modal adapts its title and pre-filled fields based on the tr
 
 | Aspect | Behavior |
 |---|---|
-| Title | "Add spouse to MARTIN Jean-Baptiste" |
+| Title | "Add spouse to <person A>" |
 | Gender | Pre-selected to the opposite of the existing person (if Male → Female, and vice versa). Editable. |
 | Relationship created on save | A new Family is created (or the existing one is used if the person has no union yet). The new person is added as a FamilySpouse. |
 | Union section | A collapsed "Union details" section is available (date, place, note, source for the marriage). Same fields as the union block in the [couple edit modal](#14-couple-edit-modal). |
@@ -136,7 +136,7 @@ In create mode, the modal adapts its title and pre-filled fields based on the tr
 
 | Aspect | Behavior |
 |---|---|
-| Title | "Add child to MARTIN Jean-Baptiste & LEMAIRE Marguerite" (if the person has a union) or "Add child to MARTIN Jean-Baptiste" (if no union) |
+| Title | "Add child to <person A> & <person B>" (if the person has a union) or "Add child to <person A>" (if no union) |
 | Surname | Pre-filled with the selected person's surname. Editable. |
 | Gender | Not pre-selected. |
 | Union selector | If the selected person has **multiple unions**, a dropdown at the top of the modal asks which union this child belongs to. |
@@ -148,7 +148,7 @@ In create mode, the modal adapts its title and pre-filled fields based on the tr
 
 | Aspect | Behavior |
 |---|---|
-| Title | "Add sibling of MARTIN Jean-Baptiste" |
+| Title | "Add sibling of <person A>" |
 | Surname | Pre-filled with the selected person's surname. Editable. |
 | Gender | Not pre-selected. |
 | Relationship created on save | The new person is added as a FamilyChild to the **same Family** as the selected person (i.e. the Family where the selected person is a child). If the selected person has no parent family, a new Family is created with the selected person's parents (if known). |
@@ -159,7 +159,7 @@ In create mode, the modal adapts its title and pre-filled fields based on the tr
 
 | Aspect | Behavior |
 |---|---|
-| Title | "Add father of MARTIN Jean-Baptiste" or "Add mother of …" (depending on the placeholder position) |
+| Title | "Add father of <person A>" or "Add mother of <person A>" (depending on the placeholder position) |
 | Gender | Pre-selected (Male for father, Female for mother). Editable. |
 | Surname | Pre-filled with the child's surname (for father) or empty (for mother). Editable. |
 | Relationship created on save | The new person is added as a FamilySpouse to the child's parent Family (creating one if it doesn't exist). |
@@ -257,7 +257,9 @@ When **two fields** are shown (Or / Between), they are displayed side by side wi
 
 ### Place
 
-Single text input with **place autocomplete** (see [PlaceInput](ui-shared-components.md) §5). Placeholder: "City, postal code, département, region, country…"
+Single text input with **place autocomplete** (see
+[Common UI §4.4](ui-common.md)). Its localized placeholder describes the
+expected hierarchy without embedding a specific location.
 
 ### Description
 
@@ -441,9 +443,9 @@ A media gallery grid showing all media attached to this person, followed by an u
 
 The ★ badge marks the current **profile image** (used to illustrate the person's card in the tree).
 
-> **Implemented in Sprint F.2** (`components/media_gallery.rs`), with two
-> gaps: a multi-page document shows its page count but has no page-by-page
-> viewer, and the Date / Place fields below are not yet in the edit panel.
+The shared `MediaGallery` component renders this section. A multi-page document
+shows its page count and opens in the media viewer. Date and place metadata are
+displayed when present but are not edited in this panel.
 
 ### Upload Zone
 
@@ -495,7 +497,7 @@ Clicking the edit button on a tile expands an inline edit panel below the tile (
 | Field | Type | Notes |
 |---|---|---|
 | Set as profile image | ★ button on the tile | Marks this image as the person's profile photo; clears the ★ from the previous one in the same statement, so two stars are never briefly visible. Only a person may have one — a couple's card shows its spouses' portraits |
-| Crop a region | ✂ button on the tile | Opens the cropper: drag a rectangle, label it, and optionally say which event it documents. Regions already cropped on the file are drawn while you draw the next one. Coordinates are stored in the source image's own pixels, so a better scan can replace this one without orphaning them |
+| Crop a region | ✂ button on the tile | Opens the cropper: drag a rectangle and optionally say which event it documents. Regions already cropped on the file are drawn while you draw the next one. Coordinates are stored in the source image's own pixels, so a better scan can replace this one without orphaning them |
 
 **For PDFs / documents:**
 
@@ -516,6 +518,17 @@ If no profile image is set, the card falls back to the gendered silhouette place
 
 Clicking the trash icon on a tile shows a confirmation prompt inline ("Remove this media?") with Confirm / Cancel. Removal is not applied until the modal is saved.
 
+This control only **detaches** the current person or family link. A shared file
+may document other records, so the edit form never deletes it globally.
+
+On a person or family profile, right-clicking a tile offers **Delete media**.
+After confirmation it is permanently deleted only when the current gallery
+link is its only reference; otherwise it remains untouched and the reader is
+told that it is referenced elsewhere. The viewer also has a red **Delete
+media** button beside its details controls. After confirmation, that action
+permanently deletes the media, its files and all associated data (links, tags,
+vignettes, portraits and document pages), even when it is referenced elsewhere.
+
 ---
 
 ## 11. Deleting a Person (edit mode only)
@@ -530,7 +543,7 @@ Clicking the button does not delete immediately. A confirmation prompt appears i
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Delete MARTIN Jean-Baptiste?                   │
+│  Delete <person A>?                             │
 │                                                 │
 │  This will permanently remove this person and   │
 │  all their events and media. Their connections  │
@@ -557,11 +570,11 @@ As the user types in the surname and first name fields, a suggestion dropdown ap
 ┌─────────────────────────────────────────────────┐
 │  💡 Existing persons matching this name:        │
 │                                                  │
-│  [photo] LEMAIRE Marguerite  ✦ 1845  ✝ 1920    │
+│  [photo] <person B>          ✦ 1845  ✝ 1920    │
 │          Already in this tree, no family link    │
 │          [Link this person]                      │
 │                                                  │
-│  [photo] LEMAIRE Marie       ✦ 1850             │
+│  [photo] <person C>          ✦ 1850             │
 │          Already in this tree, no family link    │
 │          [Link this person]                      │
 │                                                  │
@@ -620,7 +633,7 @@ Same dimensions and behavior as the person edit modal: centered overlay, ~720px 
 
 ### Fixed Header
 
-- Title: both persons' names separated by " & " — e.g. **"MARTIN Jean-Baptiste & LEMAIRE Marguerite"**
+- Title: both persons' names separated by ` & `, for example `<person A> & <person B>`
 - Subtitle: "Edit union"
 - Close button `×` — closes without saving, prompts confirmation if unsaved changes
 
@@ -630,7 +643,7 @@ The scrollable body is divided into three blocks:
 
 ```
 ┌─────────────────────────────────────────────────┐  ← fixed header
-│  MARTIN Jean-Baptiste & LEMAIRE Marguerite  [×] │
+│  <person A> & <person B>                     [×] │
 │  Edit union                                     │
 ├─────────────────────────────────────────────────┤
 │                                                 │
@@ -640,10 +653,10 @@ The scrollable body is divided into three blocks:
 │  ── Children ───────────────────────────────    │  ← children block
 │  [child list with detach option]                │
 │                                                 │
-│  ── Person 1: MARTIN Jean-Baptiste ──────────   │  ← person 1 block
+│  ── Person 1: <person A> ────────────────────   │  ← person 1 block
 │  (same fields as individual edit modal)         │
 │                                                 │
-│  ── Person 2: LEMAIRE Marguerite ─────────────  │  ← person 2 block
+│  ── Person 2: <person B> ────────────────────   │  ← person 2 block
 │  (same fields as individual edit modal)         │
 │                                                 │
 ├─────────────────────────────────────────────────┤  ← fixed footer
@@ -693,16 +706,16 @@ Displayed between the union block and the person blocks. Lists all children curr
 Each child is shown as a single row:
 
 ```
-[avatar] MARTIN Henri   ✦ 1868   ✝ 1942     [Detach]
-[avatar] MARTIN Louise  ✦ 1871              [Detach]
-[avatar] MARTIN Pierre  ✦ 1875   ✝ 1875     [Detach]
+[avatar] <person C>   ✦ 1868   ✝ 1942     [Detach]
+[avatar] <person D>   ✦ 1871              [Detach]
+[avatar] <person E>   ✦ 1875   ✝ 1875     [Detach]
 ```
 
 **Detach button** — removes the parent→child link between this couple and that specific child, one at a time. The child person is not deleted — they remain in the tree but are no longer linked to this union. A confirmation prompt appears inline before detaching:
 
 ```
-Detach MARTIN Henri from this union?
-This will remove the parent link. Henri will remain in the tree.
+Detach <person C> from this union?
+This will remove the parent link. <person C> will remain in the tree.
 [Cancel]   [Confirm]
 ```
 
@@ -732,7 +745,7 @@ Confirmation prompt appears inline:
 ┌─────────────────────────────────────────────────┐
 │  Delete this union?                             │
 │                                                 │
-│  The union between Jean-Baptiste and Marguerite │
+│  The union between <person A> and <person B>     │
 │  will be permanently removed, along with all    │
 │  its events. Both persons will remain in the    │
 │  tree. Their children will no longer be linked  │

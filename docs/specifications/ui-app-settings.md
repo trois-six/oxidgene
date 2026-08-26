@@ -10,7 +10,7 @@ timestamp: 2026-06-17T00:00:00Z
 # Visual & Functional Specifications — App Settings
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Homepage](ui-home.md) (gear icon in header) · [Topbar](ui-topbar.md) · [Design Tokens](ui-design-tokens.md) (theme switching)
+> See also: [Homepage](ui-home.md) · [Common UI](ui-common.md)
 
 ---
 
@@ -150,6 +150,6 @@ Additional sections may be added in future EPICs:
 
 | Section | Description |
 |---|---|
-| Account | User profile, email, password (EPIC E) |
-| Notifications | Notification preferences (EPIC E) |
-| Data & Privacy | Data export, account deletion (EPIC E) |
+| Account | User profile, email, password (EPIC G) |
+| Notifications | Notification preferences (EPIC G) |
+| Data & Privacy | Data export, account deletion (EPIC G) |

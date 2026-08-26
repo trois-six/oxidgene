@@ -16,7 +16,7 @@ okf_version: "0.1"
 > `geneanet_media_map.py`, `geneanet_site_session.py`, `media_map.json`,
 > `zip_view_map.json`, `geneanet_cache/` — live in the reverse-engineering
 > workspace, not in this repository; "same folder" below refers to it.
-> The companion UI flow is [Geneanet Import Wizard](ui-geneanet-import.md).
+> The companion UI flow is [Import](ui-import.md).
 
 
 Reverse-engineered from `geneanet-upload-last-linux-x64.AppImage` (**Geneanet Upload 5.4.0**).
@@ -233,7 +233,10 @@ Observed key formats **[auth]**: for media already online, keys are full CDN URL
 `http://gw.geneanet.org/public/img/media/deposits/private/<d1>/<d2>/<viewId>/<hash>/medium.bmp?t=<ts>`;
 for new uploads the app expects local file paths. The app filters keys by allowed extensions, resolves each path on the local disk, uploads each file (3.9) and links it (3.10).
 
-**Coverage caveat [auth]**: this endpoint only reflects media referenced by the **last GEDCOM uploaded through the app** — not identifications made later on the website. Test account: 80 entries (all CDN-URL keys) vs 623 media views actually held; e.g. individual `@I181@` had 1 media here vs 6 on the website. For a complete individual→media inventory use the deposits+references route (section 10).
+**Coverage caveat [auth]**: this endpoint only reflects media referenced by the
+**last GEDCOM uploaded through the app**, not identifications made later on the
+website. Authorized validation returned fewer links here than through the
+deposits and references routes. Use those routes for a complete inventory.
 
 ---
 
@@ -259,14 +262,15 @@ for new uploads the app expects local file paths. The app filters keys by allowe
 |---|---|---|
 | `page` | number | pagination: **10 deposits per page**, `?page=1…N`; past the end → **`204 No Content`** (empty body) **[auth]** |
 
-**Response headers** **[auth]**: `x-gnt-media-total: 387` (total deposit count) · `x-gnt-media-quota-current` · `x-gnt-media-quota-max` · `Allow: GET, POST`
+**Response headers** **[auth]**: `x-gnt-media-total: <count>` ·
+`x-gnt-media-quota-current` · `x-gnt-media-quota-max` · `Allow: GET, POST`
 
 **Response 200** — JSON array of deposit objects **[auth]**:
 
 | Field | Type | Description |
 |---|---|---|
 | `id` | number | deposit id |
-| `slug` | string | URL slug, e.g. `"mariage-…-91032917"` |
+| `slug` | string | URL slug |
 | `title` | string | deposit title |
 | `type` | string enum | e.g. `"photo_groupe"`, `"portraits"` |
 | `private` | boolean | visibility |
@@ -274,9 +278,14 @@ for new uploads the app expects local file paths. The app filters keys by allowe
 | `thumb` | string | relative CDN path of the thumbnail |
 | `views` | object[] | each: `id` (number), `page` (number), `files` = map of renditions |
 | `views[].files` | object | keys `"normal"`, `"medium"`, `"screen"`, `"thumbnail"` → relative CDN paths (`/public/img/media/deposits/…?t=<ts>`) |
-| `date_create` | string | ISO 8601, e.g. `"2026-08-08T17:02:02+02:00"` |
+| `date_create` | string | ISO 8601 upload timestamp |
 
-`GET /media/deposits/{id}` returns the same object shape for a single deposit, plus `date` (string, e.g. `"1946-09-03"` — the date attributed to the media, distinct from `date_create` = upload timestamp) and `location` **[auth]**. OxidGene collects this detail only for linked deposits: it converts the date into the normal calendar-aware Media/Event fields and resolves the location through the tree's shared Place table. **No original filename is exposed anywhere** — neither in the list nor in the detail; files are only identified by their hashed CDN paths.
+`GET /media/deposits/{id}` returns the same object shape for a single deposit,
+plus `date`, the date attributed to the media, and `location` **[auth]**. The
+media date is distinct from the `date_create` upload timestamp. OxidGene
+collects this detail only for linked deposits and resolves the location through
+the tree's shared Place table. **No original filename is exposed anywhere**;
+files are identified only by hashed CDN paths.
 
 ---
 
@@ -308,13 +317,14 @@ for new uploads the app expects local file paths. The app filters keys by allowe
 | `firstname` / `lastname` | string | person name |
 | `thumb` | string | relative CDN path of the face crop (`…/<referenceId>.png`) |
 | `face.position` | object | `x1`, `y1`, `x2`, `y2` — face box coordinates, percent strings (0–100) |
-| `reference_extra_geneweb` | object \| **absent** | `{id: number, ref: string ("loustau\|marie angele\|"), link_tree: string (gw.geneanet.org URL with query `n=<surname>&p=<first names>&oc=<occurrence>`)}` — **absent when the identified person is not linked to a tree individual** (face tag only) **[auth]** |
-| `event` | object \| null | `{id, type, name (e.g. "gw_event_marriage"), date ("1927-11-26"), location, spouse: <recursive person-reference>}` |
+| `reference_extra_geneweb` | object \| **absent** | `{id: number, ref: "<surname>\|<given names>\|", link_tree: "https://gw.geneanet.org/<tree>?n=<surname>&p=<given names>&oc=<occurrence>"}`; absent when the identified person is only a face tag **[auth]** |
+| `event` | object \| null | `{id, type, name (e.g. "gw_event_marriage"), date: "<date>", location, spouse: <recursive person-reference>}` |
 
 Observed behaviors **[auth]**:
 - A family-event media (e.g. a marriage photo) yields **one reference entry per spouse**, each carrying the `event` with the other spouse nested in `event.spouse` — so "identified via his/her family" associations on the website materialize as individual reference entries.
 - The same person can appear **multiple times for the same view** (several face tags) — deduplicate by `(deposit_id, view_id)` when building per-person media lists.
-- Multi-view deposits (multi-page documents) are common: 387 deposits → 623 views for the test account.
+- Multi-view deposits are common, so the number of views can exceed the number
+  of deposits.
 
 ---
 
@@ -337,7 +347,7 @@ Observed behaviors **[auth]**:
 | `/oauth/v2/token` | **Yes** | `Allow: GET, POST` **[probe]** (GET works with query-string params) |
 | `/geneweb/tree/create` | **No** | `Allow: POST`; `GET` → `405 Method Not Allowed` **[probe]** |
 | `/geneweb/tree/upload` | **No** | `Allow: POST`; `GET` → `405` **[probe]**. The guess `GET /geneweb/tree` → **`404 Not Found`** — the route does not exist **[probe]** |
-| `/media/deposits.json` | **Yes — verified working** | `Allow: GET, POST` **[probe]**; authenticated GET returns the user's deposit list (387 items, paginated) **[auth]** |
+| `/media/deposits.json` | **Yes — verified working** | `Allow: GET, POST` **[probe]**; authenticated GET returns a paginated deposit list **[auth]** |
 | `/media/deposits/{d}/views/{v}/references` | **Yes — verified working** | `Allow: GET, POST` **[probe]**; authenticated GET returns the linked persons **[auth]** |
 
 Bonus read endpoints verified **[auth]**: `GET /media/deposits/{id}` (single deposit detail).
@@ -459,7 +469,10 @@ Goal: for every tree individual, list **all** media it is identified in on the w
 4. Build the person key from `reference_extra_geneweb.link_tree` query params: **`n|p|oc`** = `surname|first names|occurrence` (lowercase, GeneWeb naming — matches `.gw` `pevt SURNAME First_Name` entries and `.ged` `NAME` fields after normalization). References without `reference_extra_geneweb` (face-tagged but not tree-linked persons) are grouped by lowercased full name instead.
 5. Deduplicate multiple face tags of the same person in the same view.
 
-**Results on the test account (2026-08-16)**: 387 deposits → 623 views → **260 individuals with media, 550 person-media links, 235 views with no identified person**. Validated against the website UI count for a sample individual (6/6 medias found, including family-event associations).
+**Validation result:** the workflow recovered direct and family-event
+associations visible in the website UI. Some views had no tree-linked person,
+which confirms that unlinked media must remain explicit rather than being
+discarded or guessed.
 
 **Outputs**: `media_map.json` (person → media list with `deposit_id`, `view_id`, `title`, `event`, `face_position`, `url`, `thumb`), `media_map.csv`, `unlinked_media.csv`. API responses are cached (`geneanet_cache/`) for fast re-runs.
 
@@ -474,7 +487,9 @@ Goal: for every tree individual, list **all** media it is identified in on the w
 - **Format rewriting**: originals uploaded as uncompressed BMP (`portrait_a.bmp`, `portrait_b.bmp`, …) keep the `.bmp` extension in every rendition; PDF deposits have one `.pdf` per page in the data archive but one `normal.jpg` per page on the CDN. A `.bmp`→`.jpg` or `.pdf`→`.jpg` transformation is necessarily a re-encode.
 - **Four-size ladder**: `normal` > `medium` > `screen` > `thumbnail` are derivative sizes of the same view.
 - Even a 220-px-wide original gets a `normal.jpg` — "normal" means "the largest rendition", not "the file uploaded".
-- The API objects carry **no byte size and no content hash** anywhere (verified by walking every field of all 387 deposits), and the 40-hex component of CDN paths is **not** the SHA-1 of the original content (tested 0/25 known pairs) — so neither size- nor hash-matching against local files is possible from API data alone.
+- The API objects carry **no byte size and no content hash**. The hexadecimal
+  component of CDN paths is not the SHA-1 of the original content, so neither
+  size nor hash matching against local files is possible from API data alone.
 
 **No original download on `api.geneanet.org`** — probed 2026-08-16 **[auth]**, all `404` (SPA fallback, route absent): `/media/download`, `/media/download/`, `/media/deposits/{id}/download`, `/media/deposits/{id}/original`, `/media/deposits/{id}/file`, `/media/deposits/{id}/views/{vid}/download`, `/media/deposits/{id}/views/{vid}/original`, `/media/deposits/{id}/views/{vid}/file`.
 
@@ -485,36 +500,60 @@ Goal: for every tree individual, list **all** media it is identified in on the w
 CDN rendition URLs return `403` for non-browser clients even **with** `X-Requested-With: XMLHttpRequest` and the API `Bearer` token **[probe]** — Cloudflare challenges the TLS fingerprint; a website `gntsess5` cookie is required (§13).
 
 **Downloading renditions without the website (probed 2026-08-16)**:
-- Public deposits on the test account: **34 deposits / 49 views public vs 353 / 574 private** (92% of views private — `private` field of the deposit object).
+- Authorized validation included both public and private deposits; private
+  views were the common case.
 - **Public CDN URLs can be fetched anonymously** with a TLS-fingerprint-impersonating client: `curl_cffi` (`impersonate="chrome"`) → `200 image/jpeg`, while `urllib`/plain curl → `403` (Cloudflare). No cookie, no API token needed.
 - **Private CDN URLs → `404` text/html** for anonymous clients *even past the Cloudflare layer* (curl_cffi, no cookie) — Geneanet hides the asset itself; the `gntsess5` website cookie is mandatory. The API `Bearer` is not accepted on `gw.geneanet.org`.
 - No binary proxy on the API either: `/media/deposits/{id}/views/{vid}/download`, `/media/deposits/{id}/download`, `/media/views/{id}/file` → all `404` **[auth probe]**.
 - **Perceptual matching works**: `imagehash.phash` of a downloaded `normal.jpg` vs its ZIP-archive original → **Hamming distance 0** (tested on a recompressed+resized pair). So a downloaded rendition set can be content-matched against a local original set (pHash tolerates resize/re-encode/format change; PDF pages must be rendered first, e.g. `pdftoppm`). Ready-made tools for pair-matching compressed↔uncompressed sets: Python `imagehash`, dupeGuru (picture fuzzy mode), digiKam similarity search, `findimagedupes`, `imagededup`.
 
-## 12. Linking the data-archive ZIPs to deposits/views — site-free, verified on the test account
+## 12. Linking data archives to deposits and views
 
-The account's data archive (`account_media_images_1.zip` 599 files + `_2.zip` 24 files) holds **exactly 623 entries = the 623 media views**, one original per view. The ZIPs carry no deposit id, but they can be re-linked **without any site access**:
+Authorized validation found one original archive entry per media view. The ZIP
+entries carry no deposit ID, but they can be re-linked without site access:
 
-- **Join key**: the ZIP entry's DOS datetime equals the deposit's `date_create` **to the minute** for ~612/623 entries (archive mtimes are upload times; the ~11 exceptions are old files whose original mtimes were preserved). The archive's global entry order tracks the deposit list in **reverse** (1 inversion observed), and the pages of a multi-page deposit are **consecutive entries in page order**.
-- **Method**: group entries and views by minute; equal-count groups pair by order; leftovers pair by elimination. Result: `zip_view_map.json` (same folder) = `{zip filename → {deposit_id, view_id, title, how, exact}}`, bijective 623↔623.
-- **Honest confidence** (per entry, `exact` flag): **545 exact** (singleton minutes, or minute groups belonging to a single deposit — page order) and **78 `exact:false`** (multi-deposit same-minute batches, where a swap between two deposits uploaded in the same minute cannot be excluded from local data alone). For most of those 78 a swap is harmless (both deposits linked to the same person(s)); **17 entries in 17 groups** would misattribute a file to a different person if swapped — they are flagged in the map and should be treated as unverified, never silently trusted.
-- **Rejected**: filename↔title similarity as a join strategy — it happened to correlate on this account but is not robust and would silently misattribute in the general case. Per the oxidgene spec's rule: *never attach on a probable match; detect clashes, don't resolve them silently.*
-- **Deterministic upgrade** (requires a website session, §13): `HEAD /media/download/?deposits[]={id}` → `Content-Length`, matched against the ZIP entries' uncompressed sizes (readable from the central directory, no extraction). On the oxidgene reference archive: 607 distinct sizes for 613 entries, every collision a same-file-twice upload. This is the only exact join; it is unavailable site-free because the API exposes no sizes (§11).
+- **Join key**: the ZIP entry's DOS datetime usually equals the deposit's
+  `date_create` to the minute. Exceptions exist where an original modification
+  time was preserved. Archive order tracks deposit order in reverse, and pages
+  of a multi-page deposit remain consecutive and ordered.
+- **Method**: group entries and views by minute; equal-count groups pair by
+  order; leftovers pair by elimination. The result records the ZIP filename,
+  deposit and view IDs, title, matching method, and confidence.
+- **Honest confidence**: singleton minutes and minute groups belonging to one
+  deposit are exact. Multi-deposit batches uploaded in the same minute remain
+  ambiguous where local data cannot exclude a swap. Ambiguous entries are
+  flagged and never silently trusted.
+- **Rejected**: filename-to-title similarity is not a robust join strategy and
+  can silently misattribute media. Never attach on a probable match; detect
+  clashes and leave them unresolved.
+- **Deterministic upgrade** (requires a website session, §13):
+  `HEAD /media/download/?deposits[]={id}` returns `Content-Length`, matched
+  against ZIP entry sizes from the central directory. Authorized validation
+  found mostly unique sizes, with observed collisions caused by duplicate
+  uploads. This exact join is unavailable site-free because the API exposes no
+  sizes (§11).
 
 ## 13. The website's own media API (`www.geneanet.org`, session cookie) — from the oxidgene spec
 
-A separate, richer API surface than `api.geneanet.org`, documented in [Geneanet Media Import](geneanet-media-import.md) (measurements on a 10 254-person tree). Key differences from the app API:
+A separate, richer API surface than `api.geneanet.org`, documented in
+[Geneanet Media Import](geneanet-media-import.md). Key differences from the app
+API:
 
 | | `api.geneanet.org` (this doc) | `www.geneanet.org/media/api` (oxidgene) |
 |---|---|---|
 | Auth | OAuth2 `Bearer` (§2) | `gntsess5` **or** `REMEMBERME` cookie — nothing else in the browser cookie is read |
 | Extra header | none | `X-Requested-With: XMLHttpRequest` mandatory on **every** call (else `403` HTML even with valid cookie) |
 | Deposits list | `GET /media/deposits.json` — 10/page | `GET /media/api/deposits?page=N&per_page=100` |
-| References | per-view only (623 requests) | **bulk** `GET /media/api/references?page=N&per_page=100` (~6 requests; whole deposit inline; carries `is_default` portrait flag — **absent** from the app-API reference object **[verified]**) |
+| References | one request per view | bulk `GET /media/api/references?page=N&per_page=100`; whole deposit inline; carries the `is_default` portrait flag absent from the app-API object **[verified]** |
 | Originals | **none** (§11) | `GET /media/download/?deposits[]={id}` — byte-identical original; `HEAD` → `Content-Length`; multi-page → streamed ZIP |
 | Bot protection | lenient with curl | Cloudflare adaptive TLS-fingerprint challenge (`cf-mitigated: challenge`); same cookie+UA: curl `200`, rustls/hyper `403` |
 
-Their reference-manifest strategy costs **~19 requests** (4 deposits + 6 bulk references + ~9 per-view probes for multi-page deposits) vs 623 here — worth adopting if a website session is available. Their name-folding rules (for joining `reference_extra_geneweb.ref` = `surname|first names|occurrence` against `.gw` entries): lowercase, accents stripped, `_` `-` `'` → space, stroked letters (`ł ø đ ß æ œ þ`) folded explicitly, occurrence empty when zero. They also demonstrate why `.gw` beats `.ged` as the join source (the occurrence number is part of the key; `.ged` xrefs are opaque), and why `geneweb-plugin-api` cannot replace any of this (GeneWeb's person record holds a *single* image string — one portrait per person, §12 of their spec).
+The bulk reference-manifest strategy requires far fewer requests than the
+per-view API and is preferred when a website session is available. Its
+name-folding rules join `surname|first names|occurrence` against `.gw` entries:
+lowercase, accents stripped, separators normalized to spaces, stroked letters
+folded explicitly, and occurrence empty when zero. The `.gw` source is required
+because the occurrence belongs to the key while GEDCOM xrefs are opaque.
 
 ### Old Android-app login flow still works (verified 2026-08, anonymous probes)
 

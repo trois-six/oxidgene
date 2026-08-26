@@ -46,7 +46,7 @@ Content area: `max-width: 1200px`, centered horizontally, responsive padding.
 
 ## 3. Navbar
 
-Minimal shared navbar, always visible at the top. See [Topbar](ui-topbar.md) for full specification.
+Minimal shared navbar, always visible at the top. See [Common UI](ui-common.md).
 
 - Logo (`OxidGene.svg`) on the left, acts as a link to the homepage
 - No navigation links in MVP
@@ -170,7 +170,7 @@ When the user has no trees at all (first login), a different empty state encoura
 
 ## 11. Design Tokens (reference)
 
-See [Design Tokens](ui-design-tokens.md) for the full token list. Key tokens used on this page:
+See [Common UI §3](ui-common.md) for the full token list. Key tokens used on this page:
 
 | Token | Purpose |
 |---|---|

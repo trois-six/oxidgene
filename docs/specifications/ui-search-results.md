@@ -31,18 +31,18 @@ This page uses the standard `sub-page` layout pattern (see [General](general.md)
 | [logo] tree_name / Search       [Last name] [First name] [Q] [fit]  |  <- td-topbar
 +----------------------------------------------------------------------+
 |                                                                       |
-|   Search results for "Martin" "Jean"                                 |
+|   Search results for "<surname>" "<given name>"                     |
 |   42 persons found                                                    |
 |                                                                       |
 |   [Filters v]                                                        |
 |                                                                       |
 |   Sort: [Relevance v]                              [list] [grid]    |
 |   +--------------------------------------------------------------+   |
-|   | [avatar] MARTIN Jean-Baptiste   * 1842  + 1918               |   |
-|   |          Spouse: LEMAIRE Marguerite - 3 children             |   |
+|   | [avatar] <person A>             * 1842  + 1918               |   |
+|   |          Spouse: <person B> - 3 children                     |   |
 |   +--------------------------------------------------------------+   |
-|   | [avatar] MARTIN Jean            * 1790  + 1855               |   |
-|   |          Spouse: DUBOIS Marie - 2 children                   |   |
+|   | [avatar] <person C>             * 1790  + 1855               |   |
+|   |          Spouse: <person D> - 2 children                     |   |
 |   +--------------------------------------------------------------+   |
 |   ...                                                                 |
 |                                                                       |
@@ -120,8 +120,8 @@ Each result is a horizontal row:
 
 ```
 +--------------------------------------------------------------+
-| [avatar]  MARTIN Jean-Baptiste    * 12/03/1842    + 07/11/1918|
-|           Spouse: LEMAIRE Marguerite - 3 child(ren)           |
+| [avatar]  <person A>              * 12/03/1842    + 07/11/1918|
+|           Spouse: <person B> - 3 child(ren)                    |
 +--------------------------------------------------------------+
 ```
 
@@ -140,7 +140,8 @@ Results displayed as a responsive grid of cards (`minmax(340px, 1fr)`). Each car
 - **Mini-pedigree**: a small pannable pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section, at a denser fixed scale (0.5). Clicking any person card inside the fragment navigates to that person. Its cards draw the same date precision marks as the main canvas (`ca 1849-< 1917`) — same renderer, so they cannot drift apart; see [Tree View](ui-genealogy-tree.md)
 - **Sex indicator**: colored top border (blue/pink)
 
-Pedigrees are fetched lazily per card from the server-side pedigree cache; loading cells show a placeholder message.
+Pedigrees are assembled lazily per card from family links and durable person
+projections; loading cells show a placeholder message.
 
 ---
 

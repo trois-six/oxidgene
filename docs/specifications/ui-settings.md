@@ -159,26 +159,17 @@ clearing it invalidates the tree metadata so the badge updates immediately.
 
 ### Default privacy
 
-A card holding the one shipped privacy control — see
-[§8](#8-section-privacy) for what it does and why it lives here rather than
-there.
+A card controls the tree-wide default described in [§8](#8-section-privacy).
 
 ---
 
 ## 8. Section: Privacy
 
-> **Implemented so far: the default only.** Everything else in this section is
-> still a plan. Privacy is meaningful only against a viewer, and there are no
-> viewers until authentication lands — so the toggles below describe what should
-> happen once there are, and nothing reads any stored privacy value yet.
->
-> The one shipped control is **Default privacy**, and it sits in
-> [§7 Tree & Roots](#7-section-tree--roots) rather than here: with the rest of
-> this section unbuilt, a Privacy page holding a single pair of buttons would
-> read as though the feature were finished. It moves here when the others
-> arrive.
+Privacy is stored but not enforced until authentication and authorization are
+available. The UI must state this limitation and must not imply that records
+are currently hidden from a viewer.
 
-### Default privacy (implemented)
+### Default privacy
 
 Two buttons, Private and Public, saying what "follows the tree" means for every
 person, couple and document in it. Each of those can still say otherwise — the
@@ -255,7 +246,7 @@ Dates entered in another calendar are automatically converted for display.
 
 | Toggle | Description |
 |---|---|
-| Place name autocomplete | Suggests place names as the user types (from tree places + offline database). See [PlaceInput](ui-shared-components.md) section 5 |
+| Place name autocomplete | Suggests tree places and optional offline data. See [Common UI §4.4](ui-common.md) |
 | Automatic uppercase for surnames | Surname field is auto-uppercased on input |
 | Suggest existing persons | When adding a parent or partner, suggests persons already in the tree |
 
@@ -295,7 +286,7 @@ When "Place name autocomplete" is enabled, the user can download city databases 
 - **Update all**: re-downloads all already-downloaded databases
 - **Remove**: unchecking a downloaded country removes its database file
 - Downloaded databases are stored in the app data directory (desktop) or IndexedDB (web)
-- See [PlaceInput](ui-shared-components.md) section 5.1 for supported countries and data content
+- See [Common UI §4.4](ui-common.md) for offline place behavior
 
 ---
 
@@ -412,5 +403,6 @@ Export is triggered directly by the format buttons.
 
 ## 19. Design Consistency
 
-The settings page uses the standard `sub-page` layout pattern shared with all non-pedigree pages (see [General](general.md) section 8). All interactive elements follow the same hover/focus/active patterns from the [Design Tokens](ui-design-tokens.md). The light/dark theme applies globally.
+The settings page uses the shared `sub-page` layout and interaction states from
+[Common UI](ui-common.md). The light/dark theme applies globally.
 
