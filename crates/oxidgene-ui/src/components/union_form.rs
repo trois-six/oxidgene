@@ -531,10 +531,20 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     }
                     div { class: "uf-header-actions",
                         button {
-                            class: "pf-confirm-btn",
+                            class: "pf-confirm-btn uf-media-action",
                             r#type: "button",
+                            title: i18n.t("media.manager_title"),
+                            aria_label: i18n.t("media.manager_title"),
                             onclick: move |_| media_manager_open.set(true),
-                            {i18n.t("media.manager_title")}
+                            svg {
+                                class: "uf-media-action-icon",
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                rect { x: "3", y: "5", width: "18", height: "14", rx: "2" }
+                                circle { cx: "8.5", cy: "10", r: "1.5" }
+                                path { d: "m21 15-5-5L5 19" }
+                            }
+                            span { class: "uf-media-action-label", {i18n.t("media.manager_title")} }
                         }
                         button {
                             class: "person-form-close",

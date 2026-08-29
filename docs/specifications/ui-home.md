@@ -172,7 +172,10 @@ When the user has no trees at all (first login), a different empty state encoura
 ## 10. Responsive
 
 - Content max-width: 1200px, padding: `3rem 24px 5rem`
-- Below 640px: padding reduces to `2rem 1rem 4rem`, cards go single-column
+- Below 640px: padding reduces to `2rem 1rem 4rem`; the search field takes the
+    first toolbar row, while the full-width sort selector and compact icon-only
+    new-tree action share the second row
+- Below 640px: cards use one shrinkable column and never exceed the available width
 - Topbar navigation collapses (future, post-MVP)
 
 ---

@@ -268,14 +268,17 @@ the user does not have to activate **Fit** first. While zooming, the image stays
 centered on each axis until it actually overflows on that axis; only then does
 the stage expose scrolling without making either edge unreachable. Its facts
 column keeps **Edit** and **Delete** as content-width actions on the same row.
-**Identify a person** is an explicit orange action in the image toolbar beside
-the zoom controls, where the result of drawing an identification region occurs.
-It remains immediately above the image on narrow screens. **Attach to a
-person** links the whole displayed image without creating a vignette. **Attach
-to a couple** first searches for one person, then requires an explicit choice
-among that person's conjugal families
-before linking the whole image to the family. Both actions detect an existing
-link and do not create duplicates. The facts column persistently lists
+One compact target icon beside the zoom controls has the same square dimensions
+as those controls and opens the shared contextual menu for **Identify a
+person**, **Attach to a person**, and **Attach to a couple**. It remains
+immediately above the image on narrow screens. **Identify a person** starts
+drawing an identification region. Its instruction and source-pixel rectangle
+readout use the same status-row typography and line box, so beginning a valid
+selection does not move the image vertically. **Attach to a person** links the
+whole displayed image without creating a vignette. **Attach to a couple** first
+searches for one person, then requires an explicit choice among that person's
+conjugal families before linking the whole image to the family. Both attachment
+actions detect an existing link and do not create duplicates. The facts column persistently lists
 whole-image attachments and cropped identifications together under
 **Attachments / identifications**. The label occupies its own row and the
 combined list spans the full width of the facts column below it. The list has a
@@ -349,8 +352,15 @@ Each citation shows the source title, page reference, confidence level, and extr
 
 - Content max-width: 1200px, responsive padding
 - Below **1080px**: the two-column layout (family connections + timeline) collapses to a single column, with family connections above timeline
-- Below **900px**: identity header avatar shrinks to 80x106px. Action buttons become icon-only
-- Below **640px**: reduced padding
+- Below **900px**: the identity header actions move to a separate horizontal
+     row. The SOSA and **Me** badges stay at its leading edge, while **Delete**,
+     **Edit**, and **Refresh** become accessible icon-only buttons at its trailing
+     edge.
+- Below **640px**: reduced padding. The primary name remains beside the compact
+     avatar, while alternate names and the birth, death, age, place, and occupation
+     summary use the full card width below them. Family narratives and person chips
+     wrap within the family card; long names and lifespan years never extend beyond
+     the viewport.
 
 ---
 

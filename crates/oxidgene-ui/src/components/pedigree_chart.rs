@@ -102,6 +102,11 @@ const VIEWPORT_DEFAULT_H: f64 = 600.0;
 const FIT_SIDE_PADDING_RATIO: f64 = 0.05;
 const EVENT_PANEL_AUTO_COLLAPSE_WIDTH: f64 = 900.0;
 const EVENT_PANEL_MANUAL_STORAGE_KEY: &str = "oxidgene-ev-panel-manual";
+const EVENT_PANEL_RATIO_STORAGE_KEY: &str = "oxidgene-ev-panel-ratio";
+const EVENT_PANEL_DEFAULT_RATIO: f64 = 0.295;
+const EVENT_PANEL_MIN_RATIO: f64 = 0.22;
+const EVENT_PANEL_MAX_RATIO: f64 = 0.45;
+const EVENT_PANEL_KEYBOARD_STEP: f64 = 0.02;
 const ZOOM_FACTOR: f64 = 1.2;
 const ZOOM_MIN: f64 = 0.3;
 const ZOOM_MAX: f64 = 2.0;
@@ -3232,6 +3237,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 r#"
                 localStorage.removeItem('oxidgene-ev-panel');
                 const width = window.innerWidth || document.documentElement.clientWidth || 1024;
+                const storedRatio = Number.parseFloat(localStorage.getItem('{EVENT_PANEL_RATIO_STORAGE_KEY}'));
+                const ratio = Number.isFinite(storedRatio)
+                    ? Math.min({EVENT_PANEL_MAX_RATIO}, Math.max({EVENT_PANEL_MIN_RATIO}, storedRatio))
+                    : {EVENT_PANEL_DEFAULT_RATIO};
+                const sidebarWidth = document.querySelector('.pedigree-outer > .isb')?.getBoundingClientRect().width || 46;
+                document.documentElement.style.setProperty(
+                    '--evw',
+                    `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
+                );
                 return [localStorage.getItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}') === 'collapsed', width];
                 "#,
             ))
@@ -3855,6 +3869,94 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             // ══════════════════════════════════
             // EVENT PANEL
             // ══════════════════════════════════
+            if !panel_collapsed() {
+                div {
+                    class: "evp-resize-handle",
+                    role: "separator",
+                    tabindex: "0",
+                    "aria-orientation": "vertical",
+                    "aria-label": i18n.t("pedigree.resize_events"),
+                    title: i18n.t("pedigree.resize_events"),
+                    onpointerdown: move |evt| {
+                        let start_x = evt.client_coordinates().x;
+                        document::eval(&format!(
+                            r#"
+                            const outer = document.querySelector('.pedigree-outer');
+                            const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
+                            if (!outer || !panel || window.innerWidth <= {EVENT_PANEL_AUTO_COLLAPSE_WIDTH}) return;
+
+                            const sidebarWidth = outer.querySelector(':scope > .isb')?.getBoundingClientRect().width || 46;
+                            const availableWidth = Math.max(1, outer.getBoundingClientRect().width - sidebarWidth);
+                            const startWidth = panel.getBoundingClientRect().width;
+                            const startX = {start_x};
+
+                            const applyRatio = (ratio) => {{
+                                document.documentElement.style.setProperty(
+                                    '--evw',
+                                    `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
+                                );
+                                return ratio;
+                            }};
+                            const move = (event) => {{
+                                const requestedWidth = startWidth + startX - event.clientX;
+                                const ratio = Math.min(
+                                    {EVENT_PANEL_MAX_RATIO},
+                                    Math.max({EVENT_PANEL_MIN_RATIO}, requestedWidth / availableWidth),
+                                );
+                                applyRatio(ratio);
+                            }};
+                            const finish = () => {{
+                                window.removeEventListener('pointermove', move);
+                                window.removeEventListener('pointerup', finish);
+                                window.removeEventListener('pointercancel', finish);
+                                outer.classList.remove('pedigree-is-resizing');
+                                document.body.style.removeProperty('cursor');
+                                document.body.style.removeProperty('user-select');
+
+                                const ratio = panel.getBoundingClientRect().width / availableWidth;
+                                localStorage.setItem('{EVENT_PANEL_RATIO_STORAGE_KEY}', String(ratio));
+                                document.querySelector('.pedigree-resize-fit-trigger')?.click();
+                            }};
+
+                            outer.classList.add('pedigree-is-resizing');
+                            document.body.style.cursor = 'col-resize';
+                            document.body.style.userSelect = 'none';
+                            window.addEventListener('pointermove', move);
+                            window.addEventListener('pointerup', finish);
+                            window.addEventListener('pointercancel', finish);
+                            "#,
+                        ));
+                    },
+                    onkeydown: move |evt| {
+                        let delta = match evt.key() {
+                            Key::ArrowLeft => EVENT_PANEL_KEYBOARD_STEP,
+                            Key::ArrowRight => -EVENT_PANEL_KEYBOARD_STEP,
+                            _ => return,
+                        };
+                        evt.prevent_default();
+                        document::eval(&format!(
+                            r#"
+                            const outer = document.querySelector('.pedigree-outer');
+                            const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
+                            if (!outer || !panel || window.innerWidth <= {EVENT_PANEL_AUTO_COLLAPSE_WIDTH}) return;
+                            const sidebarWidth = outer.querySelector(':scope > .isb')?.getBoundingClientRect().width || 46;
+                            const availableWidth = Math.max(1, outer.getBoundingClientRect().width - sidebarWidth);
+                            const currentRatio = panel.getBoundingClientRect().width / availableWidth;
+                            const ratio = Math.min(
+                                {EVENT_PANEL_MAX_RATIO},
+                                Math.max({EVENT_PANEL_MIN_RATIO}, currentRatio + {delta}),
+                            );
+                            document.documentElement.style.setProperty(
+                                '--evw',
+                                `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
+                            );
+                            localStorage.setItem('{EVENT_PANEL_RATIO_STORAGE_KEY}', String(ratio));
+                            document.querySelector('.pedigree-resize-fit-trigger')?.click();
+                            "#,
+                        ));
+                    },
+                }
+            }
             div {
                 class: if panel_collapsed() { "ev-panel ev-panel-collapsed" } else { "ev-panel" },
                 button {

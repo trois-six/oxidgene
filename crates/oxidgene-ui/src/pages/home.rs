@@ -217,7 +217,9 @@ pub fn Home() -> Element {
                         option { value: "name", {i18n.t("home.sort_name")} }
                     }
                     button {
-                        class: "home-btn-new",
+                        class: "home-btn-new home-btn-new-toolbar",
+                        title: "{i18n.t(\"home.new_tree\")}",
+                        "aria-label": "{i18n.t(\"home.new_tree\")}",
                         onclick: move |_| show_create.set(true),
                         svg {
                             width: "13",
@@ -228,7 +230,7 @@ pub fn Home() -> Element {
                             "strokeWidth": "2.5",
                             path { d: "M12 5v14M5 12h14" }
                         }
-                        {i18n.t("home.new_tree")}
+                        span { class: "home-btn-new-label", {i18n.t("home.new_tree")} }
                     }
                 }
 
@@ -1021,6 +1023,7 @@ const HOME_STYLES: &str = r#"
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: 16px;
+        min-width: 0;
         cursor: pointer;
         transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.25s;
         position: relative;
@@ -1353,7 +1356,24 @@ const HOME_STYLES: &str = r#"
 
     @media (max-width: 640px) {
         .home-main { padding: 2rem 1rem 4rem; }
-        .trees-grid { grid-template-columns: 1fr; }
+        .home-search-box { flex: 1 0 100%; }
+        .home-sort-select {
+            flex: 1 1 0;
+            height: 38px;
+        }
+        .home-btn-new-toolbar {
+            width: 38px;
+            height: 38px;
+            flex: 0 0 38px;
+            justify-content: center;
+            padding: 0;
+        }
+        .home-btn-new-toolbar svg {
+            width: 18px;
+            height: 18px;
+        }
+        .home-btn-new-toolbar .home-btn-new-label { display: none; }
+        .trees-grid { grid-template-columns: minmax(0, 1fr); }
         .home-page-header h1 { font-size: 1.5rem; }
     }
 "#;

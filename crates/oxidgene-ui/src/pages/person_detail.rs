@@ -920,18 +920,20 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let tid = tree_id.clone();
         rsx! {
             span { class: "pd-person-chip",
-                if is_sosa {
-                    svg { class: "pd-sosa-mark", "viewBox": "0 0 10 10", width: "10", height: "10",
-                        circle { cx: "5", cy: "5", r: "5", fill: "var(--pn-sosa)" }
-                        circle { cx: "5", cy: "5", r: "3", fill: "var(--white)" }
-                        circle { cx: "5", cy: "5", r: "1.8", fill: "var(--pn-sosa)" }
+                span { class: "pd-person-identity",
+                    if is_sosa {
+                        svg { class: "pd-sosa-mark", "viewBox": "0 0 10 10", width: "10", height: "10",
+                            circle { cx: "5", cy: "5", r: "5", fill: "var(--pn-sosa)" }
+                            circle { cx: "5", cy: "5", r: "3", fill: "var(--white)" }
+                            circle { cx: "5", cy: "5", r: "1.8", fill: "var(--pn-sosa)" }
+                        }
                     }
-                }
-                span { class: sex_class, "{sex_glyph}" }
-                Link {
-                    to: Route::PersonDetail { tree_id: tid, person_id: pid.to_string() },
-                    class: "pd-person-link",
-                    "{name}"
+                    span { class: sex_class, "{sex_glyph}" }
+                    Link {
+                        to: Route::PersonDetail { tree_id: tid, person_id: pid.to_string() },
+                        class: "pd-person-link",
+                        "{name}"
+                    }
                 }
                 if !lifespan.is_empty() {
                     span { class: "pd-person-years", "{lifespan}" }
@@ -1427,23 +1429,51 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                             }
                             div { class: "pd-header-buttons",
                                 button {
-                                    class: "btn btn-danger",
+                                    class: "btn btn-danger pd-header-action-btn",
+                                    title: i18n.t("common.delete"),
+                                    aria_label: i18n.t("common.delete"),
                                     onclick: move |_| {
                                         confirm_delete.set(true);
                                         delete_error.set(None);
                                     },
-                                    {i18n.t("common.delete")}
+                                    svg {
+                                        class: "pd-header-action-icon",
+                                        width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                        stroke: "currentColor", "strokeWidth": "2",
+                                        path { d: "M3 6h18" }
+                                        path { d: "M8 6V4h8v2" }
+                                        path { d: "M19 6l-1 14H6L5 6" }
+                                    }
+                                    span { class: "pd-header-action-label", {i18n.t("common.delete")} }
                                 }
                                 button {
-                                    class: "btn btn-outline",
+                                    class: "btn btn-outline pd-header-action-btn",
+                                    title: i18n.t("common.edit"),
+                                    aria_label: i18n.t("common.edit"),
                                     onclick: move |_| show_edit_person.set(true),
-                                    {i18n.t("common.edit")}
+                                    svg {
+                                        class: "pd-header-action-icon",
+                                        width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                        stroke: "currentColor", "strokeWidth": "2",
+                                        path { d: "M12 20h9" }
+                                        path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
+                                    }
+                                    span { class: "pd-header-action-label", {i18n.t("common.edit")} }
                                 }
                                 if SHOW_MANUAL_REFRESH {
                                     button {
-                                        class: "btn btn-outline",
+                                        class: "btn btn-outline pd-header-action-btn",
+                                        title: i18n.t("person.refresh"),
+                                        aria_label: i18n.t("person.refresh"),
                                         onclick: move |_| refresh += 1,
-                                        {i18n.t("person.refresh")}
+                                        svg {
+                                            class: "pd-header-action-icon",
+                                            width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                            stroke: "currentColor", "strokeWidth": "2",
+                                            path { d: "M20 11a8 8 0 1 0-2.34 5.66" }
+                                            path { d: "M20 4v7h-7" }
+                                        }
+                                        span { class: "pd-header-action-label", {i18n.t("person.refresh")} }
                                     }
                                 }
                             }
@@ -1530,7 +1560,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
         // ── Family section (narrative) ────────────────────────────────
         if let Some((parent_ids, unions, full_sibling_ids, half_sibling_groups)) = &family_data {
-            div { class: "card", style: "margin-bottom: 24px;",
+            div { class: "card pd-family-card", style: "margin-bottom: 24px;",
                 h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t("person.family_connections")} }
 
                 if !parent_ids.is_empty() {
