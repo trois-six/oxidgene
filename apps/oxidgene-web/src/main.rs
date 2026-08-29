@@ -13,5 +13,6 @@ fn main() {
 #[component]
 fn WebApp() -> Element {
     use_context_provider(|| ApiClient::new(API_URL));
+    use_context_provider(|| oxidgene_ui::ThemeFallback::Light);
     rsx! { oxidgene_ui::App {} }
 }

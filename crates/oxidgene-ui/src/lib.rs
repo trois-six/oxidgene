@@ -18,6 +18,12 @@ pub mod utils;
 
 use dioxus::prelude::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ThemeFallback {
+    Light,
+    System,
+}
+
 /// Top-level application component.
 ///
 /// Renders the [`router::Route`] router.  The caller must provide an
