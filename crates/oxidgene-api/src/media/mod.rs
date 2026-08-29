@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 pub use oxidgene_core::types::{guess_mime, is_remote_url, normalize_mime};
 pub use store::{FsStore, MediaStore, StoredObject, sha256_hex};
+#[cfg(feature = "s3")]
+pub use store::{S3Store, S3StoreConfig};
 
 /// Where media files live when nothing says otherwise.
 ///

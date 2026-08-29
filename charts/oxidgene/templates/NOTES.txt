@@ -1,0 +1,15 @@
+OxidGene has been rendered in {{ .Values.s3.mode }} S3 mode.
+
+{{- if .Values.ingress.enabled }}
+Application URL: https://{{ .Values.ingress.host }}
+{{- else }}
+Expose the frontend service or enable ingress to access the application.
+{{- end }}
+
+{{- if eq .Values.s3.mode "rustfs" }}
+RustFS Tenant: {{ include "oxidgene.rustfsTenantName" . }}
+Check provisioning with:
+  kubectl get tenant {{ include "oxidgene.rustfsTenantName" . }} -n {{ .Release.Namespace }} -o yaml
+{{- else }}
+S3 bucket: {{ .Values.s3.existing.bucket }}
+{{- end }}

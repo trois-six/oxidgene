@@ -29,6 +29,8 @@ timestamp: 2026-06-17T00:00:00Z
 | GEDCOM | ged_io | 0.16+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
 | GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.1+ | Read only, incl. `gwplus`; converts to the same `ged_io` model, so one domain mapping serves both formats |
 | Read projections | Same database | — | `person_denorm` and `person_search_fts`; no cache tier. See [Data Model §4](data-model.md) |
+| Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
+| Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G; not used before authentication exists |
 | Build orchestration | just | latest | Unified justfile for all tasks |
 
 ---
@@ -101,10 +103,11 @@ UI specifications:
 
 ## 6. Asynchronous Processing — Post-MVP (EPIC H)
 
-- Message queue container (Redis/RabbitMQ/NATS).
+- Message queue technology remains undecided; Redis provisioned for sessions is
+    not implicitly the processing queue.
 - `document-queue` orchestration service.
 - Rust workers (scalable).
-- Temporary + persistent object storage.
+- Resumable uploads and restart-safe import jobs.
 
 ---
 
@@ -126,10 +129,25 @@ UI specifications:
 
 - The host development workflow runs the backend on port 8080 and the Dioxus
     frontend on port 8081, with PostgreSQL optionally provided by Docker Compose.
-- Current server deployment uses Docker and PostgreSQL.
-- Development Compose publishes PostgreSQL and Axum on host loopback only.
+- The standalone server selects durable media storage with
+    `OXIDGENE_MEDIA_BACKEND`: `filesystem` is the local default and `s3` is used
+    by the development Compose stack and stateless web deployments. PostgreSQL
+    stores application data and S3 stores media bytes, so the web pod requires no
+    persistent volume.
+- Large GEDCOM, GEDZIP, and GeneWeb uploads use the pod's system temporary
+    directory only while a job is running. Those files are deleted after the job
+    and swept at startup; they are disposable scratch data, not durable state.
+    Media extracted from GEDZIP is persisted through the selected `MediaStore`.
+- Development Compose provisions the static frontend, Axum, PostgreSQL,
+    RustFS, and Redis and publishes their ports on host loopback only. Redis is
+    reserved for EPIC G user sessions and is not a read-projection cache.
     Direct public backend deployment is blocked until EPIC G authentication and
     per-tree authorization are enforced across every transport and media read.
+- The Helm chart keeps the OxidGene frontend and backend PVC-free. It either
+    consumes an existing S3-compatible bucket or creates a RustFS `Tenant`,
+    bucket, policy, and application user through RustFS Operator 0.0.6+. The
+    operator is installed separately because its CRDs and cluster-wide RBAC have
+    an independent lifecycle; only the RustFS Tenant owns persistent volumes.
 - The release images, development Compose stack, and Kubernetes deliverables
     are tracked in [Roadmap §5](roadmap.md).
 

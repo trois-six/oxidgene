@@ -36,7 +36,8 @@ timestamp: 2026-08-26T00:00:00Z
 
 ## 3. Active: media completion
 
-- [ ] Add an object-storage backend while retaining `MediaStore`.
+- [x] Add an S3-compatible object-storage backend while retaining filesystem
+  storage as the local default behind `MediaStore`.
 - [ ] Exercise migrations and media workflows against PostgreSQL in CI.
 - [ ] Decide whether PDF page rendering justifies a native rasterizer and its
   cross-platform binary cost.
@@ -61,17 +62,20 @@ timestamp: 2026-08-26T00:00:00Z
 - [ ] Enforce person, family, and media privacy according to viewer access.
 - [ ] Add audit logging with anonymized operational output.
 - [ ] Mirror security behavior and errors across REST and GraphQL.
-- [ ] Build, smoke-test, and publish versioned desktop binaries for Linux,
-  Windows, and macOS.
-- [ ] Build and publish versioned OCI images for the static WASM frontend and
+- [x] Build and publish versioned desktop binaries for Linux, Windows, and
+  macOS from repository tags, with SHA-256 checksums.
+- [x] Build and publish versioned OCI images for the static WASM frontend and
   the Axum backend, with immutable tags and documented configuration.
-- [ ] Provide a development Docker Compose stack for the frontend, backend, and
+- [x] Provide a development Docker Compose stack for the frontend, backend, and
   PostgreSQL, including health checks, persistent local volumes, and a
   documented one-command startup workflow.
-- [ ] Provide production Kubernetes manifests for the frontend and backend,
-  services, ingress and TLS, configuration and secret references, health
-  probes, and persistent storage. Support either managed PostgreSQL or an
-  explicitly optional in-cluster PostgreSQL deployment.
+- [x] Provide a Helm chart for PVC-free frontend and backend pods, services,
+  ingress and TLS references, health probes, disruption budgets, autoscaling,
+  an externally managed PostgreSQL database, and either an existing S3 bucket
+  or an operator-managed RustFS Tenant.
+- [ ] Validate the chart in a production-like Kubernetes cluster.
+- [x] Publish the chart as an OCI artifact with the versioned application
+  images.
 - [ ] Build all release artifacts in CI, publish checksums and provenance, and
   smoke-test the container and desktop deliverables before release.
 

@@ -12,6 +12,8 @@ default = []
 postgres = ["oxidgene-db/postgres"]
 # GraphQL endpoint — opt in for the server binary; desktop skips async-graphql entirely.
 graphql = ["dep:async-graphql", "dep:async-graphql-axum"]
+# S3-compatible media storage — the standalone server opts in; desktop stays local.
+s3 = ["dep:object_store"]
 
 [dependencies]
 oxidgene-core = { workspace = true }
@@ -45,6 +47,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 dirs = { workspace = true }
 image = { workspace = true }
 sha2 = { workspace = true }
+object_store = { workspace = true, optional = true }
 
 [build-dependencies]
 flate2 = { workspace = true }

@@ -1,7 +1,7 @@
 # OxidGene local development stack
 #
 # Usage:
-#   docker compose -f docker/docker-compose.yml up -d
+#   docker compose -f docker/docker-compose.yml up -d --build --wait --remove-orphans
 #   docker compose -f docker/docker-compose.yml logs -f server
 #   docker compose -f docker/docker-compose.yml down -v
 
@@ -24,6 +24,59 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── S3-compatible object storage ────────────────────────────────────
+  rustfs:
+    image: rustfs/rustfs:1.0.0-beta.10
+    restart: unless-stopped
+    environment:
+      RUSTFS_VOLUMES: "/data"
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: "oxidgene-admin"
+      RUSTFS_SECRET_KEY: "oxidgene-development-secret"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  rustfs-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: "no"
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      RUSTFS_ACCESS_KEY: "oxidgene-admin"
+      RUSTFS_SECRET_KEY: "oxidgene-development-secret"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set rustfs http://rustfs:9000 "$${RUSTFS_ACCESS_KEY}" "$${RUSTFS_SECRET_KEY}"
+        mc mb --ignore-existing rustfs/oxidgene-media
+
+  # ── Future authentication session storage ──────────────────────────
+  redis:
+    image: redis:8-trixie
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # ── OxidGene server ──────────────────────────────────────────────────
   server:
     build:
@@ -36,11 +89,19 @@ services:
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
       OXIDGENE_LOG_LEVEL: "info"
       OXIDGENE_CORS_ORIGIN: "http://127.0.0.1:8081"
+      OXIDGENE_MEDIA_BACKEND: "s3"
+      OXIDGENE_S3_ENDPOINT: "http://rustfs:9000"
+      OXIDGENE_S3_BUCKET: "oxidgene-media"
+      OXIDGENE_S3_REGION: "us-east-1"
+      OXIDGENE_S3_ACCESS_KEY_ID: "oxidgene-admin"
+      OXIDGENE_S3_SECRET_ACCESS_KEY: "oxidgene-development-secret"
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -48,5 +109,21 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── OxidGene browser frontend ────────────────────────────────────────
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        OXIDGENE_API_URL: "http://127.0.0.1:8080"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      server:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  rustfs_data:
+  redis_data:

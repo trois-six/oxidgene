@@ -1,0 +1,231 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+
+jobs:
+  metadata:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate tag against package versions
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "oxidgene-desktop") | .version')"
+          chart_version="$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' charts/oxidgene/Chart.yaml)"
+
+          if [[ "$GITHUB_REF_NAME" == "$version" || -z "$version" ]]; then
+            echo "release tags must start with v" >&2
+            exit 1
+          fi
+          if [[ "$version" != "$cargo_version" ]]; then
+            echo "tag version $version does not match Cargo version $cargo_version" >&2
+            exit 1
+          fi
+          if [[ "$version" != "$chart_version" ]]; then
+            echo "tag version $version does not match chart appVersion $chart_version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Publish ${{ matrix.image }} image
+    needs: metadata
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: oxidgene-server
+            dockerfile: docker/Dockerfile.server
+          - image: oxidgene-web
+            dockerfile: docker/Dockerfile.web
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:${{ needs.metadata.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+          cache-from: type=gha,scope=release-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.image }}
+
+  chart:
+    name: Publish Helm chart
+    needs: metadata
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint charts/oxidgene
+
+      - name: Package chart
+        run: |
+          mkdir -p dist
+          helm package charts/oxidgene \
+            --destination dist \
+            --version "${{ needs.metadata.outputs.version }}" \
+            --app-version "${{ needs.metadata.outputs.version }}"
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Publish chart
+        run: |
+          helm push "dist/oxidgene-${{ needs.metadata.outputs.version }}.tgz" \
+            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts"
+
+      - name: Upload packaged chart
+        uses: actions/upload-artifact@v6
+        with:
+          name: helm-chart
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  desktop:
+    name: Build desktop for ${{ matrix.platform }}
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+          - platform: macos
+            runner: macos-14
+          - platform: windows
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang cmake libgtk-3-dev libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev mold \
+            pkg-config zstd
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-desktop-${{ matrix.platform }}
+
+      - name: Build desktop binary
+        run: cargo build --locked --release --package oxidgene-desktop
+
+      - name: Package Linux binary
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          tar -C target/release -czf dist/oxidgene-desktop-linux-x86_64.tar.gz oxidgene-desktop
+
+      - name: Package macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          tar -C target/release -czf dist/oxidgene-desktop-macos-x86_64.tar.gz oxidgene-desktop
+
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path target/release/oxidgene-desktop.exe `
+            -DestinationPath dist/oxidgene-desktop-windows-x86_64.zip
+
+      - name: Upload desktop archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [metadata, images, chart, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --generate-notes \
+            --title "OxidGene $GITHUB_REF_NAME"
