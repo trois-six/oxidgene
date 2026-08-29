@@ -58,6 +58,7 @@ use crate::rest::geneweb;
 use crate::rest::media;
 use crate::rest::media_link;
 use crate::rest::note;
+use crate::rest::openapi;
 use crate::rest::person;
 use crate::rest::person_name;
 use crate::rest::place;
@@ -466,6 +467,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/api/v1/geneanet", geneanet_routes)
         .nest("/api/v1/geneweb", geneweb_routes)
         .nest("/api/v1/reference", reference_routes)
+        .route("/api/v1/openapi.json", get(openapi::spec))
         .layer(CompressionLayer::new())
         .with_state(state);
 

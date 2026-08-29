@@ -16,6 +16,7 @@ pub mod geneweb;
 pub mod media;
 pub mod media_link;
 pub mod note;
+pub mod openapi;
 pub mod person;
 pub mod person_name;
 pub mod place;

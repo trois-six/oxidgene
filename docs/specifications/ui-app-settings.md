@@ -74,6 +74,8 @@ Items:
 |---|---|
 | Appearance | Theme toggle |
 | Language | Language selection |
+| Names | Surname-particle sorting |
+| API | REST OpenAPI access; GraphQL access in the web build |
 
 Active item: orange text, bold weight, subtle background (`var(--bg-card)`).
 
@@ -136,7 +138,19 @@ Displayed in a card:
 
 ---
 
-## 7. Responsive
+## 7. Section: API
+
+The API section displays absolute endpoint URLs derived from the same API base
+URL as the frontend client:
+
+- `GET /api/v1/openapi.json` opens the generated OpenAPI 3.1 document.
+- In the web build, `GET /graphql` opens GraphiQL in a new browser tab and
+	`POST /graphql` accepts GraphQL queries and mutations.
+
+The desktop build displays only the REST/OpenAPI entry and continues to compile
+the API crate without its optional `graphql` feature.
+
+## 8. Responsive
 
 - Content max-width: 1200px, responsive padding
 - Below **640px**: the left navigation stacks above the content area as one
@@ -146,7 +160,7 @@ Displayed in a card:
 
 ---
 
-## 8. Future Sections
+## 9. Future Sections
 
 Additional sections may be added in future EPICs:
 

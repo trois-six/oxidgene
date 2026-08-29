@@ -95,9 +95,15 @@ partial media warnings only where their endpoint contract says so.
 
 ### Machine-readable schema
 
-GraphQL introspection is the current executable schema. A generated OpenAPI
-description for REST remains missing and is tracked as documentation work. A
-handwritten file must not claim to be authoritative without CI drift checks.
+The REST API exposes its OpenAPI 3.1 description at
+`GET /api/v1/openapi.json`. The build script generates the document from the
+Axum router AST on every API build, including nested and merged routers, so its
+paths, HTTP methods, operation identifiers, and path parameters track the
+compiled REST surface. The document also defines the shared error envelope.
+
+GraphQL uses its executable schema and standard introspection instead of a
+separate OpenAPI description. GraphiQL remains available at `GET /graphql` when
+the `graphql` feature is enabled.
 
 ## 2. REST API
 
