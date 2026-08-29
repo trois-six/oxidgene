@@ -32,6 +32,7 @@ pub async fn start(
             kind: BackgroundJobKind::Export,
             format: "gedzip".into(),
             source_key: None,
+            payload_json: None,
             original_filename: None,
             merge_occupations: query.merge_occupations.unwrap_or(false),
             merge_names: query.merge_names.unwrap_or(false),

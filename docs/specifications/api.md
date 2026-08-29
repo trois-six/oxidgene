@@ -356,7 +356,7 @@ imports the format, it does not produce it.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to durable job storage and create an asynchronous import. Returns `202 { "job_id": UUID }` after the source is stored and the job is committed. `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. Workers copy the source to disposable scratch space; media extracted from GEDZIP are persisted through `MediaStore` |
-| `GET` | `/trees/{tree_id}/import-jobs/{job_id}` | Poll `{ phase, done, total, result?, error? }`. Phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`. A completed status retains the standard `ImportResponse`; failure exposes a stable error code rather than internal details |
+| `GET` | `/trees/{tree_id}/import-jobs/{job_id}` | Poll `{ phase, done, total, result?, geneanet_result?, error? }`. File-import phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`; Geneanet additionally uses `people` and `matching`. A completed status retains either the standard `ImportResponse` or the Geneanet receipt; failure exposes a stable error code rather than internal details |
 | `POST` | `/trees/{tree_id}/export-jobs?merge_occupations=bool&merge_names=bool` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, warnings, error? }`. `download_url` appears only after the artifact is complete |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete |
@@ -386,11 +386,13 @@ person↔photo mapping happens inside the desktop app's login window, because
 that is the only place a Geneanet session exists; what reaches the server is
 its output, carried by the steps that follow.
 
-Geneanet media use a desktop-only filesystem data plane. The login WebView
-writes gathered bytes to a temporary staging directory shared with the
+Geneanet media enter through a desktop-only filesystem data plane. The login
+WebView writes gathered bytes to a temporary directory shared with the
 embedded backend. REST and GraphQL carry collection metadata, archive paths,
 and a `source URL -> local path` map, but never the media bytes themselves. The
-backend reads those files locally and persists them through `MediaStore`.
+request handler copies the `.gw`, archives, and gathered media into durable
+job-owned `MediaStore` keys before committing the job and returning. The worker
+therefore never depends on the WebView's temporary files.
 
 | Method | Path | Description |
 |---|---|---|
@@ -399,7 +401,7 @@ backend reads those files locally and persists them through `MediaStore`.
 | `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all |
 | `POST` | `/geneanet/session/decode` | Read one back. Body is the file itself; a ZIP and a bare JSON collection are told apart by content, not extension. Refuses anything that is not a collection, so a wrong file is reported rather than producing an import that attaches nothing |
 | `POST` | `/geneanet/preview` | **Step 4.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on |
-| `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Import the tree, then attach every photo that joins onto it. `fetched` maps source URLs to staged filesystem paths; it never carries media bytes. A missing or unreadable file is reported in `skipped`. Triggers a full projection rebuild |
+| `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt |
 
 The preview and import bodies carry the `.gw` **base64-encoded** (`gw_base64`)
 because they bundle it with other fields and JSON cannot hold raw bytes — the
@@ -561,7 +563,6 @@ type Query {
   indexGeneanetArchives(paths: [String!]!): GeneanetArchiveIndex!
   geneanetPreview(input: GeneanetPreviewInput!): GeneanetPreview!
   geneanetPlan(input: GeneanetPreviewInput!): [GeneanetNeededMedia!]!
-  geneanetImportProgress(progressId: ID!): GeneanetImportProgress
 
   # Families
   families(treeId: ID!, first: Int, after: String): FamilyConnection!
@@ -737,15 +738,15 @@ type Mutation {
   updateNote(treeId: ID!, id: ID!, input: UpdateNoteInput!): Note!
   deleteNote(treeId: ID!, id: ID!): Boolean!
 
-  # Durable GEDZIP exports contain no binary GraphQL payload. Import jobs are
-  # created by the streaming REST upload endpoint.
+  # Durable GEDZIP exports contain no binary GraphQL payload. Ordinary file
+  # import jobs are created by the streaming REST upload endpoint.
   startExportJob(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): BackgroundJobStarted!
 
-  # Geneanet session archives use base64. Gathered media are staged on the
-  # shared desktop filesystem; import inputs carry paths, never media bytes.
+  # Geneanet session archives use base64. Import inputs name files on the
+  # shared desktop filesystem; the mutation stages them into durable storage.
   encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GeneanetSessionArchive!
   decodeGeneanetSession(archiveBase64: String!): GeneanetSession!
-  importGeneanet(treeId: ID!, input: GeneanetImportInput!): GeneanetImportResult!
+  importGeneanet(treeId: ID!, input: GeneanetImportInput!): BackgroundJobStarted!
 
   # Read projections (see Data Model section 4) — mirrors the REST routes
   expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
@@ -757,12 +758,13 @@ type Mutation {
 
 `GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size
 and archive-path data as REST's preview and plan bodies. `GeneanetImportInput`
-adds the source-URL-to-local-path map and optional progress id. These paths are
-the complete media handoff: GraphQL does not carry the corresponding bytes.
+adds the source-URL-to-local-path map. These paths are the staging handoff:
+GraphQL does not carry the corresponding bytes, and the mutation copies every
+input to job-owned durable storage before returning its job id.
 `indexGeneanetArchives` and paths returned from `decodeGeneanetSession` are
 desktop-only because they refer to the local filesystem. A caller polls
-`geneanetImportProgress` while `importGeneanet` is running; completed and
-unknown ids return `null`, matching REST's import-progress endpoint.
+`importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and
+`geneanetResult` is set for a completed Geneanet job.
 
 ### Key Types
 
@@ -869,7 +871,24 @@ type ImportJobStatus {
   done: Int!
   total: Int!
   result: ImportResult
+  geneanetResult: GeneanetImportResult
   error: String
+}
+
+type GeneanetImportResult {
+  personsCount: Int!
+  familiesCount: Int!
+  eventsCount: Int!
+  sourcesCount: Int!
+  placesCount: Int!
+  notesCount: Int!
+  mediaCount: Int!
+  linksCount: Int!
+  portraitsCount: Int!
+  isolatedCount: Int!
+  vignettesCount: Int!
+  skipped: [String!]!
+  warnings: [String!]!
 }
 
 type ExportJobStatus {

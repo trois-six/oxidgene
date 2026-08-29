@@ -1,19 +1,22 @@
 //! Durable import and export job execution shared by server and desktop workers.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_db::repo::{BackgroundJob, BackgroundJobRepo};
+use oxidgene_db::repo::{
+    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, TreeRepo,
+};
 use oxidgene_gedcom::export::GedzipFileWriter;
 use sea_orm::{DatabaseConnection, DbBackend, TransactionTrait};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::gedcom;
+use super::{gedcom, geneanet};
 use crate::media::MediaStore;
-use crate::media::store::job_blob_key;
+use crate::media::store::{job_blob_key, job_input_blob_key};
 use crate::profile::ProfileService;
 
 pub const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(30);
@@ -82,7 +85,9 @@ impl BackgroundJobWorker {
                 _ => "job_failed",
             };
             tracing::error!(job_id = %job.id, %error, "background job failed");
-            let _ = BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await?;
+            if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await? {
+                self.cleanup_import_inputs(&job).await;
+            }
         }
         Ok(true)
     }
@@ -110,6 +115,9 @@ impl BackgroundJobWorker {
     }
 
     async fn execute_import(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
+        if job.format == "geneanet" {
+            return self.execute_geneanet_import(job).await;
+        }
         let source_key = job
             .source_key
             .as_deref()
@@ -188,6 +196,125 @@ impl BackgroundJobWorker {
 
         self.finish_import(job, source_key, summary).await?;
         Ok(())
+    }
+
+    async fn execute_geneanet_import(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
+        let source_key = job
+            .source_key
+            .as_deref()
+            .ok_or_else(|| OxidGeneError::Validation("import job has no source".into()))?;
+        let payload = geneanet_payload(job)?;
+        if job.phase == "projections" {
+            let summary = geneanet_summary(job)?;
+            self.finish_geneanet_import(job, summary).await?;
+            return Ok(());
+        }
+
+        let scratch = ScratchDirectory::new(job.id).await?;
+        self.progress(job.id, "staging", 0, 0).await?;
+        let source = scratch.path().join("source.gw");
+        self.media.get_to_file(source_key, &source).await?;
+
+        let archive_root = scratch.path().join("archives");
+        tokio::fs::create_dir_all(&archive_root).await?;
+        let mut archive_paths = Vec::with_capacity(payload.archives.len());
+        for (index, input) in payload.archives.iter().enumerate() {
+            let path = archive_root.join(format!("{index}-{}", input.file_name));
+            self.media.get_to_file(&input.key, &path).await?;
+            archive_paths.push(path.to_string_lossy().into_owned());
+        }
+
+        let fetched_root = scratch.path().join("fetched");
+        tokio::fs::create_dir_all(&fetched_root).await?;
+        let mut fetched = HashMap::with_capacity(payload.fetched.len());
+        for (index, input) in payload.fetched.iter().enumerate() {
+            let path = fetched_root.join(index.to_string());
+            self.media.get_to_file(&input.key, &path).await?;
+            fetched.insert(input.url.clone(), path.to_string_lossy().into_owned());
+        }
+
+        let gw = tokio::fs::read(source).await?;
+        let origin_file = safe_origin_file(job.original_filename.as_deref());
+        let progress = Arc::new(geneanet::ImportProgress::default());
+        let import = geneanet::import(
+            &self.db,
+            &*self.media,
+            job.tree_id,
+            &gw,
+            &origin_file,
+            &payload.collection,
+            &payload.deposit_sizes,
+            &archive_paths,
+            &fetched,
+            &progress,
+        );
+        tokio::pin!(import);
+        let period = self.lease_duration / 3;
+        let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+        let summary = loop {
+            tokio::select! {
+                result = &mut import => break result?,
+                _ = heartbeat.tick() => {
+                    let (phase, done, total) = progress.read();
+                    self.progress(job.id, geneanet_phase(phase), as_i64(done), as_i64(total)).await?;
+                }
+            }
+        };
+
+        let result_json = serde_json::to_string(&summary)
+            .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
+        if !BackgroundJobRepo::checkpoint_import_persisted(
+            &self.db,
+            job.id,
+            &self.worker_id,
+            result_json,
+            chrono::Duration::from_std(self.lease_duration)
+                .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
+        )
+        .await?
+        {
+            return Err(OxidGeneError::Internal("background job lease lost".into()));
+        }
+        self.finish_geneanet_import(job, summary).await
+    }
+
+    async fn finish_geneanet_import(
+        &self,
+        job: &BackgroundJob,
+        summary: geneanet::GeneanetImportSummary,
+    ) -> Result<(), OxidGeneError> {
+        self.profiles
+            .rebuild_tree_full(&self.db, job.tree_id)
+            .await?;
+        let result = serde_json::to_string(&summary)
+            .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
+        if !BackgroundJobRepo::complete(&self.db, job.id, &self.worker_id, None, Some(result))
+            .await?
+        {
+            return Err(OxidGeneError::Internal("background job lease lost".into()));
+        }
+        self.cleanup_import_inputs(job).await;
+        Ok(())
+    }
+
+    async fn cleanup_import_inputs(&self, job: &BackgroundJob) {
+        let mut keys = job
+            .source_key
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let payload = (job.format == "geneanet")
+            .then(|| geneanet_payload(job).ok())
+            .flatten();
+        if let Some(payload) = &payload {
+            keys.extend(payload.archives.iter().map(|input| input.key.as_str()));
+            keys.extend(payload.fetched.iter().map(|input| input.key.as_str()));
+        }
+        for key in keys {
+            if let Err(error) = self.media.delete(key).await {
+                tracing::warn!(job_id = %job.id, %key, %error, "could not delete job input");
+            }
+        }
     }
 
     async fn finish_import(
@@ -392,12 +519,144 @@ fn as_i64(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 
+const fn geneanet_phase(phase: geneanet::ImportPhase) -> &'static str {
+    match phase {
+        geneanet::ImportPhase::Starting => "starting",
+        geneanet::ImportPhase::People => "people",
+        geneanet::ImportPhase::Matching => "matching",
+        geneanet::ImportPhase::Media => "media",
+        geneanet::ImportPhase::Finishing => "projections",
+    }
+}
+
 fn import_summary(job: &BackgroundJob) -> Result<gedcom::ImportSummary, OxidGeneError> {
     let result = job
         .result_json
         .as_deref()
         .ok_or_else(|| OxidGeneError::Internal("persisted import has no result".into()))?;
     serde_json::from_str(result).map_err(|error| OxidGeneError::Internal(error.to_string()))
+}
+
+fn geneanet_payload(job: &BackgroundJob) -> Result<GeneanetJobPayload, OxidGeneError> {
+    let payload = job
+        .payload_json
+        .as_deref()
+        .ok_or_else(|| OxidGeneError::Validation("Geneanet import job has no payload".into()))?;
+    serde_json::from_str(payload).map_err(|error| OxidGeneError::Validation(error.to_string()))
+}
+
+fn geneanet_summary(job: &BackgroundJob) -> Result<geneanet::GeneanetImportSummary, OxidGeneError> {
+    let result = job
+        .result_json
+        .as_deref()
+        .ok_or_else(|| OxidGeneError::Internal("persisted import has no result".into()))?;
+    serde_json::from_str(result).map_err(|error| OxidGeneError::Internal(error.to_string()))
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct GeneanetJobPayload {
+    collection: String,
+    deposit_sizes: HashMap<i64, u64>,
+    archives: Vec<GeneanetArchiveInput>,
+    fetched: Vec<GeneanetFetchedInput>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct GeneanetArchiveInput {
+    key: String,
+    file_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct GeneanetFetchedInput {
+    url: String,
+    key: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn stage_geneanet_import(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    gw: &[u8],
+    file_name: String,
+    collection: String,
+    deposit_sizes: HashMap<i64, u64>,
+    archive_paths: &[String],
+    fetched_paths: &HashMap<String, String>,
+) -> Result<Uuid, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    let job_id = Uuid::now_v7();
+    let scratch = ScratchDirectory::new(job_id).await?;
+    let source_path = scratch.path().join("source.gw");
+    tokio::fs::write(&source_path, gw).await?;
+
+    let source_key = job_blob_key(job_id, "source", "gw")?;
+    let mut staged_keys = Vec::with_capacity(1 + archive_paths.len() + fetched_paths.len());
+    let staging = async {
+        media.put_file(&source_key, &source_path).await?;
+        staged_keys.push(source_key.clone());
+
+        let mut next_input = 0usize;
+        let mut archives = Vec::with_capacity(archive_paths.len());
+        for path in archive_paths {
+            let key = job_input_blob_key(job_id, next_input);
+            next_input += 1;
+            media.put_file(&key, Path::new(path)).await?;
+            staged_keys.push(key.clone());
+            archives.push(GeneanetArchiveInput {
+                key,
+                file_name: safe_origin_file(Some(path)),
+            });
+        }
+
+        let mut fetched_entries: Vec<_> = fetched_paths.iter().collect();
+        fetched_entries.sort_by_key(|(url, _)| *url);
+        let mut fetched = Vec::with_capacity(fetched_entries.len());
+        for (url, path) in fetched_entries {
+            let key = job_input_blob_key(job_id, next_input);
+            next_input += 1;
+            media.put_file(&key, Path::new(path)).await?;
+            staged_keys.push(key.clone());
+            fetched.push(GeneanetFetchedInput {
+                url: url.clone(),
+                key,
+            });
+        }
+
+        let payload_json = serde_json::to_string(&GeneanetJobPayload {
+            collection,
+            deposit_sizes,
+            archives,
+            fetched,
+        })
+        .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
+        BackgroundJobRepo::create(
+            db,
+            NewBackgroundJob {
+                id: job_id,
+                tree_id,
+                kind: BackgroundJobKind::Import,
+                format: "geneanet".to_string(),
+                source_key: Some(source_key),
+                payload_json: Some(payload_json),
+                original_filename: Some(file_name),
+                merge_occupations: false,
+                merge_names: false,
+            },
+        )
+        .await?;
+        Ok::<(), OxidGeneError>(())
+    }
+    .await;
+
+    if let Err(error) = staging {
+        for key in staged_keys {
+            let _ = media.delete(&key).await;
+        }
+        return Err(error);
+    }
+    Ok(job_id)
 }
 
 #[derive(Serialize)]

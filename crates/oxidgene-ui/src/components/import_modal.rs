@@ -40,7 +40,8 @@ use uuid::Uuid;
 
 use crate::api::{
     ApiClient, ArchiveIndex, GeneanetImportBody, GeneanetImportResult, GeneanetPreview,
-    GeneanetPreviewBody, GeneanetSessionBody, GwInspection, ImportResult, IndexedArchive,
+    GeneanetPreviewBody, GeneanetSessionBody, GwInspection, ImportProgress, ImportResult,
+    IndexedArchive,
 };
 use crate::geneanet::{GeneanetEvent, WindowStrings, use_geneanet_bridge};
 use crate::i18n::use_i18n;
@@ -798,28 +799,11 @@ fn GeneanetTab(
         importing.set(true);
         import_error.set(None);
 
-        // Names the run so its progress can be asked about: the import holds
-        // its own request open for minutes, so it cannot report anything in
-        // its own response.
-        let run = Uuid::now_v7();
-        import_progress.set(None);
-
-        {
-            let api = api.clone();
-            spawn(async move {
-                // Polled rather than streamed: one endpoint, no connection to
-                // keep alive, and a missed tick costs nothing. Ends when the
-                // server forgets the run, which it does as the import returns.
-                loop {
-                    crate::utils::sleep_ms(200).await;
-                    match api.geneanet_import_progress(run).await {
-                        Ok(Some(progress)) => import_progress.set(Some(progress)),
-                        Ok(None) | Err(_) => break,
-                    }
-                }
-                import_progress.set(None);
-            });
-        }
+        import_progress.set(Some(ImportProgress {
+            phase: "staging".to_string(),
+            done: 0,
+            total: 0,
+        }));
 
         spawn(async move {
             let body = GeneanetImportBody {
@@ -829,17 +813,47 @@ fn GeneanetTab(
                 deposit_sizes: collected.deposit_sizes.clone(),
                 archive_paths: archives.read().iter().map(|a| a.path.clone()).collect(),
                 fetched: fetched.read().clone(),
-                progress_id: Some(run),
             };
-            let outcome = api.import_geneanet(tree_id, &body).await;
+            let outcome = async {
+                let started = api.import_geneanet(tree_id, &body).await?;
+                if let Some(bridge) = &bridge {
+                    bridge.close();
+                }
+                window_closed.set(true);
+
+                loop {
+                    let status = api.file_import_status(tree_id, started.job_id).await?;
+                    import_progress.set(Some(ImportProgress {
+                        phase: status.phase.clone(),
+                        done: status.done,
+                        total: status.total,
+                    }));
+                    match status.phase.as_str() {
+                        "completed" => {
+                            break status.geneanet_result.ok_or_else(|| {
+                                crate::api::ApiError::Api {
+                                    status: 500,
+                                    body: "completed Geneanet import has no result".to_string(),
+                                }
+                            });
+                        }
+                        "failed" => {
+                            break Err(crate::api::ApiError::Api {
+                                status: 422,
+                                body: status.error.unwrap_or_else(|| "import_failed".to_string()),
+                            });
+                        }
+                        _ => crate::utils::sleep_ms(500).await,
+                    }
+                }
+            }
+            .await;
             importing.set(false);
+            import_progress.set(None);
 
             match outcome {
                 Ok(result) => {
-                    if let Some(bridge) = &bridge {
-                        bridge.close();
-                    }
-                    window_closed.set(true);
+                    api.invalidate_tree(tree_id);
                     import_result.set(Some(result.clone()));
                     on_imported.call(ImportOutcome::Geneanet(result));
                 }

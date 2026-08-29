@@ -723,6 +723,8 @@ pub struct FileImportStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<ImportResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub geneanet_result: Option<GeneanetImportResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -1120,19 +1122,6 @@ pub struct GeneanetImportRequest {
     /// with the size of somebody's photo collection.
     #[serde(default)]
     pub fetched: std::collections::HashMap<String, String>,
-    /// Names this run so its progress can be asked about while it is going.
-    #[serde(default)]
-    pub progress_id: Option<uuid::Uuid>,
-}
-
-/// How far a running import has got.
-#[derive(Debug, Serialize)]
-pub struct ImportProgressResponse {
-    pub phase: crate::service::geneanet::ImportPhase,
-    /// Media written so far, and expected in total. Zero total means the run
-    /// has not reached the media yet.
-    pub done: usize,
-    pub total: usize,
 }
 
 /// What the import actually did.

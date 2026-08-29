@@ -1910,6 +1910,68 @@ async fn test_graphql_file_import_job() {
     assert!(result["error"].is_null());
 }
 
+#[tokio::test]
+async fn test_graphql_geneanet_import_job() {
+    use base64::Engine as _;
+
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join(format!(
+            "oxidgene-gql-geneanet-import-{}",
+            uuid::Uuid::now_v7()
+        )),
+    );
+    let app = build_router(state.clone());
+    let response = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Geneanet Import Job" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&response)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let geneweb = "encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
+    let gw_base64 = base64::engine::general_purpose::STANDARD.encode(geneweb);
+    let collection = r#"{\"deposits\":[],\"references\":[],\"details\":[],\"view_references\":{}}"#;
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ importGeneanet(treeId: "{tree_id}", input: {{ gwBase64: "{gw_base64}", fileName: "family.gw", collection: "{collection}" }}) {{ jobId }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let job_id = data(&response)["importGeneanet"]["jobId"]
+        .as_str()
+        .expect("job id");
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        state.db.clone(),
+        state.profiles.clone(),
+        state.media.clone(),
+        "graphql-geneanet-test",
+    );
+    assert!(worker.run_once().await.expect("run Geneanet import job"));
+
+    let response = graphql(
+        app,
+        &format!(
+            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase result {{ personsCount }} geneanetResult {{ personsCount familiesCount mediaCount }} error }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = &data(&response)["importJobStatus"];
+    assert_eq!(result["phase"], "completed");
+    assert!(result["result"].is_null());
+    assert_eq!(result["geneanetResult"]["personsCount"], 2);
+    assert_eq!(result["geneanetResult"]["familiesCount"], 1);
+    assert_eq!(result["geneanetResult"]["mediaCount"], 0);
+    assert!(result["error"].is_null());
+}
+
 // ── Projection queries & mutations ───────────────────────────────────
 
 /// GraphQL must expose the same vocabulary as REST (Sprint E.9): `profiles`

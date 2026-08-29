@@ -22,9 +22,9 @@ use uuid::Uuid;
 use oxidgene_geneanet::session;
 
 use super::dto::{
-    DecodeSessionResponse, EncodeSessionRequest, GeneanetImportRequest, GeneanetImportResponse,
-    GeneanetPlanResponse, GeneanetPreviewRequest, GeneanetPreviewResponse, ImportGenewebQuery,
-    ImportProgressResponse, IndexArchivesRequest, IndexArchivesResponse, IndexedArchive,
+    DecodeSessionResponse, EncodeSessionRequest, FileImportStartedResponse, GeneanetImportRequest,
+    GeneanetImportResponse, GeneanetPlanResponse, GeneanetPreviewRequest, GeneanetPreviewResponse,
+    ImportGenewebQuery, IndexArchivesRequest, IndexArchivesResponse, IndexedArchive,
     InspectGenewebResponse, NeededMedia,
 };
 use super::error::ApiError;
@@ -246,109 +246,48 @@ pub async fn plan_handler(
 
 /// POST /api/v1/trees/:tree_id/geneanet/import
 ///
-/// Import the tree and attach every photo that joins onto it.
-///
-/// A photo that cannot be fetched is reported in `skipped` and the run
-/// continues: by the time media are being written the people are already in
-/// the database, and losing one scan is not a reason to throw away ten
-/// thousand persons.
+/// Copy every local input to durable storage and queue the import.
 pub async fn import_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<GeneanetImportRequest>,
-) -> Result<(StatusCode, Json<GeneanetImportResponse>), ApiError> {
+) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
     let gw = decode_gw(&body.gw_base64)?;
-
-    // Registered before the run so the first poll finds it, and removed after
-    // however the run ends — a progress entry outliving its import would be a
-    // slow leak of one map entry per import.
-    let progress = std::sync::Arc::new(geneanet::ImportProgress::default());
-    if let Some(id) = body.progress_id
-        && let Ok(mut running) = state.imports.lock()
-    {
-        running.insert(id, std::sync::Arc::clone(&progress));
-    }
-
-    let summary = geneanet::import(
+    let job_id = crate::service::background_job::stage_geneanet_import(
         &state.db,
         &*state.media,
         tree_id,
         &gw,
-        &body.file_name,
-        &body.collection,
-        &body.deposit_sizes,
+        body.file_name,
+        body.collection,
+        body.deposit_sizes,
         &body.archive_paths,
         &body.fetched,
-        &progress,
     )
-    .await;
-
-    progress.enter(geneanet::ImportPhase::Finishing);
-    let summary = summary.map_err(|e| {
-        forget_progress(&state, body.progress_id);
-        ApiError::from(e)
-    })?;
-
-    // Eagerly rebuild every projection of this tree — same rationale as the
-    // GEDCOM and GeneWeb import paths.
-    state
-        .profiles
-        .rebuild_tree_full(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
-
-    forget_progress(&state, body.progress_id);
+    .await
+    .map_err(ApiError::from)?;
 
     Ok((
-        StatusCode::CREATED,
-        Json(GeneanetImportResponse {
-            persons_count: summary.persons_count,
-            families_count: summary.families_count,
-            events_count: summary.events_count,
-            sources_count: summary.sources_count,
-            places_count: summary.places_count,
-            notes_count: summary.notes_count,
-            media_count: summary.media_count,
-            links_count: summary.links_count,
-            portraits_count: summary.portraits_count,
-            isolated_count: summary.isolated_count,
-            vignettes_count: summary.vignettes_count,
-            skipped: summary.skipped,
-            warnings: summary.warnings,
-        }),
+        StatusCode::ACCEPTED,
+        Json(FileImportStartedResponse { job_id }),
     ))
 }
 
-/// GET /api/v1/geneanet/import/{progress_id}
-///
-/// How far a running import has got. An import holds its own request open for
-/// minutes, so this is the only way to say anything while it runs.
-///
-/// A run that has finished — or was never started — reports nothing rather
-/// than 404ing, because the wizard polls right up to the moment the import
-/// returns and a race there should not surface as an error.
-pub async fn import_progress_handler(
-    State(state): State<AppState>,
-    Path(progress_id): Path<Uuid>,
-) -> Json<Option<ImportProgressResponse>> {
-    let running = state
-        .imports
-        .lock()
-        .ok()
-        .and_then(|running| running.get(&progress_id).cloned());
-
-    Json(running.map(|progress| {
-        let (phase, done, total) = progress.read();
-        ImportProgressResponse { phase, done, total }
-    }))
-}
-
-/// Drops a finished run's progress entry.
-fn forget_progress(state: &AppState, progress_id: Option<Uuid>) {
-    if let Some(id) = progress_id
-        && let Ok(mut running) = state.imports.lock()
-    {
-        running.remove(&id);
+pub(crate) fn import_response(summary: geneanet::GeneanetImportSummary) -> GeneanetImportResponse {
+    GeneanetImportResponse {
+        persons_count: summary.persons_count,
+        families_count: summary.families_count,
+        events_count: summary.events_count,
+        sources_count: summary.sources_count,
+        places_count: summary.places_count,
+        notes_count: summary.notes_count,
+        media_count: summary.media_count,
+        links_count: summary.links_count,
+        portraits_count: summary.portraits_count,
+        isolated_count: summary.isolated_count,
+        vignettes_count: summary.vignettes_count,
+        skipped: summary.skipped,
+        warnings: summary.warnings,
     }
 }
 

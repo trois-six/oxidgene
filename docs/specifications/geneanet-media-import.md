@@ -28,18 +28,18 @@ live there too)
 >
 > Files are stored on the filesystem, content-addressed and scoped per tree,
 > behind `MediaStore`. During Geneanet import, the login WebView first writes
-> gathered media to a temporary staging directory. The embedded backend reads
-> those files directly from the shared filesystem; media bytes do not pass
-> through REST or GraphQL. A shared photo is stored once and linked many times,
-> while multi-page documents preserve their page structure.
+> gathered media to a temporary directory. The embedded backend copies those
+> files into durable, job-owned `MediaStore` keys before returning the job id;
+> media bytes do not pass through REST or GraphQL. A shared photo is stored once
+> and linked many times, while multi-page documents preserve their page
+> structure.
 
 The staging directory is created lazily under the operating system's temporary
-directory and belongs to the desktop login-window session. That session remains
-alive after network gathering until the embedded backend has consumed every
-staged path. A successful import or dismissal of the wizard closes the session
-and removes the directory. A failed local import keeps it for an in-place retry;
-dismissing the wizard still removes it. When archives cover every required
-medium, the window closes before import because no staging directory exists.
+directory and belongs to the desktop login-window session. The session remains
+alive only until the embedded backend has durably copied every staged path and
+accepted the job. The UI then closes the window and removes its temporary
+directory while the worker runs independently. When archives cover every
+required medium, no gathered-media directory is needed.
 
 ---
 
@@ -653,8 +653,12 @@ one `MediaLink` per person the photo is attached to.
 REST and GraphQL are control planes for this desktop workflow: their import
 inputs contain collection metadata, archive paths, and a map from each source
 URL to its staged local path. They never contain the gathered media bytes. The
-service reads archive and staged-media paths locally, then writes validated
-content through `MediaStore`.
+request handler reads those paths locally, copies the `.gw`, archives, and
+gathered media to durable job-owned keys, commits a background job, and returns
+its id. The worker reconstructs disposable local inputs from `MediaStore`, runs
+the import, rebuilds projections, stores the receipt in the job, and deletes all
+job inputs on completion or failure. A worker resuming from the persisted
+`projections` checkpoint uses the stored receipt and does not replay the import.
 
 A photo shared by several people is **stored once** with several `MediaLink`
 rows — precisely what the original export could not express, and what

@@ -942,8 +942,6 @@ pub struct GeneanetImportBody {
     /// succeeds. The window writes each medium to a temp directory and this
     /// names them, which keeps the request small however many there are.
     pub fetched: std::collections::HashMap<String, String>,
-    /// Names this run so its progress can be polled while it runs.
-    pub progress_id: Option<Uuid>,
 }
 
 /// How far a running import has got.
@@ -996,7 +994,13 @@ pub struct FileImportJobStatus {
     pub done: usize,
     pub total: usize,
     pub result: Option<ImportResult>,
+    pub geneanet_result: Option<GeneanetImportResult>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ImportJobStarted {
+    pub job_id: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -3120,29 +3124,14 @@ impl ApiClient {
         self.post("/api/v1/geneanet/plan", body).await
     }
 
-    /// How far a running import has got.
-    ///
-    /// `None` once it has finished — the import's own response is what says it
-    /// is done, and a poll racing the end should not read as an error.
-    pub async fn geneanet_import_progress(
-        &self,
-        progress_id: Uuid,
-    ) -> Result<Option<ImportProgress>, ApiError> {
-        self.get(&format!("/api/v1/geneanet/import/{progress_id}"))
-            .await
-    }
-
-    /// Import the tree and attach every photo that joins onto it. Step 5.
+    /// Stage every local input and queue the Geneanet import. Step 5.
     pub async fn import_geneanet(
         &self,
         tree_id: Uuid,
         body: &GeneanetImportBody,
-    ) -> Result<GeneanetImportResult, ApiError> {
-        let result = self
-            .post(&format!("/api/v1/trees/{tree_id}/geneanet/import"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+    ) -> Result<ImportJobStarted, ApiError> {
+        self.post(&format!("/api/v1/trees/{tree_id}/geneanet/import"), body)
+            .await
     }
 
     /// `merge_occupations` collapses each person's multiple `OCCU` tags back

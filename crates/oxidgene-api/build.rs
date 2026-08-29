@@ -299,7 +299,7 @@ fn path_parameters(path: &str) -> Vec<Value> {
             let name = segment.strip_prefix('{')?.strip_suffix('}')?;
             let schema = if name == "number" {
                 json!({ "type": "integer", "format": "int64", "minimum": 1 })
-            } else if name.ends_with("_id") || name == "progress_id" {
+            } else if name.ends_with("_id") {
                 json!({ "type": "string", "format": "uuid" })
             } else {
                 json!({ "type": "string" })
