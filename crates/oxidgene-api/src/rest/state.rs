@@ -7,17 +7,11 @@ use sea_orm::{
 };
 use std::path::PathBuf;
 use std::sync::Arc;
-
-use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
-use crate::service::geneanet::ImportProgress;
 use crate::service::purge::{self, PurgeQueue};
-
-/// Runs currently reporting their Geneanet import progress.
-pub type ImportProgressRegistry = Arc<std::sync::Mutex<HashMap<Uuid, Arc<ImportProgress>>>>;
 
 #[derive(Clone, Copy)]
 pub(crate) enum TreeResource {
@@ -140,12 +134,6 @@ pub struct AppState {
     pub purge: PurgeQueue,
     /// Where uploaded files and their thumbnails live.
     pub media: Arc<dyn MediaStore>,
-    /// How far each running Geneanet import has got.
-    ///
-    /// An import holds its request open for minutes, so it cannot report
-    /// progress in its own response. The wizard names the run when it starts
-    /// it and asks a second endpoint how it is going.
-    pub imports: ImportProgressRegistry,
 }
 
 impl AppState {
@@ -179,7 +167,6 @@ impl AppState {
             profiles,
             purge,
             media,
-            imports: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 }

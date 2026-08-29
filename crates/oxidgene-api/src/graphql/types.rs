@@ -5,7 +5,6 @@
 
 use crate::media::MediaStore;
 use crate::profile::ProfileService;
-use crate::rest::state::ImportProgressRegistry;
 use crate::service::purge::PurgeQueue;
 use async_graphql::{ComplexObject, Context, Enum, ID, Result, SimpleObject};
 use chrono::{DateTime, Utc};
@@ -27,28 +26,6 @@ pub enum GqlSex {
     Male,
     Female,
     Unknown,
-}
-
-/// Stage of a running Geneanet import.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
-pub enum GqlGeneanetImportPhase {
-    Starting,
-    People,
-    Matching,
-    Media,
-    Finishing,
-}
-
-impl From<crate::service::geneanet::ImportPhase> for GqlGeneanetImportPhase {
-    fn from(phase: crate::service::geneanet::ImportPhase) -> Self {
-        match phase {
-            crate::service::geneanet::ImportPhase::Starting => Self::Starting,
-            crate::service::geneanet::ImportPhase::People => Self::People,
-            crate::service::geneanet::ImportPhase::Matching => Self::Matching,
-            crate::service::geneanet::ImportPhase::Media => Self::Media,
-            crate::service::geneanet::ImportPhase::Finishing => Self::Finishing,
-        }
-    }
 }
 
 impl From<oxidgene_core::Sex> for GqlSex {
@@ -730,10 +707,6 @@ pub(crate) fn purge_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a PurgeQueue {
 
 pub(crate) fn media_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<dyn MediaStore> {
     ctx.data_unchecked::<Arc<dyn MediaStore>>()
-}
-
-pub(crate) fn imports_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a ImportProgressRegistry {
-    ctx.data_unchecked::<ImportProgressRegistry>()
 }
 
 // ── PageInfo ─────────────────────────────────────────────────────────
@@ -2036,6 +2009,7 @@ pub struct GqlImportJobStatus {
     pub done: i64,
     pub total: i64,
     pub result: Option<GqlImportResult>,
+    pub geneanet_result: Option<GqlGeneanetImportResult>,
     pub error: Option<String>,
 }
 
@@ -2135,13 +2109,6 @@ pub struct GqlGeneanetImportResult {
     pub vignettes_count: i64,
     pub skipped: Vec<String>,
     pub warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlGeneanetImportProgress {
-    pub phase: GqlGeneanetImportPhase,
-    pub done: i64,
-    pub total: i64,
 }
 
 impl From<crate::service::geneanet::Preview> for GqlGeneanetPreview {

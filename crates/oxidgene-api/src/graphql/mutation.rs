@@ -5,7 +5,6 @@ use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resourc
 use crate::service::event_date;
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
@@ -27,11 +26,11 @@ use super::inputs::{
 };
 use super::types::{
     GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
-    GqlFamilyNameParticleUpdate, GqlFamilySpouse, GqlGeneanetDepositSize, GqlGeneanetImportResult,
-    GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
-    GqlNote, GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
-    GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx, imports_from_ctx,
-    media_from_ctx, profiles_from_ctx, purge_from_ctx,
+    GqlFamilyNameParticleUpdate, GqlFamilySpouse, GqlGeneanetDepositSize, GqlGeneanetMediaPath,
+    GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink, GqlNote,
+    GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
+    GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx, media_from_ctx,
+    profiles_from_ctx, purge_from_ctx,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -1634,6 +1633,7 @@ impl MutationRoot {
                 kind: BackgroundJobKind::Export,
                 format: "gedzip".into(),
                 source_key: None,
+                payload_json: None,
                 original_filename: None,
                 merge_occupations: merge_occupations.unwrap_or(false),
                 merge_names: merge_names.unwrap_or(false),
@@ -1705,67 +1705,33 @@ impl MutationRoot {
         })
     }
 
-    /// Import a Geneanet tree and attach media collected by the signed-in
-    /// desktop window. Query `geneanetImportProgress` while it is running.
+    /// Queue a Geneanet tree import with media collected by the desktop window.
     async fn import_geneanet(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         input: GeneanetImportInput,
-    ) -> Result<GqlGeneanetImportResult> {
+    ) -> Result<GqlBackgroundJobStarted> {
         let db = db_from_ctx(ctx);
         let media = media_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let tree_id = Uuid::parse_str(tree_id.as_str())?;
-        let progress_id = input
-            .progress_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let progress = Arc::new(crate::service::geneanet::ImportProgress::default());
-        if let Some(progress_id) = progress_id
-            && let Ok(mut imports) = imports_from_ctx(ctx).lock()
-        {
-            imports.insert(progress_id, Arc::clone(&progress));
-        }
         let gw = base64::engine::general_purpose::STANDARD
             .decode(&input.gw_base64)
             .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
-        let result = crate::service::geneanet::import(
+        let job_id = crate::service::background_job::stage_geneanet_import(
             db,
             &**media,
             tree_id,
             &gw,
-            &input.file_name,
-            &input.collection,
-            &geneanet_deposit_sizes(&input.deposit_sizes)?,
+            input.file_name,
+            input.collection,
+            geneanet_deposit_sizes(&input.deposit_sizes)?,
             &input.archive_paths,
             &geneanet_media_paths(&input.fetched),
-            &progress,
         )
-        .await;
-        progress.enter(crate::service::geneanet::ImportPhase::Finishing);
-        if let Some(progress_id) = progress_id
-            && let Ok(mut imports) = imports_from_ctx(ctx).lock()
-        {
-            imports.remove(&progress_id);
-        }
-        let result = result?;
-        profiles.rebuild_tree_full(db, tree_id).await?;
-        Ok(GqlGeneanetImportResult {
-            persons_count: result.persons_count as i64,
-            families_count: result.families_count as i64,
-            events_count: result.events_count as i64,
-            sources_count: result.sources_count as i64,
-            places_count: result.places_count as i64,
-            notes_count: result.notes_count as i64,
-            media_count: result.media_count as i64,
-            links_count: result.links_count as i64,
-            portraits_count: result.portraits_count as i64,
-            isolated_count: result.isolated_count as i64,
-            vignettes_count: result.vignettes_count as i64,
-            skipped: result.skipped,
-            warnings: result.warnings,
+        .await?;
+        Ok(GqlBackgroundJobStarted {
+            job_id: ID(job_id.to_string()),
         })
     }
 

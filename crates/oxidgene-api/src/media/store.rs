@@ -128,6 +128,11 @@ pub fn job_blob_key(job_id: Uuid, role: &str, extension: &str) -> Result<String,
     Ok(format!("jobs/{job_id}/{role}{suffix}"))
 }
 
+/// Stable object key for one of a job's additional input files.
+pub fn job_input_blob_key(job_id: Uuid, index: usize) -> String {
+    format!("jobs/{job_id}/input-{index}")
+}
+
 async fn file_digest(path: &Path) -> Result<(String, i64), OxidGeneError> {
     let mut file = tokio::fs::File::open(path).await?;
     let mut digest = Sha256::new();
@@ -181,17 +186,24 @@ fn validate_key(key: &str) -> Result<(), OxidGeneError> {
     if let Some(job_key) = key.strip_prefix("jobs/") {
         let mut parts = job_key.split('/');
         let (Some(job_id), Some(file), None) = (parts.next(), parts.next(), parts.next()) else {
-            return reject("expected jobs/{job_id}/{source|artifact}[.ext]");
+            return reject("expected jobs/{job_id}/{source|artifact|input-N}[.ext]");
         };
         if Uuid::parse_str(job_id).is_err() {
             return reject("job segment is not a UUID");
         }
         let role = file.split_once('.').map_or(file, |(role, _)| role);
         let extension = file.split_once('.').map_or("", |(_, extension)| extension);
+        let input_index = role.strip_prefix("input-");
         if !matches!(role, "source" | "artifact")
-            || !extension
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric())
+            && !input_index.is_some_and(|index| {
+                !index.is_empty() && index.chars().all(|character| character.is_ascii_digit())
+            })
+        {
+            return reject("invalid job blob name");
+        }
+        if !extension
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
         {
             return reject("invalid job blob name");
         }
@@ -651,6 +663,7 @@ mod tests {
         let id = tree();
         validate_key(&key_for(id, &sha256_hex(b"scan"), "jpg")).expect("own key is valid");
         validate_key(&key_for(id, &sha256_hex(b"scan"), "")).expect("extensionless key is valid");
+        validate_key(&job_input_blob_key(id, 12)).expect("job input key is valid");
     }
 
     #[test]

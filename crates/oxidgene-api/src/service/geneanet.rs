@@ -418,7 +418,7 @@ pub fn plan(
 }
 
 /// What an import actually did.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct GeneanetImportSummary {
     pub persons_count: usize,
     pub families_count: usize,

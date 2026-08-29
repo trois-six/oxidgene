@@ -392,13 +392,21 @@ individual completions rather than only the boundaries between processing
 batches. Multi-page document results are reordered before database writes, so
 this granular progress never changes page order.
 
-Geneanet media bytes use the desktop filesystem as their data plane. The login
-WebView writes each gathered medium to a temporary staging directory shared
-with the embedded backend. The final REST or GraphQL call carries only the
-`source URL -> local path` map and import metadata; it never uploads, embeds,
-or base64-encodes those media bytes. The backend reads each staged file locally
-and passes it to `MediaStore`. This workflow is desktop-only and requires the
-UI and embedded backend to share a filesystem.
+Geneanet media bytes enter through the desktop filesystem. The login WebView
+writes each gathered medium to a temporary directory shared with the embedded
+backend. The final REST or GraphQL call carries only the `source URL -> local
+path` map and import metadata; it never uploads, embeds, or base64-encodes those
+media bytes. Before answering, the backend copies the `.gw`, selected archives,
+and gathered files to durable job-owned `MediaStore` keys and commits the job.
+It then returns a job id (`202` over REST), so the UI closes the login WebView
+and polls the same import-job status used by ordinary file imports. The worker
+performs the write, rebuilds projections, publishes the Geneanet receipt, and
+removes the staged job inputs on completion or failure.
+
+If a worker stops after persisting the import checkpoint, its replacement
+resumes at projection rebuilding rather than importing the genealogy again.
+This workflow remains desktop-only because the initial path handoff requires
+the UI and embedded backend to share a filesystem.
 
 - Shared media are stored once and linked many times.
 - Failed media are reported and skipped without rolling back the genealogy.

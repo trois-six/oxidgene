@@ -15,6 +15,7 @@ pub struct Model {
     pub phase: String,
     pub source_key: Option<String>,
     pub artifact_key: Option<String>,
+    pub payload_json: Option<String>,
     pub original_filename: Option<String>,
     pub merge_occupations: bool,
     pub merge_names: bool,

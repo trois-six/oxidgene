@@ -110,6 +110,7 @@ async fn stage_import(
             kind: BackgroundJobKind::Import,
             format: format.to_string(),
             source_key: Some(source_key.clone()),
+            payload_json: None,
             original_filename: filename,
             merge_occupations: false,
             merge_names: false,
@@ -135,17 +136,26 @@ pub async fn status(
             id: job_id,
         }));
     }
-    let result = job
-        .result_json
-        .as_deref()
-        .map(serde_json::from_str::<gedcom::ImportSummary>)
-        .transpose()
-        .map_err(|error| ApiError(OxidGeneError::Internal(error.to_string())))?;
+    let serialized_result = job.result_json.as_deref();
+    let (result, geneanet_result) = if job.format == "geneanet" {
+        let summary = serialized_result
+            .map(serde_json::from_str::<crate::service::geneanet::GeneanetImportSummary>)
+            .transpose()
+            .map_err(|error| ApiError(OxidGeneError::Internal(error.to_string())))?;
+        (None, summary.map(super::geneanet::import_response))
+    } else {
+        let summary = serialized_result
+            .map(serde_json::from_str::<gedcom::ImportSummary>)
+            .transpose()
+            .map_err(|error| ApiError(OxidGeneError::Internal(error.to_string())))?;
+        (summary.map(import_response), None)
+    };
     Ok(Json(FileImportStatusResponse {
         phase: job.phase,
         done: as_usize(job.done),
         total: as_usize(job.total),
-        result: result.map(import_response),
+        result,
+        geneanet_result,
         error: job.error_code,
     }))
 }

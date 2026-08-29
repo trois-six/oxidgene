@@ -419,10 +419,6 @@ pub fn build_router(state: AppState) -> Router {
         .route("/plan", post(geneanet::plan_handler))
         .route("/session/encode", post(geneanet::encode_session_handler))
         .route("/session/decode", post(geneanet::decode_session_handler))
-        .route(
-            "/import/{progress_id}",
-            get(geneanet::import_progress_handler),
-        )
         .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
 
     let geneweb_routes = Router::new()
@@ -441,7 +437,6 @@ pub fn build_router(state: AppState) -> Router {
         state.profiles.clone(),
         state.purge.clone(),
         state.media.clone(),
-        state.imports.clone(),
     );
 
     let rest_router = Router::new()

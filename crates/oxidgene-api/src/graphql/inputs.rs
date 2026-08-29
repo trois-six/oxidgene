@@ -88,7 +88,6 @@ pub struct GeneanetImportInput {
     pub archive_paths: Vec<String>,
     #[graphql(default)]
     pub fetched: Vec<GeneanetMediaPathInput>,
-    pub progress_id: Option<String>,
 }
 
 pub(crate) fn geneanet_deposit_sizes(

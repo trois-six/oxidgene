@@ -5,7 +5,9 @@
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
+use base64::Engine as _;
 use http_body_util::BodyExt;
+use oxidgene_api::media::store::{job_blob_key, job_input_blob_key};
 use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{
@@ -1988,6 +1990,177 @@ async fn test_async_file_import_job() {
 }
 
 #[tokio::test]
+async fn test_async_geneanet_import_stages_and_cleans_inputs() {
+    use std::io::Write as _;
+
+    let test_id = uuid::Uuid::now_v7();
+    let media_root = std::env::temp_dir().join(format!("oxidgene-test-geneanet-media-{test_id}"));
+    let input_root = std::env::temp_dir().join(format!("oxidgene-test-geneanet-input-{test_id}"));
+    std::fs::create_dir_all(&input_root).expect("create Geneanet input directory");
+
+    let archive_path = input_root.join("originals.zip");
+    let archive = std::fs::File::create(&archive_path).expect("create archive");
+    let mut archive = zip::ZipWriter::new(archive);
+    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    archive
+        .start_file("unused.txt", options)
+        .expect("start archive entry");
+    archive.write_all(b"unused").expect("write archive entry");
+    archive.finish().expect("finish archive");
+
+    let fetched_path = input_root.join("fetched.jpg");
+    std::fs::write(&fetched_path, b"unused fetched medium").expect("write fetched medium");
+
+    let db = setup_db().await;
+    let state = AppState::new(db, &media_root);
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-test-geneanet-worker",
+    );
+    let app = build_router(state.clone());
+    let tree_id = create_tree_via_api(&app).await;
+    let geneweb = "encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
+    let fetched_url = "https://example.invalid/fetched.jpg";
+
+    let (status, started) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/geneanet/import"),
+        Some(serde_json::json!({
+            "gw_base64": base64::engine::general_purpose::STANDARD.encode(geneweb),
+            "file_name": "family.gw",
+            "collection": r#"{"deposits":[],"references":[],"details":[],"view_references":{}}"#,
+            "archive_paths": [archive_path],
+            "fetched": { fetched_url: fetched_path },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "job response: {started}");
+    let job_id = started["job_id"]
+        .as_str()
+        .expect("job id")
+        .parse::<uuid::Uuid>()
+        .expect("valid job id");
+    let source_key = job_blob_key(job_id, "source", "gw").expect("source key");
+    let archive_key = job_input_blob_key(job_id, 0);
+    let fetched_key = job_input_blob_key(job_id, 1);
+    assert!(state.media.exists(&source_key).await);
+    assert!(state.media.exists(&archive_key).await);
+    assert!(state.media.exists(&fetched_key).await);
+
+    std::fs::remove_dir_all(&input_root).expect("remove original inputs");
+    assert!(worker.run_once().await.expect("run Geneanet import job"));
+
+    let (status, completed) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(completed["phase"], "completed", "job status: {completed}");
+    assert_eq!(completed["geneanet_result"]["persons_count"], 2);
+    assert_eq!(completed["geneanet_result"]["families_count"], 1);
+    assert!(!state.media.exists(&source_key).await);
+    assert!(!state.media.exists(&archive_key).await);
+    assert!(!state.media.exists(&fetched_key).await);
+
+    let _ = std::fs::remove_dir_all(media_root);
+}
+
+#[tokio::test]
+async fn test_geneanet_import_resumes_from_projection_checkpoint() {
+    let test_id = uuid::Uuid::now_v7();
+    let media_root = std::env::temp_dir().join(format!("oxidgene-test-geneanet-resume-{test_id}"));
+    let db = setup_db().await;
+    let state = AppState::new(db, &media_root);
+    let app = build_router(state.clone());
+    let tree_id = create_tree_via_api(&app)
+        .await
+        .parse::<uuid::Uuid>()
+        .expect("valid tree id");
+    let job_id = oxidgene_api::service::background_job::stage_geneanet_import(
+        &state.db,
+        &*state.media,
+        tree_id,
+        b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n",
+        "family.gw".to_string(),
+        r#"{"deposits":[],"references":[],"details":[],"view_references":{}}"#.to_string(),
+        std::collections::HashMap::new(),
+        &[],
+        &std::collections::HashMap::new(),
+    )
+    .await
+    .expect("stage Geneanet import");
+
+    let interrupted_worker = "interrupted-geneanet-worker";
+    let claimed =
+        BackgroundJobRepo::claim_next(&state.db, interrupted_worker, chrono::Duration::seconds(30))
+            .await
+            .expect("claim job")
+            .expect("queued job");
+    assert_eq!(claimed.id, job_id);
+    let summary = oxidgene_api::service::geneanet::GeneanetImportSummary {
+        persons_count: 7,
+        families_count: 3,
+        warnings: vec!["checkpoint restored".to_string()],
+        ..Default::default()
+    };
+    assert!(
+        BackgroundJobRepo::checkpoint_import_persisted(
+            &state.db,
+            job_id,
+            interrupted_worker,
+            serde_json::to_string(&summary).expect("serialize summary"),
+            chrono::Duration::seconds(30),
+        )
+        .await
+        .expect("checkpoint import")
+    );
+    let source_key = job_blob_key(job_id, "source", "gw").expect("source key");
+    state
+        .media
+        .delete(&source_key)
+        .await
+        .expect("remove staged source");
+    assert_eq!(
+        BackgroundJobRepo::requeue_running(&state.db)
+            .await
+            .expect("requeue interrupted job"),
+        1
+    );
+
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        state.profiles.clone(),
+        state.media.clone(),
+        "replacement-geneanet-worker",
+    );
+    assert!(worker.run_once().await.expect("resume Geneanet import job"));
+
+    let (status, completed) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(completed["phase"], "completed", "job status: {completed}");
+    assert_eq!(completed["geneanet_result"]["persons_count"], 7);
+    assert_eq!(completed["geneanet_result"]["families_count"], 3);
+    assert_eq!(
+        completed["geneanet_result"]["warnings"],
+        serde_json::json!(["checkpoint restored"])
+    );
+
+    let _ = std::fs::remove_dir_all(media_root);
+}
+
+#[tokio::test]
 async fn test_async_export_job_downloads_the_completed_archive() {
     let db = setup_db().await;
     let state = AppState::new(
@@ -2064,6 +2237,7 @@ async fn tree_list_marks_only_running_file_imports() {
             kind: BackgroundJobKind::Import,
             format: "gedcom".into(),
             source_key: Some(format!("jobs/{job_id}/source.gedcom")),
+            payload_json: None,
             original_filename: None,
             merge_occupations: false,
             merge_names: false,

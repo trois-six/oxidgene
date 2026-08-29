@@ -19,16 +19,15 @@ use super::inputs::{GeneanetPreviewInput, geneanet_deposit_sizes};
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
     GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection,
-    GqlGeneanetArchiveIndex, GqlGeneanetImportPhase, GqlGeneanetImportProgress,
-    GqlGeneanetIndexedArchive, GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview,
-    GqlGivenNameReference, GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection,
-    GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference, GqlPedigree,
-    GqlPerson, GqlPersonConnection, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
+    GqlGeneanetArchiveIndex, GqlGeneanetImportResult, GqlGeneanetIndexedArchive,
+    GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
+    GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection, GqlMediaLink,
+    GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference, GqlPedigree, GqlPerson,
+    GqlPersonConnection, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
     GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
     GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
     GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
-    GqlTreeMediaLink, GqlTreeSnapshot, GqlVignette, db_from_ctx, imports_from_ctx,
-    profiles_from_ctx,
+    GqlTreeMediaLink, GqlTreeSnapshot, GqlVignette, db_from_ctx, profiles_from_ctx,
 };
 
 async fn tree_resource_exists(
@@ -947,27 +946,58 @@ impl QueryRoot {
             }
             .into());
         }
-        let result = job
-            .result_json
-            .as_deref()
-            .map(serde_json::from_str::<crate::service::gedcom::ImportSummary>)
-            .transpose()
-            .map_err(|error| async_graphql::Error::new(error.to_string()))?
-            .map(|summary| GqlImportResult {
-                persons_count: summary.persons_count as i32,
-                families_count: summary.families_count as i32,
-                events_count: summary.events_count as i32,
-                sources_count: summary.sources_count as i32,
-                media_count: summary.media_count as i32,
-                places_count: summary.places_count as i32,
-                notes_count: summary.notes_count as i32,
-                warnings: summary.warnings,
-            });
+        let (result, geneanet_result) = if job.format == "geneanet" {
+            let summary = job
+                .result_json
+                .as_deref()
+                .map(serde_json::from_str::<crate::service::geneanet::GeneanetImportSummary>)
+                .transpose()
+                .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+            (
+                None,
+                summary.map(|summary| GqlGeneanetImportResult {
+                    persons_count: summary.persons_count as i64,
+                    families_count: summary.families_count as i64,
+                    events_count: summary.events_count as i64,
+                    sources_count: summary.sources_count as i64,
+                    places_count: summary.places_count as i64,
+                    notes_count: summary.notes_count as i64,
+                    media_count: summary.media_count as i64,
+                    links_count: summary.links_count as i64,
+                    portraits_count: summary.portraits_count as i64,
+                    isolated_count: summary.isolated_count as i64,
+                    vignettes_count: summary.vignettes_count as i64,
+                    skipped: summary.skipped,
+                    warnings: summary.warnings,
+                }),
+            )
+        } else {
+            let summary = job
+                .result_json
+                .as_deref()
+                .map(serde_json::from_str::<crate::service::gedcom::ImportSummary>)
+                .transpose()
+                .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+            (
+                summary.map(|summary| GqlImportResult {
+                    persons_count: summary.persons_count as i32,
+                    families_count: summary.families_count as i32,
+                    events_count: summary.events_count as i32,
+                    sources_count: summary.sources_count as i32,
+                    media_count: summary.media_count as i32,
+                    places_count: summary.places_count as i32,
+                    notes_count: summary.notes_count as i32,
+                    warnings: summary.warnings,
+                }),
+                None,
+            )
+        };
         Ok(GqlImportJobStatus {
             phase: job.phase,
             done: job.done,
             total: job.total,
             result,
+            geneanet_result,
             error: job.error_code,
         })
     }
@@ -1046,27 +1076,6 @@ impl QueryRoot {
         .into_iter()
         .map(Into::into)
         .collect())
-    }
-
-    /// Report the state of a currently running Geneanet import.
-    async fn geneanet_import_progress(
-        &self,
-        ctx: &Context<'_>,
-        progress_id: ID,
-    ) -> Result<Option<GqlGeneanetImportProgress>> {
-        let progress_id = Uuid::parse_str(progress_id.as_str())?;
-        let progress = imports_from_ctx(ctx)
-            .lock()
-            .ok()
-            .and_then(|imports| imports.get(&progress_id).cloned());
-        Ok(progress.map(|progress| {
-            let (phase, done, total) = progress.read();
-            GqlGeneanetImportProgress {
-                phase: GqlGeneanetImportPhase::from(phase),
-                done: done as i64,
-                total: total as i64,
-            }
-        }))
     }
 
     // ── Projection queries ───────────────────────────────────────────

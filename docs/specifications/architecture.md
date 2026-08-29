@@ -89,8 +89,10 @@ API endpoints are documented in [API Contract](api.md).
     image sources, redirects, or new-window destinations.
 - Geneanet import separates control and data planes: REST/GraphQL carry import
     metadata and local paths, while the login WebView and embedded backend
-    exchange media bytes through their shared filesystem. No Geneanet media byte
-    payload is uploaded through either API surface.
+    exchange media bytes through their shared filesystem. Before returning a
+    job id, the backend copies those local inputs into durable `MediaStore`
+    objects; no Geneanet media byte payload is uploaded through either API
+    surface and no worker depends on WebView-owned temporary files.
 
 UI specifications:
 - [Common UI](ui-common.md) — shared layout, tokens, and components
@@ -145,10 +147,15 @@ flowchart LR
     API --> Jobs
 ```
 
-The API streams the uploaded source to durable storage before creating the
-job. The worker copies it to disposable scratch space, selects the GEDCOM,
-GEDZIP, or GeneWeb importer, persists the result, rebuilds projections, and
-records a serializable summary in the job.
+The API streams an uploaded source to durable storage before creating the job.
+For Geneanet, it similarly copies the `.gw`, every selected data archive, and
+every gathered medium from the desktop filesystem into job-owned objects before
+returning `202` or a GraphQL job id. The worker copies inputs to disposable
+scratch space, selects the GEDCOM, GEDZIP, GeneWeb, or Geneanet importer,
+persists the result, rebuilds projections, and records a serializable summary
+in the job. After the import checkpoint reaches `projections`, recovery rebuilds
+projections from the stored result instead of replaying the import. Terminal
+Geneanet jobs remove all of their staged input objects.
 
 ### 6.2 Export Job Flow
 
