@@ -1,6 +1,6 @@
 apiVersion: v2
 name: oxidgene
-description: Stateless web deployment for the OxidGene genealogy application
+description: Web deployment for the OxidGene genealogy application
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
@@ -11,3 +11,12 @@ keywords:
   - genealogy
   - rust
   - dioxus
+dependencies:
+  - name: cloudnative-pg
+    version: 0.29.0
+    repository: https://cloudnative-pg.github.io/charts
+    condition: cloudnative-pg.enabled
+  - name: redis-operator
+    version: 0.26.1
+    repository: https://ot-container-kit.github.io/helm-charts/
+    condition: redis-operator.enabled

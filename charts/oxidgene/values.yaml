@@ -83,13 +83,97 @@ frontend:
   topologySpreadConstraints: []
 
 database:
-  existingSecret: oxidgene-database
-  urlKey: url
+  # disabled: use an ephemeral SQLite database in the backend pod.
+  # existing: consume a PostgreSQL URL from an existing Secret.
+  # cloudnativepg: create a CloudNativePG Cluster and use its generated app Secret.
+  mode: existing
+  sqlite:
+    directory: /data
+    fileName: oxidgene.db
+  existing:
+    secret: oxidgene-database
+    urlKey: url
+  cloudnativepg:
+    requireCrd: true
+    clusterName: ""
+    instances: 3
+    imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+    database: oxidgene
+    owner: oxidgene
+    storage:
+      size: 10Gi
+      storageClass: ""
+    resources: {}
+    postgresql:
+      parameters: {}
+
+# Install the official cluster-wide CloudNativePG operator as a chart dependency.
+# Leave disabled when an administrator already manages the operator.
+cloudnative-pg:
+  enabled: false
+  crds:
+    create: true
+  config:
+    clusterWide: true
+
+redis:
+  # disabled: do not configure Redis before authenticated sessions are enabled.
+  # existing: consume a Redis URL from an existing Secret.
+  # operator: create a persistent Redis instance through Redis Operator.
+  mode: disabled
+  existing:
+    secret: oxidgene-redis
+    urlKey: url
+  operator:
+    requireCrd: true
+    instanceName: ""
+    image: quay.io/opstree/redis:v8.2.1
+    imagePullPolicy: IfNotPresent
+    credentialsSecret: oxidgene-redis
+    passwordKey: password
+    urlKey: url
+    storage:
+      size: 5Gi
+      storageClass: ""
+      accessModes: ["ReadWriteOnce"]
+      keepAfterDelete: true
+    resources: {}
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    additionalConfig: |
+      appendonly yes
+      appendfsync everysec
+
+# Install the cluster-wide OpsTree Redis Operator as a chart dependency.
+# Leave disabled when an administrator already manages the operator.
+redis-operator:
+  enabled: false
+  redisOperator:
+    serviceDNSDomain: cluster.local
+    webhook: false
+  rbac:
+    scope: cluster
 
 s3:
+  # disabled: store media in an ephemeral filesystem directory in the backend pod.
   # existing: use a bucket managed outside this release.
   # rustfs: create a Tenant, policy, user, and bucket through RustFS Operator 0.0.6+.
   mode: existing
+  filesystem:
+    root: /media
   existing:
     endpoint: https://s3.example.invalid
     bucket: oxidgene-media

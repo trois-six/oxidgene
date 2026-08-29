@@ -1,0 +1,38 @@
+{{- if eq .Values.database.mode "cloudnativepg" }}
+{{- $operatorEnabled := dig "cloudnative-pg" "enabled" false .Values.AsMap }}
+{{- if and .Values.database.cloudnativepg.requireCrd (not $operatorEnabled) (not (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1/Cluster")) }}
+{{- fail "database.mode=cloudnativepg requires the postgresql.cnpg.io/v1 Cluster CRD; enable cloudnative-pg.enabled or install CloudNativePG first" }}
+{{- end }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "oxidgene.cloudnativepgClusterName" . }}
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  instances: {{ .Values.database.cloudnativepg.instances }}
+  {{- with .Values.database.cloudnativepg.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ required "database.cloudnativepg.database is required" .Values.database.cloudnativepg.database | quote }}
+      owner: {{ required "database.cloudnativepg.owner is required" .Values.database.cloudnativepg.owner | quote }}
+      dataChecksums: true
+  enableSuperuserAccess: false
+  storage:
+    size: {{ required "database.cloudnativepg.storage.size is required" .Values.database.cloudnativepg.storage.size }}
+    {{- with .Values.database.cloudnativepg.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  {{- with .Values.database.cloudnativepg.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.database.cloudnativepg.postgresql.parameters }}
+  postgresql:
+    parameters:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+{{- end }}

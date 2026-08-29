@@ -1,6 +1,7 @@
 # Build artifacts
 /target/
 **/*.rs.bk
+/charts/*/charts/
 
 # IDE and local tooling
 /.idea/

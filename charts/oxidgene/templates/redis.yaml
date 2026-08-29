@@ -1,0 +1,77 @@
+{{- if eq .Values.redis.mode "operator" }}
+{{- $operatorEnabled := dig "redis-operator" "enabled" false .Values.AsMap }}
+{{- if and .Values.redis.operator.requireCrd (not $operatorEnabled) (not (.Capabilities.APIVersions.Has "redis.redis.opstreelabs.in/v1beta2/Redis")) }}
+{{- fail "redis.mode=operator requires the redis.redis.opstreelabs.in/v1beta2 Redis CRD; enable redis-operator.enabled or install Redis Operator first" }}
+{{- end }}
+{{- with .Values.redis.operator.additionalConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oxidgene.redisInstanceName" $ }}-config
+  labels:
+    {{- include "oxidgene.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: session-store
+data:
+  redis-additional.conf: |
+    {{- . | nindent 4 }}
+---
+{{- end }}
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: Redis
+metadata:
+  name: {{ include "oxidgene.redisInstanceName" . }}
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+    app.kubernetes.io/component: session-store
+spec:
+  kubernetesConfig:
+    image: {{ required "redis.operator.image is required" .Values.redis.operator.image | quote }}
+    imagePullPolicy: {{ .Values.redis.operator.imagePullPolicy }}
+    service:
+      serviceType: ClusterIP
+    redisSecret:
+      name: {{ required "redis.operator.credentialsSecret is required" .Values.redis.operator.credentialsSecret | quote }}
+      key: {{ required "redis.operator.passwordKey is required" .Values.redis.operator.passwordKey | quote }}
+    {{- with .Values.redis.operator.resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  redisExporter:
+    enabled: false
+  {{- with .Values.redis.operator.additionalConfig }}
+  redisConfig:
+    additionalRedisConfig: {{ printf "%s-config" (include "oxidgene.redisInstanceName" $) | quote }}
+  {{- end }}
+  storage:
+    keepAfterDelete: {{ .Values.redis.operator.storage.keepAfterDelete }}
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+          {{- toYaml .Values.redis.operator.storage.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ required "redis.operator.storage.size is required" .Values.redis.operator.storage.size | quote }}
+        {{- with .Values.redis.operator.storage.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+  {{- with .Values.redis.operator.podSecurityContext }}
+  podSecurityContext:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.redis.operator.securityContext }}
+  securityContext:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.redis.operator.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.redis.operator.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.redis.operator.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

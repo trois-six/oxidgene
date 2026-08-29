@@ -71,8 +71,9 @@ timestamp: 2026-08-26T00:00:00Z
   documented one-command startup workflow.
 - [x] Provide a Helm chart for PVC-free frontend and backend pods, services,
   ingress and TLS references, health probes, disruption budgets, autoscaling,
-  an externally managed PostgreSQL database, and either an existing S3 bucket
-  or an operator-managed RustFS Tenant.
+  ephemeral SQLite or an externally managed PostgreSQL database or CloudNativePG,
+  disabled, external, or operator-managed Redis session infrastructure, and
+  ephemeral filesystem media or an existing S3 bucket or operator-managed RustFS.
 - [ ] Validate the chart in a production-like Kubernetes cluster.
 - [x] Publish the chart as an OCI artifact with the versioned application
   images.

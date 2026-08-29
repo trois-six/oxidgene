@@ -1,4 +1,26 @@
 OxidGene has been rendered in {{ .Values.s3.mode }} S3 mode.
+PostgreSQL mode: {{ .Values.database.mode }}
+Redis mode: {{ .Values.redis.mode }}
+
+{{- if eq .Values.database.mode "disabled" }}
+SQLite database: ephemeral {{ .Values.database.sqlite.directory }}/{{ .Values.database.sqlite.fileName }}
+{{- else if eq .Values.database.mode "cloudnativepg" }}
+CloudNativePG Cluster: {{ include "oxidgene.cloudnativepgClusterName" . }}
+Check provisioning with:
+  kubectl get cluster {{ include "oxidgene.cloudnativepgClusterName" . }} -n {{ .Release.Namespace }} -o yaml
+{{- else }}
+PostgreSQL Secret: {{ .Values.database.existing.secret }}
+{{- end }}
+
+{{- if eq .Values.redis.mode "operator" }}
+Redis instance: {{ include "oxidgene.redisInstanceName" . }}
+Check provisioning with:
+  kubectl get redis {{ include "oxidgene.redisInstanceName" . }} -n {{ .Release.Namespace }} -o yaml
+{{- else if eq .Values.redis.mode "existing" }}
+Redis Secret: {{ .Values.redis.existing.secret }}
+{{- else }}
+Redis is disabled until authenticated sessions are implemented.
+{{- end }}
 
 {{- if .Values.ingress.enabled }}
 Application URL: https://{{ .Values.ingress.host }}
@@ -6,7 +28,9 @@ Application URL: https://{{ .Values.ingress.host }}
 Expose the frontend service or enable ingress to access the application.
 {{- end }}
 
-{{- if eq .Values.s3.mode "rustfs" }}
+{{- if eq .Values.s3.mode "disabled" }}
+Media filesystem: ephemeral {{ .Values.s3.filesystem.root }}
+{{- else if eq .Values.s3.mode "rustfs" }}
 RustFS Tenant: {{ include "oxidgene.rustfsTenantName" . }}
 Check provisioning with:
   kubectl get tenant {{ include "oxidgene.rustfsTenantName" . }} -n {{ .Release.Namespace }} -o yaml

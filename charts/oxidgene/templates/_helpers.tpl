@@ -40,6 +40,38 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "oxidgene.cloudnativepgClusterName" -}}
+{{- default (printf "%s-postgresql" (include "oxidgene.fullname" .)) .Values.database.cloudnativepg.clusterName | trunc 59 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "oxidgene.databaseSecretName" -}}
+{{- if eq .Values.database.mode "cloudnativepg" -}}
+{{- printf "%s-app" (include "oxidgene.cloudnativepgClusterName" .) -}}
+{{- else -}}
+{{- .Values.database.existing.secret -}}
+{{- end -}}
+{{- end }}
+
+{{- define "oxidgene.databaseUrlKey" -}}
+{{- if eq .Values.database.mode "cloudnativepg" -}}uri{{- else -}}{{ .Values.database.existing.urlKey }}{{- end -}}
+{{- end }}
+
+{{- define "oxidgene.redisInstanceName" -}}
+{{- default (printf "%s-redis" (include "oxidgene.fullname" .)) .Values.redis.operator.instanceName | trunc 54 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "oxidgene.redisSecretName" -}}
+{{- if eq .Values.redis.mode "operator" -}}
+{{- .Values.redis.operator.credentialsSecret -}}
+{{- else -}}
+{{- .Values.redis.existing.secret -}}
+{{- end -}}
+{{- end }}
+
+{{- define "oxidgene.redisUrlKey" -}}
+{{- if eq .Values.redis.mode "operator" -}}{{ .Values.redis.operator.urlKey }}{{- else -}}{{ .Values.redis.existing.urlKey }}{{- end -}}
+{{- end }}
+
 {{- define "oxidgene.rustfsTenantName" -}}
 {{- default (printf "%s-rustfs" (include "oxidgene.fullname" .)) .Values.s3.rustfs.tenantName | trunc 55 | trimSuffix "-" }}
 {{- end }}
