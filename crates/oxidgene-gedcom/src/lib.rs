@@ -16,6 +16,7 @@ use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
     Person, PersonName, Place, Source, Vignette,
 };
+use oxidgene_core::{Calendar, DateQualifier, DocumentCategory, Privacy, SourceMediaType};
 
 /// The result of importing a GEDCOM file — all domain model entities extracted
 /// from the file, ready to be persisted.
@@ -60,4 +61,46 @@ pub struct ExportResult {
     pub gedcom: String,
     /// Warnings collected during export.
     pub warnings: Vec<String>,
+}
+
+/// Metadata GEDCOM 5.5.1 cannot represent on an `OBJE` record.
+///
+/// The standard fields remain authoritative for interoperable values such as
+/// the title and physical medium. Their copies here make an OxidGene round
+/// trip exact even when another writer normalizes those standard fields.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct MediaMetadataExtension {
+    pub version: u8,
+    pub file_name: String,
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub date_value: Option<String>,
+    pub date_qualifier: DateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: Calendar,
+    pub privacy: Privacy,
+    pub source_media_type: SourceMediaType,
+    pub document_category: Option<DocumentCategory>,
+    pub tags: Vec<String>,
+    pub place: Option<MediaPlaceExtension>,
+    pub notes: Vec<MediaNoteExtension>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct MediaPlaceExtension {
+    pub name: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct MediaNoteExtension {
+    pub text: String,
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }

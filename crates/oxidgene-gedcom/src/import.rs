@@ -26,7 +26,7 @@ use oxidgene_core::types::{
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
-use crate::ImportResult;
+use crate::{ImportResult, MediaMetadataExtension};
 
 /// Import a GEDCOM string into OxidGene domain model entities.
 ///
@@ -41,7 +41,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         .map_err(|e| format!("GEDCOM parse error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
-    import_vignette_extensions(gedcom_str, &mut result);
+    import_oxidgene_media_extensions(gedcom_str, &mut result);
     assign_portraits(&mut result);
     Ok(result)
 }
@@ -130,7 +130,7 @@ pub fn prepare_gedzip<R: Read + Seek>(
         .map_err(|e| format!("GEDZIP read error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
-    import_vignette_extensions(&String::from_utf8_lossy(&gedcom), &mut result);
+    import_oxidgene_media_extensions(&String::from_utf8_lossy(&gedcom), &mut result);
     assign_portraits(&mut result);
 
     let entries: HashMap<String, String> = reader
@@ -424,7 +424,10 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             is_document: false,
             file_size: 0, // Unknown from GEDCOM
             title: mm.title.clone(),
-            description: None,
+            description: mm
+                .note_structure
+                .as_ref()
+                .and_then(|note| note.value.clone()),
             date_value: None,
             date_sort: None,
             date_qualifier: Default::default(),
@@ -897,10 +900,121 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
     Ok(result)
 }
 
-/// Restore crop annotations emitted by OxidGene beneath top-level `OBJE`
+/// Restore OxidGene metadata and crop annotations beneath top-level `OBJE`
 /// records. `ged_io` deliberately ignores unknown GEDCOM extension tags, so
 /// the standard model is imported first and these narrowly scoped lines are
 /// resolved against the xref maps it produced.
+fn import_oxidgene_media_extensions(gedcom: &str, result: &mut ImportResult) {
+    import_media_metadata_extensions(gedcom, result);
+    import_vignette_extensions(gedcom, result);
+}
+
+fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
+    let mut media_xref = None::<&str>;
+
+    for line in gedcom.lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.first() == Some(&"0") {
+            media_xref = match fields.as_slice() {
+                ["0", xref, "OBJE", ..] => Some(*xref),
+                _ => None,
+            };
+            continue;
+        }
+        let Some(value) = line.strip_prefix("1 _OXIDGENE_MEDIA ") else {
+            continue;
+        };
+        let Some(media_id) = media_xref.and_then(|xref| result.media_by_xref.get(xref).copied())
+        else {
+            continue;
+        };
+        let metadata = match serde_json::from_str::<MediaMetadataExtension>(value) {
+            Ok(metadata) if metadata.version == 1 => metadata,
+            Ok(metadata) => {
+                result.warnings.push(format!(
+                    "Media {media_xref:?}: unsupported OxidGene metadata version {}",
+                    metadata.version
+                ));
+                continue;
+            }
+            Err(err) => {
+                result.warnings.push(format!(
+                    "Media {media_xref:?}: invalid OxidGene metadata: {err}"
+                ));
+                continue;
+            }
+        };
+
+        let place_id = metadata.place.and_then(|place| {
+            if place.name.trim().is_empty() {
+                return None;
+            }
+            if let Some(existing) = result
+                .places
+                .iter_mut()
+                .find(|item| item.name == place.name)
+            {
+                existing.latitude = existing.latitude.or(place.latitude);
+                existing.longitude = existing.longitude.or(place.longitude);
+                return Some(existing.id);
+            }
+            let id = Uuid::now_v7();
+            let now = Utc::now();
+            let tree_id = result
+                .media
+                .iter()
+                .find(|item| item.id == media_id)
+                .map(|item| item.tree_id)?;
+            result.places.push(Place {
+                id,
+                tree_id,
+                name: place.name,
+                latitude: place.latitude,
+                longitude: place.longitude,
+                created_at: now,
+                updated_at: now,
+            });
+            Some(id)
+        });
+
+        let Some(media) = result.media.iter_mut().find(|item| item.id == media_id) else {
+            continue;
+        };
+        media.file_name = metadata.file_name;
+        media.created_at = metadata.created_at.unwrap_or(media.created_at);
+        media.updated_at = metadata.updated_at.unwrap_or(media.updated_at);
+        media.title = metadata.title;
+        media.description = metadata.description;
+        media.date_value = metadata.date_value;
+        media.date_qualifier = metadata.date_qualifier;
+        media.date_value2 = metadata.date_value2;
+        media.calendar = metadata.calendar;
+        media.date_sort = crate::date::sort_key(media.calendar, media.date_value.as_deref());
+        media.privacy = metadata.privacy;
+        media.source_media_type = metadata.source_media_type;
+        media.document_category = metadata.document_category;
+        media.tags = metadata.tags;
+        media.place_id = place_id;
+
+        for note in metadata.notes {
+            let created_at = note.created_at.unwrap_or_else(Utc::now);
+            result.notes.push(Note {
+                id: Uuid::now_v7(),
+                tree_id: media.tree_id,
+                text: note.text,
+                person_id: None,
+                event_id: None,
+                family_id: None,
+                source_id: None,
+                media_id: Some(media_id),
+                created_at,
+                updated_at: note.updated_at.unwrap_or(created_at),
+                deleted_at: None,
+            });
+        }
+    }
+}
+
 fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
     let mut media_xref = None::<&str>;
 
@@ -2013,7 +2127,10 @@ fn resolve_or_create_media(
             is_document: false,
             file_size: 0,
             title: mm.title.clone(),
-            description: None,
+            description: mm
+                .note_structure
+                .as_ref()
+                .and_then(|note| note.value.clone()),
             date_value: None,
             date_sort: None,
             date_qualifier: Default::default(),

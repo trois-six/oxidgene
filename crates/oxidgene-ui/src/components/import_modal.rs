@@ -169,7 +169,7 @@ pub fn ImportModal(
 
     rsx! {
         div {
-            class: "modal-backdrop",
+            class: "modal-backdrop import-modal-backdrop",
             // Dismiss on press, not click: a click fires on the common
             // ancestor of mousedown/mouseup, so selecting text inside and
             // releasing outside would close the modal. Never while busy —
@@ -836,7 +836,7 @@ fn GeneanetTab(
                 // keep alive, and a missed tick costs nothing. Ends when the
                 // server forgets the run, which it does as the import returns.
                 loop {
-                    crate::utils::sleep_ms(700).await;
+                    crate::utils::sleep_ms(200).await;
                     match api.geneanet_import_progress(run).await {
                         Ok(Some(progress)) => import_progress.set(Some(progress)),
                         Ok(None) | Err(_) => break,
@@ -1525,7 +1525,7 @@ fn SessionControls(
 /// each of 614 photos would be unusable with a screen reader.
 #[component]
 fn ProgressBar(label: String, done: usize, total: usize) -> Element {
-    let pct = (done * 100).checked_div(total).unwrap_or(0).min(100);
+    let pct = progress_percent(done, total);
 
     rsx! {
         div { class: "gn-progress-block",
@@ -1543,11 +1543,19 @@ fn ProgressBar(label: String, done: usize, total: usize) -> Element {
                     style: if total > 0 { format!("width: {pct}%") } else { String::new() },
                 }
             }
-            div { class: "gn-progress-count",
-                if total > 0 { "{done} / {total}" } else { "{done}" }
+            if total > 0 {
+                div { class: "gn-progress-count", "{pct}%" }
             }
         }
     }
+}
+
+fn progress_percent(done: usize, total: usize) -> usize {
+    if total == 0 {
+        return 0;
+    }
+
+    ((done.min(total) as u128 * 100) / total as u128) as usize
 }
 
 // ── Step 4 ──────────────────────────────────────────────────────────
@@ -2017,6 +2025,14 @@ mod tests {
         assert_eq!(human_size(512), "512 B");
         assert_eq!(human_size(2048), "2.0 KB");
         assert_eq!(human_size(5 * 1024 * 1024), "5.0 MB");
+    }
+
+    #[test]
+    fn a_large_upload_reports_progress_without_overflowing() {
+        assert_eq!(progress_percent(0, 0), 0);
+        assert_eq!(progress_percent(50, 100), 50);
+        assert_eq!(progress_percent(31_866_880, 697_900_330), 4);
+        assert_eq!(progress_percent(800_000_000, 697_900_330), 100);
     }
 
     #[test]

@@ -99,9 +99,9 @@ unheld media remain references in either format.
 What a GEDZIP round trip does **not** carry back is the structure GEDCOM has no
 tag for: a multi-page document's pages export as separate `OBJE` records, so
 re-importing the archive gives back that many separate media rather than one
-document with its pages, and a medium's original file name is lost where the
-archive path is `media/{uuid}.{ext}` — which is our own exporter's, chosen
-because two scans called `photo.jpg` in one tree is routine.
+document with its pages. The archive path remains `media/{uuid}.{ext}` so two
+scans called `photo.jpg` cannot collide, while the original file name is
+preserved separately in OxidGene's media metadata extension.
 
 ### What this tab does not do
 
@@ -136,6 +136,14 @@ sources, places, media. Warnings collapse behind a disclosure with a count.
 
 The import uses `ged_io` 0.12 to parse GEDCOM files. See [API Contract](api.md) §3 for the full round-trip fidelity table.
 
+Media title, format, physical medium, and description use the standard `TITL`,
+`FORM`, `FORM.TYPE`, and `NOTE` structures. OxidGene additionally writes one
+versioned `_OXIDGENE_MEDIA` value beneath each top-level `OBJE` so an OxidGene
+export/import also restores the original file name, structured media date,
+document category, privacy, tags, media place with its coordinates, record
+timestamps, and notes attached specifically to the media. Other GEDCOM readers
+can ignore that extension while retaining all standard fields.
+
 ### What imports cleanly
 
 | GEDCOM records | Mapping |
@@ -146,7 +154,7 @@ The import uses `ged_io` 0.12 to parse GEDCOM files. See [API Contract](api.md) 
 | SOUR (sources) | → Source (title, author, publisher, abbreviation) |
 | Citation references with QUAY | → Citation with Confidence mapping |
 | NOTE (notes) | → Note linked to the parent record |
-| OBJE (multimedia) | → Media (file path + MIME type + title, metadata only) |
+| OBJE (multimedia) | → Media (file path, MIME type, title, description, physical medium, and OxidGene extended metadata) |
 | PLAC with MAP coordinates | → Place (name + latitude + longitude) |
 | Event CAUS (cause) | → Event.cause field |
 | FAMC PEDI (pedigree type) | → FamilyChild.child_type (Biological / Adopted / Foster) |
@@ -185,7 +193,8 @@ The asynchronous path applies equally to `.ged`, `.gw`, and `.gdz`. Large text
 exports are real product inputs: Geneanet accepts GEDCOM uploads up to 350 MB,
 so archive-only handling would merely move the same renderer crash to `.ged`.
 
-Upload progress is byte-based. Server progress then names the parsing,
+Upload progress is measured in bytes but its visible readout is a percentage;
+raw byte counters are not shown. Server progress then names the parsing,
 media-storage, database, and projection phases; the media phase is determinate
 when a GEDZIP contains referenced files. The modal cannot be dismissed while
 the run is active.
@@ -221,6 +230,10 @@ step, and announces progress stage changes through a live region.
 ## 8. Responsive
 
 - The modal is `min(820px, 94vw)` wide; its body is the only thing that scrolls
+- Below 600 px, the import modal is centered in the viewport area below the
+	persistent application bar, with a 12 px outer margin. It grows to the
+	available height instead of inheriting the generic bottom-sheet alignment;
+	its header and tabs remain fixed while the wizard body scrolls
 - Stat rows wrap 4 → 2 → 1 at 900 px and 560 px
 - The drop zone is always full width
 
@@ -373,6 +386,12 @@ The genealogy uses the shared GeneWeb persistence path. Media use the ordinary
 storage path, preserving validation, deduplication, type detection, thumbnails,
 and projection refresh.
 
+The final media bar advances as each decode and thumbnail operation completes,
+including skipped media, and the UI refreshes often enough to expose those
+individual completions rather than only the boundaries between processing
+batches. Multi-page document results are reordered before database writes, so
+this granular progress never changes page order.
+
 Geneanet media bytes use the desktop filesystem as their data plane. The login
 WebView writes each gathered medium to a temporary staging directory shared
 with the embedded backend. The final REST or GraphQL call carries only the
@@ -392,8 +411,8 @@ The receipt contains aggregate counts and skipped-item summaries, followed by
 
 ### 9.8 Known limitations
 
-- Per-media determinate write progress and cancellation are not implemented.
-	Interrupting the media pass can leave complete genealogy with partial media.
+- Import cancellation is not implemented. Interrupting the media pass can
+	leave complete genealogy with partial media.
 - Unlinked media are counted but not imported.
 - Event links are created only when type, date, and optional normalized place
 	identify exactly one event; ambiguous references remain person-media links.
