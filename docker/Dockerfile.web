@@ -19,7 +19,7 @@ ARG OXIDGENE_API_URL=""
 RUN OXIDGENE_API_URL="${OXIDGENE_API_URL}" dx build --package oxidgene-web --platform web --release
 
 # ── Runtime stage ─────────────────────────────────────────────────────
-FROM nginx:1.29-trixie AS runtime
+FROM nginx:1.31-trixie AS runtime
 
 RUN rm /etc/nginx/conf.d/default.conf
 

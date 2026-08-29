@@ -1,0 +1,101 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits"
+  ],
+  "enabledManagers": [
+    "cargo",
+    "custom.regex",
+    "docker-compose",
+    "dockerfile",
+    "github-actions",
+    "helm-values",
+    "helmv3"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^docker\\/Dockerfile\\.web$/"],
+      "matchStrings": [
+        "cargo install dioxus-cli --version (?<currentValue>[^ ]+) --locked"
+      ],
+      "datasourceTemplate": "crate",
+      "depNameTemplate": "dioxus-cli",
+      "versioningTemplate": "cargo"
+    }
+  ],
+  "timezone": "Europe/Paris",
+  "schedule": ["* 3-6 * * 1"],
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "internalChecksFilter": "strict",
+  "rebaseWhen": "behind-base-branch",
+  "prConcurrentLimit": 5,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* 3-6 * * 1"]
+  },
+  "packageRules": [
+    {
+      "description": "Track GTK binding upgrades as an explicit desktop migration",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["glib", "gtk"],
+      "groupName": "GTK bindings",
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Keep Cargo manifests broad and update the resolved workspace graph",
+      "matchManagers": ["cargo"],
+      "rangeStrategy": "update-lockfile"
+    },
+    {
+      "description": "Test non-major Rust dependency updates as one coherent graph",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Rust dependencies (non-major)"
+    },
+    {
+      "description": "Keep the Dioxus framework and its build CLI aligned",
+      "matchPackageNames": ["dioxus", "dioxus-cli"],
+      "groupName": "Dioxus",
+      "separateMajorMinor": false
+    },
+    {
+      "description": "Test non-major GitHub Actions updates together",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "groupName": "GitHub Actions (non-major)"
+    },
+    {
+      "description": "Automerge stable non-major updates after CI succeeds",
+      "matchManagers": [
+        "cargo",
+        "docker-compose",
+        "dockerfile",
+        "github-actions",
+        "helm-values",
+        "helmv3"
+      ],
+      "matchCurrentVersion": "/^v?[1-9][0-9]*(\\.[0-9]+)*/",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "additionalBranchPrefix": "automerge-",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Automerge lock refreshes that stay within declared constraints",
+      "matchManagers": ["cargo", "helmv3"],
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "additionalBranchPrefix": "automerge-",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Require dashboard approval for breaking updates",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}
