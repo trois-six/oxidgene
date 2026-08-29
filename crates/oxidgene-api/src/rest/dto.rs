@@ -669,7 +669,7 @@ pub struct ImportGenewebQuery {
 }
 
 /// Response body for an import, whatever the source format.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ImportResponse {
     pub persons_count: usize,
     pub families_count: usize,
@@ -679,6 +679,41 @@ pub struct ImportResponse {
     pub places_count: usize,
     pub notes_count: usize,
     pub warnings: Vec<String>,
+}
+
+/// Parser selected for an uploaded genealogy file.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileImportFormat {
+    Gedcom,
+    Gedzip,
+    Geneweb,
+}
+
+/// Metadata for starting an asynchronous file import.
+#[derive(Debug, Deserialize)]
+pub struct StartFileImportQuery {
+    pub format: FileImportFormat,
+    /// Used only as GeneWeb's provenance label, never as a temporary path.
+    pub filename: Option<String>,
+}
+
+/// Operation identifier returned once the upload has reached durable storage.
+#[derive(Debug, Serialize)]
+pub struct FileImportStartedResponse {
+    pub job_id: uuid::Uuid,
+}
+
+/// Current server-side state of an asynchronous file import.
+#[derive(Debug, Serialize)]
+pub struct FileImportStatusResponse {
+    pub phase: crate::service::gedcom::FileImportPhase,
+    pub done: usize,
+    pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<ImportResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<&'static str>,
 }
 
 /// Response body for GEDCOM export.

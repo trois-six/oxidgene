@@ -27,8 +27,8 @@ use oxidgene_core::types::{PersonName, Vignette};
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, CreateMediaLinkBody, CreateNoteBody, MediaKind, MediaSource, MediaWithLink,
-    SetPortraitBody, UpdateMediaBody, UpdateNoteBody, UpdateVignetteBody,
+    ApiClient, ApiError, CreateMediaLinkBody, CreateNoteBody, MediaKind, MediaSource,
+    MediaWithLink, SetPortraitBody, UpdateMediaBody, UpdateNoteBody, UpdateVignetteBody,
 };
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::ContextMenuSurface;
@@ -110,34 +110,6 @@ fn PrivateVignetteImage(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MediaEventMenu {
     Link,
-}
-
-fn scroll_event_menu(id: &str, offset: i32) {
-    let script = format!(
-        "document.getElementById('{id}')?.scrollBy({{ top: {offset}, behavior: 'smooth' }});"
-    );
-    document::eval(&script);
-}
-
-fn measure_event_menu_overflow(id: String, mut overflow: Signal<(bool, bool)>) {
-    spawn(async move {
-        let script = format!(
-            "const list = document.getElementById('{id}'); \
-             return list ? [list.scrollTop > 1, list.scrollTop + list.clientHeight < list.scrollHeight - 1] : [false, false];"
-        );
-        if let Ok(value) = document::eval(&script).await {
-            overflow.set((
-                value
-                    .get(0)
-                    .and_then(|item| item.as_bool())
-                    .unwrap_or(false),
-                value
-                    .get(1)
-                    .and_then(|item| item.as_bool())
-                    .unwrap_or(false),
-            ));
-        }
-    });
 }
 
 impl MediaOwner {
@@ -508,7 +480,7 @@ fn MediaTile(
     // Where the right-click menu sits, if it is open.
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
     let mut event_menu = use_signal(|| None::<MediaEventMenu>);
-    let mut event_menu_overflow = use_signal(|| (false, false));
+    let mut event_menu_offset = use_signal(|| 0_usize);
     let mut event_link_revision = use_signal(|| 0_u32);
 
     let media_id = tile.media.id;
@@ -555,7 +527,14 @@ fn MediaTile(
     // Dated events come first in their natural chronology; incomplete facts
     // remain available but cannot jump ahead of a known date.
     menu_events.sort_by_key(|event| (event.date_sort.is_none(), event.date_sort));
-    let event_list_id = format!("media-event-menu-{media_id}");
+    let max_event_menu_offset = menu_events.len().saturating_sub(5);
+    let current_event_menu_offset = event_menu_offset().min(max_event_menu_offset);
+    let visible_menu_events = menu_events
+        .iter()
+        .skip(current_event_menu_offset)
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>();
 
     let remote_preview = (source == MediaSource::Remote && kind == MediaKind::Image)
         .then(|| tile.media.file_path.clone());
@@ -734,7 +713,7 @@ fn MediaTile(
                     e.prevent_default();
                     let point = e.client_coordinates();
                     event_menu.set(None);
-                    event_menu_overflow.set((false, false));
+                    event_menu_offset.set(0);
                     menu_at.set(Some((point.x, point.y)));
                 },
                 if source == MediaSource::Stored && tile.media.thumbnail_key.is_some() {
@@ -853,39 +832,24 @@ fn MediaTile(
                             r#type: "button",
                             onclick: move |_| {
                                 event_menu.set(None);
-                                event_menu_overflow.set((false, false));
+                                event_menu_offset.set(0);
                             },
                             "\u{2190} {i18n.t(\"common.back\")}"
                         }
                         hr { class: "context-menu-divider" }
                         div { class: "context-menu-event-picker",
-                            if event_menu_overflow().0 {
+                            if current_event_menu_offset > 0 {
                                 button {
                                     class: "context-menu-event-scroll",
                                     r#type: "button",
-                                    onmouseenter: {
-                                        let event_list_id = event_list_id.clone();
-                                        move |_| scroll_event_menu(&event_list_id, -180)
-                                    },
-                                    onclick: {
-                                        let event_list_id = event_list_id.clone();
-                                        move |_| scroll_event_menu(&event_list_id, -180)
-                                    },
+                                    title: i18n.t("media.previous_events"),
+                                    aria_label: i18n.t("media.previous_events"),
+                                    onclick: move |_| event_menu_offset.set(current_event_menu_offset - 1),
                                     "\u{25B2}"
                                 }
                             }
-                            div {
-                                id: "{event_list_id}",
-                                class: "context-menu-event-list",
-                                onmounted: {
-                                    let event_list_id = event_list_id.clone();
-                                    move |_| measure_event_menu_overflow(event_list_id.clone(), event_menu_overflow)
-                                },
-                                onscroll: {
-                                    let event_list_id = event_list_id.clone();
-                                    move |_| measure_event_menu_overflow(event_list_id.clone(), event_menu_overflow)
-                                },
-                                for event in &menu_events {
+                            div { class: "context-menu-event-list",
+                                for event in &visible_menu_events {
                                     {
                                         let event_id = event.event_id;
                                         let label = match &event.date {
@@ -912,18 +876,13 @@ fn MediaTile(
                                     }
                                 }
                             }
-                            if event_menu_overflow().1 {
+                            if current_event_menu_offset < max_event_menu_offset {
                                 button {
                                     class: "context-menu-event-scroll",
                                     r#type: "button",
-                                    onmouseenter: {
-                                        let event_list_id = event_list_id.clone();
-                                        move |_| scroll_event_menu(&event_list_id, 180)
-                                    },
-                                    onclick: {
-                                        let event_list_id = event_list_id.clone();
-                                        move |_| scroll_event_menu(&event_list_id, 180)
-                                    },
+                                    title: i18n.t("media.next_events"),
+                                    aria_label: i18n.t("media.next_events"),
+                                    onclick: move |_| event_menu_offset.set(current_event_menu_offset + 1),
                                     "\u{25BC}"
                                 }
                             }
@@ -950,7 +909,7 @@ fn MediaTile(
                                 class: "context-menu-item",
                                 r#type: "button",
                                 onclick: move |_| {
-                                    event_menu_overflow.set((false, false));
+                                    event_menu_offset.set(0);
                                     event_menu.set(Some(MediaEventMenu::Link));
                                 },
                                 {i18n.t("media.link_event")}
@@ -1881,18 +1840,19 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
 fn MediaFacts(
     tree_id: Uuid,
     media: oxidgene_core::types::Media,
+    attachment_media_id: Uuid,
+    attachment_revision: u32,
     tags: Vec<String>,
     vignettes: Vec<Vignette>,
     person_names: Vec<PersonName>,
     events: Vec<(Uuid, String)>,
     on_vignettes_changed: EventHandler<()>,
-    on_identify: EventHandler<()>,
+    on_vignette_hover: EventHandler<Option<Uuid>>,
     on_changed: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let media_id = media.id;
-
     let notes = use_resource({
         let api = api.clone();
         move || {
@@ -1984,15 +1944,15 @@ fn MediaFacts(
             }
             MediaFact { label: i18n.t("media.note"), value: note, prose: true }
 
-            div { class: "form-group media-fact",
-                label { {i18n.t("media.identified")} }
-                MediaIdentifications {
-                    tree_id,
-                    vignettes,
-                    person_names,
-                    on_changed: on_vignettes_changed,
-                    on_identify: on_identify,
-                }
+            MediaRelations {
+                key: "{attachment_revision}",
+                tree_id,
+                media_id: attachment_media_id,
+                vignettes,
+                person_names,
+                on_attachments_changed: on_changed,
+                on_identifications_changed: on_vignettes_changed,
+                on_identification_hover: on_vignette_hover,
             }
 
             if !events.is_empty() {
@@ -2028,6 +1988,298 @@ fn MediaFacts(
                 if media.file_size > 0 {
                     span { {format_size(media.file_size)} }
                 }
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+enum MediaRelation {
+    PersonAttachment {
+        link_id: Uuid,
+        person_id: Uuid,
+        name: String,
+    },
+    CoupleAttachment {
+        link_id: Uuid,
+        family_id: Uuid,
+        label: String,
+    },
+    Identification {
+        vignette_id: Uuid,
+        name: Option<String>,
+    },
+}
+
+#[component]
+fn MediaRelations(
+    tree_id: Uuid,
+    media_id: Uuid,
+    vignettes: Vec<Vignette>,
+    person_names: Vec<PersonName>,
+    on_attachments_changed: EventHandler<()>,
+    on_identifications_changed: EventHandler<()>,
+    on_identification_hover: EventHandler<Option<Uuid>>,
+) -> Element {
+    const ROWS_PER_PAGE: usize = 5;
+
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut revision = use_signal(|| 0_u32);
+    let mut relation_offset = use_signal(|| 0_usize);
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let data = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let _ = revision();
+            async move {
+                let links = api.list_media_links_of(tree_id, media_id).await.ok()?;
+                let snapshot = api.get_tree_snapshot(tree_id).await.ok()?;
+                Some((links, snapshot))
+            }
+        }
+    });
+    let data = data.read_unchecked();
+    let mut relations = Vec::new();
+    if let Some(Some((links, snapshot))) = data.as_ref() {
+        for link in links.iter().filter(|link| link.person_id.is_some()) {
+            let person_id = link.person_id.expect("filtered person link");
+            if relations.iter().any(|relation| {
+                matches!(
+                    relation,
+                    MediaRelation::PersonAttachment {
+                        person_id: attached_id,
+                        ..
+                    } if *attached_id == person_id
+                )
+            }) {
+                continue;
+            }
+            if let Some(name) = primary_person_name(&snapshot.names, person_id) {
+                relations.push(MediaRelation::PersonAttachment {
+                    link_id: link.id,
+                    person_id,
+                    name,
+                });
+            }
+        }
+
+        for link in links.iter().filter(|link| link.family_id.is_some()) {
+            let family_id = link.family_id.expect("filtered family link");
+            if relations.iter().any(|relation| {
+                matches!(
+                    relation,
+                    MediaRelation::CoupleAttachment {
+                        family_id: attached_id,
+                        ..
+                    } if *attached_id == family_id
+                )
+            }) {
+                continue;
+            }
+            let spouse_names = snapshot
+                .spouses
+                .iter()
+                .filter(|spouse| spouse.family_id == family_id)
+                .filter_map(|spouse| primary_person_name(&snapshot.names, spouse.person_id))
+                .collect::<Vec<_>>();
+            let people = if spouse_names.is_empty() {
+                i18n.t("media.attach_unknown_spouse")
+            } else {
+                spouse_names.join(" & ")
+            };
+            relations.push(MediaRelation::CoupleAttachment {
+                link_id: link.id,
+                family_id,
+                label: i18n.t_args("media.attached_couple", &[("people", &people)]),
+            });
+        }
+    }
+
+    relations.extend(
+        vignettes
+            .iter()
+            .filter(|vignette| vignette.person_id.is_some())
+            .map(|vignette| MediaRelation::Identification {
+                vignette_id: vignette.id,
+                name: vignette
+                    .person_id
+                    .and_then(|person_id| primary_person_name(&person_names, person_id)),
+            }),
+    );
+
+    if relations.is_empty() {
+        return rsx! {};
+    }
+
+    let max_relation_offset = relations.len().saturating_sub(ROWS_PER_PAGE);
+    let current_relation_offset = relation_offset().min(max_relation_offset);
+    let visible_relations = relations
+        .into_iter()
+        .skip(current_relation_offset)
+        .take(ROWS_PER_PAGE)
+        .collect::<Vec<_>>();
+
+    let delete_attachment = use_callback({
+        let api = api.clone();
+        move |link_id: Uuid| {
+            let api = api.clone();
+            spawn(async move {
+                busy.set(true);
+                error.set(None);
+                match api.delete_media_link(tree_id, link_id).await {
+                    Ok(()) => {
+                        revision += 1;
+                        on_attachments_changed.call(());
+                    }
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    });
+
+    let delete_identification = use_callback({
+        let api = api.clone();
+        move |vignette_id: Uuid| {
+            let api = api.clone();
+            spawn(async move {
+                busy.set(true);
+                error.set(None);
+                match api.delete_vignette(tree_id, vignette_id).await {
+                    Ok(_) => on_identifications_changed.call(()),
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    });
+
+    rsx! {
+        div { class: "form-group media-fact is-relations",
+            label { {i18n.t("media.relations")} }
+            div { class: "media-relations",
+                div { class: "media-relation-list",
+                    for relation in visible_relations {
+                        match relation {
+                            MediaRelation::PersonAttachment { link_id, person_id, name } => rsx! {
+                                div { key: "person-{person_id}", class: "media-vignette-item",
+                                    PrivateThumbnail {
+                                        tree_id,
+                                        media_id,
+                                        alt: String::new(),
+                                        class: "media-vignette-thumbnail",
+                                    }
+                                    Link {
+                                        to: Route::PersonDetail {
+                                            tree_id: tree_id.to_string(),
+                                            person_id: person_id.to_string(),
+                                        },
+                                        class: "media-identification-person",
+                                        "{name}"
+                                    }
+                                    button {
+                                        class: "media-identification-delete",
+                                        r#type: "button",
+                                        disabled: busy(),
+                                        title: i18n.t("media.delete_attachment"),
+                                        onclick: move |_| delete_attachment.call(link_id),
+                                        "\u{00D7}"
+                                    }
+                                }
+                            },
+                            MediaRelation::CoupleAttachment { link_id, family_id, label } => rsx! {
+                                div { key: "family-{family_id}", class: "media-vignette-item",
+                                    PrivateThumbnail {
+                                        tree_id,
+                                        media_id,
+                                        alt: String::new(),
+                                        class: "media-vignette-thumbnail",
+                                    }
+                                    span { class: "media-attachment-couple", "{label}" }
+                                    button {
+                                        class: "media-identification-delete",
+                                        r#type: "button",
+                                        disabled: busy(),
+                                        title: i18n.t("media.delete_attachment"),
+                                        onclick: move |_| delete_attachment.call(link_id),
+                                        "\u{00D7}"
+                                    }
+                                }
+                            },
+                            MediaRelation::Identification { vignette_id, name } => rsx! {
+                                div {
+                                    key: "vignette-{vignette_id}",
+                                    class: "media-identification",
+                                    onpointerenter: move |_| on_identification_hover.call(Some(vignette_id)),
+                                    onpointerleave: move |_| on_identification_hover.call(None),
+                                    div { class: "media-vignette-item",
+                                        div { class: "media-identification-target",
+                                            PrivateVignetteImage {
+                                                tree_id,
+                                                vignette_id,
+                                                alt: String::new(),
+                                                class: "media-vignette-thumbnail",
+                                            }
+                                            if let Some(name) = name.as_ref() {
+                                                span { class: "media-identification-person", "{name}" }
+                                            }
+                                        }
+                                        if name.is_some() {
+                                            button {
+                                                class: "media-identification-delete",
+                                                r#type: "button",
+                                                disabled: busy(),
+                                                title: i18n.t("media.delete_identification"),
+                                                onclick: move |_| delete_identification.call(vignette_id),
+                                                "\u{00D7}"
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
+                if max_relation_offset > 0 {
+                    div { class: "media-relation-pager",
+                        button {
+                            class: "media-relation-page-button",
+                            r#type: "button",
+                            disabled: current_relation_offset == 0,
+                            title: i18n.t("media.previous_relations"),
+                            aria_label: i18n.t("media.previous_relations"),
+                            onclick: move |_| relation_offset.set(current_relation_offset.saturating_sub(1)),
+                            svg {
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                "strokeLinecap": "round", "strokeLinejoin": "round",
+                                path { d: "m18 15-6-6-6 6" }
+                            }
+                        }
+                        button {
+                            class: "media-relation-page-button",
+                            r#type: "button",
+                            disabled: current_relation_offset >= max_relation_offset,
+                            title: i18n.t("media.next_relations"),
+                            aria_label: i18n.t("media.next_relations"),
+                            onclick: move |_| relation_offset.set(
+                                (current_relation_offset + 1).min(max_relation_offset),
+                            ),
+                            svg {
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                "strokeLinecap": "round", "strokeLinejoin": "round",
+                                path { d: "m6 9 6 6 6-6" }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(message) = error() {
+                div { class: "error-msg", "{message}" }
             }
         }
     }
@@ -2131,91 +2383,6 @@ fn MediaEventLinks(
     }
 }
 
-/// Reader-side controls for the regions identifying people on a media.
-#[component]
-fn MediaIdentifications(
-    tree_id: Uuid,
-    vignettes: Vec<Vignette>,
-    person_names: Vec<PersonName>,
-    on_changed: EventHandler<()>,
-    on_identify: EventHandler<()>,
-) -> Element {
-    let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let mut busy = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
-
-    let delete_identification = use_callback({
-        let api = api.clone();
-        move |vignette_id: Uuid| {
-            let api = api.clone();
-            spawn(async move {
-                busy.set(true);
-                error.set(None);
-                match api.delete_vignette(tree_id, vignette_id).await {
-                    Ok(_) => {
-                        on_changed.call(());
-                    }
-                    Err(err) => error.set(Some(err.to_string())),
-                }
-                busy.set(false);
-            });
-        }
-    });
-
-    rsx! {
-        div { class: "media-vignette-list",
-            button {
-                class: "media-identification-add",
-                r#type: "button",
-                disabled: busy(),
-                onclick: move |_| on_identify.call(()),
-                {i18n.t("media.identify_person")}
-            }
-            for vignette in vignettes.iter().filter(|vignette| vignette.person_id.is_some()) {
-                {
-                    let vignette_id = vignette.id;
-                    let identified = vignette
-                        .person_id
-                        .and_then(|person_id| primary_person_name(&person_names, person_id).map(|name| (person_id, name)));
-                    rsx! {
-                        div { key: "{vignette_id}", class: "media-identification",
-                            div { class: "media-vignette-item",
-                                PrivateVignetteImage {
-                                    tree_id,
-                                    vignette_id,
-                                    alt: String::new(),
-                                }
-                                if let Some((person_id, name)) = identified {
-                                    Link {
-                                        to: Route::TreeDetail {
-                                            tree_id: tree_id.to_string(),
-                                            person: Some(person_id.to_string()),
-                                        },
-                                        class: "media-identification-person",
-                                        "{name}"
-                                    }
-                                    button {
-                                        class: "media-identification-delete",
-                                        r#type: "button",
-                                        disabled: busy(),
-                                        title: i18n.t("media.delete_identification"),
-                                        onclick: move |_| delete_identification.call(vignette_id),
-                                        "\u{00D7}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(message) = error() {
-            div { class: "error-msg", "{message}" }
-        }
-    }
-}
-
 /// One read-only field, using the same label/value structure as the forms.
 #[component]
 fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool) -> Element {
@@ -2238,6 +2405,58 @@ fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool
 enum MediaZoomAnchor {
     Center,
     Pointer(f64, f64),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum MediaAttachmentMode {
+    Person,
+    CouplePerson,
+    CoupleFamily,
+}
+
+#[derive(Clone, PartialEq)]
+struct MediaFamilyChoice {
+    family_id: Uuid,
+    label: String,
+}
+
+#[derive(Clone, Copy)]
+enum MediaAttachmentTarget {
+    Person(Uuid),
+    Family(Uuid),
+}
+
+async fn attach_media_to(
+    api: &ApiClient,
+    tree_id: Uuid,
+    media_id: Uuid,
+    target: MediaAttachmentTarget,
+) -> Result<bool, ApiError> {
+    let links = api.list_media_links_of(tree_id, media_id).await?;
+    let already_linked = links.iter().any(|link| match target {
+        MediaAttachmentTarget::Person(person_id) => link.person_id == Some(person_id),
+        MediaAttachmentTarget::Family(family_id) => link.family_id == Some(family_id),
+    });
+    if already_linked {
+        return Ok(false);
+    }
+
+    let body = CreateMediaLinkBody {
+        media_id,
+        person_id: match target {
+            MediaAttachmentTarget::Person(person_id) => Some(person_id),
+            MediaAttachmentTarget::Family(_) => None,
+        },
+        family_id: match target {
+            MediaAttachmentTarget::Family(family_id) => Some(family_id),
+            MediaAttachmentTarget::Person(_) => None,
+        },
+        event_id: None,
+        source_id: None,
+        sort_order: 0,
+    };
+    api.create_media_link(tree_id, &body).await?;
+    Ok(true)
 }
 
 fn vignette_overlay_style(vignette: &Vignette, width: Option<i32>, height: Option<i32>) -> String {
@@ -2280,6 +2499,13 @@ fn MediaViewer(
     // the document, not to fill in a form, so the form is a step they take.
     let mut editing = use_signal(|| false);
     let mut identifying = use_signal(|| false);
+    let mut highlighted_vignette = use_signal(|| None::<Uuid>);
+    let mut attachment_mode = use_signal(|| None::<MediaAttachmentMode>);
+    let mut attachment_busy = use_signal(|| false);
+    let mut attachment_error = use_signal(|| None::<String>);
+    let mut attachment_notice = use_signal(|| None::<String>);
+    let mut attachment_revision = use_signal(|| 0_u32);
+    let mut family_choices = use_signal(Vec::<MediaFamilyChoice>::new);
     let mut media_revision = use_signal(|| 0_u32);
     let mut delete_confirming = use_signal(|| false);
     let mut deleting = use_signal(|| false);
@@ -2648,6 +2874,118 @@ fn MediaViewer(
         stage_class.push_str(" is-dragging");
     }
 
+    let close_attachment = use_callback(move |()| {
+        attachment_mode.set(None);
+        attachment_busy.set(false);
+        attachment_error.set(None);
+        family_choices.set(Vec::new());
+    });
+
+    let attach_person = {
+        let api = api.clone();
+        let success = i18n.t("media.attach_success");
+        let duplicate = i18n.t("media.attach_duplicate");
+        move |person_id: Uuid| {
+            let api = api.clone();
+            let success = success.clone();
+            let duplicate = duplicate.clone();
+            spawn(async move {
+                attachment_busy.set(true);
+                attachment_error.set(None);
+                attachment_notice.set(None);
+                match attach_media_to(
+                    &api,
+                    tree_id,
+                    content_media_id,
+                    MediaAttachmentTarget::Person(person_id),
+                )
+                .await
+                {
+                    Ok(created) => {
+                        attachment_notice.set(Some(if created { success } else { duplicate }));
+                        attachment_mode.set(None);
+                        attachment_revision += 1;
+                        on_changed.call(());
+                    }
+                    Err(error) => attachment_error.set(Some(error.to_string())),
+                }
+                attachment_busy.set(false);
+            });
+        }
+    };
+
+    let select_couple_person = {
+        let api = api.clone();
+        move |person_id: Uuid| {
+            let api = api.clone();
+            spawn(async move {
+                attachment_busy.set(true);
+                attachment_error.set(None);
+                family_choices.set(Vec::new());
+                match api.get_person_profile(tree_id, person_id).await {
+                    Ok(profile) => {
+                        let choices: Vec<MediaFamilyChoice> = profile
+                            .families_as_spouse
+                            .into_iter()
+                            .map(|family| {
+                                let spouse = family
+                                    .spouse_display_name
+                                    .unwrap_or_else(|| i18n.t("media.attach_unknown_spouse"));
+                                MediaFamilyChoice {
+                                    family_id: family.family_id,
+                                    label: i18n
+                                        .t_args("media.attach_couple_with", &[("person", &spouse)]),
+                                }
+                            })
+                            .collect();
+                        if choices.is_empty() {
+                            attachment_error.set(Some(i18n.t("media.attach_no_couple")));
+                            attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
+                        } else {
+                            family_choices.set(choices);
+                            attachment_mode.set(Some(MediaAttachmentMode::CoupleFamily));
+                        }
+                    }
+                    Err(error) => attachment_error.set(Some(error.to_string())),
+                }
+                attachment_busy.set(false);
+            });
+        }
+    };
+
+    let attach_family = use_callback({
+        let api = api.clone();
+        let success = i18n.t("media.attach_success");
+        let duplicate = i18n.t("media.attach_duplicate");
+        move |family_id: Uuid| {
+            let api = api.clone();
+            let success = success.clone();
+            let duplicate = duplicate.clone();
+            spawn(async move {
+                attachment_busy.set(true);
+                attachment_error.set(None);
+                attachment_notice.set(None);
+                match attach_media_to(
+                    &api,
+                    tree_id,
+                    content_media_id,
+                    MediaAttachmentTarget::Family(family_id),
+                )
+                .await
+                {
+                    Ok(created) => {
+                        attachment_notice.set(Some(if created { success } else { duplicate }));
+                        attachment_mode.set(None);
+                        attachment_revision += 1;
+                        on_changed.call(());
+                    }
+                    Err(error) => attachment_error.set(Some(error.to_string())),
+                }
+                attachment_busy.set(false);
+            });
+        }
+    });
+
     rsx! {
         div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
             div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
@@ -2691,12 +3029,14 @@ fn MediaViewer(
                         MediaFacts {
                             tree_id,
                             media: current_media.clone(),
+                            attachment_media_id: content_media_id,
+                            attachment_revision: attachment_revision(),
                             tags: current_media.tags.clone(),
                             vignettes: content_vignettes.clone(),
                             person_names: person_names.clone(),
                             events: events.clone(),
                             on_vignettes_changed: move |_| vignette_revision += 1,
-                            on_identify: move |_| identifying.set(true),
+                            on_vignette_hover: move |vignette_id| highlighted_vignette.set(vignette_id),
                             on_changed,
                         }
                         // Not gated on `read_only`. That flag governs the
@@ -2777,7 +3117,89 @@ fn MediaViewer(
                                 line { x1: "8", y1: "11", x2: "14", y2: "11" }
                             }
                         }
+                        button {
+                            class: "pf-confirm-btn media-identify-toolbar-btn",
+                            r#type: "button",
+                            onclick: move |_| identifying.set(true),
+                            {i18n.t("media.identify_person")}
+                        }
+                        button {
+                            class: "btn btn-outline media-attach-toolbar-btn",
+                            r#type: "button",
+                            onclick: move |_| {
+                                close_attachment.call(());
+                                attachment_notice.set(None);
+                                attachment_mode.set(Some(MediaAttachmentMode::Person));
+                            },
+                            {i18n.t("media.attach_person")}
+                        }
+                        button {
+                            class: "btn btn-outline media-attach-toolbar-btn",
+                            r#type: "button",
+                            onclick: move |_| {
+                                close_attachment.call(());
+                                attachment_notice.set(None);
+                                attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
+                            },
+                            {i18n.t("media.attach_couple")}
+                        }
                     }
+                }
+                if let Some(mode) = attachment_mode() {
+                    div { class: "media-attachment-picker",
+                        div { class: "media-attachment-picker-head",
+                            strong {
+                                if mode == MediaAttachmentMode::Person {
+                                    {i18n.t("media.attach_person")}
+                                } else if mode == MediaAttachmentMode::CouplePerson {
+                                    {i18n.t("media.attach_find_couple")}
+                                } else {
+                                    {i18n.t("media.attach_choose_couple")}
+                                }
+                            }
+                            button {
+                                class: "person-form-close",
+                                r#type: "button",
+                                onclick: move |_| close_attachment.call(()),
+                                "\u{00D7}"
+                            }
+                        }
+                        if attachment_busy() {
+                            div { class: "loading", {i18n.t("common.loading")} }
+                        } else if mode == MediaAttachmentMode::Person {
+                            SearchPerson {
+                                tree_id,
+                                placeholder: i18n.t("media.attach_person_placeholder"),
+                                on_select: attach_person,
+                                on_cancel: move |()| close_attachment.call(()),
+                            }
+                        } else if mode == MediaAttachmentMode::CouplePerson {
+                            SearchPerson {
+                                tree_id,
+                                placeholder: i18n.t("media.attach_couple_placeholder"),
+                                on_select: select_couple_person,
+                                on_cancel: move |()| close_attachment.call(()),
+                            }
+                        } else {
+                            div { class: "media-family-choices",
+                                for family in family_choices() {
+                                    button {
+                                        key: "{family.family_id}",
+                                        class: "btn btn-outline",
+                                        r#type: "button",
+                                        onclick: move |_| attach_family.call(family.family_id),
+                                        "{family.label}"
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(message) = attachment_error() {
+                            div { class: "error-msg", "{message}" }
+                        }
+                    }
+                }
+                if let Some(message) = attachment_notice() {
+                    div { class: "media-attachment-notice", "{message}" }
                 }
                 div {
                     id: "{stage_id}",
@@ -2834,11 +3256,16 @@ fn MediaViewer(
                                     alt: "{caption}",
                                     draggable: "false",
                                     style: "{image_style}",
+                                    onload: move |_| fit_image.call(()),
                                 }
                                 for vignette in content_vignettes.iter() {
                                     div {
                                         key: "{vignette.id}",
-                                        class: "media-viewer-vignette",
+                                        class: if highlighted_vignette() == Some(vignette.id) {
+                                            "media-viewer-vignette is-active"
+                                        } else {
+                                            "media-viewer-vignette"
+                                        },
                                         style: "{vignette_overlay_style(vignette, content_width, content_height)}",
                                         onpointerdown: move |event| event.stop_propagation(),
                                         if let Some(person_id) = vignette.person_id

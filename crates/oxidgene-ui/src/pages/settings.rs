@@ -3,15 +3,14 @@
 //! Provides tree configuration (Tree & Roots), tools stubs,
 //! and GEDCOM export functionality.
 
-use std::collections::HashMap;
-
 use dioxus::prelude::*;
 use oxidgene_core::enums::TreeDefaultPrivacy;
-use oxidgene_core::types::PersonName;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, UpdateTreeBody};
-use crate::components::search_person::SearchPerson;
+use crate::components::search_person::{
+    PersonSearchSummary, SearchPerson, render_person_search_summary,
+};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{Language, use_i18n};
@@ -20,7 +19,6 @@ use crate::pages::app_settings::{
 };
 use crate::prefs::SortParticles;
 use crate::router::Route;
-use crate::utils::resolve_name;
 
 /// Settings page for a tree.
 #[component]
@@ -358,6 +356,19 @@ fn TreeRootsSection(
     let api = use_context::<ApiClient>();
     let tree_cache = use_tree_cache();
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
+    let api_portraits = api.clone();
+    let portraits_resource = use_resource(move || {
+        let api = api_portraits.clone();
+        async move {
+            match tree_id_parsed {
+                Some(tree_id) => match api.list_portraits(tree_id).await {
+                    Ok(rows) => api.portrait_map(tree_id, &rows).await,
+                    Err(_) => Default::default(),
+                },
+                None => Default::default(),
+            }
+        }
+    });
 
     let mut show_search = use_signal(|| false);
     let mut save_message = use_signal(|| None::<String>);
@@ -431,12 +442,12 @@ fn TreeRootsSection(
         });
     };
 
-    // Fetch root person's names directly (no full tree snapshot needed).
+    // Fetch root person's identity directly (no full tree snapshot needed).
     // Reactive reads MUST happen inside the closure so use_resource re-runs
     // when tree_resource or local_sosa_override change.
-    let api_names = api.clone();
-    let root_names_resource = use_resource(move || {
-        let api = api_names.clone();
+    let api_root_person = api.clone();
+    let root_person_resource = use_resource(move || {
+        let api = api_root_person.clone();
         let root_id = match local_sosa_override() {
             Some(val) => val,
             None => match &*tree_resource.read() {
@@ -449,37 +460,36 @@ fn TreeRootsSection(
             let (Some(rid), Some(tid)) = (root_id, tid) else {
                 return None;
             };
-            api.list_person_names(tid, rid).await.ok()
+            api.get_person_profile(tid, rid)
+                .await
+                .ok()
+                .map(PersonSearchSummary::from)
         }
     });
 
-    // Resolve the current root person's name
-    let root_person_name = {
-        if current_sosa_root.is_some() {
-            let data = root_names_resource.read();
+    // Resolve the current root person's search summary.
+    let root_person_summary = {
+        if let Some(root_id) = current_sosa_root {
+            let data = root_person_resource.read();
             match &*data {
-                Some(Some(names_vec)) => {
-                    let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
-                    for name in names_vec.iter() {
-                        name_map
-                            .entry(name.person_id)
-                            .or_default()
-                            .push(name.clone());
-                    }
-                    let rid = current_sosa_root.unwrap();
-                    Some(resolve_name(rid, &name_map, &i18n))
-                }
-                Some(None) => Some(i18n.t("common.unknown")),
-                None => Some(i18n.t("common.loading")),
+                Some(Some(summary)) => Some(summary.clone()),
+                Some(None) => Some(PersonSearchSummary::placeholder(
+                    root_id,
+                    i18n.t("common.unknown"),
+                )),
+                None => Some(PersonSearchSummary::placeholder(
+                    root_id,
+                    i18n.t("common.loading"),
+                )),
             }
         } else {
             None
         }
     };
 
-    let api_self_names = api.clone();
-    let self_names_resource = use_resource(move || {
-        let api = api_self_names.clone();
+    let api_self_person = api.clone();
+    let self_person_resource = use_resource(move || {
+        let api = api_self_person.clone();
         let self_person_id = match local_self_override() {
             Some(value) => value,
             None => match &*tree_resource.read() {
@@ -492,31 +502,42 @@ fn TreeRootsSection(
             let (Some(person_id), Some(tid)) = (self_person_id, tid) else {
                 return None;
             };
-            api.list_person_names(tid, person_id).await.ok()
+            api.get_person_profile(tid, person_id)
+                .await
+                .ok()
+                .map(PersonSearchSummary::from)
         }
     });
 
-    let self_person_name = {
-        if current_self_person.is_some() {
-            let data = self_names_resource.read();
+    let self_person_summary = {
+        if let Some(person_id) = current_self_person {
+            let data = self_person_resource.read();
             match &*data {
-                Some(Some(names_vec)) => {
-                    let mut name_map: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
-                    for name in names_vec.iter() {
-                        name_map
-                            .entry(name.person_id)
-                            .or_default()
-                            .push(name.clone());
-                    }
-                    Some(resolve_name(current_self_person.unwrap(), &name_map, &i18n))
-                }
-                Some(None) => Some(i18n.t("common.unknown")),
-                None => Some(i18n.t("common.loading")),
+                Some(Some(summary)) => Some(summary.clone()),
+                Some(None) => Some(PersonSearchSummary::placeholder(
+                    person_id,
+                    i18n.t("common.unknown"),
+                )),
+                None => Some(PersonSearchSummary::placeholder(
+                    person_id,
+                    i18n.t("common.loading"),
+                )),
             }
         } else {
             None
         }
     };
+    let portrait_urls = {
+        let data = portraits_resource.read();
+        match &*data {
+            Some(urls) => urls.clone(),
+            None => Default::default(),
+        }
+    };
+    let root_person_portrait =
+        current_sosa_root.and_then(|person_id| portrait_urls.get(&person_id).cloned());
+    let self_person_portrait =
+        current_self_person.and_then(|person_id| portrait_urls.get(&person_id).cloned());
 
     // Handler: save the selected person as sosa root
     let api_save = api.clone();
@@ -679,14 +700,11 @@ fn TreeRootsSection(
                             on_cancel: move |_| show_search.set(false),
                         }
                     }
-                } else if let Some(name) = &root_person_name {
+                } else if let Some(summary) = &root_person_summary {
                     // Show current root person
                     div { class: "sosa-root-display",
                         div { class: "sosa-root-person",
-                            div { class: "sosa-root-avatar",
-                                {name.chars().next().unwrap_or('?').to_string()}
-                            }
-                            span { class: "sosa-root-name", "{name}" }
+                            {render_person_search_summary(summary, root_person_portrait.clone())}
                         }
                         div { class: "sosa-root-actions",
                             button {
@@ -739,13 +757,10 @@ fn TreeRootsSection(
                             on_cancel: move |_| show_self_search.set(false),
                         }
                     }
-                } else if let Some(name) = &self_person_name {
+                } else if let Some(summary) = &self_person_summary {
                     div { class: "sosa-root-display",
                         div { class: "sosa-root-person",
-                            div { class: "sosa-root-avatar",
-                                {name.chars().next().unwrap_or('?').to_string()}
-                            }
-                            span { class: "sosa-root-name", "{name}" }
+                            {render_person_search_summary(summary, self_person_portrait.clone())}
                         }
                         div { class: "sosa-root-actions",
                             button {
@@ -1142,24 +1157,7 @@ const SETTINGS_STYLES: &str = r#"
         display: flex;
         align-items: center;
         gap: 10px;
-    }
-    .sosa-root-avatar {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: var(--orange);
-        color: var(--white);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.85rem;
-        font-weight: 700;
-        flex-shrink: 0;
-    }
-    .sosa-root-name {
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: var(--text-primary);
+        min-width: 0;
     }
     .sosa-root-actions {
         display: flex;

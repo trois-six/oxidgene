@@ -109,6 +109,14 @@ Cards are displayed in a responsive grid (`minmax(280px, 1fr)`). The last card i
 | Default | Neutral border, subtle shadow |
 | Hover | Orange border, lifted shadow, 2px upward translate |
 | New (< 24h) | Green "Recent" badge in footer |
+| Importing | Full-card translucent overlay, activity indicator, and localized “Import in progress” status |
+
+An importing card is inert: it renders neither the Open link nor the three-dot
+menu, including for keyboard navigation. The state comes from the backend's
+active job registry through `GET /trees`, so reloading the page cannot expose a
+tree between database persistence and projection completion. While at least one
+card is importing, the home page refreshes the tree list once per second; it
+stops polling and restores the card only after the job becomes terminal.
 
 ### Create-a-tree card
 
@@ -125,7 +133,8 @@ Appears in the top-right of each card. Opens a dropdown with:
 - **Duplicate** — creates a copy of the tree
 - **Import** — opens the GEDCOM import flow for this tree
 - **Settings** — navigates to tree settings (`/trees/{id}/settings`)
-- **Delete** — destructive action, shown in red on hover, requires confirmation
+- **Delete** — destructive action, always shown in red with a tinted hover,
+  requires confirmation
 
 The dropdown closes on outside click or Escape.
 

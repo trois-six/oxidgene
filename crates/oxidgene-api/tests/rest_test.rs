@@ -1884,6 +1884,86 @@ async fn test_gedcom_import() {
 }
 
 #[tokio::test]
+async fn test_async_file_import_job() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    let (status, started) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{tree_id}/import-jobs?format=gedcom"),
+        minimal_gedcom().as_bytes().to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job_id = started["job_id"].as_str().expect("job id");
+    let temporary = std::env::temp_dir().join("oxidgene-imports").join(job_id);
+
+    let completed = loop {
+        let (status, progress) = send_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        if progress["phase"] == "completed" {
+            break progress;
+        }
+        assert_ne!(progress["phase"], "failed", "job failed: {progress}");
+        tokio::task::yield_now().await;
+    };
+
+    assert_eq!(completed["result"]["persons_count"], 2);
+    assert_eq!(completed["result"]["families_count"], 1);
+    assert!(!temporary.exists(), "temporary upload was not removed");
+
+    let (_, persons) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(persons["edges"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn tree_list_marks_only_running_file_imports() {
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join("oxidgene-test-active-import-media"),
+    );
+    let app = build_router(state.clone());
+    let tree_id = create_tree_via_api(&app)
+        .await
+        .parse::<uuid::Uuid>()
+        .unwrap();
+    let job_id = uuid::Uuid::now_v7();
+    let progress =
+        std::sync::Arc::new(oxidgene_api::service::gedcom::FileImportProgress::default());
+    progress.enter(oxidgene_api::service::gedcom::FileImportPhase::Parsing);
+    state
+        .file_imports
+        .lock()
+        .unwrap()
+        .insert(job_id, (tree_id, std::sync::Arc::clone(&progress)));
+
+    let (_, running) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
+    assert_eq!(running["edges"][0]["node"]["import_in_progress"], true);
+    assert_eq!(
+        running["edges"][0]["node"]["import_job_id"],
+        job_id.to_string()
+    );
+
+    progress.enter(oxidgene_api::service::gedcom::FileImportPhase::Completed);
+    let (_, completed) = send_request(app, Method::GET, "/api/v1/trees", None).await;
+    assert_eq!(completed["edges"][0]["node"]["import_in_progress"], false);
+    assert!(completed["edges"][0]["node"]["import_job_id"].is_null());
+}
+
+#[tokio::test]
 async fn test_gedcom_import_invalid_tree() {
     let app = setup_app().await;
     let fake_id = "00000000-0000-0000-0000-000000000000";

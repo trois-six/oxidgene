@@ -43,6 +43,25 @@ pub struct VignettePatch {
 pub struct VignetteRepo;
 
 impl VignetteRepo {
+    /// Every vignette on a set of media files.
+    pub async fn list_for_medias(
+        db: &impl ConnectionTrait,
+        media_ids: &[Uuid],
+    ) -> Result<Vec<Vignette>, OxidGeneError> {
+        if media_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let models = Entity::find()
+            .filter(Column::MediaId.is_in(media_ids.to_vec()))
+            .order_by_asc(Column::MediaId)
+            .order_by_asc(Column::Page)
+            .order_by_asc(Column::Id)
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Every vignette on a media file, oldest first.
     pub async fn list_for_media(
         db: &impl ConnectionTrait,

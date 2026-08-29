@@ -159,7 +159,9 @@ already running. Focus is trapped and restored to the triggering control.
 
 ### 4.2 PersonPicker
 
-Displays an optional selected person with portrait, display name, and lifespan.
+Displays an optional selected person with the same canonical summary as each
+person-search result: profile photo or sex-specific placeholder portrait,
+surname and given names, birth and death years, and birth place when known.
 **Change** opens the shared person search; **Clear** is available only when the
 field is optional. It receives `tree_id`, selected person, required state, and
 an `EventHandler<Option<Person>>`.
@@ -192,13 +194,23 @@ Offline place databases are optional SQLite files in the application data
 directory. They are downloaded and updated explicitly from settings; automatic
 network access is not assumed.
 
-### 4.5 MediaInput and MediaGallery
+### 4.5 MediaInput, MediaGallery, and MediaManagerModal
 
 The canonical upload cell accepts clicks and drag-and-drop and reports
 per-file progress. Files are processed through the same upload API regardless
 of entry point. The canonical gallery owns tiles, viewer opening, edit actions,
 document paging, portraits, and context menus. Pages do not implement alternate
 media grids.
+
+`MediaManagerModal` is the only editable container for a person's or family's
+gallery. It wraps the canonical `MediaGallery`, saves every media mutation
+immediately, and closes independently of person and couple forms. Its owner is
+explicitly a person or family; its event options allow the same media to be
+linked as evidence without embedding a second gallery in an event editor.
+
+Person profiles open it from the compact `+` action beside **Media**. Couple
+forms open it from the fixed header. Person forms, embedded person blocks, and
+event editors never render their own upload or media-management controls.
 
 ### 4.6 EventIcon
 

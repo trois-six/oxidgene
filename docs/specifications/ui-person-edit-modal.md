@@ -62,9 +62,6 @@ The modal opens in **edit mode** when the user selects "Edit individual" from th
 │  ── Other events ───────────────────────────    │
 │  [+ Add an event]                               │
 │                                                 │
-│  ── Media ──────────────────────────────────    │
-│  [gallery + upload]                             │
-│                                                 │
 │  ── Delete ─────────────────────────────────    │  ← edit mode only
 │  [Delete this person]                           │
 │                                                 │
@@ -427,113 +424,18 @@ Once saved, an event's row carries a **"Notes & source"** toggle that expands a 
 
 ---
 
-## 10. Section: Media
+## 10. Media Management Boundary
 
-Located after the Other Events section. Accessible directly within the modal — no separate modal or action picker entry required.
+The person form, its event editors, and the person blocks embedded in the
+couple form contain no media grid, upload control, or evidence gallery. Media
+writes save independently and therefore belong to the shared media manager,
+not to a form whose footer implies one combined Save or Cancel transaction.
 
-### Layout
-
-A media gallery grid showing all media attached to this person, followed by an upload zone.
-
-```
-── Media ─────────────────────────────────────────────────
-
-  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-  │  [img]  ★│  │  [img]   │  │  [pdf]   │  │    +     │
-  │          │  │          │  │          │  │  Upload  │
-  └──────────┘  └──────────┘  └──────────┘  └──────────┘
-  Portrait      Wedding        Baptism cert.
-  (profile)     1865           1842
-
-```
-
-The ★ badge marks the current **profile image** (used to illustrate the person's card in the tree).
-
-The shared `MediaGallery` component renders this section. A multi-page document
-shows its page count and opens in the media viewer. Date and place metadata are
-displayed when present but are not edited in this panel.
-
-### Upload Zone
-
-The last cell in the grid is always the upload trigger. Clicking it opens the
-system file picker; dropping files onto it does the same thing without the
-dialog. Accepted formats are decided by the file's magic bytes, not by its
-extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF. Multiple files can be
-sent at once, and they upload **sequentially** — a folder of scans reads as
-"3 of 12" rather than as twelve simultaneous stalls — with one rejected file
-naming itself and the rest of the batch continuing.
-
-### Media Item — Display
-
-Each media item is shown as a thumbnail tile:
-- **Images**: rendered as a cropped square thumbnail
-- **PDFs / documents**: generic icon with file type label (e.g. "PDF"). The tile
-  branches on the server saying it has no thumbnail — a `404` from
-  `.../thumbnail` — rather than on a list of formats, so a format we later learn
-  to rasterise needs no change here
-- **Profile badge** ★: orange star overlay on the active profile image tile
-- **Page badge**: a multi-page document shows its page count in the corner
-
-Hovering a tile reveals its controls: ★ (set as profile image, images only),
-✂ (crop a region), ✎ (edit), ↗ (open the file) and 🗑 (remove from this record).
-They also appear on keyboard focus, and are always visible on narrow screens —
-a control revealed only on hover is unreachable by touch.
-
-The trash **detaches**, it does not delete: the file may document three other
-people, and "not this person's" is what the button on a person's tile can
-honestly mean.
-
-### Media Item — Edit Panel
-
-Clicking the edit button on a tile expands an inline edit panel below the tile (or opens a small overlay on mobile). Fields:
-
-**For all media types:**
-
-| Field | Type | Notes |
-|---|---|---|
-| Title | Text input | Short descriptive label |
-| Description | Textarea | Free text, notes about the media |
-| Date | Date qualifier + field | Same qualifier options as birth/death (exact, circa, between…) |
-| Place | Text input with autocomplete | Location where the media was created or applies to |
-| Link to event | Dropdown | List of this person's events; select one to associate the media |
-| Use as source for | Dropdown | List of this person's events; marks this media as a source document for the selected event |
-
-**For images only:**
-
-| Field | Type | Notes |
-|---|---|---|
-| Set as profile image | ★ button on the tile | Marks this image as the person's profile photo; clears the ★ from the previous one in the same statement, so two stars are never briefly visible. Only a person may have one — a couple's card shows its spouses' portraits |
-| Crop a region | ✂ button on the tile | Opens the cropper: drag a rectangle and optionally say which event it documents. Regions already cropped on the file are drawn while you draw the next one. Coordinates are stored in the source image's own pixels, so a better scan can replace this one without orphaning them |
-
-**For PDFs / documents:**
-
-| Field | Type | Notes |
-|---|---|---|
-| View / Download | Button | Opens the file in a new tab or triggers download |
-
-### Profile Image Selection
-
-Only one image per person can be the profile image at a time. Setting a new one automatically unsets the previous. The profile image is used:
-- As the photo on the person card in the tree
-- As the avatar in the events sidebar
-- As the thumbnail in search results
-
-If no profile image is set, the card falls back to the gendered silhouette placeholder.
-
-### Remove Media
-
-Clicking the trash icon on a tile shows a confirmation prompt inline ("Remove this media?") with Confirm / Cancel. Removal is not applied until the modal is saved.
-
-This control only **detaches** the current person or family link. A shared file
-may document other records, so the edit form never deletes it globally.
-
-On a person or family profile, right-clicking a tile offers **Delete media**.
-After confirmation it is permanently deleted only when the current gallery
-link is its only reference; otherwise it remains untouched and the reader is
-told that it is referenced elsewhere. The viewer also has a red **Delete
-media** button beside its details controls. After confirmation, that action
-permanently deletes the media, its files and all associated data (links, tags,
-vignettes, portraits and document pages), even when it is referenced elsewhere.
+On the person profile, the compact `+` action beside **Media** opens the shared
+media manager for that person. The manager receives the person's events as
+available evidence targets. Uploads, documents, metadata, portraits, crops,
+event links, detachments, and deletions are described in
+[Common UI](ui-common.md#45-mediainput-mediagallery-and-mediamanagermodal).
 
 ---
 
@@ -641,6 +543,8 @@ Same dimensions and behavior as the person edit modal: centered overlay, ~720px 
 
 - Title: both persons' names separated by ` & `, for example `<person A> & <person B>`
 - Subtitle: "Edit union"
+- **Add and manage media** — opens the shared media manager for the family; it
+  receives the union events as available evidence targets
 - Close button `×` — closes without saving, prompts confirmation if unsaved changes
 
 ### Body Structure
@@ -649,7 +553,7 @@ The scrollable body is divided into three blocks:
 
 ```
 ┌─────────────────────────────────────────────────┐  ← fixed header
-│  <person A> & <person B>                     [×] │
+│  <person A> & <person B>       [Media]       [×] │
 │  Edit union                                     │
 ├─────────────────────────────────────────────────┤
 │                                                 │
@@ -731,7 +635,10 @@ If the union has no children, the block shows a muted "No children linked to thi
 
 ### Person 1 & Person 2 Blocks
 
-Each person block contains exactly the same fields as the individual edit modal (civil status, birth, death, privacy, supplementary fields, other events, media), collapsed into a clearly labeled section divider showing the person's name.
+Each person block contains exactly the same fields as the individual edit modal
+(civil status, birth, death, privacy, supplementary fields, and other events),
+collapsed into a clearly labeled section divider showing the person's name.
+It does not duplicate the family or person media manager.
 
 Each block is **independently expandable/collapsible** via a toggle on the section divider. Collapsed by default; the union block and children block are always expanded.
 

@@ -2,7 +2,7 @@
 //!
 //! Combines server-side accent-folded matching with genealogical filters,
 //! sorting, and pagination.
-//! Uses the `sub-page` layout pattern (no left sidebar).
+//! Uses the shared tree sub-page layout and icon sidebar.
 
 use dioxus::prelude::*;
 use oxidgene_core::projection::SearchEntry;
@@ -10,6 +10,10 @@ use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, PersonSearchParams, PersonSearchSort};
+use crate::components::pedigree_chart::default_portrait;
+use crate::components::person_form::FormSection;
+use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
+use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 
@@ -22,7 +26,6 @@ const GRID_RESULTS_PER_PAGE: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SortOrder {
-    Relevance,
     NameAZ,
     NameZA,
     BirthAsc,
@@ -112,6 +115,43 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let nav = navigator();
 
     let tree_id = Uuid::parse_str(&props.tree_id).ok();
+    let tree_cache = use_tree_cache();
+    let api_tree = api.clone();
+    let tree_resource = use_resource(move || {
+        let api = api_tree.clone();
+        let _generation = tree_cache.generation();
+        async move {
+            let tree_id = tree_id?;
+            Some(fetch_tree_cached(&api, &tree_cache, tree_id).await)
+        }
+    });
+    let tree_name = match &*tree_resource.read() {
+        Some(Some(Ok(tree))) => tree.name.clone(),
+        _ => tree_id
+            .and_then(|tree_id| tree_cache.tree(tree_id))
+            .map(|tree| tree.name)
+            .unwrap_or_default(),
+    };
+    let selected_person_id = match &*tree_resource.read() {
+        Some(Some(Ok(tree))) => tree.sosa_root_person_id,
+        _ => tree_id
+            .and_then(|tree_id| tree_cache.tree(tree_id))
+            .and_then(|tree| tree.sosa_root_person_id),
+    };
+
+    let api_portraits = api.clone();
+    let portraits_resource = use_resource(move || {
+        let api = api_portraits.clone();
+        async move {
+            match tree_id {
+                Some(tree_id) => match api.list_portraits(tree_id).await {
+                    Ok(rows) => api.portrait_map(tree_id, &rows).await,
+                    Err(_) => Default::default(),
+                },
+                None => Default::default(),
+            }
+        }
+    });
 
     // ── Search query state ──
     let mut search_last = use_signal(|| props.last.clone());
@@ -121,10 +161,13 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
     // ── Filter/sort/view state ──
     let mut gender_filter = use_signal(|| GenderFilter::All);
-    let mut sort_order = use_signal(|| SortOrder::Relevance);
+    let mut sort_order = use_signal(|| SortOrder::NameAZ);
     let mut view_mode = use_signal(|| ViewMode::List);
     let mut current_page = use_signal(|| 1_usize);
     let mut show_filters = use_signal(|| false);
+    let person_filters_open = use_signal(|| true);
+    let event_filters_open = use_signal(|| true);
+    let relation_filters_open = use_signal(|| true);
     let mut born_from = use_signal(String::new);
     let mut born_to = use_signal(String::new);
     let mut died_from = use_signal(String::new);
@@ -191,7 +234,6 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             event_to: parse_filter_year(&event_to()),
             has_media: has_media(),
             sort: match sort_order() {
-                SortOrder::Relevance => PersonSearchSort::Relevance,
                 SortOrder::NameAZ => PersonSearchSort::NameAsc,
                 SortOrder::NameZA => PersonSearchSort::NameDesc,
                 SortOrder::BirthAsc => PersonSearchSort::BirthAsc,
@@ -305,6 +347,13 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let page = current_page();
     let total_pages = total_filtered.div_ceil(per_page).max(1);
     let page_results: Vec<&SearchEntry> = all_entries.iter().collect();
+    let portrait_urls = {
+        let data = portraits_resource.read();
+        match &*data {
+            Some(urls) => urls.clone(),
+            None => Default::default(),
+        }
+    };
 
     let no_query = matches!(&*search_resource.read(), Some(Ok(None)));
     let is_loading = !no_query && search_resource.read().is_none();
@@ -312,7 +361,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
     // ── Render ──
     rsx! {
-        div { class: "search-results-page",
+        div { class: "sub-page search-results-page",
             // ── Topbar (shared td-topbar / td-bc classes per spec §3) ──
             div { class: "td-topbar",
                 nav { class: "td-bc",
@@ -323,12 +372,14 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                             class: "td-bc-logo-img",
                         }
                     }
-                    Link {
-                        to: Route::TreeDetail { tree_id: props.tree_id.clone(), person: None },
-                        class: "td-bc-link",
-                        {i18n.t("nav.tree")}
+                    if !tree_name.is_empty() {
+                        Link {
+                            to: Route::TreeDetail { tree_id: props.tree_id.clone(), person: None },
+                            class: "td-bc-link",
+                            "{tree_name}"
+                        }
+                        span { class: "td-bc-sep", "/" }
                     }
-                    span { class: "td-bc-sep", "/" }
                     span { class: "td-bc-current", {i18n.t("search.title")} }
                 }
                 div { class: "td-search-group",
@@ -366,8 +417,49 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                 }
             }
 
-            // ── Scrollable content ──
-            div { class: "sub-page-content",
+            div { class: "pd-page-shell",
+                TreeIconSidebar {
+                    active_view: TreeSidebarView::None,
+                    selected_person_id,
+                    show_middle_separator: false,
+                    show_add_person: false,
+                    on_profile_view: {
+                        let tree_id = props.tree_id.clone();
+                        move |person_id: Option<Uuid>| {
+                            if let Some(person_id) = person_id {
+                                nav.push(Route::PersonDetail {
+                                    tree_id: tree_id.clone(),
+                                    person_id: person_id.to_string(),
+                                });
+                            }
+                        }
+                    },
+                    on_pedigree_view: {
+                        let tree_id = props.tree_id.clone();
+                        move |person_id: Option<Uuid>| {
+                            nav.push(Route::TreeDetail {
+                                tree_id: tree_id.clone(),
+                                person: person_id.map(|person_id| person_id.to_string()),
+                            });
+                        }
+                    },
+                    on_add_person: move |_| {},
+                    on_dictionary: {
+                        let tree_id = props.tree_id.clone();
+                        move |_| {
+                            nav.push(Route::Dictionary { tree_id: tree_id.clone() });
+                        }
+                    },
+                    on_settings: {
+                        let tree_id = props.tree_id.clone();
+                        move |_| {
+                            nav.push(Route::Settings { tree_id: tree_id.clone() });
+                        }
+                    },
+                }
+
+                // ── Scrollable content ──
+                div { class: "sub-page-content",
 
                 // ── Filter panel ──
                 div { class: "sr-filters-toggle",
@@ -379,10 +471,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     }
                 }
                 if show_filters() {
-                    div { class: "sr-filters",
-                        h3 { class: "sr-filter-heading", {i18n.t("search.person_criteria")} }
-                        div { class: "sr-filter-row",
-                            div { class: "sr-filter-group sr-filter-wide",
+                    div { class: "sr-filters pf-embedded",
+                        FormSection {
+                            title: i18n.t("search.person_criteria"),
+                            open: person_filters_open,
+                            div { class: "sr-filter-grid sr-filter-grid-person",
+                            div { class: "sr-filter-group",
                                 label { {i18n.t("search.surname")} }
                                 input {
                                     r#type: "text",
@@ -395,7 +489,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     },
                                 }
                             }
-                            div { class: "sr-filter-group sr-filter-wide",
+                            div { class: "sr-filter-group",
                                 label { {i18n.t("search.given_names")} }
                                 input {
                                     r#type: "text",
@@ -408,26 +502,48 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     },
                                 }
                             }
-                            div { class: "sr-filter-group",
+                            div { class: "sr-filter-group sr-filter-sex",
                                 label { {i18n.t("search.gender")} }
-                                select {
-                                    value: "{gender_filter():?}",
-                                    onchange: move |e: Event<FormData>| {
-                                        gender_filter.set(match e.value().as_str() {
-                                            "Male" => GenderFilter::Male,
-                                            "Female" => GenderFilter::Female,
-                                            "Unknown" => GenderFilter::Unknown,
-                                            _ => GenderFilter::All,
-                                        });
-                                        current_page.set(1);
-                                    },
-                                    option { value: "All", {i18n.t("search.all")} }
-                                    option { value: "Male", {i18n.t("search.male")} }
-                                    option { value: "Female", {i18n.t("search.female")} }
-                                    option { value: "Unknown", {i18n.t("search.unknown")} }
+                                div { class: "pf-gender-group",
+                                    button {
+                                        r#type: "button",
+                                        class: if gender_filter() == GenderFilter::All { "pf-gender-btn active" } else { "pf-gender-btn" },
+                                        onclick: move |_| {
+                                            gender_filter.set(GenderFilter::All);
+                                            current_page.set(1);
+                                        },
+                                        {i18n.t("search.all")}
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: if gender_filter() == GenderFilter::Male { "pf-gender-btn active" } else { "pf-gender-btn" },
+                                        onclick: move |_| {
+                                            gender_filter.set(GenderFilter::Male);
+                                            current_page.set(1);
+                                        },
+                                        {i18n.t("search.male")}
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: if gender_filter() == GenderFilter::Female { "pf-gender-btn active" } else { "pf-gender-btn" },
+                                        onclick: move |_| {
+                                            gender_filter.set(GenderFilter::Female);
+                                            current_page.set(1);
+                                        },
+                                        {i18n.t("search.female")}
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: if gender_filter() == GenderFilter::Unknown { "pf-gender-btn active" } else { "pf-gender-btn" },
+                                        onclick: move |_| {
+                                            gender_filter.set(GenderFilter::Unknown);
+                                            current_page.set(1);
+                                        },
+                                        {i18n.t("search.unknown")}
+                                    }
                                 }
                             }
-                            div { class: "sr-filter-group sr-filter-wide",
+                            div { class: "sr-filter-group",
                                 label { {i18n.t("search.occupation")} }
                                 input {
                                     r#type: "text",
@@ -497,11 +613,14 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                 }
                                 span { {i18n.t("search.has_media")} }
                             }
+                            }
                         }
 
-                        h3 { class: "sr-filter-heading", {i18n.t("search.event_criteria")} }
-                        div { class: "sr-filter-row",
-                            div { class: "sr-filter-group sr-filter-wide",
+                        FormSection {
+                            title: i18n.t("search.event_criteria"),
+                            open: event_filters_open,
+                            div { class: "sr-filter-grid sr-filter-grid-event",
+                            div { class: "sr-filter-group",
                                 label { {i18n.t("search.event_type")} }
                                 select {
                                     value: event_type_filter().map(|event| event.to_string()).unwrap_or_default(),
@@ -520,7 +639,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     option { value: "census", {i18n.t("event.type.census")} }
                                 }
                             }
-                            div { class: "sr-filter-group sr-filter-wide",
+                            div { class: "sr-filter-group",
                                 label { {i18n.t("search.place")} }
                                 input {
                                     r#type: "text",
@@ -555,12 +674,15 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     }
                                 }
                             }
+                            }
                         }
 
-                        h3 { class: "sr-filter-heading", {i18n.t("search.relation_criteria")} }
-                        div { class: "sr-relations-grid",
-                            div { class: "sr-relation-group",
-                                span { class: "sr-relation-label", {i18n.t("search.spouse")} }
+                        FormSection {
+                            title: i18n.t("search.relation_criteria"),
+                            open: relation_filters_open,
+                            div { class: "sr-relations-grid",
+                            div { class: "sr-relation-group pf-subform",
+                                div { class: "pf-block-label", {i18n.t("search.spouse")} }
                                 input {
                                     r#type: "text",
                                     placeholder: "{i18n.t(\"search.surname\")}",
@@ -580,8 +702,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     },
                                 }
                             }
-                            div { class: "sr-relation-group",
-                                span { class: "sr-relation-label", {i18n.t("search.father")} }
+                            div { class: "sr-relation-group pf-subform",
+                                div { class: "pf-block-label", {i18n.t("search.father")} }
                                 input {
                                     r#type: "text",
                                     placeholder: "{i18n.t(\"search.surname\")}",
@@ -601,8 +723,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     },
                                 }
                             }
-                            div { class: "sr-relation-group",
-                                span { class: "sr-relation-label", {i18n.t("search.mother")} }
+                            div { class: "sr-relation-group pf-subform",
+                                div { class: "pf-block-label", {i18n.t("search.mother")} }
                                 input {
                                     r#type: "text",
                                     placeholder: "{i18n.t(\"search.surname\")}",
@@ -622,10 +744,11 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     },
                                 }
                             }
+                            }
                         }
                         div { class: "sr-filter-actions",
                             button {
-                                class: "sr-clear-filters",
+                                class: "pf-row-btn",
                                 onclick: move |_| {
                                     search_last.set(String::new());
                                     search_first.set(String::new());
@@ -796,10 +919,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     "NameZA" => SortOrder::NameZA,
                                     "BirthAsc" => SortOrder::BirthAsc,
                                     "BirthDesc" => SortOrder::BirthDesc,
-                                    _ => SortOrder::Relevance,
+                                    _ => SortOrder::NameAZ,
                                 });
                             },
-                            option { value: "Relevance", {i18n.t("search.sort_relevance")} }
                             option { value: "NameAZ", {i18n.t("search.sort_name_az")} }
                             option { value: "NameZA", {i18n.t("search.sort_name_za")} }
                             option { value: "BirthAsc", {i18n.t("search.sort_birth_asc")} }
@@ -866,7 +988,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     div {
                         class: "search-person-results sr-results-page",
                         for entry in page_results.iter() {
-                            {render_result_item(entry, &props.tree_id, &props.origin)}
+                            {render_result_item(
+                                entry,
+                                &props.tree_id,
+                                &props.origin,
+                                portrait_urls.get(&entry.person_id).cloned(),
+                            )}
                         }
                     }
                 }
@@ -899,6 +1026,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -910,7 +1038,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 // SearchPerson typeahead component (used in SOSA root selector, etc.)
 // so that person rows look identical everywhere.
 
-fn render_result_item(entry: &SearchEntry, tree_id: &str, origin: &str) -> Element {
+fn render_result_item(
+    entry: &SearchEntry,
+    tree_id: &str,
+    origin: &str,
+    portrait_url: Option<String>,
+) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
         Sex::Female => "female",
@@ -920,16 +1053,7 @@ fn render_result_item(entry: &SearchEntry, tree_id: &str, origin: &str) -> Eleme
     let given = entry.given_names.clone();
     let surname = entry.surname.clone();
 
-    let initials: String = {
-        let first_c = given.chars().next().map(|c| c.to_ascii_uppercase());
-        let last_c = surname.chars().next().map(|c| c.to_ascii_uppercase());
-        match (first_c, last_c) {
-            (Some(f), Some(l)) => format!("{f}{l}"),
-            (Some(f), None) => f.to_string(),
-            (None, Some(l)) => l.to_string(),
-            _ => "?".to_string(),
-        }
-    };
+    let portrait_src = portrait_url.unwrap_or_else(|| default_portrait(entry.sex).to_string());
 
     let tree_id_str = tree_id.to_string();
     let person_id_str = entry.person_id.to_string();
@@ -951,7 +1075,7 @@ fn render_result_item(entry: &SearchEntry, tree_id: &str, origin: &str) -> Eleme
             to: target,
             class: "search-person-result {sex_class}",
             div { class: "sp-result-photo",
-                span { class: "sp-result-initials {sex_class}", "{initials}" }
+                img { class: "sp-result-portrait", src: "{portrait_src}", alt: "" }
             }
             div { class: "sp-result-info",
                 div { class: "sp-result-name",

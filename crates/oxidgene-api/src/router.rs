@@ -27,17 +27,16 @@ const IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 /// Body limit for a GEDZIP import (1 GiB).
 ///
 /// Unlike every other body here, this one is mostly photographs: a `.gdz` is a
-/// tree's genealogy plus its entire media library in one file, and the whole
-/// archive has to be in memory before the ZIP central directory can be read.
-/// Real ones run to hundreds of MiB — an export of a tree with a decade of
-/// scans behind it lands around 650.
+/// tree's genealogy plus its entire media library in one file. Real ones run
+/// to hundreds of MiB — an export of a tree with a decade of scans behind it
+/// lands around 650. The direct compatibility endpoint still takes one body;
+/// the UI sends large files through `import-jobs`, which streams them to disk.
 ///
 /// It overrides [`IMPORT_BODY_LIMIT`] on its own route rather than inheriting
 /// it, so the two have to be kept in step by hand; the assertion below is
 /// there because raising the text limit alone leaves the archive — the larger
 /// file of the two, by definition — refused at a ceiling nobody remembered.
-/// Anything past this is EPIC H's chunked-upload problem, the same one that
-/// caps a single upload at 128 MiB.
+/// Anything past this requires a resumable/chunked-upload protocol.
 const GEDZIP_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 
 /// A `.gdz` is a `.ged` with the album added, so its ceiling cannot be the
@@ -52,6 +51,7 @@ use crate::rest::dictionary;
 use crate::rest::event;
 use crate::rest::family;
 use crate::rest::family_member;
+use crate::rest::file_import;
 use crate::rest::gedcom;
 use crate::rest::geneanet;
 use crate::rest::geneweb;
@@ -363,6 +363,12 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let import_export_routes = Router::new()
+        .route(
+            "/{tree_id}/import-jobs",
+            post(file_import::start)
+                .layer(DefaultBodyLimit::max(file_import::FILE_IMPORT_BODY_LIMIT)),
+        )
+        .route("/{tree_id}/import-jobs/{job_id}", get(file_import::status))
         .route(
             "/{tree_id}/gedcom/import",
             post(gedcom::import_gedcom_handler),

@@ -9,16 +9,17 @@ use chrono::Utc;
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::entities::{
     citation, event, event_witness, family, family_child, family_spouse, media, media_link, note,
-    person, person_name, place, sea_enums, source,
+    person, person_name, place, sea_enums, source, vignette,
 };
 use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
     MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
-    TreeRepo,
+    TreeRepo, VignetteRepo,
 };
 use oxidgene_gedcom::import::import_gedcom;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
+use std::path::Path;
 use uuid::Uuid;
 
 /// Maximum number of rows per `insert_many` batch.
@@ -28,6 +29,7 @@ use uuid::Uuid;
 const BATCH_SIZE: usize = 100;
 
 /// Summary returned after a GEDCOM import.
+#[derive(Debug, Clone)]
 pub struct ImportSummary {
     pub persons_count: usize,
     pub families_count: usize,
@@ -37,6 +39,80 @@ pub struct ImportSummary {
     pub places_count: usize,
     pub notes_count: usize,
     pub warnings: Vec<String>,
+}
+
+/// Server-side stages of a file-backed GEDZIP import.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileImportPhase {
+    #[default]
+    Starting,
+    Parsing,
+    Media,
+    Database,
+    Projections,
+    Completed,
+    Failed,
+}
+
+/// Progress shared by a background GEDZIP worker and its status endpoint.
+#[derive(Debug, Default)]
+pub struct FileImportProgress {
+    done: std::sync::atomic::AtomicUsize,
+    total: std::sync::atomic::AtomicUsize,
+    phase: std::sync::Mutex<FileImportPhase>,
+    result: std::sync::Mutex<Option<ImportSummary>>,
+    error: std::sync::Mutex<Option<&'static str>>,
+}
+
+impl FileImportProgress {
+    pub fn enter(&self, phase: FileImportPhase) {
+        if let Ok(mut current) = self.phase.lock() {
+            *current = phase;
+        }
+    }
+
+    fn expect(&self, total: usize) {
+        self.total
+            .store(total, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn advance(&self) {
+        self.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn complete(&self, result: ImportSummary) {
+        if let Ok(mut current) = self.result.lock() {
+            *current = Some(result);
+        }
+        self.enter(FileImportPhase::Completed);
+    }
+
+    pub fn fail(&self, error: &'static str) {
+        if let Ok(mut current) = self.error.lock() {
+            *current = Some(error);
+        }
+        self.enter(FileImportPhase::Failed);
+    }
+
+    #[must_use]
+    pub fn read(
+        &self,
+    ) -> (
+        FileImportPhase,
+        usize,
+        usize,
+        Option<ImportSummary>,
+        Option<&'static str>,
+    ) {
+        (
+            self.phase.lock().map(|phase| *phase).unwrap_or_default(),
+            self.done.load(std::sync::atomic::Ordering::Relaxed),
+            self.total.load(std::sync::atomic::Ordering::Relaxed),
+            self.result.lock().ok().and_then(|result| result.clone()),
+            self.error.lock().ok().and_then(|error| *error),
+        )
+    }
 }
 
 /// Result returned after a GEDCOM export.
@@ -83,6 +159,21 @@ pub async fn import_and_persist(
     // Parse GEDCOM
     let result = import_gedcom(gedcom_str, tree_id).map_err(OxidGeneError::Gedcom)?;
 
+    persist_import_result(db, result).await
+}
+
+/// Read a UTF-8 GEDCOM temporary file and persist its entities.
+pub async fn import_file_and_persist(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    path: &Path,
+    progress: &FileImportProgress,
+) -> Result<ImportSummary, OxidGeneError> {
+    progress.enter(FileImportPhase::Parsing);
+    let gedcom = tokio::fs::read_to_string(path).await?;
+    let _tree = TreeRepo::get(db, tree_id).await?;
+    let result = import_gedcom(&gedcom, tree_id).map_err(OxidGeneError::Gedcom)?;
+    progress.enter(FileImportPhase::Database);
     persist_import_result(db, result).await
 }
 
@@ -172,6 +263,85 @@ pub async fn import_gedzip_and_persist(
     persist_import_result(db, result).await
 }
 
+/// Import a GEDZIP from a seekable temporary file without holding the archive
+/// or all of its decompressed media in memory.
+pub async fn import_gedzip_file_and_persist(
+    db: &DatabaseConnection,
+    store: &dyn crate::media::MediaStore,
+    tree_id: Uuid,
+    archive_path: &Path,
+    progress: &FileImportProgress,
+) -> Result<ImportSummary, OxidGeneError> {
+    let _tree = TreeRepo::get(db, tree_id).await?;
+    progress.enter(FileImportPhase::Parsing);
+
+    let file = std::fs::File::open(archive_path).map_err(OxidGeneError::Io)?;
+    let (mut reader, plan) =
+        oxidgene_gedcom::import::prepare_gedzip(file, tree_id).map_err(OxidGeneError::Gedcom)?;
+    let oxidgene_gedcom::import::GedzipImportPlan { mut result, files } = plan;
+    let names: std::collections::HashMap<Uuid, String> = result
+        .media
+        .iter()
+        .map(|media| (media.id, media.file_name.clone()))
+        .collect();
+    let media_by_id: std::collections::HashMap<Uuid, usize> = result
+        .media
+        .iter()
+        .enumerate()
+        .map(|(index, media)| (media.id, index))
+        .collect();
+
+    progress.expect(files.len());
+    progress.enter(FileImportPhase::Media);
+    for (media_id, entry_name) in files {
+        let display_name = names.get(&media_id).map_or("upload", String::as_str);
+        let outcome = match reader.read_media_file(&entry_name) {
+            Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
+            Err(error) => {
+                result.warnings.push(format!(
+                    "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
+                ));
+                progress.advance();
+                continue;
+            }
+        };
+
+        match outcome {
+            Ok(ingested) => {
+                if let Some(media) = media_by_id
+                    .get(&media_id)
+                    .and_then(|index| result.media.get_mut(*index))
+                {
+                    apply_ingested_media(media, ingested);
+                }
+            }
+            Err(error) => result
+                .warnings
+                .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),
+        }
+        progress.advance();
+    }
+
+    progress.enter(FileImportPhase::Database);
+    persist_import_result(db, result).await
+}
+
+fn apply_ingested_media(
+    media: &mut oxidgene_core::types::Media,
+    ingested: crate::media::IngestedMedia,
+) {
+    media.file_path.clone_from(&ingested.file_name);
+    media.file_name = ingested.file_name;
+    media.mime_type = ingested.mime_type;
+    media.storage_key = Some(ingested.storage_key);
+    media.sha256 = Some(ingested.sha256);
+    media.file_size = ingested.file_size;
+    media.thumbnail_key = ingested.thumbnail_key;
+    media.width = ingested.width;
+    media.height = ingested.height;
+    media.page_count = ingested.page_count;
+}
+
 /// Persist every entity of a parsed import into the database.
 ///
 /// Format-agnostic: it takes the domain-model output of any importer (GEDCOM,
@@ -180,7 +350,7 @@ pub async fn import_gedzip_and_persist(
 /// Uses a single database transaction for atomicity, and batch inserts for
 /// performance. Entities are inserted in FK-safe order: places → sources →
 /// media → persons → person_names → families → family_spouses →
-/// family_children → events → citations → media_links → notes.
+/// family_children → events → citations → media_links → vignettes → notes.
 pub(crate) async fn persist_import_result(
     db: &DatabaseConnection,
     result: oxidgene_gedcom::ImportResult,
@@ -449,7 +619,29 @@ pub(crate) async fn persist_import_result(
         batch_insert::<media_link::Entity, _>(&txn, models).await?;
     }
 
-    // 12. Notes (FK → tree, person?, event?, family?, source?)
+    // 12. Vignettes (FK → media, person?, event?)
+    if !result.vignettes.is_empty() {
+        let models: Vec<vignette::ActiveModel> = result
+            .vignettes
+            .iter()
+            .map(|v| vignette::ActiveModel {
+                id: Set(v.id),
+                media_id: Set(v.media_id),
+                page: Set(v.page),
+                x: Set(v.x),
+                y: Set(v.y),
+                width: Set(v.width),
+                height: Set(v.height),
+                person_id: Set(v.person_id),
+                event_id: Set(v.event_id),
+                created_at: Set(now),
+                updated_at: Set(now),
+            })
+            .collect();
+        batch_insert::<vignette::Entity, _>(&txn, models).await?;
+    }
+
+    // 13. Notes (FK → tree, person?, event?, family?, source?)
     if !result.notes.is_empty() {
         let models: Vec<note::ActiveModel> = result
             .notes
@@ -531,6 +723,7 @@ pub async fn load_and_export(
     let media = MediaRepo::list_all(db, tree_id).await?;
     let media_ids: Vec<_> = media.iter().map(|m| m.id).collect();
     let media_links = MediaLinkRepo::list_by_medias(db, &media_ids).await?;
+    let vignettes = VignetteRepo::list_for_medias(db, &media_ids).await?;
 
     let notes = NoteRepo::list_all(db, tree_id).await?;
 
@@ -567,6 +760,7 @@ pub async fn load_and_export(
         &citations,
         &media,
         &media_links,
+        &vignettes,
         &notes,
         merge_occupations,
         merge_names,

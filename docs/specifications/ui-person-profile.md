@@ -218,7 +218,9 @@ Each event shows:
 
 Events are ordered by `date_sort`. Events without dates are grouped at the bottom under a "Date unknown" label.
 
-Clicking an event expands it inline to show full details (complete note, all sources, attached media thumbnails).
+Attached event media appear inline as compact `44 x 44 px` thumbnails without
+titles. Clicking a thumbnail opens the media viewer; its context menu remains
+available on right-click for media and event-link actions.
 
 ---
 
@@ -239,25 +241,63 @@ Displayed as a full-width card below the two-column layout.
 +--------------------------------------------------------------+
 ```
 
-This is the same component as the [Person Edit Modal](ui-person-edit-modal.md)
-media section, rendered with
-`read_only: true` — not a second grid that looks similar. A reader who then
-clicks Edit finds the gallery they were just looking at, with controls, rather
-than a different arrangement of the same files. The ★ badge marks the profile
-image; a tile's ↗ opens the file.
+This uses the canonical `MediaGallery` rendered with `read_only: true`, not a
+second grid that looks similar. The ★ badge marks the profile image; a tile's
+↗ opens the file. Editing takes place in the dedicated media manager rather
+than in the person form.
 
 Right-clicking a media tile opens **Link an event**, listing this person's own
 events and the events of their conjugal families. A linked event is removable
 from the same menu through **Unlink an event**. Under the media title, each
 linked event shows its date (as `dd/mm/yyyy` for an exact Gregorian date) and
-its event type.
+its event type. The title is centered; the event date and type are centered
+below it, italicized, and use the same font size as the title. The event picker
+shows at most five events; vertical previous and next controls scroll its
+five-row window by one event when more are available.
 
 The section remains visible when the person has no media. A compact `+` button
-beside its title opens the file picker. This is the one mutation available from
-the profile gallery, while cropping, retitling and detaching stay in the edit
-modal.
+beside its title opens `MediaManagerModal` for this person. The modal owns
+uploading, document creation, cropping, retitling, portrait selection,
+event-link management, detaching, and deletion.
 
-A tile opens the media viewer.
+A tile opens the media viewer. The viewer fills the available viewport inside
+its backdrop (edge-to-edge on narrow screens), and a fitted image may use the
+full height of its media stage. Once the image loads, the viewer initializes
+its fitted dimensions and enables **Zoom in** and **Zoom out** immediately;
+the user does not have to activate **Fit** first. While zooming, the image stays
+centered on each axis until it actually overflows on that axis; only then does
+the stage expose scrolling without making either edge unreachable. Its facts
+column keeps **Edit** and **Delete** as content-width actions on the same row.
+**Identify a person** is an explicit orange action in the image toolbar beside
+the zoom controls, where the result of drawing an identification region occurs.
+It remains immediately above the image on narrow screens. **Attach to a
+person** links the whole displayed image without creating a vignette. **Attach
+to a couple** first searches for one person, then requires an explicit choice
+among that person's conjugal families
+before linking the whole image to the family. Both actions detect an existing
+link and do not create duplicates. The facts column persistently lists
+whole-image attachments and cropped identifications together under
+**Attachments / identifications**. The label occupies its own row and the
+combined list spans the full width of the facts column below it. The list has a
+fixed five-row viewport; the previous control sits at its top and the next
+control at its bottom. They scroll that window by one row without making the
+facts column taller. The two relation types keep
+their distinct semantics: each attachment is a compact row with a `36 × 28 px` whole-image
+thumbnail, an ellipsized person or couple label, and a trailing remove control
+that deletes only that link. For a
+multi-page document, attachments target the currently displayed page;
+**Identify a person** likewise creates a region on that page. The facts column
+uses dense key/value rows without framed value boxes so its metadata and
+relations remain visible together. The **Edit** and
+**Delete** action group is centered in the facts column. Each identified person
+is shown on one compact row with a `36 × 28 px` crop thumbnail, a single-line
+ellipsized name, and a trailing remove control; the facts column omits this list
+when it is empty.
+The embedded edit form centers its **Cancel** and **Save** action group on the
+same axis as the facts column's **Edit** and **Delete** actions.
+Identification regions remain aligned over the fitted or zoomed image;
+hovering either a region on the image or its identification row in the facts
+column reveals its frame and person label.
 
 ---
 
