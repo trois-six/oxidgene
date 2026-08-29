@@ -1,0 +1,149 @@
+nameOverride: ""
+fullnameOverride: ""
+clusterDomain: cluster.local
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+backend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/trois-six/oxidgene-server
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  corsOrigin: https://oxidgene.example.invalid
+  logLevel: info
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+frontend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/trois-six/oxidgene-web
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+database:
+  existingSecret: oxidgene-database
+  urlKey: url
+
+s3:
+  # existing: use a bucket managed outside this release.
+  # rustfs: create a Tenant, policy, user, and bucket through RustFS Operator 0.0.6+.
+  mode: existing
+  existing:
+    endpoint: https://s3.example.invalid
+    bucket: oxidgene-media
+    region: us-east-1
+    credentialsSecret: oxidgene-s3
+    accessKeyKey: accesskey
+    secretKeyKey: secretkey
+  rustfs:
+    requireCrd: true
+    tenantName: ""
+    image: rustfs/rustfs:1.0.0-beta.10
+    adminCredentialsSecret: oxidgene-rustfs-admin
+    applicationCredentialsSecret: oxidgene-s3
+    rpcSecret: oxidgene-rustfs-rpc
+    rpcSecretKey: rpc-secret
+    bucket: oxidgene-media
+    region: us-east-1
+    policyName: oxidgene-media-rw
+    userName: oxidgene
+    pool:
+      name: storage
+      servers: 4
+      volumesPerServer: 1
+      storageClassName: ""
+      size: 100Gi
+      resources: {}
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: []
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: oxidgene.example.invalid
+  tls: []
+
+autoscaling:
+  backend:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+  frontend:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+
+podDisruptionBudget:
+  backend:
+    enabled: true
+    minAvailable: 1
+  frontend:
+    enabled: true
+    minAvailable: 1

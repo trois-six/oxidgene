@@ -1,0 +1,93 @@
+{{- if eq .Values.s3.mode "rustfs" }}
+{{- if and .Values.s3.rustfs.requireCrd (not (.Capabilities.APIVersions.Has "rustfs.com/v1alpha1/Tenant")) }}
+{{- fail "s3.mode=rustfs requires RustFS Operator 0.0.6+ and the rustfs.com/v1alpha1/Tenant CRD; install the operator before this release" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oxidgene.fullname" . }}-rustfs-policy
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+    app.kubernetes.io/component: object-storage
+data:
+  policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+          "Resource": [
+            "arn:aws:s3:::{{ .Values.s3.rustfs.bucket }}",
+            "arn:aws:s3:::{{ .Values.s3.rustfs.bucket }}/*"
+          ]
+        }
+      ]
+    }
+---
+apiVersion: rustfs.com/v1alpha1
+kind: Tenant
+metadata:
+  name: {{ include "oxidgene.rustfsTenantName" . }}
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+    app.kubernetes.io/component: object-storage
+spec:
+  image: {{ .Values.s3.rustfs.image | quote }}
+  credsSecret:
+    name: {{ required "s3.rustfs.adminCredentialsSecret is required" .Values.s3.rustfs.adminCredentialsSecret }}
+  rpcSecret:
+    name: {{ required "s3.rustfs.rpcSecret is required" .Values.s3.rustfs.rpcSecret }}
+    key: {{ required "s3.rustfs.rpcSecretKey is required" .Values.s3.rustfs.rpcSecretKey }}
+  pools:
+    - name: {{ .Values.s3.rustfs.pool.name }}
+      servers: {{ .Values.s3.rustfs.pool.servers }}
+      persistence:
+        volumesPerServer: {{ .Values.s3.rustfs.pool.volumesPerServer }}
+        volumeClaimTemplate:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: {{ .Values.s3.rustfs.pool.size }}
+          {{- with .Values.s3.rustfs.pool.storageClassName }}
+          storageClassName: {{ . | quote }}
+          {{- end }}
+      {{- with .Values.s3.rustfs.pool.resources }}
+      resources:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.s3.rustfs.pool.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.s3.rustfs.pool.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.s3.rustfs.pool.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.s3.rustfs.pool.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  policies:
+    - name: {{ .Values.s3.rustfs.policyName }}
+      deletionPolicy: Retain
+      document:
+        configMapKeyRef:
+          name: {{ include "oxidgene.fullname" . }}-rustfs-policy
+          key: policy.json
+  users:
+    - name: {{ .Values.s3.rustfs.userName }}
+      deletionPolicy: Retain
+      credsSecret:
+        name: {{ required "s3.rustfs.applicationCredentialsSecret is required" .Values.s3.rustfs.applicationCredentialsSecret }}
+      policies:
+        - {{ .Values.s3.rustfs.policyName }}
+  buckets:
+    - name: {{ required "s3.rustfs.bucket is required" .Values.s3.rustfs.bucket }}
+      region: {{ .Values.s3.rustfs.region }}
+      deletionPolicy: Retain
+{{- end }}

@@ -164,8 +164,13 @@ impl AppState {
     /// Spawns the purge worker, which also sweeps trees left soft-deleted by a
     /// previous run — so this must be called from within a Tokio runtime.
     pub fn new(db: DatabaseConnection, media_root: impl Into<PathBuf>) -> Self {
+        Self::with_media_store(db, Arc::new(FsStore::new(media_root)))
+    }
+
+    /// Create a new `AppState` using an explicitly selected media backend.
+    pub fn with_media_store(db: DatabaseConnection, media: Arc<dyn MediaStore>) -> Self {
         let profiles = Arc::new(ProfileService::new(db.clone()));
-        Self::with_parts(db, profiles, Arc::new(FsStore::new(media_root)))
+        Self::with_parts(db, profiles, media)
     }
 
     /// Create a new `AppState` with explicit collaborators (for testing).

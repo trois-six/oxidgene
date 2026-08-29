@@ -104,6 +104,9 @@ base64 = "0.23"
 # Media storage (Sprint F.1)
 # Content addressing: the SHA-256 of a file is both its store key and its ETag.
 sha2 = "0.11"
+# S3-compatible storage for the standalone web server. Kept optional in the API
+# crate so desktop builds retain their filesystem-only dependency graph.
+object_store = { version = "0.14", default-features = false, features = ["aws"] }
 # Thumbnails + intrinsic dimensions. `rayon` is off: thumbnailing already runs
 # on a blocking task, one file at a time, so a second thread pool buys nothing.
 #

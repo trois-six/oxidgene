@@ -17,7 +17,9 @@ timestamp: 2026-08-26T00:00:00Z
 
 - [Rust](https://rustup.rs/) stable toolchain.
 - [just](https://github.com/casey/just) task runner.
-- PostgreSQL 16+ or Docker Compose for the web backend.
+- PostgreSQL 16+ or Docker Compose for the web backend. The Compose stack also
+   provides RustFS for S3-compatible media storage and Redis for future user
+   sessions.
 - The `wasm32-unknown-unknown` Rust target for the browser application.
 - [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) 0.7.10.
 - `cargo-nextest` for the workspace test recipes.
@@ -29,6 +31,9 @@ cargo install cargo-nextest --locked
 cargo install dioxus-cli --version 0.7.10 --locked
 cargo install cargo-watch --locked
 ```
+
+The complete installation and deployment paths are in the
+[Quickstart](quickstart.md).
 
 ## 2. Command Reference
 
@@ -88,8 +93,31 @@ Run `just check` before committing code changes.
 3. Open `http://127.0.0.1:8081` in a browser.
 4. Stop the database with `just dev-db-down` when it is no longer needed.
 
-The local workflow does not replace the complete containerized
-frontend/backend deployment tracked in the roadmap.
+For the complete containerized web stack, run:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --wait --remove-orphans
+```
+
+Compose builds and exposes the browser frontend on `http://127.0.0.1:8081` and
+explicitly selects the S3 media backend. The server and frontend containers
+have no persistent volumes: PostgreSQL and RustFS own durable state, while
+import upload spooling uses disposable container storage. Redis is running and
+persistent in the development stack but remains unused until authentication
+and session management are implemented.
+
+RustFS exposes its S3 API on `http://127.0.0.1:9000` and its console on
+`http://127.0.0.1:9001`. The one-shot `rustfs-init` service creates the
+`oxidgene-media` bucket idempotently. Run the ignored storage round-trip test
+while the stack is healthy with:
+
+```bash
+cargo test --package oxidgene-api --features s3 \
+   s3_round_trip_deduplication_and_tree_deletion -- --ignored
+```
+
+Kubernetes deployment and both supported S3 modes are documented in the
+[OxidGene Helm chart](../../charts/oxidgene/README.md).
 
 ## 4. Responsive Visual Validation
 
@@ -117,3 +145,22 @@ For each viewport:
 Use anonymized content in screenshots and measurements. A responsive change is
 not complete when only the outer page fits; its significant descendants must
 fit and remain usable as well.
+
+## 5. Release Automation
+
+Pushing a tag that matches `v<workspace-version>` starts
+`.github/workflows/release.yml`. The workflow rejects a tag whose version does
+not match both the Cargo workspace version and the Helm chart `appVersion`.
+
+A successful run publishes:
+
+- `oxidgene-server` and `oxidgene-web` multi-architecture images to GitHub
+   Container Registry with immutable version tags and a moving `latest` tag;
+- the OxidGene chart as an OCI artifact under `ghcr.io/trois-six/charts`;
+- native desktop archives for Linux, macOS, and Windows; and
+- a GitHub Release containing the desktop archives, packaged chart, generated
+   release notes, and `SHA256SUMS`.
+
+The release is created only after every platform build and publication job has
+succeeded. Desktop artifacts are currently unsigned portable executables, not
+platform installers.

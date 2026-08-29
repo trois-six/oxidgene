@@ -1,9 +1,8 @@
 //! Where media bytes live.
 //!
-//! [`MediaStore`] is the seam between the API and whatever holds the actual
-//! files. Sprint F.1 ships one implementation, [`FsStore`], which writes to a
-//! directory tree on local disk; object storage is an EPIC H concern and slots
-//! in behind the same trait without touching a handler.
+//! [`MediaStore`] is the seam between the API and whatever durably holds media
+//! bytes. [`FsStore`] writes to a directory tree on local disk and [`S3Store`]
+//! uses an S3-compatible bucket when the `s3` feature is enabled.
 //!
 //! # Content addressing
 //!
@@ -28,6 +27,12 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "s3")]
+use futures_util::{StreamExt, TryStreamExt};
+#[cfg(feature = "s3")]
+use object_store::aws::AmazonS3Builder;
+#[cfg(feature = "s3")]
+use object_store::{ObjectStore, ObjectStoreExt};
 use oxidgene_core::error::OxidGeneError;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -256,6 +261,145 @@ impl MediaStore for FsStore {
     }
 }
 
+/// Connection settings for an S3-compatible media store.
+#[cfg(feature = "s3")]
+pub struct S3StoreConfig {
+    pub bucket: String,
+    pub region: String,
+    pub endpoint: Option<String>,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+}
+
+/// A [`MediaStore`] backed by an S3-compatible object store.
+#[cfg(feature = "s3")]
+pub struct S3Store {
+    store: object_store::aws::AmazonS3,
+}
+
+#[cfg(feature = "s3")]
+impl std::fmt::Debug for S3Store {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("S3Store").finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "s3")]
+impl S3Store {
+    pub fn new(config: S3StoreConfig) -> Result<Self, OxidGeneError> {
+        let allow_http = config
+            .endpoint
+            .as_deref()
+            .is_some_and(|endpoint| endpoint.starts_with("http://"));
+        let mut builder = AmazonS3Builder::new()
+            .with_bucket_name(config.bucket)
+            .with_region(config.region)
+            .with_access_key_id(config.access_key_id)
+            .with_secret_access_key(config.secret_access_key)
+            .with_allow_http(allow_http)
+            .with_virtual_hosted_style_request(false);
+        if let Some(endpoint) = config.endpoint {
+            builder = builder.with_endpoint(endpoint);
+        }
+        let store = builder.build().map_err(|_| s3_error("configuration"))?;
+        Ok(Self { store })
+    }
+
+    fn location(key: &str) -> Result<object_store::path::Path, OxidGeneError> {
+        validate_key(key)?;
+        object_store::path::Path::parse(key).map_err(|_| {
+            OxidGeneError::Validation("invalid media storage key: invalid object path".into())
+        })
+    }
+}
+
+#[cfg(feature = "s3")]
+fn s3_error(operation: &str) -> OxidGeneError {
+    OxidGeneError::Internal(format!("S3 media storage {operation} failed"))
+}
+
+#[cfg(feature = "s3")]
+#[async_trait::async_trait]
+impl MediaStore for S3Store {
+    async fn put(
+        &self,
+        tree_id: Uuid,
+        extension: &str,
+        bytes: &[u8],
+    ) -> Result<StoredObject, OxidGeneError> {
+        let digest = sha256_hex(bytes);
+        let key = key_for(tree_id, &digest, extension);
+        let location = Self::location(&key)?;
+        let size = bytes.len() as i64;
+
+        match self.store.head(&location).await {
+            Ok(_) => {
+                return Ok(StoredObject {
+                    key,
+                    sha256: digest,
+                    size,
+                    deduplicated: true,
+                });
+            }
+            Err(object_store::Error::NotFound { .. }) => {}
+            Err(_) => return Err(s3_error("lookup")),
+        }
+
+        self.store
+            .put(&location, bytes.to_vec().into())
+            .await
+            .map_err(|_| s3_error("write"))?;
+
+        Ok(StoredObject {
+            key,
+            sha256: digest,
+            size,
+            deduplicated: false,
+        })
+    }
+
+    async fn get(&self, key: &str) -> Result<Vec<u8>, OxidGeneError> {
+        let location = Self::location(key)?;
+        let object = self
+            .store
+            .get(&location)
+            .await
+            .map_err(|_| s3_error("read"))?;
+        let bytes = object.bytes().await.map_err(|_| s3_error("read"))?;
+        Ok(bytes.to_vec())
+    }
+
+    async fn exists(&self, key: &str) -> bool {
+        let Ok(location) = Self::location(key) else {
+            return false;
+        };
+        self.store.head(&location).await.is_ok()
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), OxidGeneError> {
+        let location = Self::location(key)?;
+        match self.store.delete(&location).await {
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(_) => Err(s3_error("delete")),
+        }
+    }
+
+    async fn delete_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
+        let prefix = object_store::path::Path::from(tree_id.to_string());
+        let locations = self
+            .store
+            .list(Some(&prefix))
+            .map_ok(|object| object.location)
+            .boxed();
+        self.store
+            .delete_stream(locations)
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|_| s3_error("tree delete"))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,5 +599,36 @@ mod tests {
 
         assert_eq!(names.len(), 1, "temp files should not survive: {names:?}");
         assert!(names[0].ends_with(".png"));
+    }
+
+    #[cfg(feature = "s3")]
+    #[tokio::test]
+    #[ignore = "requires the RustFS service from docker/docker-compose.yml"]
+    async fn s3_round_trip_deduplication_and_tree_deletion() {
+        let store = S3Store::new(S3StoreConfig {
+            bucket: "oxidgene-media".to_string(),
+            region: "us-east-1".to_string(),
+            endpoint: Some("http://127.0.0.1:9000".to_string()),
+            access_key_id: "oxidgene-admin".to_string(),
+            secret_access_key: "oxidgene-development-secret".to_string(),
+        })
+        .expect("build RustFS store");
+        let doomed = tree();
+        let kept = tree();
+
+        let first = store.put(doomed, "ged", b"0 HEAD\n0 TRLR\n").await.unwrap();
+        let duplicate = store.put(doomed, "ged", b"0 HEAD\n0 TRLR\n").await.unwrap();
+        let survivor = store.put(kept, "gw", b"encoding: utf-8\n").await.unwrap();
+
+        assert!(!first.deduplicated);
+        assert!(duplicate.deduplicated);
+        assert_eq!(store.get(&first.key).await.unwrap(), b"0 HEAD\n0 TRLR\n");
+
+        store.delete_tree(doomed).await.unwrap();
+        assert!(!store.exists(&first.key).await);
+        assert!(store.exists(&survivor.key).await);
+
+        store.delete(&survivor.key).await.unwrap();
+        store.delete(&survivor.key).await.unwrap();
     }
 }

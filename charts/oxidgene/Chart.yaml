@@ -1,0 +1,13 @@
+apiVersion: v2
+name: oxidgene
+description: Stateless web deployment for the OxidGene genealogy application
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/trois-six/oxidgene
+sources:
+  - https://github.com/trois-six/oxidgene
+keywords:
+  - genealogy
+  - rust
+  - dioxus

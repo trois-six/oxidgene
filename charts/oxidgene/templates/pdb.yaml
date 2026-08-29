@@ -1,0 +1,31 @@
+{{- if .Values.podDisruptionBudget.backend.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "oxidgene.fullname" . }}-backend
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.backend.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "oxidgene.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+{{- end }}
+{{- if and .Values.podDisruptionBudget.backend.enabled .Values.podDisruptionBudget.frontend.enabled }}
+---
+{{- end }}
+{{- if .Values.podDisruptionBudget.frontend.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "oxidgene.fullname" . }}-frontend
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.frontend.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "oxidgene.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: frontend
+{{- end }}

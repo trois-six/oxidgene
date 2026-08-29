@@ -45,6 +45,7 @@ async fn main() {
         host = %cfg.host,
         port = %cfg.port,
         log_level = %cfg.log_level,
+        media_backend = cfg.media_backend.as_str(),
         "Starting OxidGene server"
     );
 
@@ -72,7 +73,14 @@ async fn main() {
     });
 
     // ── Build application router ─────────────────────────────────────
-    let state = AppState::new(db, &cfg.media_root);
+    let media = cfg.media_store().unwrap_or_else(|_| {
+        error!(
+            error = "media_storage_configuration",
+            "Failed to configure media storage"
+        );
+        std::process::exit(1);
+    });
+    let state = AppState::with_media_store(db, media);
     let api_router = build_router(state);
 
     // CORS remains single-origin until authentication and authorization ship.
