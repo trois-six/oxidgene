@@ -823,6 +823,39 @@ pub fn export_gedzip(gedcom: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8
     Ok(cursor.into_inner())
 }
 
+/// A GEDZIP archive written directly to a local file.
+pub struct GedzipFileWriter {
+    writer: ged_io::gedzip::GedzipWriter<std::fs::File>,
+}
+
+impl GedzipFileWriter {
+    /// Create an archive and write its mandatory `gedcom.ged` entry.
+    pub fn create(path: &std::path::Path, gedcom: &str) -> Result<Self, String> {
+        let file = std::fs::File::create(path).map_err(|e| format!("GEDZIP error: {e}"))?;
+        let mut writer =
+            ged_io::gedzip::GedzipWriter::new(file).map_err(|e| format!("GEDZIP error: {e}"))?;
+        writer
+            .write_gedcom_bytes(gedcom.as_bytes())
+            .map_err(|e| format!("GEDZIP error: {e}"))?;
+        Ok(Self { writer })
+    }
+
+    /// Add one media entry. Callers can release `bytes` before loading the next.
+    pub fn add_media_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.writer
+            .add_media_file(path, bytes)
+            .map_err(|e| format!("GEDZIP error: {e}"))
+    }
+
+    /// Finalize the ZIP central directory and flush the output file.
+    pub fn finish(self) -> Result<(), String> {
+        self.writer
+            .finish()
+            .map(|_| ())
+            .map_err(|e| format!("GEDZIP error: {e}"))
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Conversion helpers
 // ═══════════════════════════════════════════════════════════════════════

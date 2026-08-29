@@ -26,15 +26,21 @@
 //! another tree.
 
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 
+use axum::body::Bytes;
+use futures_util::Stream;
 #[cfg(feature = "s3")]
 use futures_util::{StreamExt, TryStreamExt};
 #[cfg(feature = "s3")]
 use object_store::aws::AmazonS3Builder;
 #[cfg(feature = "s3")]
-use object_store::{ObjectStore, ObjectStoreExt};
+use object_store::{ObjectStore, ObjectStoreExt, WriteMultipart};
 use oxidgene_core::error::OxidGeneError;
 use sha2::{Digest, Sha256};
+use tokio::io::AsyncReadExt;
+#[cfg(feature = "s3")]
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 /// The outcome of writing bytes to a [`MediaStore`].
@@ -49,6 +55,8 @@ pub struct StoredObject {
     /// `true` if an identical file was already present and nothing was written.
     pub deduplicated: bool,
 }
+
+pub type BlobStream = Pin<Box<dyn Stream<Item = Result<Bytes, OxidGeneError>> + Send + 'static>>;
 
 /// A content-addressed blob store for media files.
 #[async_trait::async_trait]
@@ -69,6 +77,15 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
     /// Read back the bytes at `key`.
     async fn get(&self, key: &str) -> Result<Vec<u8>, OxidGeneError>;
 
+    /// Copy a local file into a job-owned key without materializing it in memory.
+    async fn put_file(&self, key: &str, path: &Path) -> Result<StoredObject, OxidGeneError>;
+
+    /// Copy one stored job object to a local file without materializing it in memory.
+    async fn get_to_file(&self, key: &str, path: &Path) -> Result<(), OxidGeneError>;
+
+    /// Stream an object without materializing it in memory.
+    async fn get_stream(&self, key: &str) -> Result<BlobStream, OxidGeneError>;
+
     /// Whether `key` currently resolves to a stored object.
     async fn exists(&self, key: &str) -> bool;
 
@@ -88,6 +105,50 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
     }
     out
+}
+
+/// Stable object key for a job input or output artifact.
+pub fn job_blob_key(job_id: Uuid, role: &str, extension: &str) -> Result<String, OxidGeneError> {
+    if !matches!(role, "source" | "artifact") {
+        return Err(OxidGeneError::Validation("invalid job blob role".into()));
+    }
+    if !extension
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric())
+    {
+        return Err(OxidGeneError::Validation(
+            "invalid job blob extension".into(),
+        ));
+    }
+    let suffix = if extension.is_empty() {
+        String::new()
+    } else {
+        format!(".{extension}")
+    };
+    Ok(format!("jobs/{job_id}/{role}{suffix}"))
+}
+
+async fn file_digest(path: &Path) -> Result<(String, i64), OxidGeneError> {
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut digest = Sha256::new();
+    let mut size = 0i64;
+    let mut buffer = vec![0; 1024 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+        size = size
+            .checked_add(read as i64)
+            .ok_or_else(|| OxidGeneError::Validation("job blob is too large".into()))?;
+    }
+    let mut sha256 = String::with_capacity(64);
+    for byte in digest.finalize() {
+        use std::fmt::Write as _;
+        let _ = write!(sha256, "{byte:02x}");
+    }
+    Ok((sha256, size))
 }
 
 /// Build the store key for a digest under a tree.
@@ -116,6 +177,26 @@ fn validate_key(key: &str) -> Result<(), OxidGeneError> {
             "invalid media storage key: {why}"
         )))
     };
+
+    if let Some(job_key) = key.strip_prefix("jobs/") {
+        let mut parts = job_key.split('/');
+        let (Some(job_id), Some(file), None) = (parts.next(), parts.next(), parts.next()) else {
+            return reject("expected jobs/{job_id}/{source|artifact}[.ext]");
+        };
+        if Uuid::parse_str(job_id).is_err() {
+            return reject("job segment is not a UUID");
+        }
+        let role = file.split_once('.').map_or(file, |(role, _)| role);
+        let extension = file.split_once('.').map_or("", |(_, extension)| extension);
+        if !matches!(role, "source" | "artifact")
+            || !extension
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+        {
+            return reject("invalid job blob name");
+        }
+        return Ok(());
+    }
 
     let mut parts = key.split('/');
     let (Some(tree), Some(a), Some(b), Some(file), None) = (
@@ -233,6 +314,49 @@ impl MediaStore for FsStore {
                 OxidGeneError::Io(err)
             }
         })
+    }
+
+    async fn put_file(&self, key: &str, source: &Path) -> Result<StoredObject, OxidGeneError> {
+        let destination = self.path_for(key)?;
+        let (sha256, size) = file_digest(source).await?;
+        if let Some(parent) = destination.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let temp = destination.with_extension(format!("part-{}", Uuid::now_v7()));
+        tokio::fs::copy(source, &temp).await?;
+        if let Err(error) = tokio::fs::rename(&temp, &destination).await {
+            let _ = tokio::fs::remove_file(&temp).await;
+            return Err(error.into());
+        }
+        Ok(StoredObject {
+            key: key.to_string(),
+            sha256,
+            size,
+            deduplicated: false,
+        })
+    }
+
+    async fn get_to_file(&self, key: &str, destination: &Path) -> Result<(), OxidGeneError> {
+        let source = self.path_for(key)?;
+        tokio::fs::copy(source, destination).await?;
+        Ok(())
+    }
+
+    async fn get_stream(&self, key: &str) -> Result<BlobStream, OxidGeneError> {
+        let file = tokio::fs::File::open(self.path_for(key)?).await?;
+        Ok(Box::pin(futures_util::stream::try_unfold(
+            file,
+            |mut file| async move {
+                let mut buffer = vec![0; 1024 * 1024];
+                let read = file.read(&mut buffer).await?;
+                if read == 0 {
+                    Ok(None)
+                } else {
+                    buffer.truncate(read);
+                    Ok(Some((Bytes::from(buffer), file)))
+                }
+            },
+        )))
     }
 
     async fn exists(&self, key: &str) -> bool {
@@ -369,6 +493,76 @@ impl MediaStore for S3Store {
         Ok(bytes.to_vec())
     }
 
+    async fn put_file(&self, key: &str, path: &Path) -> Result<StoredObject, OxidGeneError> {
+        let location = Self::location(key)?;
+        let (sha256, size) = file_digest(path).await?;
+        let upload = self
+            .store
+            .put_multipart(&location)
+            .await
+            .map_err(|_| s3_error("multipart start"))?;
+        let mut writer = WriteMultipart::new(upload);
+        let mut file = tokio::fs::File::open(path).await?;
+        let mut buffer = vec![0; 1024 * 1024];
+        loop {
+            let read = file.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+            writer
+                .wait_for_capacity(4)
+                .await
+                .map_err(|_| s3_error("multipart write"))?;
+            writer.write(&buffer[..read]);
+        }
+        writer
+            .finish()
+            .await
+            .map_err(|_| s3_error("multipart finish"))?;
+        Ok(StoredObject {
+            key: key.to_string(),
+            sha256,
+            size,
+            deduplicated: false,
+        })
+    }
+
+    async fn get_to_file(&self, key: &str, path: &Path) -> Result<(), OxidGeneError> {
+        let location = Self::location(key)?;
+        let object = self
+            .store
+            .get(&location)
+            .await
+            .map_err(|_| s3_error("read"))?;
+        let mut stream = object.into_stream();
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .await?;
+        while let Some(chunk) = stream
+            .try_next()
+            .await
+            .map_err(|_| s3_error("stream read"))?
+        {
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        Ok(())
+    }
+
+    async fn get_stream(&self, key: &str) -> Result<BlobStream, OxidGeneError> {
+        let location = Self::location(key)?;
+        let result = self
+            .store
+            .get(&location)
+            .await
+            .map_err(|_| s3_error("get"))?;
+        Ok(Box::pin(
+            result.into_stream().map_err(|_| s3_error("stream read")),
+        ))
+    }
+
     async fn exists(&self, key: &str) -> bool {
         let Ok(location) = Self::location(key) else {
             return false;
@@ -403,6 +597,7 @@ impl MediaStore for S3Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::TryStreamExt;
 
     /// A scratch directory that cleans up when the test ends.
     struct TempRoot(PathBuf);
@@ -508,6 +703,51 @@ mod tests {
         assert_eq!(stored.size, 17);
         assert_eq!(stored.sha256, sha256_hex(b"not really a jpeg"));
         assert_eq!(store.get(&stored.key).await.unwrap(), b"not really a jpeg");
+    }
+
+    #[tokio::test]
+    async fn a_job_blob_copies_between_files_without_using_the_media_namespace() {
+        let root = TempRoot::new("job-blob");
+        let source = root.0.join("source.tmp");
+        let destination = root.0.join("destination.tmp");
+        tokio::fs::write(&source, b"genealogy archive")
+            .await
+            .unwrap();
+        let store = FsStore::new(root.0.join("store"));
+        let key = job_blob_key(Uuid::now_v7(), "source", "ged").unwrap();
+
+        let stored = store.put_file(&key, &source).await.unwrap();
+        store.get_to_file(&key, &destination).await.unwrap();
+
+        assert_eq!(stored.key, key);
+        assert_eq!(stored.size, 17);
+        assert_eq!(stored.sha256, sha256_hex(b"genealogy archive"));
+        assert_eq!(
+            tokio::fs::read(destination).await.unwrap(),
+            b"genealogy archive"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_job_blob_streams_back_in_order() {
+        let root = TempRoot::new("job-stream");
+        let source = root.0.join("source.tmp");
+        tokio::fs::write(&source, b"streamed archive")
+            .await
+            .unwrap();
+        let store = FsStore::new(root.0.join("store"));
+        let key = job_blob_key(Uuid::now_v7(), "artifact", "gdz").unwrap();
+        store.put_file(&key, &source).await.unwrap();
+
+        let chunks = store
+            .get_stream(&key)
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert_eq!(chunks.concat(), b"streamed archive");
     }
 
     #[tokio::test]

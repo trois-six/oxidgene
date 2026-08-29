@@ -13,15 +13,11 @@ use uuid::Uuid;
 
 use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
-use crate::service::gedcom::FileImportProgress;
 use crate::service::geneanet::ImportProgress;
 use crate::service::purge::{self, PurgeQueue};
 
 /// Runs currently reporting their Geneanet import progress.
 pub type ImportProgressRegistry = Arc<std::sync::Mutex<HashMap<Uuid, Arc<ImportProgress>>>>;
-
-/// Uploaded file imports, retained so the client can poll through completion.
-pub type FileImportRegistry = Arc<std::sync::Mutex<HashMap<Uuid, (Uuid, Arc<FileImportProgress>)>>>;
 
 #[derive(Clone, Copy)]
 pub(crate) enum TreeResource {
@@ -150,8 +146,6 @@ pub struct AppState {
     /// progress in its own response. The wizard names the run when it starts
     /// it and asks a second endpoint how it is going.
     pub imports: ImportProgressRegistry,
-    /// Asynchronous GEDCOM, GEDZIP and GeneWeb imports, keyed by operation id.
-    pub file_imports: FileImportRegistry,
 }
 
 impl AppState {
@@ -186,7 +180,6 @@ impl AppState {
             purge,
             media,
             imports: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            file_imports: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 }

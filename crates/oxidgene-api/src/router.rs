@@ -51,6 +51,7 @@ use crate::rest::dictionary;
 use crate::rest::event;
 use crate::rest::family;
 use crate::rest::family_member;
+use crate::rest::file_export;
 use crate::rest::file_import;
 use crate::rest::gedcom;
 use crate::rest::geneanet;
@@ -364,6 +365,12 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let import_export_routes = Router::new()
+        .route("/{tree_id}/export-jobs", post(file_export::start))
+        .route("/{tree_id}/export-jobs/{job_id}", get(file_export::status))
+        .route(
+            "/{tree_id}/export-jobs/{job_id}/download",
+            get(file_export::download),
+        )
         .route(
             "/{tree_id}/import-jobs",
             post(file_import::start)

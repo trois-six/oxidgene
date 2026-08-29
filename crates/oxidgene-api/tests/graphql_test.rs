@@ -1680,36 +1680,9 @@ async fn test_graphiql_playground() {
     assert!(body.contains("graphiql"));
 }
 
-// ── GEDCOM Import/Export ─────────────────────────────────────────────
+// ── Geneanet and exports ─────────────────────────────────────────────
 
-fn minimal_gedcom() -> &'static str {
-    concat!(
-        "0 HEAD\n",
-        "1 SOUR OxidGene\n",
-        "1 GEDC\n",
-        "2 VERS 5.5.1\n",
-        "2 FORM LINEAGE-LINKED\n",
-        "1 CHAR UTF-8\n",
-        "0 @I1@ INDI\n",
-        "1 NAME John /Doe/\n",
-        "1 SEX M\n",
-        "1 BIRT\n",
-        "2 DATE 1 JAN 1980\n",
-        "2 PLAC Springfield\n",
-        "0 @I2@ INDI\n",
-        "1 NAME Jane /Smith/\n",
-        "1 SEX F\n",
-        "0 @F1@ FAM\n",
-        "1 HUSB @I1@\n",
-        "1 WIFE @I2@\n",
-        "1 MARR\n",
-        "2 DATE 15 JUN 2005\n",
-        "0 TRLR\n",
-    )
-}
-
-/// The same one-couple-one-child genealogy as `minimal_gedcom`, in GeneWeb's
-/// `.gw` syntax.
+/// A one-couple-one-child genealogy in GeneWeb's `.gw` syntax.
 fn minimal_geneweb() -> &'static str {
     concat!(
         "encoding: utf-8\n",
@@ -1807,214 +1780,6 @@ async fn test_geneanet_wizard_operations_over_graphql() {
 /// the newline that follows in the file. The sample Geneanet exports in `samples/`
 /// hold the same real note both ways.
 ///
-/// Whichever file it came from, the stored body has to end up identical — the
-/// import must not decide how many blank lines the author wrote.
-#[tokio::test]
-async fn test_import_normalizes_line_breaks_across_formats() {
-    use base64::Engine as _;
-
-    let app = setup_app().await;
-
-    async fn note_texts(app: axum::Router, tree_id: &str) -> Vec<String> {
-        let query = format!(
-            r#"{{ persons(treeId: "{tree_id}") {{ edges {{ node {{ notes {{ text }} }} }} }} }}"#
-        );
-        let resp = graphql(app, &query, None).await;
-        data(&resp)["persons"]["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|edge| edge["node"]["notes"].as_array().unwrap().clone())
-            .map(|note| note["text"].as_str().unwrap().to_string())
-            .collect()
-    }
-
-    async fn new_tree(app: axum::Router, name: &str) -> String {
-        let resp = graphql(
-            app,
-            &format!(r#"mutation {{ createTree(input: {{ name: "{name}" }}) {{ id }} }}"#),
-            None,
-        )
-        .await;
-        data(&resp)["createTree"]["id"]
-            .as_str()
-            .unwrap()
-            .to_string()
-    }
-
-    // GEDCOM: the break is a CONT line.
-    let ged_tree = new_tree(app.clone(), "breaks GEDCOM").await;
-    let gedcom = concat!(
-        "0 HEAD\n",
-        "1 GEDC\n",
-        "2 VERS 5.5.1\n",
-        "0 @I1@ INDI\n",
-        "1 NAME Jean /Doe/\n",
-        "1 NOTE Ligne un\n",
-        "2 CONT Ligne deux\n",
-        "0 TRLR\n",
-    );
-    let query = format!(
-        r#"mutation {{
-            importGedcom(treeId: "{ged_tree}", input: {{ gedcom: "{}" }}) {{ notesCount }}
-        }}"#,
-        gedcom.replace('\n', "\\n").replace('"', "\\\"")
-    );
-    graphql(app.clone(), &query, None).await;
-
-    // GeneWeb: the break is `<br/>` followed by the file's own newline.
-    let gw_tree = new_tree(app.clone(), "breaks GeneWeb").await;
-    let geneweb = concat!(
-        "encoding: utf-8\n",
-        "\n",
-        "fam Doe Jean.0 + Roe Marie.0\n",
-        "beg\n",
-        "- h Pierre.0\n",
-        "end\n",
-        "\n",
-        "notes Doe Jean.0\n",
-        "beg\n",
-        "Ligne un<br/>\n",
-        "Ligne deux\n",
-        "end notes\n",
-    );
-    let encoded = base64::engine::general_purpose::STANDARD.encode(geneweb);
-    let query = format!(
-        r#"mutation {{
-            importGeneweb(
-                treeId: "{gw_tree}",
-                input: {{ contentBase64: "{encoded}", filename: "breaks.gw" }}
-            ) {{ notesCount }}
-        }}"#
-    );
-    graphql(app.clone(), &query, None).await;
-
-    let from_gedcom = note_texts(app.clone(), &ged_tree).await;
-    let from_geneweb = note_texts(app.clone(), &gw_tree).await;
-
-    assert_eq!(from_gedcom, vec!["Ligne un\nLigne deux".to_string()]);
-    assert_eq!(from_geneweb, from_gedcom);
-}
-
-#[tokio::test]
-async fn test_graphql_import_geneweb() {
-    use base64::Engine as _;
-
-    let app = setup_app().await;
-
-    let resp = graphql(
-        app.clone(),
-        r#"mutation { createTree(input: { name: "GQL GeneWeb Tree" }) { id } }"#,
-        None,
-    )
-    .await;
-    let tree_id = data(&resp)["createTree"]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let encoded = base64::engine::general_purpose::STANDARD.encode(minimal_geneweb());
-    let query = format!(
-        r#"mutation {{
-            importGeneweb(
-                treeId: "{tree_id}",
-                input: {{ contentBase64: "{encoded}", filename: "family.gw" }}
-            ) {{
-                personsCount
-                familiesCount
-                warnings
-            }}
-        }}"#
-    );
-    let resp = graphql(app.clone(), &query, None).await;
-    let result = &data(&resp)["importGeneweb"];
-    assert_eq!(result["personsCount"], 3);
-    assert_eq!(result["familiesCount"], 1);
-
-    // The persons really landed in the tree.
-    let query =
-        format!(r#"{{ persons(treeId: "{tree_id}") {{ edges {{ node {{ id }} }} totalCount }} }}"#);
-    let resp = graphql(app.clone(), &query, None).await;
-    assert_eq!(data(&resp)["persons"]["totalCount"], 3);
-}
-
-#[tokio::test]
-async fn test_graphql_import_geneweb_rejects_bad_base64() {
-    let app = setup_app().await;
-
-    let resp = graphql(
-        app.clone(),
-        r#"mutation { createTree(input: { name: "GQL GeneWeb Bad" }) { id } }"#,
-        None,
-    )
-    .await;
-    let tree_id = data(&resp)["createTree"]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let query = format!(
-        r#"mutation {{
-            importGeneweb(treeId: "{tree_id}", input: {{ contentBase64: "not!base64!" }}) {{
-                personsCount
-            }}
-        }}"#
-    );
-    let resp = graphql(app.clone(), &query, None).await;
-    assert!(
-        resp["errors"].is_array(),
-        "expected a GraphQL error, got: {resp}"
-    );
-}
-
-#[tokio::test]
-async fn test_graphql_import_gedcom() {
-    let app = setup_app().await;
-
-    // Create tree
-    let resp = graphql(
-        app.clone(),
-        r#"mutation { createTree(input: { name: "GQL GEDCOM Tree" }) { id name } }"#,
-        None,
-    )
-    .await;
-    let tree_id = data(&resp)["createTree"]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    // Import GEDCOM
-    let query = format!(
-        r#"mutation {{
-            importGedcom(treeId: "{tree_id}", input: {{ gedcom: "{}" }}) {{
-                personsCount
-                familiesCount
-                eventsCount
-                sourcesCount
-                mediaCount
-                placesCount
-                notesCount
-                warnings
-            }}
-        }}"#,
-        minimal_gedcom().replace('\n', "\\n").replace('"', "\\\"")
-    );
-    let resp = graphql(app.clone(), &query, None).await;
-    let result = &data(&resp)["importGedcom"];
-    assert_eq!(result["personsCount"], 2);
-    assert_eq!(result["familiesCount"], 1);
-    assert!(result["eventsCount"].as_i64().unwrap() >= 2);
-    assert!(result["placesCount"].as_i64().unwrap() >= 1);
-
-    // Verify persons are in the DB via GraphQL
-    let query = format!(
-        r#"{{ persons(treeId: "{tree_id}") {{ edges {{ node {{ id sex }} }} totalCount }} }}"#
-    );
-    let resp = graphql(app.clone(), &query, None).await;
-    let persons = &data(&resp)["persons"];
-    assert_eq!(persons["totalCount"], 2);
-}
-
 #[tokio::test]
 async fn test_graphql_export_gedcom() {
     let app = setup_app().await;
@@ -2041,9 +1806,12 @@ async fn test_graphql_export_gedcom() {
 
 #[tokio::test]
 async fn test_graphql_export_gedzip() {
-    use base64::Engine as _;
-
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join(format!("oxidgene-gql-export-{}", uuid::Uuid::now_v7())),
+    );
+    let app = build_router(state.clone());
     let response = graphql(
         app.clone(),
         r#"mutation { createTree(input: { name: "GQL GEDZIP Export" }) { id } }"#,
@@ -2056,75 +1824,90 @@ async fn test_graphql_export_gedzip() {
         .to_string();
 
     let response = graphql(
-        app,
-        &format!(r#"{{ exportGedzip(treeId: "{tree_id}") {{ gedzipBase64 warnings }} }}"#),
+        app.clone(),
+        &format!(r#"mutation {{ startExportJob(treeId: "{tree_id}") {{ jobId }} }}"#),
         None,
     )
     .await;
-    let result = &data(&response)["exportGedzip"];
-    let archive = base64::engine::general_purpose::STANDARD
-        .decode(result["gedzipBase64"].as_str().unwrap())
-        .unwrap();
-    let imported = oxidgene_gedcom::import::import_gedzip(&archive, uuid::Uuid::now_v7()).unwrap();
+    let job_id = data(&response)["startExportJob"]["jobId"].as_str().unwrap();
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        state.db.clone(),
+        state.profiles.clone(),
+        state.media.clone(),
+        "graphql-test",
+    );
+    assert!(worker.run_once().await.unwrap());
 
-    assert!(imported.result.persons.is_empty());
+    let response = graphql(
+        app,
+        &format!(
+            r#"{{ exportJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase downloadUrl warnings error }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = &data(&response)["exportJobStatus"];
+    assert_eq!(result["phase"], "completed");
+    assert_eq!(
+        result["downloadUrl"],
+        format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download")
+    );
     assert!(result["warnings"].as_array().unwrap().is_empty());
+    assert!(result["error"].is_null());
 }
 
 #[tokio::test]
-async fn test_graphql_gedcom_roundtrip() {
-    let app = setup_app().await;
-
-    // Create tree
-    let resp = graphql(
+async fn test_graphql_file_import_job() {
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join(format!("oxidgene-gql-import-{}", uuid::Uuid::now_v7())),
+    );
+    let app = build_router(state.clone());
+    let response = graphql(
         app.clone(),
-        r#"mutation { createTree(input: { name: "GQL Roundtrip" }) { id } }"#,
+        r#"mutation { createTree(input: { name: "GQL Import Job" }) { id } }"#,
         None,
     )
     .await;
-    let tree_id = data(&resp)["createTree"]["id"]
+    let tree_id = data(&response)["createTree"]["id"]
         .as_str()
         .unwrap()
         .to_string();
-
-    // Import
-    let import_query = format!(
-        r#"mutation {{
-            importGedcom(treeId: "{tree_id}", input: {{ gedcom: "{}" }}) {{
-                personsCount familiesCount eventsCount
-            }}
-        }}"#,
-        minimal_gedcom().replace('\n', "\\n").replace('"', "\\\"")
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!(
+            "/api/v1/trees/{tree_id}/import-jobs?format=gedcom&filename=tree.ged"
+        ))
+        .body(Body::from(
+            "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n1 NAME Alex /Example/\n0 TRLR\n",
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let started: Value = serde_json::from_slice(&body).unwrap();
+    let job_id = started["job_id"].as_str().unwrap();
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        state.db.clone(),
+        state.profiles.clone(),
+        state.media.clone(),
+        "graphql-test",
     );
-    let resp = graphql(app.clone(), &import_query, None).await;
-    let import_result = &data(&resp)["importGedcom"];
-    assert_eq!(import_result["personsCount"], 2);
-    assert_eq!(import_result["familiesCount"], 1);
+    assert!(worker.run_once().await.unwrap());
 
-    // Export
-    let export_query = format!(r#"{{ exportGedcom(treeId: "{tree_id}") {{ gedcom warnings }} }}"#);
-    let resp = graphql(app.clone(), &export_query, None).await;
-    let export_result = &data(&resp)["exportGedcom"];
-    let gedcom = export_result["gedcom"].as_str().unwrap();
-    assert!(gedcom.contains("INDI"));
-    assert!(gedcom.contains("FAM"));
-}
-
-#[tokio::test]
-async fn test_graphql_import_gedcom_invalid_tree() {
-    let app = setup_app().await;
-    let fake_id = "00000000-0000-0000-0000-000000000000";
-
-    let query = format!(
-        r#"mutation {{
-            importGedcom(treeId: "{fake_id}", input: {{ gedcom: "0 HEAD\n0 TRLR\n" }}) {{
-                personsCount
-            }}
-        }}"#
-    );
-    let resp = graphql(app.clone(), &query, None).await;
-    // Should have errors
-    assert!(resp.get("errors").is_some());
+    let response = graphql(
+        app,
+        &format!(
+            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase result {{ personsCount }} error }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = &data(&response)["importJobStatus"];
+    assert_eq!(result["phase"], "completed");
+    assert_eq!(result["result"]["personsCount"], 1);
+    assert!(result["error"].is_null());
 }
 
 // ── Projection queries & mutations ───────────────────────────────────

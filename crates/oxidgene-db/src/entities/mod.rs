@@ -1,5 +1,6 @@
 //! SeaORM entity definitions for all OxidGene database tables.
 
+pub mod background_job;
 pub mod citation;
 pub mod event;
 pub mod event_witness;

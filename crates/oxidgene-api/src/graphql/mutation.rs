@@ -9,26 +9,26 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    CitationRepo, DictionaryRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo,
-    FamilySpouseRepo, MediaLinkRepo, MediaRepo, MediaTagRepo, NoteRepo, PersonNamePieces,
-    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo,
-    UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
+    BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventRepo,
+    EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo,
+    MediaTagRepo, NewBackgroundJob, NoteRepo, PersonNamePieces, PersonNamePiecesPatch,
+    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput,
+    VignettePatch, VignetteRepo,
 };
 
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
     CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
-    ImportGedcomInput, ImportGedzipInput, ImportGenewebInput, PersonNameInput,
-    SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput, UpdateFamilyInput,
-    UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
-    UpdateSourceInput, UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput,
-    UploadMediaInput, geneanet_deposit_sizes, geneanet_media_paths,
+    PersonNameInput, SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput,
+    UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput,
+    UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput, UpdateVignetteInput,
+    UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes, geneanet_media_paths,
 };
 use super::types::{
-    GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild, GqlFamilyNameParticleUpdate,
-    GqlFamilySpouse, GqlGeneanetDepositSize, GqlGeneanetImportResult, GqlGeneanetMediaPath,
-    GqlGeneanetSession, GqlGeneanetSessionArchive, GqlImportResult, GqlMedia, GqlMediaLink,
+    GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
+    GqlFamilyNameParticleUpdate, GqlFamilySpouse, GqlGeneanetDepositSize, GqlGeneanetImportResult,
+    GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
     GqlNote, GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
     GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx, imports_from_ctx,
     media_from_ctx, profiles_from_ctx, purge_from_ctx,
@@ -79,22 +79,6 @@ where
     match value {
         MaybeUndefined::Value(v) => Some(v.into()),
         _ => None,
-    }
-}
-
-/// Convert a service-layer import summary into its GraphQL shape.
-///
-/// Shared by every import mutation — the summary is format-agnostic.
-fn import_result(summary: crate::service::gedcom::ImportSummary) -> GqlImportResult {
-    GqlImportResult {
-        persons_count: summary.persons_count as i32,
-        families_count: summary.families_count as i32,
-        events_count: summary.events_count as i32,
-        sources_count: summary.sources_count as i32,
-        media_count: summary.media_count as i32,
-        places_count: summary.places_count as i32,
-        notes_count: summary.notes_count as i32,
-        warnings: summary.warnings,
     }
 }
 
@@ -1629,81 +1613,36 @@ impl MutationRoot {
         Ok(update.into())
     }
 
-    /// Import a GEDCOM string into a tree, persisting all extracted entities.
-    /// Triggers a full projection rebuild after import.
-    async fn import_gedcom(
+    /// Queue a durable GEDZIP export. The artifact is downloaded through the
+    /// URL exposed by `exportJobStatus` once the worker completes it.
+    async fn start_export_job(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-        input: ImportGedcomInput,
-    ) -> Result<GqlImportResult> {
+        merge_occupations: Option<bool>,
+        merge_names: Option<bool>,
+    ) -> Result<GqlBackgroundJobStarted> {
         let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = Uuid::parse_str(tree_id.as_str())?;
-        let summary = crate::service::gedcom::import_and_persist(db, tid, &input.gedcom).await?;
-        // Eager full rebuild after GEDCOM import — deliberately outside a
-        // transaction: it is an idempotent bulk operation over the whole tree,
-        // and wrapping 100K rows would hold a very long-lived write lock. The
-        // import itself is already atomic (see `gedcom::import_and_persist`).
-        profiles.rebuild_tree_full(db, tid).await?;
-        Ok(import_result(summary))
-    }
-
-    /// Import a GeneWeb `.gw` file into a tree, persisting all extracted
-    /// entities. Triggers a full projection rebuild after import.
-    ///
-    /// The file content is base64-encoded because `.gw` is ISO-8859-1 unless
-    /// the file opts into UTF-8 — see [`ImportGenewebInput`]. There is no
-    /// matching export: `.gw` is a read-only format in OxidGene.
-    async fn import_geneweb(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        input: ImportGenewebInput,
-    ) -> Result<GqlImportResult> {
-        use base64::Engine as _;
-
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = Uuid::parse_str(tree_id.as_str())?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&input.content_base64)
-            .map_err(|e| async_graphql::Error::new(format!("contentBase64 is not base64: {e}")))?;
-        let filename = input.filename.as_deref().unwrap_or("import.gw");
-        let summary =
-            crate::service::geneweb::import_and_persist(db, tid, &bytes, filename).await?;
-        // Same rationale as `import_gedcom` above.
-        profiles.rebuild_tree_full(db, tid).await?;
-        Ok(import_result(summary))
-    }
-
-    /// Import a GEDZIP archive (`.gdz`) into a tree: the genealogy it wraps
-    /// and every media file it carries. Triggers a full projection rebuild
-    /// after import.
-    ///
-    /// The archive is base64-encoded because it is binary — see
-    /// [`ImportGedzipInput`]. The matching export is
-    /// `exportGedcom`'s REST twin with `?format=gedzip`.
-    async fn import_gedzip(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        input: ImportGedzipInput,
-    ) -> Result<GqlImportResult> {
-        use base64::Engine as _;
-
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let store = media_from_ctx(ctx);
-        let tid = Uuid::parse_str(tree_id.as_str())?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&input.content_base64)
-            .map_err(|e| async_graphql::Error::new(format!("contentBase64 is not base64: {e}")))?;
-        let summary =
-            crate::service::gedcom::import_gedzip_and_persist(db, &**store, tid, &bytes).await?;
-        // Same rationale as `import_gedcom` above.
-        profiles.rebuild_tree_full(db, tid).await?;
-        Ok(import_result(summary))
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        TreeRepo::get(db, tree_id).await?;
+        let job_id = Uuid::now_v7();
+        BackgroundJobRepo::create(
+            db,
+            NewBackgroundJob {
+                id: job_id,
+                tree_id,
+                kind: BackgroundJobKind::Export,
+                format: "gedzip".into(),
+                source_key: None,
+                original_filename: None,
+                merge_occupations: merge_occupations.unwrap_or(false),
+                merge_names: merge_names.unwrap_or(false),
+            },
+        )
+        .await?;
+        Ok(GqlBackgroundJobStarted {
+            job_id: ID(job_id.to_string()),
+        })
     }
 
     // ── Geneanet import wizard ───────────────────────────────────────

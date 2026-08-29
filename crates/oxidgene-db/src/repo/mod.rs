@@ -6,6 +6,7 @@
 //! - Repository implementations for all entities
 
 mod ancestry;
+mod background_job;
 mod citation;
 mod connection;
 mod dictionary;
@@ -30,6 +31,9 @@ mod tree;
 mod vignette;
 
 pub use ancestry::AncestryRepo;
+pub use background_job::{
+    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
+};
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{connect, rollback_migrations, run_migrations};
 pub use dictionary::{

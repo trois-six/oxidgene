@@ -690,6 +690,16 @@ pub enum FileImportFormat {
     Geneweb,
 }
 
+impl FileImportFormat {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Gedcom => "gedcom",
+            Self::Gedzip => "gedzip",
+            Self::Geneweb => "geneweb",
+        }
+    }
+}
+
 /// Metadata for starting an asynchronous file import.
 #[derive(Debug, Deserialize)]
 pub struct StartFileImportQuery {
@@ -707,13 +717,38 @@ pub struct FileImportStartedResponse {
 /// Current server-side state of an asynchronous file import.
 #[derive(Debug, Serialize)]
 pub struct FileImportStatusResponse {
-    pub phase: crate::service::gedcom::FileImportPhase,
+    pub phase: String,
     pub done: usize,
     pub total: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<ImportResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<&'static str>,
+    pub error: Option<String>,
+}
+
+/// Options for creating an asynchronous GEDZIP export.
+#[derive(Debug, Deserialize)]
+pub struct StartExportJobQuery {
+    pub merge_occupations: Option<bool>,
+    pub merge_names: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExportJobStartedResponse {
+    pub job_id: uuid::Uuid,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExportJobStatusResponse {
+    pub phase: String,
+    pub done: usize,
+    pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Response body for GEDCOM export.
