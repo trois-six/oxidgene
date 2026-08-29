@@ -1,5 +1,15 @@
-{{- if not (has .Values.s3.mode (list "existing" "rustfs")) }}
-{{- fail "s3.mode must be either existing or rustfs" }}
+{{- if not (has .Values.s3.mode (list "disabled" "existing" "rustfs")) }}
+{{- fail "s3.mode must be disabled, existing, or rustfs" }}
+{{- end }}
+{{- if not (has .Values.database.mode (list "disabled" "existing" "cloudnativepg")) }}
+{{- fail "database.mode must be disabled, existing, or cloudnativepg" }}
+{{- end }}
+{{- if not (has .Values.redis.mode (list "disabled" "existing" "operator")) }}
+{{- fail "redis.mode must be disabled, existing, or operator" }}
+{{- end }}
+{{- $usesLocalState := or (eq .Values.database.mode "disabled") (eq .Values.s3.mode "disabled") }}
+{{- if and $usesLocalState .Values.autoscaling.backend.enabled }}
+{{- fail "backend autoscaling requires PostgreSQL and S3; disable autoscaling when database.mode or s3.mode is disabled" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -10,7 +20,7 @@ metadata:
     app.kubernetes.io/component: backend
 spec:
   {{- if not .Values.autoscaling.backend.enabled }}
-  replicas: {{ .Values.backend.replicaCount }}
+  replicas: {{ ternary 1 .Values.backend.replicaCount $usesLocalState }}
   {{- end }}
   selector:
     matchLabels:
@@ -55,10 +65,27 @@ spec:
             - name: OXIDGENE_CORS_ORIGIN
               value: {{ .Values.backend.corsOrigin | quote }}
             - name: OXIDGENE_DATABASE_URL
+              {{- if eq .Values.database.mode "disabled" }}
+              value: {{ printf "sqlite://%s/%s?mode=rwc" (trimSuffix "/" .Values.database.sqlite.directory) .Values.database.sqlite.fileName | quote }}
+              {{- else }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
-                  key: {{ required "database.urlKey is required" .Values.database.urlKey }}
+                  name: {{ required "database credential Secret is required" (include "oxidgene.databaseSecretName" .) }}
+                  key: {{ required "database URL key is required" (include "oxidgene.databaseUrlKey" .) }}
+              {{- end }}
+            {{- if ne .Values.redis.mode "disabled" }}
+            - name: OXIDGENE_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "Redis credential Secret is required" (include "oxidgene.redisSecretName" .) }}
+                  key: {{ required "Redis URL key is required" (include "oxidgene.redisUrlKey" .) }}
+            {{- end }}
+            {{- if eq .Values.s3.mode "disabled" }}
+            - name: OXIDGENE_MEDIA_BACKEND
+              value: filesystem
+            - name: OXIDGENE_MEDIA_ROOT
+              value: {{ required "s3.filesystem.root is required" .Values.s3.filesystem.root | quote }}
+            {{- else }}
             - name: OXIDGENE_MEDIA_BACKEND
               value: s3
             {{- $endpoint := include "oxidgene.s3Endpoint" . }}
@@ -80,6 +107,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "oxidgene.s3CredentialsSecret" . }}
                   key: {{ include "oxidgene.s3SecretKeyKey" . }}
+            {{- end }}
             - name: TMPDIR
               value: /tmp
             {{- with .Values.backend.extraEnv }}
@@ -106,9 +134,25 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if eq .Values.database.mode "disabled" }}
+            - name: database
+              mountPath: {{ required "database.sqlite.directory is required" .Values.database.sqlite.directory | quote }}
+            {{- end }}
+            {{- if eq .Values.s3.mode "disabled" }}
+            - name: media
+              mountPath: {{ required "s3.filesystem.root is required" .Values.s3.filesystem.root | quote }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if eq .Values.database.mode "disabled" }}
+        - name: database
+          emptyDir: {}
+        {{- end }}
+        {{- if eq .Values.s3.mode "disabled" }}
+        - name: media
+          emptyDir: {}
+        {{- end }}
       {{- with .Values.backend.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -160,24 +160,41 @@ bound to `127.0.0.1`; do not expose this stack to an untrusted network.
 ## 4. Deploy to Kubernetes with Helm
 
 The chart deploys the static frontend and Axum backend as PVC-free workloads.
-PostgreSQL and object storage hold all durable web data, while import scratch
-files use ephemeral `/tmp` volumes. The chart supports:
+In production, PostgreSQL and object storage hold all durable web data, while
+import scratch files use ephemeral `/tmp` volumes. For local evaluation, the
+backend can instead keep SQLite and media in ephemeral pod filesystems. The
+chart supports:
 
+- `database.mode=disabled`: use SQLite in the backend pod.
+- `database.mode=existing`: connect to an existing PostgreSQL database.
+- `database.mode=cloudnativepg`: create a CloudNativePG cluster, optionally
+  installing the official operator as a chart dependency.
+- `redis.mode=disabled`: do not configure the future session store.
+- `redis.mode=existing`: connect the backend configuration to an existing
+  Redis service.
+- `redis.mode=operator`: create a persistent Redis instance, optionally
+  installing OpsTree Redis Operator as a chart dependency.
+- `s3.mode=disabled`: use the backend pod's local filesystem.
 - `s3.mode=existing`: connect to an existing S3-compatible bucket.
 - `s3.mode=rustfs`: create a RustFS Tenant, media policy, application user, and
   bucket through RustFS Operator 0.0.6 or newer.
 
-The chart does not deploy PostgreSQL or Redis. Redis will become a required
-external session service when authentication is implemented.
+Redis remains unused by application code until authentication is implemented;
+enabling it now provisions the infrastructure and injects the reserved
+`OXIDGENE_REDIS_URL` backend variable.
 
 ### Software requirements
 
 - Kubernetes 1.30 or newer.
 - Helm 3 and `kubectl` configured for the target cluster.
 - An Ingress controller when `ingress.enabled=true`.
-- A PostgreSQL database reachable from the cluster.
+- For durable database storage, an existing PostgreSQL database or a dynamic
+  StorageClass for CloudNativePG.
+- When Redis is enabled, an existing Redis service or a dynamic StorageClass
+  for an operator-managed instance.
 - Published or locally accessible OxidGene backend and frontend OCI images.
-- An existing S3 bucket, or RustFS Operator 0.0.6+ and a dynamic StorageClass.
+- For durable media storage, an existing S3 bucket or RustFS Operator 0.0.6+
+  and a dynamic StorageClass.
 
 The backend is not ready for direct untrusted public exposure until
 authentication and per-tree authorization are implemented. Use a private
@@ -191,10 +208,20 @@ is `250m` CPU and `320Mi` RAM in total before Kubernetes, Ingress, PostgreSQL,
 monitoring, and object-storage overhead. The configured limits total 2.25 GiB
 RAM and 2.5 CPU cores.
 
-For `s3.mode=existing`, size cluster nodes for the OxidGene pods and keep the
-database and object-store capacity outside this chart. For `s3.mode=rustfs`,
-the default Tenant additionally creates four RustFS servers with one `100Gi`
-ReadWriteOnce PVC each. Provide at least four suitable 100 GiB volumes, size
+When `database.mode=disabled` or `s3.mode=disabled`, the chart forces the
+backend to one replica and rejects backend autoscaling. SQLite uses an
+`emptyDir` mounted at `/data`; filesystem media uses another one at `/media`.
+Both are deleted with the pod, so these modes are suitable only for disposable
+evaluation environments.
+
+For `database.mode=cloudnativepg`, the default cluster creates three PostgreSQL
+instances with one `10Gi` PVC each. Size the storage, CPU, and memory values for
+the workload; production sizing and backups remain operator responsibilities.
+For `redis.mode=operator`, the Redis instance creates one `5Gi` PVC by default
+and retains it when the CR is deleted. For `s3.mode=existing`, keep the
+object-store capacity outside this chart. For `s3.mode=rustfs`, the default
+Tenant additionally creates four RustFS servers with one `100Gi` ReadWriteOnce
+PVC each. Provide at least four suitable 100 GiB volumes, size
 `s3.rustfs.pool.resources` for the expected workload, and distribute replicas
 across failure domains in production.
 
@@ -218,9 +245,28 @@ docker push registry.example.invalid/oxidgene-web:0.1.0
 The OxidGene runtime images use Debian Trixie. RustFS 1.0.0-beta.10 has no
 official Trixie variant, so the chart uses its official Alpine image.
 
-### Common database Secret
+### Ephemeral SQLite and filesystem
 
-Create the release namespace and a Secret containing the PostgreSQL URL:
+To evaluate OxidGene without PostgreSQL or S3, use:
+
+```yaml
+database:
+  mode: disabled
+
+s3:
+  mode: disabled
+```
+
+The backend connects to `sqlite:///data/oxidgene.db?mode=rwc` and stores media
+under `/media`. Both directories are writable `emptyDir` volumes despite the
+read-only container root filesystem. Deleting, rescheduling, or recreating the
+backend pod deletes all genealogy and media data. This configuration is not a
+stateless or production deployment.
+
+### Existing PostgreSQL database
+
+With `database.mode=existing`, create the release namespace and a Secret
+containing the PostgreSQL URL:
 
 ```bash
 kubectl create namespace oxidgene
@@ -230,6 +276,103 @@ kubectl -n oxidgene create secret generic oxidgene-database \
 
 Manage real credentials with the cluster's secret manager rather than
 committing them in a values file.
+
+Select the Secret in `values-production.yaml`:
+
+```yaml
+database:
+  mode: existing
+  existing:
+    secret: oxidgene-database
+    urlKey: url
+```
+
+### Operator-managed PostgreSQL
+
+With `database.mode=cloudnativepg`, the chart creates a CloudNativePG
+`Cluster`, bootstraps the `oxidgene` database and owner, and configures the
+backend from the generated `<cluster>-app` Secret. The default PostgreSQL image
+is the official PostgreSQL 18.6 system image based on Debian Trixie.
+
+To install the official CloudNativePG chart 0.29.0 and operator 1.30.0 with the
+OxidGene release:
+
+```yaml
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    instances: 3
+    storage:
+      storageClass: fast-rwo
+      size: 100Gi
+
+cloudnative-pg:
+  enabled: true
+```
+
+The operator and its CRDs are cluster-wide. Only one Helm release should own
+them. On a cluster where an administrator already operates CloudNativePG, keep
+`cloudnative-pg.enabled=false`; OxidGene then creates only its namespaced
+`Cluster` resource and requires the CRD to be present. Managing the operator in
+a separate release is recommended for production because its lifecycle is
+independent from the application.
+
+### Redis for future sessions
+
+Redis is disabled by default because authentication and user sessions are not
+implemented yet. For an existing service, create a Secret containing its URL:
+
+```bash
+kubectl -n oxidgene create secret generic oxidgene-redis \
+  --from-literal=url='redis://:PASSWORD@REDIS_HOST:6379/0'
+```
+
+Select it in `values-production.yaml`:
+
+```yaml
+redis:
+  mode: existing
+  existing:
+    secret: oxidgene-redis
+    urlKey: url
+```
+
+For an operator-managed instance, generate a URL-safe password and store the
+password used by Redis Operator together with the complete backend URL. The
+default managed Service name is `oxidgene-redis`; update the URL when setting
+`redis.operator.instanceName` or `fullnameOverride`:
+
+```bash
+REDIS_PASSWORD="$(openssl rand -hex 32)"
+kubectl -n oxidgene create secret generic oxidgene-redis \
+  --from-literal=password="$REDIS_PASSWORD" \
+  --from-literal=url="redis://:${REDIS_PASSWORD}@oxidgene-redis:6379/0"
+unset REDIS_PASSWORD
+```
+
+```yaml
+redis:
+  mode: operator
+  operator:
+    credentialsSecret: oxidgene-redis
+    storage:
+      storageClass: fast-rwo
+      size: 20Gi
+
+redis-operator:
+  enabled: true
+```
+
+The chart creates an OpsTree `Redis` resource backed by Redis 8.2.1, enables
+AOF persistence, and injects `OXIDGENE_REDIS_URL` into the backend. That
+variable is reserved for EPIC G and has no effect before session management is
+implemented. The bundled chart is Redis Operator 0.26.1 with operator 0.26.0.
+
+The operator and its four CRDs are cluster-wide. Only one release should own
+them. When the operator is already installed by the cluster administrator,
+keep `redis-operator.enabled=false`; OxidGene creates only the namespaced
+`Redis` resource and verifies that its CRD exists. A separate operator release
+is recommended for production.
 
 ### Existing S3 bucket
 
@@ -256,7 +399,10 @@ frontend:
     tag: "0.1.0"
 
 database:
-  existingSecret: oxidgene-database
+  mode: existing
+  existing:
+    secret: oxidgene-database
+    urlKey: url
 
 s3:
   mode: existing
@@ -349,9 +495,9 @@ s3:
 
 ### Install and verify OxidGene
 
-Install only after the database and chosen S3 backend are reachable, and after
-the `Tenant` CRD exists when using RustFS mode. For a tagged release, install
-the published OCI chart (replace `0.1.0` with the release version):
+Install only after the external services are reachable and the selected
+operator CRDs exist. For a tagged release, install the published OCI chart
+(replace `0.1.0` with the release version):
 
 ```bash
 helm upgrade --install oxidgene \
@@ -365,6 +511,7 @@ helm upgrade --install oxidgene \
 For a source checkout, install the local chart:
 
 ```bash
+helm dependency build charts/oxidgene
 helm upgrade --install oxidgene charts/oxidgene \
   --namespace oxidgene \
   --create-namespace \
@@ -377,6 +524,23 @@ For RustFS mode, also wait for provisioning:
 ```bash
 kubectl -n oxidgene wait --for=condition=Ready \
   tenant/oxidgene-rustfs --timeout=10m
+```
+
+For CloudNativePG mode, wait for the database before expecting the backend to
+become ready:
+
+```bash
+kubectl -n oxidgene wait --for=condition=Ready \
+  cluster/oxidgene-postgresql --timeout=10m
+```
+
+For operator-managed Redis, wait for the generated StatefulSet and its rollout:
+
+```bash
+kubectl -n oxidgene wait --for=create \
+  statefulset/oxidgene-redis --timeout=5m
+kubectl -n oxidgene rollout status \
+  statefulset/oxidgene-redis --timeout=10m
 ```
 
 The ingress sends `/api`, `/graphql`, and `/healthz` to the backend and all
@@ -439,13 +603,69 @@ other paths to the frontend.
 | `frontend.affinity` | `{}` | Pod affinity and anti-affinity. |
 | `frontend.topologySpreadConstraints` | `[]` | Pod topology spread rules. |
 
-#### Database and S3
+#### Database
 
 | Value | Default | Description |
 |---|---|---|
-| `database.existingSecret` | `oxidgene-database` | Secret containing the PostgreSQL connection URL. |
-| `database.urlKey` | `url` | Key holding the URL in the database Secret. |
-| `s3.mode` | `existing` | Storage mode: `existing` or `rustfs`. |
+| `database.mode` | `existing` | Database mode: `disabled`, `existing`, or `cloudnativepg`. |
+| `database.sqlite.directory` | `/data` | SQLite directory mounted as an ephemeral `emptyDir` in disabled mode. |
+| `database.sqlite.fileName` | `oxidgene.db` | SQLite database file name in disabled mode. |
+| `database.existing.secret` | `oxidgene-database` | Existing Secret containing the PostgreSQL connection URL. |
+| `database.existing.urlKey` | `url` | Key holding the URL in the existing database Secret. |
+| `database.cloudnativepg.requireCrd` | `true` | Require the `Cluster` CRD when the bundled operator is disabled. |
+| `database.cloudnativepg.clusterName` | Generated | Optional CloudNativePG Cluster name. |
+| `database.cloudnativepg.instances` | `3` | Number of PostgreSQL instances, including replicas. |
+| `database.cloudnativepg.imageName` | PostgreSQL 18.6 Trixie | CloudNativePG operand image. |
+| `database.cloudnativepg.database` | `oxidgene` | Application database created during bootstrap. |
+| `database.cloudnativepg.owner` | `oxidgene` | Application role that owns the database. |
+| `database.cloudnativepg.storage.size` | `10Gi` | PVC size for each PostgreSQL instance. |
+| `database.cloudnativepg.storage.storageClass` | `""` | StorageClass; empty selects the cluster default. |
+| `database.cloudnativepg.resources` | `{}` | PostgreSQL instance CPU and memory requests and limits. |
+| `database.cloudnativepg.postgresql.parameters` | `{}` | PostgreSQL runtime parameters passed to CNPG. |
+| `cloudnative-pg.enabled` | `false` | Install the official CloudNativePG operator subchart. |
+| `cloudnative-pg.crds.create` | `true` | Install CloudNativePG CRDs with the operator subchart. |
+| `cloudnative-pg.config.clusterWide` | `true` | Let the bundled operator watch all namespaces. |
+
+All other `cloudnative-pg.*` values pass through to the official operator chart.
+
+#### Redis
+
+| Value | Default | Description |
+|---|---|---|
+| `redis.mode` | `disabled` | Redis mode: `disabled`, `existing`, or `operator`. |
+| `redis.existing.secret` | `oxidgene-redis` | Existing Secret containing the complete Redis URL. |
+| `redis.existing.urlKey` | `url` | Key holding the URL in the existing Redis Secret. |
+| `redis.operator.requireCrd` | `true` | Require the OpsTree `Redis` CRD when the bundled operator is disabled. |
+| `redis.operator.instanceName` | Generated | Optional Redis resource and Service name. |
+| `redis.operator.image` | `quay.io/opstree/redis:v8.2.1` | Managed Redis image. |
+| `redis.operator.imagePullPolicy` | `IfNotPresent` | Managed Redis image pull policy. |
+| `redis.operator.credentialsSecret` | `oxidgene-redis` | Secret containing both the Redis password and complete URL. |
+| `redis.operator.passwordKey` | `password` | Password key consumed by Redis Operator. |
+| `redis.operator.urlKey` | `url` | URL key injected into the backend. |
+| `redis.operator.storage.size` | `5Gi` | Redis PVC size. |
+| `redis.operator.storage.storageClass` | `""` | StorageClass; empty selects the cluster default. |
+| `redis.operator.storage.accessModes` | `[ReadWriteOnce]` | Redis PVC access modes. |
+| `redis.operator.storage.keepAfterDelete` | `true` | Retain Redis storage after deleting the custom resource. |
+| `redis.operator.resources` | `{}` | Redis CPU and memory requests and limits. |
+| `redis.operator.podSecurityContext` | Restricted defaults | Redis Pod security context. |
+| `redis.operator.securityContext` | Restricted defaults | Redis container security context. |
+| `redis.operator.nodeSelector` | `{}` | Redis node selection constraints. |
+| `redis.operator.tolerations` | `[]` | Redis Pod tolerations. |
+| `redis.operator.affinity` | `{}` | Redis Pod affinity and anti-affinity. |
+| `redis.operator.additionalConfig` | AOF enabled | Additional Redis configuration stored in a ConfigMap. |
+| `redis-operator.enabled` | `false` | Install OpsTree Redis Operator as a cluster-wide subchart. |
+| `redis-operator.redisOperator.serviceDNSDomain` | `cluster.local` | Cluster DNS suffix used by the bundled operator. |
+| `redis-operator.redisOperator.webhook` | `false` | Enable the optional admission webhook. |
+| `redis-operator.rbac.scope` | `cluster` | RBAC scope for the bundled operator. |
+
+All other `redis-operator.*` values pass through to the upstream operator chart.
+
+#### S3
+
+| Value | Default | Description |
+|---|---|---|
+| `s3.mode` | `existing` | Storage mode: `disabled`, `existing`, or `rustfs`. |
+| `s3.filesystem.root` | `/media` | Media directory mounted as an ephemeral `emptyDir` in disabled mode. |
 | `s3.existing.endpoint` | Example URL | Existing S3-compatible endpoint; HTTPS is expected outside trusted local networks. |
 | `s3.existing.bucket` | `oxidgene-media` | Existing bucket name. |
 | `s3.existing.region` | `us-east-1` | Existing bucket region. |

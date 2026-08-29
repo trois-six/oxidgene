@@ -3,30 +3,156 @@
 The canonical installation guide and complete values reference are in the
 [Kubernetes section of the OxidGene Quickstart](../../docs/specifications/quickstart.md#4-deploy-to-kubernetes-with-helm).
 
-This chart deploys the stateless OxidGene web frontend and backend. PostgreSQL
-and S3-compatible object storage hold durable data; the OxidGene pods only use
-an ephemeral `/tmp` volume. The chart does not deploy PostgreSQL or Redis.
-Redis is reserved for user sessions once authentication is implemented.
+This chart deploys the OxidGene web frontend and backend. For durable stateless
+deployments, it can consume an existing PostgreSQL database or create one
+through CloudNativePG, and use an existing S3 bucket or operator-managed RustFS.
+For evaluation, disabling those integrations selects ephemeral SQLite and
+filesystem storage in a single backend pod. Redis can remain disabled, use an
+existing service, or be provisioned through OpsTree Redis Operator. It remains
+reserved for user sessions once authentication is implemented.
 
 ## Prerequisites
 
 - Kubernetes 1.30 or newer and Helm 3.
-- A PostgreSQL database reachable from the cluster.
-- Either an existing S3-compatible bucket or RustFS Operator 0.0.6 and a
-  StorageClass able to provision the RustFS Tenant PVCs.
+- For durable database storage, an existing PostgreSQL database or a dynamic
+  StorageClass for a CloudNativePG cluster.
+- When Redis is enabled, an existing Redis service or a dynamic StorageClass
+  for an operator-managed instance.
+- For durable media storage, either an existing S3-compatible bucket or RustFS
+  Operator 0.0.6 and a StorageClass able to provision the RustFS Tenant PVCs.
 - Published or locally accessible OxidGene backend and frontend images.
 
 All referenced Secrets must be in the OxidGene release namespace. Manage them
 with the cluster's secret manager rather than committing credential values.
 
-## Existing S3 bucket
+## Ephemeral SQLite and filesystem mode
 
-Create the database and S3 credential Secrets:
+For evaluation without PostgreSQL or S3, disable both integrations:
+
+```yaml
+database:
+  mode: disabled
+
+s3:
+  mode: disabled
+```
+
+The backend then uses `/data/oxidgene.db` for SQLite and `/media` for uploaded
+media, each backed by an `emptyDir`. The chart forces one backend replica and
+rejects backend autoscaling whenever either local backend is selected. All
+database and media data is lost when that pod is deleted, rescheduled, or
+recreated; these modes are not suitable for production or a stateless service.
+
+## Existing PostgreSQL database
+
+Create the database credential Secret:
 
 ```bash
 kubectl create namespace oxidgene
 kubectl -n oxidgene create secret generic oxidgene-database \
   --from-literal=url='postgres://USER:PASSWORD@HOST:5432/oxidgene'
+```
+
+Select it in the values file:
+
+```yaml
+database:
+  mode: existing
+  existing:
+    secret: oxidgene-database
+    urlKey: url
+```
+
+## Operator-managed PostgreSQL
+
+Set `database.mode=cloudnativepg` to create a `Cluster`, its PostgreSQL
+instances, PVCs, services, and application credentials. To install the official
+CloudNativePG 1.30.0 operator as part of this Helm release, enable its subchart:
+
+```yaml
+database:
+  mode: cloudnativepg
+  cloudnativepg:
+    instances: 3
+    imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+    storage:
+      storageClass: fast-rwo
+      size: 100Gi
+
+cloudnative-pg:
+  enabled: true
+```
+
+The backend automatically consumes the generated `<cluster>-app` Secret and
+its `uri` key. For an operator already managed by the cluster administrator,
+leave `cloudnative-pg.enabled=false`; the chart verifies that the `Cluster` CRD
+exists. Only one release should own the cluster-wide operator and its CRDs.
+Production clusters should normally manage that operator independently so its
+upgrade and removal lifecycle is not tied to one OxidGene release.
+
+When installing from a source checkout, fetch the optional chart dependencies
+before running Helm:
+
+```bash
+helm dependency build charts/oxidgene
+```
+
+## Redis for future sessions
+
+Redis is disabled by default because authentication and user sessions are not
+implemented yet. To prepare an external Redis service, create a Secret with its
+connection URL and select existing mode:
+
+```bash
+kubectl -n oxidgene create secret generic oxidgene-redis \
+  --from-literal=url='redis://:PASSWORD@REDIS_HOST:6379/0'
+```
+
+```yaml
+redis:
+  mode: existing
+  existing:
+    secret: oxidgene-redis
+    urlKey: url
+```
+
+For a managed instance, create a URL-safe password and store both the password
+required by Redis Operator and the complete URL reserved for the backend. The
+default Redis Service name is `oxidgene-redis`:
+
+```bash
+REDIS_PASSWORD="$(openssl rand -hex 32)"
+kubectl -n oxidgene create secret generic oxidgene-redis \
+  --from-literal=password="$REDIS_PASSWORD" \
+  --from-literal=url="redis://:${REDIS_PASSWORD}@oxidgene-redis:6379/0"
+unset REDIS_PASSWORD
+```
+
+```yaml
+redis:
+  mode: operator
+  operator:
+    storage:
+      storageClass: fast-rwo
+      size: 20Gi
+
+redis-operator:
+  enabled: true
+```
+
+This creates a password-protected, persistent Redis 8.2.1 instance and injects
+`OXIDGENE_REDIS_URL` into the backend. That variable is reserved for EPIC G and
+does not activate sessions before authentication is implemented. If OpsTree
+Redis Operator 0.26.0 is already managed by the cluster administrator, leave
+`redis-operator.enabled=false`; the chart requires its `Redis` CRD. As with
+CloudNativePG, production clusters should normally manage the cluster-wide
+operator separately.
+
+## Existing S3 bucket
+
+Create the S3 credential Secret:
+
+```bash
 kubectl -n oxidgene create secret generic oxidgene-s3 \
   --from-literal=accesskey='S3_ACCESS_KEY' \
   --from-literal=secretkey='S3_SECRET_KEY'
@@ -45,9 +171,6 @@ frontend:
   image:
     repository: registry.example.invalid/oxidgene-web
     tag: "0.1.0"
-
-database:
-  existingSecret: oxidgene-database
 
 s3:
   mode: existing
@@ -177,9 +300,17 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | Value | Purpose |
 |---|---|
 | `clusterDomain` | Kubernetes DNS suffix, default `cluster.local`. |
-| `database.existingSecret` | Secret containing the PostgreSQL URL. |
-| `database.urlKey` | PostgreSQL URL key, default `url`. |
-| `s3.mode` | `existing` or `rustfs`. |
+| `database.mode` | `disabled`, `existing`, or `cloudnativepg`. |
+| `database.sqlite.*` | SQLite directory and file name used by the ephemeral disabled mode. |
+| `database.existing.*` | Existing Secret name and PostgreSQL URL key. |
+| `database.cloudnativepg.*` | Managed cluster name, image, instances, database owner, storage, resources, and PostgreSQL parameters. |
+| `cloudnative-pg.enabled` | Install the official cluster-wide operator dependency; disabled by default. |
+| `redis.mode` | `disabled`, `existing`, or `operator`. |
+| `redis.existing.*` | Existing Secret name and Redis URL key. |
+| `redis.operator.*` | Managed instance name, image, credentials, storage, resources, scheduling, and configuration. |
+| `redis-operator.enabled` | Install the cluster-wide OpsTree operator dependency; disabled by default. |
+| `s3.mode` | `disabled`, `existing`, or `rustfs`. |
+| `s3.filesystem.root` | Media directory used by the ephemeral disabled mode. |
 | `s3.existing.*` | Existing endpoint, bucket, region, and credential Secret. |
 | `s3.rustfs.*` | Tenant image, Secrets, bucket, policy, user, and pool. |
 | `ingress.*` | Optional same-origin routing and TLS configuration. |

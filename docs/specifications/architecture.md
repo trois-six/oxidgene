@@ -143,11 +143,20 @@ UI specifications:
     reserved for EPIC G user sessions and is not a read-projection cache.
     Direct public backend deployment is blocked until EPIC G authentication and
     per-tree authorization are enforced across every transport and media read.
-- The Helm chart keeps the OxidGene frontend and backend PVC-free. It either
-    consumes an existing S3-compatible bucket or creates a RustFS `Tenant`,
-    bucket, policy, and application user through RustFS Operator 0.0.6+. The
-    operator is installed separately because its CRDs and cluster-wide RBAC have
-    an independent lifecycle; only the RustFS Tenant owns persistent volumes.
+- The Helm chart keeps the OxidGene frontend and backend PVC-free. For the
+    database, it either consumes an existing PostgreSQL URL, creates a
+    CloudNativePG `Cluster`, or uses ephemeral SQLite in the backend pod; the
+    official CloudNativePG operator subchart is optional so an administrator can
+    retain a separate cluster-wide operator lifecycle. Redis can remain disabled,
+    use an external service, or be provisioned as a persistent Redis 8 instance
+    through an optional OpsTree Redis Operator subchart; its URL is reserved for
+    EPIC G sessions. For media, the chart either uses an ephemeral backend-local
+    filesystem, consumes an existing S3-compatible bucket, or creates a RustFS
+    `Tenant`, bucket, policy, and application user through RustFS Operator 0.0.6+.
+    The local SQLite and filesystem modes force a single backend replica and lose
+    their data when its pod is recreated. The RustFS operator is installed
+    separately because its CRDs and cluster-wide RBAC have an independent
+    lifecycle. Only operator-managed infrastructure owns persistent volumes.
 - The release images, development Compose stack, and Kubernetes deliverables
     are tracked in [Roadmap §5](roadmap.md).
 

@@ -22,6 +22,7 @@ lcov.info
 
 # Documentation not needed by the image build
 /docs/
+/charts/
 *.md
 /.gitignore
 
