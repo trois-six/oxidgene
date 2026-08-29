@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::{EventType, Privacy};
 use oxidgene_core::types::Portrait;
@@ -1109,6 +1110,7 @@ async fn prepare_single_pages(
         let mut resolved = Vec::with_capacity(batch.len());
         for (deposit_id, deposit, extension) in batch {
             let Some(view) = deposit.views.first() else {
+                progress.advance();
                 continue;
             };
             match resolve_bytes(deposit, view, deposit_sizes, archives, hashes, fetched).await {
@@ -1126,18 +1128,30 @@ async fn prepare_single_pages(
                         bytes,
                     ));
                 }
-                Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
+                Err(err) => {
+                    summary.skipped.push(format!("deposit {deposit_id}: {err}"));
+                    progress.advance();
+                }
             }
         }
 
-        let ingested = futures_util::future::join_all(resolved.iter().map(
-            |(_, _, name, _, _, _, _, _, bytes)| media::ingest(store, tree_id, name, bytes.clone()),
-        ))
-        .await;
+        let mut pending = FuturesUnordered::new();
+        for (index, (_, _, name, _, _, _, _, _, bytes)) in resolved.iter().enumerate() {
+            pending.push(async move {
+                let outcome = media::ingest(store, tree_id, name, bytes.clone()).await;
+                (index, outcome)
+            });
+        }
+        let mut ingested = Vec::with_capacity(resolved.len());
+        while let Some(outcome) = pending.next().await {
+            progress.advance();
+            ingested.push(outcome);
+        }
+        ingested.sort_unstable_by_key(|(index, _)| *index);
 
         for (
             (deposit_id, view_id, name, title, classification, privacy, created_at, metadata, _),
-            outcome,
+            (_, outcome),
         ) in resolved.iter().zip(ingested)
         {
             let ingested = match outcome {
@@ -1166,7 +1180,6 @@ async fn prepare_single_pages(
                 summary.media_count += 1;
                 prepared.insert(*deposit_id, (id, HashMap::from([(*view_id, id)])));
             }
-            progress.advance();
         }
     }
 
@@ -1241,6 +1254,7 @@ async fn document(
                 summary
                     .skipped
                     .push(format!("deposit {} page {page}: {err}", deposit.id));
+                progress.advance();
             }
         }
     }
@@ -1249,14 +1263,21 @@ async fn document(
     let mut pages: HashMap<i64, Uuid> = HashMap::new();
 
     for chunk in resolved.chunks(ingest_width()) {
-        let ingested = futures_util::future::join_all(
-            chunk
-                .iter()
-                .map(|(_, _, name, bytes)| media::ingest(store, tree_id, name, bytes.clone())),
-        )
-        .await;
+        let mut pending = FuturesUnordered::new();
+        for (index, (_, _, name, bytes)) in chunk.iter().enumerate() {
+            pending.push(async move {
+                let outcome = media::ingest(store, tree_id, name, bytes.clone()).await;
+                (index, outcome)
+            });
+        }
+        let mut ingested = Vec::with_capacity(chunk.len());
+        while let Some(outcome) = pending.next().await {
+            progress.advance();
+            ingested.push(outcome);
+        }
+        ingested.sort_unstable_by_key(|(index, _)| *index);
 
-        for ((view_id, page, name, _), outcome) in chunk.iter().zip(ingested) {
+        for ((view_id, page, name, _), (_, outcome)) in chunk.iter().zip(ingested) {
             let ingested = match outcome {
                 Ok(ingested) => ingested,
                 Err(err) => {
@@ -1293,7 +1314,6 @@ async fn document(
                     .skipped
                     .push(format!("deposit {} page {page}: {err}", deposit.id)),
             }
-            progress.advance();
         }
     }
 

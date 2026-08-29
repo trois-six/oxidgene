@@ -40,7 +40,7 @@ use oxidgene_core::types::{
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 
-use crate::ExportResult;
+use crate::{ExportResult, MediaMetadataExtension, MediaNoteExtension, MediaPlaceExtension};
 
 /// Export domain model entities to a GEDCOM 5.5.1 string.
 ///
@@ -197,6 +197,7 @@ pub fn export_gedcom(
     let mut notes_by_family: HashMap<Uuid, Vec<&Note>> = HashMap::new();
     let mut notes_by_source: HashMap<Uuid, Vec<&Note>> = HashMap::new();
     let mut notes_by_event: HashMap<Uuid, Vec<&Note>> = HashMap::new();
+    let mut notes_by_media: HashMap<Uuid, Vec<&Note>> = HashMap::new();
     for note in notes {
         if let Some(pid) = note.person_id {
             notes_by_person.entry(pid).or_default().push(note);
@@ -209,6 +210,9 @@ pub fn export_gedcom(
         }
         if let Some(eid) = note.event_id {
             notes_by_event.entry(eid).or_default().push(note);
+        }
+        if let Some(mid) = note.media_id {
+            notes_by_media.entry(mid).or_default().push(note);
         }
     }
 
@@ -355,6 +359,7 @@ pub fn export_gedcom(
                 ..Default::default()
             }),
             title: m.title.clone(),
+            note_structure: m.description.as_deref().map(to_ged_note),
             ..Default::default()
         });
     }
@@ -631,20 +636,80 @@ pub fn export_gedcom(
         .write_to_string(&data)
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
     let gedcom = inject_event_media_links(gedcom, event_media_by_record);
-    let gedcom =
-        inject_vignette_extensions(gedcom, vignettes, &media_xref, &person_xref, &mut warnings);
+    let (gedcom, extension_warnings) = inject_oxidgene_media_extensions(
+        gedcom,
+        media,
+        vignettes,
+        &media_xref,
+        &person_xref,
+        &place_map,
+        &notes_by_media,
+    );
+    warnings.extend(extension_warnings);
 
     Ok(ExportResult { gedcom, warnings })
 }
 
-fn inject_vignette_extensions(
+fn inject_oxidgene_media_extensions(
     gedcom: String,
+    media: &[Media],
     vignettes: &[Vignette],
     media_xref: &HashMap<Uuid, String>,
     person_xref: &HashMap<Uuid, String>,
-    warnings: &mut Vec<String>,
-) -> String {
-    let mut by_media = HashMap::<&str, Vec<String>>::new();
+    places: &HashMap<Uuid, &Place>,
+    notes_by_media: &HashMap<Uuid, Vec<&Note>>,
+) -> (String, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut by_media = HashMap::<String, Vec<String>>::new();
+    for item in media.iter().filter(|item| !item.is_document) {
+        let Some(xref) = media_xref.get(&item.id) else {
+            continue;
+        };
+        let metadata = MediaMetadataExtension {
+            version: 1,
+            file_name: item.file_name.clone(),
+            created_at: Some(item.created_at),
+            updated_at: Some(item.updated_at),
+            title: item.title.clone(),
+            description: item.description.clone(),
+            date_value: item.date_value.clone(),
+            date_qualifier: item.date_qualifier,
+            date_value2: item.date_value2.clone(),
+            calendar: item.calendar,
+            privacy: item.privacy,
+            source_media_type: item.source_media_type,
+            document_category: item.document_category,
+            tags: item.tags.clone(),
+            place: item.place_id.and_then(|place_id| {
+                places.get(&place_id).map(|place| MediaPlaceExtension {
+                    name: place.name.clone(),
+                    latitude: place.latitude,
+                    longitude: place.longitude,
+                })
+            }),
+            notes: notes_by_media
+                .get(&item.id)
+                .into_iter()
+                .flatten()
+                .map(|note| MediaNoteExtension {
+                    text: note.text.clone(),
+                    created_at: Some(note.created_at),
+                    updated_at: Some(note.updated_at),
+                })
+                .collect(),
+        };
+        match serde_json::to_string(&metadata) {
+            Ok(value) => by_media
+                .entry(xref.clone())
+                .or_default()
+                .push(format!("1 _OXIDGENE_MEDIA {value}")),
+            Err(err) => warnings.push(format!(
+                "Media {} metadata could not be serialized: {err}",
+                item.id
+            )),
+        }
+    }
+
     for vignette in vignettes {
         let Some(media) = media_xref.get(&vignette.media_id) else {
             warnings.push(format!(
@@ -666,19 +731,19 @@ fn inject_vignette_extensions(
             }
             None => "-",
         };
-        by_media.entry(media).or_default().push(format!(
+        by_media.entry(media.clone()).or_default().push(format!(
             "1 _OXIDGENE_VIGNETTE {person} {} {} {} {} {}",
             vignette.page, vignette.x, vignette.y, vignette.width, vignette.height
         ));
     }
 
-    let mut output = String::with_capacity(gedcom.len() + vignettes.len() * 64);
+    let mut output = String::with_capacity(gedcom.len() + media.len() * 256 + vignettes.len() * 64);
     for line in gedcom.lines() {
         output.push_str(line);
         output.push('\n');
         let fields = line.split_whitespace().collect::<Vec<_>>();
         if let ["0", xref, "OBJE", ..] = fields.as_slice()
-            && let Some(rows) = by_media.get(xref)
+            && let Some(rows) = by_media.get(*xref)
         {
             for row in rows {
                 output.push_str(row);
@@ -686,7 +751,7 @@ fn inject_vignette_extensions(
             }
         }
     }
-    output
+    (output, warnings)
 }
 
 /// Where a media's bytes live inside a GEDZIP, if we hold any.
@@ -1542,7 +1607,7 @@ fn format_coord(value: f64, is_latitude: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxidgene_core::enums::DocumentCategory;
+    use oxidgene_core::enums::{Calendar, DateQualifier, DocumentCategory, Privacy};
 
     fn person_row() -> Person {
         Person {
@@ -1709,6 +1774,115 @@ mod tests {
             back.media.first().map(|m| m.source_media_type),
             Some(SourceMediaType::Tombstone)
         );
+    }
+
+    #[test]
+    fn oxidgene_media_metadata_survives_an_export_and_a_re_import() {
+        let place = Place {
+            id: Uuid::now_v7(),
+            tree_id: Uuid::now_v7(),
+            name: "Sample Village".to_string(),
+            latitude: Some(48.25),
+            longitude: Some(-2.75),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let mut media = medium("original group photo.jpg", "image/jpeg", true);
+        media.created_at = chrono::DateTime::parse_from_rfc3339("2024-01-02T03:04:05Z")
+            .expect("valid timestamp")
+            .to_utc();
+        media.updated_at = chrono::DateTime::parse_from_rfc3339("2024-06-07T08:09:10Z")
+            .expect("valid timestamp")
+            .to_utc();
+        media.title = Some("Family celebration".to_string());
+        media.description = Some("First line\nSecond line".to_string());
+        media.date_value = Some("3 SEP 1946".to_string());
+        media.date_qualifier = DateQualifier::About;
+        media.calendar = Calendar::Gregorian;
+        media.privacy = Privacy::Private;
+        media.source_media_type = SourceMediaType::Photo;
+        media.document_category = Some(DocumentCategory::GroupPhoto);
+        media.tags = vec!["ceremony".to_string(), "outdoors".to_string()];
+        media.place_id = Some(place.id);
+        let note = Note {
+            id: Uuid::now_v7(),
+            tree_id: media.tree_id,
+            text: "The left edge is damaged".to_string(),
+            person_id: None,
+            event_id: None,
+            family_id: None,
+            source_id: None,
+            media_id: Some(media.id),
+            created_at: media.created_at,
+            updated_at: media.updated_at,
+            deleted_at: None,
+        };
+        let archive_path = archive_path(&media).expect("stored media has an archive path");
+        let media_paths = HashMap::from([(media.id, archive_path.clone())]);
+
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&place),
+            &[],
+            &[],
+            std::slice::from_ref(&media),
+            &[],
+            &[],
+            std::slice::from_ref(&note),
+            false,
+            false,
+            &media_paths,
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("1 _OXIDGENE_MEDIA {"));
+        assert!(export.gedcom.contains("1 NOTE First line"));
+        assert!(export.gedcom.contains("2 CONT Second line"));
+
+        let archive = export_gedzip(&export.gedcom, &[(archive_path, b"IMAGE BYTES".to_vec())])
+            .expect("creates GEDZIP");
+        let imported_archive =
+            crate::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports GEDZIP");
+        assert_eq!(imported_archive.files.len(), 1);
+        assert_eq!(imported_archive.files[0].1, b"IMAGE BYTES");
+        let back = imported_archive.result;
+        let imported = back.media.first().expect("one media");
+        assert_eq!(imported.file_name, media.file_name);
+        assert_eq!(imported.created_at, media.created_at);
+        assert_eq!(imported.updated_at, media.updated_at);
+        assert_eq!(imported.title, media.title);
+        assert_eq!(imported.description, media.description);
+        assert_eq!(imported.date_value, media.date_value);
+        assert_eq!(imported.date_qualifier, media.date_qualifier);
+        assert_eq!(imported.date_value2, media.date_value2);
+        assert_eq!(imported.calendar, media.calendar);
+        assert_eq!(imported.privacy, media.privacy);
+        assert_eq!(imported.source_media_type, media.source_media_type);
+        assert_eq!(imported.document_category, media.document_category);
+        assert_eq!(imported.tags, media.tags);
+
+        let imported_place = back
+            .places
+            .iter()
+            .find(|item| Some(item.id) == imported.place_id)
+            .expect("media place");
+        assert_eq!(imported_place.name, place.name);
+        assert_eq!(imported_place.latitude, place.latitude);
+        assert_eq!(imported_place.longitude, place.longitude);
+
+        let imported_note = back
+            .notes
+            .iter()
+            .find(|item| item.media_id == Some(imported.id))
+            .expect("media note");
+        assert_eq!(imported_note.text, note.text);
+        assert_eq!(imported_note.created_at, note.created_at);
+        assert_eq!(imported_note.updated_at, note.updated_at);
     }
 
     #[test]

@@ -14,8 +14,8 @@ geneweb = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
 # Reading a produced GEDZIP back, to check the media actually travelled.
 zip = { workspace = true }
