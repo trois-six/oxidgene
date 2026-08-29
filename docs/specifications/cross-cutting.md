@@ -64,6 +64,11 @@ Dynamic values use named placeholders. Plural forms use `_one` and `_other`
 keys. Missing keys may fall back to English at runtime, but a parity test must
 prevent shipping a known omission.
 
+French labels for a field that can contain one or several given names use
+**Prénom(s)**. **Prénom** remains the label for a singular name type or category,
+while ordinary prose uses the grammatically appropriate singular or plural
+instead of the parenthesized form.
+
 ### 3.4 Dates and numbers
 
 - Locale and the tree's date-display preference are independent.
