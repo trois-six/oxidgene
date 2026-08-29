@@ -15,34 +15,34 @@ pub const LOGO_PNG_B64: &str =
 
 /// Initialise the theme signal as a Dioxus context.
 ///
-/// Reads persisted preference from `localStorage` (key `oxidgene-theme`),
-/// falling back on first use to the OS-level `prefers-color-scheme` media
-/// query, and to the light theme when neither can be read.
+/// Reads persisted preference from `localStorage` (key `oxidgene-theme`). On
+/// first use, the host decides whether to follow `prefers-color-scheme` or use
+/// the light theme.
 /// Returns the shared signal so the Layout can consume it if needed.
 pub fn use_init_theme() -> Signal<bool> {
     let mut is_dark = use_context_provider(|| Signal::new(false));
+    let follow_system_theme = try_use_context::<crate::ThemeFallback>()
+        .unwrap_or(crate::ThemeFallback::System)
+        == crate::ThemeFallback::System;
 
     use_effect(move || {
         spawn(async move {
-            // Storage and `matchMedia` are probed independently: blocked
-            // storage (private browsing) must not skip the OS query, and a
-            // webview without `matchMedia` must not throw. Light is the
-            // fallback for both, matching the CSS default.
-            let result = document::eval(
+            let script = format!(
                 r#"
                 let stored = null;
-                try { stored = localStorage.getItem('oxidgene-theme'); } catch (e) {}
+                try {{ stored = localStorage.getItem('oxidgene-theme'); }} catch (e) {{}}
                 let dark = stored === 'dark';
-                if (stored !== 'dark' && stored !== 'light') {
-                    try {
+                if ({follow_system_theme} && stored !== 'dark' && stored !== 'light') {{
+                    try {{
                         dark = !!(window.matchMedia
                             && window.matchMedia('(prefers-color-scheme: dark)').matches);
-                    } catch (e) { dark = false; }
-                }
+                    }} catch (e) {{ dark = false; }}
+                }}
                 document.documentElement.classList.toggle('dark', dark);
                 return dark;
                 "#,
             );
+            let result = document::eval(&script);
             if let Ok(val) = result.await {
                 is_dark.set(val.as_bool().unwrap_or(false));
             }

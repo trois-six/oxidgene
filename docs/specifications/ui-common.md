@@ -80,9 +80,10 @@ the family-name field when focus is not already in an editable control.
 
 ## 3. Design tokens
 
-The light theme is the CSS default. On first use, the app follows
-`prefers-color-scheme`; `:root.dark` overrides tokens for dark mode. The choice
-is stored as `oxidgene-theme` and changes at runtime from app settings.
+The light theme is the CSS default. On first use, the web app stays in light
+mode; the desktop app follows `prefers-color-scheme`. `:root.dark` overrides
+tokens for dark mode. An explicit choice is stored as `oxidgene-theme` and
+changes at runtime from app settings.
 
 ### 3.1 Colors
 
