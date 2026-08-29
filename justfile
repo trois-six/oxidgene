@@ -36,6 +36,10 @@ fmt-check:
 # Run all checks (fmt + clippy + test)
 check: fmt-check clippy test
 
+# Regenerate the OpenAPI specification from the REST router
+openapi:
+    cargo build --package oxidgene-api
+
 # Clean build artifacts
 clean:
     cargo clean
