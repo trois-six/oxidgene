@@ -1109,6 +1109,14 @@ impl ApiClient {
         format!("{}{}", self.base_url, path)
     }
 
+    pub fn openapi_url(&self) -> String {
+        self.url("/api/v1/openapi.json")
+    }
+
+    pub fn graphql_url(&self) -> String {
+        self.url("/graphql")
+    }
+
     /// Invalidate all cached responses for a given tree.
     pub fn invalidate_tree(&self, tree_id: Uuid) {
         self.cache

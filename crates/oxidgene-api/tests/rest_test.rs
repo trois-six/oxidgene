@@ -62,6 +62,50 @@ async fn send_request(
     (status, json)
 }
 
+#[tokio::test]
+async fn openapi_spec_is_generated_from_the_rest_router() {
+    let response = setup_app()
+        .await
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/json"
+    );
+
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let document: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(document["openapi"], "3.1.0");
+    assert_eq!(document["info"]["title"], "OxidGene REST API");
+    assert_eq!(document["info"]["version"], env!("CARGO_PKG_VERSION"));
+    assert!(document["paths"]["/api/v1/trees"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/trees"]["post"].is_object());
+    assert!(
+        document["paths"]["/api/v1/trees/{tree_id}/persons/{person_id}"]["get"]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|parameter| parameter["schema"]["format"] == "uuid")
+    );
+    assert!(document["paths"]["/api/v1/openapi.json"]["get"].is_object());
+    assert!(document["paths"].get("/graphql").is_none());
+    let error_schema = &document["components"]["schemas"]["ErrorEnvelope"];
+    assert_eq!(
+        error_schema["required"],
+        serde_json::json!(["error", "message"])
+    );
+    assert_eq!(error_schema["properties"]["error"]["type"], "string");
+    assert_eq!(error_schema["properties"]["request_id"]["format"], "uuid");
+}
+
 // ───────────────────────── Tree guard tests ─────────────────────────
 
 /// Deleting a tree is asynchronous, so its children must stop answering the

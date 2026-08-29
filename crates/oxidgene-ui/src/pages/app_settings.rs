@@ -1,7 +1,8 @@
-//! Application-level settings page (theme, language, name display).
+//! Application-level settings page (theme, language, name display, API access).
 
 use dioxus::prelude::*;
 
+use crate::api::ApiClient;
 use crate::components::layout::set_theme;
 use crate::i18n::{self, Language, use_i18n};
 use crate::prefs::{SortParticles, set_sort_particles};
@@ -13,6 +14,7 @@ enum Section {
     Appearance,
     Language,
     Names,
+    Api,
 }
 
 #[component]
@@ -65,6 +67,11 @@ pub fn AppSettings() -> Element {
                             onclick: move |_| active_section.set(Section::Names),
                             {i18n.t("app_settings.names")}
                         }
+                        button {
+                            class: if *active_section.read() == Section::Api { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set(Section::Api),
+                            {i18n.t("app_settings.api")}
+                        }
                     }
                 }
 
@@ -79,6 +86,9 @@ pub fn AppSettings() -> Element {
                         },
                         Section::Names => rsx! {
                             NamesSection { sort_particles }
+                        },
+                        Section::Api => rsx! {
+                            ApiSection {}
                         },
                     }
                 }
@@ -187,6 +197,85 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
                             if current == lang {
                                 span { class: "lang-option-check", "\u{2713}" }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── API section ─────────────────────────────────────────────────────────────
+
+#[component]
+fn ApiSection() -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let openapi_url = api.openapi_url();
+    let graphql_url = api.graphql_url();
+
+    rsx! {
+        div { class: "settings-section",
+            span { class: "settings-section-eyebrow", {i18n.t("app_settings.api")} }
+            h2 { class: "settings-section-title", {i18n.t("app_settings.api_title")} }
+            p { class: "settings-section-subtitle", {i18n.t("app_settings.api_desc")} }
+
+            div { class: "app-settings-card api-endpoints",
+                a {
+                    class: "api-endpoint",
+                    href: openapi_url.clone(),
+                    target: "_blank",
+                    rel: "noopener noreferrer",
+                    title: i18n.t("app_settings.openapi_open"),
+                    div { class: "api-endpoint-info",
+                        span { class: "app-settings-option-label",
+                            {i18n.t("app_settings.openapi_label")}
+                        }
+                        span { class: "app-settings-option-hint",
+                            {i18n.t("app_settings.openapi_hint")}
+                        }
+                        code { class: "api-endpoint-url", "{openapi_url}" }
+                    }
+                    svg {
+                        class: "api-external-icon",
+                        width: "18",
+                        height: "18",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        path { d: "M15 3h6v6" }
+                        path { d: "M10 14 21 3" }
+                        path { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }
+                    }
+                }
+                if cfg!(target_arch = "wasm32") {
+                    a {
+                        class: "api-endpoint",
+                        href: graphql_url.clone(),
+                        target: "_blank",
+                        rel: "noopener noreferrer",
+                        title: i18n.t("app_settings.graphql_open"),
+                        div { class: "api-endpoint-info",
+                            span { class: "app-settings-option-label",
+                                {i18n.t("app_settings.graphql_label")}
+                            }
+                            span { class: "app-settings-option-hint",
+                                {i18n.t("app_settings.graphql_hint")}
+                            }
+                            code { class: "api-endpoint-url", "{graphql_url}" }
+                        }
+                        svg {
+                            class: "api-external-icon",
+                            width: "18",
+                            height: "18",
+                            fill: "none",
+                            "viewBox": "0 0 24 24",
+                            stroke: "currentColor",
+                            "strokeWidth": "2",
+                            path { d: "M15 3h6v6" }
+                            path { d: "M10 14 21 3" }
+                            path { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }
                         }
                     }
                 }
@@ -577,6 +666,50 @@ const APP_SETTINGS_STYLES: &str = r#"
         font-size: 1rem;
     }
 
+    .api-endpoints {
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .api-endpoint {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border);
+        color: inherit;
+        text-decoration: none;
+        transition: background 0.15s;
+    }
+
+    .api-endpoint:last-child {
+        border-bottom: none;
+    }
+
+    .api-endpoint:hover {
+        background: var(--bg-card-hover);
+    }
+
+    .api-endpoint-info {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .api-endpoint-url {
+        margin-top: 0.2rem;
+        color: var(--orange);
+        font-size: 0.78rem;
+        overflow-wrap: anywhere;
+    }
+
+    .api-external-icon {
+        flex: none;
+        color: var(--text-muted);
+    }
+
     /* ── Responsive ───────────────────────── */
 
     @media (max-width: 640px) {
@@ -609,6 +742,10 @@ const APP_SETTINGS_STYLES: &str = r#"
         .app-settings-option {
             flex-direction: column;
             align-items: flex-start;
+        }
+        .api-endpoint {
+            align-items: flex-start;
+            flex-direction: column;
         }
     }
 "#;

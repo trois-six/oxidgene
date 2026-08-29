@@ -51,6 +51,8 @@ object_store = { workspace = true, optional = true }
 
 [build-dependencies]
 flate2 = { workspace = true }
+serde_json = { workspace = true }
+syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
 image = { workspace = true }
