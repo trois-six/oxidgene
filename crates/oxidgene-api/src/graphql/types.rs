@@ -2012,11 +2012,31 @@ pub struct GqlExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
-/// Result of a GEDZIP export, encoded for GraphQL's JSON transport.
+/// Identifier returned after queuing a background job.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlExportGedzipResult {
-    pub gedzip_base64: String,
+pub struct GqlBackgroundJobStarted {
+    pub job_id: ID,
+}
+
+/// Pollable state of a durable GEDZIP export.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlExportJobStatus {
+    pub phase: String,
+    pub done: i64,
+    pub total: i64,
+    pub download_url: Option<String>,
     pub warnings: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Pollable state of a durable genealogy file import.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlImportJobStatus {
+    pub phase: String,
+    pub done: i64,
+    pub total: i64,
+    pub result: Option<GqlImportResult>,
+    pub error: Option<String>,
 }
 
 // ── Geneanet import wizard ──────────────────────────────────────────

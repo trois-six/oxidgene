@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use oxidgene_core::enums::TreeDefaultPrivacy;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, UpdateTreeBody};
+use crate::api::{ApiClient, ApiError, UpdateTreeBody};
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
@@ -19,6 +19,35 @@ use crate::pages::app_settings::{
 };
 use crate::prefs::SortParticles;
 use crate::router::Route;
+
+async fn wait_for_export(
+    api: &ApiClient,
+    tree_id: Uuid,
+    merge_occupations: bool,
+    merge_names: bool,
+) -> Result<String, ApiError> {
+    let started = api
+        .start_export_job(tree_id, merge_occupations, merge_names)
+        .await?;
+    loop {
+        let status = api.export_job_status(tree_id, started.job_id).await?;
+        match status.phase.as_str() {
+            "completed" => {
+                return status.download_url.ok_or_else(|| ApiError::Api {
+                    status: 500,
+                    body: "completed export has no artifact".to_string(),
+                });
+            }
+            "failed" => {
+                return Err(ApiError::Api {
+                    status: 422,
+                    body: status.error.unwrap_or_else(|| "export_failed".to_string()),
+                });
+            }
+            _ => crate::utils::sleep_ms(500).await,
+        }
+    }
+}
 
 /// Settings page for a tree.
 #[component]
@@ -85,30 +114,71 @@ pub fn Settings(tree_id: String) -> Element {
             if let Some(tid) = tree_id_parsed {
                 let extension = if is_gedzip { "gdz" } else { "ged" };
                 let file_name = format!("{base_name}.{extension}");
-                let bytes_result = if is_gedzip {
-                    api.export_gedzip(tid, merge_occupations, merge_names).await
-                } else {
-                    api.export_gedcom(tid, merge_occupations, merge_names)
-                        .await
-                        .map(|r| r.gedcom.into_bytes())
-                };
-                match bytes_result {
-                    Ok(bytes) => {
+                if is_gedzip {
+                    match wait_for_export(&api, tid, merge_occupations, merge_names).await {
+                        Ok(download_path) => {
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                let url =
+                                    serde_json::to_string(&api.export_download_url(&download_path))
+                                        .unwrap_or_else(|_| "\"\"".to_string());
+                                let download_name = serde_json::to_string(&file_name)
+                                    .unwrap_or_else(|_| "\"export.gdz\"".to_string());
+                                document::eval(&format!(
+                                    r#"
+                                    const a = document.createElement('a');
+                                    a.href = {url};
+                                    a.download = {download_name};
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    "#
+                                ));
+                                export_success.set(Some(i18n.t("settings.export_success")));
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                let file = rfd::AsyncFileDialog::new()
+                                    .set_title(i18n.t("gedcom.save_file"))
+                                    .set_file_name(&file_name)
+                                    .add_filter("GEDZIP", &["gdz"])
+                                    .add_filter("All files", &["*"])
+                                    .save_file()
+                                    .await;
+                                if let Some(file) = file {
+                                    let path = file.path().to_path_buf();
+                                    match api.download_export_to_file(&download_path, &path).await {
+                                        Ok(()) => {
+                                            let path_display = path.display().to_string();
+                                            export_success.set(Some(i18n.t_args(
+                                                "settings.export_saved_to",
+                                                &[("path", &path_display)],
+                                            )));
+                                        }
+                                        Err(error) => export_error.set(Some(error.to_string())),
+                                    }
+                                }
+                            }
+                        }
+                        Err(error) => export_error.set(Some(error.to_string())),
+                    }
+                    export_loading.set(false);
+                    return;
+                }
+
+                match api.export_gedcom(tid, merge_occupations, merge_names).await {
+                    Ok(result) => {
+                        let bytes = result.gedcom.into_bytes();
                         #[cfg(target_arch = "wasm32")]
                         {
-                            let mime = if is_gedzip {
-                                "application/zip"
-                            } else {
-                                "text/plain"
-                            };
                             let byte_array =
                                 serde_json::to_string(&bytes).unwrap_or_else(|_| "[]".to_string());
                             let download_name = serde_json::to_string(&file_name)
-                                .unwrap_or_else(|_| "\"export\"".to_string());
-                            let js = format!(
+                                .unwrap_or_else(|_| "\"export.ged\"".to_string());
+                            document::eval(&format!(
                                 r#"
                                 const bytes = new Uint8Array({byte_array});
-                                const blob = new Blob([bytes], {{ type: '{mime}' }});
+                                const blob = new Blob([bytes], {{ type: 'text/plain' }});
                                 const url = URL.createObjectURL(blob);
                                 const a = document.createElement('a');
                                 a.href = url;
@@ -118,50 +188,39 @@ pub fn Settings(tree_id: String) -> Element {
                                 document.body.removeChild(a);
                                 URL.revokeObjectURL(url);
                                 "#
-                            );
-                            document::eval(&js);
+                            ));
                             export_success.set(Some(i18n.t("settings.export_success")));
-                            export_loading.set(false);
                         }
                         #[cfg(not(target_arch = "wasm32"))]
                         {
-                            let mut dialog = rfd::AsyncFileDialog::new()
+                            let file = rfd::AsyncFileDialog::new()
                                 .set_title(i18n.t("gedcom.save_file"))
-                                .set_file_name(&file_name);
-                            dialog = if is_gedzip {
-                                dialog.add_filter("GEDZIP", &["gdz"])
-                            } else {
-                                dialog.add_filter("GEDCOM", &["ged"])
-                            };
-                            let file = dialog.add_filter("All files", &["*"]).save_file().await;
-                            let Some(file) = file else {
-                                export_loading.set(false);
-                                return;
-                            };
-                            let path = file.path().to_path_buf();
-                            match tokio::fs::write(&path, bytes).await {
-                                Ok(()) => {
-                                    let path_display = path.display().to_string();
-                                    export_success.set(Some(i18n.t_args(
-                                        "settings.export_saved_to",
-                                        &[("path", &path_display)],
-                                    )));
-                                }
-                                Err(e) => {
-                                    export_error.set(Some(i18n.t_args(
+                                .set_file_name(&file_name)
+                                .add_filter("GEDCOM", &["ged"])
+                                .add_filter("All files", &["*"])
+                                .save_file()
+                                .await;
+                            if let Some(file) = file {
+                                let path = file.path().to_path_buf();
+                                match tokio::fs::write(&path, bytes).await {
+                                    Ok(()) => {
+                                        let path_display = path.display().to_string();
+                                        export_success.set(Some(i18n.t_args(
+                                            "settings.export_saved_to",
+                                            &[("path", &path_display)],
+                                        )));
+                                    }
+                                    Err(error) => export_error.set(Some(i18n.t_args(
                                         "settings.export_write_error",
-                                        &[("error", &e.to_string())],
-                                    )));
+                                        &[("error", &error.to_string())],
+                                    ))),
                                 }
                             }
-                            export_loading.set(false);
                         }
                     }
-                    Err(e) => {
-                        export_error.set(Some(format!("{e}")));
-                        export_loading.set(false);
-                    }
+                    Err(error) => export_error.set(Some(error.to_string())),
                 }
+                export_loading.set(false);
             }
         });
     };

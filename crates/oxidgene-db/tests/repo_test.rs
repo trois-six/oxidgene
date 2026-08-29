@@ -7,10 +7,10 @@ use oxidgene_core::enums::{
 };
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
-    AncestryRepo, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo,
-    FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo, NoteRepo, PaginationParams,
-    PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
-    TreeRepo, connect, run_migrations,
+    AncestryRepo, BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventFilter,
+    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo,
+    NewBackgroundJob, NoteRepo, PaginationParams, PersonNamePieces, PersonNamePiecesPatch,
+    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -40,6 +40,117 @@ async fn create_person(db: &DatabaseConnection, tree_id: Uuid) -> Uuid {
         .await
         .expect("create person");
     id
+}
+
+#[tokio::test]
+async fn background_jobs_are_exclusive_and_expired_leases_are_reclaimed() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let job_id = Uuid::now_v7();
+    let new_job = || NewBackgroundJob {
+        id: job_id,
+        tree_id,
+        kind: BackgroundJobKind::Import,
+        format: "gedcom".into(),
+        source_key: Some("jobs/source".into()),
+        original_filename: Some("tree.ged".into()),
+        merge_occupations: false,
+        merge_names: false,
+    };
+
+    BackgroundJobRepo::create(&db, new_job())
+        .await
+        .expect("create first job");
+    let mut conflicting = new_job();
+    conflicting.id = Uuid::now_v7();
+    assert!(
+        BackgroundJobRepo::create(&db, conflicting).await.is_err(),
+        "one tree cannot have two active jobs"
+    );
+
+    let first = BackgroundJobRepo::claim_next(&db, "worker-a", chrono::Duration::seconds(-1))
+        .await
+        .expect("claim query")
+        .expect("queued job");
+    assert_eq!(first.lease_owner.as_deref(), Some("worker-a"));
+    assert_eq!(first.attempt, 1);
+
+    let reclaimed = BackgroundJobRepo::claim_next(&db, "worker-b", chrono::Duration::minutes(5))
+        .await
+        .expect("reclaim query")
+        .expect("expired job");
+    assert_eq!(reclaimed.id, job_id);
+    assert_eq!(reclaimed.lease_owner.as_deref(), Some("worker-b"));
+    assert_eq!(reclaimed.attempt, 2);
+    assert!(
+        !BackgroundJobRepo::complete(&db, job_id, "worker-a", None, None)
+            .await
+            .expect("stale completion")
+    );
+    assert!(
+        BackgroundJobRepo::complete(&db, job_id, "worker-b", None, None)
+            .await
+            .expect("current completion")
+    );
+    assert!(
+        BackgroundJobRepo::active_for_tree(&db, tree_id)
+            .await
+            .expect("active lookup")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn requeue_running_preserves_the_import_checkpoint() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let job_id = Uuid::now_v7();
+    BackgroundJobRepo::create(
+        &db,
+        NewBackgroundJob {
+            id: job_id,
+            tree_id,
+            kind: BackgroundJobKind::Import,
+            format: "gedcom".into(),
+            source_key: Some("jobs/source".into()),
+            original_filename: Some("tree.ged".into()),
+            merge_occupations: false,
+            merge_names: false,
+        },
+    )
+    .await
+    .expect("create job");
+    BackgroundJobRepo::claim_next(&db, "worker-a", chrono::Duration::hours(24))
+        .await
+        .expect("claim query")
+        .expect("queued job");
+    assert!(
+        BackgroundJobRepo::checkpoint_import_persisted(
+            &db,
+            job_id,
+            "worker-a",
+            r#"{"persons_count":1}"#.into(),
+            chrono::Duration::hours(24),
+        )
+        .await
+        .expect("checkpoint")
+    );
+
+    assert_eq!(
+        BackgroundJobRepo::requeue_running(&db)
+            .await
+            .expect("requeue running jobs"),
+        1
+    );
+    let reclaimed = BackgroundJobRepo::claim_next(&db, "worker-b", chrono::Duration::hours(24))
+        .await
+        .expect("reclaim query")
+        .expect("requeued job");
+    assert_eq!(reclaimed.phase, "projections");
+    assert_eq!(
+        reclaimed.result_json.as_deref(),
+        Some(r#"{"persons_count":1}"#)
+    );
 }
 
 // ───────────────────────── Tree tests ─────────────────────────

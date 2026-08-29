@@ -1,0 +1,98 @@
+{{- if and (ne .Values.database.mode "disabled") (ne .Values.s3.mode "disabled") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oxidgene.fullname" . }}-worker
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "oxidgene.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      annotations:
+        {{- toYaml .Values.worker.podAnnotations | nindent 8 }}
+      labels:
+        {{- include "oxidgene.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+        {{- with .Values.worker.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "oxidgene.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.worker.securityContext | nindent 12 }}
+          env:
+            - name: OXIDGENE_LOG_LEVEL
+              value: {{ .Values.worker.logLevel | quote }}
+            - name: OXIDGENE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "database credential Secret is required" (include "oxidgene.databaseSecretName" .) }}
+                  key: {{ required "database URL key is required" (include "oxidgene.databaseUrlKey" .) }}
+            - name: OXIDGENE_MEDIA_BACKEND
+              value: s3
+            {{- $endpoint := include "oxidgene.s3Endpoint" . }}
+            {{- if $endpoint }}
+            - name: OXIDGENE_S3_ENDPOINT
+              value: {{ $endpoint | quote }}
+            {{- end }}
+            - name: OXIDGENE_S3_BUCKET
+              value: {{ include "oxidgene.s3Bucket" . | quote }}
+            - name: OXIDGENE_S3_REGION
+              value: {{ include "oxidgene.s3Region" . | quote }}
+            - name: OXIDGENE_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "oxidgene.s3CredentialsSecret" . }}
+                  key: {{ include "oxidgene.s3AccessKeyKey" . }}
+            - name: OXIDGENE_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "oxidgene.s3CredentialsSecret" . }}
+                  key: {{ include "oxidgene.s3SecretKeyKey" . }}
+            - name: TMPDIR
+              value: /tmp
+            {{- with .Values.worker.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

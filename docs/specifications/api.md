@@ -30,18 +30,19 @@ contract. A temporary implementation gap is a defect to close, not an API
 exception to document. Changes to an operation update both mappings, their
 tests, and this specification in the same change.
 
-Transport-specific representation differences are allowed only where the
-protocol requires them. REST may accept binary bodies while GraphQL carries
-the same bytes as base64, and pagination envelopes follow each transport's
-conventions. Both mappings still execute the same domain workflow and expose
-equivalent inputs, outputs, side effects, and failure semantics.
+Transport-specific representation differences are allowed where the protocol
+requires them. Binary file uploads and downloads use streaming HTTP endpoints;
+GraphQL does not duplicate those payloads as base64. GraphQL exposes the same
+durable job status and can create export jobs, while clients use REST to upload
+import sources and download export artifacts. Pagination envelopes follow each
+transport's conventions.
 
 Direct media reads (`/file`, `/archive`, `/thumbnail`, and vignette `/image`)
 remain HTTP representations because their cache validators, content types,
 download disposition and conditional `ETag` semantics are HTTP behaviour rather
-than product operations. GraphQL exposes the underlying metadata and uses
-base64 for archive-shaped product results (`exportGedzip` and Geneanet session
-archives); clients use REST when they need a cacheable or streaming file response.
+than product operations. GraphQL exposes the underlying metadata. Geneanet
+session archives retain their existing base64 representation because they are
+desktop session handoffs rather than genealogy import or export artifacts.
 
 ### Stability and versioning
 
@@ -354,20 +355,22 @@ imports the format, it does not produce it.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to a collision-safe temporary file and start an asynchronous import. Returns `202 { "job_id": UUID }` only after upload completion. The temporary basename is the server-generated UUIDv7 and never the original filename; `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. This file is ephemeral job scratch data under the system temporary directory, never durable application storage: partial files are removed on body failure, request cancellation, worker cancellation, success, or failure, and startup removes crash leftovers. A web pod therefore needs writable ephemeral storage but no PVC; media extracted from GEDZIP are persisted through `MediaStore` and use S3 when selected |
+| `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to durable job storage and create an asynchronous import. Returns `202 { "job_id": UUID }` after the source is stored and the job is committed. `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. Workers copy the source to disposable scratch space; media extracted from GEDZIP are persisted through `MediaStore` |
 | `GET` | `/trees/{tree_id}/import-jobs/{job_id}` | Poll `{ phase, done, total, result?, error? }`. Phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`. A completed status retains the standard `ImportResponse`; failure exposes a stable error code rather than internal details |
+| `POST` | `/trees/{tree_id}/export-jobs?merge_occupations=bool&merge_names=bool` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker |
+| `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, warnings, error? }`. `download_url` appears only after the artifact is complete |
+| `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete |
 | `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 1 GiB body limit (the JSON escaping costs a further ~1.4× over the file itself) |
 | `POST` | `/trees/{tree_id}/gedzip/import` | Import a GEDZIP archive (`.gdz`): the `gedcom.ged` it wraps **and** the media files it carries. Body is the **raw archive** (`application/zip`), not JSON — base64 in an envelope would inflate a photo album by a third. Every medium whose `FILE` names an entry in the archive is stored, thumbnailed and written as a held medium; one naming an entry the archive lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE` names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`. 1 GiB body limit — the archive carries the album, so it is never the smaller file |
 | `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 1 GiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
-The three synchronous format endpoints return the same `ImportResponse` shape
-and trigger a full projection rebuild. The file-job transport provides the same
-import capability for large files without putting the upload or operation in a
-single long-lived response. The UI uses it for every format over 16 MiB. The
-existing GraphQL import mutations remain the symmetric direct-import surface;
-raw streaming and HTTP upload progress are transport concerns and therefore use
-REST.
+The three synchronous format endpoints remain compatibility surfaces. The UI
+uses durable jobs for every file import and every GEDZIP export, regardless of
+size. It polls the job after the single initiating action and automatically
+starts the download when an export artifact is ready. Raw streaming, browser
+upload progress and artifact downloads are HTTP transport concerns and
+therefore use REST.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
@@ -614,9 +617,10 @@ type Query {
   vignettes(treeId: ID!, personId: ID, eventId: ID): [Vignette!]!   # exactly one filter
   vignette(treeId: ID!, id: ID!): Vignette
 
-  # GEDCOM (export is a read — it lives on Query, not Mutation)
+  # Text GEDCOM compatibility export and durable job status
   exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedcomResult!
-  exportGedzip(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedzipResult!
+  importJobStatus(treeId: ID!, jobId: ID!): ImportJobStatus!
+  exportJobStatus(treeId: ID!, jobId: ID!): ExportJobStatus!
 
   # Read projections (see Data Model section 4) — mirrors the REST routes
   personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
@@ -733,14 +737,9 @@ type Mutation {
   updateNote(treeId: ID!, id: ID!, input: UpdateNoteInput!): Note!
   deleteNote(treeId: ID!, id: ID!): Boolean!
 
-  # Import (content passed inline — no Upload scalar)
-  importGedcom(treeId: ID!, input: ImportGedcomInput!): ImportResult!
-  # `.gw` bytes are base64-encoded: the format is ISO-8859-1 unless the file
-  # opts into UTF-8, and a GraphQL String cannot carry non-UTF-8 bytes.
-  importGeneweb(treeId: ID!, input: ImportGenewebInput!): ImportResult!
-  # A `.gdz` is a ZIP, so it is base64 here too. Prefer the REST endpoint for a
-  # large one: base64 adds a third to an archive that is mostly photographs.
-  importGedzip(treeId: ID!, input: ImportGedzipInput!): ImportResult!
+  # Durable GEDZIP exports contain no binary GraphQL payload. Import jobs are
+  # created by the streaming REST upload endpoint.
+  startExportJob(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): BackgroundJobStarted!
 
   # Geneanet session archives use base64. Gathered media are staged on the
   # shared desktop filesystem; import inputs carry paths, never media bytes.
@@ -849,20 +848,7 @@ type EventWitness {
   sortOrder: Int!
 }
 
-input ImportGedcomInput {
-  gedcom: String!
-}
-
-input ImportGenewebInput {
-  contentBase64: String!
-  filename: String   # default "import.gw"
-}
-
-input ImportGedzipInput {
-  contentBase64: String!   # the whole `.gdz` archive
-}
-
-# Returned by every import mutation, whatever the source format.
+# Returned by a completed import job, whatever the source format.
 type ImportResult {
   personsCount: Int!
   familiesCount: Int!
@@ -872,6 +858,27 @@ type ImportResult {
   placesCount: Int!
   notesCount: Int!
   warnings: [String!]!
+}
+
+type BackgroundJobStarted {
+  jobId: ID!
+}
+
+type ImportJobStatus {
+  phase: String!
+  done: Int!
+  total: Int!
+  result: ImportResult
+  error: String
+}
+
+type ExportJobStatus {
+  phase: String!
+  done: Int!
+  total: Int!
+  downloadUrl: String
+  warnings: [String!]!
+  error: String
 }
 
 # Connection types (Relay-style pagination)

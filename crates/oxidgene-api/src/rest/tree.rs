@@ -3,13 +3,13 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::{PaginationParams, TreeRepo};
+use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeRepo};
 use uuid::Uuid;
 
 use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::gedcom::{self, FileImportPhase};
+use crate::service::gedcom;
 
 /// GET /api/v1/trees
 pub async fn list_trees(
@@ -25,7 +25,11 @@ pub async fn list_trees(
         .map_err(ApiError::from)?;
     let mut response = serde_json::to_value(connection)
         .map_err(|error| ApiError(oxidgene_core::OxidGeneError::Internal(error.to_string())))?;
-    let active = active_file_imports(&state)?;
+    let active = BackgroundJobRepo::active_imports(&state.db)
+        .await?
+        .into_iter()
+        .map(|job| (job.tree_id, job.id))
+        .collect::<std::collections::HashMap<_, _>>();
     if let Some(edges) = response
         .get_mut("edges")
         .and_then(serde_json::Value::as_array_mut)
@@ -55,24 +59,6 @@ pub async fn list_trees(
         }
     }
     Ok(Json(response))
-}
-
-fn active_file_imports(
-    state: &AppState,
-) -> Result<std::collections::HashMap<Uuid, Uuid>, ApiError> {
-    let imports = state.file_imports.lock().map_err(|_| {
-        ApiError(oxidgene_core::OxidGeneError::Internal(
-            "import registry lock poisoned".into(),
-        ))
-    })?;
-    Ok(imports
-        .iter()
-        .filter_map(|(job_id, (tree_id, progress))| {
-            let phase = progress.read().0;
-            (!matches!(phase, FileImportPhase::Completed | FileImportPhase::Failed))
-                .then_some((*tree_id, *job_id))
-        })
-        .collect())
 }
 
 /// POST /api/v1/trees

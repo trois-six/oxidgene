@@ -109,6 +109,27 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── OxidGene import/export worker ───────────────────────────────────
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    restart: unless-stopped
+    environment:
+      OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
+      OXIDGENE_LOG_LEVEL: "info"
+      OXIDGENE_MEDIA_BACKEND: "s3"
+      OXIDGENE_S3_ENDPOINT: "http://rustfs:9000"
+      OXIDGENE_S3_BUCKET: "oxidgene-media"
+      OXIDGENE_S3_REGION: "us-east-1"
+      OXIDGENE_S3_ACCESS_KEY_ID: "oxidgene-admin"
+      OXIDGENE_S3_SECRET_ACCESS_KEY: "oxidgene-development-secret"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
+
   # ── OxidGene browser frontend ────────────────────────────────────────
   web:
     build:

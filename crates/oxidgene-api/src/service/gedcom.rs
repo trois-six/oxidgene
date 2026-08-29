@@ -18,7 +18,9 @@ use oxidgene_db::repo::{
     TreeRepo, VignetteRepo,
 };
 use oxidgene_gedcom::import::import_gedcom;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
+};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -29,7 +31,7 @@ use uuid::Uuid;
 const BATCH_SIZE: usize = 100;
 
 /// Summary returned after a GEDCOM import.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ImportSummary {
     pub persons_count: usize,
     pub families_count: usize,
@@ -273,6 +275,18 @@ pub async fn import_gedzip_file_and_persist(
     progress: &FileImportProgress,
 ) -> Result<ImportSummary, OxidGeneError> {
     let _tree = TreeRepo::get(db, tree_id).await?;
+    let result = prepare_gedzip_file(store, tree_id, archive_path, progress).await?;
+    progress.enter(FileImportPhase::Database);
+    persist_import_result(db, result).await
+}
+
+/// Parse and ingest a seekable GEDZIP source without writing database rows.
+pub(crate) async fn prepare_gedzip_file(
+    store: &dyn crate::media::MediaStore,
+    tree_id: Uuid,
+    archive_path: &Path,
+    progress: &FileImportProgress,
+) -> Result<oxidgene_gedcom::ImportResult, OxidGeneError> {
     progress.enter(FileImportPhase::Parsing);
 
     let file = std::fs::File::open(archive_path).map_err(OxidGeneError::Io)?;
@@ -322,8 +336,7 @@ pub async fn import_gedzip_file_and_persist(
         progress.advance();
     }
 
-    progress.enter(FileImportPhase::Database);
-    persist_import_result(db, result).await
+    Ok(result)
 }
 
 fn apply_ingested_media(
@@ -355,13 +368,22 @@ pub(crate) async fn persist_import_result(
     db: &DatabaseConnection,
     result: oxidgene_gedcom::ImportResult,
 ) -> Result<ImportSummary, OxidGeneError> {
-    let now = Utc::now();
-
-    // Start a transaction for atomicity
     let txn = db
         .begin()
         .await
         .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+    let summary = persist_import_result_in(&txn, result).await?;
+    txn.commit()
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+    Ok(summary)
+}
+
+pub(crate) async fn persist_import_result_in(
+    db: &impl ConnectionTrait,
+    result: oxidgene_gedcom::ImportResult,
+) -> Result<ImportSummary, OxidGeneError> {
+    let now = Utc::now();
 
     // 1. Places (no FKs to other imported entities)
     if !result.places.is_empty() {
@@ -378,7 +400,7 @@ pub(crate) async fn persist_import_result(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<place::Entity, _>(&txn, models).await?;
+        batch_insert::<place::Entity, _>(db, models).await?;
     }
 
     // 2. Sources (no FKs to other imported entities)
@@ -399,7 +421,7 @@ pub(crate) async fn persist_import_result(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<source::Entity, _>(&txn, models).await?;
+        batch_insert::<source::Entity, _>(db, models).await?;
     }
 
     // 3. Media (no FKs to other imported entities)
@@ -441,7 +463,7 @@ pub(crate) async fn persist_import_result(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<media::Entity, _>(&txn, models).await?;
+        batch_insert::<media::Entity, _>(db, models).await?;
     }
 
     // 4. Persons (FK → tree)
@@ -461,7 +483,7 @@ pub(crate) async fn persist_import_result(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<person::Entity, _>(&txn, models).await?;
+        batch_insert::<person::Entity, _>(db, models).await?;
     }
 
     // 5. Person names (FK → person)
@@ -485,7 +507,7 @@ pub(crate) async fn persist_import_result(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<person_name::Entity, _>(&txn, models).await?;
+        batch_insert::<person_name::Entity, _>(db, models).await?;
     }
 
     // 6. Families (FK → tree)
@@ -502,7 +524,7 @@ pub(crate) async fn persist_import_result(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<family::Entity, _>(&txn, models).await?;
+        batch_insert::<family::Entity, _>(db, models).await?;
     }
 
     // 7. Family spouses (FK → family, person)
@@ -518,7 +540,7 @@ pub(crate) async fn persist_import_result(
                 sort_order: Set(fs.sort_order),
             })
             .collect();
-        batch_insert::<family_spouse::Entity, _>(&txn, models).await?;
+        batch_insert::<family_spouse::Entity, _>(db, models).await?;
     }
 
     // 8. Family children (FK → family, person)
@@ -534,7 +556,7 @@ pub(crate) async fn persist_import_result(
                 sort_order: Set(fc.sort_order),
             })
             .collect();
-        batch_insert::<family_child::Entity, _>(&txn, models).await?;
+        batch_insert::<family_child::Entity, _>(db, models).await?;
     }
 
     // 9. Events (FK → tree, person?, family?, place?)
@@ -561,7 +583,7 @@ pub(crate) async fn persist_import_result(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<event::Entity, _>(&txn, models).await?;
+        batch_insert::<event::Entity, _>(db, models).await?;
     }
 
     // 9b. Event witnesses (FK → event, person)
@@ -577,7 +599,7 @@ pub(crate) async fn persist_import_result(
                 sort_order: Set(w.sort_order),
             })
             .collect();
-        batch_insert::<event_witness::Entity, _>(&txn, models).await?;
+        batch_insert::<event_witness::Entity, _>(db, models).await?;
     }
 
     // 10. Citations (FK → source, person?, event?, family?)
@@ -598,7 +620,7 @@ pub(crate) async fn persist_import_result(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<citation::Entity, _>(&txn, models).await?;
+        batch_insert::<citation::Entity, _>(db, models).await?;
     }
 
     // 11. Media links (FK → media, person?, event?, source?, family?)
@@ -616,7 +638,7 @@ pub(crate) async fn persist_import_result(
                 sort_order: Set(ml.sort_order),
             })
             .collect();
-        batch_insert::<media_link::Entity, _>(&txn, models).await?;
+        batch_insert::<media_link::Entity, _>(db, models).await?;
     }
 
     // 12. Vignettes (FK → media, person?, event?)
@@ -638,7 +660,7 @@ pub(crate) async fn persist_import_result(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<vignette::Entity, _>(&txn, models).await?;
+        batch_insert::<vignette::Entity, _>(db, models).await?;
     }
 
     // 13. Notes (FK → tree, person?, event?, family?, source?)
@@ -662,13 +684,8 @@ pub(crate) async fn persist_import_result(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<note::Entity, _>(&txn, models).await?;
+        batch_insert::<note::Entity, _>(db, models).await?;
     }
-
-    // Commit the transaction
-    txn.commit()
-        .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
     Ok(ImportSummary {
         persons_count: result.persons.len(),

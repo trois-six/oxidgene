@@ -999,6 +999,22 @@ pub struct FileImportJobStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ExportJobStarted {
+    pub job_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ExportJobStatus {
+    pub phase: String,
+    pub done: usize,
+    pub total: usize,
+    pub download_url: Option<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportGedcomResult {
     pub gedcom: String,
@@ -1084,6 +1100,8 @@ pub enum ApiError {
     Http(#[from] reqwest::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 
     #[error("API error ({status}): {body}")]
     Api { status: u16, body: String },
@@ -1197,29 +1215,6 @@ impl ApiClient {
         let val: T = serde_json::from_slice(&bytes)?;
         self.cache.set(cache_key, bytes.to_vec());
         Ok(val)
-    }
-
-    /// Helper: send a GET request with query parameters, returning the raw
-    /// response body bytes (not cached, not JSON-decoded).
-    async fn get_bytes_with_query<Q: Serialize>(
-        &self,
-        path: &str,
-        query: &Q,
-    ) -> Result<Vec<u8>, ApiError> {
-        let url = self.url(path);
-        let resp = self.client.get(&url).query(query).send().await?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            tracing::debug!(method = "GET", %status, "API request failed");
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body,
-            });
-        }
-        let bytes = resp.bytes().await?;
-        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
-        Ok(bytes.to_vec())
     }
 
     /// Helper: send a POST request with a JSON body.
@@ -3170,22 +3165,69 @@ impl ApiClient {
             .await
     }
 
-    /// Export a tree as a GEDZIP archive (`.gdz`) — a ZIP file wrapping the
-    /// same GEDCOM data. Returns the raw archive bytes. See `export_gedcom`
-    /// for `merge_occupations` and `merge_names`.
-    pub async fn export_gedzip(
+    /// Queue a GEDZIP export without holding the HTTP request while it is built.
+    pub async fn start_export_job(
         &self,
         tree_id: Uuid,
         merge_occupations: bool,
         merge_names: bool,
-    ) -> Result<Vec<u8>, ApiError> {
+    ) -> Result<ExportJobStarted, ApiError> {
         let query = [
-            ("format", "gedzip".to_string()),
             ("merge_occupations", merge_occupations.to_string()),
             ("merge_names", merge_names.to_string()),
         ];
-        self.get_bytes_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &query)
-            .await
+        let response = self
+            .client
+            .post(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs")))
+            .query(&query)
+            .send()
+            .await?;
+        Self::handle_response("POST", response).await
+    }
+
+    /// Poll an export job without caching its changing response.
+    pub async fn export_job_status(
+        &self,
+        tree_id: Uuid,
+        job_id: Uuid,
+    ) -> Result<ExportJobStatus, ApiError> {
+        let response = self
+            .client
+            .get(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}")))
+            .send()
+            .await?;
+        Self::handle_response("GET", response).await
+    }
+
+    /// Resolve the same-origin artifact URL returned by the API.
+    #[must_use]
+    pub fn export_download_url(&self, path: &str) -> String {
+        self.url(path)
+    }
+
+    /// Stream a completed export directly to a native filesystem path.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn download_export_to_file(
+        &self,
+        path: &str,
+        destination: &std::path::Path,
+    ) -> Result<(), ApiError> {
+        use tokio::io::AsyncWriteExt;
+
+        let mut response = self.client.get(self.url(path)).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body: response.text().await.unwrap_or_default(),
+            });
+        }
+        let mut file = tokio::fs::File::create(destination).await?;
+        while let Some(chunk) = response.chunk().await? {
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        Ok(())
     }
 
     // ── Pedigree Cache ──────────────────────────────────────────────

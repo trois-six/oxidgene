@@ -101,13 +101,77 @@ UI specifications:
 
 ---
 
-## 6. Asynchronous Processing — Post-MVP (EPIC H)
+## 6. Asynchronous Processing
 
-- Message queue technology remains undecided; Redis provisioned for sessions is
-    not implicitly the processing queue.
-- `document-queue` orchestration service.
-- Rust workers (scalable).
-- Resumable uploads and restart-safe import jobs.
+- Imports and exports are durable background jobs. The database is the source
+    of truth for job state, progress, results, cancellation and worker leases;
+    Redis remains reserved for authenticated sessions and is not a job queue.
+- The Axum API receives import files into durable staging storage, creates jobs,
+    reports their status, and serves or redirects completed export artifacts. It
+    never performs parsing, media ingestion, projection rebuilding or archive
+    creation on an HTTP request task.
+- A long-lived Rust worker claims jobs with expiring leases. PostgreSQL and S3
+    permit independent scalable worker pods; SQLite and filesystem storage use
+    the same worker code embedded in the single desktop or local backend.
+- Import sources and export artifacts use job-scoped object keys. Worker-local
+    `emptyDir` files are scratch space only and may be discarded at any time.
+- ZIP creation and parsing run as bounded blocking work. Media are copied one at
+    a time so memory usage is bounded by an individual file rather than the
+    complete archive.
+- At most one import or export job is active for a tree. An expired lease makes
+    interrupted work claimable again; terminal jobs release the tree and retain
+    their result for a bounded period.
+- Import database writes and their durable phase transition commit together.
+    Once data have committed, recovery resumes projection rebuilding rather than
+    inserting the imported records again.
+- The UI hides transport orchestration: one action starts a job, progress is
+    polled, and a completed export starts a normal browser download with
+    `Content-Disposition: attachment`.
+
+### 6.1 Import Job Flow
+
+```mermaid
+flowchart LR
+    UI -->|upload| API
+    API -->|source| Store[S3 / filesystem]
+    API -->|create| Jobs[(background_job)]
+    Worker -->|claim with lease| Jobs
+    Worker --> Store
+    Worker --> Executor[Shared ImportExecutor]
+    Executor --> DB[(PostgreSQL / SQLite)]
+    Executor --> Media[S3 / filesystem]
+    Worker -->|progress and result| Jobs
+    UI -->|poll| API
+    API --> Jobs
+```
+
+The API streams the uploaded source to durable storage before creating the
+job. The worker copies it to disposable scratch space, selects the GEDCOM,
+GEDZIP, or GeneWeb importer, persists the result, rebuilds projections, and
+records a serializable summary in the job.
+
+### 6.2 Export Job Flow
+
+```mermaid
+flowchart LR
+    UI -->|create export| API
+    API -->|create| Jobs[(background_job)]
+    Worker -->|claim with lease| Jobs
+    Worker --> Executor[Shared ExportExecutor]
+    Executor --> DB[(PostgreSQL / SQLite)]
+    Executor --> Media[S3 / filesystem]
+    Executor -->|artifact| Store[S3 / filesystem]
+    Worker -->|progress and artifact key| Jobs
+    UI -->|poll| API
+    API --> Jobs
+    UI -->|download when ready| API
+    API -->|stream or redirect artifact| Store
+```
+
+The export executor reads the tree and its media, writes the GEDZIP archive to
+disposable scratch space, and uploads the completed artifact. The status
+response exposes a same-origin download URL only after the job completes; the
+UI then starts the browser download automatically.
 
 ---
 
@@ -134,10 +198,11 @@ UI specifications:
     by the development Compose stack and stateless web deployments. PostgreSQL
     stores application data and S3 stores media bytes, so the web pod requires no
     persistent volume.
-- Large GEDCOM, GEDZIP, and GeneWeb uploads use the pod's system temporary
-    directory only while a job is running. Those files are deleted after the job
-    and swept at startup; they are disposable scratch data, not durable state.
-    Media extracted from GEDZIP is persisted through the selected `MediaStore`.
+- Large GEDCOM, GEDZIP, and GeneWeb uploads are staged in the selected durable
+    object store before their job is queued. Workers copy sources to their
+    system temporary directory while processing; those local files are deleted
+    after the attempt and swept at startup. Media extracted from GEDZIP and
+    completed export artifacts are persisted through the selected `MediaStore`.
 - Development Compose provisions the static frontend, Axum, PostgreSQL,
     RustFS, and Redis and publishes their ports on host loopback only. Redis is
     reserved for EPIC G user sessions and is not a read-projection cache.
@@ -157,6 +222,84 @@ UI specifications:
     their data when its pod is recreated. The RustFS operator is installed
     separately because its CRDs and cluster-wide RBAC have an independent
     lifecycle. Only operator-managed infrastructure owns persistent volumes.
+
+#### Kubernetes architecture
+
+```mermaid
+flowchart TB
+    user[Browser]
+
+    subgraph app[OxidGene application workloads]
+        ingress[Ingress]
+        frontendService[Frontend Service]
+        frontendPods[Frontend pods<br/>Dioxus static application]
+        backendService[Backend Service]
+        backendPods[Backend pods<br/>Axum REST and GraphQL<br/>job control plane]
+        workerPods[Worker pods<br/>imports and exports]
+        scratch[Worker scratch files<br/>emptyDir]
+        sqlite[SQLite<br/>emptyDir, disabled mode]
+        localMedia[Media filesystem<br/>emptyDir, disabled mode]
+
+        ingress -->|/| frontendService --> frontendPods
+        ingress -->|/api, /graphql, /healthz| backendService --> backendPods
+        workerPods --> scratch
+        backendPods -->|embedded worker<br/>database.mode disabled| sqlite
+        backendPods -->|embedded worker<br/>s3.mode disabled| localMedia
+    end
+
+    subgraph durable[Durable data services]
+        externalPostgres[Existing PostgreSQL]
+        cnpgCluster[CloudNativePG Cluster]
+        externalS3[Existing S3-compatible bucket]
+        rustfsTenant[RustFS Tenant]
+        externalRedis[Existing Redis]
+        managedRedis[Operator-managed Redis]
+        databasePvc[(PostgreSQL PVCs)]
+        rustfsPvc[(RustFS PVCs)]
+        redisPvc[(Redis PVC)]
+
+        cnpgCluster --> databasePvc
+        rustfsTenant --> rustfsPvc
+        managedRedis --> redisPvc
+    end
+
+    subgraph control[Optional cluster operators]
+        cnpgOperator[CloudNativePG Operator<br/>optional chart dependency]
+        redisOperator[OpsTree Redis Operator<br/>optional chart dependency]
+        rustfsOperator[RustFS Operator<br/>installed separately]
+    end
+
+    user --> ingress
+    backendPods -->|requests, jobs and status<br/>database.mode existing| externalPostgres
+    backendPods -->|requests, jobs and status<br/>database.mode cloudnativepg| cnpgCluster
+    workerPods -->|claim, lease and progress| externalPostgres
+    workerPods -->|claim, lease and progress| cnpgCluster
+    backendPods -->|import sources and export downloads<br/>s3.mode existing| externalS3
+    backendPods -->|import sources and export downloads<br/>s3.mode rustfs| rustfsTenant
+    workerPods -->|sources, media and artifacts| externalS3
+    workerPods -->|sources, media and artifacts| rustfsTenant
+    backendPods -.->|redis.mode existing<br/>reserved for future sessions| externalRedis
+    backendPods -.->|redis.mode operator<br/>reserved for future sessions| managedRedis
+    cnpgOperator -. reconciles .-> cnpgCluster
+    redisOperator -. reconciles .-> managedRedis
+    rustfsOperator -. reconciles .-> rustfsTenant
+
+    classDef ephemeral fill:#fff4cc,stroke:#9a6700,color:#3d2d00;
+    classDef durable fill:#eaf5ed,stroke:#287a3d,color:#173d21;
+    classDef operator fill:#eaf1fb,stroke:#3465a4,color:#17365d;
+    class sqlite,localMedia,scratch ephemeral;
+    class externalPostgres,cnpgCluster,externalS3,rustfsTenant,externalRedis,managedRedis,databasePvc,rustfsPvc,redisPvc durable;
+    class cnpgOperator,redisOperator,rustfsOperator operator;
+```
+
+The independent worker deployment is enabled only when PostgreSQL and S3 are
+both durable and shared. The SQLite and local-media paths are mutually
+selectable alternatives, not additional replicas of those services. Selecting
+either local path embeds one worker in the backend, forces one backend replica,
+disables autoscaling, and loses that path's data whenever the pod is recreated.
+Redis links are dashed because the chart can provision their infrastructure,
+but authenticated session storage is not implemented yet.
+
 - The release images, development Compose stack, and Kubernetes deliverables
     are tracked in [Roadmap §5](roadmap.md).
 
@@ -194,6 +337,7 @@ oxidgene/
 │   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
+│   ├── oxidgene-worker/    # Web background-job worker
 │   ├── oxidgene-web/       # Browser frontend (Dioxus/WASM)
 │   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + Dioxus WebView)
 └── docker/                 # Docker files
@@ -212,6 +356,7 @@ oxidgene-geneanet (no internal deps)
 oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-gedcom, oxidgene-geneanet)
     ↑
 oxidgene-server (depends on: oxidgene-api, oxidgene-db)
+oxidgene-worker (depends on: oxidgene-api, oxidgene-db)
 oxidgene-web (depends on: oxidgene-ui)
 oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui, oxidgene-geneanet)
 

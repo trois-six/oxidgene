@@ -8,6 +8,7 @@ members = [
     "crates/oxidgene-geneanet",
     "crates/oxidgene-ui",
     "apps/oxidgene-server",
+    "apps/oxidgene-worker",
     "apps/oxidgene-desktop",
     "apps/oxidgene-web",
 ]
@@ -27,6 +28,7 @@ oxidgene-api = { path = "crates/oxidgene-api" }
 oxidgene-gedcom = { path = "crates/oxidgene-gedcom" }
 oxidgene-geneanet = { path = "crates/oxidgene-geneanet" }
 oxidgene-ui = { path = "crates/oxidgene-ui" }
+oxidgene-server = { path = "apps/oxidgene-server" }
 
 # Async runtime — minimal base; each crate adds only what it needs
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }

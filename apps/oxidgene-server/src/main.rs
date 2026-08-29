@@ -8,15 +8,15 @@
 //! - Structured tracing
 //! - Graceful shutdown on SIGINT/SIGTERM
 
-mod config;
-
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method};
 use axum::routing::get;
+use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
+use oxidgene_db::repo::{BackgroundJobRepo, connect, run_migrations};
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::cors::CorsLayer;
@@ -24,7 +24,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-use crate::config::ServerConfig;
+use oxidgene_server::config::{MediaBackend, ServerConfig};
 
 #[tokio::main]
 async fn main() {
@@ -80,7 +80,29 @@ async fn main() {
         );
         std::process::exit(1);
     });
+    let uses_sqlite = cfg.database_url.starts_with("sqlite:");
+    let embedded_worker = uses_sqlite || cfg.media_backend == MediaBackend::Filesystem;
     let state = AppState::with_media_store(db, media);
+    if embedded_worker {
+        if uses_sqlite {
+            BackgroundJobRepo::requeue_running(&state.db)
+                .await
+                .unwrap_or_else(|_| {
+                    error!(
+                        error = "background_job_recovery",
+                        "Failed to recover background jobs"
+                    );
+                    std::process::exit(1);
+                });
+        }
+        let worker = BackgroundJobWorker::new(
+            state.db.clone(),
+            Arc::clone(&state.profiles),
+            Arc::clone(&state.media),
+            "embedded-server",
+        );
+        tokio::spawn(worker.run());
+    }
     let api_router = build_router(state);
 
     // CORS remains single-origin until authentication and authorization ship.

@@ -236,6 +236,22 @@ fn main() {
             // desktop tree exported and re-imported on the server finds its
             // files in the expected place.
             let state = AppState::new(db, oxidgene_api::media::default_root());
+            oxidgene_db::repo::BackgroundJobRepo::requeue_running(&state.db)
+                .await
+                .unwrap_or_else(|_| {
+                    error!(
+                        error = "background_job_recovery",
+                        "Failed to recover background jobs"
+                    );
+                    std::process::exit(1);
+                });
+            let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+                state.db.clone(),
+                Arc::clone(&state.profiles),
+                Arc::clone(&state.media),
+                "desktop",
+            );
+            tokio::spawn(worker.run());
             let api_router = build_router(state);
 
             let app = Router::new()

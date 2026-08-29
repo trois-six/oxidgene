@@ -6,8 +6,11 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
+use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
+use oxidgene_db::repo::{
+    BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, connect, run_migrations,
+};
 use sea_orm::DatabaseConnection;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -1929,7 +1932,18 @@ async fn test_gedcom_import() {
 
 #[tokio::test]
 async fn test_async_file_import_job() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join("oxidgene-test-async-import-media"),
+    );
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-test-worker",
+    );
+    let app = build_router(state);
     let tree_id = create_tree_via_api(&app).await;
 
     let (status, started) = send_bytes(
@@ -1941,6 +1955,7 @@ async fn test_async_file_import_job() {
     assert_eq!(status, StatusCode::ACCEPTED);
     let job_id = started["job_id"].as_str().expect("job id");
     let temporary = std::env::temp_dir().join("oxidgene-imports").join(job_id);
+    assert!(worker.run_once().await.expect("run import job"));
 
     let completed = loop {
         let (status, progress) = send_request(
@@ -1973,6 +1988,62 @@ async fn test_async_file_import_job() {
 }
 
 #[tokio::test]
+async fn test_async_export_job_downloads_the_completed_archive() {
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join("oxidgene-test-async-export-media"),
+    );
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-test-export-worker",
+    );
+    let app = build_router(state);
+    let tree_id = create_tree_via_api(&app).await;
+
+    let (status, started) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job_id = started["job_id"].as_str().expect("job id");
+    assert!(worker.run_once().await.expect("run export job"));
+
+    let (status, completed) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(completed["phase"], "completed");
+    let download_url = completed["download_url"].as_str().expect("download URL");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(download_url)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()["content-disposition"],
+        "attachment; filename=\"export.gdz\""
+    );
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(bytes.starts_with(b"PK"));
+}
+
+#[tokio::test]
 async fn tree_list_marks_only_running_file_imports() {
     let db = setup_db().await;
     let state = AppState::new(
@@ -1985,14 +2056,21 @@ async fn tree_list_marks_only_running_file_imports() {
         .parse::<uuid::Uuid>()
         .unwrap();
     let job_id = uuid::Uuid::now_v7();
-    let progress =
-        std::sync::Arc::new(oxidgene_api::service::gedcom::FileImportProgress::default());
-    progress.enter(oxidgene_api::service::gedcom::FileImportPhase::Parsing);
-    state
-        .file_imports
-        .lock()
-        .unwrap()
-        .insert(job_id, (tree_id, std::sync::Arc::clone(&progress)));
+    BackgroundJobRepo::create(
+        &state.db,
+        NewBackgroundJob {
+            id: job_id,
+            tree_id,
+            kind: BackgroundJobKind::Import,
+            format: "gedcom".into(),
+            source_key: Some(format!("jobs/{job_id}/source.gedcom")),
+            original_filename: None,
+            merge_occupations: false,
+            merge_names: false,
+        },
+    )
+    .await
+    .expect("create import job");
 
     let (_, running) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
     assert_eq!(running["edges"][0]["node"]["import_in_progress"], true);
@@ -2001,7 +2079,14 @@ async fn tree_list_marks_only_running_file_imports() {
         job_id.to_string()
     );
 
-    progress.enter(oxidgene_api::service::gedcom::FileImportPhase::Completed);
+    let claimed =
+        BackgroundJobRepo::claim_next(&state.db, "rest-test-worker", chrono::Duration::seconds(30))
+            .await
+            .expect("claim import job")
+            .expect("queued job");
+    BackgroundJobRepo::complete(&state.db, claimed.id, "rest-test-worker", None, None)
+        .await
+        .expect("complete import job");
     let (_, completed) = send_request(app, Method::GET, "/api/v1/trees", None).await;
     assert_eq!(completed["edges"][0]["node"]["import_in_progress"], false);
     assert!(completed["edges"][0]["node"]["import_job_id"].is_null());

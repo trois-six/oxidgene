@@ -54,8 +54,6 @@ use crate::i18n::use_i18n;
 const NATIVE: bool = !cfg!(target_arch = "wasm32");
 
 /// Files above this size bypass Rust/WASM memory and become server-side jobs.
-const ASYNC_FILE_IMPORT_THRESHOLD: u64 = 16 * 1024 * 1024;
-
 /// Which half of the modal is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -279,30 +277,7 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
         progress.set(None);
         spawn(async move {
             let format = format_of(&name);
-            let outcome = if file.size() > ASYNC_FILE_IMPORT_THRESHOLD {
-                run_file_import_job(&api, tree_id, format, &mut progress).await
-            } else {
-                let bytes = match file.read_bytes().await {
-                    Ok(bytes) => bytes.to_vec(),
-                    Err(read_error) => {
-                        error.set(Some(read_error.to_string()));
-                        busy.set(false);
-                        return;
-                    }
-                };
-                match format {
-                    FileFormat::Geneweb => api.import_geneweb(tree_id, bytes, &name).await,
-                    FileFormat::Gedzip => api.import_gedzip(tree_id, bytes).await,
-                    FileFormat::Gedcom => match String::from_utf8(bytes) {
-                        Ok(gedcom) => api.import_gedcom(tree_id, &gedcom).await,
-                        Err(_) => {
-                            error.set(Some(i18n.t("import.not_utf8")));
-                            busy.set(false);
-                            return;
-                        }
-                    },
-                }
-            };
+            let outcome = run_file_import_job(&api, tree_id, format, &mut progress).await;
             busy.set(false);
             progress.set(None);
             match outcome {
