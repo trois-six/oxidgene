@@ -167,6 +167,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("pedigree.events", "Events"),
         ("pedigree.edit_actions", "Edit / actions"),
         ("pedigree.hide_events", "Hide events"),
+        ("pedigree.resize_events", "Resize events panel"),
         ("pedigree.depth", "Generation depth"),
         ("pedigree.fit_screen", "Fit to screen"),
         ("pedigree.zoom_in", "Zoom in"),

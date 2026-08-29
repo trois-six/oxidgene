@@ -2011,6 +2011,12 @@ enum MediaRelation {
     },
 }
 
+fn has_person_identification(vignettes: &[Vignette], person_id: Uuid) -> bool {
+    vignettes
+        .iter()
+        .any(|vignette| vignette.person_id == Some(person_id))
+}
+
 #[component]
 fn MediaRelations(
     tree_id: Uuid,
@@ -2044,7 +2050,10 @@ fn MediaRelations(
     let data = data.read_unchecked();
     let mut relations = Vec::new();
     if let Some(Some((links, snapshot))) = data.as_ref() {
-        for link in links.iter().filter(|link| link.person_id.is_some()) {
+        for link in links.iter().filter(|link| {
+            link.person_id
+                .is_some_and(|person_id| !has_person_identification(&vignettes, person_id))
+        }) {
             let person_id = link.person_id.expect("filtered person link");
             if relations.iter().any(|relation| {
                 matches!(
@@ -2499,6 +2508,7 @@ fn MediaViewer(
     // the document, not to fill in a form, so the form is a step they take.
     let mut editing = use_signal(|| false);
     let mut identifying = use_signal(|| false);
+    let mut relation_menu_at = use_signal(|| None::<(f64, f64)>);
     let mut highlighted_vignette = use_signal(|| None::<Uuid>);
     let mut attachment_mode = use_signal(|| None::<MediaAttachmentMode>);
     let mut attachment_busy = use_signal(|| false);
@@ -3118,15 +3128,44 @@ fn MediaViewer(
                             }
                         }
                         button {
-                            class: "pf-confirm-btn media-identify-toolbar-btn",
+                            class: "isb-btn media-relation-menu-button",
                             r#type: "button",
-                            onclick: move |_| identifying.set(true),
+                            title: i18n.t("media.relations"),
+                            aria_label: i18n.t("media.relations"),
+                            onclick: move |event: Event<MouseData>| {
+                                let point = event.client_coordinates();
+                                relation_menu_at.set(Some((point.x, point.y)));
+                            },
+                            svg {
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                circle { cx: "12", cy: "12", r: "9" }
+                                circle { cx: "12", cy: "12", r: "5" }
+                                circle { cx: "12", cy: "12", r: "1" }
+                            }
+                        }
+                    }
+                }
+                if let Some((x, y)) = relation_menu_at() {
+                    ContextMenuSurface {
+                        x,
+                        y,
+                        menu_class: "context-menu-media-relations".to_string(),
+                        on_close: move |_| relation_menu_at.set(None),
+                        button {
+                            class: "context-menu-item",
+                            r#type: "button",
+                            onclick: move |_| {
+                                relation_menu_at.set(None);
+                                identifying.set(true);
+                            },
                             {i18n.t("media.identify_person")}
                         }
                         button {
-                            class: "btn btn-outline media-attach-toolbar-btn",
+                            class: "context-menu-item",
                             r#type: "button",
                             onclick: move |_| {
+                                relation_menu_at.set(None);
                                 close_attachment.call(());
                                 attachment_notice.set(None);
                                 attachment_mode.set(Some(MediaAttachmentMode::Person));
@@ -3134,9 +3173,10 @@ fn MediaViewer(
                             {i18n.t("media.attach_person")}
                         }
                         button {
-                            class: "btn btn-outline media-attach-toolbar-btn",
+                            class: "context-menu-item",
                             r#type: "button",
                             onclick: move |_| {
+                                relation_menu_at.set(None);
                                 close_attachment.call(());
                                 attachment_notice.set(None);
                                 attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
@@ -3946,6 +3986,27 @@ fn format_size(bytes: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_identification_replaces_the_whole_photo_attachment_in_the_relation_list() {
+        let person_id = Uuid::now_v7();
+        let vignette = Vignette {
+            id: Uuid::now_v7(),
+            media_id: Uuid::now_v7(),
+            page: 0,
+            x: 10,
+            y: 20,
+            width: 30,
+            height: 40,
+            person_id: Some(person_id),
+            event_id: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+
+        assert!(has_person_identification(&[vignette], person_id));
+        assert!(!has_person_identification(&[], person_id));
+    }
 
     #[test]
     fn a_short_document_shows_every_page() {

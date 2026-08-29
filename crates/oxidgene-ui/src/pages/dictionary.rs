@@ -832,10 +832,10 @@ fn render_pagination(mut current_page: Signal<usize>, page: usize, pages: usize)
             }
             for p in pagination_range(page, pages) {
                 if p == 0 {
-                    span { class: "sr-page-info", "\u{2026}" }
+                    span { class: "sr-page-info dict-page-number", "\u{2026}" }
                 } else {
                     button {
-                        class: if p == page { "sr-page-btn active" } else { "sr-page-btn" },
+                        class: if p == page { "sr-page-btn active dict-page-number" } else { "sr-page-btn dict-page-number" },
                         onclick: move |_| current_page.set(p),
                         "{p}"
                     }

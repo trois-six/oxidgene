@@ -56,6 +56,10 @@ Uses the standard `sub-page` layout pattern (see [General](general.md) section 8
 
 Content is constrained by `sub-page-content` (`max-width: 1200px`, centered, scrollable). The left navigation + content area use a flex row layout (`.settings-layout`).
 
+Below `768px`, the navigation becomes a compact, horizontally scrollable row
+above the content. Group labels and section buttons remain on one line so the
+settings content begins in the first viewport rather than below a tall menu.
+
 ---
 
 ## 3. Topbar
@@ -130,15 +134,19 @@ The tree cache is invalidated after each save so that navigating back to the tre
 The section starts with an editable **Tree name** field, pre-filled with the
 current name. Saving validates that the name is not empty, updates the tree
 immediately, and refreshes the breadcrumb and tree metadata without leaving
-the settings page. This is the same rename operation available from a tree
-card's overflow menu on the homepage.
+the settings page. The save action is a compact disk icon beside the input,
+with an accessible label and tooltip, so the name retains the available width.
+This is the same rename operation available from a tree card's overflow menu
+on the homepage.
 
 ### SOSA 1 (Root person)
 
 A **person picker** component enclosed in a card displays the currently
 selected person with the same summary as a person-search result: profile photo
 or sex-specific placeholder portrait, surname and given names, birth and death
-years, and birth place when known. Two buttons appear on the right:
+years, and birth place when known. Two buttons appear on the right. On narrow
+screens, the complete identity uses the card width and can wrap, while the
+actions move to a separate row below it:
 
 - **Change** — opens a person search modal to select a different root person
 - **Clear** — removes the SOSA root assignment
@@ -151,7 +159,7 @@ When a SOSA root is set, all direct ancestors visible in the tree view display a
 
 ### Who am I?
 
-Second person picker to designate the current user's own person in the tree. Used to display relationship labels in profile views. Displayed as a separate card below the SOSA card, with the same picker UI.
+Second person picker to designate the current user's own person in the tree. Used to display relationship labels in profile views. Displayed as a separate card below the SOSA card, with the same picker UI and responsive identity/action layout.
 
 The picker saves immediately, can be changed or cleared, and has no effect on
 the genealogy data or SOSA numbering. It is a local display preference: the

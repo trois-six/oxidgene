@@ -268,7 +268,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
 
                 div { class: "cropper-foot",
                     if let Some(rect) = pending {
-                        div { class: "cropper-readout",
+                        div { class: "cropper-status",
                             {i18n.t_args(
                                 "media.crop_readout",
                                 &[
@@ -279,8 +279,8 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                                 ],
                             )}
                         }
-                        div { class: "cropper-fields",
-                            if !events.is_empty() {
+                        if !events.is_empty() {
+                            div { class: "cropper-fields",
                                 div { class: "form-group",
                                     label { {i18n.t("media.crop_event")} }
                                     select {
@@ -295,7 +295,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                             }
                         }
                     } else {
-                        div { class: "cropper-hint", {i18n.t("media.crop_hint")} }
+                        div { class: "cropper-status", {i18n.t("media.crop_hint")} }
                     }
 
                     if let Some(err) = error() {

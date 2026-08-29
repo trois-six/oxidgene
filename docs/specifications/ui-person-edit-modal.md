@@ -526,6 +526,8 @@ As the user types in the surname and first name fields, a suggestion dropdown ap
 
 - Below **600px**: modal becomes full-screen drawer (slides up from bottom)
 - Union details section (for "Add spouse" in create mode) is initially collapsed on mobile
+- In the couple edit modal, the media-manager action becomes a square icon
+  button while retaining its localized tooltip and accessible name.
 
 ---
 

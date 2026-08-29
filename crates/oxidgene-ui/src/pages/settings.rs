@@ -669,10 +669,27 @@ fn TreeRootsSection(
                         oninput: move |e: Event<FormData>| local_tree_name.set(Some(e.value())),
                     }
                     button {
-                        class: "btn btn-primary",
+                        class: "btn btn-primary settings-tree-name-save",
+                        title: if rename_loading() { i18n.t("common.saving") } else { i18n.t("common.save") },
+                        "aria-label": if rename_loading() { i18n.t("common.saving") } else { i18n.t("common.save") },
+                        "aria-busy": rename_loading(),
                         disabled: rename_loading(),
                         onclick: on_rename,
-                        if rename_loading() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                        if rename_loading() {
+                            span { class: "btn-spinner" }
+                        } else {
+                            svg {
+                                width: "18",
+                                height: "18",
+                                fill: "none",
+                                "viewBox": "0 0 24 24",
+                                stroke: "currentColor",
+                                "strokeWidth": "2",
+                                polyline { points: "17 21 17 13 7 13 7 21" }
+                                polyline { points: "7 3 7 8 15 8" }
+                                path { d: "M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" }
+                            }
+                        }
                     }
                 }
                 if let Some(message) = rename_success() {
@@ -1141,6 +1158,18 @@ const SETTINGS_STYLES: &str = r#"
         min-width: 0;
         flex: 1;
     }
+    .settings-tree-name-save {
+        width: 38px;
+        height: 38px;
+        flex: 0 0 38px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .settings-tree-name-save svg {
+        display: block;
+    }
 
     /* SOSA root person display */
     .sosa-root-display {
@@ -1190,17 +1219,50 @@ const SETTINGS_STYLES: &str = r#"
             width: 100%;
             min-width: 0;
             display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
+            flex-wrap: nowrap;
+            align-items: center;
+            gap: 12px;
+            overflow-x: auto;
+            padding-bottom: 4px;
         }
         .settings-nav-group {
             display: flex;
-            flex-wrap: wrap;
+            flex: none;
+            align-items: center;
+            flex-wrap: nowrap;
             gap: 4px;
-            margin-bottom: 8px;
+            margin-bottom: 0;
         }
         .settings-nav-group-label {
-            width: 100%;
+            width: auto;
+            margin: 0 4px 0 0;
+            padding: 0 8px 0 0;
+            border-right: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .settings-nav-item {
+            width: auto;
+            flex: none;
+            white-space: nowrap;
+        }
+        .sosa-root-display {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .sosa-root-person {
+            align-items: flex-start;
+        }
+        .sosa-root-person .sp-result-name {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            overflow-wrap: anywhere;
+        }
+        .sosa-root-person .sp-result-meta {
+            overflow-wrap: anywhere;
+        }
+        .sosa-root-actions {
+            justify-content: flex-end;
         }
     }
 "#;

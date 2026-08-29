@@ -586,14 +586,25 @@ const APP_SETTINGS_STYLES: &str = r#"
         .settings-nav {
             width: 100%;
             flex-direction: row;
+            overflow-x: auto;
+            padding-bottom: 4px;
         }
         .settings-nav-group {
             flex-direction: row;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             gap: 0.5rem;
         }
         .settings-nav-group-label {
-            width: 100%;
+            width: auto;
+            flex: none;
+            padding-right: 0.75rem;
+            border-right: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .settings-nav-item {
+            width: auto;
+            flex: none;
+            white-space: nowrap;
         }
         .app-settings-option {
             flex-direction: column;
