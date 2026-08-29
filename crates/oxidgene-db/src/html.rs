@@ -12,8 +12,8 @@
 //! `Note::text` without each having to remember to filter it. The trade-off is
 //! that the stored text is no longer byte-identical to the imported file, so a
 //! GEDCOM export round-trip returns the sanitized body, not the original.
-//! Rows written before this existed are cleaned by the
-//! `m20260802_000001_sanitize_note_html` migration.
+//! Existing rows are expected to have passed through the same write-time
+//! normalization.
 //!
 //! # Line breaks
 //!
@@ -146,8 +146,7 @@ const MAX_CONSECUTIVE_BREAKS: usize = 2;
 /// canonicalise its line breaks to `\n` (see the module docs).
 ///
 /// Safe to apply repeatedly: sanitized output run through again is unchanged,
-/// which is what lets the migration and the write paths both call it without
-/// coordinating.
+/// so import and write paths do not need to coordinate.
 #[must_use]
 pub fn sanitize_note_html(text: &str) -> String {
     normalize_line_breaks(&NOTE_SANITIZER.clean(text).to_string())
