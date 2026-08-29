@@ -38,9 +38,6 @@ pub struct Model {
     /// What kind of record it is, where GEDCOM's vocabulary cannot say.
     /// Stored as its snake_case spelling; `None` when unclassified.
     pub document_category: Option<String>,
-    /// Legacy JSON array retained to migrate existing installations. New reads
-    /// and writes use `media_tag`, so tags are independently mutable.
-    pub tags: String,
     pub place_id: Option<Uuid>,
     /// Recorded now, enforced when authentication lands.
     pub privacy: Privacy,

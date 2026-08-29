@@ -178,7 +178,6 @@ impl MediaRepo {
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
-            tags: Set("[]".to_string()),
             title: Set(title),
             description: Set(description),
             date_value: Set(None),
@@ -229,7 +228,6 @@ impl MediaRepo {
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
-            tags: Set("[]".to_string()),
             title: Set(upload.title),
             description: Set(upload.description),
             date_value: Set(None),
@@ -327,7 +325,6 @@ impl MediaRepo {
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
             document_category: Set(None),
-            tags: Set("[]".to_string()),
             title: Set(title),
             description: Set(None),
             date_value: Set(None),
@@ -872,7 +869,7 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
             .document_category
             .as_deref()
             .and_then(oxidgene_core::enums::DocumentCategory::parse),
-        tags: serde_json::from_str(&m.tags).unwrap_or_default(),
+        tags: Vec::new(),
         date_value2: m.date_value2,
         calendar: m.calendar.into(),
         place_id: m.place_id,
@@ -882,7 +879,6 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
     }
 }
 
-/// Replace the legacy JSON value with the canonical rows from `media_tag`.
 async fn hydrate_tags(db: &impl ConnectionTrait, media: &mut [Media]) -> Result<(), OxidGeneError> {
     let media_ids: Vec<Uuid> = media.iter().map(|item| item.id).collect();
     let tag_rows = MediaTagRepo::list_for_media_ids(db, &media_ids).await?;

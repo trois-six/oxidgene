@@ -8,8 +8,8 @@
 use chrono::Utc;
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::entities::{
-    citation, event, event_witness, family, family_child, family_spouse, media, media_link, note,
-    person, person_name, place, sea_enums, source, vignette,
+    citation, event, event_witness, family, family_child, family_spouse, media, media_link,
+    media_tag, note, person, person_name, place, sea_enums, source, vignette,
 };
 use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
@@ -455,8 +455,6 @@ pub(crate) async fn persist_import_result_in(
                 privacy: Set(m.privacy.into()),
                 source_media_type: Set(m.source_media_type.into()),
                 document_category: Set(m.document_category.map(|c| c.as_str().to_string())),
-                tags: Set(serde_json::to_string(&m.tags)
-                    .expect("serializing a list of media tags cannot fail")),
                 place_id: Set(m.place_id),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -464,6 +462,24 @@ pub(crate) async fn persist_import_result_in(
             })
             .collect();
         batch_insert::<media::Entity, _>(db, models).await?;
+
+        let mut seen_tags = std::collections::HashSet::new();
+        let mut tags = Vec::new();
+        for media in &result.media {
+            for tag in &media.tags {
+                let tag = tag.trim();
+                let normalized_tag = tag.to_lowercase();
+                if !tag.is_empty() && seen_tags.insert((media.id, normalized_tag.clone())) {
+                    tags.push(media_tag::ActiveModel {
+                        media_id: Set(media.id),
+                        normalized_tag: Set(normalized_tag),
+                        tag: Set(tag.to_string()),
+                        created_at: Set(now),
+                    });
+                }
+            }
+        }
+        batch_insert::<media_tag::Entity, _>(db, tags).await?;
     }
 
     // 4. Persons (FK → tree)

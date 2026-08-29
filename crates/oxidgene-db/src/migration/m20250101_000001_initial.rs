@@ -1,12 +1,8 @@
 //! Initial migration: create the full OxidGene schema in one shot.
 //!
-//! This is a reconsolidation of what was originally five migrations
-//! (initial tables, search indexes, SOSA root person, person-edit-modal
-//! fields, and person search FTS) plus the `event_witness` table, folded
-//! back into a single migration now that no deployment has legacy data to
-//! migrate incrementally. `event.witnesses` (added by the person-edit-modal
-//! migration) was later replaced by the `event_witness` join table and so
-//! does not appear here at all — it was never part of any released schema.
+//! The project currently supports recreating its data from source imports, so
+//! this migration is the complete current schema rather than an incremental
+//! history of intermediate representations.
 
 use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, Statement};
 use sea_orm_migration::{prelude::*, schema::*};
@@ -26,10 +22,16 @@ impl MigrationTrait for Migration {
                     .col(uuid(Tree::Id).primary_key())
                     .col(string(Tree::Name))
                     .col(string_null(Tree::Description))
-                    // No FK: person is created after tree, and SQLite can't
-                    // add a FK via ALTER TABLE either way — enforced at the
-                    // ORM layer only, same as before reconsolidation.
+                    // No FK: person is created after tree and SQLite cannot
+                    // add this cyclic foreign key after table creation.
                     .col(uuid_null(Tree::SosaRootPersonId))
+                    .col(uuid_null(Tree::SelfPersonId))
+                    .col(
+                        ColumnDef::new(Tree::DefaultPrivacy)
+                            .string_len(10)
+                            .not_null()
+                            .default("private"),
+                    )
                     .col(timestamp_with_time_zone(Tree::CreatedAt))
                     .col(timestamp_with_time_zone(Tree::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Tree::DeletedAt))
@@ -52,6 +54,8 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default("default"),
                     )
+                    .col(uuid_null(Person::PortraitMediaId))
+                    .col(uuid_null(Person::PortraitVignetteId))
                     .col(timestamp_with_time_zone(Person::CreatedAt))
                     .col(timestamp_with_time_zone(Person::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Person::DeletedAt))
@@ -74,6 +78,24 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_person_portrait_media_id")
+                    .table(Person::Table)
+                    .col(Person::PortraitMediaId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_person_portrait_vignette_id")
+                    .table(Person::Table)
+                    .col(Person::PortraitVignetteId)
+                    .to_owned(),
+            )
+            .await?;
 
         // 3. person_name (FK → person)
         manager
@@ -86,10 +108,12 @@ impl MigrationTrait for Migration {
                     .col(string_len(PersonName::NameType, 20))
                     .col(string_null(PersonName::GivenNames))
                     .col(string_null(PersonName::Surname))
+                    .col(string_null(PersonName::SurnamePrefix))
                     .col(string_null(PersonName::Prefix))
                     .col(string_null(PersonName::Suffix))
                     .col(string_null(PersonName::Nickname))
                     .col(boolean(PersonName::IsPrimary))
+                    .col(integer(PersonName::SortOrder).default(0))
                     .col(timestamp_with_time_zone(PersonName::CreatedAt))
                     .col(timestamp_with_time_zone(PersonName::UpdatedAt))
                     .foreign_key(
@@ -138,6 +162,12 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(uuid(Family::Id).primary_key())
                     .col(uuid(Family::TreeId))
+                    .col(
+                        ColumnDef::new(Family::Privacy)
+                            .string_len(10)
+                            .not_null()
+                            .default("default"),
+                    )
                     .col(timestamp_with_time_zone(Family::CreatedAt))
                     .col(timestamp_with_time_zone(Family::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Family::DeletedAt))
@@ -539,14 +569,49 @@ impl MigrationTrait for Migration {
                     .col(string(Media::FileName))
                     .col(string(Media::MimeType))
                     .col(string(Media::FilePath))
+                    .col(string_null(Media::StorageKey))
+                    .col(string_null(Media::Sha256))
+                    .col(string_null(Media::ThumbnailKey))
+                    .col(integer_null(Media::Width))
+                    .col(integer_null(Media::Height))
+                    .col(integer(Media::PageCount).default(1))
+                    .col(uuid_null(Media::ParentMediaId))
+                    .col(integer(Media::PageIndex).default(0))
+                    .col(boolean(Media::IsDocument).default(false))
                     .col(big_integer(Media::FileSize))
                     .col(string_null(Media::Title))
                     .col(string_null(Media::Description))
                     .col(string_null(Media::DateValue))
                     .col(date_null(Media::DateSort))
+                    .col(
+                        ColumnDef::new(Media::DateQualifier)
+                            .string_len(10)
+                            .not_null()
+                            .default("exact"),
+                    )
+                    .col(string_null(Media::DateValue2))
+                    .col(
+                        ColumnDef::new(Media::Calendar)
+                            .string_len(20)
+                            .not_null()
+                            .default("gregorian"),
+                    )
+                    .col(
+                        ColumnDef::new(Media::SourceMediaType)
+                            .string_len(20)
+                            .not_null()
+                            .default("other"),
+                    )
+                    .col(string_null(Media::DocumentCategory))
                     // No FK: kept consistent with the original ALTER TABLE
                     // ADD COLUMN, which SQLite can't attach a FK to either.
                     .col(uuid_null(Media::PlaceId))
+                    .col(
+                        ColumnDef::new(Media::Privacy)
+                            .string_len(10)
+                            .not_null()
+                            .default("default"),
+                    )
                     .col(timestamp_with_time_zone(Media::CreatedAt))
                     .col(timestamp_with_time_zone(Media::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Media::DeletedAt))
@@ -557,6 +622,26 @@ impl MigrationTrait for Migration {
                             .to(Tree::Table, Tree::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_media_tree_sha256")
+                    .table(Media::Table)
+                    .col(Media::TreeId)
+                    .col(Media::Sha256)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_media_parent_page")
+                    .table(Media::Table)
+                    .col(Media::ParentMediaId)
+                    .col(Media::PageIndex)
                     .to_owned(),
             )
             .await?;
@@ -583,12 +668,6 @@ impl MigrationTrait for Migration {
                     .col(uuid_null(MediaLink::SourceId))
                     .col(uuid_null(MediaLink::FamilyId))
                     .col(integer(MediaLink::SortOrder))
-                    .col(
-                        ColumnDef::new(MediaLink::IsProfile)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_media_link_media")
@@ -650,6 +729,7 @@ impl MigrationTrait for Migration {
                     .col(uuid_null(Note::EventId))
                     .col(uuid_null(Note::FamilyId))
                     .col(uuid_null(Note::SourceId))
+                    .col(uuid_null(Note::MediaId))
                     .col(timestamp_with_time_zone(Note::CreatedAt))
                     .col(timestamp_with_time_zone(Note::UpdatedAt))
                     .col(timestamp_with_time_zone_null(Note::DeletedAt))
@@ -700,75 +780,174 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_note_media_id")
+                    .table(Note::Table)
+                    .col(Note::MediaId)
+                    .to_owned(),
+            )
+            .await?;
 
-        // 16. person_search_fts (Sprint E.6): a real FTS5 virtual table on
+        // 15. vignette (FK → media, person?, event?)
+        manager
+            .create_table(
+                Table::create()
+                    .table(Vignette::Table)
+                    .if_not_exists()
+                    .col(uuid(Vignette::Id).primary_key())
+                    .col(uuid(Vignette::MediaId))
+                    .col(integer(Vignette::Page).default(0))
+                    .col(integer(Vignette::X))
+                    .col(integer(Vignette::Y))
+                    .col(integer(Vignette::Width))
+                    .col(integer(Vignette::Height))
+                    .col(uuid_null(Vignette::PersonId))
+                    .col(uuid_null(Vignette::EventId))
+                    .col(timestamp_with_time_zone(Vignette::CreatedAt))
+                    .col(timestamp_with_time_zone(Vignette::UpdatedAt))
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_vignette_media")
+                            .from(Vignette::Table, Vignette::MediaId)
+                            .to(Media::Table, Media::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_vignette_person")
+                            .from(Vignette::Table, Vignette::PersonId)
+                            .to(Person::Table, Person::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_vignette_event")
+                            .from(Vignette::Table, Vignette::EventId)
+                            .to(Event::Table, Event::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        for (name, column) in [
+            ("idx_vignette_media_id", Vignette::MediaId),
+            ("idx_vignette_person_id", Vignette::PersonId),
+            ("idx_vignette_event_id", Vignette::EventId),
+        ] {
+            manager
+                .create_index(
+                    Index::create()
+                        .name(name)
+                        .table(Vignette::Table)
+                        .col(column)
+                        .to_owned(),
+                )
+                .await?;
+        }
+
+        // 16. media_tag (FK → media)
+        manager
+            .create_table(
+                Table::create()
+                    .table(MediaTag::Table)
+                    .if_not_exists()
+                    .col(uuid(MediaTag::MediaId))
+                    .col(string(MediaTag::NormalizedTag))
+                    .col(string(MediaTag::Tag))
+                    .col(timestamp_with_time_zone(MediaTag::CreatedAt))
+                    .primary_key(
+                        Index::create()
+                            .col(MediaTag::MediaId)
+                            .col(MediaTag::NormalizedTag),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_media_tag_media")
+                            .from(MediaTag::Table, MediaTag::MediaId)
+                            .to(Media::Table, Media::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // 17. background_job (FK → tree)
+        manager
+            .create_table(
+                Table::create()
+                    .table(BackgroundJob::Table)
+                    .if_not_exists()
+                    .col(uuid(BackgroundJob::Id).primary_key())
+                    .col(uuid(BackgroundJob::TreeId))
+                    .col(uuid_null(BackgroundJob::ActiveTreeId))
+                    .col(string_len(BackgroundJob::Kind, 16))
+                    .col(string_len(BackgroundJob::Format, 16))
+                    .col(string_len(BackgroundJob::Status, 16))
+                    .col(string_len(BackgroundJob::Phase, 32))
+                    .col(string_null(BackgroundJob::SourceKey))
+                    .col(string_null(BackgroundJob::ArtifactKey))
+                    .col(text_null(BackgroundJob::PayloadJson))
+                    .col(string_null(BackgroundJob::OriginalFilename))
+                    .col(boolean(BackgroundJob::MergeOccupations).default(false))
+                    .col(boolean(BackgroundJob::MergeNames).default(false))
+                    .col(big_integer(BackgroundJob::Done).default(0))
+                    .col(big_integer(BackgroundJob::Total).default(0))
+                    .col(integer(BackgroundJob::Attempt).default(0))
+                    .col(string_null(BackgroundJob::LeaseOwner))
+                    .col(timestamp_with_time_zone_null(BackgroundJob::LeaseUntil))
+                    .col(boolean(BackgroundJob::CancelRequested).default(false))
+                    .col(text_null(BackgroundJob::ResultJson))
+                    .col(string_null(BackgroundJob::ErrorCode))
+                    .col(timestamp_with_time_zone(BackgroundJob::CreatedAt))
+                    .col(timestamp_with_time_zone(BackgroundJob::UpdatedAt))
+                    .col(timestamp_with_time_zone_null(BackgroundJob::StartedAt))
+                    .col(timestamp_with_time_zone_null(BackgroundJob::FinishedAt))
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_background_job_tree")
+                            .from(BackgroundJob::Table, BackgroundJob::TreeId)
+                            .to(Tree::Table, Tree::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_background_job_active_tree")
+                            .from(BackgroundJob::Table, BackgroundJob::ActiveTreeId)
+                            .to(Tree::Table, Tree::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_background_job_active_tree")
+                    .table(BackgroundJob::Table)
+                    .col(BackgroundJob::ActiveTreeId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_background_job_claim")
+                    .table(BackgroundJob::Table)
+                    .col(BackgroundJob::Status)
+                    .col(BackgroundJob::LeaseUntil)
+                    .col(BackgroundJob::CreatedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        // 18. person_search_fts (Sprint E.6): a real FTS5 virtual table on
         // SQLite (desktop), or a plain table + index on PostgreSQL (web,
         // where FTS5 isn't available — matching falls back to LIKE on
         // pre-normalized token columns computed in Rust before insert).
         let conn = manager.get_connection();
-        match manager.get_database_backend() {
-            DbBackend::Sqlite => {
-                conn.execute_raw(Statement::from_string(
-                    DbBackend::Sqlite,
-                    r#"
-                    CREATE VIRTUAL TABLE IF NOT EXISTS person_search_fts USING fts5(
-                        surname,
-                        given_names,
-                        maiden_name,
-                        birth_year,
-                        death_year,
-                        person_id UNINDEXED,
-                        tree_id UNINDEXED,
-                        sex UNINDEXED,
-                        display_name UNINDEXED,
-                        birth_place UNINDEXED,
-                        date_sort UNINDEXED
-                    )
-                    "#
-                    .to_owned(),
-                ))
-                .await?;
-            }
-            backend => {
-                conn.execute_raw(Statement::from_string(
-                    backend,
-                    r#"
-                    CREATE TABLE IF NOT EXISTS person_search_fts (
-                        person_id TEXT NOT NULL PRIMARY KEY,
-                        tree_id TEXT NOT NULL,
-                        surname TEXT NOT NULL DEFAULT '',
-                        given_names TEXT NOT NULL DEFAULT '',
-                        maiden_name TEXT,
-                        birth_year TEXT,
-                        death_year TEXT,
-                        sex TEXT NOT NULL DEFAULT 'unknown',
-                        display_name TEXT NOT NULL DEFAULT '',
-                        birth_place TEXT,
-                        date_sort TEXT
-                    )
-                    "#
-                    .to_owned(),
-                ))
-                .await?;
-                conn.execute_raw(Statement::from_string(
-                    backend,
-                    "CREATE INDEX IF NOT EXISTS idx_person_search_fts_tree_id \
-                     ON person_search_fts (tree_id)"
-                        .to_owned(),
-                ))
-                .await?;
-            }
-        }
-
-        // ── folded in from m20260724_000001_search_display_names ──
-
-        let conn = manager.get_connection();
-        conn.execute_raw(Statement::from_string(
-            manager.get_database_backend(),
-            "DROP TABLE IF EXISTS person_search_fts".to_owned(),
-        ))
-        .await?;
-
         match manager.get_database_backend() {
             DbBackend::Sqlite => {
                 conn.execute_raw(Statement::from_string(
@@ -827,8 +1006,7 @@ impl MigrationTrait for Migration {
             }
         }
 
-        // ── folded in from m20260724_000002_citation_media_link_fk_indexes ──
-
+        // Supporting indexes for relationship traversal.
         manager
             .create_index(
                 Index::create()
@@ -893,8 +1071,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // ── folded in from m20260728_000001_person_denorm ──
-
+        // Durable person projections.
         manager
             .create_table(
                 Table::create()
@@ -903,6 +1080,7 @@ impl MigrationTrait for Migration {
                     .col(uuid(PersonDenorm::PersonId).primary_key())
                     .col(uuid(PersonDenorm::TreeId))
                     .col(text(PersonDenorm::Payload))
+                    .col(integer(PersonDenorm::SchemaVersion).default(0))
                     .col(timestamp_with_time_zone(PersonDenorm::UpdatedAt))
                     .foreign_key(
                         ForeignKey::create()
@@ -921,6 +1099,16 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_person_denorm_tree_schema_version")
+                    .table(PersonDenorm::Table)
+                    .col(PersonDenorm::TreeId)
+                    .col(PersonDenorm::SchemaVersion)
+                    .to_owned(),
+            )
+            .await?;
 
         manager
             .create_index(
@@ -931,8 +1119,6 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-
-        // ── folded in from m20260803_000001_drop_person_ancestry ──
 
         manager
             .create_index(
@@ -980,26 +1166,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // ── folded in from m20260804_000001_person_name_surname_prefix ──
-
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(PersonName::Table)
-                    .add_column(string_null(PersonName::SurnamePrefix))
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(PersonName::Table)
-                    .add_column(integer(PersonName::SortOrder).default(0))
-                    .to_owned(),
-            )
-            .await?;
-
         Ok(())
     }
 
@@ -1015,7 +1181,10 @@ impl MigrationTrait for Migration {
         // projection with foreign keys onto `person` and `tree`, so it has to
         // go before either of them.
         let tables = [
+            BackgroundJob::Table.into_table_ref(),
             PersonDenorm::Table.into_table_ref(),
+            MediaTag::Table.into_table_ref(),
+            Vignette::Table.into_table_ref(),
             Note::Table.into_table_ref(),
             MediaLink::Table.into_table_ref(),
             Media::Table.into_table_ref(),
@@ -1051,6 +1220,8 @@ enum Tree {
     Name,
     Description,
     SosaRootPersonId,
+    SelfPersonId,
+    DefaultPrivacy,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1063,6 +1234,8 @@ enum Person {
     TreeId,
     Sex,
     Privacy,
+    PortraitMediaId,
+    PortraitVignetteId,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1091,6 +1264,7 @@ enum Family {
     Table,
     Id,
     TreeId,
+    Privacy,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1198,12 +1372,27 @@ enum Media {
     FileName,
     MimeType,
     FilePath,
+    StorageKey,
+    Sha256,
+    ThumbnailKey,
+    Width,
+    Height,
+    PageCount,
+    ParentMediaId,
+    PageIndex,
+    IsDocument,
     FileSize,
     Title,
     Description,
     DateValue,
     DateSort,
+    DateQualifier,
+    DateValue2,
+    Calendar,
+    SourceMediaType,
+    DocumentCategory,
     PlaceId,
+    Privacy,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1219,7 +1408,6 @@ enum MediaLink {
     SourceId,
     FamilyId,
     SortOrder,
-    IsProfile,
 }
 
 #[derive(DeriveIden)]
@@ -1232,6 +1420,7 @@ enum Note {
     EventId,
     FamilyId,
     SourceId,
+    MediaId,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1243,5 +1432,61 @@ enum PersonDenorm {
     PersonId,
     TreeId,
     Payload,
+    SchemaVersion,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Vignette {
+    Table,
+    Id,
+    MediaId,
+    Page,
+    X,
+    Y,
+    Width,
+    Height,
+    PersonId,
+    EventId,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum MediaTag {
+    Table,
+    MediaId,
+    NormalizedTag,
+    Tag,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum BackgroundJob {
+    Table,
+    Id,
+    TreeId,
+    ActiveTreeId,
+    Kind,
+    Format,
+    Status,
+    Phase,
+    SourceKey,
+    ArtifactKey,
+    PayloadJson,
+    OriginalFilename,
+    MergeOccupations,
+    MergeNames,
+    Done,
+    Total,
+    Attempt,
+    LeaseOwner,
+    LeaseUntil,
+    CancelRequested,
+    ResultJson,
+    ErrorCode,
+    CreatedAt,
+    UpdatedAt,
+    StartedAt,
+    FinishedAt,
 }
