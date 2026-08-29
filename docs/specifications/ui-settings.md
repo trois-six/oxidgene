@@ -135,7 +135,10 @@ card's overflow menu on the homepage.
 
 ### SOSA 1 (Root person)
 
-A **person picker** component enclosed in a card: displays the currently selected person as a row with avatar (initials circle), full name. Two buttons on the right:
+A **person picker** component enclosed in a card displays the currently
+selected person with the same summary as a person-search result: profile photo
+or sex-specific placeholder portrait, surname and given names, birth and death
+years, and birth place when known. Two buttons appear on the right:
 
 - **Change** — opens a person search modal to select a different root person
 - **Clear** — removes the SOSA root assignment

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::gedcom;
+use crate::service::gedcom::{self, FileImportPhase};
 
 /// GET /api/v1/trees
 pub async fn list_trees(
@@ -23,7 +23,56 @@ pub async fn list_trees(
     let connection = TreeRepo::list(&state.db, &params)
         .await
         .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(connection).unwrap()))
+    let mut response = serde_json::to_value(connection)
+        .map_err(|error| ApiError(oxidgene_core::OxidGeneError::Internal(error.to_string())))?;
+    let active = active_file_imports(&state)?;
+    if let Some(edges) = response
+        .get_mut("edges")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for edge in edges {
+            let Some(node) = edge
+                .get_mut("node")
+                .and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+            let tree_id = node
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| Uuid::parse_str(value).ok());
+            let job_id = tree_id.and_then(|tree_id| active.get(&tree_id).copied());
+            node.insert(
+                "import_in_progress".to_string(),
+                serde_json::Value::Bool(job_id.is_some()),
+            );
+            node.insert(
+                "import_job_id".to_string(),
+                job_id.map_or(serde_json::Value::Null, |id| {
+                    serde_json::Value::String(id.to_string())
+                }),
+            );
+        }
+    }
+    Ok(Json(response))
+}
+
+fn active_file_imports(
+    state: &AppState,
+) -> Result<std::collections::HashMap<Uuid, Uuid>, ApiError> {
+    let imports = state.file_imports.lock().map_err(|_| {
+        ApiError(oxidgene_core::OxidGeneError::Internal(
+            "import registry lock poisoned".into(),
+        ))
+    })?;
+    Ok(imports
+        .iter()
+        .filter_map(|(job_id, (tree_id, progress))| {
+            let phase = progress.read().0;
+            (!matches!(phase, FileImportPhase::Completed | FileImportPhase::Failed))
+                .then_some((*tree_id, *job_id))
+        })
+        .collect())
 }
 
 /// POST /api/v1/trees

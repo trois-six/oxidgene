@@ -36,7 +36,7 @@ use uuid::Uuid;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source,
+    Person, PersonName, Place, Source, Vignette,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 
@@ -77,6 +77,7 @@ pub fn export_gedcom(
     citations: &[Citation],
     media: &[Media],
     media_links: &[MediaLink],
+    vignettes: &[Vignette],
     notes: &[Note],
     merge_occupations: bool,
     merge_names: bool,
@@ -630,8 +631,62 @@ pub fn export_gedcom(
         .write_to_string(&data)
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
     let gedcom = inject_event_media_links(gedcom, event_media_by_record);
+    let gedcom =
+        inject_vignette_extensions(gedcom, vignettes, &media_xref, &person_xref, &mut warnings);
 
     Ok(ExportResult { gedcom, warnings })
+}
+
+fn inject_vignette_extensions(
+    gedcom: String,
+    vignettes: &[Vignette],
+    media_xref: &HashMap<Uuid, String>,
+    person_xref: &HashMap<Uuid, String>,
+    warnings: &mut Vec<String>,
+) -> String {
+    let mut by_media = HashMap::<&str, Vec<String>>::new();
+    for vignette in vignettes {
+        let Some(media) = media_xref.get(&vignette.media_id) else {
+            warnings.push(format!(
+                "Vignette {} references media {} which is not part of this export",
+                vignette.id, vignette.media_id
+            ));
+            continue;
+        };
+        let person = match vignette.person_id {
+            Some(person_id) => {
+                let Some(person) = person_xref.get(&person_id) else {
+                    warnings.push(format!(
+                        "Vignette {} references person {} who is not part of this export",
+                        vignette.id, person_id
+                    ));
+                    continue;
+                };
+                person.as_str()
+            }
+            None => "-",
+        };
+        by_media.entry(media).or_default().push(format!(
+            "1 _OXIDGENE_VIGNETTE {person} {} {} {} {} {}",
+            vignette.page, vignette.x, vignette.y, vignette.width, vignette.height
+        ));
+    }
+
+    let mut output = String::with_capacity(gedcom.len() + vignettes.len() * 64);
+    for line in gedcom.lines() {
+        output.push_str(line);
+        output.push('\n');
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if let ["0", xref, "OBJE", ..] = fields.as_slice()
+            && let Some(rows) = by_media.get(xref)
+        {
+            for row in rows {
+                output.push_str(row);
+                output.push('\n');
+            }
+        }
+    }
+    output
 }
 
 /// Where a media's bytes live inside a GEDZIP, if we hold any.
@@ -1593,6 +1648,7 @@ mod tests {
             std::slice::from_ref(&m),
             &[],
             &[],
+            &[],
             false,
             false,
             &paths,
@@ -1636,6 +1692,7 @@ mod tests {
             std::slice::from_ref(&m),
             &[],
             &[],
+            &[],
             false,
             false,
             &HashMap::new(),
@@ -1675,6 +1732,7 @@ mod tests {
             std::slice::from_ref(&m),
             &[],
             &[],
+            &[],
             false,
             false,
             &HashMap::new(),
@@ -1701,6 +1759,7 @@ mod tests {
             &[],
             &[],
             std::slice::from_ref(&m),
+            &[],
             &[],
             &[],
             false,
@@ -1742,6 +1801,7 @@ mod tests {
             std::slice::from_ref(&medium),
             std::slice::from_ref(&link),
             &[],
+            &[],
             false,
             false,
             &HashMap::new(),
@@ -1762,6 +1822,86 @@ mod tests {
             back.persons.first().map(|p| p.id)
         );
         assert_eq!(back.media_links[0].media_id, back.media[0].id);
+    }
+
+    #[test]
+    fn a_photo_identification_survives_a_gedzip_round_trip() {
+        let person = person_row();
+        let medium = medium("group-photo.jpg", "image/jpeg", true);
+        let link = MediaLink {
+            id: Uuid::now_v7(),
+            media_id: medium.id,
+            person_id: Some(person.id),
+            event_id: None,
+            source_id: None,
+            family_id: None,
+            sort_order: 0,
+        };
+        let vignette = Vignette {
+            id: Uuid::now_v7(),
+            media_id: medium.id,
+            page: 0,
+            x: 120,
+            y: 45,
+            width: 64,
+            height: 82,
+            person_id: Some(person.id),
+            event_id: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let path = archive_path(&medium).expect("stored medium has an archive path");
+        let mut paths = HashMap::new();
+        paths.insert(medium.id, path.clone());
+
+        let export = export_gedcom(
+            std::slice::from_ref(&person),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&medium),
+            std::slice::from_ref(&link),
+            std::slice::from_ref(&vignette),
+            &[],
+            false,
+            false,
+            &paths,
+        )
+        .expect("exports");
+        assert!(
+            export
+                .gedcom
+                .contains("1 _OXIDGENE_VIGNETTE @I1@ 0 120 45 64 82"),
+            "{}",
+            export.gedcom
+        );
+
+        let archive =
+            export_gedzip(&export.gedcom, &[(path, b"JPEGBYTES".to_vec())]).expect("writes GEDZIP");
+        let imported = crate::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports");
+        let back = imported.result;
+
+        assert_eq!(back.media_links.len(), 1, "whole-image attachment");
+        assert_eq!(back.vignettes.len(), 1, "cropped identification");
+        let restored = &back.vignettes[0];
+        assert_eq!(restored.media_id, back.media[0].id);
+        assert_eq!(restored.person_id, Some(back.persons[0].id));
+        assert_eq!(
+            (
+                restored.page,
+                restored.x,
+                restored.y,
+                restored.width,
+                restored.height,
+            ),
+            (0, 120, 45, 64, 82)
+        );
     }
 
     #[test]
@@ -1809,6 +1949,7 @@ mod tests {
             &[],
             std::slice::from_ref(&medium),
             std::slice::from_ref(&link),
+            &[],
             &[],
             false,
             false,
@@ -1869,6 +2010,7 @@ mod tests {
             &[],
             &[other.clone(), chosen.clone()],
             &links,
+            &[],
             &[],
             false,
             false,
@@ -1949,6 +2091,7 @@ mod tests {
             &rows,
             std::slice::from_ref(&link),
             &[],
+            &[],
             false,
             false,
             &HashMap::new(),
@@ -2004,6 +2147,7 @@ mod tests {
             &[document, cover],
             &[],
             &[],
+            &[],
             false,
             false,
             &HashMap::new(),
@@ -2031,6 +2175,7 @@ mod tests {
             &[],
             &[],
             std::slice::from_ref(&m),
+            &[],
             &[],
             &[],
             false,

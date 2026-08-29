@@ -107,7 +107,7 @@ Base path: `/api/v1`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees` | List trees (cursor-paginated) |
+| `GET` | `/trees` | List trees (cursor-paginated). REST list nodes add transient `import_in_progress: bool` and `import_job_id: UUID?` fields from the active file-job registry; these are not persisted tree fields and disappear for completed/failed jobs |
 | `POST` | `/trees` | Create a tree |
 | `GET` | `/trees/{tree_id}` | Get a tree |
 | `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`) |
@@ -348,13 +348,20 @@ imports the format, it does not produce it.
 
 | Method | Path | Description |
 |---|---|---|
+| `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to a collision-safe temporary file and start an asynchronous import. Returns `202 { "job_id": UUID }` only after upload completion. The temporary basename is the server-generated UUIDv7 and never the original filename; `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. Partial files are removed on body failure, request cancellation, worker cancellation, success, or failure; server/desktop startup removes crash leftovers |
+| `GET` | `/trees/{tree_id}/import-jobs/{job_id}` | Poll `{ phase, done, total, result?, error? }`. Phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`. A completed status retains the standard `ImportResponse`; failure exposes a stable error code rather than internal details |
 | `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 1 GiB body limit (the JSON escaping costs a further ~1.4× over the file itself) |
 | `POST` | `/trees/{tree_id}/gedzip/import` | Import a GEDZIP archive (`.gdz`): the `gedcom.ged` it wraps **and** the media files it carries. Body is the **raw archive** (`application/zip`), not JSON — base64 in an envelope would inflate a photo album by a third. Every medium whose `FILE` names an entry in the archive is stored, thumbnailed and written as a held medium; one naming an entry the archive lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE` names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`. 1 GiB body limit — the archive carries the album, so it is never the smaller file |
 | `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 1 GiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
-All three import endpoints return the same `ImportResponse` shape and trigger a
-full projection rebuild of the tree.
+The three synchronous format endpoints return the same `ImportResponse` shape
+and trigger a full projection rebuild. The file-job transport provides the same
+import capability for large files without putting the upload or operation in a
+single long-lived response. The UI uses it for every format over 16 MiB. The
+existing GraphQL import mutations remain the symmetric direct-import surface;
+raw streaming and HTTP upload progress are transport concerns and therefore use
+REST.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
@@ -1037,6 +1044,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Full | Page, text, confidence level |
 | Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, MIME type, title and physical medium. Person, family and event links are exported as standard `OBJE` references. A plain `.ged` never carries file bytes; a GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry. Remote and unheld media retain only their original `FILE` reference. |
+| Vignette identifications | OxidGene extension | OxidGene extension | Each person identification and its pixel rectangle round-trip beneath the owning `OBJE` as `_OXIDGENE_VIGNETTE`; software that does not know the extension ignores it. The same data survives both plain GEDCOM and GEDZIP export/import. |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes |
 | Cause (CAUS) | Full | Full | On any event |

@@ -1705,11 +1705,25 @@ async fn a_record_naming_a_file_nobody_uploaded_is_not_a_portrait_by_default() {
 }
 
 #[tokio::test]
-async fn a_gedzip_round_trip_carries_the_photographs_into_the_new_tree() {
+async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_new_tree() {
     let h = setup().await;
     let person_id = person(&h).await;
     let (media_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (status, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{media_id}/vignettes"),
+        Some(json!({
+            "x": 12,
+            "y": 18,
+            "width": 24,
+            "height": 30,
+            "person_id": person_id,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
 
     let (status, _, archive) =
         raw(&h.app, &format!("{base}/gedcom/export?format=gedzip"), &[]).await;
@@ -1765,4 +1779,22 @@ async fn a_gedzip_round_trip_carries_the_photographs_into_the_new_tree() {
     );
     assert!(imported["thumbnail_key"].is_string());
     assert_ne!(imported["id"], media_id.as_str(), "a new record, new tree");
+    let imported_media_id = imported["id"].as_str().expect("media id");
+
+    let (status, vignettes) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{new_tree}/media/{imported_media_id}/vignettes"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{vignettes}");
+    let rows = vignettes.as_array().expect("vignette list");
+    assert_eq!(rows.len(), 1, "{vignettes}");
+    assert_eq!(rows[0]["x"], 12);
+    assert_eq!(rows[0]["y"], 18);
+    assert_eq!(rows[0]["width"], 24);
+    assert_eq!(rows[0]["height"], 30);
+    assert!(rows[0]["person_id"].is_string(), "{vignettes}");
+    assert_ne!(rows[0]["person_id"], person_id, "a new person, new tree");
 }

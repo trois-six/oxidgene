@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source,
+    Person, PersonName, Place, Source, Vignette,
 };
 
 /// The result of importing a GEDCOM file — all domain model entities extracted
@@ -33,6 +33,7 @@ pub struct ImportResult {
     pub citations: Vec<Citation>,
     pub media: Vec<Media>,
     pub media_links: Vec<MediaLink>,
+    pub vignettes: Vec<Vignette>,
     pub notes: Vec<Note>,
     /// Warnings collected during import (non-fatal issues).
     pub warnings: Vec<String>,
@@ -45,6 +46,11 @@ pub struct ImportResult {
     /// position, and `GwDatabase::persons[i]` becomes the individual with xref
     /// `@I{i+1}@`.
     pub person_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+    /// The `@M…@` xref each imported media record was given a UUID for.
+    ///
+    /// OxidGene's vignette extension uses the record xref to attach each crop
+    /// to its source image after the standard GEDCOM model has been imported.
+    pub media_by_xref: std::collections::HashMap<String, uuid::Uuid>,
 }
 
 /// The result of exporting domain model entities to a GEDCOM string.

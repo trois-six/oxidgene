@@ -34,8 +34,8 @@
 
 use std::collections::HashMap;
 
-use dioxus::html::HasFileData;
 use dioxus::prelude::*;
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::api::{
@@ -52,6 +52,9 @@ use crate::i18n::use_i18n;
 /// because they must all agree: a tab that offered step 3 but hid step 2
 /// would strand the user halfway.
 const NATIVE: bool = !cfg!(target_arch = "wasm32");
+
+/// Files above this size bypass Rust/WASM memory and become server-side jobs.
+const ASYNC_FILE_IMPORT_THRESHOLD: u64 = 16 * 1024 * 1024;
 
 /// Which half of the modal is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,11 +249,12 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
     let api = use_context::<ApiClient>();
     let i18n = use_i18n();
 
-    let mut picked = use_signal(|| None::<(String, Vec<u8>)>);
+    let mut picked = use_signal(|| None::<dioxus::html::FileData>);
     let mut dragging = use_signal(|| false);
     let mut busy = busy;
     let mut error = use_signal(|| None::<String>);
     let mut result = use_signal(|| None::<ImportResult>);
+    let mut progress = use_signal(|| None::<FileImportUiProgress>);
 
     // Reading `result` inside the effect is what makes it re-run when the
     // import lands and the receipt replaces the drop zone.
@@ -260,54 +264,50 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
         }
     });
 
-    let pick = move |_| {
-        spawn(async move {
-            let file = rfd::AsyncFileDialog::new()
-                .add_filter("GEDCOM / GEDZIP / GeneWeb", &["ged", "gdz", "gw"])
-                .add_filter("GEDCOM", &["ged"])
-                .add_filter("GEDZIP", &["gdz"])
-                .add_filter("GeneWeb", &["gw"])
-                .add_filter("All files", &["*"])
-                .set_title(i18n.t("gedcom.select_file"))
-                .pick_file()
-                .await;
-            let Some(file) = file else { return };
-
-            // `read()` and not `path()`: the one accessor that means the same
-            // thing on the desktop build and in a browser.
-            picked.set(Some((file.file_name(), file.read().await)));
-            error.set(None);
-            result.set(None);
-        });
-    };
-
     let api_import = api.clone();
     let do_import = move |_| {
         let api = api_import.clone();
-        let Some((name, bytes)) = picked() else {
+        let Some(file) = picked() else {
             return;
         };
         if busy() {
             return;
         }
+        let name = short_name(&file.name());
         busy.set(true);
         error.set(None);
+        progress.set(None);
         spawn(async move {
-            let outcome = match format_of(&name) {
-                FileFormat::Geneweb => api.import_geneweb(tree_id, bytes, &name).await,
-                FileFormat::Gedzip => api.import_gedzip(tree_id, bytes).await,
-                FileFormat::Gedcom => match String::from_utf8(bytes) {
-                    Ok(gedcom) => api.import_gedcom(tree_id, &gedcom).await,
-                    Err(_) => {
-                        error.set(Some(i18n.t("import.not_utf8")));
+            let format = format_of(&name);
+            let outcome = if file.size() > ASYNC_FILE_IMPORT_THRESHOLD {
+                run_file_import_job(&api, tree_id, format, &mut progress).await
+            } else {
+                let bytes = match file.read_bytes().await {
+                    Ok(bytes) => bytes.to_vec(),
+                    Err(read_error) => {
+                        error.set(Some(read_error.to_string()));
                         busy.set(false);
                         return;
                     }
-                },
+                };
+                match format {
+                    FileFormat::Geneweb => api.import_geneweb(tree_id, bytes, &name).await,
+                    FileFormat::Gedzip => api.import_gedzip(tree_id, bytes).await,
+                    FileFormat::Gedcom => match String::from_utf8(bytes) {
+                        Ok(gedcom) => api.import_gedcom(tree_id, &gedcom).await,
+                        Err(_) => {
+                            error.set(Some(i18n.t("import.not_utf8")));
+                            busy.set(false);
+                            return;
+                        }
+                    },
+                }
             };
             busy.set(false);
+            progress.set(None);
             match outcome {
                 Ok(imported) => {
+                    api.invalidate_tree(tree_id);
                     result.set(Some(imported.clone()));
                     on_imported.call(ImportOutcome::File(imported));
                 }
@@ -330,32 +330,28 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
         div { class: "import-file",
             div {
                 class: if dragging() { "import-drop is-dragging" } else { "import-drop" },
-                // Both handlers must cancel the default, or the engine
-                // navigates to the dropped file and the app disappears.
-                ondragover: move |e| {
-                    e.prevent_default();
-                    dragging.set(true);
-                },
-                ondragleave: move |_| dragging.set(false),
-                ondrop: move |e: Event<DragData>| {
-                    e.prevent_default();
-                    dragging.set(false);
-                    let dropped = e.files();
-                    spawn(async move {
-                        let Some(file) = dropped.into_iter().next() else { return };
-                        if let Ok(bytes) = file.read_bytes().await {
-                            picked.set(Some((short_name(&file.name()), bytes.to_vec())));
-                            error.set(None);
-                        }
-                    });
-                },
-                onclick: pick,
+                input {
+                    id: "oxidgene-file-import-input",
+                    class: "import-file-input",
+                    r#type: "file",
+                    accept: ".ged,.gdz,.gw",
+                    disabled: busy(),
+                    ondragenter: move |_| dragging.set(true),
+                    ondragleave: move |_| dragging.set(false),
+                    onchange: move |event| {
+                        dragging.set(false);
+                        picked.set(event.files().into_iter().next());
+                        error.set(None);
+                        result.set(None);
+                        progress.set(None);
+                    },
+                }
 
-                if let Some((name, bytes)) = picked() {
+                if let Some(file) = picked() {
                     div { class: "import-drop-icon", "📄" }
-                    div { class: "import-drop-name", "{name}" }
+                    div { class: "import-drop-name", {short_name(&file.name())} }
                     div { class: "import-drop-hint",
-                        {i18n.t_args("import.file_size", &[("size", &human_size(bytes.len()))])}
+                        {i18n.t_args("import.file_size", &[("size", &human_size(file.size().try_into().unwrap_or(usize::MAX)))])}
                     }
                 } else {
                     div { class: "import-drop-icon", "📄" }
@@ -368,6 +364,31 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
                 div { class: "error-msg", "{err}" }
             }
 
+            if let Some(current) = progress() {
+                match current {
+                    FileImportUiProgress::Upload { done, total } => rsx! {
+                        ProgressBar {
+                            label: i18n.t("import.phase_upload"),
+                            done,
+                            total,
+                        }
+                    },
+                    FileImportUiProgress::Server { phase, done, total } => rsx! {
+                        ProgressBar {
+                            label: i18n.t(match phase.as_str() {
+                                "parsing" => "import.phase_parsing",
+                                "media" => "import.phase_media",
+                                "database" => "import.phase_database",
+                                "projections" => "import.phase_projections",
+                                _ => "import.phase_starting",
+                            }),
+                            done,
+                            total: if phase == "media" { total } else { 0 },
+                        }
+                    },
+                }
+            }
+
             div { class: "modal-actions",
                 button {
                     class: "btn btn-primary",
@@ -376,6 +397,109 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
                     if busy() { {i18n.t("import.importing")} } else { {i18n.t("import.start")} }
                 }
             }
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+enum FileImportUiProgress {
+    Upload {
+        done: usize,
+        total: usize,
+    },
+    Server {
+        phase: String,
+        done: usize,
+        total: usize,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum UploadEvent {
+    Upload { done: usize, total: usize },
+    Started { job_id: Uuid },
+    Error,
+}
+
+async fn run_file_import_job(
+    api: &ApiClient,
+    tree_id: Uuid,
+    format: FileFormat,
+    progress: &mut Signal<Option<FileImportUiProgress>>,
+) -> Result<ImportResult, crate::api::ApiError> {
+    let endpoint = serde_json::to_string(&api.file_import_upload_url(tree_id))
+        .expect("an endpoint URL is JSON serializable");
+    let format = serde_json::to_string(format.api_name())
+        .expect("a static import format is JSON serializable");
+    let script = format!(
+        r#"
+        const input = document.getElementById('oxidgene-file-import-input');
+        const file = input?.files?.[0];
+        if (!file) {{
+            dioxus.send({{ kind: 'error' }});
+            return;
+        }}
+        const params = new URLSearchParams({{ format: {format} }});
+        if ({format} === 'geneweb') params.set('filename', file.name);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', {endpoint} + '?' + params.toString());
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.responseType = 'json';
+        xhr.upload.onprogress = event => dioxus.send({{
+            kind: 'upload',
+            done: event.loaded,
+            total: event.lengthComputable ? event.total : file.size,
+        }});
+        xhr.onerror = () => dioxus.send({{ kind: 'error' }});
+        xhr.onload = () => {{
+            if (xhr.status !== 202 || !xhr.response?.job_id) {{
+                dioxus.send({{ kind: 'error' }});
+                return;
+            }}
+            dioxus.send({{ kind: 'started', job_id: xhr.response.job_id }});
+        }};
+        xhr.send(file);
+        "#,
+    );
+    let mut eval = document::eval(&script);
+    let job_id = loop {
+        match eval.recv::<UploadEvent>().await {
+            Ok(UploadEvent::Upload { done, total }) => {
+                progress.set(Some(FileImportUiProgress::Upload { done, total }));
+            }
+            Ok(UploadEvent::Started { job_id }) => break job_id,
+            Ok(UploadEvent::Error) | Err(_) => {
+                return Err(crate::api::ApiError::Api {
+                    status: 0,
+                    body: "file upload failed".to_string(),
+                });
+            }
+        }
+    };
+    api.invalidate_tree_list();
+
+    loop {
+        let status = api.file_import_status(tree_id, job_id).await?;
+        progress.set(Some(FileImportUiProgress::Server {
+            phase: status.phase.clone(),
+            done: status.done,
+            total: status.total,
+        }));
+        match status.phase.as_str() {
+            "completed" => {
+                return status.result.ok_or_else(|| crate::api::ApiError::Api {
+                    status: 500,
+                    body: "completed import has no result".to_string(),
+                });
+            }
+            "failed" => {
+                return Err(crate::api::ApiError::Api {
+                    status: 422,
+                    body: status.error.unwrap_or_else(|| "import_failed".to_string()),
+                });
+            }
+            _ => crate::utils::sleep_ms(500).await,
         }
     }
 }
@@ -1788,6 +1912,16 @@ enum FileFormat {
     Geneweb,
     /// A GEDZIP `.gdz` archive: a GEDCOM and its media in one ZIP.
     Gedzip,
+}
+
+impl FileFormat {
+    fn api_name(self) -> &'static str {
+        match self {
+            Self::Gedcom => "gedcom",
+            Self::Geneweb => "geneweb",
+            Self::Gedzip => "gedzip",
+        }
+    }
 }
 
 /// Which reader a picked file's extension asks for.

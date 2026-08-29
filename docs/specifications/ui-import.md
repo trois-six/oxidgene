@@ -70,9 +70,11 @@ it would otherwise close the modal.
 A drop zone that is also a button. Accepts one `.ged`, `.gdz` or `.gw`;
 drag-and-drop and the native picker both work.
 
-The bytes are read with the file handle's `read()`, never a path. A file picked
-in a browser has no path at all, and this used to read one — which quietly made
-"the shared web/desktop import" desktop-only, with nothing saying so.
+Selection retains the platform file handle and metadata, not the file bytes.
+A small file is read only when the user starts the import. A file over 16 MiB
+is never materialized in Rust/WASM memory: the browser's native `File` object
+is uploaded directly, with upload progress, then the modal polls a server-side
+job. This path is identical in web and desktop webviews.
 
 The three are told apart by extension and sent to three endpoints, because
 each arrives differently: a `.ged` is a UTF-8 string, a `.gw` is ISO-8859-1
@@ -175,10 +177,31 @@ These GEDCOM tags are parsed by ged_io but not mapped to the OxidGene data model
 
 | File size | Behavior |
 |---|---|
-| < 1 MB | Instant upload, synchronous import |
-| 1–10 MB | Upload progress bar visible, synchronous import |
-| 10–50 MB | Upload progress bar + streaming import with step-by-step progress |
-| > 50 MB | Rejected at upload with error message |
+| Up to 16 MiB | Read on demand and imported synchronously |
+| Over 16 MiB, up to 1 GiB | Native streamed upload, then an asynchronous server job with phase progress |
+| Over 1 GiB | Rejected while streaming; any partial upload is removed |
+
+The asynchronous path applies equally to `.ged`, `.gw`, and `.gdz`. Large text
+exports are real product inputs: Geneanet accepts GEDCOM uploads up to 350 MB,
+so archive-only handling would merely move the same renderer crash to `.ged`.
+
+Upload progress is byte-based. Server progress then names the parsing,
+media-storage, database, and projection phases; the media phase is determinate
+when a GEDZIP contains referenced files. The modal cannot be dismissed while
+the run is active.
+
+The temporary filename is the operation's server-generated UUIDv7, with no
+original-name component. Concurrent uploads of identically named files cannot
+collide. A disconnected or cancelled request drops a cleanup guard immediately;
+the worker owns the same guard after upload. Server and desktop startup also
+remove the entire upload directory, covering files left by a process killed
+before destructors could run.
+
+Reloading the page does not make a running tree available. The home page reads
+active jobs from `GET /trees`, blocks the corresponding card with an “Import in
+progress” overlay, and polls until the job has completed or failed. A page
+reload during the upload itself aborts that upload and invokes partial-file
+cleanup; only a fully received upload creates a server job.
 
 ---
 

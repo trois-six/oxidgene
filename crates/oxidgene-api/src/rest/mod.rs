@@ -9,6 +9,7 @@ pub mod error;
 pub mod event;
 pub mod family;
 pub mod family_member;
+pub mod file_import;
 pub mod gedcom;
 pub mod geneanet;
 pub mod geneweb;

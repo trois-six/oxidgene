@@ -6,7 +6,7 @@
 //! `Serialize` / `Deserialize`.
 
 use base64::Engine as _;
-use oxidgene_core::projection::{Pedigree, PedigreeDelta, SearchResult};
+use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile, SearchResult};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse,
     Media, Note, Person, PersonName, Place, QualifiedYear, Source, Tree, Vignette,
@@ -222,6 +222,25 @@ pub struct CreateTreeBody {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+/// A tree as listed on the home page, with transient server-job state.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TreeListItem {
+    #[serde(flatten)]
+    pub tree: Tree,
+    #[serde(default)]
+    pub import_in_progress: bool,
+    #[serde(default)]
+    pub import_job_id: Option<Uuid>,
+}
+
+impl std::ops::Deref for TreeListItem {
+    type Target = Tree;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tree
+    }
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -970,6 +989,16 @@ pub struct ImportResult {
     pub warnings: Vec<String>,
 }
 
+/// Pollable state of an asynchronous genealogy file import.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct FileImportJobStatus {
+    pub phase: String,
+    pub done: usize,
+    pub total: usize,
+    pub result: Option<ImportResult>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportGedcomResult {
     pub gedcom: String,
@@ -1327,7 +1356,7 @@ impl ApiClient {
         &self,
         first: Option<u64>,
         after: Option<&str>,
-    ) -> Result<PaginatedResponse<Tree>, ApiError> {
+    ) -> Result<PaginatedResponse<TreeListItem>, ApiError> {
         let mut params = Vec::new();
         if let Some(f) = first {
             params.push(("first", f.to_string()));
@@ -1336,6 +1365,11 @@ impl ApiClient {
             params.push(("after", a.to_string()));
         }
         self.get_with_query("/api/v1/trees", &params).await
+    }
+
+    /// Force the next home-page tree list request to observe live job state.
+    pub fn invalidate_tree_list(&self) {
+        self.cache.invalidate_prefix("/api/v1/trees");
     }
 
     pub async fn get_tree(&self, id: Uuid) -> Result<Tree, ApiError> {
@@ -1490,6 +1524,15 @@ impl ApiClient {
 
     pub async fn get_person(&self, tree_id: Uuid, id: Uuid) -> Result<PersonDetail, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/persons/{id}"))
+            .await
+    }
+
+    pub async fn get_person_profile(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<PersonProfile, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/profiles/{person_id}"))
             .await
     }
 
@@ -2960,6 +3003,32 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(result)
+    }
+
+    /// Absolute endpoint used by the browser's XHR upload.
+    pub fn file_import_upload_url(&self, tree_id: Uuid) -> String {
+        self.url(&format!("/api/v1/trees/{tree_id}/import-jobs"))
+    }
+
+    /// Poll a file import without caching its deliberately changing response.
+    pub async fn file_import_status(
+        &self,
+        tree_id: Uuid,
+        job_id: Uuid,
+    ) -> Result<FileImportJobStatus, ApiError> {
+        let response = self
+            .client
+            .get(self.url(&format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}")))
+            .send()
+            .await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body: response.text().await.unwrap_or_default(),
+            });
+        }
+        Ok(response.json().await?)
     }
 
     // ── Geneanet import wizard ──────────────────────────────────────

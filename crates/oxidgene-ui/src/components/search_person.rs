@@ -9,11 +9,78 @@
 
 use dioxus::prelude::*;
 use oxidgene_core::Sex;
-use oxidgene_core::projection::SearchEntry;
+use oxidgene_core::projection::{PersonProfile, SearchEntry};
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::components::pedigree_chart::default_portrait;
 use crate::i18n::use_i18n;
+
+#[derive(Clone)]
+pub(crate) struct PersonSearchSummary {
+    person_id: Uuid,
+    sex: Sex,
+    surname: String,
+    given_names: String,
+    birth_year: Option<String>,
+    birth_place: Option<String>,
+    death_year: Option<String>,
+}
+
+impl PersonSearchSummary {
+    pub(crate) fn placeholder(person_id: Uuid, label: String) -> Self {
+        Self {
+            person_id,
+            sex: Sex::Unknown,
+            surname: String::new(),
+            given_names: label,
+            birth_year: None,
+            birth_place: None,
+            death_year: None,
+        }
+    }
+}
+
+impl From<&SearchEntry> for PersonSearchSummary {
+    fn from(entry: &SearchEntry) -> Self {
+        Self {
+            person_id: entry.person_id,
+            sex: entry.sex,
+            surname: entry.surname.clone(),
+            given_names: entry.given_names.clone(),
+            birth_year: entry.birth_year.clone(),
+            birth_place: entry.birth_place.clone(),
+            death_year: entry.death_year.clone(),
+        }
+    }
+}
+
+impl From<PersonProfile> for PersonSearchSummary {
+    fn from(profile: PersonProfile) -> Self {
+        let primary_name = profile.primary_name.as_ref();
+        Self {
+            person_id: profile.person_id,
+            sex: profile.sex,
+            surname: primary_name
+                .and_then(|name| name.surname.clone())
+                .unwrap_or_default(),
+            given_names: primary_name
+                .and_then(|name| name.given_names.clone())
+                .unwrap_or_default(),
+            birth_year: profile.birth.as_ref().and_then(profile_event_year),
+            birth_place: profile
+                .birth
+                .as_ref()
+                .and_then(|event| event.place_name.clone()),
+            death_year: profile.death.as_ref().and_then(profile_event_year),
+        }
+    }
+}
+
+fn profile_event_year(event: &oxidgene_core::projection::ProfileEvent) -> Option<String> {
+    oxidgene_core::types::year_from_date(event.date_sort, event.date_value.as_deref())
+        .map(|year| format!("{year:04}"))
+}
 
 /// Props for [`SearchPerson`].
 #[derive(Props, Clone, PartialEq)]
@@ -141,60 +208,56 @@ fn render_search_entry(
     on_select: EventHandler<Uuid>,
     portrait_url: Option<String>,
 ) -> Element {
-    let rid = entry.person_id;
-    let sex_class = match entry.sex {
+    let summary = PersonSearchSummary::from(entry);
+    let rid = summary.person_id;
+    let sex_class = match summary.sex {
         Sex::Male => "male",
         Sex::Female => "female",
         Sex::Unknown => "",
-    };
-
-    let given = &entry.given_names;
-    let surname = &entry.surname;
-
-    let initials: String = {
-        let first_c = given.chars().next().map(|c| c.to_ascii_uppercase());
-        let last_c = surname.chars().next().map(|c| c.to_ascii_uppercase());
-        match (first_c, last_c) {
-            (Some(f), Some(l)) => format!("{f}{l}"),
-            (Some(f), None) => f.to_string(),
-            (None, Some(l)) => l.to_string(),
-            _ => "?".to_string(),
-        }
     };
 
     rsx! {
         button {
             class: "search-person-result {sex_class}",
             onclick: move |_| on_select.call(rid),
-            div { class: "sp-result-photo",
-                if let Some(url) = portrait_url {
-                    img { class: "sp-result-portrait", src: "{url}", alt: "" }
-                } else {
-                    span { class: "sp-result-initials {sex_class}", "{initials}" }
+            {render_person_search_summary(&summary, portrait_url)}
+        }
+    }
+}
+
+pub(crate) fn render_person_search_summary(
+    summary: &PersonSearchSummary,
+    portrait_url: Option<String>,
+) -> Element {
+    let given = &summary.given_names;
+    let surname = &summary.surname;
+    let portrait_src = portrait_url.unwrap_or_else(|| default_portrait(summary.sex).to_string());
+
+    rsx! {
+        div { class: "sp-result-photo",
+            img { class: "sp-result-portrait", src: "{portrait_src}", alt: "" }
+        }
+        div { class: "sp-result-info",
+            div { class: "sp-result-name",
+                if !surname.is_empty() {
+                    span { class: "sp-surname", "{surname}" }
+                }
+                span { class: "sp-given", " {given}" }
+                if surname.is_empty() && given.is_empty() {
+                    span { class: "sp-given", "?" }
                 }
             }
-            div { class: "sp-result-info",
-                div { class: "sp-result-name",
-                    if !surname.is_empty() {
-                        span { class: "sp-surname", "{surname}" }
-                    }
-                    span { class: "sp-given", " {given}" }
-                    if surname.is_empty() && given.is_empty() {
-                        span { class: "sp-given", "?" }
-                    }
+            div { class: "sp-result-dates",
+                if let Some(ref birth_year) = summary.birth_year {
+                    span { class: "sp-birth", "\u{2726} {birth_year}" }
                 }
-                div { class: "sp-result-dates",
-                    if let Some(ref bd) = entry.birth_year {
-                        span { class: "sp-birth", "\u{2726} {bd}" }
-                    }
-                    if let Some(ref dd) = entry.death_year {
-                        span { class: "sp-death", "\u{271D} {dd}" }
-                    }
+                if let Some(ref death_year) = summary.death_year {
+                    span { class: "sp-death", "\u{271D} {death_year}" }
                 }
-                if let Some(ref bp) = entry.birth_place {
-                    div { class: "sp-result-meta",
-                        span { class: "sp-place", "{bp}" }
-                    }
+            }
+            if let Some(ref birth_place) = summary.birth_place {
+                div { class: "sp-result-meta",
+                    span { class: "sp-place", "{birth_place}" }
                 }
             }
         }

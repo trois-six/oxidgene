@@ -9,6 +9,7 @@
 //! that format has which a bare `.ged` does not.
 
 use std::collections::HashMap;
+use std::io::{Read, Seek};
 
 use chrono::Utc;
 use ged_io::GedcomBuilder;
@@ -20,8 +21,8 @@ use uuid::Uuid;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source, is_remote_url, normalize_mime, split_surname_particle,
-    split_surname_with,
+    Person, PersonName, Place, Source, Vignette, is_remote_url, normalize_mime,
+    split_surname_particle, split_surname_with,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
@@ -40,6 +41,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
         .map_err(|e| format!("GEDCOM parse error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
+    import_vignette_extensions(gedcom_str, &mut result);
     assign_portraits(&mut result);
     Ok(result)
 }
@@ -101,32 +103,36 @@ pub struct GedzipImport {
     pub files: Vec<(Uuid, Vec<u8>)>,
 }
 
-/// Import a GEDZIP archive (`.gdz`) — a ZIP wrapping a `gedcom.ged` together
-/// with the media files it references, per GEDCOM 7.0.
+/// A parsed GEDZIP whose referenced media are still inside the archive.
 ///
-/// The genealogy half is the ordinary GEDCOM import; what the format adds is
-/// that the referenced files travel with it, so this also hands back the bytes
-/// of every medium the archive actually carries. Writing them into a store is
-/// the caller's business — this crate holds no store — so the bytes come back
-/// paired with the media record that named them.
-///
-/// # Errors
-///
-/// Returns `Err` if `archive` is not a readable ZIP, if it holds no
-/// `gedcom.ged`, or if that GEDCOM cannot be parsed. A media file that is
-/// missing or unreadable is a warning, not an error.
-pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, String> {
-    let mut reader = ged_io::gedzip::GedzipReader::new(std::io::Cursor::new(archive))
-        .map_err(|e| format!("GEDZIP read error: {e}"))?;
+/// Keeping entry names rather than bytes lets a server retain a seekable
+/// reader on a temporary file and extract only the bounded batch it is about
+/// to ingest.
+#[derive(Debug)]
+pub struct GedzipImportPlan {
+    pub result: ImportResult,
+    pub files: Vec<(Uuid, String)>,
+}
+
+/// Parse the genealogy and resolve each media record to its archive entry
+/// without extracting those entries.
+pub fn prepare_gedzip<R: Read + Seek>(
+    source: R,
+    tree_id: Uuid,
+) -> Result<(ged_io::gedzip::GedzipReader<R>, GedzipImportPlan), String> {
+    let mut reader =
+        ged_io::gedzip::GedzipReader::new(source).map_err(|e| format!("GEDZIP read error: {e}"))?;
     let data = reader
         .parse_gedcom()
         .map_err(|e| format!("GEDZIP parse error: {e}"))?;
+    let gedcom = reader
+        .read_gedcom_bytes()
+        .map_err(|e| format!("GEDZIP read error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
+    import_vignette_extensions(&String::from_utf8_lossy(&gedcom), &mut result);
     assign_portraits(&mut result);
 
-    // Owned up front: `media_files` borrows the reader, and reading an entry
-    // out of it below needs the reader back.
     let entries: HashMap<String, String> = reader
         .media_files()
         .iter()
@@ -135,8 +141,6 @@ pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, Stri
 
     let mut wanted: Vec<(Uuid, String)> = Vec::new();
     for media in &result.media {
-        // A `FILE` may name something the archive was never meant to hold —
-        // GEDCOM 7 allows a URL there, and we deliberately never fetch one.
         if is_remote_url(&media.file_path) {
             continue;
         }
@@ -156,13 +160,40 @@ pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, Stri
         .filter(|name| !referenced.contains(name.as_str()))
         .count();
     if unreferenced > 0 {
-        // Not an error: the archive is still valid, and a file no record
-        // names has nothing in the tree to attach to. Worth saying, because
-        // it is usually how somebody learns their exporter dropped the links.
         result.warnings.push(format!(
             "GEDZIP: {unreferenced} file(s) in the archive are named by no OBJE record and were not imported"
         ));
     }
+
+    Ok((
+        reader,
+        GedzipImportPlan {
+            result,
+            files: wanted,
+        },
+    ))
+}
+
+/// Import a GEDZIP archive (`.gdz`) — a ZIP wrapping a `gedcom.ged` together
+/// with the media files it references, per GEDCOM 7.0.
+///
+/// The genealogy half is the ordinary GEDCOM import; what the format adds is
+/// that the referenced files travel with it, so this also hands back the bytes
+/// of every medium the archive actually carries. Writing them into a store is
+/// the caller's business — this crate holds no store — so the bytes come back
+/// paired with the media record that named them.
+///
+/// # Errors
+///
+/// Returns `Err` if `archive` is not a readable ZIP, if it holds no
+/// `gedcom.ged`, or if that GEDCOM cannot be parsed. A media file that is
+/// missing or unreadable is a warning, not an error.
+pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, String> {
+    let (mut reader, plan) = prepare_gedzip(std::io::Cursor::new(archive), tree_id)?;
+    let GedzipImportPlan {
+        mut result,
+        files: wanted,
+    } = plan;
 
     let mut files = Vec::with_capacity(wanted.len());
     for (media_id, name) in wanted {
@@ -861,8 +892,89 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
     // Handed back so a caller holding links keyed by something outside the
     // domain model can resolve them to person ids — see the field's docs.
     result.person_by_xref = indi_map;
+    result.media_by_xref = media_map;
 
     Ok(result)
+}
+
+/// Restore crop annotations emitted by OxidGene beneath top-level `OBJE`
+/// records. `ged_io` deliberately ignores unknown GEDCOM extension tags, so
+/// the standard model is imported first and these narrowly scoped lines are
+/// resolved against the xref maps it produced.
+fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
+    let mut media_xref = None::<&str>;
+
+    for line in gedcom.lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.first() == Some(&"0") {
+            media_xref = match fields.as_slice() {
+                ["0", xref, "OBJE", ..] => Some(*xref),
+                _ => None,
+            };
+            continue;
+        }
+        let [
+            "1",
+            "_OXIDGENE_VIGNETTE",
+            person_xref,
+            page,
+            x,
+            y,
+            width,
+            height,
+        ] = fields.as_slice()
+        else {
+            continue;
+        };
+        let Some(media_id) = media_xref.and_then(|xref| result.media_by_xref.get(xref).copied())
+        else {
+            continue;
+        };
+        let person_id = if *person_xref == "-" {
+            None
+        } else {
+            result.person_by_xref.get(*person_xref).copied()
+        };
+        if *person_xref != "-" && person_id.is_none() {
+            result.warnings.push(format!(
+                "Vignette on {media_xref:?}: person {person_xref} was not found"
+            ));
+            continue;
+        }
+        let parsed = (
+            page.parse::<i32>(),
+            x.parse::<i32>(),
+            y.parse::<i32>(),
+            width.parse::<i32>(),
+            height.parse::<i32>(),
+        );
+        let (Ok(page), Ok(x), Ok(y), Ok(width), Ok(height)) = parsed else {
+            result.warnings.push(format!(
+                "Vignette on {media_xref:?}: invalid crop coordinates"
+            ));
+            continue;
+        };
+        if page < 0 || x < 0 || y < 0 || width <= 0 || height <= 0 {
+            result.warnings.push(format!(
+                "Vignette on {media_xref:?}: invalid crop rectangle"
+            ));
+            continue;
+        }
+        let now = Utc::now();
+        result.vignettes.push(Vignette {
+            id: Uuid::now_v7(),
+            media_id,
+            page,
+            x,
+            y,
+            width,
+            height,
+            person_id,
+            event_id: None,
+            created_at: now,
+            updated_at: now,
+        });
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

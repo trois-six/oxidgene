@@ -29,6 +29,32 @@ pub fn Home() -> Element {
         let _tick = refresh_counter();
         async move { api.list_trees(Some(100), None).await }
     });
+    let imports_active = use_memo(move || {
+        trees_resource
+            .read()
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .is_some_and(|connection| {
+                connection
+                    .edges
+                    .iter()
+                    .any(|edge| edge.node.import_in_progress)
+            })
+    });
+    let api_poll = api.clone();
+    use_effect(move || {
+        if !imports_active() {
+            return;
+        }
+        let api = api_poll.clone();
+        spawn(async move {
+            while imports_active() {
+                crate::utils::sleep_ms(1_000).await;
+                api.invalidate_tree_list();
+                refresh_counter += 1;
+            }
+        });
+    });
 
     // Create form state.
     let mut show_create = use_signal(|| false);
@@ -279,6 +305,7 @@ pub fn Home() -> Element {
                                         let desc = tree.description.clone().unwrap_or_default();
                                         let updated_at = tree.updated_at;
                                         let is_duplicating = duplicating_tree_id() == Some(tid);
+                                        let is_importing = tree.import_in_progress;
                                         let api_dup = api.clone();
                                         rsx! {
                                             TreeCard {
@@ -288,6 +315,7 @@ pub fn Home() -> Element {
                                                 updated_at,
                                                 tree_id: tid_str,
                                                 duplicating: is_duplicating,
+                                                importing: is_importing,
                                                 open_menu,
                                                 on_rename: move |_| {
                                                     rename_tree_id.set(Some(tid));
@@ -565,6 +593,7 @@ fn TreeCard(
     updated_at: chrono::DateTime<Utc>,
     tree_id: String,
     duplicating: bool,
+    importing: bool,
     /// Id of the card whose dropdown is open, owned by [`Home`] so the
     /// click-outside backdrop can be rendered outside the animated grid.
     open_menu: Signal<Option<(String, f64, f64)>>,
@@ -575,10 +604,14 @@ fn TreeCard(
 ) -> Element {
     let i18n = use_i18n();
     let mut open_menu = open_menu;
-    let menu_position = open_menu
-        .read()
-        .as_ref()
-        .and_then(|(id, x, y)| (id == &tree_id).then_some((*x, *y)));
+    let menu_position = (!importing)
+        .then(|| {
+            open_menu
+                .read()
+                .as_ref()
+                .and_then(|(id, x, y)| (id == &tree_id).then_some((*x, *y)))
+        })
+        .flatten();
     let menu_open = menu_position.is_some();
     let toggle_id = tree_id.clone();
 
@@ -612,7 +645,9 @@ fn TreeCard(
     let is_recent = diff.num_hours() < 24;
 
     // Lift the card above the backdrop while its dropdown is open.
-    let card_class = if menu_open {
+    let card_class = if importing {
+        "tree-card is-importing"
+    } else if menu_open {
         "tree-card tree-card-menu-open"
     } else {
         "tree-card"
@@ -654,26 +689,27 @@ fn TreeCard(
                 div { class: "tree-card-header",
                     div { class: "tree-card-name", "{name}" }
                     // Three-dot menu
-                    div { class: "tree-card-menu-wrapper",
-                        button {
-                            class: "tree-card-menu-btn",
-                            title: i18n.t("home.tree_actions"),
-                            onclick: move |e: Event<MouseData>| {
-                                e.stop_propagation();
-                                if menu_open {
-                                    open_menu.set(None);
-                                } else {
-                                    let point = e.client_coordinates();
-                                    open_menu.set(Some((
-                                        toggle_id.clone(),
-                                        point.x - 168.0,
-                                        point.y + 18.0,
-                                    )));
-                                }
-                            },
-                            "⋮"
-                        }
-                        if let Some((x, y)) = menu_position {
+                    if !importing {
+                        div { class: "tree-card-menu-wrapper",
+                            button {
+                                class: "tree-card-menu-btn",
+                                title: i18n.t("home.tree_actions"),
+                                onclick: move |e: Event<MouseData>| {
+                                    e.stop_propagation();
+                                    if menu_open {
+                                        open_menu.set(None);
+                                    } else {
+                                        let point = e.client_coordinates();
+                                        open_menu.set(Some((
+                                            toggle_id.clone(),
+                                            point.x - 168.0,
+                                            point.y + 18.0,
+                                        )));
+                                    }
+                                },
+                                "⋮"
+                            }
+                            if let Some((x, y)) = menu_position {
                             ContextMenuSurface {
                                 x,
                                 y,
@@ -730,6 +766,7 @@ fn TreeCard(
                             }
                         }
                     }
+                    }
                 }
                 if !description.is_empty() {
                     div { class: "tree-card-desc", "{description}" }
@@ -741,11 +778,22 @@ fn TreeCard(
                             span { class: "tree-badge-recent", {i18n.t("home.badge_recent")} }
                         }
                     }
-                    Link {
-                        to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                        class: "btn-open",
-                        {i18n.t("common.open")}
+                    if !importing {
+                        Link {
+                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
+                            class: "btn-open",
+                            {i18n.t("common.open")}
+                        }
                     }
+                }
+            }
+            if importing {
+                div {
+                    class: "tree-card-import-overlay",
+                    role: "status",
+                    "aria-live": "polite",
+                    div { class: "tree-card-import-spinner" }
+                    div { class: "tree-card-import-title", {i18n.t("home.import_in_progress")} }
                 }
             }
         }
@@ -983,6 +1031,51 @@ const HOME_STYLES: &str = r#"
         border-color: var(--orange);
         box-shadow: 0 8px 40px color-mix(in srgb, var(--orange) 18%, transparent), 0 2px 12px color-mix(in srgb, var(--shadow-black) 50%, transparent);
         background: var(--bg-card-hover);
+    }
+
+    .tree-card.is-importing,
+    .tree-card.is-importing:hover {
+        transform: none;
+        border-color: var(--border);
+        box-shadow: none;
+        background: var(--bg-card);
+        cursor: wait;
+    }
+
+    .tree-card-import-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        border-radius: inherit;
+        background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+        backdrop-filter: blur(2px);
+        color: var(--text-primary);
+        text-align: center;
+        padding: 24px;
+    }
+
+    .tree-card-import-spinner {
+        width: 28px;
+        height: 28px;
+        border: 3px solid var(--border);
+        border-top-color: var(--orange);
+        border-radius: 50%;
+        animation: tree-import-spin 0.8s linear infinite;
+    }
+
+    .tree-card-import-title {
+        font-family: var(--font-heading);
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+
+    @keyframes tree-import-spin {
+        to { transform: rotate(360deg); }
     }
 
     .tree-card-visual {

@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use crate::api::{AddChildBody, ApiClient};
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
-use crate::components::media_gallery::{MediaGallery, MediaOwner};
+use crate::components::media_gallery::MediaOwner;
+use crate::components::media_manager_modal::MediaManagerModal;
 use crate::components::person_form::{
     DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
     create_event_body, focus_next_field_js, render_add_toggle, render_notes_source_fields,
@@ -88,7 +89,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // own fetches — opening both by default would load the couple twice over.
     let open_union = use_signal(|| true);
     let open_children = use_signal(|| true);
-    let open_media = use_signal(|| true);
+    let mut media_manager_open = use_signal(|| false);
     let show_person1 = use_signal(|| false);
     let show_person2 = use_signal(|| false);
 
@@ -528,10 +529,18 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         h2 { "{couple_title}" }
                         span { class: "pf-subtitle", {i18n.t("union_form.subtitle_edit")} }
                     }
-                    button {
-                        class: "person-form-close",
-                        onclick: move |_| props.on_close.call(()),
-                        "x"
+                    div { class: "uf-header-actions",
+                        button {
+                            class: "pf-confirm-btn",
+                            r#type: "button",
+                            onclick: move |_| media_manager_open.set(true),
+                            {i18n.t("media.manager_title")}
+                        }
+                        button {
+                            class: "person-form-close",
+                            onclick: move |_| props.on_close.call(()),
+                            "x"
+                        }
                     }
                 }
 
@@ -831,20 +840,6 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         }
                     }
 
-                    // ── Media ──
-                    // The couple's own files: the marriage certificate, the
-                    // photograph of the wedding party. A file showing one
-                    // spouse alone belongs on that person's block above.
-                    FormSection {
-                        title: i18n.t("media.section"),
-                        open: open_media,
-                        MediaGallery {
-                            tree_id: tid,
-                            owner: MediaOwner::Family(fid),
-                            events: union_event_choices.clone(),
-                        }
-                    }
-
                     // ── Privacy ──
                     FormSection { title: i18n.t("union_form.privacy"), open: open_privacy,
                         {crate::components::person_form::render_choice_group(
@@ -902,6 +897,16 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
                         }
                     }
+                }
+            }
+
+            if media_manager_open() {
+                MediaManagerModal {
+                    tree_id: tid,
+                    owner: MediaOwner::Family(fid),
+                    events: union_event_choices.clone(),
+                    on_changed: move |()| props.on_saved.call(()),
+                    on_close: move |()| media_manager_open.set(false),
                 }
             }
         }

@@ -9,11 +9,11 @@ use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{Event as DomainEvent, QualifiedYear};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, CreateMediaLinkBody};
+use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::date_input::format_event_date;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
-use crate::components::media_input::MediaInput;
+use crate::components::media_manager_modal::MediaManagerModal;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::reference_tooltip::{GivenNamesHover, ReferenceHover, ReferenceKind};
 use crate::components::topbar_search::TopbarSearch;
@@ -345,6 +345,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Bumped when the gallery below reports a change, so choosing a portrait
     // is visible here at once rather than on the next visit to the page.
     let mut media_revision = use_signal(|| 0_u32);
+    let mut media_manager_open = use_signal(|| false);
     let api_photos_map = api.clone();
     let photos_map_resource = use_resource(move || {
         let api = api_photos_map.clone();
@@ -1497,37 +1498,32 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             div { class: "card", style: "margin-bottom: 24px;",
                 div { class: "pd-media-header",
                     h2 { style: "font-size: 1.1rem;", {i18n.t("media.section")} }
-                    MediaInput {
-                        tree_id: media_tid,
-                        compact: true,
-                        on_uploaded: {
-                            let api = api.clone();
-                            move |media_id| {
-                                let api = api.clone();
-                                spawn(async move {
-                                    let body = CreateMediaLinkBody {
-                                        media_id,
-                                        person_id: Some(pid),
-                                        family_id: None,
-                                        event_id: None,
-                                        source_id: None,
-                                        sort_order: 0,
-                                    };
-                                    if api.create_media_link(media_tid, &body).await.is_ok() {
-                                        media_revision += 1;
-                                    }
-                                });
-                            }
-                        },
+                    div { class: "media-drop media-upload-icon",
+                        button {
+                            class: "media-upload-icon-btn",
+                            r#type: "button",
+                            title: i18n.t("media.manager_title"),
+                            onclick: move |_| media_manager_open.set(true),
+                            span { class: "media-upload-icon-glyph", "+" }
+                        }
                     }
                 }
                 MediaGallery {
                     tree_id: media_tid,
                     owner: MediaOwner::Person(pid),
-                    profile_event_links: media_event_links,
+                    profile_event_links: media_event_links.clone(),
                     read_only: true,
                     external_revision: media_revision(),
                     on_changed: move |()| media_revision += 1,
+                }
+            }
+            if media_manager_open() {
+                MediaManagerModal {
+                    tree_id: media_tid,
+                    owner: MediaOwner::Person(pid),
+                    profile_event_links: media_event_links.clone(),
+                    on_changed: move |()| media_revision += 1,
+                    on_close: move |()| media_manager_open.set(false),
                 }
             }
         }

@@ -18,38 +18,45 @@ timestamp: 2026-06-17T00:00:00Z
 
 The search results page (`/trees/{id}/search`) is a dedicated full-page view for browsing persons matching a search query. It is reached by pressing **Enter** in the [Tree View](ui-genealogy-tree.md) topbar search fields or clicking the magnifying glass button. It provides a filterable, sortable list of matching persons with the ability to navigate back to the tree or to a person's profile.
 
-This page uses the standard `sub-page` layout pattern (see [General](general.md) section 8). There is **no left sidebar** on this page — the content fills the full width within the `sub-page-content` container.
+This page uses the standard tree `sub-page` layout pattern (see [General](general.md) section 8), including the same left icon sidebar as the person profile.
 
 ---
 
 ## 2. Layout
 
 ```
-+----------------------------------------------------------------------+
-| NAVBAR                                                                |
-+----------------------------------------------------------------------+
-| [logo] tree_name / Search       [Last name] [First name] [Q] [fit]  |  <- td-topbar
-+----------------------------------------------------------------------+
-|                                                                       |
-|   Search results for "<surname>" "<given name>"                     |
-|   42 persons found                                                    |
-|                                                                       |
-|   [Filters v]                                                        |
-|                                                                       |
-|   Sort: [Relevance v]                              [list] [grid]    |
-|   +--------------------------------------------------------------+   |
-|   | [avatar] <person A>             * 1842  + 1918               |   |
-|   |          Spouse: <person B> - 3 children                     |   |
-|   +--------------------------------------------------------------+   |
-|   | [avatar] <person C>             * 1790  + 1855               |   |
-|   |          Spouse: <person D> - 2 children                     |   |
-|   +--------------------------------------------------------------+   |
-|   ...                                                                 |
-|                                                                       |
-+----------------------------------------------------------------------+
++------------------------------------------------------------------------+
+| NAVBAR                                                                 |
++------------------------------------------------------------------------+
+| [logo] tree_name / Search         [Last name] [First name] [Q] [fit] |  <- td-topbar
++----+-------------------------------------------------------------------+
+| P  |                                                                   |
+| T  |  Search results for "<surname>" "<given name>"                   |
+| D  |  42 persons found                                                 |
+| S  |                                                                   |
+|    |  [Filters v]                                                      |
+|    |  Sort: [Name A -> Z v]                          [list] [grid]    |
+|    |  +-------------------------------------------------------------+  |
+|    |  | [avatar] <person A>             * 1842  + 1918              |  |
+|    |  |          Spouse: <person B> - 3 children                    |  |
+|    |  +-------------------------------------------------------------+  |
+|    |  | [avatar] <person C>             * 1790  + 1855              |  |
+|    |  |          Spouse: <person D> - 2 children                    |  |
+|    |  +-------------------------------------------------------------+  |
+|    |  ...                                                              |
++----+-------------------------------------------------------------------+
 ```
 
-Content: `max-width: 1200px`, centered, scrollable. No left sidebar (ISB is only on the tree view and person profile pages).
+Content: `max-width: 1200px`, centered and scrollable beside the fixed left icon sidebar.
+
+The sidebar exposes the navigation icons from the person profile in the same order:
+
+- Profile and pedigree tree, targeting the tree's SOSA root when available
+- Dictionary
+- Settings
+
+The add-person action and the middle separator are hidden on search results.
+Search is not itself a profile or pedigree view, so neither of the first two icons is marked active.
 
 ---
 
@@ -79,7 +86,16 @@ selector, and switches between list and pedigree-grid views.
 
 ## 5. Filters
 
-A collapsible filter bar below the page header, toggled by a "Filters" button with a dropdown arrow. Filters refine the result set in real time (200ms debounce after each change).
+A collapsible filter panel below the page header, toggled by a "Filters" button with a dropdown arrow. Filters refine the result set in real time (200ms debounce after each change).
+
+The expanded panel reuses the person form's visual and interaction patterns:
+
+- Person, event, and relation criteria are `FormSection` blocks with the same orange heading, trailing rule, chevron, spacing, and keyboard-accessible collapse behavior. All three open by default.
+- Text fields, selects, labels, focus states, and heights match `.pf-embedded` person-form controls.
+- Sex uses the person form's segmented choice buttons rather than a select.
+- Spouse, father, and mother criteria use compact bordered sub-form blocks with paired surname and given-name fields.
+- Desktop grids use four columns for person criteria and three columns for event and relation criteria. They collapse to two columns on medium widths and one column on mobile; year ranges retain two usable inputs at every width.
+- Clear filters is a tertiary monochrome row action, consistent with secondary actions in the person form.
 
 | Filter | Type | Options / Format |
 |---|---|---|
@@ -107,8 +123,7 @@ A sort selector in the toolbar row above the results:
 
 | Option | Description |
 |---|---|
-| Relevance (default) | Stable surname and given-name order; no fuzzy score is currently computed |
-| Name A -> Z | Alphabetical by surname, then first name |
+| Name A -> Z (default) | Alphabetical by surname, then first name |
 | Name Z -> A | Reverse alphabetical |
 | Birth date (oldest first) | Oldest first |
 | Birth date (newest first) | Most recent first |
@@ -131,11 +146,14 @@ Each result is a horizontal row:
 ```
 
 Each row shows:
-- **Avatar** (circular, ~40px) — initials with gendered background color
-- **Full name** (surname uppercase + first name), with search term matches highlighted in orange
-- **Birth / death dates** with green/blue symbols
-- **Family summary** (one line): spouse name + child count
+- **Portrait** (circular, ~40px) — profile photo when available, otherwise the same sex-specific placeholder used by the pedigree
+- **Full name** (surname uppercase + given names)
+- **Birth / death years** with green/blue symbols
+- **Birth place** when known
 - **Sex indicator**: colored left border (blue/pink/grey)
+
+The typeahead person picker and selected-person rows reuse this same summary
+renderer so these fields and their fallback behavior remain identical.
 
 ### Card View (pedigree grid)
 
