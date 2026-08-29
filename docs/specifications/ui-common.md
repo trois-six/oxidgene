@@ -125,7 +125,7 @@ Semantic aliases map generic component names to these core tokens:
 | `--font-heading` | `'Cinzel', Georgia, serif` | Brand and headings |
 | `--font-sans` | `'Lato', sans-serif` | Body, controls, and metadata |
 | `--sb` | `46px` | Tree icon sidebar |
-| `--evw` | `275px` | Tree events panel |
+| `--evw` | `29.5%` of the space after `--sb` | Default tree events panel width |
 | `--radius` | `8px` | Cards, buttons, inputs, modals |
 
 Reference type scale: page title `1.3rem`, section heading `1.05rem`, card
@@ -248,8 +248,87 @@ collision handling, disabled actions, separators, and destructive styling.
 | `>= 1200px` | Full desktop layout and 1200px reading width. |
 | `900–1199px` | Reduced desktop layout and narrower tree panels. |
 | `600–899px` | Tablet stacking, reduced cards, collapsible side areas. |
-| `< 600px` | Single column, full-screen modals, compact icon actions. |
+| `< 600px` | Single-column layouts; forms usually become full-screen while workflow modals retain the safe inset their specification defines. |
 
 At widths below 640px, page padding becomes `16px 12px` and topbar padding
 becomes `10px 12px`. Fixed-format controls define stable dimensions so labels,
 loading states, badges, and hover actions cannot resize their containers.
+
+### 6.1 Layout invariants
+
+Responsive behavior is based on the space actually available to a component,
+including space left after fixed sidebars, rather than on the viewport width
+alone. Every page, card, grid track, form row, and toolbar remains bounded by
+its containing block. Grid minimums are capped by the available width, flex and
+grid children are allowed to shrink, and long user content wraps. A page-level
+`scrollWidth` that matches the viewport is not sufficient if a child still
+extends beyond its visible container.
+
+Narrow layouts preserve information and direct access before preserving the
+desktop arrangement:
+
+- Complete names, places, lifespan years, relationship text, and other primary
+  content wrap or move to a full-width row before being truncated or hidden.
+- Identity markers stay grouped with the identity they qualify. Actions may
+  move to a separate row so they do not separate a badge from its name.
+- Familiar actions may become stable square icon buttons when their labels no
+  longer fit. They retain the same behavior, localized accessible name, visible
+  focus treatment, and a tooltip where the icon alone may be ambiguous.
+- A small, finite set of choices remains directly visible and wraps when
+  necessary. Horizontal scrolling is reserved for navigation strips whose
+  items must stay on one compact line; it is not used to hide alphabetic or
+  similarly bounded choices.
+- Dynamic instructions, progress, validation, and measurements reserve a
+  stable status area when they replace one another, so adjacent content does
+  not move between states.
+
+Modal content must never sit beneath a persistent application bar. Form modals
+may use the documented full-screen mobile treatment. Longer workflow modals may
+instead use a viewport-bounded inset surface: fixed header, tabs, and footer
+remain reachable while only the body scrolls. The owning workflow specification
+defines its safe offsets and margins.
+
+### 6.2 Shared left icon sidebar
+
+`TreeIconSidebar` has one responsive implementation shared by every page that
+renders it, including the pedigree, person profile, search results, dictionary,
+and settings pages. Pages must not override these dimensions independently.
+
+| Viewport | Sidebar width | Icon buttons | Separators | Padding / gap |
+|---|---:|---:|---:|---:|
+| Above 400px | 46px (`--sb`) | 34x34px | 28px | 6px / 2px |
+| 400px and below | 36px (`--sb`) | 30x32px | 24px | 4px / 1px |
+
+The compact state keeps the same 16x16px icons, order, actions, accessible
+names, active state, and tooltips. The sidebar remains visible and fixed-width;
+only its horizontal footprint and vertical spacing change.
+
+### 6.3 Pedigree events sidebar
+
+Above 600px, the right events sidebar has these rules:
+
+- Its default width is 29.5% of the space remaining after the left icon
+  sidebar.
+- Its left edge has an 8px pointer target with a 2px visible resize handle.
+- Resizing is constrained to 22-45% of the available space.
+- The selected ratio is stored locally and remains proportional when the
+  application window is resized.
+- The focused handle supports the left and right arrow keys in 2% steps.
+- Releasing the handle invokes the pedigree's existing fit-to-viewport path;
+  it does not introduce a separate graph or zoom calculation.
+- The collapse toggle remains available. The user's manual open/closed state
+  and selected width are remembered independently.
+
+The responsive states are:
+
+| Viewport | Events sidebar behavior |
+|---|---|
+| Above 600px | Uses the remembered open/closed state and proportional width; the resize handle is available while open. |
+| 401-600px | Automatically collapses on initial load or when crossing the 600px threshold; the resize handle is hidden, but the toggle can reopen the panel. |
+| 400px and below | Hidden entirely, including its toggle and resize handle; the pedigree canvas reclaims the full available width. |
+
+Automatic collapse does not overwrite the stored manual preference or stored
+width. Hiding the sidebar below 400px likewise preserves both values for a
+later wider viewport. Every real window-size transition continues through the
+existing debounced pedigree resize handler so graph fitting and zoom behavior
+remain consistent.

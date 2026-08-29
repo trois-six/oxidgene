@@ -139,7 +139,9 @@ Displayed in a card:
 ## 7. Responsive
 
 - Content max-width: 1200px, responsive padding
-- Below **640px**: left navigation stacks above the content area (flex column). Navigation items flow horizontally as a row of buttons.
+- Below **640px**: the left navigation stacks above the content area as one
+	compact, non-wrapping row. It scrolls horizontally when necessary instead of
+	growing into a tall menu, so settings content remains in the first viewport.
 - Theme toggle and language options remain full-width cards
 
 ---

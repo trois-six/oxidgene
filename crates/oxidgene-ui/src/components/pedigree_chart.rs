@@ -100,7 +100,7 @@ const SIBLING_MIN_OFFSET: f64 = 6.0;
 const VIEWPORT_DEFAULT_W: f64 = 800.0;
 const VIEWPORT_DEFAULT_H: f64 = 600.0;
 const FIT_SIDE_PADDING_RATIO: f64 = 0.05;
-const EVENT_PANEL_AUTO_COLLAPSE_WIDTH: f64 = 900.0;
+const EVENT_PANEL_AUTO_COLLAPSE_WIDTH: f64 = 600.0;
 const EVENT_PANEL_MANUAL_STORAGE_KEY: &str = "oxidgene-ev-panel-manual";
 const EVENT_PANEL_RATIO_STORAGE_KEY: &str = "oxidgene-ev-panel-ratio";
 const EVENT_PANEL_DEFAULT_RATIO: f64 = 0.295;
@@ -3213,19 +3213,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut selected_person_id = use_signal(|| props.root_person_id);
 
     let mut last_viewport_width = use_signal(|| VIEWPORT_DEFAULT_W);
-    let mut viewport_width_init = use_signal(|| false);
-    if !viewport_width_init() {
-        viewport_width_init.set(true);
-        spawn(async move {
-            if let Ok(val) = document::eval(
-                "return window.innerWidth || document.documentElement.clientWidth || 1024",
-            )
-            .await
-            {
-                last_viewport_width.set(val.as_f64().unwrap_or(VIEWPORT_DEFAULT_W));
-            }
-        });
-    }
 
     // ── Event panel collapse (persisted via localStorage) ──
     let mut panel_collapsed = use_signal(|| false);
@@ -3236,7 +3223,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             if let Ok(val) = document::eval(&format!(
                 r#"
                 localStorage.removeItem('oxidgene-ev-panel');
-                const width = window.innerWidth || document.documentElement.clientWidth || 1024;
                 const storedRatio = Number.parseFloat(localStorage.getItem('{EVENT_PANEL_RATIO_STORAGE_KEY}'));
                 const ratio = Number.isFinite(storedRatio)
                     ? Math.min({EVENT_PANEL_MAX_RATIO}, Math.max({EVENT_PANEL_MIN_RATIO}, storedRatio))
@@ -3246,15 +3232,16 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     '--evw',
                     `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
                 );
+                const width = window.innerWidth || document.documentElement.clientWidth || 1024;
                 return [localStorage.getItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}') === 'collapsed', width];
                 "#,
             ))
             .await
             {
-                let manual_collapsed = val.get(0).and_then(|v| v.as_bool()).unwrap_or(false);
+                let manual_collapsed = val.get(0).and_then(|value| value.as_bool()).unwrap_or(false);
                 let width = val
                     .get(1)
-                    .and_then(|v| v.as_f64())
+                    .and_then(|value| value.as_f64())
                     .unwrap_or(VIEWPORT_DEFAULT_W);
                 last_viewport_width.set(width);
                 panel_collapsed.set(manual_collapsed || width <= EVENT_PANEL_AUTO_COLLAPSE_WIDTH);

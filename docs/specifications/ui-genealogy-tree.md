@@ -317,7 +317,10 @@ Two independent fields in the topbar, aligned to the right: **Last name(s)** and
 
 ### Left Sidebar (ISB)
 
-Fixed vertical bar (`var(--sb)` = 46px wide). SVG stroke icon buttons stacked vertically, tooltip on hover. No text displayed. All icons use a consistent style: `stroke: currentColor`, `fill: none`, `strokeWidth: 2`, 16x16px viewBox.
+Fixed vertical bar (`var(--sb)` = 46px wide, reduced to 36px at or below
+400px). SVG stroke icon buttons stacked vertically, tooltip on hover. No text
+displayed. All icons use a consistent style: `stroke: currentColor`,
+`fill: none`, `strokeWidth: 2`, 16x16px viewBox.
 
 **Buttons top to bottom**:
 
@@ -468,6 +471,9 @@ Each event is clickable to display full details (complete location, source, note
 ## 8. Responsive
 
 - Below **900px wide**: cards reduced to 130x64px, avatar 28px, smaller text
-- Right sidebar switches to a **drawer** sliding over the canvas
-- The resize handle is hidden and the existing automatic collapse behavior applies
+- At **600px wide and below**, the right events sidebar automatically collapses
+     and its resize handle is hidden; the user can still reopen the collapsed panel
+- At **400px wide and below**, the right events sidebar disappears entirely and
+     the canvas reclaims its full width; the shared left icon sidebar narrows from
+     46px to 36px on every page where it appears
 - Left sidebar remains fixed but tooltips are replaced by visible labels below each icon

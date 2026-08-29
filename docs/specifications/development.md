@@ -90,3 +90,30 @@ Run `just check` before committing code changes.
 
 The local workflow does not replace the complete containerized
 frontend/backend deployment tracked in the roadmap.
+
+## 4. Responsive Visual Validation
+
+Changes to shared layout, responsive CSS, modals, cards, or dense controls
+require browser validation at a representative desktop width and at a narrow
+mobile viewport such as `390x844`. Also test the exact breakpoint boundaries
+affected by the change, including both sides of a threshold.
+
+For each viewport:
+
+- inspect the bounding rectangles of the page's principal children, not only
+   `body.scrollWidth`; a child can overflow a clipped container without changing
+   the document width;
+- verify that cards, grid tracks, toolbars, modals, and fixed-format controls
+   remain within their containing block and do not overlap;
+- verify that long names, places, labels, and translated strings wrap without
+   hiding adjacent content;
+- verify that every action remains visible or otherwise directly reachable,
+   and that icon-only actions keep their accessible name and tooltip;
+- exercise loading, validation, progress, expanded, and collapsed states to
+   detect layout movement that is absent in the initial screenshot; and
+- recheck the desktop layout after mobile changes so compact overrides do not
+   leak into wider viewports.
+
+Use anonymized content in screenshots and measurements. A responsive change is
+not complete when only the outer page fits; its significant descendants must
+fit and remain usable as well.
