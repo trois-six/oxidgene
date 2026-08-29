@@ -127,7 +127,7 @@ redis:
   operator:
     requireCrd: true
     instanceName: ""
-    image: quay.io/opstree/redis:v8.2.1
+    image: quay.io/opstree/redis:v8.10.1
     imagePullPolicy: IfNotPresent
     credentialsSecret: oxidgene-redis
     passwordKey: password
