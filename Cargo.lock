@@ -4974,6 +4974,7 @@ dependencies = [
  "base64 0.23.1",
  "geneweb",
  "image",
+ "oxidgene-core",
  "serde",
  "serde_json",
  "tokio",

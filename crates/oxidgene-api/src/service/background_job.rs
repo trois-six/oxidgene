@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
@@ -21,6 +21,73 @@ use crate::profile::ProfileService;
 
 pub const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(30);
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LiveJobProgress {
+    pub phase: String,
+    pub done: i64,
+    pub total: i64,
+}
+
+#[derive(Debug)]
+struct LiveJob {
+    tree_id: Uuid,
+    kind: String,
+    progress: LiveJobProgress,
+}
+
+static LIVE_JOBS: OnceLock<Mutex<HashMap<Uuid, LiveJob>>> = OnceLock::new();
+
+fn live_jobs() -> &'static Mutex<HashMap<Uuid, LiveJob>> {
+    LIVE_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn remove_live_job(job_id: Uuid) {
+    if let Ok(mut jobs) = live_jobs().lock() {
+        jobs.remove(&job_id);
+    }
+}
+
+pub(crate) fn live_job_progress(
+    tree_id: Uuid,
+    job_id: Uuid,
+    kind: BackgroundJobKind,
+) -> Option<LiveJobProgress> {
+    live_jobs().lock().ok().and_then(|jobs| {
+        let job = jobs.get(&job_id)?;
+        (job.tree_id == tree_id && job.kind == kind.as_str()).then(|| job.progress.clone())
+    })
+}
+
+struct LiveJobGuard {
+    job_id: Uuid,
+}
+
+impl LiveJobGuard {
+    fn new(job: &BackgroundJob) -> Self {
+        if let Ok(mut jobs) = live_jobs().lock() {
+            jobs.insert(
+                job.id,
+                LiveJob {
+                    tree_id: job.tree_id,
+                    kind: job.kind.clone(),
+                    progress: LiveJobProgress {
+                        phase: job.phase.clone(),
+                        done: job.done,
+                        total: job.total,
+                    },
+                },
+            );
+        }
+        Self { job_id: job.id }
+    }
+}
+
+impl Drop for LiveJobGuard {
+    fn drop(&mut self) {
+        remove_live_job(self.job_id);
+    }
+}
 
 #[derive(Clone)]
 pub struct BackgroundJobWorker {
@@ -78,6 +145,8 @@ impl BackgroundJobWorker {
         else {
             return Ok(false);
         };
+        let _live_job =
+            (self.db.get_database_backend() == DbBackend::Sqlite).then(|| LiveJobGuard::new(&job));
 
         if let Err(error) = self.execute(&job).await {
             let code = match error {
@@ -86,6 +155,7 @@ impl BackgroundJobWorker {
             };
             tracing::error!(job_id = %job.id, %error, "background job failed");
             if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await? {
+                remove_live_job(job.id);
                 self.cleanup_import_inputs(&job).await;
             }
         }
@@ -293,6 +363,7 @@ impl BackgroundJobWorker {
         {
             return Err(OxidGeneError::Internal("background job lease lost".into()));
         }
+        remove_live_job(job.id);
         self.cleanup_import_inputs(job).await;
         Ok(())
     }
@@ -333,6 +404,7 @@ impl BackgroundJobWorker {
         {
             return Err(OxidGeneError::Internal("background job lease lost".into()));
         }
+        remove_live_job(job.id);
         self.media.delete(source_key).await?;
         Ok(())
     }
@@ -416,6 +488,7 @@ impl BackgroundJobWorker {
         {
             return Err(OxidGeneError::Internal("background job lease lost".into()));
         }
+        remove_live_job(job.id);
         Ok(())
     }
 
@@ -446,6 +519,19 @@ impl BackgroundJobWorker {
         done: i64,
         total: i64,
     ) -> Result<(), OxidGeneError> {
+        if self.db.get_database_backend() == DbBackend::Sqlite {
+            if let Ok(mut jobs) = live_jobs().lock()
+                && let Some(job) = jobs.get_mut(&job_id)
+            {
+                job.progress = LiveJobProgress {
+                    phase: phase.to_string(),
+                    done,
+                    total,
+                };
+            }
+            return Ok(());
+        }
+
         let renewed = BackgroundJobRepo::progress(
             &self.db,
             job_id,
@@ -476,6 +562,7 @@ fn progress_period(poll_interval: Duration, lease_duration: Duration) -> Duratio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sea_orm::{ConnectOptions, Database};
 
     #[test]
     fn sqlite_progress_is_published_independently_of_its_long_lease() {
@@ -490,6 +577,66 @@ mod tests {
         assert_eq!(
             progress_period(Duration::from_secs(10), Duration::from_secs(6)),
             Duration::from_secs(2)
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_progress_does_not_wait_for_the_only_pool_connection() {
+        let mut options = ConnectOptions::new("sqlite::memory:");
+        options.max_connections(1);
+        let db = Database::connect(options).await.expect("connects");
+        let profiles = Arc::new(ProfileService::new(db.clone()));
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(
+            std::env::temp_dir().join("oxidgene-progress-test"),
+        ));
+        let worker = BackgroundJobWorker::new(db.clone(), profiles, media, "test");
+        let job_id = Uuid::now_v7();
+        let tree_id = Uuid::now_v7();
+        let job = BackgroundJob {
+            id: job_id,
+            tree_id,
+            active_tree_id: Some(tree_id),
+            kind: BackgroundJobKind::Import.as_str().to_string(),
+            format: "geneanet".to_string(),
+            status: "running".to_string(),
+            phase: "queued".to_string(),
+            source_key: None,
+            artifact_key: None,
+            payload_json: None,
+            original_filename: None,
+            merge_occupations: false,
+            merge_names: false,
+            done: 0,
+            total: 0,
+            attempt: 1,
+            lease_owner: Some("test".to_string()),
+            lease_until: None,
+            cancel_requested: false,
+            result_json: None,
+            error_code: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            started_at: Some(chrono::Utc::now()),
+            finished_at: None,
+        };
+        let _live_job = LiveJobGuard::new(&job);
+        let _transaction = db.begin().await.expect("holds only connection");
+
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            worker.progress(job_id, "people", 100, 250),
+        )
+        .await
+        .expect("progress does not wait for the pool")
+        .expect("progress succeeds");
+
+        assert_eq!(
+            live_job_progress(tree_id, job_id, BackgroundJobKind::Import),
+            Some(LiveJobProgress {
+                phase: "people".to_string(),
+                done: 100,
+                total: 250,
+            })
         );
     }
 }

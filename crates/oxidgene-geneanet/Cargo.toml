@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+oxidgene-core = { workspace = true }
 # Media cross the wire base64-encoded (IPC carries text); a session archive
 # stores them as the bytes they are.
 base64 = { workspace = true }

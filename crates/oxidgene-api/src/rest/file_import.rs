@@ -129,6 +129,21 @@ pub async fn status(
     State(state): State<AppState>,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<FileImportStatusResponse>, ApiError> {
+    if let Some(progress) = crate::service::background_job::live_job_progress(
+        tree_id,
+        job_id,
+        BackgroundJobKind::Import,
+    ) {
+        return Ok(Json(FileImportStatusResponse {
+            phase: progress.phase,
+            done: as_usize(progress.done),
+            total: as_usize(progress.total),
+            result: None,
+            geneanet_result: None,
+            error: None,
+        }));
+    }
+
     let job = BackgroundJobRepo::get_in_tree(&state.db, tree_id, job_id).await?;
     if job.kind != BackgroundJobKind::Import.as_str() {
         return Err(ApiError(OxidGeneError::NotFound {

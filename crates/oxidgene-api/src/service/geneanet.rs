@@ -610,7 +610,7 @@ async fn attach_media(
         .sum();
 
     progress.begin(ImportPhase::Matching, 0);
-    let hashes = build_content_index(&deposits, &by_deposit, deposit_sizes, &archives);
+    let hashes = build_content_index(&deposits, &by_deposit, deposit_sizes, &archives, fetched);
     progress.begin(ImportPhase::Media, media_total);
     let mut places = match PlaceRepo::list_all(db, tree_id).await {
         Ok(places) => places
@@ -1516,6 +1516,7 @@ fn build_content_index(
     by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
+    fetched: &HashMap<String, String>,
 ) -> Option<PhashIndex> {
     if archives.is_empty() {
         return None;
@@ -1523,6 +1524,8 @@ fn build_content_index(
 
     let mut wanted = false;
     let mut claimed: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    let mut target_dimensions = std::collections::BTreeSet::new();
+    let mut unreadable_target = false;
 
     for deposit_id in by_deposit.keys() {
         let Some(deposit) = deposits.get(deposit_id) else {
@@ -1530,6 +1533,18 @@ fn build_content_index(
         };
         if deposit.views.len() > 1 {
             wanted = true;
+            for view in &deposit.views {
+                let Some(bytes) = rendition_url(view).and_then(|url| read_fetched(fetched, &url))
+                else {
+                    continue;
+                };
+                match oxidgene_geneanet::archive::image_dimensions(&bytes) {
+                    Some(dimensions) => {
+                        target_dimensions.insert(dimensions);
+                    }
+                    None => unreadable_target = true,
+                }
+            }
         } else if let Some(size) = deposit_sizes.get(deposit_id)
             && let Ok(Some(position)) = archives.locate_by_size(*size)
         {
@@ -1544,10 +1559,24 @@ fn build_content_index(
     let candidates: Vec<usize> = (0..archives.entry_count())
         .filter(|position| !claimed.contains(position))
         .collect();
+    let target_dimensions: Vec<_> = if unreadable_target {
+        Vec::new()
+    } else {
+        target_dimensions.into_iter().collect()
+    };
 
-    Some(tokio::task::block_in_place(|| {
-        PhashIndex::build_from(archives, &candidates)
-    }))
+    let index = tokio::task::block_in_place(|| {
+        PhashIndex::build_from_matching_dimensions(archives, &candidates, &target_dimensions)
+    });
+    tracing::info!(
+        candidates = candidates.len(),
+        target_dimensions = target_dimensions.len(),
+        filtered = index.filtered_count(),
+        hashed = index.hashed_count(),
+        undecodable = index.undecodable_count(),
+        "built Geneanet archive perceptual index"
+    );
+    Some(index)
 }
 
 /// A deposit's pages in the order they should be read.
@@ -1659,10 +1688,7 @@ fn persisted_entity_count(result: &oxidgene_gedcom::ImportResult) -> usize {
 /// Shared with the GEDZIP importer, which ingests the same way from a
 /// different source and has no reason to pick a different width.
 pub(crate) fn ingest_width() -> usize {
-    std::thread::available_parallelism()
-        .map(std::num::NonZeroUsize::get)
-        .unwrap_or(1)
-        .clamp(1, 8)
+    oxidgene_core::resources::cpu_worker_limit().min(8)
 }
 
 struct MediaWrite<'a> {
