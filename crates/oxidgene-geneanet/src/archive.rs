@@ -30,6 +30,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use image::ImageDecoder;
 
 use crate::phash::{self, Phash};
 
@@ -41,6 +42,9 @@ use crate::phash::{self, Phash};
 const IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "webp", "pdf",
 ];
+
+/// Maximum relative aspect-ratio difference accepted before perceptual hashing.
+const MAX_ASPECT_RATIO_DIFFERENCE_PERCENT: u64 = 2;
 
 /// Originals a run can reuse instead of downloading.
 ///
@@ -312,9 +316,9 @@ impl LocalOriginals for ArchiveSet {
 /// The archive's entries, keyed by what they look like.
 ///
 /// Built separately from [`ArchiveSet`] because it is expensive in a way the
-/// size index is not: every entry has to be decoded. The size index reads a
-/// few kilobytes of central directory; this one decodes several hundred
-/// photographs, so it is built once, on demand, by the caller that needs it.
+/// size index is not. Candidate headers are inspected first, then only images
+/// with a compatible aspect ratio are decoded. It is built once, on demand,
+/// by the caller that needs it.
 ///
 /// Entries that do not decode as images — PDFs, above all — are simply absent.
 /// A page that would have matched one of those is downloaded instead, which is
@@ -323,9 +327,13 @@ impl LocalOriginals for ArchiveSet {
 pub struct PhashIndex {
     /// Position in [`ArchiveSet::entries`], and that entry's hash.
     hashes: Vec<(usize, Phash)>,
+    /// Entries rejected from their dimensions before pixel decoding.
+    filtered: usize,
     /// Entries that could not be decoded, for the run report.
     undecodable: usize,
 }
+
+type HashSliceResult = (Vec<(usize, Phash)>, usize, usize);
 
 impl PhashIndex {
     /// Hashes every entry of `set` that decodes as an image.
@@ -344,26 +352,37 @@ impl PhashIndex {
     /// `Content-Length` never covered.
     #[must_use]
     pub fn build_from(set: &ArchiveSet, positions: &[usize]) -> Self {
+        Self::build_from_matching_dimensions(set, positions, &[])
+    }
+
+    /// Hashes candidates whose aspect ratio can match one of `target_dimensions`.
+    ///
+    /// Reading dimensions only parses an image header. Candidates with unknown
+    /// dimensions remain eligible so this optimization cannot hide a format the
+    /// perceptual hasher can decode.
+    #[must_use]
+    pub fn build_from_matching_dimensions(
+        set: &ArchiveSet,
+        positions: &[usize],
+        target_dimensions: &[(u32, u32)],
+    ) -> Self {
         // Decoding is the whole cost here — a data archive is several hundred
         // full-size photographs — and each entry is independent of every
         // other, so the work is split across the machine's cores. Reading is
         // grouped by archive within each worker so a ZIP's central directory
         // is parsed once per worker rather than once per entry: on a 725 MB
         // archive of 600 entries that difference is 600 parses against 8.
-        let workers = std::thread::available_parallelism()
-            .map(std::num::NonZeroUsize::get)
-            .unwrap_or(1)
-            .min(positions.len().max(1));
+        let workers = oxidgene_core::resources::cpu_worker_limit().min(positions.len().max(1));
 
         let chunk = positions.len().div_ceil(workers.max(1));
         if chunk == 0 {
             return Self::default();
         }
 
-        let results: Vec<(Vec<(usize, Phash)>, usize)> = std::thread::scope(|scope| {
+        let results: Vec<HashSliceResult> = std::thread::scope(|scope| {
             let handles: Vec<_> = positions
                 .chunks(chunk)
-                .map(|slice| scope.spawn(move || hash_slice(set, slice)))
+                .map(|slice| scope.spawn(move || hash_slice(set, slice, target_dimensions)))
                 .collect();
 
             handles
@@ -373,10 +392,12 @@ impl PhashIndex {
         });
 
         let mut hashes = Vec::with_capacity(positions.len());
+        let mut filtered = 0;
         let mut undecodable = 0;
-        for (mut part, failed) in results {
+        for (mut part, failed, rejected) in results {
             hashes.append(&mut part);
             undecodable += failed;
+            filtered += rejected;
         }
         // Threads finish out of order; the index is searched linearly but a
         // stable order keeps `locate`'s answer reproducible run to run.
@@ -384,6 +405,7 @@ impl PhashIndex {
 
         Self {
             hashes,
+            filtered,
             undecodable,
         }
     }
@@ -396,6 +418,11 @@ impl PhashIndex {
     #[must_use]
     pub fn undecodable_count(&self) -> usize {
         self.undecodable
+    }
+
+    #[must_use]
+    pub fn filtered_count(&self) -> usize {
+        self.filtered
     }
 
     #[must_use]
@@ -455,8 +482,34 @@ impl PhashIndex {
     }
 }
 
+/// Intrinsic dimensions without decoding the image's pixels.
+#[must_use]
+pub fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    reader
+        .into_decoder()
+        .ok()
+        .map(|decoder| decoder.dimensions())
+}
+
+fn compatible_aspect_ratio(left: (u32, u32), right: (u32, u32)) -> bool {
+    let left_product = u64::from(left.0) * u64::from(right.1);
+    let right_product = u64::from(right.0) * u64::from(left.1);
+    let largest = left_product.max(right_product);
+
+    largest > 0
+        && left_product.abs_diff(right_product) * 100
+            <= largest * MAX_ASPECT_RATIO_DIFFERENCE_PERCENT
+}
+
 /// Hashes one worker's share, opening each archive it touches once.
-fn hash_slice(set: &ArchiveSet, positions: &[usize]) -> (Vec<(usize, Phash)>, usize) {
+fn hash_slice(
+    set: &ArchiveSet,
+    positions: &[usize],
+    target_dimensions: &[(u32, u32)],
+) -> HashSliceResult {
     let mut by_archive: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for position in positions {
         if let Some(entry) = set.entries.get(*position) {
@@ -465,6 +518,7 @@ fn hash_slice(set: &ArchiveSet, positions: &[usize]) -> (Vec<(usize, Phash)>, us
     }
 
     let mut hashes = Vec::with_capacity(positions.len());
+    let mut filtered = 0;
     let mut undecodable = 0;
 
     for (archive, members) in by_archive {
@@ -485,9 +539,25 @@ fn hash_slice(set: &ArchiveSet, positions: &[usize]) -> (Vec<(usize, Phash)>, us
                 .by_index(index)
                 .map(|mut entry| entry.read_to_end(&mut bytes))
                 .is_ok();
+            if !read {
+                undecodable += 1;
+                continue;
+            }
 
-            match read.then(|| phash::hash_image(&bytes)) {
-                Some(Ok(hash)) => hashes.push((position, hash)),
+            let compatible = image_dimensions(&bytes).is_none_or(|dimensions| {
+                target_dimensions.is_empty()
+                    || target_dimensions.iter().any(|target| {
+                        compatible_aspect_ratio(dimensions, *target)
+                            || compatible_aspect_ratio((dimensions.1, dimensions.0), *target)
+                    })
+            });
+            if !compatible {
+                filtered += 1;
+                continue;
+            }
+
+            match phash::hash_image(&bytes) {
+                Ok(hash) => hashes.push((position, hash)),
                 // PDFs and anything else `image` cannot read. The page that
                 // would have matched one is downloaded instead.
                 _ => undecodable += 1,
@@ -495,7 +565,7 @@ fn hash_slice(set: &ArchiveSet, positions: &[usize]) -> (Vec<(usize, Phash)>, us
         }
     }
 
-    (hashes, undecodable)
+    (hashes, undecodable, filtered)
 }
 
 /// Whether an archive entry's name looks like a medium.
@@ -748,6 +818,48 @@ mod tests {
             .expect("resolves")
             .expect("matched");
         assert_eq!(found, png(40, 30, 91));
+    }
+
+    #[test]
+    fn the_phash_index_decodes_only_compatible_aspect_ratios() {
+        let dir = TempDir::new("phash-ratio");
+        let archive = dir.zip(
+            "data.zip",
+            &[
+                ("landscape.png", &png(40, 30, 3)),
+                ("square.png", &png(40, 40, 5)),
+                ("portrait.png", &png(30, 40, 7)),
+            ],
+        );
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let positions: Vec<_> = (0..set.entry_count()).collect();
+        let index = PhashIndex::build_from_matching_dimensions(&set, &positions, &[(20, 15)]);
+
+        assert_eq!(index.hashed_count(), 2);
+        assert_eq!(index.filtered_count(), 1);
+        assert_eq!(index.undecodable_count(), 0);
+    }
+
+    #[test]
+    fn aspect_ratio_filter_keeps_swapped_dimensions_for_exif_orientation() {
+        let dir = TempDir::new("phash-orientation");
+        let archive = dir.zip("data.zip", &[("portrait.png", &png(30, 40, 7))]);
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let index = PhashIndex::build_from_matching_dimensions(&set, &[0], &[(20, 15)]);
+
+        assert_eq!(index.hashed_count(), 1);
+        assert_eq!(index.filtered_count(), 0);
+    }
+
+    #[test]
+    fn aspect_ratio_filter_tolerates_rendition_rounding_only() {
+        assert!(compatible_aspect_ratio((400, 300), (200, 149)));
+        assert!(!compatible_aspect_ratio((400, 300), (200, 145)));
+        assert!(!compatible_aspect_ratio((0, 300), (200, 150)));
     }
 
     #[test]

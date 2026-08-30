@@ -50,6 +50,21 @@ pub async fn status(
     State(state): State<AppState>,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ExportJobStatusResponse>, ApiError> {
+    if let Some(progress) = crate::service::background_job::live_job_progress(
+        tree_id,
+        job_id,
+        BackgroundJobKind::Export,
+    ) {
+        return Ok(Json(ExportJobStatusResponse {
+            phase: progress.phase,
+            done: as_usize(progress.done),
+            total: as_usize(progress.total),
+            download_url: None,
+            warnings: Vec::new(),
+            error: None,
+        }));
+    }
+
     let job = export_job(&state, tree_id, job_id).await?;
     let result = job
         .result_json

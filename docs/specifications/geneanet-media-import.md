@@ -481,6 +481,20 @@ Their archive has no `Content-Length`, so pages cannot be size-matched. The
 default takes linked pages from their per-page `normal` rendition and reports
 that the imported bytes are a rendition.
 
+Before perceptual hashing, OxidGene reads the intrinsic dimensions of the
+downloaded renditions and archive candidates without decoding their pixels.
+Only archive images whose aspect ratio is within 2% of at least one required
+page, in either intrinsic orientation, are decoded for the pHash comparison.
+Candidates whose dimensions cannot be read remain eligible. If any required
+rendition has unreadable dimensions, the shared index uses the unfiltered
+candidate set because any candidate could belong to that page; this
+optimization therefore cannot make a medium unavailable.
+
+Perceptual hashing and media decoding use at most 75% of the machine's logical
+processors, rounded down. A machine with several processors always keeps at
+least one available for the desktop UI and the operating system. Media decoding
+retains its additional ceiling of eight concurrent images to bound peak memory.
+
 Fetching multi-page originals instead pulls each deposit archive and extracts
 pages by position because archive entries retain page order. This is more
 expensive but preserves readable document pages.

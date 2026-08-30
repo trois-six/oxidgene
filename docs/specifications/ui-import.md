@@ -398,14 +398,23 @@ individual completions rather than only the boundaries between processing
 batches. Multi-page document results are reordered before database writes, so
 this granular progress never changes page order.
 
+CPU-intensive import work uses at most 75% of the available logical processors,
+rounded down, and keeps at least one processor available on multi-processor
+machines. Concurrent media decoding is additionally capped at eight images to
+bound peak memory usage.
+
 The genealogy phase uses its own determined progress total. It advances after
 each successfully inserted database batch, while the media phase advances per
 processed medium. Phases without a measurable unit remain indeterminate rather
 than contributing invented weights to a global percentage.
 
-The background worker publishes in-memory progress at least once per second
-during active processing, independently of the job lease duration, so desktop
-SQLite jobs expose the same live progression as server jobs.
+The background worker publishes progress at least once per second during active
+processing, independently of the job lease duration. On desktop SQLite, active
+progress is process-local so the long import transaction and status polling do
+not contend for the single database connection. REST and GraphQL consult that
+live state before the durable job row. PostgreSQL workers persist the same
+progress while renewing the job lease. Completion, failure, and import
+checkpoints remain durable on both databases.
 
 Geneanet media bytes enter through the desktop filesystem. The login WebView
 writes each gathered medium to a temporary directory shared with the embedded

@@ -898,9 +898,24 @@ impl QueryRoot {
         tree_id: ID,
         job_id: ID,
     ) -> Result<GqlExportJobStatus> {
-        let db = db_from_ctx(ctx);
         let tree_id = Uuid::parse_str(tree_id.as_str())?;
         let job_id = Uuid::parse_str(job_id.as_str())?;
+        if let Some(progress) = crate::service::background_job::live_job_progress(
+            tree_id,
+            job_id,
+            BackgroundJobKind::Export,
+        ) {
+            return Ok(GqlExportJobStatus {
+                phase: progress.phase,
+                done: progress.done,
+                total: progress.total,
+                download_url: None,
+                warnings: Vec::new(),
+                error: None,
+            });
+        }
+
+        let db = db_from_ctx(ctx);
         let job = BackgroundJobRepo::get_in_tree(db, tree_id, job_id).await?;
         if job.kind != BackgroundJobKind::Export.as_str() {
             return Err(oxidgene_core::OxidGeneError::NotFound {
@@ -935,9 +950,24 @@ impl QueryRoot {
         tree_id: ID,
         job_id: ID,
     ) -> Result<GqlImportJobStatus> {
-        let db = db_from_ctx(ctx);
         let tree_id = Uuid::parse_str(tree_id.as_str())?;
         let job_id = Uuid::parse_str(job_id.as_str())?;
+        if let Some(progress) = crate::service::background_job::live_job_progress(
+            tree_id,
+            job_id,
+            BackgroundJobKind::Import,
+        ) {
+            return Ok(GqlImportJobStatus {
+                phase: progress.phase,
+                done: progress.done,
+                total: progress.total,
+                result: None,
+                geneanet_result: None,
+                error: None,
+            });
+        }
+
+        let db = db_from_ctx(ctx);
         let job = BackgroundJobRepo::get_in_tree(db, tree_id, job_id).await?;
         if job.kind != BackgroundJobKind::Import.as_str() {
             return Err(oxidgene_core::OxidGeneError::NotFound {
