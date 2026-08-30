@@ -360,7 +360,13 @@ Cloudflare challenge. OxidGene never receives or stores the password.
 - Saved collection payloads are sensitive and must never be committed.
 
 Collection first reads media links, then matches media against selected archive
-indexes. The login window closes once no remaining request needs its session.
+indexes. Once gathering reaches 100%, the login window is hidden while its
+in-memory session retains the staged files. The session is destroyed after the
+backend has copied those files into durable job storage, or if the modal closes.
+Optional enrichment payloads with unsupported shapes do not invalidate
+otherwise usable media links. If the essential collection shape is unreadable,
+step 3 stops with a localized collection error instead of advancing to a
+generic preview failure.
 
 ### 9.6 Step 4: preview and gathering
 
@@ -391,6 +397,15 @@ including skipped media, and the UI refreshes often enough to expose those
 individual completions rather than only the boundaries between processing
 batches. Multi-page document results are reordered before database writes, so
 this granular progress never changes page order.
+
+The genealogy phase uses its own determined progress total. It advances after
+each successfully inserted database batch, while the media phase advances per
+processed medium. Phases without a measurable unit remain indeterminate rather
+than contributing invented weights to a global percentage.
+
+The background worker publishes in-memory progress at least once per second
+during active processing, independently of the job lease duration, so desktop
+SQLite jobs expose the same live progression as server jobs.
 
 Geneanet media bytes enter through the desktop filesystem. The login WebView
 writes each gathered medium to a temporary directory shared with the embedded

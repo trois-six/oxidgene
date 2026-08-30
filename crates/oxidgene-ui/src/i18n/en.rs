@@ -801,6 +801,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("geneanet.step3_stage1", "Reading your media list from Geneanet"),
         ("geneanet.step3_stage2", "Matching medias against your archives"),
         ("geneanet.step3_web", "This step opens a second browser window on geneanet.org and reads your media list through the session you sign in to. A web page cannot do that: anything it opened would be a separate site it is not allowed to read. Use the desktop app to import your media \u{2014} or carry on here, and your tree will be imported without them."),
+        ("geneanet.error_collection_invalid", "Geneanet returned media information OxidGene could not read. Please try the collection again."),
         // Step 4
         ("geneanet.step4_title", "What will be imported"),
         ("geneanet.step4_computing", "Working out what matches\u{2026}"),

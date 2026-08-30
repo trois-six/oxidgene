@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::media::{self, MediaStore};
 
-use super::gedcom::persist_import_result;
+use super::gedcom::persist_import_result_with_progress;
 
 /// How many names each expandable list in the preview carries.
 ///
@@ -485,8 +485,6 @@ pub async fn import(
     let index = join::PersonIndex::from_database(&database);
     let joined = join::join(&manifest, &index);
 
-    progress.enter(ImportPhase::People);
-
     // The persons first: their ids are what the photo links point at.
     let mut import_result = oxidgene_gedcom::geneweb::import_geneweb(gw_bytes, file_name, tree_id)
         .map_err(OxidGeneError::Gedcom)?;
@@ -502,7 +500,11 @@ pub async fn import(
     let event_matcher = GeneanetEventMatcher::from_import(&import_result);
     let portraits = take_portrait_urls(&mut import_result, &manifest);
     let person_by_xref = import_result.person_by_xref.clone();
-    let people = persist_import_result(db, import_result).await?;
+    progress.begin(ImportPhase::People, persisted_entity_count(&import_result));
+    let people = persist_import_result_with_progress(db, import_result, |inserted| {
+        progress.advance_by(inserted);
+    })
+    .await?;
 
     let mut summary = GeneanetImportSummary {
         persons_count: people.persons_count,
@@ -518,22 +520,6 @@ pub async fn import(
     if joined.attachments.is_empty() {
         return Ok(summary);
     }
-
-    // Every view of every attached deposit, which is what the media phase will
-    // write — a document contributes all its pages, not just its linked ones.
-    let attached: std::collections::BTreeSet<i64> = joined
-        .attachments
-        .iter()
-        .map(|attachment| attachment.deposit_id)
-        .collect();
-    progress.expect(
-        manifest
-            .deposits
-            .iter()
-            .filter(|deposit| attached.contains(&deposit.id))
-            .map(|deposit| deposit.views.len())
-            .sum(),
-    );
 
     // Geneanet lets an owner identify somebody on a photograph who is not in
     // the GeneWeb tree — its manager labels them "hors de l'arbre". Those
@@ -615,10 +601,17 @@ async fn attach_media(
             .or_default()
             .push(attachment);
     }
+    // Every view of every attached deposit, which is what the media phase will
+    // write — a document contributes all its pages, not just its linked ones.
+    let media_total: usize = by_deposit
+        .keys()
+        .filter_map(|deposit_id| deposits.get(deposit_id))
+        .map(|deposit| deposit.views.len())
+        .sum();
 
-    progress.enter(ImportPhase::Matching);
+    progress.begin(ImportPhase::Matching, 0);
     let hashes = build_content_index(&deposits, &by_deposit, deposit_sizes, &archives);
-    progress.enter(ImportPhase::Media);
+    progress.begin(ImportPhase::Media, media_total);
     let mut places = match PlaceRepo::list_all(db, tree_id).await {
         Ok(places) => places
             .into_iter()
@@ -1585,9 +1578,9 @@ fn pages_in_order(deposit: &ManifestDeposit) -> Vec<&ManifestView> {
 /// whole duration; the wizard asks a second endpoint how it is going.
 #[derive(Debug, Default)]
 pub struct ImportProgress {
-    /// Media written so far.
+    /// Units completed in the current phase.
     done: std::sync::atomic::AtomicUsize,
-    /// Media expected in total, known once the join has been computed.
+    /// Units expected in the current phase, or zero when it is not measurable.
     total: std::sync::atomic::AtomicUsize,
     /// What the run is doing, for a line above the bar.
     phase: std::sync::Mutex<ImportPhase>,
@@ -1599,33 +1592,36 @@ pub struct ImportProgress {
 pub enum ImportPhase {
     #[default]
     Starting,
-    /// Writing people, families and events — one transaction, no counter.
+    /// Writing people, families and events in measured database batches.
     People,
     /// Hashing the archives so document pages can be recognised.
     Matching,
-    /// Storing pictures. This is the one with a count worth showing.
+    /// Storing pictures, counted per processed medium.
     Media,
     /// Rebuilding the projections the tree is read through.
     Finishing,
 }
 
 impl ImportProgress {
-    pub fn enter(&self, phase: ImportPhase) {
+    pub fn begin(&self, phase: ImportPhase, total: usize) {
         if let Ok(mut current) = self.phase.lock() {
             *current = phase;
         }
-    }
-
-    pub fn expect(&self, total: usize) {
+        self.done.store(0, std::sync::atomic::Ordering::Relaxed);
         self.total
             .store(total, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn advance(&self) {
-        self.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.advance_by(1);
     }
 
-    /// What to show: the phase, and how far through the media it is.
+    pub fn advance_by(&self, amount: usize) {
+        self.done
+            .fetch_add(amount, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// What to show: the phase and its current measured progress.
     #[must_use]
     pub fn read(&self) -> (ImportPhase, usize, usize) {
         (
@@ -1634,6 +1630,23 @@ impl ImportProgress {
             self.total.load(std::sync::atomic::Ordering::Relaxed),
         )
     }
+}
+
+fn persisted_entity_count(result: &oxidgene_gedcom::ImportResult) -> usize {
+    result.places.len()
+        + result.sources.len()
+        + result.media.len()
+        + result.persons.len()
+        + result.person_names.len()
+        + result.families.len()
+        + result.family_spouses.len()
+        + result.family_children.len()
+        + result.events.len()
+        + result.event_witnesses.len()
+        + result.citations.len()
+        + result.media_links.len()
+        + result.vignettes.len()
+        + result.notes.len()
 }
 
 /// How many media to decode at once.
@@ -2050,6 +2063,25 @@ mod tests {
             local_file: None,
             views,
         }
+    }
+
+    #[test]
+    fn import_progress_is_determinate_and_resets_between_phases() {
+        let progress = ImportProgress::default();
+
+        progress.begin(ImportPhase::People, 250);
+        progress.advance_by(100);
+        assert_eq!(progress.read(), (ImportPhase::People, 100, 250));
+
+        progress.advance_by(150);
+        assert_eq!(progress.read(), (ImportPhase::People, 250, 250));
+
+        progress.begin(ImportPhase::Matching, 0);
+        assert_eq!(progress.read(), (ImportPhase::Matching, 0, 0));
+
+        progress.begin(ImportPhase::Media, 12);
+        progress.advance();
+        assert_eq!(progress.read(), (ImportPhase::Media, 1, 12));
     }
 
     #[test]

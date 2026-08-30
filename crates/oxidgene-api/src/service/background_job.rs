@@ -182,7 +182,7 @@ impl BackgroundJobWorker {
             Ok(summary)
         };
         tokio::pin!(import);
-        let period = self.lease_duration / 3;
+        let period = self.progress_period();
         let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
         let summary = loop {
             tokio::select! {
@@ -249,7 +249,7 @@ impl BackgroundJobWorker {
             &progress,
         );
         tokio::pin!(import);
-        let period = self.lease_duration / 3;
+        let period = self.progress_period();
         let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
         let summary = loop {
             tokio::select! {
@@ -429,7 +429,7 @@ impl BackgroundJobWorker {
         F: std::future::Future<Output = Result<T, OxidGeneError>>,
     {
         tokio::pin!(future);
-        let period = self.lease_duration / 3;
+        let period = self.progress_period();
         let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
         loop {
             tokio::select! {
@@ -462,6 +462,35 @@ impl BackgroundJobWorker {
         } else {
             Err(OxidGeneError::Internal("background job lease lost".into()))
         }
+    }
+
+    fn progress_period(&self) -> Duration {
+        progress_period(self.poll_interval, self.lease_duration)
+    }
+}
+
+fn progress_period(poll_interval: Duration, lease_duration: Duration) -> Duration {
+    poll_interval.min(lease_duration / 3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_progress_is_published_independently_of_its_long_lease() {
+        assert_eq!(
+            progress_period(DEFAULT_POLL_INTERVAL, Duration::from_secs(24 * 60 * 60)),
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn progress_renews_a_short_lease_before_it_expires() {
+        assert_eq!(
+            progress_period(Duration::from_secs(10), Duration::from_secs(6)),
+            Duration::from_secs(2)
+        );
     }
 }
 

@@ -827,6 +827,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("geneanet.step3_stage1", "Lecture de votre liste de m\u{00E9}dias sur Geneanet"),
         ("geneanet.step3_stage2", "Rapprochement des m\u{00E9}dias avec vos archives"),
         ("geneanet.step3_web", "Cette \u{00E9}tape ouvre une seconde fen\u{00EA}tre de navigateur sur geneanet.org et lit votre liste de m\u{00E9}dias \u{00E0} travers la session que vous y ouvrez. Une page web ne peut pas le faire\u{202F}: ce qu\u{2019}elle ouvrirait serait un autre site qu\u{2019}elle n\u{2019}a pas le droit de lire. Utilisez l\u{2019}application de bureau pour importer vos m\u{00E9}dias \u{2014} ou continuez ici, et votre arbre sera import\u{00E9} sans eux."),
+        ("geneanet.error_collection_invalid", "Geneanet a renvoy\u{00E9} des informations de m\u{00E9}dia qu\u{2019}OxidGene ne peut pas lire. Relancez la collecte."),
         // \u{00C9}tape 4
         ("geneanet.step4_title", "Ce qui sera import\u{00E9}"),
         ("geneanet.step4_computing", "Calcul des correspondances\u{2026}"),
