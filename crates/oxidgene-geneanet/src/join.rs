@@ -266,6 +266,7 @@ mod tests {
                 "normal".to_string(),
                 format!("/public/img/media/deposits/private/aa/bb/{id}/hash/normal.png?t=1"),
             )]),
+            last_transcript: None,
             references,
         }
     }

@@ -126,6 +126,12 @@ image = { version = "0.25", default-features = false, features = [
     "tiff",
     "webp",
 ] }
+# Experimental Geneanet pHash paths. `jpeg-decoder` exposes reduced-IDCT
+# decoding; zune is already used transitively by `image` and exposes direct
+# luminance output.
+jpeg-decoder = { version = "0.3", default-features = false }
+zune-core = "0.5"
+zune-jpeg = "0.5"
 # HTML sanitizer for note bodies (see oxidgene-db::html)
 ammonia = "4"
 

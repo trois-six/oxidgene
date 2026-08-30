@@ -51,6 +51,17 @@ pub struct View {
     /// Rendition name (`normal`, `medium`, `screen`, `thumbnail`) → URL path.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+    /// Most recent transcript saved for this page, returned by the detail endpoint.
+    #[serde(default, deserialize_with = "deserialize_lossy_option")]
+    pub last_transcript: Option<GeneanetTranscript>,
+}
+
+/// The latest transcript attached to one Geneanet media view.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneanetTranscript {
+    pub id: i64,
+    #[serde(default)]
+    pub content: String,
 }
 
 /// A place returned by Geneanet's media detail endpoint.
@@ -242,6 +253,13 @@ impl BrowserCollection {
             if let Some(detail) = details.get(&deposit.id) {
                 deposit.date = detail.date.clone();
                 deposit.location = detail.location.clone();
+                for view in &mut deposit.views {
+                    view.last_transcript = detail
+                        .views
+                        .iter()
+                        .find(|detail_view| detail_view.id == view.id)
+                        .and_then(|detail_view| detail_view.last_transcript.clone());
+                }
             }
         }
         let mut located = LocatedReferences::new();
@@ -342,6 +360,9 @@ pub struct ManifestView {
     // out of the JSON, so reading it back must not require the field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub files: BTreeMap<String, String>,
+    /// Most recent transcript saved for this page in Geneanet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_transcript: Option<GeneanetTranscript>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<ManifestReference>,
 }
@@ -417,6 +438,7 @@ impl Manifest {
                             id: view.id,
                             page: view.page,
                             files: view.files,
+                            last_transcript: view.last_transcript,
                             references,
                         }
                     })
@@ -464,6 +486,7 @@ mod tests {
             id,
             page: Some(page),
             files: BTreeMap::from([("normal".to_string(), format!("/n/{id}.jpg"))]),
+            last_transcript: None,
         }
     }
 
@@ -557,6 +580,56 @@ mod tests {
         );
         // A person outside the tree: named, but with no key to join on.
         assert!(references[1].reference_extra_geneweb.is_none());
+    }
+
+    #[test]
+    fn a_page_transcript_from_the_detail_response_reaches_the_manifest() {
+        let collection: BrowserCollection = serde_json::from_str(
+            r#"{
+                "deposits": [{
+                    "id": 111,
+                    "views": [
+                        {"id": 222, "page": 1},
+                        {"id": 223, "page": 2}
+                    ]
+                }],
+                "details": [{
+                    "id": 111,
+                    "views": [
+                        {
+                            "id": 222,
+                            "page": 1,
+                            "last_transcript": {"id": 443}
+                        },
+                        {
+                            "id": 223,
+                            "page": 2,
+                            "last_transcript": {"id": 444, "content": "Page transcript"}
+                        }
+                    ]
+                }]
+            }"#,
+        )
+        .expect("the transcript wire shape decodes");
+
+        let (deposits, references) = collection.into_references();
+        let manifest =
+            Manifest::build("https://www.geneanet.org".to_string(), deposits, references);
+
+        assert_eq!(
+            manifest.deposits[0].views[0].last_transcript,
+            Some(GeneanetTranscript {
+                id: 443,
+                content: String::new(),
+            })
+        );
+        assert_eq!(
+            manifest.deposits[0].views[1].last_transcript,
+            Some(GeneanetTranscript {
+                id: 444,
+                content: "Page transcript".to_string(),
+            })
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ use super::dto::{
     MediaTagRequest, PaginationQuery, ReorderPagesRequest, UpdateMediaRequest,
 };
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, require_tree_resource};
+use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/media
 pub async fn list_media(
@@ -307,21 +307,23 @@ pub async fn reorder_pages(
 
 /// DELETE /api/v1/trees/:tree_id/media/:media_id/pages/:page_id
 ///
-/// Detach a page. The page survives as an ordinary media — it is a scan
-/// somebody made, and removing it from a document is not a reason to lose it.
+/// Detach a page as an ordinary media and remove its links, identifications
+/// and portrait references. Its bytes and transcript remain with it.
 pub async fn detach_page(
     State(state): State<AppState>,
     Path((tree_id, media_id, page_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
+    let txn = begin_tx(&state.db).await.map_err(ApiError::from)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Media, media_id)
         .await
         .map_err(ApiError)?;
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, page_id)
+    require_tree_resource(&txn, tree_id, TreeResource::Media, page_id)
         .await
         .map_err(ApiError)?;
-    let page = MediaRepo::detach_page(&state.db, page_id)
+    let page = MediaRepo::detach_page(&txn, media_id, page_id)
         .await
         .map_err(ApiError::from)?;
+    commit_tx(txn).await.map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(page).unwrap()))
 }
 

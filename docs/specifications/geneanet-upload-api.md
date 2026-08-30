@@ -555,6 +555,127 @@ lowercase, accents stripped, separators normalized to spaces, stroked letters
 folded explicitly, and occurrence empty when zero. The `.gw` source is required
 because the occurrence belongs to the key while GEDCOM xrefs are opaque.
 
+### Per-view references and face identifications (verified 2026-08-30)
+
+The website media manager writes both whole-view person references and
+rectangular face identifications through the view-specific route:
+
+```http
+POST /media/api/deposits/{depositId}/views/{viewId}/references
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+
+reference[firstname]=Given A
+reference[lastname]=Surname A
+reference[face][position][x1]=17.5
+reference[face][position][y1]=31.9
+reference[face][position][x2]=37.0
+reference[face][position][y2]=44.9
+reference[face][image]=regenerate
+reference[geneweb][ref]=surname a|given a|
+reference[geneweb][public]=0
+```
+
+The response is the created reference object. It contains a numeric reference
+`id`, the person's names, the generated face-crop `thumb`, the GeneWeb key and
+link under `reference_extra_geneweb`, and `face.position` when a rectangle was
+submitted. The immediate POST response observed here encoded the four
+coordinates as JSON strings, while the collection payload previously observed
+by OxidGene encoded them as JSON numbers. OxidGene collects the latter read
+shape; form and mutation responses are not fed back into the importer.
+
+`GET /media/api/deposits/{depositId}/views/{viewId}/references` returns only
+the references of that view. A neighboring page does not repeat an
+identification, confirming that a face rectangle belongs to one page of a
+multi-page deposit. A reference without `face` associates the person with the
+view as a whole; a reference with `face.position` additionally identifies a
+region. No deposit-level reference write route has been observed: even actions
+presented by the website as document associations are represented beneath a
+view route.
+
+OxidGene promotes each imported person or event association to one `MediaLink`
+on the document parent so the complete document appears in profiles. Every
+face rectangle remains a `Vignette` on the exact page media selected by
+`viewId`. A person may have identifications on several pages while retaining
+only one document link. In the viewer, an identification takes precedence over
+a redundant whole-media attachment for the same person, so the relation list
+shows the crop once rather than showing both rows.
+
+### Per-view transcripts (verified 2026-08-30, authenticated write)
+
+The website media manager stores a transcript on an individual view, so each
+page of a multi-page deposit can carry different text.
+
+```http
+POST /media/api/deposits/{depositId}/views/{viewId}/transcripts
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+
+transcript[content]=Page transcript
+```
+
+The request uses the website session cookie and browser context described
+above, not the `api.geneanet.org` OAuth bearer. The media manager sent
+`Origin: https://www.geneanet.org` and a manager-page `Referer`; whether the
+endpoint independently requires those headers was not probed.
+
+After a transcript has been saved, the deposit detail response exposes it on
+the corresponding view only:
+
+```json
+{
+  "id": 111,
+  "views": [
+    { "id": 222, "page": 1 },
+    {
+      "id": 223,
+      "page": 2,
+      "last_transcript": {
+        "id": 444,
+        "content": "Page transcript"
+      }
+    }
+  ]
+}
+```
+
+`GET /media/api/deposits/{depositId}` is therefore the confirmed read path.
+`last_transcript` may be absent, may contain both `id` and `content`, or may
+retain only its numeric `id` after the content has been cleared in the website
+UI. A transcript is functionally present only when `content` is a non-empty
+string. The response exposes only the latest transcript; no transcript history,
+direct transcript GET, update semantics, deletion route, or POST response shape
+has been established.
+
+OxidGene preserves the external transcript id in its collected manifest and
+saved Geneanet session, then imports non-empty content as a normal `Note` whose
+`media_id` is the exact page media record. The external id is not inserted into
+the note text and is not a local Note id. Transcript absence or malformed
+optional data does not block media import.
+
+### Per-view rotation (verified 2026-08-30, authenticated write)
+
+The website media manager can rotate one view independently from the other
+pages of its deposit:
+
+```http
+PUT /media/api/deposits/{depositId}/views/{viewId}
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+
+id={depositId}&idview={viewId}&rotate=90
+```
+
+The observed response is the complete updated deposit object. It contains new
+cache-busted rendition URLs for the affected view, but no rotation field or
+angle. The pixels served by the rendition URLs are already rotated, so a reader
+cannot infer whether the source was rotated from this JSON alone. Only
+`rotate=90` was observed; negative angles, repeated application, validation,
+and the exact response to unsupported values were not probed. Whether
+`/media/download/` rewrites the downloadable original or only the generated
+renditions was also not established.
+
+OxidGene does not replay this write against Geneanet. A later collection and
+media import consumes the current rendition pixels, so the visible orientation
+is preserved without storing Geneanet-specific rotation metadata.
+
 ### Old Android-app login flow still works (verified 2026-08, anonymous probes)
 
 The pre-mobile-app login used by [geneparse](https://github.com/trois-six/geneparse)

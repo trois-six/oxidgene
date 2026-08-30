@@ -37,7 +37,17 @@
 //! an ambiguous page is downloaded instead. See
 //! `docs/specifications/geneanet-media-import.md` §5.
 
+#[cfg(any(test, feature = "phash-validation"))]
+use std::io::Cursor;
+
+#[cfg(any(test, feature = "phash-validation"))]
+use anyhow::anyhow;
 use anyhow::{Context, Result};
+use image::GrayImage;
+#[cfg(any(test, feature = "phash-validation"))]
+use image::RgbImage;
+#[cfg(any(test, feature = "phash-validation"))]
+use jpeg_decoder::PixelFormat;
 
 /// Side of the square the image is reduced to before the transform.
 const SAMPLE: usize = 32;
@@ -47,6 +57,10 @@ const BLOCK: usize = 16;
 
 /// Bytes in a hash.
 const BYTES: usize = BLOCK * BLOCK / 8;
+
+/// Largest box requested from the JPEG decoder's reduced IDCT.
+#[cfg(any(test, feature = "phash-validation"))]
+const JPEG_DECODE_TARGET: u16 = 128;
 
 /// How far a rendition may sit from its own original and still be recognised.
 ///
@@ -152,9 +166,29 @@ fn dct_basis() -> &'static [f32; SAMPLE * SAMPLE] {
 ///
 /// Returns `Err` if the bytes are not an image this build can decode.
 pub fn hash_image(bytes: &[u8]) -> Result<Phash> {
+    hash_image_generic(bytes)
+}
+
+fn hash_image_generic(bytes: &[u8]) -> Result<Phash> {
     let image = image::load_from_memory(bytes).context("decoding an image to hash it")?;
+    Ok(hash_luma(&image.to_luma8()))
+}
+
+#[cfg(feature = "phash-validation")]
+#[doc(hidden)]
+pub fn hash_image_reduced_decode_for_validation(bytes: &[u8]) -> Result<Phash> {
+    if bytes.starts_with(&[0xff, 0xd8]) {
+        if let Ok(image) = decode_jpeg_reduced(bytes) {
+            return Ok(hash_luma(&image));
+        }
+    }
+
+    hash_image_generic(bytes)
+}
+
+fn hash_luma(image: &GrayImage) -> Phash {
     let reduced = image::imageops::resize(
-        &image.to_luma8(),
+        image,
         SAMPLE as u32,
         SAMPLE as u32,
         image::imageops::FilterType::Lanczos3,
@@ -165,7 +199,31 @@ pub fn hash_image(bytes: &[u8]) -> Result<Phash> {
         *sample = f32::from(pixel.0[0]);
     }
 
-    Ok(hash_samples(&samples))
+    hash_samples(&samples)
+}
+
+#[cfg(any(test, feature = "phash-validation"))]
+fn decode_jpeg_reduced(bytes: &[u8]) -> Result<GrayImage> {
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    decoder.read_info().context("reading JPEG headers")?;
+    let dimensions = decoder
+        .scale(JPEG_DECODE_TARGET, JPEG_DECODE_TARGET)
+        .context("selecting a reduced JPEG scale")?;
+    let pixels = decoder.decode().context("decoding reduced JPEG")?;
+    let info = decoder.info().context("JPEG decoder returned no info")?;
+
+    match info.pixel_format {
+        PixelFormat::L8 => {
+            GrayImage::from_raw(u32::from(dimensions.0), u32::from(dimensions.1), pixels)
+                .context("reduced JPEG luminance buffer has the wrong length")
+        }
+        PixelFormat::RGB24 => Ok(image::DynamicImage::ImageRgb8(
+            RgbImage::from_raw(u32::from(dimensions.0), u32::from(dimensions.1), pixels)
+                .context("reduced JPEG RGB buffer has the wrong length")?,
+        )
+        .to_luma8()),
+        format => Err(anyhow!("unsupported JPEG pixel format {format:?}")),
+    }
 }
 
 /// What a lookup concluded.
@@ -221,6 +279,15 @@ pub fn find(query: Phash, candidates: &[Phash]) -> Match {
 
 #[cfg(test)]
 mod tests {
+    use std::hint::black_box;
+    use std::io::Read;
+    use std::time::{Duration, Instant};
+
+    use anyhow::{Context, Result, anyhow};
+    use zune_core::bytestream::ZCursor;
+    use zune_core::colorspace::ColorSpace;
+    use zune_core::options::DecoderOptions;
+
     use super::*;
 
     /// A deterministic pseudo-image, so tests do not need fixture files.
@@ -325,6 +392,152 @@ mod tests {
 
         let hash = hash_image(&png).expect("hashes");
         assert_eq!(hash.distance(hash_image(&png).expect("hashes again")), 0);
+    }
+
+    fn encoded_gradient(width: u32, height: u32, format: image::ImageFormat) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([
+                (x % 251) as u8,
+                (y % 241) as u8,
+                ((x * 3 + y * 5) % 239) as u8,
+            ])
+        });
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(&mut buffer, format)
+            .expect("encodes test image");
+        buffer.into_inner()
+    }
+
+    #[test]
+    fn a_large_jpeg_can_be_hashed_from_a_reduced_decode() {
+        let jpeg = encoded_gradient(1600, 1200, image::ImageFormat::Jpeg);
+        let reduced = decode_jpeg_reduced(&jpeg).expect("decodes with reduced IDCT");
+
+        assert!(reduced.width() < 1600);
+        assert!(reduced.height() < 1200);
+        assert_eq!(hash_luma(&reduced), hash_luma(&reduced));
+    }
+
+    #[test]
+    fn non_jpeg_codecs_keep_using_the_generic_hasher() {
+        for format in [
+            image::ImageFormat::Png,
+            image::ImageFormat::WebP,
+            image::ImageFormat::Gif,
+            image::ImageFormat::Bmp,
+            image::ImageFormat::Tiff,
+        ] {
+            let bytes = encoded_gradient(64, 64, format);
+            hash_image(&bytes).unwrap_or_else(|error| panic!("{format:?} must hash: {error}"));
+        }
+    }
+
+    fn decode_jpeg_luma(bytes: &[u8]) -> Result<(GrayImage, (usize, usize))> {
+        let options = DecoderOptions::default()
+            .set_max_width(usize::MAX)
+            .set_max_height(usize::MAX)
+            .jpeg_set_out_colorspace(ColorSpace::Luma);
+        let mut decoder = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), options);
+        decoder
+            .decode_headers()
+            .map_err(|error| anyhow!("reading JPEG headers: {error}"))?;
+        let dimensions = decoder
+            .dimensions()
+            .context("JPEG decoder returned no dimensions")?;
+        let pixels = decoder
+            .decode()
+            .map_err(|error| anyhow!("decoding JPEG luminance: {error}"))?;
+        let image = GrayImage::from_raw(dimensions.0 as u32, dimensions.1 as u32, pixels)
+            .context("JPEG luminance buffer has the wrong length")?;
+        Ok((image, dimensions))
+    }
+
+    fn hash_jpeg_luma(bytes: &[u8]) -> Result<(Phash, (usize, usize), usize)> {
+        let (image, dimensions) = decode_jpeg_luma(bytes)?;
+        let decoded_bytes = image.as_raw().len();
+        Ok((hash_luma(&image), dimensions, decoded_bytes))
+    }
+
+    fn hash_jpeg_reduced(bytes: &[u8]) -> Result<(Phash, (u32, u32), usize)> {
+        let image = decode_jpeg_reduced(bytes)?;
+        let dimensions = image.dimensions();
+        let decoded_bytes = image.as_raw().len();
+        Ok((hash_luma(&image), dimensions, decoded_bytes))
+    }
+
+    fn jpeg_sample() -> Result<Option<Vec<u8>>> {
+        let Ok(path) = std::env::var("OXIDGENE_PHASH_JPEG") else {
+            return Ok(None);
+        };
+        let bytes = std::fs::read(&path).with_context(|| format!("reading {path}"))?;
+        if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+            return Ok(Some(bytes));
+        }
+
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("opening sample ZIP")?;
+        for index in 0..archive.len() {
+            let mut entry = archive
+                .by_index(index)
+                .context("reading sample ZIP entry")?;
+            if entry.is_dir() {
+                continue;
+            }
+            let mut candidate = Vec::new();
+            entry
+                .read_to_end(&mut candidate)
+                .context("extracting sample ZIP entry")?;
+            if candidate.starts_with(&[0xff, 0xd8, 0xff]) {
+                return Ok(Some(candidate));
+            }
+        }
+        Err(anyhow!("sample contains no JPEG image"))
+    }
+
+    fn timed<T>(iterations: usize, mut operation: impl FnMut() -> T) -> (Duration, T) {
+        let mut result = black_box(operation());
+        let started = Instant::now();
+        for _ in 0..iterations {
+            result = black_box(operation());
+        }
+        (started.elapsed() / iterations as u32, result)
+    }
+
+    #[test]
+    #[ignore = "needs OXIDGENE_PHASH_JPEG pointing to a JPEG or ZIP"]
+    fn compare_jpeg_phash_decode_strategies() -> Result<()> {
+        let Some(bytes) = jpeg_sample()? else {
+            eprintln!("OXIDGENE_PHASH_JPEG unset; skipping");
+            return Ok(());
+        };
+        let iterations = 5;
+
+        let (baseline_time, baseline) =
+            timed(iterations, || hash_image_generic(&bytes).expect("baseline"));
+        let (luma_time, luma) = timed(iterations, || hash_jpeg_luma(&bytes).expect("luminance"));
+        let (luma_decode_time, luma_image) = timed(iterations, || {
+            decode_jpeg_luma(&bytes).expect("luminance decode")
+        });
+        let (luma_hash_time, _) = timed(iterations, || hash_luma(&luma_image.0));
+        let (reduced_time, reduced) = timed(iterations, || {
+            hash_jpeg_reduced(&bytes).expect("reduced IDCT")
+        });
+
+        println!(
+            "JPEG bytes={}, iterations={iterations}\n\
+             baseline={baseline_time:?}\n\
+             luminance={luma_time:?} (decode={luma_decode_time:?}, resize+hash={luma_hash_time:?}), \
+             dimensions={:?}, decoded_bytes={}, distance={}\n\
+             reduced={reduced_time:?}, dimensions={:?}, decoded_bytes={}, distance={}",
+            bytes.len(),
+            luma.1,
+            luma.2,
+            baseline.distance(luma.0),
+            reduced.1,
+            reduced.2,
+            baseline.distance(reduced.0),
+        );
+        Ok(())
     }
 
     #[test]

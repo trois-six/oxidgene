@@ -225,7 +225,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
 | `GET` | `/trees/{tree_id}/media/{media_id}/pages` | A document's pages, in order |
 | `PUT` | `/trees/{tree_id}/media/{media_id}/pages` | Set the page order (`{page_ids: [...]}`). Must name exactly this document's pages, once each — a partial list is refused rather than guessed at |
-| `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Detach a page. It survives as an ordinary media, and the remaining pages close the gap |
+| `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Detach a page as an ordinary media. Its attachments, identifications, and portrait references are removed; its bytes and transcript remain; remaining pages close the gap |
 | `GET` | `/trees/{tree_id}/media/{media_id}` | Get media metadata |
 | `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
 | `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px). `404` when the format cannot be rasterised — PDFs — so a gallery can fall back to an icon on the status alone |
@@ -309,6 +309,12 @@ round-trips.
 | `GET` | `/trees/{tree_id}/media-links?entity_type=person\|family\|event\|source&entity_id={id}` | One entity's gallery. Each row is the link (`link_id`, `sort_order`) with the **media flattened in**, so a grid of twenty scans is one request rather than twenty-one — a tile cannot be drawn without the MIME type and whether a thumbnail exists |
 | `POST` | `/trees/{tree_id}/media-links` | Attach a media to an entity |
 | `DELETE` | `/trees/{tree_id}/media-links/{link_id}` | Detach. The media itself is untouched — the file may document three other people |
+
+For a multi-page document, posting the parent media id attaches the whole
+document; posting a child page media id attaches that page only. No separate
+page field is accepted. Person-profile galleries include direct person links,
+links to the person's conjugal families, and person-attributed vignettes;
+duplicate attachment tiles for the same media are collapsed client-side.
 
 ### Notes
 
@@ -717,7 +723,7 @@ type Mutation {
   updateMedia(treeId: ID!, id: ID!, input: UpdateMediaInput!): Media!
   # Permanently deletes media. With onlyIfUnreferencedElsewhere, allowedLinkId
   # is required and the result is false when another reference retains it.
-  deleteMedia(id: ID!, onlyIfUnreferencedElsewhere: Boolean! = false, allowedLinkId: ID): Boolean!
+  deleteMedia(treeId: ID!, id: ID!, onlyIfUnreferencedElsewhere: Boolean! = false, allowedLinkId: ID): Boolean!
   createMediaLink(treeId: ID!, input: CreateMediaLinkInput!): MediaLink!
   setPersonPortrait(treeId: ID!, personId: ID!, mediaId: ID, vignetteId: ID): Person!
 
@@ -725,7 +731,7 @@ type Mutation {
   createMediaDocument(treeId: ID!, title: String): Media!
   appendMediaPage(documentId: ID!, mediaId: ID!): Media!
   reorderMediaPages(documentId: ID!, pageIds: [ID!]!): [Media!]!
-  detachMediaPage(pageId: ID!): Media!
+  detachMediaPage(treeId: ID!, documentId: ID!, pageId: ID!): Media!
   deleteMediaLink(treeId: ID!, id: ID!): Boolean!
 
   # Vignettes
@@ -1076,7 +1082,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Full | Page, text, confidence level |
 | Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, MIME type, title, description and physical medium use standard `FILE`, `FORM`, `TITL`, `NOTE`, and `FORM.TYPE` structures. Person, family and event links use standard `OBJE` references. A plain `.ged` never carries file bytes; a GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry. Remote and unheld media retain only their original `FILE` reference. |
-| Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, tags, media place with coordinates, record timestamps, and notes attached specifically to the media. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
+| Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, tags, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
 | Vignette identifications | OxidGene extension | OxidGene extension | Each person identification and its pixel rectangle round-trip beneath the owning `OBJE` as `_OXIDGENE_VIGNETTE`; software that does not know the extension ignores it. The same data survives both plain GEDCOM and GEDZIP export/import. |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes |

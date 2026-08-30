@@ -1307,18 +1307,23 @@ impl MutationRoot {
         Ok(pages.into_iter().map(Into::into).collect())
     }
 
-    /// Detach a page, leaving it as an ordinary media.
+    /// Detach a page as ordinary media and remove its external relations.
     async fn detach_media_page(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
+        document_id: ID,
         page_id: ID,
     ) -> Result<GqlMedia> {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
+        let document_id = Uuid::parse_str(document_id.as_str())?;
         let page_id = Uuid::parse_str(page_id.as_str())?;
-        require_tree_resource(db, tid, TreeResource::Media, page_id).await?;
-        let page = MediaRepo::detach_page(db, page_id).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Media, document_id).await?;
+        require_tree_resource(&txn, tid, TreeResource::Media, page_id).await?;
+        let page = MediaRepo::detach_page(&txn, document_id, page_id).await?;
+        commit_tx(txn).await?;
         Ok(page.into())
     }
 

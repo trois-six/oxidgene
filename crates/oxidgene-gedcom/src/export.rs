@@ -2173,6 +2173,88 @@ mod tests {
     }
 
     #[test]
+    fn page_transcripts_remain_attached_to_their_pages_after_a_round_trip() {
+        let mut document = medium("Sample register", "image/jpeg", false);
+        document.is_document = true;
+        document.page_count = 2;
+
+        let mut first_page = medium("page-1.jpg", "image/jpeg", true);
+        first_page.parent_media_id = Some(document.id);
+        first_page.page_index = 0;
+        let mut second_page = medium("page-2.jpg", "image/jpeg", true);
+        second_page.parent_media_id = Some(document.id);
+        second_page.page_index = 1;
+        let notes = [
+            Note {
+                id: Uuid::now_v7(),
+                tree_id: first_page.tree_id,
+                text: "First page transcript".to_string(),
+                person_id: None,
+                event_id: None,
+                family_id: None,
+                source_id: None,
+                media_id: Some(first_page.id),
+                created_at: first_page.created_at,
+                updated_at: first_page.updated_at,
+                deleted_at: None,
+            },
+            Note {
+                id: Uuid::now_v7(),
+                tree_id: second_page.tree_id,
+                text: "Second page transcript".to_string(),
+                person_id: None,
+                event_id: None,
+                family_id: None,
+                source_id: None,
+                media_id: Some(second_page.id),
+                created_at: second_page.created_at,
+                updated_at: second_page.updated_at,
+                deleted_at: None,
+            },
+        ];
+        let rows = [document, second_page, first_page];
+
+        let export = export_gedcom(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &rows,
+            &[],
+            &[],
+            &notes,
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        for (file_name, expected) in [
+            ("page-1.jpg", "First page transcript"),
+            ("page-2.jpg", "Second page transcript"),
+        ] {
+            let media = back
+                .media
+                .iter()
+                .find(|media| media.file_name == file_name)
+                .expect("page is imported");
+            let note = back
+                .notes
+                .iter()
+                .find(|note| note.media_id == Some(media.id))
+                .expect("page transcript is imported");
+            assert_eq!(note.text, expected);
+        }
+    }
+
+    #[test]
     fn the_portrait_still_represents_the_person_after_a_round_trip() {
         // GEDCOM has no primary-photo flag, so the choice is carried by
         // *order*: our import takes a person's first picture when no portrait

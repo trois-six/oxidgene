@@ -638,6 +638,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         _ => None,
     };
 
+    let related_family_ids = match (&*snapshot_resource.read(), person_id_parsed()) {
+        (Some(Ok(snapshot)), Some(person_id)) => snapshot
+            .spouses
+            .iter()
+            .filter(|spouse| spouse.person_id == person_id)
+            .map(|spouse| spouse.family_id)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+
     // Which media document which event, for the whole tree, from the one
     // media-links call already in flight. Per-event fetching would be forty
     // requests on a full life; this is none.
@@ -1541,6 +1551,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 MediaGallery {
                     tree_id: media_tid,
                     owner: MediaOwner::Person(pid),
+                    related_family_ids: related_family_ids.clone(),
                     profile_event_links: media_event_links.clone(),
                     read_only: true,
                     external_revision: media_revision(),

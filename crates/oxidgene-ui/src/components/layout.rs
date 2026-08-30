@@ -4073,6 +4073,16 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .media-attachment-couple { color: var(--text-secondary); }
 
+    .media-relation-scope {
+        flex: 0 0 auto;
+        padding: 1px 4px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text-muted);
+        font-size: 0.65rem;
+        line-height: 1.2;
+    }
+
     .media-fact-tags {
         display: flex;
         flex-wrap: wrap;
