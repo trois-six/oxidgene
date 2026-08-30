@@ -133,6 +133,7 @@ pub struct ExportData {
 async fn batch_insert<E, A>(
     txn: &impl sea_orm::ConnectionTrait,
     models: Vec<A>,
+    on_inserted: &mut impl FnMut(usize),
 ) -> Result<(), OxidGeneError>
 where
     E: EntityTrait,
@@ -143,6 +144,7 @@ where
             .exec(txn)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        on_inserted(chunk.len());
     }
     Ok(())
 }
@@ -368,11 +370,19 @@ pub(crate) async fn persist_import_result(
     db: &DatabaseConnection,
     result: oxidgene_gedcom::ImportResult,
 ) -> Result<ImportSummary, OxidGeneError> {
+    persist_import_result_with_progress(db, result, |_| {}).await
+}
+
+pub(crate) async fn persist_import_result_with_progress(
+    db: &DatabaseConnection,
+    result: oxidgene_gedcom::ImportResult,
+    mut on_inserted: impl FnMut(usize),
+) -> Result<ImportSummary, OxidGeneError> {
     let txn = db
         .begin()
         .await
         .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-    let summary = persist_import_result_in(&txn, result).await?;
+    let summary = persist_import_result_in_with_progress(&txn, result, &mut on_inserted).await?;
     txn.commit()
         .await
         .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -382,6 +392,14 @@ pub(crate) async fn persist_import_result(
 pub(crate) async fn persist_import_result_in(
     db: &impl ConnectionTrait,
     result: oxidgene_gedcom::ImportResult,
+) -> Result<ImportSummary, OxidGeneError> {
+    persist_import_result_in_with_progress(db, result, &mut |_| {}).await
+}
+
+async fn persist_import_result_in_with_progress(
+    db: &impl ConnectionTrait,
+    result: oxidgene_gedcom::ImportResult,
+    on_inserted: &mut impl FnMut(usize),
 ) -> Result<ImportSummary, OxidGeneError> {
     let now = Utc::now();
 
@@ -400,7 +418,7 @@ pub(crate) async fn persist_import_result_in(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<place::Entity, _>(db, models).await?;
+        batch_insert::<place::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 2. Sources (no FKs to other imported entities)
@@ -421,7 +439,7 @@ pub(crate) async fn persist_import_result_in(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<source::Entity, _>(db, models).await?;
+        batch_insert::<source::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 3. Media (no FKs to other imported entities)
@@ -461,7 +479,7 @@ pub(crate) async fn persist_import_result_in(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<media::Entity, _>(db, models).await?;
+        batch_insert::<media::Entity, _>(db, models, on_inserted).await?;
 
         let mut seen_tags = std::collections::HashSet::new();
         let mut tags = Vec::new();
@@ -479,7 +497,7 @@ pub(crate) async fn persist_import_result_in(
                 }
             }
         }
-        batch_insert::<media_tag::Entity, _>(db, tags).await?;
+        batch_insert::<media_tag::Entity, _>(db, tags, &mut |_| {}).await?;
     }
 
     // 4. Persons (FK → tree)
@@ -499,7 +517,7 @@ pub(crate) async fn persist_import_result_in(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<person::Entity, _>(db, models).await?;
+        batch_insert::<person::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 5. Person names (FK → person)
@@ -523,7 +541,7 @@ pub(crate) async fn persist_import_result_in(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<person_name::Entity, _>(db, models).await?;
+        batch_insert::<person_name::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 6. Families (FK → tree)
@@ -540,7 +558,7 @@ pub(crate) async fn persist_import_result_in(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<family::Entity, _>(db, models).await?;
+        batch_insert::<family::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 7. Family spouses (FK → family, person)
@@ -556,7 +574,7 @@ pub(crate) async fn persist_import_result_in(
                 sort_order: Set(fs.sort_order),
             })
             .collect();
-        batch_insert::<family_spouse::Entity, _>(db, models).await?;
+        batch_insert::<family_spouse::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 8. Family children (FK → family, person)
@@ -572,7 +590,7 @@ pub(crate) async fn persist_import_result_in(
                 sort_order: Set(fc.sort_order),
             })
             .collect();
-        batch_insert::<family_child::Entity, _>(db, models).await?;
+        batch_insert::<family_child::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 9. Events (FK → tree, person?, family?, place?)
@@ -599,7 +617,7 @@ pub(crate) async fn persist_import_result_in(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<event::Entity, _>(db, models).await?;
+        batch_insert::<event::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 9b. Event witnesses (FK → event, person)
@@ -615,7 +633,7 @@ pub(crate) async fn persist_import_result_in(
                 sort_order: Set(w.sort_order),
             })
             .collect();
-        batch_insert::<event_witness::Entity, _>(db, models).await?;
+        batch_insert::<event_witness::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 10. Citations (FK → source, person?, event?, family?)
@@ -636,7 +654,7 @@ pub(crate) async fn persist_import_result_in(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<citation::Entity, _>(db, models).await?;
+        batch_insert::<citation::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 11. Media links (FK → media, person?, event?, source?, family?)
@@ -654,7 +672,7 @@ pub(crate) async fn persist_import_result_in(
                 sort_order: Set(ml.sort_order),
             })
             .collect();
-        batch_insert::<media_link::Entity, _>(db, models).await?;
+        batch_insert::<media_link::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 12. Vignettes (FK → media, person?, event?)
@@ -676,7 +694,7 @@ pub(crate) async fn persist_import_result_in(
                 updated_at: Set(now),
             })
             .collect();
-        batch_insert::<vignette::Entity, _>(db, models).await?;
+        batch_insert::<vignette::Entity, _>(db, models, on_inserted).await?;
     }
 
     // 13. Notes (FK → tree, person?, event?, family?, source?)
@@ -700,7 +718,7 @@ pub(crate) async fn persist_import_result_in(
                 deleted_at: Set(None),
             })
             .collect();
-        batch_insert::<note::Entity, _>(db, models).await?;
+        batch_insert::<note::Entity, _>(db, models, on_inserted).await?;
     }
 
     Ok(ImportSummary {

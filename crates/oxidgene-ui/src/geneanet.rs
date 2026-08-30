@@ -110,6 +110,8 @@ pub struct WindowStrings {
     pub reading_list: String,
     /// Shown while photos are being matched against the local archives.
     pub matching: String,
+    /// Shown when Geneanet returns a collection shape OxidGene cannot read.
+    pub invalid_collection: String,
     /// The line telling the user that closing the window cancels.
     pub cancel_hint: String,
     /// Shown once collection is done and the window is only being kept for the

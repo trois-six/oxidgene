@@ -301,6 +301,10 @@ impl Session {
         if let Some(events) = self.fetching.take() {
             let _ = events.unbounded_send(GeneanetEvent::FetchDone);
         }
+        // The session still owns the staged files until the backend has copied
+        // them for the import job, but it has no more browser work. Keeping the
+        // window visible at 100% makes the operation look unfinished.
+        self.window.set_visible(false);
     }
 
     /// Reports one fetched medium to whoever asked for the batch.
@@ -484,7 +488,20 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
             None
         }
         Message::Collected { data } => {
-            let ids = single_page_deposits(&data);
+            let ids = match single_page_deposits(&data) {
+                Ok(ids) => ids,
+                Err(reason) => {
+                    warn!(
+                        error = "collection_parse",
+                        %reason,
+                        "could not read the collection the Geneanet window produced"
+                    );
+                    let message = open.strings.invalid_collection.clone();
+                    let done = session.take()?;
+                    done.send(GeneanetEvent::Failed(message));
+                    return Some(done);
+                }
+            };
             open.collection = Some(data);
 
             if ids.is_empty() {
@@ -605,22 +622,17 @@ fn view_count(collection: &str) -> usize {
 /// Only single-page ones: a multi-page deposit downloads as a ZIP that
 /// Geneanet assembles on the fly and streams with no `Content-Length` at all,
 /// so there is no length to match an archive entry against.
-fn single_page_deposits(collection: &str) -> Vec<i64> {
-    match oxidgene_geneanet::manifest_from_collection(collection) {
-        Ok(manifest) => manifest
-            .deposits
-            .iter()
-            .filter(|deposit| deposit.views.len() == 1)
-            .map(|deposit| deposit.id)
-            .collect(),
-        Err(_) => {
-            warn!(
-                error = "collection_parse",
-                "could not read the collection the login window produced"
-            );
-            Vec::new()
-        }
-    }
+fn single_page_deposits(collection: &str) -> Result<Vec<i64>, String> {
+    oxidgene_geneanet::manifest_from_collection(collection)
+        .map(|manifest| {
+            manifest
+                .deposits
+                .iter()
+                .filter(|deposit| deposit.views.len() == 1)
+                .map(|deposit| deposit.id)
+                .collect()
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// Builds the login window and wires its scripts up.
@@ -809,12 +821,12 @@ mod tests {
             "view_references": {}
         }"#;
 
-        assert_eq!(single_page_deposits(collection), vec![1]);
+        assert_eq!(single_page_deposits(collection).unwrap(), vec![1]);
     }
 
     #[test]
-    fn an_unreadable_collection_measures_nothing_rather_than_panicking() {
-        assert!(single_page_deposits("not json").is_empty());
+    fn an_unreadable_collection_is_reported_before_preview() {
+        assert!(single_page_deposits("not json").is_err());
     }
 
     #[test]

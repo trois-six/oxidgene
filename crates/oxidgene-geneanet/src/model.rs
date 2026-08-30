@@ -6,7 +6,18 @@
 
 use std::collections::BTreeMap;
 
+use serde::Deserializer;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+
+fn deserialize_lossy_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| serde_json::from_value(value).ok()))
+}
 
 // ─── Wire types (what Geneanet sends) ───────────────────────────────────────
 
@@ -70,7 +81,7 @@ pub struct Reference {
     pub lastname: Option<String>,
     pub reference_extra_geneweb: Option<GenewebReference>,
     /// The event this media documents, when the media manager provides one.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_lossy_option")]
     pub event: Option<GeneanetEvent>,
     /// Where on the picture this person is, if the owner drew a box round them.
     ///
@@ -100,34 +111,43 @@ pub struct Face {
 
 /// The rectangle, as percentages of the picture's own width and height.
 ///
-/// Strings in the payload, and percentages rather than pixels — which is
-/// convenient, because it means the box survives being matched to whichever
-/// rendition or original we ended up storing.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Percentages rather than pixels, which means the box survives being matched
+/// to whichever rendition or original we ended up storing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FacePosition {
-    pub x1: String,
-    pub y1: String,
-    pub x2: String,
-    pub y2: String,
+    pub x1: f64,
+    pub y1: f64,
+    pub x2: f64,
+    pub y2: f64,
 }
 
 impl FacePosition {
     /// The rectangle in the pixels of an image of this size.
     ///
-    /// Returns `None` when the numbers do not parse or the box has no area —
-    /// a zero-width crop is not a region, and storing one would put an empty
-    /// rectangle on a photograph.
+    /// Returns `None` when the dimensions or coordinates are not finite and
+    /// positive, or the box has no area. The result is clamped to the image so
+    /// the viewer can always crop the stored rectangle without correcting it.
     #[must_use]
     pub fn to_pixels(&self, width: i32, height: i32) -> Option<(i32, i32, i32, i32)> {
-        let percent = |value: &str, of: i32| -> Option<i32> {
-            let fraction = value.parse::<f64>().ok()? / 100.0;
-            Some((fraction * f64::from(of)).round().clamp(0.0, f64::from(of)) as i32)
+        if width <= 0
+            || height <= 0
+            || ![self.x1, self.y1, self.x2, self.y2]
+                .into_iter()
+                .all(f64::is_finite)
+        {
+            return None;
+        }
+
+        let percent = |value: f64, of: i32| -> i32 {
+            ((value / 100.0) * f64::from(of))
+                .round()
+                .clamp(0.0, f64::from(of)) as i32
         };
 
-        let x1 = percent(&self.x1, width)?;
-        let y1 = percent(&self.y1, height)?;
-        let x2 = percent(&self.x2, width)?;
-        let y2 = percent(&self.y2, height)?;
+        let x1 = percent(self.x1, width);
+        let y1 = percent(self.y1, height);
+        let x2 = percent(self.x2, width);
+        let y2 = percent(self.y2, height);
 
         let (x, y) = (x1.min(x2), y1.min(y2));
         let (w, h) = ((x1 - x2).abs(), (y1 - y2).abs());
@@ -156,7 +176,7 @@ pub struct ReferenceEntry {
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub reference_extra_geneweb: Option<GenewebReference>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_lossy_option")]
     pub event: Option<GeneanetEvent>,
     #[serde(default)]
     pub face: Option<Face>,
@@ -540,6 +560,47 @@ mod tests {
     }
 
     #[test]
+    fn ignores_an_unrecognized_optional_event_shape() {
+        let collection: BrowserCollection = serde_json::from_str(
+            r#"{
+                "deposits": [{"id": 111, "views": [{"id": 222}]}],
+                "references": [
+                    {
+                        "deposit": {"id": 111, "views": [{"id": 222}]},
+                        "firstname": "person_a",
+                        "lastname": "BRANCH_A",
+                        "reference_extra_geneweb": {"ref": "branch_a|person_a|"},
+                        "event": []
+                    },
+                    {
+                        "deposit": {"id": 111, "views": [{"id": 222}]},
+                        "event": {
+                            "id": 333,
+                            "name": "birth",
+                            "type": "birth",
+                            "date": "1900",
+                            "location": "Example City"
+                        }
+                    }
+                ],
+                "view_references": {
+                    "111:222": [{
+                        "firstname": "person_a",
+                        "lastname": "BRANCH_A",
+                        "reference_extra_geneweb": {"ref": "branch_a|person_a|"},
+                        "event": {"date": "1900"}
+                    }]
+                }
+            }"#,
+        )
+        .expect("optional event enrichment must not reject the collection");
+
+        assert!(collection.references[0].event.is_none());
+        assert_eq!(collection.references[1].event.as_ref().unwrap().id, 333);
+        assert!(collection.view_references["111:222"][0].event.is_none());
+    }
+
+    #[test]
     fn counts_views_persons_and_unjoinable_references() {
         let deposits = vec![
             deposit(1, vec![view(10, 1), view(11, 2)]),
@@ -576,16 +637,48 @@ mod tests {
 
     #[test]
     fn a_face_box_converts_from_percentages_to_pixels() {
-        // Geneanet gives percentages as strings; a vignette wants pixels of
-        // the picture we actually stored.
+        // A vignette wants pixels of the picture we actually stored.
         let face = FacePosition {
-            x1: "10.0".into(),
-            y1: "20.0".into(),
-            x2: "60.0".into(),
-            y2: "70.0".into(),
+            x1: 10.0,
+            y1: 20.0,
+            x2: 60.0,
+            y2: 70.0,
         };
 
         assert_eq!(face.to_pixels(1000, 800), Some((100, 160, 500, 400)));
+    }
+
+    #[test]
+    fn a_face_box_decodes_numeric_coordinates_from_the_live_api() {
+        let face: FacePosition =
+            serde_json::from_str(r#"{"x1":5.698529411764706,"y1":20.0,"x2":60,"y2":70.5}"#)
+                .expect("numeric coordinates decode");
+
+        assert_eq!(face.to_pixels(1000, 800), Some((57, 160, 543, 404)));
+    }
+
+    #[test]
+    fn a_face_box_is_clamped_to_the_viewers_source_image() {
+        let face = FacePosition {
+            x1: -5.0,
+            y1: 10.0,
+            x2: 105.0,
+            y2: 90.0,
+        };
+
+        assert_eq!(face.to_pixels(1000, 800), Some((0, 80, 1000, 640)));
+    }
+
+    #[test]
+    fn a_non_finite_face_box_is_not_persisted_for_the_viewer() {
+        let face = FacePosition {
+            x1: f64::NAN,
+            y1: 10.0,
+            x2: 60.0,
+            y2: 70.0,
+        };
+
+        assert_eq!(face.to_pixels(1000, 800), None);
     }
 
     #[test]
@@ -594,10 +687,10 @@ mod tests {
         // negative width would be rejected by the crop validator, so the box
         // is normalised rather than trusted.
         let face = FacePosition {
-            x1: "60.0".into(),
-            y1: "70.0".into(),
-            x2: "10.0".into(),
-            y2: "20.0".into(),
+            x1: 60.0,
+            y1: 70.0,
+            x2: 10.0,
+            y2: 20.0,
         };
 
         assert_eq!(face.to_pixels(1000, 800), Some((100, 160, 500, 400)));
@@ -606,20 +699,12 @@ mod tests {
     #[test]
     fn a_face_box_with_no_area_is_not_a_region() {
         let flat = FacePosition {
-            x1: "10.0".into(),
-            y1: "20.0".into(),
-            x2: "10.0".into(),
-            y2: "70.0".into(),
+            x1: 10.0,
+            y1: 20.0,
+            x2: 10.0,
+            y2: 70.0,
         };
         assert_eq!(flat.to_pixels(1000, 800), None);
-
-        let unparseable = FacePosition {
-            x1: "a".into(),
-            y1: "20.0".into(),
-            x2: "60.0".into(),
-            y2: "70.0".into(),
-        };
-        assert_eq!(unparseable.to_pixels(1000, 800), None);
     }
 
     #[test]

@@ -619,6 +619,7 @@ fn GeneanetTab(
                     heading: i18n.t("geneanet.window_heading"),
                     reading_list: i18n.t("geneanet.step3_stage1"),
                     matching: i18n.t("geneanet.step3_stage2"),
+                    invalid_collection: i18n.t("geneanet.error_collection_invalid"),
                     cancel_hint: i18n.t("geneanet.window_cancel_hint"),
                     idle: i18n.t("geneanet.window_idle"),
                 },

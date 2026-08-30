@@ -44,7 +44,7 @@ impl PersonIndex {
 }
 
 /// One media file to attach to one person.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {
     /// Index into `GedcomData::individuals`.
     pub person: usize,
@@ -62,7 +62,7 @@ pub struct Attachment {
 }
 
 /// A reference that could not be attached, and why.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Unjoined {
     pub geneweb_ref: Option<String>,
     pub name: String,

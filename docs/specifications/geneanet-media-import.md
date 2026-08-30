@@ -36,10 +36,11 @@ live there too)
 
 The staging directory is created lazily under the operating system's temporary
 directory and belongs to the desktop login-window session. The session remains
-alive only until the embedded backend has durably copied every staged path and
-accepted the job. The UI then closes the window and removes its temporary
-directory while the worker runs independently. When archives cover every
-required medium, no gathered-media directory is needed.
+alive, with its window hidden after gathering, only until the embedded backend
+has durably copied every staged path and accepted the job. The UI then destroys
+the session and removes its temporary directory while the worker runs
+independently. When archives cover every required medium, no gathered-media
+directory is needed.
 
 ---
 
@@ -303,6 +304,10 @@ Authorized validation produced a manifest identical to a complete per-view
 walk while using paginated bulk requests plus probes only for multi-page
 deposits. Lower request volume reduces Cloudflare challenges, so this is a
 correctness property as much as a performance one.
+
+Face-box coordinates in these references are JSON numbers expressed as
+percentages of the image. OxidGene converts them to pixels only after the
+stored rendition's dimensions are known.
 
 ### `GET /media/download/?deposits[]={id}`
 
