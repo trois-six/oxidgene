@@ -1270,10 +1270,33 @@ async fn a_partial_page_order_is_refused() {
 #[tokio::test]
 async fn detaching_a_page_closes_the_gap_and_keeps_the_scan() {
     let h = setup().await;
+    let person_id = person(&h).await;
     let doc = document(&h, "Register").await;
     add_page(&h, &doc, "a.png").await;
     let middle = add_page(&h, &doc, "b.png").await;
     add_page(&h, &doc, "c.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media-links"),
+        Some(json!({"media_id": middle, "person_id": person_id, "sort_order": 0})),
+    )
+    .await;
+    let (_, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{middle}/vignettes"),
+        Some(json!({"x": 10, "y": 10, "width": 50, "height": 60, "person_id": person_id})),
+    )
+    .await;
+    json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"vignette_id": vignette["id"]})),
+    )
+    .await;
 
     let (status, detached) = json_request(
         &h.app,
@@ -1300,6 +1323,80 @@ async fn detaching_a_page_closes_the_gap_and_keeps_the_scan() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
+
+    let (_, links) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/media-links?media_id={middle}"),
+        None,
+    )
+    .await;
+    assert!(links.as_array().unwrap().is_empty(), "{links}");
+    let (_, vignettes) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/vignettes?person_id={person_id}"),
+        None,
+    )
+    .await;
+    assert!(vignettes.as_array().unwrap().is_empty(), "{vignettes}");
+    let (_, person) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/persons/{person_id}"),
+        None,
+    )
+    .await;
+    assert!(person["portrait_media_id"].is_null(), "{person}");
+    assert!(person["portrait_vignette_id"].is_null(), "{person}");
+}
+
+#[tokio::test]
+async fn deleting_a_simple_media_removes_all_attachments_and_identifications() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (media_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (_, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{media_id}/vignettes"),
+        Some(json!({"x": 10, "y": 10, "width": 50, "height": 60, "person_id": person_id})),
+    )
+    .await;
+    json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"vignette_id": vignette["id"]})),
+    )
+    .await;
+
+    let (status, _) = json_request(
+        &h.app,
+        Method::DELETE,
+        &format!("{base}/media/{media_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, gallery) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/media-links?entity_type=person&entity_id={person_id}"),
+        None,
+    )
+    .await;
+    assert!(gallery.as_array().unwrap().is_empty(), "{gallery}");
+    let (_, vignettes) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/vignettes?person_id={person_id}"),
+        None,
+    )
+    .await;
+    assert!(vignettes.as_array().unwrap().is_empty(), "{vignettes}");
 }
 
 // ── Media fields: date, place, URL, note ────────────────────────────

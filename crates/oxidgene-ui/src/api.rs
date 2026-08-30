@@ -2701,7 +2701,7 @@ impl ApiClient {
         Ok(pages)
     }
 
-    /// Detach a page. It survives as an ordinary media.
+    /// Detach a page as ordinary media and remove its external relations.
     pub async fn detach_media_page(
         &self,
         tree_id: Uuid,

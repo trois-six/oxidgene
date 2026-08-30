@@ -244,7 +244,15 @@ Displayed as a full-width card below the two-column layout.
 This uses the canonical `MediaGallery` rendered with `read_only: true`, not a
 second grid that looks similar. The ★ badge marks the profile image; a tile's
 ↗ opens the file. Editing takes place in the dedicated media manager rather
-than in the person form.
+than in the person form. The gallery combines media attached directly to the
+person, media attached to any couple in which the person is a spouse, and
+every vignette identifying that person. Direct and couple attachments are
+de-duplicated by media id. An identification is rendered as its cropped
+vignette rather than as the complete source image.
+Clicking an attachment or identification that targets one page of an assembled
+multi-page document opens the document viewer directly on that page, with the
+document pager and the surrounding pages available. This applies equally to a
+direct person attachment and to an attachment inherited from a conjugal family.
 
 Right-clicking a media tile opens **Link an event**, listing this person's own
 events and the events of their conjugal families. A linked event is removable
@@ -269,13 +277,18 @@ centered on each axis until it actually overflows on that axis; only then does
 the stage expose scrolling without making either edge unreachable. Its facts
 column keeps **Edit** and **Delete** as content-width actions on the same row.
 One compact target icon beside the zoom controls has the same square dimensions
-as those controls and opens the shared contextual menu for **Identify a
-person**, **Attach to a person**, and **Attach to a couple**. It remains
-immediately above the image on narrow screens. **Identify a person** starts
-drawing an identification region. Its instruction and source-pixel rectangle
+as those controls and opens the shared contextual menu. For an ordinary image,
+the menu offers **Identify a person**, **Attach to a person**, and **Attach to a
+couple**. For a multi-page document, it offers exactly five actions:
+**Identify a person**, **Attach the multi-page document to a person**, **Attach
+the multi-page document to a couple**, **Attach the page to a person**, and
+**Attach the page to a couple**. The two page actions target the page displayed
+when the person or couple is finally selected. It remains immediately above
+the image on narrow screens. **Identify a person** starts drawing an
+identification region on the displayed page. Its instruction and source-pixel rectangle
 readout use the same status-row typography and line box, so beginning a valid
 selection does not move the image vertically. **Attach to a person** links the
-whole displayed image without creating a vignette. **Attach to a couple** first
+selected whole document or displayed page without creating a vignette. **Attach to a couple** first
 searches for one person, then requires an explicit choice among that person's
 conjugal families before linking the whole image to the family. Both attachment
 actions detect an existing link and do not create duplicates. The facts column persistently lists
@@ -286,10 +299,34 @@ fixed five-row viewport; the previous control sits at its top and the next
 control at its bottom. They scroll that window by one row without making the
 facts column taller. The two relation types keep
 their distinct semantics: each attachment is a compact row with a `36 × 28 px` whole-image
-thumbnail, an ellipsized person or couple label, and a trailing remove control
-that deletes only that link. For a
-multi-page document, attachments target the currently displayed page;
-**Identify a person** likewise creates a region on that page. The facts column
+thumbnail, an ellipsized person or couple label, a **Document** or **Page N**
+scope badge on multi-page documents, and a trailing remove control that deletes
+only that link. An identification always carries the **Page N** badge. When the displayed page has a person
+identification and a whole-media attachment for the same person, the
+identification replaces the attachment in this list; both rows are never shown
+together. For a
+multi-page document, the list combines document-level attachments with those
+of the displayed page; **Identify a person** creates a region on that page. The facts column
+keeps the document's general note separate from the current page's transcript.
+It labels the latter with the displayed page number and reloads it when the
+pager moves. **Edit** changes both fields in one form but writes them to their
+respective media records: the document id for the general note and the page id
+for the transcript. Paging is disabled while that form contains unsaved edits.
+An empty transcript removes the page note.
+For an assembled multi-page document, the facts action row also exposes
+**Manage pages** independently from metadata editing. It opens a page strip in
+the viewer's facts column. Files selected or dropped on **Add pages** are
+appended in upload order; each existing page has move-up, move-down, and remove
+controls. Removing requires confirmation and detaches the page from the
+document without deleting its media record, stored bytes, or transcript. Every
+attachment, identification, and portrait reference targeting that page is
+removed. Remaining pages close the numbering gap and `page_count` is
+recomputed. Permanently deleting an ordinary single media applies the same
+relation cleanup before deleting its record and unshared stored objects. Every
+addition, move, or removal reloads the open viewer
+immediately; if the current last page is removed, the viewer clamps to the new
+last page.
+The facts column
 uses dense key/value rows without framed value boxes so its metadata and
 relations remain visible together. The **Edit** and
 **Delete** action group is centered in the facts column. Each identified person

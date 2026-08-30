@@ -447,9 +447,10 @@ impl MediaRepo {
         Self::list_pages(db, document_id).await
     }
 
-    /// Detach a page from its document, leaving it as an ordinary media.
+    /// Detach a page as an ordinary media and remove its external relations.
     pub async fn detach_page(
         db: &impl ConnectionTrait,
+        document_id: Uuid,
         page_id: Uuid,
     ) -> Result<Media, OxidGeneError> {
         let page = Entity::find_by_id(page_id)
@@ -461,7 +462,13 @@ impl MediaRepo {
                 entity: "Media",
                 id: page_id,
             })?;
-        let parent = page.parent_media_id;
+        if page.parent_media_id != Some(document_id) {
+            return Err(OxidGeneError::Validation(
+                "the media is not a page of this document".into(),
+            ));
+        }
+
+        delete_media_relations(db, &[page_id]).await?;
 
         let mut active: ActiveModel = page.into_active_model();
         active.parent_media_id = Set(None);
@@ -474,15 +481,13 @@ impl MediaRepo {
 
         // Close the gap the removed page left, or page 5 of a 4-page document
         // is a number the viewer has to special-case.
-        if let Some(parent) = parent {
-            let remaining: Vec<Uuid> = Self::list_pages(db, parent)
-                .await?
-                .into_iter()
-                .map(|p| p.id)
-                .collect();
-            Self::reorder_pages(db, parent, &remaining).await?;
-            Self::refresh_page_count(db, parent).await?;
-        }
+        let remaining: Vec<Uuid> = Self::list_pages(db, document_id)
+            .await?
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        Self::reorder_pages(db, document_id, &remaining).await?;
+        Self::refresh_page_count(db, document_id).await?;
         Ok(into_domain(result))
     }
 
@@ -671,15 +676,6 @@ impl MediaRepo {
         let mut media_ids = page_ids.clone();
         media_ids.push(id);
 
-        let vignette_ids: Vec<Uuid> = vignette::Entity::find()
-            .filter(vignette::Column::MediaId.is_in(media_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .into_iter()
-            .map(|vignette| vignette.id)
-            .collect();
-
         // Content-addressed files can be shared. Preserve a key as long as a
         // different active media record still points at it.
         let candidate_keys: HashSet<String> = std::iter::once(&root)
@@ -710,39 +706,9 @@ impl MediaRepo {
             .exec(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        media_link::Entity::delete_many()
-            .filter(media_link::Column::MediaId.is_in(media_ids.iter().copied()))
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        delete_media_relations(db, &media_ids).await?;
         note::Entity::delete_many()
             .filter(note::Column::MediaId.is_in(media_ids.iter().copied()))
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-        if !vignette_ids.is_empty() {
-            person::Entity::update_many()
-                .col_expr(
-                    person::Column::PortraitVignetteId,
-                    sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
-                )
-                .filter(person::Column::PortraitVignetteId.is_in(vignette_ids.iter().copied()))
-                .exec(db)
-                .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            vignette::Entity::delete_many()
-                .filter(vignette::Column::Id.is_in(vignette_ids))
-                .exec(db)
-                .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        }
-        person::Entity::update_many()
-            .col_expr(
-                person::Column::PortraitMediaId,
-                sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
-            )
-            .filter(person::Column::PortraitMediaId.is_in(media_ids.iter().copied()))
             .exec(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -837,6 +803,54 @@ impl MediaRepo {
         }
         Self::purge(db, id).await.map(Some)
     }
+}
+
+async fn delete_media_relations(
+    db: &impl ConnectionTrait,
+    media_ids: &[Uuid],
+) -> Result<(), OxidGeneError> {
+    let vignette_ids: Vec<Uuid> = vignette::Entity::find()
+        .filter(vignette::Column::MediaId.is_in(media_ids.iter().copied()))
+        .all(db)
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))?
+        .into_iter()
+        .map(|vignette| vignette.id)
+        .collect();
+
+    media_link::Entity::delete_many()
+        .filter(media_link::Column::MediaId.is_in(media_ids.iter().copied()))
+        .exec(db)
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+    if !vignette_ids.is_empty() {
+        person::Entity::update_many()
+            .col_expr(
+                person::Column::PortraitVignetteId,
+                sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
+            )
+            .filter(person::Column::PortraitVignetteId.is_in(vignette_ids.iter().copied()))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        vignette::Entity::delete_many()
+            .filter(vignette::Column::Id.is_in(vignette_ids))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+    }
+    person::Entity::update_many()
+        .col_expr(
+            person::Column::PortraitMediaId,
+            sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
+        )
+        .filter(person::Column::PortraitMediaId.is_in(media_ids.iter().copied()))
+        .exec(db)
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+    Ok(())
 }
 
 pub(crate) fn into_domain(m: media::Model) -> Media {

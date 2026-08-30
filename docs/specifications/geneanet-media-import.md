@@ -250,7 +250,8 @@ After the bulk references are known, OxidGene requests this detail endpoint for
 each distinct **linked** deposit, with at most four requests in flight. A failed
 detail request leaves the media importable; it only omits the optional
 enrichment. The response supplies the historical `date` and `location` that the
-paginated payload does not.
+paginated payload does not, plus the latest transcript associated with each
+view when Geneanet still exposes one.
 
 `date` is not retained as a source string. It is converted to the same four
 fields as every Event and Media date: `calendar`, `date_qualifier`,
@@ -264,6 +265,14 @@ then edit it without a Geneanet-specific path.
 case-insensitive name. A missing name creates one normal `Place`, and the
 resulting id is written to `Media.place_id`. The document and every one of its
 pages receive the same date and place metadata.
+
+`views[].last_transcript` is page-specific. Geneanet may return both its
+numeric `id` and string `content`, or retain only the `id` after the content has
+been cleared. OxidGene preserves either source shape in the collected manifest,
+but imports only non-empty content. It becomes a normal `Note` whose `media_id`
+is the exact page `Media.id`, never the multi-page document parent. Empty,
+absent, or malformed optional transcript data is ignored, and a note-write
+failure is reported without aborting the media import.
 
 #### Source provenance for future multi-user servers
 
@@ -309,6 +318,15 @@ Face-box coordinates in these references are JSON numbers expressed as
 percentages of the image. OxidGene converts them to pixels only after the
 stored rendition's dimensions are known.
 
+References and identifications remain separate concepts on import. Each
+distinct person or resolved event creates one `MediaLink` to the single image
+or, for a multi-page deposit, to the document parent. A reference carrying a
+`face.position` additionally creates a `Vignette` on the page media resolved
+from that reference's `viewId`. The same person can therefore have one
+document link and several page identifications. The viewer suppresses the
+whole-media person row whenever an identification for that person is visible,
+so this richer representation does not produce a duplicate relation in the UI.
+
 ### `GET /media/download/?deposits[]={id}`
 
 The original, byte for byte, verified identical to its data-archive copy.
@@ -322,7 +340,7 @@ The manifest materialises this as an `original` field **on each deposit** —
 derivable from the id, but written out so a consumer never has to know how to
 build it. Deposit-level on purpose: it is one image when `views` holds a single
 entry and a ZIP of every page when it holds several, and `views[].files` carries
-only downsized renditions. Putting it under `files` alongside `normal`/`medium`
+only per-page CDN variants. Putting it under `files` alongside `normal`/`medium`
 would hand a consumer a whole archive under a key that reads like a per-page
 image; `views.len()` is what says which of the two will arrive.
 
@@ -330,17 +348,23 @@ The trailing slash is not decoration: `/media/download` without it answers `301`
 to the same path *with* one, so omitting it doubles the request count of the
 whole download phase.
 
-### `normal` is not the original — verified 2026-08-16
+### `normal` is not an original-file contract — verified 2026-08-30
 
-`views[].files.{normal,medium,screen,thumbnail}` are generated renditions,
-re-encoded and downsized. Authorized original/rendition pairs established:
+`views[].files.{normal,medium,screen,thumbnail}` are CDN variants. Their names
+describe a size ladder, not provenance, and no API field says whether their
+bytes differ from the uploaded file. Authorized comparisons established:
 
 - **PDF pages are rewritten** from archive `.pdf` entries to CDN
   `normal.jpg` renditions. Tested image formats retained their extension. PDF
   pages therefore require rendering before perceptual comparison.
 - `normal` > `medium` > `screen` > `thumbnail` is a four-size ladder; even a
   220-px-wide original gets a `normal.jpg` — "normal" means "the largest
-  rendition", not "the file uploaded".
+  per-page variant", not a guarantee that it is the file uploaded.
+- For an authenticated two-page JPEG deposit, the direct deposit ZIP contained
+  two entries byte-for-byte identical to the corresponding `normal` variants.
+  Importers must therefore treat `normal` as provenance-unknown: it can be a
+  generated rendition or the same bytes Geneanet returns from the deposit
+  download.
 - No API object carries a byte size or content hash, and the hexadecimal CDN
   path component is not the original SHA-1. Size or hash matching is therefore
   impossible from API data alone; §5 uses a `HEAD` per deposit.
@@ -478,8 +502,15 @@ page and a manual bulk download may produce several archives.
 ### Multi-page deposits
 
 Their archive has no `Content-Length`, so pages cannot be size-matched. The
-default takes linked pages from their per-page `normal` rendition and reports
-that the imported bytes are a rendition.
+default fetches each linked page's `medium` rendition as the lightweight pHash
+sample and its `normal` rendition as the readable stored fallback. The pHash
+therefore decodes the smaller image, while a failed archive match does not
+degrade the imported page to thumbnail-like dimensions. Duplicate URLs are
+requested only once when one variant is absent and both choices converge.
+
+The stored fallback has CDN-rendition provenance. This remains true even when
+a direct deposit ZIP happens to contain identical bytes, because the API does
+not expose that equivalence before download.
 
 Before perceptual hashing, OxidGene reads the intrinsic dimensions of the
 downloaded renditions and archive candidates without decoding their pixels.
@@ -495,9 +526,11 @@ processors, rounded down. A machine with several processors always keeps at
 least one available for the desktop UI and the operating system. Media decoding
 retains its additional ceiling of eight concurrent images to bound peak memory.
 
-Fetching multi-page originals instead pulls each deposit archive and extracts
-pages by position because archive entries retain page order. This is more
-expensive but preserves readable document pages.
+An explicit multi-page original-fetch mode would have to pull each deposit
+archive and extract pages by position because archive entries retain page
+order. It must not assume that this is higher quality: observed deposit ZIPs
+can contain the same bytes as `normal`. The default therefore keeps the
+per-page `normal` requests, which avoid downloading and unpacking a whole ZIP.
 
 ## 6. Folding the key
 

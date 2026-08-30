@@ -22,13 +22,13 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::{EventType, Privacy};
 use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
-    MediaLinkRepo, MediaPatch, MediaRepo, PersonNamePieces, PersonNameRepo, PersonRepo, PlaceRepo,
-    TreeRepo, UploadedMedia, VignetteInput, VignetteRepo,
+    MediaLinkRepo, MediaPatch, MediaRepo, NoteRepo, PersonNamePieces, PersonNameRepo, PersonRepo,
+    PlaceRepo, TreeRepo, UploadedMedia, VignetteInput, VignetteRepo,
 };
 use oxidgene_geneanet::Manifest;
 use oxidgene_geneanet::archive::{ArchiveSet, LocalOriginals, PhashIndex};
 use oxidgene_geneanet::join::{self, UnjoinedReason};
-use oxidgene_geneanet::model::{GeneanetEvent, ManifestDeposit, ManifestView};
+use oxidgene_geneanet::model::{GeneanetEvent, GeneanetTranscript, ManifestDeposit, ManifestView};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -397,20 +397,20 @@ pub fn plan(
         }
 
         for view in pages_in_order(deposit) {
-            let url = if single {
-                original_url(deposit)
+            let urls = if single {
+                original_url(deposit).into_iter().collect()
             } else {
-                rendition_url(view)
+                rendition_urls(view)
             };
-            let Some(url) = url else { continue };
-
-            needed.push(NeededMedia {
-                deposit_id: deposit.id,
-                view_id: view.id,
-                page: view.page,
-                url,
-                original: single,
-            });
+            for url in urls {
+                needed.push(NeededMedia {
+                    deposit_id: deposit.id,
+                    view_id: view.id,
+                    page: view.page,
+                    url,
+                    original: single,
+                });
+            }
         }
     }
 
@@ -672,9 +672,6 @@ async fn attach_media(
                 ));
                 continue;
             };
-            if people.iter().any(|a| a.person_id == person_id) {
-                continue;
-            }
             // The `.gw` named one view as this person's portrait. Nothing else
             // knows which of their photos that is.
             let is_portrait = portraits
@@ -705,9 +702,6 @@ async fn attach_media(
             let Some(person_id) = isolated.get(&key).copied() else {
                 continue;
             };
-            if people.iter().any(|a| a.person_id == person_id) {
-                continue;
-            }
             people.push(Attached {
                 person_id,
                 is_portrait: false,
@@ -775,12 +769,12 @@ async fn attach_media(
             }
         }
 
-        for (order, attached) in people.into_iter().enumerate() {
+        for (order, (person_id, is_portrait)) in linked_people(&people).into_iter().enumerate() {
             let created = MediaLinkRepo::create(
                 db,
                 Uuid::now_v7(),
                 owner,
-                Some(attached.person_id),
+                Some(person_id),
                 None,
                 None,
                 None,
@@ -794,9 +788,7 @@ async fn attach_media(
                     // The portrait is a property of the person, so this
                     // writes the person rather than the link — one row, and
                     // "at most one portrait" needs no clearing pass.
-                    if attached.is_portrait
-                        && let Some(person_id) = link.person_id
-                    {
+                    if is_portrait && let Some(person_id) = link.person_id {
                         match PersonRepo::set_portrait(
                             db,
                             person_id,
@@ -813,16 +805,13 @@ async fn attach_media(
                 }
                 Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
             }
+        }
 
-            // The box Geneanet drew round this person. It is the only record
-            // of *which* face in a group photograph is whom, and a vignette is
-            // exactly that: a rectangle on a stored medium attributed to
-            // somebody.
-            if let Some(face) = &attached.face
-                && let Some(page_id) = pages.get(&attached.view_id).copied()
-            {
-                add_vignette(db, page_id, face, attached.person_id, summary).await;
-            }
+        // A person links to the document once, but every box remains on the
+        // exact page where Geneanet drew it. The same person may therefore
+        // have several identifications across a multi-page document.
+        for (page_id, face, person_id) in page_identifications(&people, &pages) {
+            add_vignette(db, page_id, face, person_id, summary).await;
         }
     }
 }
@@ -835,6 +824,37 @@ struct Attached {
     /// The page they were identified on.
     view_id: i64,
     face: Option<oxidgene_geneanet::model::FacePosition>,
+}
+
+fn linked_people(identifications: &[Attached]) -> Vec<(Uuid, bool)> {
+    let mut people: Vec<(Uuid, bool)> = Vec::new();
+    for identification in identifications {
+        if let Some((_, is_portrait)) = people
+            .iter_mut()
+            .find(|(person_id, _)| *person_id == identification.person_id)
+        {
+            *is_portrait |= identification.is_portrait;
+        } else {
+            people.push((identification.person_id, identification.is_portrait));
+        }
+    }
+    people
+}
+
+fn page_identifications<'a>(
+    identifications: &'a [Attached],
+    pages: &HashMap<i64, Uuid>,
+) -> Vec<(Uuid, &'a oxidgene_geneanet::model::FacePosition, Uuid)> {
+    identifications
+        .iter()
+        .filter_map(|identification| {
+            Some((
+                *pages.get(&identification.view_id)?,
+                identification.face.as_ref()?,
+                identification.person_id,
+            ))
+        })
+        .collect()
 }
 
 /// Imported events indexed by the people whose media may document them.
@@ -1171,6 +1191,19 @@ async fn prepare_single_pages(
             .await
             {
                 summary.media_count += 1;
+                import_transcript(
+                    db,
+                    tree_id,
+                    id,
+                    *deposit_id,
+                    *view_id,
+                    deposits
+                        .get(deposit_id)
+                        .and_then(|deposit| deposit.views.first())
+                        .and_then(|view| view.last_transcript.as_ref()),
+                    summary,
+                )
+                .await;
                 prepared.insert(*deposit_id, (id, HashMap::from([(*view_id, id)])));
             }
         }
@@ -1302,6 +1335,20 @@ async fn document(
                     stored += 1;
                     summary.media_count += 1;
                     pages.insert(*view_id, page_id);
+                    import_transcript(
+                        db,
+                        tree_id,
+                        page_id,
+                        deposit.id,
+                        *view_id,
+                        deposit
+                            .views
+                            .iter()
+                            .find(|view| view.id == *view_id)
+                            .and_then(|view| view.last_transcript.as_ref()),
+                        summary,
+                    )
+                    .await;
                 }
                 Err(err) => summary
                     .skipped
@@ -1749,6 +1796,47 @@ async fn write_media(
     }
 }
 
+async fn import_transcript(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    media_id: Uuid,
+    deposit_id: i64,
+    view_id: i64,
+    transcript: Option<&GeneanetTranscript>,
+    summary: &mut GeneanetImportSummary,
+) {
+    let Some(transcript) = transcript else {
+        return;
+    };
+    let content = transcript.content.trim();
+    if content.is_empty() {
+        return;
+    }
+
+    match NoteRepo::create(
+        db,
+        Uuid::now_v7(),
+        tree_id,
+        content.to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(media_id),
+    )
+    .await
+    {
+        Ok(_) => summary.notes_count += 1,
+        Err(error) => tracing::warn!(
+            deposit_id,
+            view_id,
+            transcript_id = transcript.id,
+            %error,
+            "could not import Geneanet transcript"
+        ),
+    }
+}
+
 /// Returns Geneanet's source creation timestamp when it is an RFC 3339 date.
 ///
 /// Collection data is intentionally lenient: a missing or malformed value
@@ -1968,6 +2056,7 @@ async fn resolve_bytes(
     }
 
     let rendition = rendition_url(view);
+    let stored_rendition = stored_rendition_url(view);
 
     // 2. Recognise it in the archive from its rendition.
     let sample = rendition
@@ -1990,6 +2079,11 @@ async fn resolve_bytes(
     // 3. Whatever the window fetched for this view, original preferred.
     if let Some(bytes) = original_url(deposit)
         .and_then(|url| read_fetched(fetched, &url))
+        .or_else(|| {
+            stored_rendition
+                .as_ref()
+                .and_then(|url| read_fetched(fetched, url))
+        })
         .or(sample)
     {
         return Ok(bytes);
@@ -2017,22 +2111,34 @@ fn original_url(deposit: &ManifestDeposit) -> Option<String> {
 
 /// Picks the rendition to fetch for a page.
 ///
-/// `medium`, not the largest. This is fetched to *recognise* the page in the
-/// archives, and a perceptual hash reduces whatever it is given to 32×32 — so
-/// the extra pixels of `normal` buy no accuracy and cost real bandwidth across
-/// every page of every document.
-///
-/// It is also what gets stored on the minority of pages the archives cannot
-/// account for, which is why this is not the smallest rendition either:
-/// `thumbnail` would be a poor thing to keep. §10 already records that a
-/// multi-page page arrives downsized whichever of these is chosen.
-///
-/// The fallbacks follow Geneanet's own size ladder — `normal` > `medium` >
-/// `screen` > `thumbnail` — from `medium` outwards, so a view missing one
-/// still yields the nearest thing to it. (An earlier list put `screen` ahead
-/// of `medium`, which is not the ladder's order.)
+/// `medium` keeps pHash decoding cheap: the hash reduces its input to 32x32,
+/// while decoding a `normal` page can involve millions of pixels. A separate
+/// `normal` request supplies the bytes retained when archive matching fails.
 fn rendition_url(view: &ManifestView) -> Option<String> {
-    for rendition in ["medium", "normal", "screen", "thumbnail"] {
+    rendition_url_in_order(view, ["medium", "normal", "screen", "thumbnail"])
+}
+
+/// Picks the best per-page rendition to retain when no archive entry matches.
+fn stored_rendition_url(view: &ManifestView) -> Option<String> {
+    rendition_url_in_order(view, ["normal", "medium", "screen", "thumbnail"])
+}
+
+/// Returns the distinct pHash sample and stored fallback URLs for one page.
+fn rendition_urls(view: &ManifestView) -> Vec<String> {
+    let mut urls = Vec::new();
+    for url in [rendition_url(view), stored_rendition_url(view)]
+        .into_iter()
+        .flatten()
+    {
+        if !urls.contains(&url) {
+            urls.push(url);
+        }
+    }
+    urls
+}
+
+fn rendition_url_in_order(view: &ManifestView, order: [&str; 4]) -> Option<String> {
+    for rendition in order {
         if let Some(path) = view.files.get(rendition) {
             // Manifest paths are host-relative and served from the gw
             // subdomain, not the www one the API lives on.
@@ -2072,6 +2178,7 @@ mod tests {
             id,
             page,
             files: BTreeMap::from([("normal".to_string(), "/a/b/normal.png".to_string())]),
+            last_transcript: None,
             references: Vec::new(),
         }
     }
@@ -2089,6 +2196,100 @@ mod tests {
             local_file: None,
             views,
         }
+    }
+
+    #[test]
+    fn one_person_keeps_identifications_on_several_document_pages() {
+        let person_id = Uuid::now_v7();
+        let first_page_id = Uuid::now_v7();
+        let second_page_id = Uuid::now_v7();
+        let identifications = vec![
+            Attached {
+                person_id,
+                is_portrait: false,
+                view_id: 222,
+                face: Some(oxidgene_geneanet::model::FacePosition {
+                    x1: 10.0,
+                    y1: 20.0,
+                    x2: 30.0,
+                    y2: 40.0,
+                }),
+            },
+            Attached {
+                person_id,
+                is_portrait: true,
+                view_id: 223,
+                face: Some(oxidgene_geneanet::model::FacePosition {
+                    x1: 50.0,
+                    y1: 60.0,
+                    x2: 70.0,
+                    y2: 80.0,
+                }),
+            },
+        ];
+        let pages = HashMap::from([(222, first_page_id), (223, second_page_id)]);
+
+        assert_eq!(linked_people(&identifications), vec![(person_id, true)]);
+        let targets = page_identifications(&identifications, &pages);
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].0, first_page_id);
+        assert_eq!(targets[0].2, person_id);
+        assert_eq!(targets[1].0, second_page_id);
+        assert_eq!(targets[1].2, person_id);
+    }
+
+    #[tokio::test]
+    async fn transcript_becomes_a_note_on_the_given_media_record() {
+        let db = oxidgene_db::repo::connect("sqlite::memory:")
+            .await
+            .expect("connects");
+        oxidgene_db::repo::run_migrations(&db)
+            .await
+            .expect("migrates");
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(&db, tree_id, "Sample tree".to_string(), None)
+            .await
+            .expect("creates tree");
+        let media_id = Uuid::now_v7();
+        MediaRepo::create_document(&db, media_id, tree_id, None, Utc::now())
+            .await
+            .expect("creates media");
+        let mut summary = GeneanetImportSummary::default();
+
+        import_transcript(
+            &db,
+            tree_id,
+            media_id,
+            111,
+            222,
+            Some(&GeneanetTranscript {
+                id: 333,
+                content: "  Page transcript  ".to_string(),
+            }),
+            &mut summary,
+        )
+        .await;
+        import_transcript(
+            &db,
+            tree_id,
+            media_id,
+            111,
+            223,
+            Some(&GeneanetTranscript {
+                id: 334,
+                content: String::new(),
+            }),
+            &mut summary,
+        )
+        .await;
+
+        let notes = NoteRepo::list_by_entity(&db, tree_id, None, None, None, None, Some(media_id))
+            .await
+            .expect("lists notes");
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].media_id, Some(media_id));
+        assert_eq!(notes[0].text, "Page transcript");
+        assert_eq!(summary.notes_count, 1);
     }
 
     #[test]
@@ -2489,6 +2690,40 @@ mod tests {
             rendition_url(&view(1, Some(1))).as_deref(),
             Some("https://gw.geneanet.org/a/b/normal.png")
         );
+    }
+
+    #[test]
+    fn phash_and_storage_use_separate_page_renditions() {
+        let mut page = view(1, Some(1));
+        page.files
+            .insert("medium".to_string(), "/a/b/medium.png".to_string());
+
+        assert_eq!(
+            rendition_url(&page).as_deref(),
+            Some("https://gw.geneanet.org/a/b/medium.png")
+        );
+        assert_eq!(
+            stored_rendition_url(&page).as_deref(),
+            Some("https://gw.geneanet.org/a/b/normal.png")
+        );
+        assert_eq!(
+            rendition_urls(&page),
+            vec![
+                "https://gw.geneanet.org/a/b/medium.png",
+                "https://gw.geneanet.org/a/b/normal.png"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_phash_rendition_does_not_duplicate_the_stored_fallback() {
+        let page = view(1, Some(1));
+
+        assert_eq!(
+            rendition_url(&page).as_deref(),
+            Some("https://gw.geneanet.org/a/b/normal.png")
+        );
+        assert_eq!(rendition_urls(&page).len(), 1);
     }
 
     #[test]

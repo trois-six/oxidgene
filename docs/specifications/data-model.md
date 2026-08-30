@@ -360,6 +360,12 @@ than to an error.
 | `family_id` | UUID v7? | FK → Family |
 | `sort_order` | i32 | For ordering |
 
+A link to the parent `Media` row attaches the complete multi-page document. A
+link to one of its child `Media` rows attaches that page only. The link needs no
+separate page column because a page is already a media in its own right. A
+`Vignette` remains page-specific and identifies a rectangular region of its
+page media.
+
 ### Note
 
 | Column | Type | Notes |
@@ -371,7 +377,7 @@ than to an error.
 | `event_id` | UUID v7? | FK → Event |
 | `family_id` | UUID v7? | FK → Family |
 | `source_id` | UUID v7? | FK → Source |
-| `media_id` | UUID v7? | FK → Media — a note *about a document* ("the left-hand column is water-damaged"), distinct from `Media.description`, which is the caption under its tile |
+| `media_id` | UUID v7? | FK → Media — a note about one media record, distinct from `Media.description`, which is the caption under its tile. On a multi-page document, the parent id carries the general document note while a page id carries that page's transcript. |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

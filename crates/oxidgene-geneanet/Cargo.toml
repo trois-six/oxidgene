@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+phash-validation = ["dep:jpeg-decoder"]
+
 [dependencies]
 anyhow = { workspace = true }
 oxidgene-core = { workspace = true }
@@ -17,10 +20,19 @@ geneweb = { workspace = true }
 # Decoding archive entries and renditions so they can be perceptually hashed
 # (see `phash`). Already in the tree for media thumbnails.
 image = { workspace = true }
+jpeg-decoder = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 unicode-normalization = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
+jpeg-decoder = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
+zune-core = { workspace = true }
+zune-jpeg = { workspace = true }
+
+[[test]]
+name = "phash_separation"
+path = "tests/phash_separation.rs"
+required-features = ["phash-validation"]

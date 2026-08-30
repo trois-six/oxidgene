@@ -138,6 +138,11 @@ impl MediaOwner {
 pub struct MediaGalleryProps {
     pub tree_id: Uuid,
     pub owner: MediaOwner,
+    /// Family-owned media to include in a person's read-only profile gallery.
+    /// The manager leaves this empty so edits remain scoped to its explicit
+    /// owner rather than silently changing a couple from a person's modal.
+    #[props(default)]
+    pub related_family_ids: Vec<Uuid>,
     /// Events a media or a crop may be attached to, as (id, label) pairs.
     #[props(default)]
     pub events: Vec<(Uuid, String)>,
@@ -181,6 +186,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let profile_event_links = props.profile_event_links.clone();
     let read_only = props.read_only;
     let compact = props.compact;
+    let related_family_ids = props.related_family_ids.clone();
     let mut external_revision = use_signal(|| props.external_revision);
     if *external_revision.peek() != props.external_revision {
         external_revision.set(props.external_revision);
@@ -250,8 +256,32 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     });
     let mut editing = use_signal(|| None::<Uuid>);
     let mut cropping = use_signal(|| None::<MediaWithLink>);
-    let mut viewing = use_signal(|| None::<MediaWithLink>);
+    let mut viewing = use_signal(|| None::<MediaViewerSelection>);
     let mut error = use_signal(|| None::<String>);
+
+    let open_viewer = use_callback({
+        let api = api.clone();
+        move |mut tile: MediaWithLink| {
+            let api = api.clone();
+            spawn(async move {
+                let (viewer_media_id, initial_page) = viewer_target(
+                    tile.media.id,
+                    tile.media.parent_media_id,
+                    tile.media.page_index,
+                );
+                if viewer_media_id != tile.media.id {
+                    match api.get_media(tree_id, viewer_media_id).await {
+                        Ok(document) => tile.media = document,
+                        Err(err) => {
+                            error.set(Some(err.to_string()));
+                            return;
+                        }
+                    }
+                }
+                viewing.set(Some(MediaViewerSelection { tile, initial_page }));
+            });
+        }
+    });
 
     // Props are not reactive: a `use_resource` closure captures them once, so
     // navigating straight from one person to another re-renders the gallery
@@ -259,9 +289,9 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     // is not only stale, it is somebody else's photographs. Mirroring the prop
     // into a signal makes the read inside the resource reactive, which is what
     // re-runs it — the same shape `person_detail` uses for its person id.
-    let mut showing = use_signal(|| (tree_id, owner));
-    if *showing.peek() != (tree_id, owner) {
-        showing.set((tree_id, owner));
+    let mut showing = use_signal(|| (tree_id, owner, related_family_ids.clone()));
+    if *showing.peek() != (tree_id, owner, related_family_ids.clone()) {
+        showing.set((tree_id, owner, related_family_ids));
     }
 
     let tiles = use_resource({
@@ -270,10 +300,28 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             let api = api.clone();
             let _ = revision();
             let _ = external_revision();
-            let (tree_id, owner) = showing();
+            let (tree_id, owner, related_family_ids) = showing();
             async move {
-                api.list_entity_media(tree_id, owner.entity_type(), owner.id())
-                    .await
+                let mut items = api
+                    .list_entity_media(tree_id, owner.entity_type(), owner.id())
+                    .await?;
+                let family_results = futures_util::future::join_all(
+                    related_family_ids
+                        .into_iter()
+                        .map(|family_id| api.list_entity_media(tree_id, "family", family_id)),
+                )
+                .await;
+                for family_items in family_results {
+                    for item in family_items? {
+                        if !items
+                            .iter()
+                            .any(|existing| existing.media.id == item.media.id)
+                        {
+                            items.push(item);
+                        }
+                    }
+                }
+                Ok::<Vec<MediaWithLink>, ApiError>(items)
             }
         }
     });
@@ -363,7 +411,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                         editing.set(if editing() == Some(id) { None } else { Some(id) });
                     },
                     on_crop: move |tile: MediaWithLink| cropping.set(Some(tile)),
-                    on_view: move |tile: MediaWithLink| viewing.set(Some(tile)),
+                    on_view: move |tile: MediaWithLink| open_viewer.call(tile),
                     on_changed: move |_| changed.call(()),
                 }
             }
@@ -374,7 +422,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     vignette: vignette.clone(),
                     person_id: portrait_owner,
                     is_portrait: portrait_vignette_id == Some(vignette.id),
-                    on_view: move |tile| viewing.set(Some(tile)),
+                    on_view: move |tile| open_viewer.call(tile),
                     on_changed: move |()| changed.call(()),
                 }
             }
@@ -403,7 +451,12 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
 
         // A reader looking at a person with no photographs should be told so,
         // not left with an empty rectangle that could equally mean "loading".
-        if !compact && read_only && items.is_empty() && tiles.read_unchecked().is_some() {
+        if !compact
+            && read_only
+            && items.is_empty()
+            && person_vignettes.is_empty()
+            && tiles.read_unchecked().is_some()
+        {
             div { class: "media-empty", {use_i18n().t("media.none")} }
         }
 
@@ -421,10 +474,11 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             }
         }
 
-        if let Some(tile) = viewing() {
+        if let Some(selection) = viewing() {
             MediaViewer {
                 tree_id,
-                tile,
+            tile: selection.tile,
+            initial_page: selection.initial_page,
                 events: events.clone(),
                 read_only,
                 on_changed: move |()| changed.call(()),
@@ -1118,11 +1172,47 @@ fn VignetteTile(
 
 // ── Inline edit panel ───────────────────────────────────────────────
 
+async fn save_media_note(
+    api: &ApiClient,
+    tree_id: Uuid,
+    media_id: Uuid,
+    note_id: Option<Uuid>,
+    text: String,
+) -> Result<Option<Uuid>, ApiError> {
+    match (note_id, text.is_empty()) {
+        (None, true) => Ok(None),
+        (None, false) => api
+            .create_note(
+                tree_id,
+                &CreateNoteBody {
+                    text,
+                    person_id: None,
+                    event_id: None,
+                    family_id: None,
+                    source_id: None,
+                    media_id: Some(media_id),
+                },
+            )
+            .await
+            .map(|note| Some(note.id)),
+        (Some(id), true) => {
+            api.delete_note(tree_id, id).await?;
+            Ok(None)
+        }
+        (Some(id), false) => api
+            .update_note(tree_id, id, &UpdateNoteBody { text: Some(text) })
+            .await
+            .map(|_| Some(id)),
+    }
+}
+
 #[component]
 fn MediaEditPanel(
     tree_id: Uuid,
     tile: MediaWithLink,
     events: Vec<(Uuid, String)>,
+    #[props(default)] page_note_media_id: Option<Uuid>,
+    #[props(default)] page_number: Option<usize>,
     /// Rendered inside the viewer's own frame, which already names the file
     /// and offers a way out — so the panel's head would be a second title and
     /// a second close button for the same thing.
@@ -1161,10 +1251,12 @@ fn MediaEditPanel(
     let mut note_text = use_signal(String::new);
     let mut note_id = use_signal(|| None::<Uuid>);
     let mut loaded_note = use_signal(|| false);
+    let mut page_note_text = use_signal(String::new);
+    let mut page_note_id = use_signal(|| None::<Uuid>);
+    let mut loaded_page_note = use_signal(|| false);
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut link_revision = use_signal(|| 0_u32);
-    let mut page_revision = use_signal(|| 0_u32);
 
     let places = use_resource({
         let api = api.clone();
@@ -1183,6 +1275,21 @@ fn MediaEditPanel(
             async move {
                 api.list_notes(tree_id, None, None, None, None, Some(media_id))
                     .await
+            }
+        }
+    });
+    let page_notes = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move {
+                match page_note_media_id {
+                    Some(page_id) => api
+                        .list_notes(tree_id, None, None, None, None, Some(page_id))
+                        .await
+                        .map(Some),
+                    None => Ok(None),
+                }
             }
         }
     });
@@ -1208,6 +1315,15 @@ fn MediaEditPanel(
             note_id.set(Some(first.id));
         }
         loaded_note.set(true);
+    }
+    if !loaded_page_note()
+        && let Some(Ok(Some(list))) = &*page_notes.read_unchecked()
+    {
+        if let Some(first) = list.first() {
+            page_note_text.set(first.text.clone());
+            page_note_id.set(Some(first.id));
+        }
+        loaded_page_note.set(true);
     }
 
     let place_options: Vec<(String, String)> = match &*places.read_unchecked() {
@@ -1271,10 +1387,12 @@ fn MediaEditPanel(
             let url_value = url().trim().to_string();
             let place_value = Uuid::parse_str(place_id().trim()).ok();
             let note_value = note_text().trim().to_string();
+            let page_note_value = page_note_text().trim().to_string();
             let privacy_value = privacy();
             let medium_value = source_media_type();
             let category_value = document_category();
             let existing_note = note_id();
+            let existing_page_note = page_note_id();
             let resolved = date_parts().resolved();
             spawn(async move {
                 saving.set(true);
@@ -1301,45 +1419,20 @@ fn MediaEditPanel(
                 };
                 let outcome = api.update_media(tree_id, media_id, &body).await;
 
-                // The note is its own row, so it is its own write: created when
-                // there was none, deleted when the field is emptied, updated
-                // otherwise.
-                let note_outcome = match (existing_note, note_value.is_empty()) {
-                    (None, true) => Ok(()),
-                    (None, false) => api
-                        .create_note(
-                            tree_id,
-                            &CreateNoteBody {
-                                text: note_value,
-                                person_id: None,
-                                event_id: None,
-                                family_id: None,
-                                source_id: None,
-                                media_id: Some(media_id),
-                            },
-                        )
+                let note_outcome =
+                    save_media_note(&api, tree_id, media_id, existing_note, note_value)
                         .await
-                        .map(|note| note_id.set(Some(note.id))),
-                    (Some(id), true) => {
-                        let result = api.delete_note(tree_id, id).await;
-                        if result.is_ok() {
-                            note_id.set(None);
-                        }
-                        result
+                        .map(|saved_id| note_id.set(saved_id));
+                let page_note_outcome = match page_note_media_id {
+                    Some(page_id) => {
+                        save_media_note(&api, tree_id, page_id, existing_page_note, page_note_value)
+                            .await
+                            .map(|saved_id| page_note_id.set(saved_id))
                     }
-                    (Some(id), false) => api
-                        .update_note(
-                            tree_id,
-                            id,
-                            &UpdateNoteBody {
-                                text: Some(note_value),
-                            },
-                        )
-                        .await
-                        .map(|_| ()),
+                    None => Ok(()),
                 };
 
-                match outcome.map(|_| ()).and(note_outcome) {
+                match outcome.map(|_| ()).and(note_outcome).and(page_note_outcome) {
                     Ok(()) => {
                         on_changed.call(());
                         on_close.call(());
@@ -1604,6 +1697,22 @@ fn MediaEditPanel(
                     oninput: move |e: Event<FormData>| note_text.set(e.value()),
                 }
             }
+            if page_note_media_id.is_some() {
+                div { class: "form-group",
+                    label {
+                        {i18n.t_args(
+                            "media.page_transcript",
+                            &[("page", &page_number.unwrap_or(1).to_string())],
+                        )}
+                    }
+                    textarea {
+                        rows: 6,
+                        value: "{page_note_text}",
+                        placeholder: i18n.t("media.page_transcript_placeholder"),
+                        oninput: move |e: Event<FormData>| page_note_text.set(e.value()),
+                    }
+                }
+            }
 
             // No source field, and that is deliberate: a media *is* a source
             // document. Asking which source backs a scan of a parish register
@@ -1631,23 +1740,6 @@ fn MediaEditPanel(
                                 }
                             }
                         }
-                    }
-                }
-            }
-
-            // A document's pages. Its own upload cell, because a page is
-            // uploaded *into* the document rather than into the gallery.
-            if tile.media.is_document {
-                div { class: "media-panel-section",
-                    label { {i18n.t("media.pages")} }
-                    p { class: "pf-ns-hint", {i18n.t("media.pages_hint")} }
-                    DocumentPages {
-                        tree_id,
-                        document_id: media_id,
-                        on_changed: move |_| {
-                            page_revision += 1;
-                            on_changed.call(());
-                        },
                     }
                 }
             }
@@ -1688,6 +1780,8 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
     let api = use_context::<ApiClient>();
     let mut revision = use_signal(|| 0_u32);
     let mut error = use_signal(|| None::<String>);
+    let mut pending_detach = use_signal(|| None::<Uuid>);
+    let mut detaching = use_signal(|| false);
 
     let pages = use_resource({
         let api = api.clone();
@@ -1731,16 +1825,23 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
 
     let detach = use_callback({
         let api = api.clone();
-        move |page_id: Uuid| {
+        move |()| {
+            let Some(page_id) = pending_detach() else {
+                return;
+            };
             let api = api.clone();
             spawn(async move {
+                detaching.set(true);
+                error.set(None);
                 match api.detach_media_page(tree_id, document_id, page_id).await {
                     Ok(_) => {
+                        pending_detach.set(None);
                         revision += 1;
                         on_changed.call(());
                     }
                     Err(e) => error.set(Some(e.to_string())),
                 }
+                detaching.set(false);
             });
         }
     });
@@ -1785,7 +1886,7 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                                     class: "pf-row-btn is-danger",
                                     r#type: "button",
                                     title: i18n.t("media.page_detach"),
-                                    onclick: move |_| detach.call(page_id),
+                                    onclick: move |_| pending_detach.set(Some(page_id)),
                                     "\u{2715}"
                                 }
                             }
@@ -1807,6 +1908,20 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
         }
         if let Some(err) = error() {
             div { class: "error-msg", "{err}" }
+        }
+        if pending_detach().is_some() {
+            ConfirmDialog {
+                title: i18n.t("media.page_detach_title"),
+                message: i18n.t("media.page_detach_message"),
+                confirm_label: i18n.t("media.page_detach"),
+                busy: detaching(),
+                error: error(),
+                on_confirm: move |()| detach.call(()),
+                on_cancel: move |()| {
+                    error.set(None);
+                    pending_detach.set(None);
+                },
+            }
         }
     }
 }
@@ -1840,7 +1955,10 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
 fn MediaFacts(
     tree_id: Uuid,
     media: oxidgene_core::types::Media,
-    attachment_media_id: Uuid,
+    page_note_media_id: Option<Uuid>,
+    page_number: Option<usize>,
+    displayed_media_id: Uuid,
+    document_media_id: Option<Uuid>,
     attachment_revision: u32,
     tags: Vec<String>,
     vignettes: Vec<Vignette>,
@@ -1861,6 +1979,21 @@ fn MediaFacts(
                 api.list_notes(tree_id, None, None, None, None, Some(media_id))
                     .await
                     .ok()
+            }
+        }
+    });
+    let page_notes = use_resource({
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move {
+                match page_note_media_id {
+                    Some(page_id) => api
+                        .list_notes(tree_id, None, None, None, None, Some(page_id))
+                        .await
+                        .ok(),
+                    None => None,
+                }
             }
         }
     });
@@ -1892,6 +2025,11 @@ fn MediaFacts(
         .as_ref()
         .and_then(|n| n.as_ref())
         .and_then(|list| list.first().map(|n| n.text.clone()));
+    let page_note = page_notes
+        .read_unchecked()
+        .as_ref()
+        .and_then(|notes| notes.as_ref())
+        .and_then(|list| list.first().map(|note| note.text.clone()));
     // Every field is listed, set or not. Omitting the empty ones was tidier
     // and told the reader nothing: a scan with no date looked identical to a
     // viewer that could not record one, so the feature read as missing rather
@@ -1943,11 +2081,23 @@ fn MediaFacts(
                 prose: true,
             }
             MediaFact { label: i18n.t("media.note"), value: note, prose: true }
+            if page_note_media_id.is_some() {
+                MediaFact {
+                    label: i18n.t_args(
+                        "media.page_transcript",
+                        &[("page", &page_number.unwrap_or(1).to_string())],
+                    ),
+                    value: page_note,
+                    prose: true,
+                }
+            }
 
             MediaRelations {
                 key: "{attachment_revision}",
                 tree_id,
-                media_id: attachment_media_id,
+                displayed_media_id,
+                document_media_id,
+                page_number,
                 vignettes,
                 person_names,
                 on_attachments_changed: on_changed,
@@ -1999,11 +2149,15 @@ enum MediaRelation {
         link_id: Uuid,
         person_id: Uuid,
         name: String,
+        scope: MediaAttachmentScope,
+        thumbnail_media_id: Uuid,
     },
     CoupleAttachment {
         link_id: Uuid,
         family_id: Uuid,
         label: String,
+        scope: MediaAttachmentScope,
+        thumbnail_media_id: Uuid,
     },
     Identification {
         vignette_id: Uuid,
@@ -2020,7 +2174,9 @@ fn has_person_identification(vignettes: &[Vignette], person_id: Uuid) -> bool {
 #[component]
 fn MediaRelations(
     tree_id: Uuid,
-    media_id: Uuid,
+    displayed_media_id: Uuid,
+    document_media_id: Option<Uuid>,
+    page_number: Option<usize>,
     vignettes: Vec<Vignette>,
     person_names: Vec<PersonName>,
     on_attachments_changed: EventHandler<()>,
@@ -2041,7 +2197,23 @@ fn MediaRelations(
             let api = api.clone();
             let _ = revision();
             async move {
-                let links = api.list_media_links_of(tree_id, media_id).await.ok()?;
+                let mut links = Vec::new();
+                if let Some(document_media_id) = document_media_id {
+                    links.extend(
+                        api.list_media_links_of(tree_id, document_media_id)
+                            .await
+                            .ok()?
+                            .into_iter()
+                            .map(|link| (MediaAttachmentScope::Document, link)),
+                    );
+                }
+                links.extend(
+                    api.list_media_links_of(tree_id, displayed_media_id)
+                        .await
+                        .ok()?
+                        .into_iter()
+                        .map(|link| (MediaAttachmentScope::Page, link)),
+                );
                 let snapshot = api.get_tree_snapshot(tree_id).await.ok()?;
                 Some((links, snapshot))
             }
@@ -2050,7 +2222,7 @@ fn MediaRelations(
     let data = data.read_unchecked();
     let mut relations = Vec::new();
     if let Some(Some((links, snapshot))) = data.as_ref() {
-        for link in links.iter().filter(|link| {
+        for (scope, link) in links.iter().filter(|(_, link)| {
             link.person_id
                 .is_some_and(|person_id| !has_person_identification(&vignettes, person_id))
         }) {
@@ -2060,8 +2232,9 @@ fn MediaRelations(
                     relation,
                     MediaRelation::PersonAttachment {
                         person_id: attached_id,
+                        scope: attached_scope,
                         ..
-                    } if *attached_id == person_id
+                    } if *attached_id == person_id && attached_scope == scope
                 )
             }) {
                 continue;
@@ -2071,19 +2244,22 @@ fn MediaRelations(
                     link_id: link.id,
                     person_id,
                     name,
+                    scope: *scope,
+                    thumbnail_media_id: displayed_media_id,
                 });
             }
         }
 
-        for link in links.iter().filter(|link| link.family_id.is_some()) {
+        for (scope, link) in links.iter().filter(|(_, link)| link.family_id.is_some()) {
             let family_id = link.family_id.expect("filtered family link");
             if relations.iter().any(|relation| {
                 matches!(
                     relation,
                     MediaRelation::CoupleAttachment {
                         family_id: attached_id,
+                        scope: attached_scope,
                         ..
-                    } if *attached_id == family_id
+                    } if *attached_id == family_id && attached_scope == scope
                 )
             }) {
                 continue;
@@ -2103,6 +2279,8 @@ fn MediaRelations(
                 link_id: link.id,
                 family_id,
                 label: i18n.t_args("media.attached_couple", &[("people", &people)]),
+                scope: *scope,
+                thumbnail_media_id: displayed_media_id,
             });
         }
     }
@@ -2173,11 +2351,17 @@ fn MediaRelations(
                 div { class: "media-relation-list",
                     for relation in visible_relations {
                         match relation {
-                            MediaRelation::PersonAttachment { link_id, person_id, name } => rsx! {
-                                div { key: "person-{person_id}", class: "media-vignette-item",
+                            MediaRelation::PersonAttachment {
+                                link_id,
+                                person_id,
+                                name,
+                                scope,
+                                thumbnail_media_id,
+                            } => rsx! {
+                                div { key: "person-{link_id}", class: "media-vignette-item",
                                     PrivateThumbnail {
                                         tree_id,
-                                        media_id,
+                                        media_id: thumbnail_media_id,
                                         alt: String::new(),
                                         class: "media-vignette-thumbnail",
                                     }
@@ -2189,6 +2373,17 @@ fn MediaRelations(
                                         class: "media-identification-person",
                                         "{name}"
                                     }
+                                    if document_media_id.is_some() {
+                                        span { class: "media-relation-scope",
+                                            {match scope {
+                                                MediaAttachmentScope::Document => i18n.t("media.scope_document"),
+                                                MediaAttachmentScope::Page => i18n.t_args(
+                                                    "media.scope_page",
+                                                    &[("page", &page_number.unwrap_or(1).to_string())],
+                                                ),
+                                            }}
+                                        }
+                                    }
                                     button {
                                         class: "media-identification-delete",
                                         r#type: "button",
@@ -2199,15 +2394,32 @@ fn MediaRelations(
                                     }
                                 }
                             },
-                            MediaRelation::CoupleAttachment { link_id, family_id, label } => rsx! {
-                                div { key: "family-{family_id}", class: "media-vignette-item",
+                            MediaRelation::CoupleAttachment {
+                                link_id,
+                                family_id: _,
+                                label,
+                                scope,
+                                thumbnail_media_id,
+                            } => rsx! {
+                                div { key: "family-{link_id}", class: "media-vignette-item",
                                     PrivateThumbnail {
                                         tree_id,
-                                        media_id,
+                                        media_id: thumbnail_media_id,
                                         alt: String::new(),
                                         class: "media-vignette-thumbnail",
                                     }
                                     span { class: "media-attachment-couple", "{label}" }
+                                    if document_media_id.is_some() {
+                                        span { class: "media-relation-scope",
+                                            {match scope {
+                                                MediaAttachmentScope::Document => i18n.t("media.scope_document"),
+                                                MediaAttachmentScope::Page => i18n.t_args(
+                                                    "media.scope_page",
+                                                    &[("page", &page_number.unwrap_or(1).to_string())],
+                                                ),
+                                            }}
+                                        }
+                                    }
                                     button {
                                         class: "media-identification-delete",
                                         r#type: "button",
@@ -2234,6 +2446,14 @@ fn MediaRelations(
                                             }
                                             if let Some(name) = name.as_ref() {
                                                 span { class: "media-identification-person", "{name}" }
+                                            }
+                                            if document_media_id.is_some() {
+                                                span { class: "media-relation-scope",
+                                                    {i18n.t_args(
+                                                        "media.scope_page",
+                                                        &[("page", &page_number.unwrap_or(1).to_string())],
+                                                    )}
+                                                }
                                             }
                                         }
                                         if name.is_some() {
@@ -2423,6 +2643,12 @@ enum MediaAttachmentMode {
     CoupleFamily,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MediaAttachmentScope {
+    Document,
+    Page,
+}
+
 #[derive(Clone, PartialEq)]
 struct MediaFamilyChoice {
     family_id: Uuid,
@@ -2433,6 +2659,17 @@ struct MediaFamilyChoice {
 enum MediaAttachmentTarget {
     Person(Uuid),
     Family(Uuid),
+}
+
+fn attachment_media_id(
+    scope: MediaAttachmentScope,
+    document_media_id: Uuid,
+    displayed_media_id: Uuid,
+) -> Uuid {
+    match scope {
+        MediaAttachmentScope::Document => document_media_id,
+        MediaAttachmentScope::Page => displayed_media_id,
+    }
 }
 
 async fn attach_media_to(
@@ -2493,10 +2730,24 @@ fn primary_person_name(names: &[PersonName], person_id: Uuid) -> Option<String> 
         .filter(|name| !name.is_empty())
 }
 
+#[derive(Clone, PartialEq)]
+struct MediaViewerSelection {
+    tile: MediaWithLink,
+    initial_page: usize,
+}
+
+fn viewer_target(media_id: Uuid, parent_media_id: Option<Uuid>, page_index: i32) -> (Uuid, usize) {
+    match parent_media_id {
+        Some(document_id) => (document_id, page_index.max(0) as usize),
+        None => (media_id, 0),
+    }
+}
+
 #[component]
 fn MediaViewer(
     tree_id: Uuid,
     tile: MediaWithLink,
+    initial_page: usize,
     events: Vec<(Uuid, String)>,
     read_only: bool,
     on_changed: EventHandler<()>,
@@ -2507,10 +2758,12 @@ fn MediaViewer(
     // The companion column starts as prose. A reader opened this to look at
     // the document, not to fill in a form, so the form is a step they take.
     let mut editing = use_signal(|| false);
+    let mut managing_pages = use_signal(|| false);
     let mut identifying = use_signal(|| false);
     let mut relation_menu_at = use_signal(|| None::<(f64, f64)>);
     let mut highlighted_vignette = use_signal(|| None::<Uuid>);
     let mut attachment_mode = use_signal(|| None::<MediaAttachmentMode>);
+    let mut attachment_scope = use_signal(|| MediaAttachmentScope::Page);
     let mut attachment_busy = use_signal(|| false);
     let mut attachment_error = use_signal(|| None::<String>);
     let mut attachment_notice = use_signal(|| None::<String>);
@@ -2564,7 +2817,8 @@ fn MediaViewer(
     let source = current_tile.source();
     let caption = current_tile.caption().to_string();
     let is_document = current_tile.media.is_document;
-    let mut page = use_signal(|| 0_usize);
+    let mut page = use_signal(|| initial_page);
+    let mut page_revision = use_signal(|| 0_u32);
     // Zoom as a percentage of the fitted size; `None` is exactly fitted. This
     // mirrors the pedigree's multiplicative zoom without sacrificing the
     // scrollbars a large scan needs.
@@ -2713,6 +2967,7 @@ fn MediaViewer(
         let document_id = current_tile.media.id;
         move || {
             let api = api.clone();
+            let _ = page_revision();
             async move {
                 if is_document {
                     api.list_media_pages(tree_id, document_id).await.ok()
@@ -2738,6 +2993,8 @@ fn MediaViewer(
         None => current_tile.kind(),
     };
     let content_media_id = shown.map(|media| media.id).unwrap_or(current_tile.media.id);
+    let attachment_target_media_id =
+        attachment_media_id(attachment_scope(), current_tile.media.id, content_media_id);
     let (content_width, content_height) = shown
         .map(|media| (media.width, media.height))
         .unwrap_or((current_media.width, current_media.height));
@@ -2906,7 +3163,7 @@ fn MediaViewer(
                 match attach_media_to(
                     &api,
                     tree_id,
-                    content_media_id,
+                    attachment_target_media_id,
                     MediaAttachmentTarget::Person(person_id),
                 )
                 .await
@@ -2978,7 +3235,7 @@ fn MediaViewer(
                 match attach_media_to(
                     &api,
                     tree_id,
-                    content_media_id,
+                    attachment_target_media_id,
                     MediaAttachmentTarget::Family(family_id),
                 )
                 .await
@@ -3025,9 +3282,12 @@ fn MediaViewer(
                 aside { class: "media-viewer-aside",
                     if editing() {
                         MediaEditPanel {
+                            key: "edit-{content_media_id}",
                             tree_id,
                             tile: current_tile.clone(),
                             events: events.clone(),
+                            page_note_media_id: shown.map(|page| page.id),
+                            page_number: shown.map(|_| current + 1),
                             embedded: true,
                             on_changed: move |()| {
                                 media_revision += 1;
@@ -3035,11 +3295,39 @@ fn MediaViewer(
                             },
                             on_close: move |()| editing.set(false),
                         }
+                    } else if managing_pages() {
+                        div { class: "media-panel is-embedded",
+                            div { class: "media-panel-section",
+                                label { {i18n.t("media.pages")} }
+                                p { class: "pf-ns-hint", {i18n.t("media.pages_hint")} }
+                                DocumentPages {
+                                    tree_id,
+                                    document_id: current_media.id,
+                                    on_changed: move |()| {
+                                        page_revision += 1;
+                                        media_revision += 1;
+                                        on_changed.call(());
+                                    },
+                                }
+                            }
+                            div { class: "media-panel-actions",
+                                button {
+                                    class: "btn btn-outline",
+                                    r#type: "button",
+                                    onclick: move |_| managing_pages.set(false),
+                                    {i18n.t("common.close")}
+                                }
+                            }
+                        }
                     } else {
                         MediaFacts {
+                            key: "facts-{content_media_id}",
                             tree_id,
                             media: current_media.clone(),
-                            attachment_media_id: content_media_id,
+                            page_note_media_id: shown.map(|page| page.id),
+                            page_number: shown.map(|_| current + 1),
+                            displayed_media_id: content_media_id,
+                            document_media_id: shown.map(|_| current_media.id),
                             attachment_revision: attachment_revision(),
                             tags: current_media.tags.clone(),
                             vignettes: content_vignettes.clone(),
@@ -3057,6 +3345,14 @@ fn MediaViewer(
                         // it. Sending them to the edit modal to type a date
                         // means leaving the page that prompted them.
                         div { class: "media-facts-actions",
+                            if is_document {
+                                button {
+                                    class: "btn btn-outline media-facts-pages",
+                                    r#type: "button",
+                                    onclick: move |_| managing_pages.set(true),
+                                    {i18n.t("media.manage_pages")}
+                                }
+                            }
                             button {
                                 class: "pf-confirm-btn media-facts-edit",
                                 r#type: "button",
@@ -3161,27 +3457,80 @@ fn MediaViewer(
                             },
                             {i18n.t("media.identify_person")}
                         }
-                        button {
-                            class: "context-menu-item",
-                            r#type: "button",
-                            onclick: move |_| {
-                                relation_menu_at.set(None);
-                                close_attachment.call(());
-                                attachment_notice.set(None);
-                                attachment_mode.set(Some(MediaAttachmentMode::Person));
-                            },
-                            {i18n.t("media.attach_person")}
-                        }
-                        button {
-                            class: "context-menu-item",
-                            r#type: "button",
-                            onclick: move |_| {
-                                relation_menu_at.set(None);
-                                close_attachment.call(());
-                                attachment_notice.set(None);
-                                attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
-                            },
-                            {i18n.t("media.attach_couple")}
+                        if is_document {
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    relation_menu_at.set(None);
+                                    close_attachment.call(());
+                                    attachment_notice.set(None);
+                                    attachment_scope.set(MediaAttachmentScope::Document);
+                                    attachment_mode.set(Some(MediaAttachmentMode::Person));
+                                },
+                                {i18n.t("media.attach_document_person")}
+                            }
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    relation_menu_at.set(None);
+                                    close_attachment.call(());
+                                    attachment_notice.set(None);
+                                    attachment_scope.set(MediaAttachmentScope::Document);
+                                    attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
+                                },
+                                {i18n.t("media.attach_document_couple")}
+                            }
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    relation_menu_at.set(None);
+                                    close_attachment.call(());
+                                    attachment_notice.set(None);
+                                    attachment_scope.set(MediaAttachmentScope::Page);
+                                    attachment_mode.set(Some(MediaAttachmentMode::Person));
+                                },
+                                {i18n.t("media.attach_page_person")}
+                            }
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    relation_menu_at.set(None);
+                                    close_attachment.call(());
+                                    attachment_notice.set(None);
+                                    attachment_scope.set(MediaAttachmentScope::Page);
+                                    attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
+                                },
+                                {i18n.t("media.attach_page_couple")}
+                            }
+                        } else {
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    relation_menu_at.set(None);
+                                    close_attachment.call(());
+                                    attachment_notice.set(None);
+                                    attachment_scope.set(MediaAttachmentScope::Page);
+                                    attachment_mode.set(Some(MediaAttachmentMode::Person));
+                                },
+                                {i18n.t("media.attach_person")}
+                            }
+                            button {
+                                class: "context-menu-item",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    relation_menu_at.set(None);
+                                    close_attachment.call(());
+                                    attachment_notice.set(None);
+                                    attachment_scope.set(MediaAttachmentScope::Page);
+                                    attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
+                                },
+                                {i18n.t("media.attach_couple")}
+                            }
                         }
                     }
                 }
@@ -3362,7 +3711,7 @@ fn MediaViewer(
                         button {
                             class: "media-pager-btn",
                             r#type: "button",
-                            disabled: current == 0,
+                            disabled: editing() || current == 0,
                             title: i18n.t("media.first_page"),
                             onclick: move |_| {
                                 page.set(0);
@@ -3373,7 +3722,7 @@ fn MediaViewer(
                         button {
                             class: "media-pager-btn",
                             r#type: "button",
-                            disabled: current == 0,
+                            disabled: editing() || current == 0,
                             title: i18n.t("media.previous_page"),
                             onclick: move |_| {
                                 page.set(current.saturating_sub(1));
@@ -3396,6 +3745,7 @@ fn MediaViewer(
                                                 "media-pager-num"
                                             },
                                             r#type: "button",
+                                            disabled: editing(),
                                             onclick: move |_| {
                                                 page.set(index);
                                                 zoom.set(None);
@@ -3412,7 +3762,7 @@ fn MediaViewer(
                         button {
                             class: "media-pager-btn",
                             r#type: "button",
-                            disabled: current + 1 >= total_pages,
+                            disabled: editing() || current + 1 >= total_pages,
                             title: i18n.t("media.next_page"),
                             onclick: move |_| {
                                 page.set((current + 1).min(total_pages - 1));
@@ -3423,7 +3773,7 @@ fn MediaViewer(
                         button {
                             class: "media-pager-btn",
                             r#type: "button",
-                            disabled: current + 1 >= total_pages,
+                            disabled: editing() || current + 1 >= total_pages,
                             title: i18n.t("media.last_page"),
                             onclick: move |_| {
                                 page.set(total_pages - 1);
@@ -4006,6 +4356,33 @@ mod tests {
 
         assert!(has_person_identification(&[vignette], person_id));
         assert!(!has_person_identification(&[], person_id));
+    }
+
+    #[test]
+    fn attachment_scope_selects_the_document_or_the_displayed_page() {
+        let document_id = Uuid::from_u128(1);
+        let page_id = Uuid::from_u128(2);
+
+        assert_eq!(
+            attachment_media_id(MediaAttachmentScope::Document, document_id, page_id),
+            document_id
+        );
+        assert_eq!(
+            attachment_media_id(MediaAttachmentScope::Page, document_id, page_id),
+            page_id
+        );
+    }
+
+    #[test]
+    fn a_page_attachment_opens_its_document_on_that_page() {
+        let document_id = Uuid::from_u128(1);
+        let page_id = Uuid::from_u128(2);
+
+        assert_eq!(
+            viewer_target(page_id, Some(document_id), 4),
+            (document_id, 4)
+        );
+        assert_eq!(viewer_target(page_id, None, 4), (page_id, 0));
     }
 
     #[test]

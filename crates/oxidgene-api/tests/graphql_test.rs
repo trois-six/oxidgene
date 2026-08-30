@@ -2246,6 +2246,108 @@ async fn test_upload_media_file_over_graphql() {
 }
 
 #[tokio::test]
+async fn detaching_a_page_over_graphql_removes_its_relations() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+
+    let person = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: UNKNOWN }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let person_id = data(&person)["createPerson"]["id"].as_str().unwrap();
+    let document = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createMediaDocument(treeId: "{tree_id}", title: "Register") {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let document_id = data(&document)["createMediaDocument"]["id"]
+        .as_str()
+        .unwrap();
+    let page = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
+                 fileName: "page.png", contentBase64: "{}"
+               }}) {{ id }} }}"#,
+            png_base64(300, 400)
+        ),
+        None,
+    )
+    .await;
+    let page_id = data(&page)["uploadMediaFile"]["id"].as_str().unwrap();
+    data(&graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ appendMediaPage(treeId: "{tree_id}", documentId: "{document_id}", mediaId: "{page_id}") {{ id }} }}"#
+        ),
+        None,
+    )
+    .await);
+    data(&graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createMediaLink(treeId: "{tree_id}", input: {{ mediaId: "{page_id}", personId: "{person_id}" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await);
+    let vignette = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createVignette(treeId: "{tree_id}", input: {{
+                 mediaId: "{page_id}", personId: "{person_id}", x: 10, y: 10, width: 50, height: 60
+               }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let vignette_id = data(&vignette)["createVignette"]["id"].as_str().unwrap();
+    data(&graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ setPersonPortrait(treeId: "{tree_id}", personId: "{person_id}", vignetteId: "{vignette_id}") {{ id }} }}"#
+        ),
+        None,
+    )
+    .await);
+
+    let detached = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ detachMediaPage(treeId: "{tree_id}", documentId: "{document_id}", pageId: "{page_id}") {{ id parentMediaId }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert!(data(&detached)["detachMediaPage"]["parentMediaId"].is_null());
+
+    let result = graphql(
+        app,
+        &format!(
+            r#"{{
+                mediaLinks(treeId: "{tree_id}", mediaId: "{page_id}") {{ id }}
+                vignettes(treeId: "{tree_id}", personId: "{person_id}") {{ id }}
+                person(treeId: "{tree_id}", id: "{person_id}") {{ portraitMediaId portraitVignetteId }}
+            }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = data(&result);
+    assert!(result["mediaLinks"].as_array().unwrap().is_empty());
+    assert!(result["vignettes"].as_array().unwrap().is_empty());
+    assert!(result["person"]["portraitMediaId"].is_null());
+    assert!(result["person"]["portraitVignetteId"].is_null());
+}
+
+#[tokio::test]
 async fn test_upload_media_file_rejects_content_that_is_not_base64() {
     let (app, _root) = setup_app_with_media().await;
     let tree_id = tree_id_for(&app).await;
