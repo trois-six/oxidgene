@@ -82,6 +82,55 @@ fn PrivateThumbnail(tree_id: Uuid, media_id: Uuid, alt: String, class: Option<St
     }
 }
 
+fn document_mosaic_class(page_count: usize) -> &'static str {
+    match page_count.min(4) {
+        1 => "media-document-mosaic is-1",
+        2 => "media-document-mosaic is-2",
+        3 => "media-document-mosaic is-3",
+        _ => "media-document-mosaic is-4",
+    }
+}
+
+#[component]
+fn DocumentMosaic(tree_id: Uuid, document_id: Uuid, label: String) -> Element {
+    let api = use_context::<ApiClient>();
+    let pages = use_resource(move || {
+        let api = api.clone();
+        async move { api.list_media_pages(tree_id, document_id).await }
+    });
+    let preview_pages = pages
+        .read_unchecked()
+        .as_ref()
+        .and_then(|result| result.as_ref().ok())
+        .map(|pages| pages.iter().take(4).cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    if preview_pages.is_empty() {
+        return rsx! {
+            div { class: "media-thumb-icon",
+                span { class: "media-glyph", {MediaKind::Document.icon()} }
+                span { class: "media-kind", "{label}" }
+            }
+        };
+    }
+
+    let mosaic_class = document_mosaic_class(preview_pages.len());
+    rsx! {
+        div { class: "{mosaic_class}",
+            for page in preview_pages {
+                div { key: "{page.id}", class: "media-document-mosaic-cell",
+                    PrivateThumbnail {
+                        tree_id,
+                        media_id: page.id,
+                        alt: String::new(),
+                        class: Some("media-document-mosaic-page".to_string()),
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn PrivateVignetteImage(
     tree_id: Uuid,
@@ -770,7 +819,9 @@ fn MediaTile(
                     event_menu_offset.set(0);
                     menu_at.set(Some((point.x, point.y)));
                 },
-                if source == MediaSource::Stored && tile.media.thumbnail_key.is_some() {
+                if read_only && kind == MediaKind::Document && pages > 0 {
+                    DocumentMosaic { tree_id, document_id: media_id, label: kind_label.clone() }
+                } else if source == MediaSource::Stored && tile.media.thumbnail_key.is_some() {
                     PrivateThumbnail { tree_id, media_id, alt: caption.clone() }
                 } else if let Some(preview) = remote_preview.clone() {
                     img { src: "{preview}", alt: "{caption}", loading: "lazy" }
@@ -3141,6 +3192,14 @@ fn MediaViewer(
         stage_class.push_str(" is-dragging");
     }
 
+    let aside_mode = if editing() {
+        "editing"
+    } else if managing_pages() {
+        "pages"
+    } else {
+        "facts"
+    };
+
     let close_attachment = use_callback(move |()| {
         attachment_mode.set(None);
         attachment_busy.set(false);
@@ -3279,7 +3338,9 @@ fn MediaViewer(
 
 
                 div { class: "media-viewer-body",
-                aside { class: "media-viewer-aside",
+                aside {
+                    key: "media-viewer-aside-{content_media_id}-{aside_mode}",
+                    class: "media-viewer-aside",
                     if editing() {
                         MediaEditPanel {
                             key: "edit-{content_media_id}",
@@ -4383,6 +4444,15 @@ mod tests {
             (document_id, 4)
         );
         assert_eq!(viewer_target(page_id, None, 4), (page_id, 0));
+    }
+
+    #[test]
+    fn document_mosaics_cover_one_to_four_pages() {
+        assert_eq!(document_mosaic_class(1), "media-document-mosaic is-1");
+        assert_eq!(document_mosaic_class(2), "media-document-mosaic is-2");
+        assert_eq!(document_mosaic_class(3), "media-document-mosaic is-3");
+        assert_eq!(document_mosaic_class(4), "media-document-mosaic is-4");
+        assert_eq!(document_mosaic_class(38), "media-document-mosaic is-4");
     }
 
     #[test]

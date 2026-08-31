@@ -3406,6 +3406,39 @@ pub const LAYOUT_STYLES: &str = r#"
         display: block;
     }
 
+    .media-document-mosaic {
+        display: grid;
+        width: 100%;
+        height: 100%;
+        gap: 2px;
+        padding: 3px;
+        box-sizing: border-box;
+        background: var(--bg-deep);
+    }
+
+    .media-document-mosaic.is-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .media-document-mosaic.is-3,
+    .media-document-mosaic.is-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+    }
+    .media-document-mosaic.is-3 .media-document-mosaic-cell:first-child {
+        grid-row: 1 / span 2;
+    }
+
+    .media-document-mosaic-cell {
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        background: var(--bg-card);
+    }
+
+    .media-thumb .media-document-mosaic-page {
+        min-width: 0;
+        min-height: 0;
+        object-position: top center;
+    }
+
     .media-thumb-icon {
         display: flex;
         align-items: center;

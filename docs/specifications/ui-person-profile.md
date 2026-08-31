@@ -253,6 +253,12 @@ Clicking an attachment or identification that targets one page of an assembled
 multi-page document opens the document viewer directly on that page, with the
 document pager and the surrounding pages available. This applies equally to a
 direct person attachment and to an attachment inherited from a conjugal family.
+In the profile gallery, a document with pages uses their first four generated
+thumbnails as its tile preview instead of a generic document icon. One page
+fills the tile, two split it vertically, three give the first page one half and
+stack the other two, and four or more use a `2 x 2` mosaic. Only those four
+thumbnails are loaded regardless of the document's total page count; an empty
+document or a failed page-list request keeps the generic icon.
 
 Right-clicking a media tile opens **Link an event**, listing this person's own
 events and the events of their conjugal families. A linked event is removable
@@ -334,7 +340,10 @@ is shown on one compact row with a `36 × 28 px` crop thumbnail, a single-line
 ellipsized name, and a trailing remove control; the facts column omits this list
 when it is empty.
 The embedded edit form centers its **Cancel** and **Save** action group on the
-same axis as the facts column's **Edit** and **Delete** actions.
+same axis as the facts column's **Edit** and **Delete** actions. Closing either
+the embedded edit form or **Manage pages** restores the facts column at its
+top; it must not retain the scroll position of the longer form or page list and
+appear empty.
 Identification regions remain aligned over the fitted or zoomed image;
 hovering either a region on the image or its identification row in the facts
 column reveals its frame and person label.
