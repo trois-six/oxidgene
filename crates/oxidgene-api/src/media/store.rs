@@ -612,20 +612,16 @@ mod tests {
     use futures_util::TryStreamExt;
 
     /// A scratch directory that cleans up when the test ends.
-    struct TempRoot(PathBuf);
+    struct TempRoot(tempfile::TempDir);
 
     impl TempRoot {
         fn new(tag: &str) -> Self {
-            let path =
-                std::env::temp_dir().join(format!("oxidgene-store-{tag}-{}", Uuid::now_v7()));
-            std::fs::create_dir_all(&path).expect("create temp root");
-            Self(path)
-        }
-    }
-
-    impl Drop for TempRoot {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            Self(
+                tempfile::Builder::new()
+                    .prefix(&format!("oxidgene-store-{tag}-"))
+                    .tempdir()
+                    .expect("create temp root"),
+            )
         }
     }
 
@@ -708,7 +704,7 @@ mod tests {
     #[tokio::test]
     async fn a_stored_file_reads_back_byte_for_byte() {
         let root = TempRoot::new("roundtrip");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let id = tree();
 
         let stored = store.put(id, "jpg", b"not really a jpeg").await.unwrap();
@@ -721,12 +717,12 @@ mod tests {
     #[tokio::test]
     async fn a_job_blob_copies_between_files_without_using_the_media_namespace() {
         let root = TempRoot::new("job-blob");
-        let source = root.0.join("source.tmp");
-        let destination = root.0.join("destination.tmp");
+        let source = root.0.path().join("source.tmp");
+        let destination = root.0.path().join("destination.tmp");
         tokio::fs::write(&source, b"genealogy archive")
             .await
             .unwrap();
-        let store = FsStore::new(root.0.join("store"));
+        let store = FsStore::new(root.0.path().join("store"));
         let key = job_blob_key(Uuid::now_v7(), "source", "ged").unwrap();
 
         let stored = store.put_file(&key, &source).await.unwrap();
@@ -744,11 +740,11 @@ mod tests {
     #[tokio::test]
     async fn a_job_blob_streams_back_in_order() {
         let root = TempRoot::new("job-stream");
-        let source = root.0.join("source.tmp");
+        let source = root.0.path().join("source.tmp");
         tokio::fs::write(&source, b"streamed archive")
             .await
             .unwrap();
-        let store = FsStore::new(root.0.join("store"));
+        let store = FsStore::new(root.0.path().join("store"));
         let key = job_blob_key(Uuid::now_v7(), "artifact", "gdz").unwrap();
         store.put_file(&key, &source).await.unwrap();
 
@@ -766,7 +762,7 @@ mod tests {
     #[tokio::test]
     async fn storing_the_same_bytes_twice_writes_one_file() {
         let root = TempRoot::new("dedup");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let id = tree();
 
         let first = store.put(id, "jpg", b"census page").await.unwrap();
@@ -780,7 +776,7 @@ mod tests {
     #[tokio::test]
     async fn two_trees_do_not_share_a_key() {
         let root = TempRoot::new("scoping");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
 
         let a = store.put(tree(), "jpg", b"shared photo").await.unwrap();
         let b = store.put(tree(), "jpg", b"shared photo").await.unwrap();
@@ -792,7 +788,7 @@ mod tests {
     #[tokio::test]
     async fn deleting_a_tree_takes_its_files_and_leaves_the_others() {
         let root = TempRoot::new("purge");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let doomed = tree();
         let kept = tree();
 
@@ -808,7 +804,7 @@ mod tests {
     #[tokio::test]
     async fn deleting_what_is_not_there_is_not_an_error() {
         let root = TempRoot::new("idempotent-delete");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let key = key_for(tree(), &sha256_hex(b"never stored"), "jpg");
 
         store.delete(&key).await.expect("delete is idempotent");
@@ -818,7 +814,7 @@ mod tests {
     #[tokio::test]
     async fn a_missing_file_reads_as_internal_not_as_a_bare_io_error() {
         let root = TempRoot::new("missing");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let key = key_for(tree(), &sha256_hex(b"absent"), "jpg");
 
         // The row says the bytes exist and they do not: that is our
@@ -830,7 +826,7 @@ mod tests {
     #[tokio::test]
     async fn reading_a_non_key_never_touches_the_filesystem() {
         let root = TempRoot::new("traversal-read");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
 
         let err = store.get("../../etc/passwd").await.unwrap_err();
         assert!(matches!(err, OxidGeneError::Validation(_)), "got {err:?}");
@@ -840,11 +836,17 @@ mod tests {
     #[tokio::test]
     async fn a_partial_write_leaves_nothing_addressable_behind() {
         let root = TempRoot::new("no-partials");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let id = tree();
 
         let stored = store.put(id, "png", b"complete").await.unwrap();
-        let dir = root.0.join(&stored.key).parent().unwrap().to_path_buf();
+        let dir = root
+            .0
+            .path()
+            .join(&stored.key)
+            .parent()
+            .unwrap()
+            .to_path_buf();
         let names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())

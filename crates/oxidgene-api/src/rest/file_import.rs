@@ -1,6 +1,6 @@
 //! Streamed uploads and asynchronous genealogy file imports.
 
-use std::path::{Path as FilePath, PathBuf};
+use std::path::Path as FilePath;
 
 use axum::Json;
 use axum::body::Body;
@@ -22,38 +22,22 @@ use crate::service::gedcom;
 
 pub const FILE_IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 
-struct TemporaryUpload(PathBuf);
+struct TemporaryUpload(tempfile::NamedTempFile);
 
 impl TemporaryUpload {
-    fn new(job_id: Uuid) -> Self {
-        Self(temporary_path(job_id))
+    fn new() -> Result<Self, std::io::Error> {
+        tempfile::Builder::new()
+            .prefix("oxidgene-import-")
+            .tempfile()
+            .map(Self)
     }
 
     fn path(&self) -> &FilePath {
-        &self.0
+        self.0.path()
     }
-}
 
-impl Drop for TemporaryUpload {
-    fn drop(&mut self) {
-        match std::fs::remove_file(&self.0) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => tracing::warn!(%error, "could not remove temporary import file"),
-        }
-    }
-}
-
-/// Remove uploads left by a process that could not run destructors.
-pub fn cleanup_orphaned_uploads() -> Result<(), std::io::Error> {
-    cleanup_directory(&temporary_root())
-}
-
-fn cleanup_directory(path: &FilePath) -> Result<(), std::io::Error> {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
+    fn reopen(&self) -> Result<std::fs::File, std::io::Error> {
+        self.0.reopen()
     }
 }
 
@@ -67,13 +51,8 @@ pub async fn start(
     TreeRepo::get(&state.db, tree_id).await?;
 
     let job_id = Uuid::now_v7();
-    let upload = TemporaryUpload::new(job_id);
-    if let Some(parent) = upload.path().parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(OxidGeneError::Io)?;
-    }
-    stream_to_file(body, upload.path()).await?;
+    let upload = TemporaryUpload::new().map_err(OxidGeneError::Io)?;
+    stream_to_file(body, upload.reopen().map_err(OxidGeneError::Io)?).await?;
     stage_import(
         &state.db,
         &*state.media,
@@ -175,12 +154,8 @@ pub async fn status(
     }))
 }
 
-async fn stream_to_file(body: Body, path: &FilePath) -> Result<(), OxidGeneError> {
-    let mut file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .await?;
+async fn stream_to_file(body: Body, file: std::fs::File) -> Result<(), OxidGeneError> {
+    let mut file = tokio::fs::File::from_std(file);
     let mut received = 0usize;
     let mut stream = body.into_data_stream();
     while let Some(chunk) = stream.next().await {
@@ -202,14 +177,6 @@ async fn stream_to_file(body: Body, path: &FilePath) -> Result<(), OxidGeneError
     }
     file.flush().await?;
     Ok(())
-}
-
-fn temporary_path(job_id: Uuid) -> PathBuf {
-    temporary_root().join(job_id.to_string())
-}
-
-fn temporary_root() -> PathBuf {
-    std::env::temp_dir().join("oxidgene-imports")
 }
 
 fn import_response(summary: gedcom::ImportSummary) -> ImportResponse {
@@ -234,37 +201,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn temporary_names_depend_only_on_the_operation_id() {
-        let first = Uuid::now_v7();
-        let second = Uuid::now_v7();
-
-        assert_eq!(
-            temporary_path(first).file_name().unwrap().to_str().unwrap(),
-            first.to_string()
-        );
-        assert_ne!(temporary_path(first), temporary_path(second));
-    }
-
-    #[test]
-    fn dropping_an_upload_removes_its_partial_file() {
-        let upload = TemporaryUpload::new(Uuid::now_v7());
-        std::fs::create_dir_all(upload.path().parent().unwrap()).unwrap();
-        std::fs::write(upload.path(), b"partial").unwrap();
+    fn dropping_an_upload_removes_its_private_file() {
+        let upload = TemporaryUpload::new().expect("creates private upload");
+        std::fs::write(upload.path(), b"partial").expect("writes upload");
         let path = upload.path().to_path_buf();
 
         drop(upload);
 
         assert!(!path.exists());
-    }
-
-    #[test]
-    fn startup_cleanup_removes_an_orphaned_directory() {
-        let root = std::env::temp_dir().join(format!("oxidgene-cleanup-test-{}", Uuid::now_v7()));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join(Uuid::now_v7().to_string()), b"orphaned").unwrap();
-
-        cleanup_directory(&root).unwrap();
-
-        assert!(!root.exists());
     }
 }

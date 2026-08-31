@@ -256,8 +256,8 @@ fn check_rect(
 fn crop(bytes: &[u8], (x, y, width, height): (i32, i32, i32, i32)) -> Result<Vec<u8>, ApiError> {
     use image::ImageFormat;
 
-    let image = image::load_from_memory(bytes)
-        .map_err(|e| ApiError(OxidGeneError::Internal(format!("could not decode: {e}"))))?;
+    let (image, _) =
+        crate::media::thumbnail::decode(bytes, 1024 * 1024 * 1024).map_err(ApiError::from)?;
     let cropped = image::DynamicImage::crop_imm(
         &image,
         x.max(0) as u32,

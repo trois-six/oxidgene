@@ -125,10 +125,10 @@ struct Cli {
 impl Cli {
     fn parse() -> Self {
         let mut debug = false;
-        for arg in std::env::args().skip(1) {
-            match arg.as_str() {
-                "--debug" => debug = true,
-                "-h" | "--help" => {
+        for arg in std::env::args_os().skip(1) {
+            match arg.to_str() {
+                Some("--debug") => debug = true,
+                Some("-h" | "--help") => {
                     println!(
                         "oxidgene-desktop — OxidGene desktop genealogy app\n\
                          \n\
@@ -141,12 +141,15 @@ impl Cli {
                     );
                     std::process::exit(0);
                 }
-                "-V" | "--version" => {
+                Some("-V" | "--version") => {
                     println!("oxidgene-desktop {}", env!("CARGO_PKG_VERSION"));
                     std::process::exit(0);
                 }
-                other => {
-                    eprintln!("oxidgene-desktop: unrecognised argument '{other}'");
+                _ => {
+                    eprintln!(
+                        "oxidgene-desktop: unrecognised argument '{}'",
+                        arg.to_string_lossy()
+                    );
                     eprintln!("Try 'oxidgene-desktop --help'.");
                     std::process::exit(2);
                 }
@@ -224,18 +227,11 @@ fn main() {
                 std::process::exit(1);
             });
 
-            oxidgene_api::rest::file_import::cleanup_orphaned_uploads().unwrap_or_else(|_| {
-                error!(
-                    error = "temporary_import_cleanup",
-                    "Failed to clean temporary imports"
-                );
-                std::process::exit(1);
-            });
-
             // Same platform data directory the web server defaults to, so a
             // desktop tree exported and re-imported on the server finds its
             // files in the expected place.
-            let state = AppState::new(db, oxidgene_api::media::default_root());
+            let state =
+                AppState::new(db, oxidgene_api::media::default_root()).with_local_file_access();
             oxidgene_db::repo::BackgroundJobRepo::requeue_running(&state.db)
                 .await
                 .unwrap_or_else(|_| {

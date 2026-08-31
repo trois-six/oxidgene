@@ -100,27 +100,7 @@ pub fn can_thumbnail(mime_type: &str) -> bool {
 /// the thumbnail endpoint should always be able to answer with one format the
 /// gallery understands, even when the source is a 64×64 GIF.
 pub fn generate(bytes: &[u8]) -> Result<Thumbnail, OxidGeneError> {
-    let reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|e| OxidGeneError::Validation(format!("unreadable image: {e}")))?;
-
-    let source_format = reader.format();
-    let mut decoder = reader
-        .into_decoder()
-        .map_err(|e| OxidGeneError::Validation(format!("unsupported image: {e}")))?;
-
-    let mut limits = image::Limits::default();
-    limits.max_alloc = Some(MAX_DECODED_BYTES);
-    decoder
-        .set_limits(limits)
-        .map_err(|e| OxidGeneError::Validation(format!("image too large to decode: {e}")))?;
-
-    let orientation = decoder
-        .orientation()
-        .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut image = DynamicImage::from_decoder(decoder)
-        .map_err(|e| OxidGeneError::Validation(format!("could not decode image: {e}")))?;
-    image.apply_orientation(orientation);
+    let (image, source_format) = decode(bytes, MAX_DECODED_BYTES)?;
 
     // `thumbnail` fits to the box in both directions, so a small source would
     // come back enlarged and blurry. Only shrink.
@@ -161,6 +141,39 @@ pub fn generate(bytes: &[u8]) -> Result<Thumbnail, OxidGeneError> {
         width,
         height,
     })
+}
+
+pub(crate) fn decode(
+    bytes: &[u8],
+    max_decoded_bytes: u64,
+) -> Result<(DynamicImage, Option<ImageFormat>), OxidGeneError> {
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| OxidGeneError::Validation(format!("unreadable image: {e}")))?;
+
+    let source_format = reader.format();
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|e| OxidGeneError::Validation(format!("unsupported image: {e}")))?;
+    if decoder.total_bytes() > max_decoded_bytes {
+        return Err(OxidGeneError::Validation(
+            "image too large to decode".to_string(),
+        ));
+    }
+
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(max_decoded_bytes);
+    decoder
+        .set_limits(limits)
+        .map_err(|e| OxidGeneError::Validation(format!("image too large to decode: {e}")))?;
+
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut image = DynamicImage::from_decoder(decoder)
+        .map_err(|e| OxidGeneError::Validation(format!("could not decode image: {e}")))?;
+    image.apply_orientation(orientation);
+    Ok((image, source_format))
 }
 
 #[cfg(test)]
@@ -236,6 +249,12 @@ mod tests {
     #[test]
     fn dimensions_come_from_the_header_not_a_full_decode() {
         assert_eq!(dimensions(&jpeg(1234, 567)), Some((1234, 567)));
+    }
+
+    #[test]
+    fn decoded_pixels_must_fit_the_memory_budget() {
+        let error = decode(&jpeg(64, 48), 1).expect_err("exceeds one byte");
+        assert!(matches!(error, OxidGeneError::Validation(_)));
     }
 
     #[test]

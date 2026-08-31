@@ -7,3 +7,4 @@ pub mod geneanet;
 pub mod geneweb;
 pub mod media;
 pub mod purge;
+pub(crate) mod session_media;

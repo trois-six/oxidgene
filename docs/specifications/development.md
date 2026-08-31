@@ -76,7 +76,12 @@ Run `just check` before committing code changes.
 | `just dev-web-watch` | Run the API and browser application with hot reload for both processes. |
 
 `just web` uses `OXIDGENE_API_URL` when set; otherwise it connects to
-`http://127.0.0.1:8080`.
+`http://127.0.0.1:8080`. Repository commands invoke Dioxus through
+`scripts/dx.sh`. The Dioxus rustc wrapper serializes its build environment under
+`target/dx/.captured-args`, so the launcher removes credential-shaped environment
+variables before starting `dx`. Direct `dx serve` and `dx build` invocations are
+not supported because they can persist shell credentials in those local build
+artifacts.
 
 ### 2.4 Desktop Application
 

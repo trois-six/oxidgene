@@ -204,8 +204,10 @@ pub async fn import_gedzip_and_persist(
 ) -> Result<ImportSummary, OxidGeneError> {
     let _tree = TreeRepo::get(db, tree_id).await?;
 
-    let oxidgene_gedcom::import::GedzipImport { mut result, files } =
-        oxidgene_gedcom::import::import_gedzip(archive, tree_id).map_err(OxidGeneError::Gedcom)?;
+    let (mut reader, plan) =
+        oxidgene_gedcom::import::prepare_gedzip(std::io::Cursor::new(archive), tree_id)
+            .map_err(OxidGeneError::Gedcom)?;
+    let oxidgene_gedcom::import::GedzipImportPlan { mut result, files } = plan;
 
     // The name to store each file under is the one its own record carries —
     // the archive path is `media/<uuid>.jpg` in an OxidGene export and
@@ -217,51 +219,38 @@ pub async fn import_gedzip_and_persist(
         .map(|m| (m.id, m.file_name.clone()))
         .collect();
 
-    let mut stored: std::collections::HashMap<Uuid, crate::media::IngestedMedia> =
-        std::collections::HashMap::with_capacity(files.len());
+    let media_by_id: std::collections::HashMap<Uuid, usize> = result
+        .media
+        .iter()
+        .enumerate()
+        .map(|(index, media)| (media.id, index))
+        .collect();
 
-    // Decoding and thumbnailing is CPU-bound and each file is independent, so
-    // they go in parallel — capped, because each one in flight holds a
-    // full-size decoded image. Same reasoning, and the same width, as the
-    // Geneanet importer.
-    for batch in files.chunks(crate::service::geneanet::ingest_width()) {
-        let ingested = futures_util::future::join_all(batch.iter().map(|(media_id, bytes)| {
-            let name = names.get(media_id).map_or("upload", String::as_str);
-            crate::media::ingest(store, tree_id, name, bytes.clone())
-        }))
-        .await;
-
-        for ((media_id, _), outcome) in batch.iter().zip(ingested) {
-            let name = names.get(media_id).map_or("upload", String::as_str);
-            match outcome {
-                Ok(ingested) => {
-                    stored.insert(*media_id, ingested);
-                }
-                Err(err) => result
-                    .warnings
-                    .push(format!("GEDZIP: '{name}' was not stored: {err}")),
+    for (media_id, entry_name) in files {
+        let display_name = names.get(&media_id).map_or("upload", String::as_str);
+        let outcome = match reader.read_media_file(&entry_name) {
+            Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
+            Err(error) => {
+                result.warnings.push(format!(
+                    "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
+                ));
+                continue;
             }
-        }
-    }
-
-    for media in &mut result.media {
-        let Some(ingested) = stored.remove(&media.id) else {
-            continue;
         };
-        // `file_path` stops being the producer's path the moment we hold the
-        // bytes: it now carries the name our own GEDCOM export writes out,
-        // which is what an uploaded file gets (see `MediaRepo::create_uploaded`).
-        media.file_path.clone_from(&ingested.file_name);
-        media.file_name = ingested.file_name;
-        // Sniffed from the content, so a `FORM` that lied does not survive.
-        media.mime_type = ingested.mime_type;
-        media.storage_key = Some(ingested.storage_key);
-        media.sha256 = Some(ingested.sha256);
-        media.file_size = ingested.file_size;
-        media.thumbnail_key = ingested.thumbnail_key;
-        media.width = ingested.width;
-        media.height = ingested.height;
-        media.page_count = ingested.page_count;
+
+        match outcome {
+            Ok(ingested) => {
+                if let Some(media) = media_by_id
+                    .get(&media_id)
+                    .and_then(|index| result.media.get_mut(*index))
+                {
+                    apply_ingested_media(media, ingested);
+                }
+            }
+            Err(error) => result
+                .warnings
+                .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),
+        }
     }
 
     persist_import_result(db, result).await

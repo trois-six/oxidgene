@@ -86,7 +86,7 @@ done
 
 echo "Backend ready at ${OXIDGENE_API_URL}"
 echo "Frontend available at http://127.0.0.1:${frontend_port}"
-start_process env OXIDGENE_API_URL="$OXIDGENE_API_URL" dx serve \
+start_process env OXIDGENE_API_URL="$OXIDGENE_API_URL" scripts/dx.sh serve \
     --package oxidgene-web \
     --web \
     --addr 127.0.0.1 \

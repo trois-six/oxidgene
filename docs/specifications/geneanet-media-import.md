@@ -628,6 +628,12 @@ the files they are. Base64 inside JSON was the obvious first shape and the
 wrong one: it inflates binary by a third, and an account with no data archive
 has every medium in there.
 
+Media entries use the ZIP `Stored` method because JPEG, PNG, PDF, and similar
+formats are already compressed. The reader rejects compressed media entries
+and bounds their total decoded bytes by the archive's own byte length, which
+prevents decompression amplification without imposing an absolute session-size
+limit. The deflated JSON manifest is read through a separate bounded path.
+
 `session.json` *is* the collection JSON with the deposit sizes, the media names
 and a format version added beside it.
 [`BrowserCollection`](../../crates/oxidgene-geneanet/src/model.rs) ignores

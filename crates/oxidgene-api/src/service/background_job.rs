@@ -1,7 +1,7 @@
 //! Durable import and export job execution shared by server and desktop workers.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -586,9 +586,9 @@ mod tests {
         options.max_connections(1);
         let db = Database::connect(options).await.expect("connects");
         let profiles = Arc::new(ProfileService::new(db.clone()));
-        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(
-            std::env::temp_dir().join("oxidgene-progress-test"),
-        ));
+        let media_root = tempfile::tempdir().expect("creates media root");
+        let media: Arc<dyn MediaStore> =
+            Arc::new(crate::media::store::FsStore::new(media_root.path()));
         let worker = BackgroundJobWorker::new(db.clone(), profiles, media, "test");
         let job_id = Uuid::now_v7();
         let tree_id = Uuid::now_v7();
@@ -641,32 +641,19 @@ mod tests {
     }
 }
 
-struct ScratchDirectory(PathBuf);
+struct ScratchDirectory(tempfile::TempDir);
 
 impl ScratchDirectory {
     async fn new(job_id: Uuid) -> Result<Self, OxidGeneError> {
-        let path = std::env::temp_dir()
-            .join("oxidgene-jobs")
-            .join(job_id.to_string());
-        if tokio::fs::try_exists(&path).await? {
-            tokio::fs::remove_dir_all(&path).await?;
-        }
-        tokio::fs::create_dir_all(&path).await?;
-        Ok(Self(path))
+        tempfile::Builder::new()
+            .prefix(&format!("oxidgene-job-{job_id}-"))
+            .tempdir()
+            .map(Self)
+            .map_err(OxidGeneError::Io)
     }
 
     fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for ScratchDirectory {
-    fn drop(&mut self) {
-        if let Err(error) = std::fs::remove_dir_all(&self.0)
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            tracing::warn!(%error, "could not remove background job scratch directory");
-        }
+        self.0.path()
     }
 }
 
@@ -826,6 +813,7 @@ pub async fn stage_geneanet_import(
     }
     .await;
 
+    crate::service::session_media::remove_owned(fetched_paths.values().map(String::as_str));
     if let Err(error) = staging {
         for key in staged_keys {
             let _ = media.delete(&key).await;

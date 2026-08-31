@@ -12,11 +12,12 @@ RUN apt-get update && \
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY apps/ apps/
+COPY scripts/dx.sh scripts/dx.sh
 
 # An empty base URL makes browser API calls same-origin for Kubernetes Ingress.
 # Compose overrides it with the API port published on the developer's host.
 ARG OXIDGENE_API_URL=""
-RUN OXIDGENE_API_URL="${OXIDGENE_API_URL}" dx build --package oxidgene-web --platform web --release
+RUN OXIDGENE_API_URL="${OXIDGENE_API_URL}" scripts/dx.sh build --package oxidgene-web --platform web --release
 
 # ── Runtime stage ─────────────────────────────────────────────────────
 FROM nginxinc/nginx-unprivileged:1.31-trixie AS runtime

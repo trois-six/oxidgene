@@ -92,6 +92,14 @@ const MANIFEST_ENTRY: &str = "session.json";
 /// Directory the media sit in, one file each.
 const MEDIA_DIR: &str = "media";
 
+#[derive(Clone, Copy)]
+struct DecodeLimits {
+    manifest_bytes: u64,
+    total_media_bytes: u64,
+}
+
+const MIN_MANIFEST_LIMIT: u64 = 16 * 1024 * 1024;
+
 /// Writes a session as a ZIP.
 ///
 /// `session.json` carries the collection and the sizes; each medium is written
@@ -216,39 +224,65 @@ pub fn decode(bytes: &[u8]) -> Result<Session> {
 
 /// Reads the ZIP shape: `session.json` plus the media it names.
 fn decode_zip(bytes: &[u8]) -> Result<Session> {
+    let archive_bytes = u64::try_from(bytes.len()).context("the session archive is too large")?;
+    decode_zip_with_limits(
+        bytes,
+        DecodeLimits {
+            manifest_bytes: archive_bytes.max(MIN_MANIFEST_LIMIT),
+            total_media_bytes: archive_bytes,
+        },
+    )
+}
+
+fn decode_zip_with_limits(bytes: &[u8], limits: DecodeLimits) -> Result<Session> {
     use base64::Engine as _;
     use std::io::Read as _;
 
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))
         .context("the session file is not a readable archive")?;
 
-    let mut manifest = String::new();
+    let mut manifest = Vec::new();
     zip.by_name(MANIFEST_ENTRY)
         .with_context(|| format!("the archive holds no {MANIFEST_ENTRY}"))?
-        .read_to_string(&mut manifest)
+        .take(limits.manifest_bytes.saturating_add(1))
+        .read_to_end(&mut manifest)
         .context("reading the session manifest")?;
+    if manifest.len() as u64 > limits.manifest_bytes {
+        bail!("the session manifest is too large");
+    }
+    let manifest = std::str::from_utf8(&manifest).context("the session manifest is not UTF-8")?;
 
     // Read every medium first: the manifest names them, and a name that is not
     // there is simply a medium the import will have to do without.
     let mut bodies: HashMap<String, String> = HashMap::new();
+    let mut total_media_bytes = 0u64;
     for index in 0..zip.len() {
-        let Ok(mut entry) = zip.by_index(index) else {
+        let Ok(entry) = zip.by_index(index) else {
             continue;
         };
         let name = entry.name().to_string();
         if name == MANIFEST_ENTRY || entry.is_dir() {
             continue;
         }
-        let mut body = Vec::new();
-        if entry.read_to_end(&mut body).is_ok() {
-            bodies.insert(
-                name,
-                base64::engine::general_purpose::STANDARD.encode(&body),
-            );
+        if entry.compression() != zip::CompressionMethod::Stored {
+            bail!("session media entries must not be compressed");
         }
+        let mut body = Vec::new();
+        entry
+            .take(limits.total_media_bytes.saturating_add(1))
+            .read_to_end(&mut body)
+            .with_context(|| format!("reading session media entry {index}"))?;
+        total_media_bytes = total_media_bytes
+            .checked_add(body.len() as u64)
+            .filter(|total| *total <= limits.total_media_bytes)
+            .context("the session media exceed the archive size")?;
+        bodies.insert(
+            name,
+            base64::engine::general_purpose::STANDARD.encode(&body),
+        );
     }
 
-    decode_manifest(&manifest, &bodies)
+    decode_manifest(manifest, &bodies)
 }
 
 /// Reads `session.json`, resolving the media names against `bodies`.
@@ -317,6 +351,33 @@ fn decode_manifest(json: &str, bodies: &HashMap<String, String>) -> Result<Sessi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn archive_with_entries(
+        entries: &[(&str, &[u8])],
+        compression: zip::CompressionMethod,
+    ) -> Vec<u8> {
+        use std::io::Write as _;
+
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            let options: zip::write::FileOptions<'_, ()> =
+                zip::write::FileOptions::default().compression_method(compression);
+            for (name, bytes) in entries {
+                zip.start_file(*name, options).expect("starts entry");
+                zip.write_all(bytes).expect("writes entry");
+            }
+            zip.finish().expect("finishes archive");
+        }
+        buffer.into_inner()
+    }
+
+    fn test_limits() -> DecodeLimits {
+        DecodeLimits {
+            manifest_bytes: 1_024,
+            total_media_bytes: 1_536,
+        }
+    }
 
     fn collection() -> String {
         r#"{"deposits":[{"id":1,"title":"t","type":"portraits","private":true,
@@ -436,6 +497,45 @@ mod tests {
         assert!(decode(br#"{"hello":"world"}"#).is_err());
         assert!(decode(b"not json at all").is_err());
         assert!(decode(b"PK\x03\x04 but not really an archive").is_err());
+    }
+
+    #[test]
+    fn a_compressed_media_entry_is_refused() {
+        let manifest = collection();
+        let archive = archive_with_entries(
+            &[
+                (MANIFEST_ENTRY, manifest.as_bytes()),
+                ("media/00000.jpg", &[0; 32]),
+            ],
+            zip::CompressionMethod::Deflated,
+        );
+
+        let error = decode_zip_with_limits(&archive, test_limits()).expect_err("must be refused");
+
+        assert!(
+            error.to_string().contains("must not be compressed"),
+            "got {error}"
+        );
+    }
+
+    #[test]
+    fn cumulative_media_over_the_limit_is_refused() {
+        let manifest = collection();
+        let archive = archive_with_entries(
+            &[
+                (MANIFEST_ENTRY, manifest.as_bytes()),
+                ("media/00000.jpg", &[0; 800]),
+                ("media/00001.jpg", &[0; 800]),
+            ],
+            zip::CompressionMethod::Stored,
+        );
+
+        let error = decode_zip_with_limits(&archive, test_limits()).expect_err("must be refused");
+
+        assert!(
+            error.to_string().contains("exceed the archive size"),
+            "got {error}"
+        );
     }
 
     #[test]

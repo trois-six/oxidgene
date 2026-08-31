@@ -709,6 +709,12 @@ pub(crate) fn media_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<dyn MediaStore
     ctx.data_unchecked::<Arc<dyn MediaStore>>()
 }
 
+pub(crate) fn require_local_file_access(ctx: &Context<'_>) -> async_graphql::Result<()> {
+    ctx.data_unchecked::<crate::rest::state::LocalFileAccess>()
+        .require()
+        .map_err(Into::into)
+}
+
 // ── PageInfo ─────────────────────────────────────────────────────────
 
 /// Relay-style pagination info.

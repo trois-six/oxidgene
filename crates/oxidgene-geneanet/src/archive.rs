@@ -258,13 +258,24 @@ impl ArchiveSet {
             .by_index(entry.index)
             .with_context(|| format!("opening entry {} of {}", entry.index, info.path.display()))?;
 
-        let mut bytes = Vec::with_capacity(usize::try_from(zipped.size()).unwrap_or(0));
-        zipped
-            .read_to_end(&mut bytes)
-            .with_context(|| format!("reading entry {} of {}", entry.index, info.path.display()))?;
-
-        Ok(bytes)
+        let expected_size = zipped.size();
+        read_declared_size(&mut zipped, expected_size)
+            .with_context(|| format!("reading entry {} of {}", entry.index, info.path.display()))
     }
+}
+
+fn read_declared_size(reader: &mut impl Read, expected_size: u64) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader
+        .take(expected_size.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()) != Ok(expected_size) {
+        anyhow::bail!(
+            "archive entry size mismatch: declared {expected_size} bytes, decoded {}",
+            bytes.len()
+        );
+    }
+    Ok(bytes)
 }
 
 impl ArchiveSet {
@@ -534,15 +545,15 @@ fn hash_slice(
 
         for position in members {
             let index = set.entries[position].index;
-            let mut bytes = Vec::new();
-            let read = zip
-                .by_index(index)
-                .map(|mut entry| entry.read_to_end(&mut bytes))
-                .is_ok();
-            if !read {
+            let Ok(mut entry) = zip.by_index(index) else {
                 undecodable += 1;
                 continue;
-            }
+            };
+            let expected_size = entry.size();
+            let Ok(bytes) = read_declared_size(&mut entry, expected_size) else {
+                undecodable += 1;
+                continue;
+            };
 
             let compatible = image_dimensions(&bytes).is_none_or(|dimensions| {
                 target_dimensions.is_empty()
@@ -599,18 +610,20 @@ mod tests {
     }
 
     /// A scratch directory that cleans itself up.
-    struct TempDir(PathBuf);
+    struct TempDir(tempfile::TempDir);
 
     impl TempDir {
         fn new(tag: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("oxidgene-archive-{tag}"));
-            let _ = std::fs::remove_dir_all(&path);
-            std::fs::create_dir_all(&path).expect("creates");
-            Self(path)
+            Self(
+                tempfile::Builder::new()
+                    .prefix(&format!("oxidgene-archive-{tag}-"))
+                    .tempdir()
+                    .expect("creates"),
+            )
         }
 
         fn zip(&self, name: &str, entries: &[(&str, &[u8])]) -> PathBuf {
-            let path = self.0.join(name);
+            let path = self.0.path().join(name);
             let file = std::fs::File::create(&path).expect("creates");
             let mut writer = zip::ZipWriter::new(file);
             let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
@@ -620,12 +633,6 @@ mod tests {
             }
             writer.finish().expect("finishes");
             path
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
         }
     }
 
@@ -649,6 +656,16 @@ mod tests {
             set.resolve(5).expect("resolves").as_deref(),
             Some(&b"hello"[..])
         );
+    }
+
+    #[test]
+    fn declared_size_must_match_the_decoded_bytes() {
+        assert_eq!(
+            read_declared_size(&mut &b"hello"[..], 5).expect("matching size"),
+            b"hello"
+        );
+        assert!(read_declared_size(&mut &b"hello"[..], 4).is_err());
+        assert!(read_declared_size(&mut &b"hello"[..], 6).is_err());
     }
 
     #[test]
@@ -762,7 +779,7 @@ mod tests {
     #[test]
     fn a_file_that_is_not_a_zip_fails_on_its_own() {
         let dir = TempDir::new("corrupt");
-        let path = dir.0.join("broken.zip");
+        let path = dir.0.path().join("broken.zip");
         std::fs::write(&path, b"this is not a ZIP archive").expect("writes");
 
         let mut set = ArchiveSet::new();

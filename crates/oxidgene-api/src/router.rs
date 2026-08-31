@@ -45,7 +45,7 @@ const _: () = assert!(GEDZIP_BODY_LIMIT >= IMPORT_BODY_LIMIT);
 use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]
-use crate::graphql::{build_schema, graphql_handler, graphql_playground};
+use crate::graphql::{graphql_handler, graphql_playground};
 use crate::rest::citation;
 use crate::rest::dictionary;
 use crate::rest::event;
@@ -432,11 +432,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/{lang}/given-names", get(reference::given_name));
 
     #[cfg(feature = "graphql")]
-    let schema = build_schema(
+    let schema = crate::graphql::build_schema_with_local_file_access(
         state.db.clone(),
         state.profiles.clone(),
         state.purge.clone(),
         state.media.clone(),
+        state.local_file_access,
     );
 
     let rest_router = Router::new()

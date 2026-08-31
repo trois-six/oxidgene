@@ -62,11 +62,11 @@ web-check:
 
 # Run the browser frontend against the development backend on port 8080
 web:
-    OXIDGENE_API_URL="${OXIDGENE_API_URL:-http://127.0.0.1:8080}" dx serve --package oxidgene-web --platform web --port 8081
+    OXIDGENE_API_URL="${OXIDGENE_API_URL:-http://127.0.0.1:8080}" scripts/dx.sh serve --package oxidgene-web --platform web --port 8081
 
 # Build the production browser bundle
 web-build:
-    dx build --package oxidgene-web --platform web --release
+    scripts/dx.sh build --package oxidgene-web --platform web --release
 
 # Run the backend and browser frontend together (frontend hot reload)
 dev-web:
