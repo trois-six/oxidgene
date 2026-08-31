@@ -13,6 +13,21 @@ use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
 use crate::service::purge::{self, PurgeQueue};
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LocalFileAccess(pub(crate) bool);
+
+impl LocalFileAccess {
+    pub(crate) fn require(self) -> Result<(), OxidGeneError> {
+        if self.0 {
+            Ok(())
+        } else {
+            Err(OxidGeneError::Validation(
+                "local filesystem access is unavailable".to_string(),
+            ))
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum TreeResource {
     Person,
@@ -134,6 +149,7 @@ pub struct AppState {
     pub purge: PurgeQueue,
     /// Where uploaded files and their thumbnails live.
     pub media: Arc<dyn MediaStore>,
+    pub(crate) local_file_access: LocalFileAccess,
 }
 
 impl AppState {
@@ -167,7 +183,14 @@ impl AppState {
             profiles,
             purge,
             media,
+            local_file_access: LocalFileAccess(false),
         }
+    }
+
+    /// Allow handlers to consume filesystem paths supplied by the local desktop UI.
+    pub fn with_local_file_access(mut self) -> Self {
+        self.local_file_access = LocalFileAccess(true);
+        self
     }
 }
 

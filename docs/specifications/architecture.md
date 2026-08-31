@@ -92,7 +92,10 @@ API endpoints are documented in [API Contract](api.md).
     exchange media bytes through their shared filesystem. Before returning a
     job id, the backend copies those local inputs into durable `MediaStore`
     objects; no Geneanet media byte payload is uploaded through either API
-    surface and no worker depends on WebView-owned temporary files.
+    surface and no worker depends on WebView-owned temporary files. A runtime
+    local-file capability guards both API surfaces, defaults to disabled, and
+    is enabled only by the embedded desktop backend; the standalone server
+    cannot consume or materialize client-supplied filesystem paths.
 
 UI specifications:
 - [Common UI](ui-common.md) — shared layout, tokens, and components
@@ -185,9 +188,12 @@ UI then starts the browser download automatically.
 ## 7. Build & Testing
 
 - Unified `justfile` for build, test, lint, format, migration, and deployment tasks.
-- `just dev-web` runs the Axum backend and `dx serve` browser frontend together;
-    the frontend hot-reloads. `just dev-web-watch` also restarts the backend via
-    `cargo-watch`. PostgreSQL can be started separately with `just dev-db-up`.
+- `just dev-web` runs the Axum backend and Dioxus browser frontend together;
+    the frontend hot-reloads. All repository Dioxus commands use the credential-
+    filtering `scripts/dx.sh` launcher because the CLI persists its rustc
+    environment in local replay artifacts. `just dev-web-watch` also restarts
+    the backend via `cargo-watch`. PostgreSQL can be started separately with
+    `just dev-db-up`.
 - Unit and integration tests across the workspace. End-to-end UI coverage is a
     remaining quality goal where the roadmap names it.
 - CI/CD pipelines (GitHub Actions).

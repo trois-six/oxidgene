@@ -28,6 +28,7 @@ use super::types::{
     GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
     GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
     GqlTreeMediaLink, GqlTreeSnapshot, GqlVignette, db_from_ctx, profiles_from_ctx,
+    require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -1051,8 +1052,13 @@ impl QueryRoot {
         })
     }
 
-    /// Index local Geneanet archives by path. This is desktop-only in practice.
-    async fn index_geneanet_archives(&self, paths: Vec<String>) -> Result<GqlGeneanetArchiveIndex> {
+    /// Index local Geneanet archives by path.
+    async fn index_geneanet_archives(
+        &self,
+        ctx: &Context<'_>,
+        paths: Vec<String>,
+    ) -> Result<GqlGeneanetArchiveIndex> {
+        require_local_file_access(ctx)?;
         let (set, reports) = crate::service::geneanet::index_archives(&paths);
         Ok(GqlGeneanetArchiveIndex {
             file_count: set.file_count() as i64,
@@ -1070,7 +1076,12 @@ impl QueryRoot {
     }
 
     /// Preview a Geneanet import without writing a tree or fetching media.
-    async fn geneanet_preview(&self, input: GeneanetPreviewInput) -> Result<GqlGeneanetPreview> {
+    async fn geneanet_preview(
+        &self,
+        ctx: &Context<'_>,
+        input: GeneanetPreviewInput,
+    ) -> Result<GqlGeneanetPreview> {
+        require_local_file_access(ctx)?;
         let gw = base64::engine::general_purpose::STANDARD
             .decode(&input.gw_base64)
             .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
@@ -1089,8 +1100,10 @@ impl QueryRoot {
     /// List the media that the signed-in Geneanet window still has to fetch.
     async fn geneanet_plan(
         &self,
+        ctx: &Context<'_>,
         input: GeneanetPreviewInput,
     ) -> Result<Vec<GqlGeneanetNeededMedia>> {
+        require_local_file_access(ctx)?;
         let gw = base64::engine::general_purpose::STANDARD
             .decode(&input.gw_base64)
             .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;

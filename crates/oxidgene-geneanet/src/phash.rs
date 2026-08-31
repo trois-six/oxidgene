@@ -37,15 +37,14 @@
 //! an ambiguous page is downloaded instead. See
 //! `docs/specifications/geneanet-media-import.md` §5.
 
-#[cfg(any(test, feature = "phash-validation"))]
 use std::io::Cursor;
 
 #[cfg(any(test, feature = "phash-validation"))]
 use anyhow::anyhow;
 use anyhow::{Context, Result};
-use image::GrayImage;
 #[cfg(any(test, feature = "phash-validation"))]
 use image::RgbImage;
+use image::{DynamicImage, GrayImage, ImageDecoder, ImageReader};
 #[cfg(any(test, feature = "phash-validation"))]
 use jpeg_decoder::PixelFormat;
 
@@ -61,6 +60,8 @@ const BYTES: usize = BLOCK * BLOCK / 8;
 /// Largest box requested from the JPEG decoder's reduced IDCT.
 #[cfg(any(test, feature = "phash-validation"))]
 const JPEG_DECODE_TARGET: u16 = 128;
+
+const MAX_DECODED_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// How far a rendition may sit from its own original and still be recognised.
 ///
@@ -170,7 +171,25 @@ pub fn hash_image(bytes: &[u8]) -> Result<Phash> {
 }
 
 fn hash_image_generic(bytes: &[u8]) -> Result<Phash> {
-    let image = image::load_from_memory(bytes).context("decoding an image to hash it")?;
+    hash_image_with_limit(bytes, MAX_DECODED_BYTES)
+}
+
+fn hash_image_with_limit(bytes: &[u8], max_decoded_bytes: u64) -> Result<Phash> {
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .context("detecting the image format to hash it")?;
+    let mut decoder = reader
+        .into_decoder()
+        .context("opening the image decoder to hash it")?;
+    if decoder.total_bytes() > max_decoded_bytes {
+        anyhow::bail!("the image is too large to hash");
+    }
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(max_decoded_bytes);
+    decoder
+        .set_limits(limits)
+        .context("the image is too large to hash")?;
+    let image = DynamicImage::from_decoder(decoder).context("decoding an image to hash it")?;
     Ok(hash_luma(&image.to_luma8()))
 }
 
@@ -392,6 +411,7 @@ mod tests {
 
         let hash = hash_image(&png).expect("hashes");
         assert_eq!(hash.distance(hash_image(&png).expect("hashes again")), 0);
+        assert!(hash_image_with_limit(&png, 1).is_err());
     }
 
     fn encoded_gradient(width: u32, height: u32, format: image::ImageFormat) -> Vec<u8> {

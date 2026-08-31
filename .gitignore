@@ -39,3 +39,8 @@ Thumbs.db
 *.profraw
 lcov.info
 
+# Fuzzing artifacts and generated corpora
+**/fuzz/artifacts/
+**/fuzz/corpus/
+**/fuzz/target/
+

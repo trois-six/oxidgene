@@ -28,6 +28,10 @@ use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, Sp
 
 use crate::{ImportResult, MediaMetadataExtension};
 
+const GEDZIP_GEDCOM_LIMIT: u64 = 1024 * 1024 * 1024;
+const GEDZIP_MEDIA_LIMIT: u64 = 128 * 1024 * 1024;
+const GEDCOM_FILENAME: &str = "gedcom.ged";
+
 /// Import a GEDCOM string into OxidGene domain model entities.
 ///
 /// All entities are assigned to the given `tree_id`.
@@ -114,29 +118,80 @@ pub struct GedzipImportPlan {
     pub files: Vec<(Uuid, String)>,
 }
 
+/// A GEDZIP reader that bounds each decompressed entry before allocating it.
+pub struct GedzipReader<R: Read + Seek> {
+    archive: zip::ZipArchive<R>,
+    file_names: Vec<String>,
+}
+
+impl<R: Read + Seek> GedzipReader<R> {
+    fn new(source: R) -> Result<Self, String> {
+        let archive =
+            zip::ZipArchive::new(source).map_err(|error| format!("GEDZIP read error: {error}"))?;
+        let file_names: Vec<String> = archive.file_names().map(String::from).collect();
+        if !file_names.iter().any(|name| name == GEDCOM_FILENAME) {
+            return Err(format!(
+                "GEDZIP read error: archive holds no {GEDCOM_FILENAME}"
+            ));
+        }
+        Ok(Self {
+            archive,
+            file_names,
+        })
+    }
+
+    fn read_entry(&mut self, name: &str, limit: u64) -> Result<Vec<u8>, String> {
+        let entry = self
+            .archive
+            .by_name(name)
+            .map_err(|error| format!("GEDZIP read error for '{name}': {error}"))?;
+        if entry.size() > limit {
+            return Err(format!(
+                "GEDZIP entry '{name}' exceeds the {limit}-byte limit"
+            ));
+        }
+        let mut bytes = Vec::new();
+        entry
+            .take(limit.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("GEDZIP read error for '{name}': {error}"))?;
+        if bytes.len() as u64 > limit {
+            return Err(format!(
+                "GEDZIP entry '{name}' exceeds the {limit}-byte limit"
+            ));
+        }
+        Ok(bytes)
+    }
+
+    /// Read one media entry, bounded by the normal per-file upload limit.
+    pub fn read_media_file(&mut self, name: &str) -> Result<Vec<u8>, String> {
+        self.read_entry(name, GEDZIP_MEDIA_LIMIT)
+    }
+}
+
 /// Parse the genealogy and resolve each media record to its archive entry
 /// without extracting those entries.
 pub fn prepare_gedzip<R: Read + Seek>(
     source: R,
     tree_id: Uuid,
-) -> Result<(ged_io::gedzip::GedzipReader<R>, GedzipImportPlan), String> {
-    let mut reader =
-        ged_io::gedzip::GedzipReader::new(source).map_err(|e| format!("GEDZIP read error: {e}"))?;
-    let data = reader
-        .parse_gedcom()
-        .map_err(|e| format!("GEDZIP parse error: {e}"))?;
-    let gedcom = reader
-        .read_gedcom_bytes()
-        .map_err(|e| format!("GEDZIP read error: {e}"))?;
+) -> Result<(GedzipReader<R>, GedzipImportPlan), String> {
+    let mut reader = GedzipReader::new(source)?;
+    let gedcom = reader.read_entry(GEDCOM_FILENAME, GEDZIP_GEDCOM_LIMIT)?;
+    let (content, _) = ged_io::decode_gedcom_bytes(&gedcom)
+        .map_err(|error| format!("GEDZIP parse error: {error}"))?;
+    let data = GedcomBuilder::new()
+        .build(content.chars())
+        .map_err(|error| format!("GEDZIP parse error: {error}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
     import_oxidgene_media_extensions(&String::from_utf8_lossy(&gedcom), &mut result);
     assign_portraits(&mut result);
 
     let entries: HashMap<String, String> = reader
-        .media_files()
+        .file_names
         .iter()
-        .map(|name| (entry_key(name), (*name).to_string()))
+        .filter(|name| name.as_str() != GEDCOM_FILENAME)
+        .map(|name| (entry_key(name), name.clone()))
         .collect();
 
     let mut wanted: Vec<(Uuid, String)> = Vec::new();
@@ -2621,5 +2676,20 @@ mod gedzip_tests {
     fn something_that_is_not_an_archive_at_all_fails_rather_than_importing_nothing() {
         let err = import_gedzip(b"0 HEAD\n0 TRLR\n", Uuid::now_v7()).unwrap_err();
         assert!(err.contains("GEDZIP"), "got {err}");
+    }
+
+    #[test]
+    fn a_decompressed_entry_must_fit_its_limit() {
+        let bytes = archive(
+            &gedcom_naming("media/portrait.jpg"),
+            &[("media/portrait.jpg", b"JPEGBYTES")],
+        );
+        let mut reader = GedzipReader::new(std::io::Cursor::new(bytes)).expect("opens");
+
+        let error = reader
+            .read_entry("media/portrait.jpg", 4)
+            .expect_err("entry exceeds four bytes");
+
+        assert!(error.contains("exceeds the 4-byte limit"), "got {error}");
     }
 }

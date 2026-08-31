@@ -15,7 +15,5 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-[dev-dependencies]
-# Reading a produced GEDZIP back, to check the media actually travelled.
 zip = { workspace = true }
+

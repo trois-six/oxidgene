@@ -2012,7 +2012,7 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     std::fs::write(&fetched_path, b"unused fetched medium").expect("write fetched medium");
 
     let db = setup_db().await;
-    let state = AppState::new(db, &media_root);
+    let state = AppState::new(db, &media_root).with_local_file_access();
     let worker = BackgroundJobWorker::new(
         state.db.clone(),
         std::sync::Arc::clone(&state.profiles),
@@ -2069,6 +2069,22 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     assert!(!state.media.exists(&fetched_key).await);
 
     let _ = std::fs::remove_dir_all(media_root);
+}
+
+#[tokio::test]
+async fn geneanet_local_paths_are_refused_by_default() {
+    let (status, body) = send_request(
+        setup_app().await,
+        Method::POST,
+        "/api/v1/geneanet/archives",
+        Some(serde_json::json!({ "paths": ["/does/not/exist"] })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error");
+    assert_eq!(body["message"], "The request is invalid");
+    assert!(body["request_id"].is_null());
 }
 
 #[tokio::test]

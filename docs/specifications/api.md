@@ -367,7 +367,7 @@ imports the format, it does not produce it.
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, warnings, error? }`. `download_url` appears only after the artifact is complete |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete |
 | `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 1 GiB body limit (the JSON escaping costs a further ~1.4× over the file itself) |
-| `POST` | `/trees/{tree_id}/gedzip/import` | Import a GEDZIP archive (`.gdz`): the `gedcom.ged` it wraps **and** the media files it carries. Body is the **raw archive** (`application/zip`), not JSON — base64 in an envelope would inflate a photo album by a third. Every medium whose `FILE` names an entry in the archive is stored, thumbnailed and written as a held medium; one naming an entry the archive lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE` names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`. 1 GiB body limit — the archive carries the album, so it is never the smaller file |
+| `POST` | `/trees/{tree_id}/gedzip/import` | Import a GEDZIP archive (`.gdz`): the `gedcom.ged` it wraps **and** the media files it carries. Body is the **raw archive** (`application/zip`), not JSON — base64 in an envelope would inflate a photo album by a third. Every medium whose `FILE` names an entry in the archive is stored, thumbnailed and written as a held medium; one naming an entry the archive lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE` names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`. The archive and `gedcom.ged` entry each have a 1 GiB limit, and each decompressed medium has the ordinary 128 MiB per-file limit. Media are read sequentially and there is no additional cumulative album limit |
 | `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 1 GiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
@@ -399,6 +399,14 @@ and a `source URL -> local path` map, but never the media bytes themselves. The
 request handler copies the `.gw`, archives, and gathered media into durable
 job-owned `MediaStore` keys before committing the job and returning. The worker
 therefore never depends on the WebView's temporary files.
+
+This data plane requires an explicit runtime capability. It is disabled by
+default, including in the standalone server and the public GraphQL schema
+constructor, and enabled only when the desktop application builds its embedded
+backend state. REST and GraphQL reject archive indexing, preview, planning,
+session encoding/decoding, and import before any local path is accessed when
+the capability is absent. Raw `.gw` inspection remains available because its
+bytes are carried in the request and it performs no filesystem handoff.
 
 | Method | Path | Description |
 |---|---|---|
@@ -768,8 +776,9 @@ adds the source-URL-to-local-path map. These paths are the staging handoff:
 GraphQL does not carry the corresponding bytes, and the mutation copies every
 input to job-owned durable storage before returning its job id.
 `indexGeneanetArchives` and paths returned from `decodeGeneanetSession` are
-desktop-only because they refer to the local filesystem. A caller polls
-`importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and
+desktop-only because they refer to the local filesystem. The runtime capability
+that protects the REST data plane also protects these GraphQL fields. A caller
+polls `importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and
 `geneanetResult` is set for a completed Geneanet job.
 
 ### Key Types

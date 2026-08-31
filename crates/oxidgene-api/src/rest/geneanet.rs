@@ -5,11 +5,9 @@
 //! inside the WebView the user authenticated in, because that is the only
 //! place a Geneanet session exists. What arrives here is its output.
 //!
-//! Two of these take **filesystem paths** rather than uploads, which is only
-//! sound because the wizard's archive steps are desktop-only: there the server
-//! runs in-process and reads the very files the user picked. The web build
-//! never calls them — it has no WebView to sign in with either, so the whole
-//! photo half of the flow is out of reach and the tab says so.
+//! Operations that exchange **filesystem paths** are guarded by a runtime
+//! capability enabled only by the desktop application, where the server runs
+//! in-process and reads the very files the user picked.
 
 use axum::Json;
 use axum::body::Bytes;
@@ -68,8 +66,10 @@ pub async fn inspect_geneweb_handler(
 /// failing the request: users add several at once and one corrupt ZIP is no
 /// reason to discard the four that opened.
 pub async fn index_archives_handler(
+    State(state): State<AppState>,
     Json(body): Json<IndexArchivesRequest>,
 ) -> Result<Json<IndexArchivesResponse>, ApiError> {
+    state.local_file_access.require().map_err(ApiError::from)?;
     let (set, reports) = geneanet::index_archives(&body.paths);
 
     Ok(Json(IndexArchivesResponse {
@@ -93,8 +93,10 @@ pub async fn index_archives_handler(
 /// do. No network access and no writes — this is the moment the user finds out
 /// whether the two halves belong to each other, *before* anything is written.
 pub async fn preview_handler(
+    State(state): State<AppState>,
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPreviewResponse>, ApiError> {
+    state.local_file_access.require().map_err(ApiError::from)?;
     let gw = decode_gw(&body.gw_base64)?;
     let (archives, _) = geneanet::index_archives(&body.archive_paths);
 
@@ -137,8 +139,10 @@ pub async fn preview_handler(
 /// account — so its result is worth keeping rather than re-collecting on every
 /// run.
 pub async fn encode_session_handler(
+    State(state): State<AppState>,
     Json(body): Json<EncodeSessionRequest>,
 ) -> Result<Response, ApiError> {
+    state.local_file_access.require().map_err(ApiError::from)?;
     // The wizard holds paths; the archive holds bytes. Read them here rather
     // than making the UI carry several hundred pictures through itself.
     let media = body
@@ -181,7 +185,11 @@ pub async fn encode_session_handler(
 ///
 /// Read a saved session back, refusing anything that is not one. The body is
 /// the file itself.
-pub async fn decode_session_handler(body: Bytes) -> Result<Json<DecodeSessionResponse>, ApiError> {
+pub async fn decode_session_handler(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Result<Json<DecodeSessionResponse>, ApiError> {
+    state.local_file_access.require().map_err(ApiError::from)?;
     // Bytes, not text: the file is an archive now, and a bare JSON one is
     // still told apart by content rather than by extension.
     let restored = session::decode(&body)
@@ -216,8 +224,10 @@ pub async fn decode_session_handler(body: Bytes) -> Result<Json<DecodeSessionRes
 /// is challenged whatever the cookie, so the bytes come from the window the
 /// user signed in to and are handed back with the import.
 pub async fn plan_handler(
+    State(state): State<AppState>,
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPlanResponse>, ApiError> {
+    state.local_file_access.require().map_err(ApiError::from)?;
     let gw = decode_gw(&body.gw_base64)?;
     let (archives, _) = geneanet::index_archives(&body.archive_paths);
 
@@ -252,6 +262,7 @@ pub async fn import_handler(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<GeneanetImportRequest>,
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
+    state.local_file_access.require().map_err(ApiError::from)?;
     let gw = decode_gw(&body.gw_base64)?;
     let job_id = crate::service::background_job::stage_geneanet_import(
         &state.db,
@@ -299,32 +310,7 @@ pub(crate) fn import_response(summary: geneanet::GeneanetImportSummary) -> Genea
 fn stage_media(
     media: &std::collections::HashMap<String, String>,
 ) -> Result<std::collections::HashMap<String, String>, ApiError> {
-    use base64::Engine as _;
-
-    if media.is_empty() {
-        return Ok(std::collections::HashMap::new());
-    }
-
-    let directory = std::env::temp_dir().join(format!("oxidgene-geneanet-{}", Uuid::now_v7()));
-    std::fs::create_dir_all(&directory).map_err(|e| {
-        ApiError::from(OxidGeneError::Internal(format!(
-            "creating {}: {e}",
-            directory.display()
-        )))
-    })?;
-
-    Ok(media
-        .iter()
-        .enumerate()
-        .filter_map(|(index, (url, encoded))| {
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .ok()?;
-            let path = directory.join(format!("{index:05}"));
-            std::fs::write(&path, bytes).ok()?;
-            Some((url.clone(), path.display().to_string()))
-        })
-        .collect())
+    crate::service::session_media::stage(media).map_err(ApiError::from)
 }
 
 /// Decodes the base64 the JSON bodies carry the `.gw` in.

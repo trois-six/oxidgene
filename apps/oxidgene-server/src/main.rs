@@ -64,14 +64,6 @@ async fn main() {
         std::process::exit(1);
     });
 
-    oxidgene_api::rest::file_import::cleanup_orphaned_uploads().unwrap_or_else(|_| {
-        error!(
-            error = "temporary_import_cleanup",
-            "Failed to clean temporary imports"
-        );
-        std::process::exit(1);
-    });
-
     // ── Build application router ─────────────────────────────────────
     let media = cfg.media_store().unwrap_or_else(|_| {
         error!(

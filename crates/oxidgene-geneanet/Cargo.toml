@@ -28,6 +28,7 @@ zip = { workspace = true }
 
 [dev-dependencies]
 jpeg-decoder = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 zune-core = { workspace = true }
 zune-jpeg = { workspace = true }

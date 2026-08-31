@@ -58,6 +58,23 @@ fn data(resp: &Value) -> &Value {
     resp.get("data").expect("missing 'data' in response")
 }
 
+#[tokio::test]
+async fn graphql_geneanet_local_paths_are_refused_by_default() {
+    let response = graphql(
+        setup_app().await,
+        r#"{ indexGeneanetArchives(paths: ["/does/not/exist"]) { fileCount } }"#,
+        None,
+    )
+    .await;
+
+    assert!(response["data"].is_null());
+    assert_eq!(
+        response["errors"][0]["extensions"]["code"],
+        "VALIDATION_ERROR"
+    );
+    assert_eq!(response["errors"][0]["message"], "The request is invalid");
+}
+
 // ── Tree CRUD ────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -151,6 +168,21 @@ async fn graphql_errors_use_safe_messages_and_stable_codes() {
     assert_eq!(error["message"], "The request is invalid");
     assert_eq!(error["extensions"]["code"], "VALIDATION_ERROR");
     assert!(error["extensions"].get("requestId").is_none());
+}
+
+#[tokio::test]
+async fn graphql_rejects_queries_over_the_complexity_limit() {
+    let app = setup_app().await;
+    let selections = (0..1_001)
+        .map(|index| format!("trees{index}: trees {{ totalCount }}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let response = graphql(app, &format!("query {{ {selections} }}"), None).await;
+
+    assert!(response["data"].is_null());
+    let error = &response["errors"][0];
+    assert_eq!(error["message"], "The request is invalid");
+    assert_eq!(error["extensions"]["code"], "VALIDATION_ERROR");
 }
 
 #[tokio::test]
@@ -1698,7 +1730,16 @@ fn minimal_geneweb() -> &'static str {
 async fn test_geneanet_wizard_operations_over_graphql() {
     use base64::Engine as _;
 
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join(format!(
+            "oxidgene-gql-geneanet-wizard-{}",
+            uuid::Uuid::now_v7()
+        )),
+    )
+    .with_local_file_access();
+    let app = build_router(state);
     let gw_base64 = base64::engine::general_purpose::STANDARD.encode(minimal_geneweb());
     let collection = r#"{"deposits":[],"references":[],"view_references":{}}"#;
     let collection_graphql = collection.replace('"', "\\\"");
@@ -1921,7 +1962,8 @@ async fn test_graphql_geneanet_import_job() {
             "oxidgene-gql-geneanet-import-{}",
             uuid::Uuid::now_v7()
         )),
-    );
+    )
+    .with_local_file_access();
     let app = build_router(state.clone());
     let response = graphql(
         app.clone(),

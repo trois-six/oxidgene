@@ -30,7 +30,7 @@ use super::types::{
     GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink, GqlNote,
     GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
     GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx, media_from_ctx,
-    profiles_from_ctx, purge_from_ctx,
+    profiles_from_ctx, purge_from_ctx, require_local_file_access,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -84,28 +84,9 @@ where
 fn stage_geneanet_media(
     media: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<GqlGeneanetMediaPath>> {
-    if media.is_empty() {
-        return Ok(Vec::new());
-    }
-    let directory = std::env::temp_dir().join(format!("oxidgene-geneanet-{}", Uuid::now_v7()));
-    std::fs::create_dir_all(&directory).map_err(|error| {
-        async_graphql::Error::new(format!("creating {}: {error}", directory.display()))
-    })?;
-
-    Ok(media
-        .iter()
-        .enumerate()
-        .filter_map(|(index, (url, encoded))| {
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .ok()?;
-            let path = directory.join(format!("{index:05}"));
-            std::fs::write(&path, bytes).ok()?;
-            Some(GqlGeneanetMediaPath {
-                url: url.clone(),
-                path: path.display().to_string(),
-            })
-        })
+    Ok(crate::service::session_media::stage(media)?
+        .into_iter()
+        .map(|(url, path)| GqlGeneanetMediaPath { url, path })
         .collect())
 }
 
@@ -1655,8 +1636,10 @@ impl MutationRoot {
     /// Encode a Geneanet wizard session as a base64 archive.
     async fn encode_geneanet_session(
         &self,
+        ctx: &Context<'_>,
         input: GeneanetSessionEncodeInput,
     ) -> Result<GqlGeneanetSessionArchive> {
+        require_local_file_access(ctx)?;
         let media = input
             .media
             .iter()
@@ -1683,7 +1666,12 @@ impl MutationRoot {
 
     /// Decode a saved Geneanet session. Its media are staged as local files
     /// for a following desktop import, just as they are through REST.
-    async fn decode_geneanet_session(&self, archive_base64: String) -> Result<GqlGeneanetSession> {
+    async fn decode_geneanet_session(
+        &self,
+        ctx: &Context<'_>,
+        archive_base64: String,
+    ) -> Result<GqlGeneanetSession> {
+        require_local_file_access(ctx)?;
         let archive = base64::engine::general_purpose::STANDARD
             .decode(archive_base64)
             .map_err(|error| {
@@ -1717,6 +1705,7 @@ impl MutationRoot {
         tree_id: ID,
         input: GeneanetImportInput,
     ) -> Result<GqlBackgroundJobStarted> {
+        require_local_file_access(ctx)?;
         let db = db_from_ctx(ctx);
         let media = media_from_ctx(ctx);
         let tree_id = Uuid::parse_str(tree_id.as_str())?;

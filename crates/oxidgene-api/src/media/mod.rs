@@ -295,20 +295,16 @@ mod tests {
         out.into_inner()
     }
 
-    struct TempRoot(std::path::PathBuf);
+    struct TempRoot(tempfile::TempDir);
 
     impl TempRoot {
         fn new(tag: &str) -> Self {
-            let path =
-                std::env::temp_dir().join(format!("oxidgene-ingest-{tag}-{}", Uuid::now_v7()));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for TempRoot {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            Self(
+                tempfile::Builder::new()
+                    .prefix(&format!("oxidgene-ingest-{tag}-"))
+                    .tempdir()
+                    .unwrap(),
+            )
         }
     }
 
@@ -450,7 +446,7 @@ mod tests {
     #[tokio::test]
     async fn ingesting_a_photo_records_its_size_shape_and_thumbnail() {
         let root = TempRoot::new("photo");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let tree_id = Uuid::now_v7();
 
         let media = ingest(&store, tree_id, "portrait.png", png(800, 600))
@@ -469,7 +465,7 @@ mod tests {
     #[tokio::test]
     async fn a_pdf_is_stored_without_a_thumbnail() {
         let root = TempRoot::new("pdf");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
 
         let media = ingest(
             &store,
@@ -489,7 +485,7 @@ mod tests {
     #[tokio::test]
     async fn the_same_scan_uploaded_twice_lands_on_one_key() {
         let root = TempRoot::new("dedup");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let tree_id = Uuid::now_v7();
         let bytes = png(300, 300);
 
@@ -510,7 +506,7 @@ mod tests {
     #[tokio::test]
     async fn an_empty_upload_is_rejected() {
         let root = TempRoot::new("empty");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let err = ingest(&store, Uuid::now_v7(), "nothing.jpg", Vec::new())
             .await
             .unwrap_err();
@@ -520,7 +516,7 @@ mod tests {
     #[tokio::test]
     async fn an_unsupported_type_is_rejected_before_anything_is_written() {
         let root = TempRoot::new("unsupported");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let tree_id = Uuid::now_v7();
 
         let err = ingest(&store, tree_id, "payload.jpg", b"\x7fELF\x02\x01".to_vec())
@@ -529,7 +525,7 @@ mod tests {
 
         assert!(matches!(err, OxidGeneError::Validation(_)), "got {err:?}");
         assert!(
-            !root.0.join(tree_id.to_string()).exists(),
+            !root.0.path().join(tree_id.to_string()).exists(),
             "a rejected upload should leave no trace"
         );
     }
@@ -537,7 +533,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_over_the_limit_is_rejected() {
         let root = TempRoot::new("oversize");
-        let store = FsStore::new(&root.0);
+        let store = FsStore::new(root.0.path());
         let mut bytes = vec![0u8; MAX_UPLOAD_BYTES + 1];
         bytes[0..3].copy_from_slice(&[0xFF, 0xD8, 0xFF]);
 

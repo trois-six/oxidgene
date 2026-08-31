@@ -603,11 +603,21 @@ fn finish(session: &mut Option<Session>, deposit_sizes: HashMap<i64, u64>) -> Op
 
 /// The scheme-and-host of a URL, or `None` if it carries neither.
 fn origin_of(url: &str) -> Option<String> {
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))?;
-    let host = rest.split('/').next()?;
-    (!host.is_empty()).then(|| format!("https://{host}/"))
+    let uri = url.parse::<axum::http::Uri>().ok()?;
+    if uri.scheme_str() != Some("https") || !is_geneanet_host(uri.host()?) {
+        return None;
+    }
+    Some(format!("https://{}/", uri.authority()?))
+}
+
+fn is_geneanet_url(url: &str) -> bool {
+    url.parse::<axum::http::Uri>().is_ok_and(|uri| {
+        uri.scheme_str() == Some("https") && uri.host().is_some_and(is_geneanet_host)
+    })
+}
+
+fn is_geneanet_host(host: &str) -> bool {
+    host == "geneanet.org" || host.ends_with(".geneanet.org")
 }
 
 /// How many views the collection holds — every page of every deposit.
@@ -673,6 +683,10 @@ fn open<T: 'static>(
         // expire under the collection.
         .with_initialization_script(script::REMEMBER_ME)
         .with_ipc_handler(move |request| {
+            if !is_geneanet_url(&request.uri().to_string()) {
+                debug!("ignoring an IPC message outside Geneanet");
+                return;
+            }
             match serde_json::from_str::<Message>(request.body()) {
                 Ok(message) => {
                     if let Ok(mut inbox) = inbox.lock() {
@@ -785,6 +799,17 @@ mod tests {
         // turned into a bogus navigation.
         assert_eq!(origin_of("/public/img/x/normal.jpg"), None);
         assert_eq!(origin_of(""), None);
+    }
+
+    #[test]
+    fn only_https_geneanet_origins_can_drive_fetches_or_ipc() {
+        assert!(is_geneanet_url("https://geneanet.org/"));
+        assert!(is_geneanet_url("https://www.geneanet.org/media/manager"));
+        assert!(is_geneanet_url("https://gw.geneanet.org/public/img/a.jpg"));
+        assert!(!is_geneanet_url("http://www.geneanet.org/media/manager"));
+        assert!(!is_geneanet_url("https://geneanet.org.example.invalid/"));
+        assert!(!is_geneanet_url("https://example.invalid/geneanet.org"));
+        assert_eq!(origin_of("https://example.invalid/file.jpg"), None);
     }
 
     #[test]
