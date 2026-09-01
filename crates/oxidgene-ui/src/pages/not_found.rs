@@ -4,10 +4,12 @@ use dioxus::prelude::*;
 
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::ui_observability::{UiPage, use_ui_load_trace};
 
 /// Catch-all page for unknown routes.
 #[component]
 pub fn NotFound(segments: Vec<String>) -> Element {
+    let _load_trace = use_ui_load_trace(UiPage::NotFound);
     let i18n = use_i18n();
     let path = format!("/{}", segments.join("/"));
     rsx! {

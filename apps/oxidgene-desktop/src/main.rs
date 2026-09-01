@@ -49,10 +49,16 @@ use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
+#[cfg(feature = "telemetry")]
+use oxidgene_observability::{init, make_http_span, on_http_response};
 use oxidgene_ui::api::ApiClient;
 use tokio::net::TcpListener;
+#[cfg(feature = "telemetry")]
+use tower_http::trace::TraceLayer;
 use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
+
+#[cfg(all(feature = "telemetry", feature = "release-no-telemetry"))]
+compile_error!("features `telemetry` and `release-no-telemetry` are mutually exclusive");
 
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
 
@@ -118,24 +124,57 @@ fn suppress_duplicate_configure_events(
 /// answered here rather than dropped, because a binary on a `$PATH` that
 /// ignores it is rude.
 struct Cli {
-    /// Log all person data received from the backend.
+    /// Enable developer-oriented logs for OxidGene crates.
+    #[cfg(feature = "telemetry")]
     debug: bool,
+    /// Tracing filter, overriding `OXIDGENE_LOG_LEVEL`.
+    #[cfg(feature = "telemetry")]
+    log_level: Option<String>,
 }
 
 impl Cli {
     fn parse() -> Self {
+        #[cfg(feature = "telemetry")]
         let mut debug = false;
-        for arg in std::env::args_os().skip(1) {
+        #[cfg(feature = "telemetry")]
+        let mut log_level = None;
+        let mut args = std::env::args_os().skip(1);
+        while let Some(arg) = args.next() {
             match arg.to_str() {
+                #[cfg(feature = "telemetry")]
                 Some("--debug") => debug = true,
+                #[cfg(feature = "telemetry")]
+                Some("--log-level") => {
+                    log_level = Some(
+                        args.next()
+                            .and_then(|value| value.into_string().ok())
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or_else(|| {
+                                eprintln!("oxidgene-desktop: --log-level requires a value");
+                                std::process::exit(2);
+                            }),
+                    );
+                }
                 Some("-h" | "--help") => {
+                    #[cfg(feature = "telemetry")]
                     println!(
                         "oxidgene-desktop — OxidGene desktop genealogy app\n\
                          \n\
-                         Usage: oxidgene-desktop [--debug]\n\
+                         Usage: oxidgene-desktop [--debug] [--log-level FILTER]\n\
                          \n\
                          Options:\n    \
-                             --debug      Log all person data received from the backend\n    \
+                             --debug      Enable debug logs for OxidGene crates\n    \
+                             --log-level FILTER  Override OXIDGENE_LOG_LEVEL\n    \
+                             -h, --help   Show this message\n    \
+                             -V, --version  Show the version\n"
+                    );
+                    #[cfg(not(feature = "telemetry"))]
+                    println!(
+                        "oxidgene-desktop — OxidGene desktop genealogy app\n\
+                         \n\
+                         Usage: oxidgene-desktop\n\
+                         \n\
+                         Options:\n    \
                              -h, --help   Show this message\n    \
                              -V, --version  Show the version\n"
                     );
@@ -155,7 +194,12 @@ impl Cli {
                 }
             }
         }
-        Self { debug }
+        Self {
+            #[cfg(feature = "telemetry")]
+            debug,
+            #[cfg(feature = "telemetry")]
+            log_level,
+        }
     }
 }
 
@@ -174,19 +218,30 @@ fn main() {
     ))]
     glib::set_prgname(Some("oxidgene"));
 
+    #[cfg(feature = "telemetry")]
     let cli = Cli::parse();
+    #[cfg(not(feature = "telemetry"))]
+    Cli::parse();
 
-    // ── Initialize tracing ───────────────────────────────────────────
-    let filter = if cli.debug {
-        "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug"
-    } else {
-        "info"
-    };
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(filter)),
-        )
-        .init();
+    // ── Initialize observability ─────────────────────────────────────
+    #[cfg(feature = "telemetry")]
+    let filter = cli
+        .log_level
+        .or_else(|| std::env::var("OXIDGENE_LOG_LEVEL").ok())
+        .unwrap_or_else(|| {
+            if cli.debug {
+                "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug".to_string()
+            } else {
+                "info".to_string()
+            }
+        });
+    #[cfg(feature = "telemetry")]
+    let telemetry = Arc::new(Mutex::new(Some(
+        init("oxidgene-desktop", env!("CARGO_PKG_VERSION"), &filter).unwrap_or_else(|_| {
+            eprintln!("Failed to initialize observability");
+            std::process::exit(1);
+        }),
+    )));
 
     // ── Resolve data directory (SQLite) ──────────────────────────────
     let data_dir = dirs::data_dir()
@@ -209,7 +264,7 @@ fn main() {
     // Wrap shutdown_tx so it can be captured by the Dioxus event handler closure.
     let shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
 
-    std::thread::spawn(move || {
+    let server_thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
             // Connect to SQLite
@@ -253,6 +308,12 @@ fn main() {
             let app = Router::new()
                 .route("/healthz", get(healthz))
                 .merge(api_router);
+            #[cfg(feature = "telemetry")]
+            let app = app.layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(make_http_span)
+                    .on_response(on_http_response),
+            );
 
             // Bind to random port on loopback
             let addr = SocketAddr::from(([127, 0, 0, 1], 0));
@@ -306,6 +367,9 @@ fn main() {
     // person projections live in SQLite, written as part of each mutation.
     let window_icon: Option<Icon> = icon_from_memory(ICON_PNG).ok();
     let shutdown_tx_for_handler = Arc::clone(&shutdown_tx);
+    let server_thread_for_handler = Arc::new(Mutex::new(Some(server_thread)));
+    #[cfg(feature = "telemetry")]
+    let telemetry_for_handler = Arc::clone(&telemetry);
 
     // The Geneanet import wizard's step 3 needs a second browser window on
     // geneanet.org, which only the event loop can create — so the bridge the
@@ -346,6 +410,15 @@ fn main() {
                 // Take the sender (only fires once).
                 if let Some(sender) = shutdown_tx_for_handler.lock().unwrap().take() {
                     let _ = sender.send(());
+                }
+                if let Some(server_thread) = server_thread_for_handler.lock().unwrap().take() {
+                    let _ = server_thread.join();
+                }
+                #[cfg(feature = "telemetry")]
+                {
+                    if let Some(telemetry) = telemetry_for_handler.lock().unwrap().take() {
+                        telemetry.shutdown();
+                    }
                 }
             }
         }))

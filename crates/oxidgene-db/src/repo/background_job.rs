@@ -70,6 +70,10 @@ impl BackgroundJobRepo {
         input: NewBackgroundJob,
     ) -> Result<BackgroundJob, OxidGeneError> {
         let now = Utc::now();
+        #[cfg(feature = "telemetry-context")]
+        let (trace_parent, trace_state) = oxidgene_observability::current_trace_context();
+        #[cfg(not(feature = "telemetry-context"))]
+        let (trace_parent, trace_state) = (None, None);
         background_job::ActiveModel {
             id: Set(input.id),
             tree_id: Set(input.tree_id),
@@ -92,6 +96,8 @@ impl BackgroundJobRepo {
             cancel_requested: Set(false),
             result_json: Set(None),
             error_code: Set(None),
+            trace_parent: Set(trace_parent),
+            trace_state: Set(trace_state),
             created_at: Set(now),
             updated_at: Set(now),
             started_at: Set(None),

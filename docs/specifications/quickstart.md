@@ -19,7 +19,7 @@ path; the desktop paths do not require the web infrastructure.
 |---|---|---|
 | Downloaded desktop binary | End users who do not build from source | Embedded SQLite and the local application data directory |
 | Desktop source build | Contributors and local desktop testing | Embedded SQLite and the local application data directory |
-| Docker Compose | Local web evaluation and integration testing | PostgreSQL, RustFS, and Redis Docker volumes |
+| Docker Compose | Local web evaluation and integration testing | PostgreSQL, RustFS, Redis, and OpenTelemetry Collector |
 | Kubernetes with Helm | Cluster deployment of the web application | External PostgreSQL and either external S3 or a RustFS Tenant |
 
 The hardware figures below are operational starting points, not benchmarked
@@ -111,6 +111,34 @@ On Windows, run `target\release\oxidgene-desktop.exe`. Platform application
 bundles and installers are future release deliverables; this command currently
 produces the native executable.
 
+### Collect desktop telemetry
+
+The desktop binary can export its logs, spans, and metrics to any
+OpenTelemetry Collector over OTLP/gRPC. This includes telemetry from the
+embedded Axum API, background import and export jobs, database and media
+operations carrying a parent span, and native UI `tracing` events. Start the
+development collector by itself, then launch the desktop process with its
+endpoint:
+
+```bash
+just desktop-telemetry
+docker compose -f docker/docker-compose.yml logs -f otel-collector
+```
+
+The recipe accepts an optional log filter, such as
+`just desktop-telemetry debug`. The equivalent manual launch is:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --wait otel-collector
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317 \
+  OXIDGENE_LOG_LEVEL=info just desktop
+```
+
+The same environment variable works with a release binary. Unset it to keep
+the desktop application entirely local with no telemetry network export. The
+collector configuration controls where signals are retained or forwarded;
+the bundled development configuration only prints summaries to its logs.
+
 ## 3. Run the web stack with Docker Compose
 
 The Compose stack is intended for local development and integration testing.
@@ -157,6 +185,12 @@ should be permanently deleted.
 The Compose credentials are intentionally local-only. Every published port is
 bound to `127.0.0.1`; do not expose this stack to an untrusted network.
 
+The bundled OpenTelemetry Collector receives OTLP/gRPC on
+`http://127.0.0.1:4317`, OTLP/HTTP on `http://127.0.0.1:4318`, and prints
+development log, trace, and metric summaries in `otel-collector` logs. Edit
+`docker/otel-collector.yaml` to forward these signals to a persistent
+observability backend.
+
 ## 4. Deploy to Kubernetes with Helm
 
 The chart deploys the static frontend and Axum backend as PVC-free workloads.
@@ -178,6 +212,9 @@ chart supports:
 - `s3.mode=existing`: connect to an existing S3-compatible bucket.
 - `s3.mode=rustfs`: create a RustFS Tenant, media policy, application user, and
   bucket through RustFS Operator 0.0.6 or newer.
+- `backend.otlpEndpoint` and `worker.otlpEndpoint`: independently send each
+  process's logs, traces, and metrics to an OpenTelemetry Collector over
+  OTLP/gRPC; an empty value disables export for that process.
 
 Redis remains unused by application code until authentication is implemented;
 enabling it now provisions the infrastructure and injects the reserved
@@ -572,6 +609,7 @@ other paths to the frontend.
 | `backend.service.port` | `8080` | Backend Service port. |
 | `backend.corsOrigin` | `https://oxidgene.example.invalid` | Allowed browser origin. Set it to the public application origin. |
 | `backend.logLevel` | `info` | `OXIDGENE_LOG_LEVEL` value. |
+| `backend.otlpEndpoint` | `""` | Backend `OTEL_EXPORTER_OTLP_ENDPOINT`; empty disables its telemetry export and span creation. |
 | `backend.extraEnv` | `[]` | Additional container environment entries. |
 | `backend.resources` | See `values.yaml` | CPU and memory requests and limits. |
 | `backend.podAnnotations` | `{}` | Additional Pod annotations. |
@@ -582,6 +620,19 @@ other paths to the frontend.
 | `backend.tolerations` | `[]` | Pod tolerations. |
 | `backend.affinity` | `{}` | Pod affinity and anti-affinity. |
 | `backend.topologySpreadConstraints` | `[]` | Pod topology spread rules. |
+
+#### Worker
+
+| Value | Default | Description |
+|---|---|---|
+| `worker.replicaCount` | `1` | Worker Deployment replicas when PostgreSQL and S3 are enabled. |
+| `worker.image.repository` | `ghcr.io/trois-six/oxidgene-worker` | Worker image repository. |
+| `worker.image.tag` | Chart `appVersion` | Worker image tag; set an explicit value to override the released chart version. |
+| `worker.image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy. |
+| `worker.logLevel` | `info` | Worker `OXIDGENE_LOG_LEVEL` value. |
+| `worker.otlpEndpoint` | `""` | Worker `OTEL_EXPORTER_OTLP_ENDPOINT`; empty disables its telemetry export and span creation. |
+| `worker.extraEnv` | `[]` | Additional worker container environment entries. |
+| `worker.resources` | See `values.yaml` | CPU and memory requests and limits. |
 
 #### Frontend
 

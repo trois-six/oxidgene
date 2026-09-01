@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+telemetry-client = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+
 [dependencies]
 oxidgene-core = { workspace = true }
 dioxus = { workspace = true, features = ["router"] }
@@ -23,9 +26,14 @@ reqwest = { workspace = true }
 rfd = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+opentelemetry = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.4", features = ["futures"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["time", "fs", "io-util"] }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }

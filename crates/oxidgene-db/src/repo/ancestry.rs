@@ -37,6 +37,7 @@ impl AncestryRepo {
     /// Walks child → family → spouses. `max_depth` counts generations, so 1 is
     /// the parents; `None` falls back to [`MAX_GENERATIONS`]. The person
     /// themself is never included.
+    #[tracing::instrument(name = "pedigree.ancestors", skip_all, fields(max_depth))]
     pub async fn ancestors(
         db: &impl ConnectionTrait,
         person_id: Uuid,
@@ -58,6 +59,7 @@ impl AncestryRepo {
     /// Every descendant of `person_id`, each at its shortest distance.
     ///
     /// Walks spouse → family → children, the mirror of [`ancestors`].
+    #[tracing::instrument(name = "pedigree.descendants", skip_all, fields(max_depth))]
     pub async fn descendants(
         db: &impl ConnectionTrait,
         person_id: Uuid,

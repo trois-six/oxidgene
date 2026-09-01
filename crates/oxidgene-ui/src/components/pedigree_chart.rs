@@ -2777,12 +2777,14 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let mut drag_origin_x = use_signal(|| 0.0f64);
     let mut drag_origin_y = use_signal(|| 0.0f64);
 
-    let layout = compute_layout(
-        props.root_person_id,
-        &props.data,
-        props.ancestor_levels,
-        props.descendant_levels,
-    );
+    let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
+        compute_layout(
+            props.root_person_id,
+            &props.data,
+            props.ancestor_levels,
+            props.descendant_levels,
+        )
+    });
 
     // ── Center the root person in the viewport on first render and root change ──
     let mut prev_root = use_signal(|| props.root_person_id);
@@ -3342,12 +3344,14 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     data_with_sosa.sosa_root_id = props.sosa_root_person_id;
 
     // ── Compute layout ──
-    let layout = compute_layout(
-        props.root_person_id,
-        &data_with_sosa,
-        ancestor_levels(),
-        descendant_levels(),
-    );
+    let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
+        compute_layout(
+            props.root_person_id,
+            &data_with_sosa,
+            ancestor_levels(),
+            descendant_levels(),
+        )
+    });
 
     // ── Fit graph in viewport when needed ──
     if needs_fit() {

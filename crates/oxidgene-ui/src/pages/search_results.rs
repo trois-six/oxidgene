@@ -16,6 +16,7 @@ use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 
 const RESULTS_PER_PAGE: usize = 25;
 /// Card (grid) view shows fewer results per page — each cell embeds a
@@ -113,11 +114,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = navigator();
+    let load_trace = use_ui_load_trace(UiPage::SearchResults);
 
     let tree_id = Uuid::parse_str(&props.tree_id).ok();
     let tree_cache = use_tree_cache();
     let api_tree = api.clone();
-    let tree_resource = use_resource(move || {
+    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
         let api = api_tree.clone();
         let _generation = tree_cache.generation();
         async move {
@@ -140,7 +142,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     };
 
     let api_portraits = api.clone();
-    let portraits_resource = use_resource(move || {
+    let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
         let api = api_portraits.clone();
         async move {
             match tree_id {
@@ -198,7 +200,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
     // ── Server-side search ──
     let api_search = api.clone();
-    let search_resource = use_resource(move || {
+    let search_resource = use_traced_resource(load_trace.clone(), "person_search", move || {
         let api = api_search.clone();
         let page = current_page();
         let per_page = match view_mode() {
@@ -1129,8 +1131,9 @@ fn SearchPedigreeCard(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = navigator();
+    let load_trace = use_context::<UiLoadTrace>();
 
-    let pedigree_resource = use_resource(move || {
+    let pedigree_resource = use_traced_resource(load_trace, "result_pedigree", move || {
         let api = api.clone();
         async move { api.get_pedigree(tree_id, person_id, 2, 0).await }
     });
@@ -1168,7 +1171,9 @@ fn SearchPedigreeCard(
     let ped = pedigree_resource.read();
     let body = match &*ped {
         Some(Ok(cached)) => {
-            let data = crate::components::pedigree_chart::PedigreeData::from_pedigree(cached);
+            let data = crate::ui_observability::measure_ui("pedigree_data", || {
+                crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
+            });
             rsx! {
                 crate::components::pedigree_chart::MiniPedigree {
                     root_person_id: person_id,

@@ -18,6 +18,7 @@ use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
 /// Above this many filtered entries, selecting the "All" page size shows a
 /// perf warning instead of silently rendering everything.
@@ -112,6 +113,7 @@ pub fn Dictionary(tree_id: String) -> Element {
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
     let tree_cache = use_tree_cache();
+    let load_trace = use_ui_load_trace(UiPage::Dictionary);
 
     let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
     let new_parsed = tree_id.parse::<Uuid>().ok();
@@ -156,7 +158,7 @@ pub fn Dictionary(tree_id: String) -> Element {
 
     // ── Data fetching (one aggregation call per tab) ──
     let api_tree = api.clone();
-    let mut tree_resource = use_resource(move || {
+    let mut tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
         let api = api_tree.clone();
         let tid = tree_id_parsed();
         let _gen = tree_cache.generation();
@@ -170,37 +172,39 @@ pub fn Dictionary(tree_id: String) -> Element {
     let sort_particles = use_sort_particles();
     let particle_edit = use_signal(|| None::<ParticleEdit>);
 
-    let mut family_names_resource = use_resource(move || {
-        let api = api_fn.clone();
-        let tid = tree_id_parsed();
-        async move {
-            let Some(tid) = tid else {
-                return Err(ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            api.dictionary_family_names(tid).await
-        }
-    });
+    let mut family_names_resource =
+        use_traced_resource(load_trace.clone(), "family_names", move || {
+            let api = api_fn.clone();
+            let tid = tree_id_parsed();
+            async move {
+                let Some(tid) = tid else {
+                    return Err(ApiError::Api {
+                        status: 400,
+                        body: "Invalid tree ID".to_string(),
+                    });
+                };
+                api.dictionary_family_names(tid).await
+            }
+        });
 
     let api_occ = api.clone();
-    let mut occupations_resource = use_resource(move || {
-        let api = api_occ.clone();
-        let tid = tree_id_parsed();
-        async move {
-            let Some(tid) = tid else {
-                return Err(ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
-            };
-            api.dictionary_occupations(tid).await
-        }
-    });
+    let mut occupations_resource =
+        use_traced_resource(load_trace.clone(), "occupations", move || {
+            let api = api_occ.clone();
+            let tid = tree_id_parsed();
+            async move {
+                let Some(tid) = tid else {
+                    return Err(ApiError::Api {
+                        status: 400,
+                        body: "Invalid tree ID".to_string(),
+                    });
+                };
+                api.dictionary_occupations(tid).await
+            }
+        });
 
     let api_src = api.clone();
-    let mut sources_view_resource = use_resource(move || {
+    let mut sources_view_resource = use_traced_resource(load_trace.clone(), "sources", move || {
         let api = api_src.clone();
         let tid = tree_id_parsed();
         let query_prefix = source_history().last().cloned().unwrap_or_default();
@@ -232,7 +236,7 @@ pub fn Dictionary(tree_id: String) -> Element {
     });
 
     let api_place = api.clone();
-    let mut places_resource = use_resource(move || {
+    let mut places_resource = use_traced_resource(load_trace.clone(), "places", move || {
         let api = api_place.clone();
         let tid = tree_id_parsed();
         async move {
@@ -265,7 +269,7 @@ pub fn Dictionary(tree_id: String) -> Element {
     // `render_usage_accordion` only trusts a value whose tag matches the
     // row it's rendering, and shows a loading state otherwise.
     let api_usage = api.clone();
-    let usage_resource = use_resource(move || {
+    let usage_resource = use_traced_resource(load_trace.clone(), "usage", move || {
         let api = api_usage.clone();
         let key = expanded();
         let tid = tree_id_parsed();

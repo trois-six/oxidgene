@@ -12,6 +12,7 @@ use oxidgene_db::repo::{
 use oxidgene_gedcom::export::GedzipFileWriter;
 use sea_orm::{DatabaseConnection, DbBackend, TransactionTrait};
 use serde::{Deserialize, Serialize};
+use tracing::Instrument as _;
 use uuid::Uuid;
 
 use super::{gedcom, geneanet};
@@ -148,17 +149,34 @@ impl BackgroundJobWorker {
         let _live_job =
             (self.db.get_database_backend() == DbBackend::Sqlite).then(|| LiveJobGuard::new(&job));
 
-        if let Err(error) = self.execute(&job).await {
-            let code = match error {
-                OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
-                _ => "job_failed",
-            };
-            tracing::error!(job_id = %job.id, %error, "background job failed");
-            if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await? {
-                remove_live_job(job.id);
-                self.cleanup_import_inputs(&job).await;
+        let span = tracing::info_span!(
+            "background_job.process",
+            otel.kind = "consumer",
+            job.kind = %job.kind,
+            job.format = %job.format,
+        );
+        #[cfg(feature = "telemetry-context")]
+        oxidgene_observability::set_parent_from_trace_context(
+            &span,
+            job.trace_parent.as_deref(),
+            job.trace_state.as_deref(),
+        );
+        async {
+            if let Err(error) = self.execute(&job).await {
+                let code = match error {
+                    OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
+                    _ => "job_failed",
+                };
+                tracing::error!(error.category = code, "background job failed");
+                if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await? {
+                    remove_live_job(job.id);
+                    self.cleanup_import_inputs(&job).await;
+                }
             }
+            Ok::<(), OxidGeneError>(())
         }
+        .instrument(span)
+        .await?;
         Ok(true)
     }
 
@@ -168,14 +186,22 @@ impl BackgroundJobWorker {
             match self.run_once().await {
                 Ok(true) => {}
                 Ok(false) => tokio::time::sleep(self.poll_interval).await,
-                Err(error) => {
-                    tracing::error!(%error, "background job worker iteration failed");
+                Err(_) => {
+                    tracing::error!(
+                        error.category = "worker_iteration_failed",
+                        "background job worker iteration failed"
+                    );
                     tokio::time::sleep(self.poll_interval).await;
                 }
             }
         }
     }
 
+    #[tracing::instrument(
+        name = "background_job.execute",
+        skip_all,
+        fields(job.kind = %job.kind, job.format = %job.format)
+    )]
     async fn execute(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
         match job.kind.as_str() {
             "import" => self.execute_import(job).await,
@@ -184,6 +210,11 @@ impl BackgroundJobWorker {
         }
     }
 
+    #[tracing::instrument(
+        name = "import.job",
+        skip_all,
+        fields(import.format = %job.format)
+    )]
     async fn execute_import(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
         if job.format == "geneanet" {
             return self.execute_geneanet_import(job).await;
@@ -208,7 +239,8 @@ impl BackgroundJobWorker {
                 "gedcom" => {
                     progress.enter(gedcom::FileImportPhase::Parsing);
                     let source = tokio::fs::read_to_string(&source).await?;
-                    oxidgene_gedcom::import::import_gedcom(&source, job.tree_id)
+                    tracing::info_span!("import.parse", import.format = "gedcom")
+                        .in_scope(|| oxidgene_gedcom::import::import_gedcom(&source, job.tree_id))
                         .map_err(OxidGeneError::Gedcom)?
                 }
                 "gedzip" => {
@@ -219,7 +251,10 @@ impl BackgroundJobWorker {
                     progress.enter(gedcom::FileImportPhase::Parsing);
                     let source = tokio::fs::read(&source).await?;
                     let origin = safe_origin_file(job.original_filename.as_deref());
-                    oxidgene_gedcom::geneweb::import_geneweb(&source, &origin, job.tree_id)
+                    tracing::info_span!("import.parse", import.format = "geneweb")
+                        .in_scope(|| {
+                            oxidgene_gedcom::geneweb::import_geneweb(&source, &origin, job.tree_id)
+                        })
                         .map_err(OxidGeneError::Gedcom)?
                 }
                 _ => return Err(OxidGeneError::Validation("unknown import format".into())),
@@ -355,6 +390,7 @@ impl BackgroundJobWorker {
     ) -> Result<(), OxidGeneError> {
         self.profiles
             .rebuild_tree_full(&self.db, job.tree_id)
+            .instrument(tracing::info_span!("import.projections"))
             .await?;
         let result = serde_json::to_string(&summary)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
@@ -396,6 +432,7 @@ impl BackgroundJobWorker {
     ) -> Result<(), OxidGeneError> {
         self.profiles
             .rebuild_tree_full(&self.db, job.tree_id)
+            .instrument(tracing::info_span!("import.projections"))
             .await?;
         let result = serde_json::to_string(&summary)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
@@ -614,6 +651,8 @@ mod tests {
             cancel_requested: false,
             result_json: None,
             error_code: None,
+            trace_parent: None,
+            trace_state: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             started_at: Some(chrono::Utc::now()),

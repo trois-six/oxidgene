@@ -22,6 +22,7 @@ use crate::components::person_form::{
 };
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
+use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     child_type_label_key, event_type_label_key, opt_str, parse_privacy, resolve_name,
 };
@@ -108,7 +109,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     let api_spouses = api.clone();
     // Seeded once from the stored row: re-seeding on every render would fight
     // the user's own clicks.
-    let family_resource = use_resource({
+    let family_resource = use_ui_resource("family", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -122,7 +123,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
         privacy_loaded.set(true);
     }
 
-    let spouses_resource = use_resource(move || {
+    let spouses_resource = use_ui_resource("family_spouses", move || {
         let api = api_spouses.clone();
         let _tick = refresh();
         async move { api.list_family_spouses(tid, fid).await }
@@ -130,7 +131,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
     // Children
     let api_children = api.clone();
-    let children_resource = use_resource(move || {
+    let children_resource = use_ui_resource("family_children", move || {
         let api = api_children.clone();
         let _tick = refresh();
         async move { api.list_family_children(tid, fid).await }
@@ -138,7 +139,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
     // Events (for marriage)
     let api_events = api.clone();
-    let events_resource = use_resource(move || {
+    let events_resource = use_ui_resource("family_events", move || {
         let api = api_events.clone();
         let _tick = refresh();
         async move {
@@ -149,7 +150,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 
     // Places (for picker)
     let api_places = api.clone();
-    let places_resource = use_resource(move || {
+    let places_resource = use_ui_resource("places", move || {
         let api = api_places.clone();
         let _tick = refresh();
         // Every page: an event may sit on any place in the tree, and a place
@@ -164,7 +165,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // name reading "Unnamed") for as long as it ran, and missed anyone past
     // the 500th outright.
     let api_names_res = api.clone();
-    let names_resource = use_resource(move || {
+    let names_resource = use_ui_resource("family_names", move || {
         let api = api_names_res.clone();
         let _tick = refresh();
         async move {

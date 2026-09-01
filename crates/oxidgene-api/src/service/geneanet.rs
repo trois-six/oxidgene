@@ -463,6 +463,7 @@ pub struct GeneanetImportSummary {
 /// person import fails. Once the persons are in, a photo that cannot be fetched
 /// is recorded in [`GeneanetImportSummary::skipped`] rather than failing the run.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(name = "import.geneanet", skip_all)]
 pub async fn import(
     db: &DatabaseConnection,
     store: &dyn MediaStore,
@@ -477,17 +478,19 @@ pub async fn import(
 ) -> Result<GeneanetImportSummary, OxidGeneError> {
     let _tree = TreeRepo::get(db, tree_id).await?;
 
-    let (database, _) = oxidgene_geneanet::parse_gw(gw_bytes, file_name)
-        .map_err(|e| OxidGeneError::Validation(e.to_string()))?;
-    let manifest = oxidgene_geneanet::manifest_from_collection(collection_json)
-        .map_err(|e| OxidGeneError::Validation(e.to_string()))?;
-
-    let index = join::PersonIndex::from_database(&database);
-    let joined = join::join(&manifest, &index);
-
-    // The persons first: their ids are what the photo links point at.
-    let mut import_result = oxidgene_gedcom::geneweb::import_geneweb(gw_bytes, file_name, tree_id)
-        .map_err(OxidGeneError::Gedcom)?;
+    let (mut import_result, manifest, joined) =
+        tracing::info_span!("import.parse", import.format = "geneanet").in_scope(|| {
+            let (database, _) = oxidgene_geneanet::parse_gw(gw_bytes, file_name)
+                .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
+            let manifest = oxidgene_geneanet::manifest_from_collection(collection_json)
+                .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
+            let index = join::PersonIndex::from_database(&database);
+            let joined = join::join(&manifest, &index);
+            let import_result =
+                oxidgene_gedcom::geneweb::import_geneweb(gw_bytes, file_name, tree_id)
+                    .map_err(OxidGeneError::Gedcom)?;
+            Ok::<_, OxidGeneError>((import_result, manifest, joined))
+        })?;
 
     // A `.gw` carries one `#image` per person — the portrait, as a URL that
     // 403s for anyone not logged in. We are about to import that very photo
@@ -568,6 +571,7 @@ pub async fn import(
 /// is already in the database, so aborting would leave the user with people and
 /// no photos and no way to tell why.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(name = "import.media", skip_all, fields(import.format = "geneanet"))]
 async fn attach_media(
     db: &DatabaseConnection,
     store: &dyn MediaStore,
@@ -1092,6 +1096,7 @@ async fn add_vignette(
 /// Returns `deposit id → (media id, view id → media id)`, the same shape
 /// [`document`] returns, so the caller does not care which kind it was.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(name = "import.media.prepare", skip_all)]
 async fn prepare_single_pages(
     db: &DatabaseConnection,
     store: &dyn MediaStore,
@@ -1385,6 +1390,7 @@ async fn document(
 /// Keyed by folded name so the same person named on six photographs is created
 /// once. Sex is unknown: Geneanet's identification records a name and nothing
 /// else about them.
+#[tracing::instrument(name = "import.identities", skip_all)]
 async fn create_isolated_people(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -1558,6 +1564,7 @@ fn view_id_in_path(path: &str) -> Option<i64> {
 /// handler. Without that it pins a runtime worker for the duration, and the
 /// rest of the app — the tree list, the page the user goes back to — waits
 /// behind it.
+#[tracing::instrument(name = "import.media.index", skip_all)]
 fn build_content_index(
     deposits: &HashMap<i64, &ManifestDeposit>,
     by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,

@@ -217,7 +217,8 @@ UI then starts the browser download automatically.
     after the attempt and swept at startup. Media extracted from GEDZIP and
     completed export artifacts are persisted through the selected `MediaStore`.
 - Development Compose provisions the static frontend, Axum, PostgreSQL,
-    RustFS, and Redis and publishes their ports on host loopback only. Redis is
+    RustFS, Redis, and an OpenTelemetry Collector and publishes their ports on
+    host loopback only. Redis is
     reserved for EPIC G user sessions and is not a read-projection cache.
     Direct public backend deployment is blocked until EPIC G authentication and
     per-tree authorization are enforced across every transport and media read.
@@ -235,6 +236,20 @@ UI then starts the browser download automatically.
     their data when its pod is recreated. The RustFS operator is installed
     separately because its CRDs and cluster-wide RBAC have an independent
     lifecycle. Only operator-managed infrastructure owns persistent volumes.
+- Native runtimes export OTLP logs, traces, and metrics when
+    `OTEL_EXPORTER_OTLP_ENDPOINT` is configured. The Helm chart connects the
+    backend and worker to a cluster-managed collector; it does not prescribe or
+    operate a telemetry storage backend.
+- Browser builds can export client spans over OTLP/HTTP and inject W3C Trace
+    Context into REST and GraphQL requests. The API continues the context into
+    SeaORM operations and stores it with durable jobs; workers restore it before
+    execution. Browser export is a build-time choice because frontend pods serve
+    static WASM assets.
+- Request tracing is attached to each final Axum router, after REST and GraphQL
+    routers are merged. GraphQL execution and non-introspection resolvers add
+    nested spans, while service workflows and SeaORM operations provide the
+    internal call boundaries. Durable jobs restore the originating context in a
+    consumer span before their service and database work begins.
 
 #### Kubernetes architecture
 

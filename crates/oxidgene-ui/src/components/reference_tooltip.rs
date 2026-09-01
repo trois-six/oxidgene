@@ -12,6 +12,7 @@ use dioxus::prelude::*;
 
 use crate::api::ApiClient;
 use crate::i18n::use_i18n;
+use crate::ui_observability::use_ui_resource;
 
 /// Which reference table to query for a given term.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +47,7 @@ pub fn ReferenceHover(kind: ReferenceKind, term: String, children: Element) -> E
     let lang_code = i18n.0.code().to_string();
     let term_for_fetch = term.clone();
 
-    let content_resource = use_resource(move || {
+    let content_resource = use_ui_resource("reference_content", move || {
         let api = api.clone();
         let lang_code = lang_code.clone();
         let term = term_for_fetch.clone();

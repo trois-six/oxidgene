@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, UpdateVignetteBody};
 use crate::i18n::use_i18n;
+use crate::ui_observability::use_ui_resource;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct VignetteLinkerProps {
@@ -70,7 +71,7 @@ fn VignetteRow(
     let mut confirming = use_signal(|| false);
 
     let vignette_id = vignette.id;
-    let image = use_resource({
+    let image = use_ui_resource("vignette_image", {
         let api = api.clone();
         move || {
             let api = api.clone();

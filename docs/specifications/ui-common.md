@@ -255,7 +255,27 @@ At widths below 640px, page padding becomes `16px 12px` and topbar padding
 becomes `10px 12px`. Fixed-format controls define stable dimensions so labels,
 loading states, badges, and hover actions cannot resize their containers.
 
-### 6.1 Layout invariants
+### 6.1 Performance observability
+
+Every routed screen starts a root `ui.<page>.load` trace cycle. Resources owned
+by nested shared components, including forms, search, reference tooltips,
+media viewers, thumbnails, document pages, vignettes, and crop tools, join the
+route's cycle instead of creating unrelated roots. A component mounted without
+a route context uses `ui.component.load` as its fallback root.
+
+Each Dioxus resource has its own `ui.resource.load` child and a stable resource
+name. The trace therefore shows which requests and local tasks run in parallel,
+which resource gates completion, how long response-body reading and JSON
+deserialization take, and how much time remains in synchronous computation and
+render stabilization. Deliberate debounce resources are named explicitly so
+their wait is not mistaken for server latency.
+
+The cycle ends only after all active resources have settled and two browser
+animation frames have elapsed. A later resource refresh starts a new cycle.
+Instrumentation must not include genealogy, search text, raw URLs, resource
+identifiers, filenames, or rendered content.
+
+### 6.2 Layout invariants
 
 Responsive behavior is based on the space actually available to a component,
 including space left after fixed sidebars, rather than on the viewport width
@@ -289,7 +309,7 @@ instead use a viewport-bounded inset surface: fixed header, tabs, and footer
 remain reachable while only the body scrolls. The owning workflow specification
 defines its safe offsets and margins.
 
-### 6.2 Shared left icon sidebar
+### 6.3 Shared left icon sidebar
 
 `TreeIconSidebar` has one responsive implementation shared by every page that
 renders it, including the pedigree, person profile, search results, dictionary,
@@ -304,7 +324,7 @@ The compact state keeps the same 16x16px icons, order, actions, accessible
 names, active state, and tooltips. The sidebar remains visible and fixed-width;
 only its horizontal footprint and vertical spacing change.
 
-### 6.3 Pedigree events sidebar
+### 6.4 Pedigree events sidebar
 
 Above 600px, the right events sidebar has these rules:
 

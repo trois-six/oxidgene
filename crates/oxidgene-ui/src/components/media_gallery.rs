@@ -39,6 +39,7 @@ use crate::components::person_form::render_place_select;
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::ui_observability::use_ui_resource;
 use crate::utils::parse_privacy;
 
 /// What the gallery's media are attached to.
@@ -65,7 +66,7 @@ pub struct MediaEventLinkOption {
 #[component]
 fn PrivateThumbnail(tree_id: Uuid, media_id: Uuid, alt: String, class: Option<String>) -> Element {
     let api = use_context::<ApiClient>();
-    let image = use_resource(move || {
+    let image = use_ui_resource("media_thumbnail", move || {
         let api = api.clone();
         async move { api.media_thumbnail_data_url(tree_id, media_id).await }
     });
@@ -94,7 +95,7 @@ fn document_mosaic_class(page_count: usize) -> &'static str {
 #[component]
 fn DocumentMosaic(tree_id: Uuid, document_id: Uuid, label: String) -> Element {
     let api = use_context::<ApiClient>();
-    let pages = use_resource(move || {
+    let pages = use_ui_resource("document_preview_pages", move || {
         let api = api.clone();
         async move { api.list_media_pages(tree_id, document_id).await }
     });
@@ -139,7 +140,7 @@ fn PrivateVignetteImage(
     class: Option<String>,
 ) -> Element {
     let api = use_context::<ApiClient>();
-    let image = use_resource(move || {
+    let image = use_ui_resource("vignette_image", move || {
         let api = api.clone();
         async move { api.vignette_image_data_url(tree_id, vignette_id).await }
     });
@@ -256,7 +257,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         MediaOwner::Person(id) => Some(id),
         MediaOwner::Family(_) | MediaOwner::Event(_) => None,
     };
-    let portrait = use_resource({
+    let portrait = use_ui_resource("portrait", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -280,7 +281,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     // photograph is one of their pictures as surely as a photograph of them
     // alone is, and until now it appeared in no gallery at all — it existed
     // only inside the scan it was drawn on.
-    let vignettes = use_resource({
+    let vignettes = use_ui_resource("media_vignettes", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -343,7 +344,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         showing.set((tree_id, owner, related_family_ids));
     }
 
-    let tiles = use_resource({
+    let tiles = use_ui_resource("media_tiles", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -594,7 +595,7 @@ fn MediaTile(
     let caption = tile.caption().to_string();
     let pages = tile.media.page_count;
 
-    let event_links = use_resource({
+    let event_links = use_ui_resource("media_event_links", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -1309,7 +1310,7 @@ fn MediaEditPanel(
     let mut error = use_signal(|| None::<String>);
     let mut link_revision = use_signal(|| 0_u32);
 
-    let places = use_resource({
+    let places = use_ui_resource("media_places", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -1319,7 +1320,7 @@ fn MediaEditPanel(
 
     // A note *about the document* — "the left-hand column is water-damaged" —
     // which is not the same thing as the caption under its tile.
-    let notes = use_resource({
+    let notes = use_ui_resource("media_notes", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -1329,7 +1330,7 @@ fn MediaEditPanel(
             }
         }
     });
-    let page_notes = use_resource({
+    let page_notes = use_ui_resource("media_page_notes", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -1347,7 +1348,7 @@ fn MediaEditPanel(
 
     // Which events this file documents. The other direction from the event's
     // own evidence section: the same link row, read from the media end.
-    let links = use_resource({
+    let links = use_ui_resource("media_links", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -1834,7 +1835,7 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
     let mut pending_detach = use_signal(|| None::<Uuid>);
     let mut detaching = use_signal(|| false);
 
-    let pages = use_resource({
+    let pages = use_ui_resource("document_pages", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -2022,7 +2023,7 @@ fn MediaFacts(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let media_id = media.id;
-    let notes = use_resource({
+    let notes = use_ui_resource("viewer_notes", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -2033,7 +2034,7 @@ fn MediaFacts(
             }
         }
     });
-    let page_notes = use_resource({
+    let page_notes = use_ui_resource("viewer_page_notes", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -2048,7 +2049,7 @@ fn MediaFacts(
             }
         }
     });
-    let places = use_resource({
+    let places = use_ui_resource("viewer_places", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -2242,7 +2243,7 @@ fn MediaRelations(
     let mut relation_offset = use_signal(|| 0_usize);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
-    let data = use_resource({
+    let data = use_ui_resource("media_content", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -2578,7 +2579,7 @@ fn MediaEventLinks(
     let api = use_context::<ApiClient>();
     let mut revision = use_signal(|| 0_u32);
     let mut error = use_signal(|| None::<String>);
-    let links = use_resource({
+    let links = use_ui_resource("media_attributions", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -2849,7 +2850,7 @@ fn MediaViewer(
     // `viewing` owns the tile that opened the overlay, so it does not change
     // when the gallery refreshes underneath it. Reload the media itself after
     // an edit to keep the read-only facts (especially tags) current.
-    let current_media = use_resource({
+    let current_media = use_ui_resource("current_media", {
         let api = api.clone();
         let media_id = tile.media.id;
         move || {
@@ -3013,7 +3014,7 @@ fn MediaViewer(
     // A document has no bytes of its own: what is shown is its current page,
     // which is a media in its own right. Everything below therefore reads the
     // page when there is one and the media itself when there is not.
-    let pages = use_resource({
+    let pages = use_ui_resource("content_pages", {
         let api = api.clone();
         let document_id = current_tile.media.id;
         move || {
@@ -3066,7 +3067,7 @@ fn MediaViewer(
     if *asset_media_id.peek() != requested_asset_id {
         asset_media_id.set(requested_asset_id);
     }
-    let media_asset = use_resource({
+    let media_asset = use_ui_resource("media_asset", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -3083,7 +3084,7 @@ fn MediaViewer(
         MediaSource::Remote if shown.is_none() => Some(current_tile.media.file_path.clone()),
         _ => media_asset.read_unchecked().as_ref().and_then(Clone::clone),
     };
-    let content_vignettes = use_resource({
+    let content_vignettes = use_ui_resource("content_vignettes", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -3097,7 +3098,7 @@ fn MediaViewer(
         .as_ref()
         .and_then(|vignettes| vignettes.clone())
         .unwrap_or_default();
-    let person_names = use_resource({
+    let person_names = use_ui_resource("vignette_person_names", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -3192,7 +3193,7 @@ fn MediaViewer(
         stage_class.push_str(" is-dragging");
     }
 
-    let aside_mode = if editing() {
+    let _aside_mode = if editing() {
         "editing"
     } else if managing_pages() {
         "pages"
@@ -3339,7 +3340,7 @@ fn MediaViewer(
 
                 div { class: "media-viewer-body",
                 aside {
-                    key: "media-viewer-aside-{content_media_id}-{aside_mode}",
+                    key: "media-viewer-aside-{content_media_id}-{_aside_mode}",
                     class: "media-viewer-aside",
                     if editing() {
                         MediaEditPanel {
@@ -4094,7 +4095,7 @@ fn CropperHost(
     let media_id = tile.media.id;
     let mut revision = use_signal(|| 0_u32);
 
-    let existing = use_resource({
+    let existing = use_ui_resource("existing_media_link", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -4135,7 +4136,7 @@ fn IdentificationCropperHost(
     let api = use_context::<ApiClient>();
     let media_id = media.id;
     let mut pending = use_signal(|| None::<Vignette>);
-    let existing = use_resource({
+    let existing = use_ui_resource("existing_vignette_link", {
         let api = api.clone();
         move || {
             let api = api.clone();

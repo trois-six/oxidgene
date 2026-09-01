@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateVignetteBody};
 use crate::i18n::use_i18n;
+use crate::ui_observability::use_ui_resource;
 
 /// A rectangle in the source image's pixel space.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,7 +87,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let media = props.media.clone();
     let media_id = media.id;
     let source = (media.width.unwrap_or(0), media.height.unwrap_or(0));
-    let image = use_resource({
+    let image = use_ui_resource("crop_image", {
         let api = api.clone();
         move || {
             let api = api.clone();

@@ -6,6 +6,7 @@ members = [
     "crates/oxidgene-api",
     "crates/oxidgene-gedcom",
     "crates/oxidgene-geneanet",
+    "crates/oxidgene-observability",
     "crates/oxidgene-ui",
     "apps/oxidgene-server",
     "apps/oxidgene-worker",
@@ -27,6 +28,7 @@ oxidgene-db = { path = "crates/oxidgene-db" }
 oxidgene-api = { path = "crates/oxidgene-api" }
 oxidgene-gedcom = { path = "crates/oxidgene-gedcom" }
 oxidgene-geneanet = { path = "crates/oxidgene-geneanet" }
+oxidgene-observability = { path = "crates/oxidgene-observability" }
 oxidgene-ui = { path = "crates/oxidgene-ui" }
 oxidgene-server = { path = "apps/oxidgene-server" }
 
@@ -60,6 +62,7 @@ sea-orm = { version = "2.0", default-features = false, features = [
     "sqlx-sqlite",
     "runtime-tokio",
     "macros",
+    "tracing-spans",
     "with-json",
     "with-uuid",
     "with-chrono",
@@ -87,6 +90,11 @@ tempfile = "3"
 # Logging & tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-opentelemetry = "0.32"
+opentelemetry = "0.31"
+opentelemetry-appender-tracing = "0.31"
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "logs", "metrics", "trace"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 
 # GEDCOM
 ged_io = { version = "0.16.3", features = ["json", "gedzip", "calendar"] }

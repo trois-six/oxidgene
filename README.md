@@ -47,7 +47,7 @@ OxidGene is a multiplatform genealogy application featuring:
 - **Make the workspace your own**: Switch themes and change between English
 	and French without restarting the application
 - **Integrate without compromise**: Build on REST and GraphQL APIs with full
-	feature parity
+	feature parity. Full OpenTelemetry instrumentation.
 - **Stay fast as trees grow**: Rust powers the complete stack, backed by
 	durable read projections and efficient family traversal
 

@@ -19,6 +19,7 @@ use crate::pages::app_settings::{
 };
 use crate::prefs::SortParticles;
 use crate::router::Route;
+use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 
 async fn wait_for_export(
     api: &ApiClient,
@@ -58,6 +59,7 @@ pub fn Settings(tree_id: String) -> Element {
     let is_dark = use_context::<Signal<bool>>();
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
+    let load_trace = use_ui_load_trace(UiPage::Settings);
     let refresh = use_signal(|| 0u32);
     let mut active_section = use_signal(|| "tree-roots".to_string());
     let mut export_loading = use_signal(|| false);
@@ -72,7 +74,7 @@ pub fn Settings(tree_id: String) -> Element {
     // Fetch tree info
     let tree_cache = use_tree_cache();
     let api_tree = api.clone();
-    let tree_resource = use_resource(move || {
+    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
         let api = api_tree.clone();
         let _tick = refresh();
         let _gen = tree_cache.generation();
@@ -414,9 +416,10 @@ fn TreeRootsSection(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let tree_cache = use_tree_cache();
+    let load_trace = use_context::<UiLoadTrace>();
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
     let api_portraits = api.clone();
-    let portraits_resource = use_resource(move || {
+    let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
         let api = api_portraits.clone();
         async move {
             match tree_id_parsed {
@@ -505,7 +508,7 @@ fn TreeRootsSection(
     // Reactive reads MUST happen inside the closure so use_resource re-runs
     // when tree_resource or local_sosa_override change.
     let api_root_person = api.clone();
-    let root_person_resource = use_resource(move || {
+    let root_person_resource = use_traced_resource(load_trace.clone(), "root_person", move || {
         let api = api_root_person.clone();
         let root_id = match local_sosa_override() {
             Some(val) => val,
@@ -547,7 +550,7 @@ fn TreeRootsSection(
     };
 
     let api_self_person = api.clone();
-    let self_person_resource = use_resource(move || {
+    let self_person_resource = use_traced_resource(load_trace, "self_person", move || {
         let api = api_self_person.clone();
         let self_person_id = match local_self_override() {
             Some(value) => value,

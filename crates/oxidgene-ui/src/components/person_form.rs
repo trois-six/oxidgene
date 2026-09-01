@@ -20,6 +20,7 @@ use crate::api::{
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::i18n::use_i18n;
+use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
     parse_name_type, parse_place_id, parse_privacy, parse_sex,
@@ -213,7 +214,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // ── Resources ──
 
     let api_person = api.clone();
-    let person_resource = use_resource(move || {
+    let person_resource = use_ui_resource("form_person", move || {
         let api = api_person.clone();
         let _tick = refresh();
         async move {
@@ -228,7 +229,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     });
 
     let api_names = api.clone();
-    let names_resource = use_resource(move || {
+    let names_resource = use_ui_resource("form_names", move || {
         let api = api_names.clone();
         let _tick = refresh();
         async move {
@@ -240,7 +241,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     });
 
     let api_events = api.clone();
-    let events_resource = use_resource(move || {
+    let events_resource = use_ui_resource("form_events", move || {
         let api = api_events.clone();
         let _tick = refresh();
         async move {
@@ -256,7 +257,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     });
 
     let api_places = api.clone();
-    let places_resource = use_resource(move || {
+    let places_resource = use_ui_resource("form_places", move || {
         let api = api_places.clone();
         let _tick = refresh();
         // Every page: an event may sit on any place in the tree, and a place
@@ -265,7 +266,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     });
 
     let api_notes = api.clone();
-    let notes_resource = use_resource(move || {
+    let notes_resource = use_ui_resource("form_notes", move || {
         let api = api_notes.clone();
         let _tick = refresh();
         async move {
@@ -283,7 +284,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     // itself (the GET is cached) so the ids it loads against are always the
     // ones it just saw, rather than a signal that may not have caught up.
     let api_bd_ns = api.clone();
-    let bd_ns_resource = use_resource(move || {
+    let bd_ns_resource = use_ui_resource("form_vital_sources", move || {
         let api = api_bd_ns.clone();
         let _tick = refresh();
         async move {
@@ -316,7 +317,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     });
 
     let api_person_ns = api.clone();
-    let person_ns_resource = use_resource(move || {
+    let person_ns_resource = use_ui_resource("form_person_source", move || {
         let api = api_person_ns.clone();
         let _tick = refresh();
         async move {
@@ -2369,7 +2370,7 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
     let mut refresh_tick = use_signal(|| 0u32);
 
     let api_list = api.clone();
-    let witnesses_resource = use_resource(move || {
+    let witnesses_resource = use_ui_resource("event_witnesses", move || {
         let api = api_list.clone();
         let _tick = refresh_tick();
         async move {
@@ -2828,7 +2829,7 @@ pub fn EventEditor(
     let mut error = use_signal(|| None::<String>);
 
     let api_load = api.clone();
-    let resource = use_resource(move || {
+    let resource = use_ui_resource("event_notes_source", move || {
         let api = api_load.clone();
         async move { load_notes_source(&api, tree_id, person_id, Some(event_id)).await }
     });

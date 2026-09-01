@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::pedigree_chart::default_portrait;
 use crate::i18n::use_i18n;
+use crate::ui_observability::use_ui_resource;
 
 #[derive(Clone)]
 pub(crate) struct PersonSearchSummary {
@@ -108,7 +109,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let tree_id = props.tree_id;
 
     let api_portraits = api.clone();
-    let portraits_resource = use_resource(move || {
+    let portraits_resource = use_ui_resource("search_portraits", move || {
         let api = api_portraits.clone();
         async move {
             match api.list_portraits(tree_id).await {
@@ -126,7 +127,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
 
     // Debounce: update the committed query after a short delay.
     let mut debounced_query = use_signal(String::new);
-    let _debounce_task = use_resource(move || {
+    let _debounce_task = use_ui_resource("search_debounce", move || {
         let raw = query();
         async move {
             crate::utils::sleep_ms(200).await;
@@ -136,7 +137,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
 
     // Server-side search: fires when debounced_query changes.
     let api_search = api.clone();
-    let search_resource = use_resource(move || {
+    let search_resource = use_ui_resource("search_people", move || {
         let api = api_search.clone();
         let q = debounced_query();
         async move {

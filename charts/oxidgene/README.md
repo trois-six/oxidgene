@@ -171,6 +171,7 @@ frontend:
   image:
     repository: registry.example.invalid/oxidgene-web
     tag: "0.1.0"
+  otlpEndpoint: https://telemetry.example.invalid
 
 s3:
   mode: existing
@@ -314,6 +315,7 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | `s3.existing.*` | Existing endpoint, bucket, region, and credential Secret. |
 | `s3.rustfs.*` | Tenant image, Secrets, bucket, policy, user, and pool. |
 | `ingress.*` | Optional same-origin routing and TLS configuration. |
+| `frontend.otlpEndpoint` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. |
 | `autoscaling.*` | Optional backend and frontend HPAs. |
 | `podDisruptionBudget.*` | Backend and frontend disruption budgets. |
 

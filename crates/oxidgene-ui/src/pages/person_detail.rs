@@ -21,6 +21,7 @@ use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 use crate::utils::{event_type_label_key, note_html_for_display, opt_str, resolve_name};
 use oxidgene_core::Sex;
 
@@ -102,6 +103,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
     let tree_cache = use_tree_cache();
+    let load_trace = use_ui_load_trace(UiPage::PersonDetail);
     let mut refresh = use_signal(|| 0u32);
 
     // Reactive IDs: signals kept in sync with the props so resources re-run
@@ -141,7 +143,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch person.
     let api_person = api.clone();
-    let person_resource = use_resource(move || {
+    let person_resource = use_traced_resource(load_trace.clone(), "person", move || {
         let api = api_person.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
@@ -159,7 +161,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch person names.
     let api_names = api.clone();
-    let names_resource = use_resource(move || {
+    let names_resource = use_traced_resource(load_trace.clone(), "names", move || {
         let api = api_names.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
@@ -177,7 +179,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch person events.
     let api_events = api.clone();
-    let events_resource = use_resource(move || {
+    let events_resource = use_traced_resource(load_trace.clone(), "events", move || {
         let api = api_events.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
@@ -196,7 +198,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch places in tree (for place picker in events).
     let api_places = api.clone();
-    let places_resource = use_resource(move || {
+    let places_resource = use_traced_resource(load_trace.clone(), "places", move || {
         let api = api_places.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
@@ -213,7 +215,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch notes for this person.
     let api_notes = api.clone();
-    let notes_resource = use_resource(move || {
+    let notes_resource = use_traced_resource(load_trace.clone(), "notes", move || {
         let api = api_notes.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
@@ -234,7 +236,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // so fetching once and filtering client-side (by person_id and by the
     // relevant event ids) avoids issuing one request per event.
     let api_citations = api.clone();
-    let citations_resource = use_resource(move || {
+    let citations_resource = use_traced_resource(load_trace.clone(), "citations", move || {
         let api = api_citations.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
@@ -251,7 +253,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch all sources in the tree, for rendering citation source text.
     let api_sources = api.clone();
-    let sources_resource = use_resource(move || {
+    let sources_resource = use_traced_resource(load_trace.clone(), "sources", move || {
         let api = api_sources.clone();
         let _tick = refresh();
         let tid = tree_id_parsed();
@@ -268,7 +270,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch tree snapshot for enriched events (direct API call).
     let api_snap = api.clone();
-    let snapshot_resource = use_resource(move || {
+    let snapshot_resource = use_traced_resource(load_trace.clone(), "tree_snapshot", move || {
         let api = api_snap.clone();
         let _tick = refresh();
         let _gen = tree_cache.generation();
@@ -301,7 +303,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Fetch tree info (for breadcrumb, cache-backed).
     let api_tree = api.clone();
-    let tree_resource = use_resource(move || {
+    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
         let api = api_tree.clone();
         let _tick = refresh();
         let _gen = tree_cache.generation();
@@ -320,24 +322,25 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Fetch SOSA ancestor IDs from the closure table (same query as the tree
     // view) — used to show the green SOSA badge in the family narrative.
     let api_sosa = api.clone();
-    let sosa_ancestors_resource = use_resource(move || {
-        let api = api_sosa.clone();
-        let tid = tree_id_parsed();
-        let _gen = tree_cache.generation();
-        let sosa_root = match &*tree_resource.read() {
-            Some(Ok(tree)) => tree.sosa_root_person_id,
-            _ => None,
-        };
-        async move {
-            let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
-                return HashSet::new();
+    let sosa_ancestors_resource =
+        use_traced_resource(load_trace.clone(), "sosa_ancestors", move || {
+            let api = api_sosa.clone();
+            let tid = tree_id_parsed();
+            let _gen = tree_cache.generation();
+            let sosa_root = match &*tree_resource.read() {
+                Some(Ok(tree)) => tree.sosa_root_person_id,
+                _ => None,
             };
-            match api.get_ancestors(tid, sosa_id, None).await {
-                Ok(entries) => entries.into_iter().map(|a| a.person_id).collect(),
-                Err(_) => HashSet::new(),
+            async move {
+                let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
+                    return HashSet::new();
+                };
+                match api.get_ancestors(tid, sosa_id, None).await {
+                    Ok(entries) => entries.into_iter().map(|a| a.person_id).collect(),
+                    Err(_) => HashSet::new(),
+                }
             }
-        }
-    });
+        });
 
     // Tree-wide portrait map (person_id -> image URL), used both for this
     // person's header avatar and for the mini pedigrees below — a single
@@ -347,7 +350,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let mut media_revision = use_signal(|| 0_u32);
     let mut media_manager_open = use_signal(|| false);
     let api_photos_map = api.clone();
-    let photos_map_resource = use_resource(move || {
+    let photos_map_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
         let api = api_photos_map.clone();
         let tid = tree_id_parsed();
         let _ = media_revision();
@@ -372,20 +375,21 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Small static pedigree window (self + parents + grandparents), for the
     // Ancestors section.
     let api_anc_ped = api.clone();
-    let ancestor_pedigree_resource = use_resource(move || {
-        let api = api_anc_ped.clone();
-        let tid = tree_id_parsed();
-        let pid = person_id_parsed();
-        async move {
-            let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.get_pedigree(tid, pid, 2, 0).await.map(Some)
-        }
-    });
+    let ancestor_pedigree_resource =
+        use_traced_resource(load_trace.clone(), "ancestor_pedigree", move || {
+            let api = api_anc_ped.clone();
+            let tid = tree_id_parsed();
+            let pid = person_id_parsed();
+            async move {
+                let (Some(tid), Some(pid)) = (tid, pid) else {
+                    return Err(crate::api::ApiError::Api {
+                        status: 400,
+                        body: i18n.t("common.invalid_ids"),
+                    });
+                };
+                api.get_pedigree(tid, pid, 2, 0).await.map(Some)
+            }
+        });
 
     // Resolve the name synchronously from the cache while the resource is
     // pending, so the breadcrumb never flashes a loading label.
@@ -651,7 +655,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Which media document which event, for the whole tree, from the one
     // media-links call already in flight. Per-event fetching would be forty
     // requests on a full life; this is none.
-    let evidence_by_event = use_resource({
+    let evidence_by_event = use_traced_resource(load_trace.clone(), "event_evidence", {
         let api = api.clone();
         move || {
             let api = api.clone();
@@ -1948,7 +1952,9 @@ fn render_mini_pedigree(
         }
     };
 
-    let mut data = crate::components::pedigree_chart::PedigreeData::from_pedigree(cached);
+    let mut data = crate::ui_observability::measure_ui("pedigree_data", || {
+        crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
+    });
     data.photos = photos_resource.read().clone().unwrap_or_default();
     let root_person_id = cached.root_person_id;
 

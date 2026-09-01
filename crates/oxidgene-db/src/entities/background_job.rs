@@ -27,6 +27,8 @@ pub struct Model {
     pub cancel_requested: bool,
     pub result_json: Option<String>,
     pub error_code: Option<String>,
+    pub trace_parent: Option<String>,
+    pub trace_state: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub started_at: Option<DateTimeUtc>,

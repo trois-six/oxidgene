@@ -212,6 +212,28 @@ progress” overlay, and polls until the job has completed or failed. A page
 reload during the upload itself aborts that upload and invokes partial-file
 cleanup; only a fully received upload creates a server job.
 
+### 6.1 Performance trace
+
+Starting an import creates a client `ui.import` span with only the stable
+`import.format` attribute. File imports separate `ui.import.upload` from
+`ui.import.poll`; polling intentionally includes the 500 ms waits so the trace
+shows elapsed user time while each individual status request remains visible
+as an HTTP child.
+
+The Geneanet workflow additionally exposes local read and inspection, archive
+indexing, login-window collection, preview and planning, media collection,
+session encoding or decoding, upload, and polling as distinct `ui.import.*`
+phases. No selected filename, archive path, account, collection, URL, cookie,
+or imported content is recorded.
+
+The server and worker continue the distributed trace through `traceparent` and
+the context stored with the background job. Their format-specific import root
+contains parsing, media, persistence, and projection phases. Geneanet media
+further distinguishes perceptual-index construction and parallel page
+preparation; GEDZIP media ingestion remains one async media phase. SeaORM
+operation spans are descendants of the active phase and omit SQL statements
+and parameters.
+
 ---
 
 ## 7. Keyboard & accessibility

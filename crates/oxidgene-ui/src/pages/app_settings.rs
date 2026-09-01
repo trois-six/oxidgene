@@ -7,6 +7,7 @@ use crate::components::layout::set_theme;
 use crate::i18n::{self, Language, use_i18n};
 use crate::prefs::{SortParticles, set_sort_particles};
 use crate::router::Route;
+use crate::ui_observability::{UiPage, use_ui_load_trace};
 
 /// Sidebar sections.
 #[derive(Clone, Copy, PartialEq)]
@@ -19,6 +20,7 @@ enum Section {
 
 #[component]
 pub fn AppSettings() -> Element {
+    let _load_trace = use_ui_load_trace(UiPage::AppSettings);
     let i18n = use_i18n();
     let is_dark = use_context::<Signal<bool>>();
     let lang_signal = use_context::<Signal<Language>>();

@@ -218,6 +218,70 @@ rejected value.
 - Metrics use aggregate dimensions with bounded cardinality; personal data and
   raw UUIDs are not metric labels.
 
+### 5.5 OpenTelemetry export
+
+- Native server, worker, and desktop runtimes always emit structured `tracing`
+  logs. Setting `OTEL_EXPORTER_OTLP_ENDPOINT` additionally exports logs, traces,
+  and metrics through OTLP/gRPC to an OpenTelemetry Collector; leaving it
+  unset performs no network export and keeps span callsites disabled. Console
+  log events remain enabled independently of span collection.
+- Every native runtime reports a distinct `service.name` and its package
+  version. Incoming HTTP `traceparent` headers are extracted with W3C Trace
+  Context so calls remain connected across trusted gateways and services.
+- A browser bundle built with a non-empty `OTEL_EXPORTER_OTLP_ENDPOINT` exports
+  client spans over OTLP/HTTP and injects W3C Trace Context into every request
+  sent by the typed API client. The API request span parents SeaORM spans and
+  persists its context with a queued background job; the worker restores that
+  context before executing the job, so durable work remains in the originating
+  trace after process and time boundaries.
+- `OXIDGENE_LOG_LEVEL` independently configures each process using
+  `EnvFilter` syntax. `OTEL_EXPORTER_OTLP_ENDPOINT` is likewise process-local,
+  so server, worker, and desktop may use different collectors or disable
+  export independently. `RUST_LOG` is not part of the configuration contract.
+- HTTP spans use the Axum route template, method, status, and duration. They do
+  not record raw URIs, query strings, request or response bodies, headers,
+  resource IDs, or unmatched paths.
+- The final Axum router owns one server span for every matched REST and GraphQL
+  request; route modules do not duplicate that span in each handler. GraphQL
+  adds an execution span and one child span per non-introspection resolver,
+  recording only parent type and field name. Long-running import, export,
+  projection, and media workflows add `skip_all` service spans. SeaORM spans
+  remain the database leaves below those boundaries. Trivial glue functions
+  are not individually spanned because that would add volume without a useful
+  operational boundary.
+- Every routed UI screen owns one root load span named `ui.<page>.load`. Each
+  Dioxus resource started by the screen or one of its nested components is a
+  `ui.resource.load` child with a bounded, stable `ui.resource.name`. Resources
+  remain separate siblings so their overlap exposes actual client-side
+  parallelism. After the last resource settles, `ui.render.stabilize` waits for
+  two browser animation frames before closing the load cycle.
+- Client response processing separates `ui.response.read` from
+  `ui.response.deserialize`. Expensive synchronous transformations use
+  `ui.compute`, including pedigree-data construction and layout. These spans
+  record body sizes and stable operation names only; response content, search
+  values, filenames, identifiers, and raw endpoints remain excluded.
+- Pedigree service work exposes `pedigree.build`, `pedigree.projections`,
+  `pedigree.ancestors`, and `pedigree.descendants`. SeaORM contributes one
+  child span per query, execution, and transaction operation. SQL statements
+  and bound parameters are disabled in exported spans; database system and
+  operation names provide the diagnostic dimension.
+- Import traces use a format-specific root and bounded phase children for
+  parsing, upload or collection, media preparation, persistence, projections,
+  and job polling where applicable. They record format, depth, aggregate size,
+  count, phase, and outcome dimensions only. User filenames, filesystem paths,
+  external account details, genealogy, media metadata, SQL, and payloads are
+  never span attributes.
+- Background job spans record only bounded technical dimensions such as job
+  kind and import/export format. Job IDs, tree IDs, filenames, source keys,
+  user content, and media metadata are excluded.
+- Export failures must not stop application work. Providers flush during
+  graceful native runtime shutdown; abrupt process termination can still lose
+  buffered signals.
+- Optimized desktop releases may compile with `release-no-telemetry`; this
+  excludes OpenTelemetry and client propagation dependencies and enables
+  `tracing/release_max_level_off`, so spans and events are removed at compile
+  time rather than merely disabled by configuration.
+
 ## 6. UI feedback states
 
 ### 6.1 Errors
