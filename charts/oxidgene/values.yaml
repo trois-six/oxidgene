@@ -20,6 +20,8 @@ backend:
     port: 8080
   corsOrigin: https://oxidgene.example.invalid
   logLevel: info
+  # OTLP/gRPC endpoint for this process. Empty disables telemetry export.
+  otlpEndpoint: ""
   extraEnv: []
   resources:
     requests:
@@ -54,6 +56,8 @@ worker:
     tag: ""
     pullPolicy: IfNotPresent
   logLevel: info
+  # OTLP/gRPC endpoint for this process. Empty disables telemetry export.
+  otlpEndpoint: ""
   extraEnv: []
   resources:
     requests:
@@ -90,6 +94,9 @@ frontend:
   service:
     type: ClusterIP
     port: 80
+  # Public OTLP/HTTP base URL embedded in runtime-config.js. Empty disables
+  # browser trace export while leaving console logs enabled.
+  otlpEndpoint: ""
   resources:
     requests:
       cpu: 25m

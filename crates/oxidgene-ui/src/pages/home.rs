@@ -11,11 +11,13 @@ use crate::components::import_modal::ImportModal;
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
 /// Dashboard shown at `/`.
 #[component]
 pub fn Home() -> Element {
     let api = use_context::<ApiClient>();
+    let load_trace = use_ui_load_trace(UiPage::Home);
     let mut refresh_counter = use_signal(|| 0u32);
     // Mutating a tree from here must also reach the shared `TreeCache`: it is
     // keyed by tree id alone, so a snapshot loaded before the change survives
@@ -24,7 +26,7 @@ pub fn Home() -> Element {
     let tree_cache = use_tree_cache();
 
     let api_res = api.clone();
-    let trees_resource = use_resource(move || {
+    let trees_resource = use_traced_resource(load_trace.clone(), "trees", move || {
         let api = api_res.clone();
         let _tick = refresh_counter();
         async move { api.list_trees(Some(100), None).await }

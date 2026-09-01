@@ -22,6 +22,7 @@ use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
 };
 use std::path::Path;
+use tracing::Instrument as _;
 use uuid::Uuid;
 
 /// Maximum number of rows per `insert_many` batch.
@@ -152,6 +153,7 @@ where
 /// Parse a GEDCOM string and persist all extracted entities into the database.
 ///
 /// See [`persist_import_result`] for the persistence guarantees.
+#[tracing::instrument(name = "import.gedcom", skip_all)]
 pub async fn import_and_persist(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -161,12 +163,15 @@ pub async fn import_and_persist(
     let _tree = TreeRepo::get(db, tree_id).await?;
 
     // Parse GEDCOM
-    let result = import_gedcom(gedcom_str, tree_id).map_err(OxidGeneError::Gedcom)?;
+    let result = tracing::info_span!("import.parse", import.format = "gedcom")
+        .in_scope(|| import_gedcom(gedcom_str, tree_id))
+        .map_err(OxidGeneError::Gedcom)?;
 
     persist_import_result(db, result).await
 }
 
 /// Read a UTF-8 GEDCOM temporary file and persist its entities.
+#[tracing::instrument(name = "import.gedcom", skip_all)]
 pub async fn import_file_and_persist(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -176,7 +181,9 @@ pub async fn import_file_and_persist(
     progress.enter(FileImportPhase::Parsing);
     let gedcom = tokio::fs::read_to_string(path).await?;
     let _tree = TreeRepo::get(db, tree_id).await?;
-    let result = import_gedcom(&gedcom, tree_id).map_err(OxidGeneError::Gedcom)?;
+    let result = tracing::info_span!("import.parse", import.format = "gedcom")
+        .in_scope(|| import_gedcom(&gedcom, tree_id))
+        .map_err(OxidGeneError::Gedcom)?;
     progress.enter(FileImportPhase::Database);
     persist_import_result(db, result).await
 }
@@ -196,6 +203,7 @@ pub async fn import_file_and_persist(
 /// [`ImportSummary::warnings`], and the rest of the archive still lands. The
 /// alternative — failing a ten-thousand-person import over one stray file —
 /// would be worse.
+#[tracing::instrument(name = "import.gedzip", skip_all)]
 pub async fn import_gedzip_and_persist(
     db: &DatabaseConnection,
     store: &dyn crate::media::MediaStore,
@@ -204,9 +212,11 @@ pub async fn import_gedzip_and_persist(
 ) -> Result<ImportSummary, OxidGeneError> {
     let _tree = TreeRepo::get(db, tree_id).await?;
 
-    let (mut reader, plan) =
-        oxidgene_gedcom::import::prepare_gedzip(std::io::Cursor::new(archive), tree_id)
-            .map_err(OxidGeneError::Gedcom)?;
+    let (mut reader, plan) = tracing::info_span!("import.parse", import.format = "gedzip")
+        .in_scope(|| {
+            oxidgene_gedcom::import::prepare_gedzip(std::io::Cursor::new(archive), tree_id)
+        })
+        .map_err(OxidGeneError::Gedcom)?;
     let oxidgene_gedcom::import::GedzipImportPlan { mut result, files } = plan;
 
     // The name to store each file under is the one its own record carries —
@@ -226,38 +236,44 @@ pub async fn import_gedzip_and_persist(
         .map(|(index, media)| (media.id, index))
         .collect();
 
-    for (media_id, entry_name) in files {
-        let display_name = names.get(&media_id).map_or("upload", String::as_str);
-        let outcome = match reader.read_media_file(&entry_name) {
-            Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
-            Err(error) => {
-                result.warnings.push(format!(
-                    "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
-                ));
-                continue;
-            }
-        };
-
-        match outcome {
-            Ok(ingested) => {
-                if let Some(media) = media_by_id
-                    .get(&media_id)
-                    .and_then(|index| result.media.get_mut(*index))
-                {
-                    apply_ingested_media(media, ingested);
+    let media_span = tracing::info_span!("import.media", import.format = "gedzip");
+    async {
+        for (media_id, entry_name) in files {
+            let display_name = names.get(&media_id).map_or("upload", String::as_str);
+            let outcome = match reader.read_media_file(&entry_name) {
+                Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
+                Err(error) => {
+                    result.warnings.push(format!(
+                        "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
+                    ));
+                    continue;
                 }
+            };
+
+            match outcome {
+                Ok(ingested) => {
+                    if let Some(media) = media_by_id
+                        .get(&media_id)
+                        .and_then(|index| result.media.get_mut(*index))
+                    {
+                        apply_ingested_media(media, ingested);
+                    }
+                }
+                Err(error) => result
+                    .warnings
+                    .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),
             }
-            Err(error) => result
-                .warnings
-                .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),
         }
     }
+    .instrument(media_span)
+    .await;
 
     persist_import_result(db, result).await
 }
 
 /// Import a GEDZIP from a seekable temporary file without holding the archive
 /// or all of its decompressed media in memory.
+#[tracing::instrument(name = "import.gedzip", skip_all)]
 pub async fn import_gedzip_file_and_persist(
     db: &DatabaseConnection,
     store: &dyn crate::media::MediaStore,
@@ -272,6 +288,7 @@ pub async fn import_gedzip_file_and_persist(
 }
 
 /// Parse and ingest a seekable GEDZIP source without writing database rows.
+#[tracing::instrument(name = "import.gedzip.prepare", skip_all)]
 pub(crate) async fn prepare_gedzip_file(
     store: &dyn crate::media::MediaStore,
     tree_id: Uuid,
@@ -281,8 +298,9 @@ pub(crate) async fn prepare_gedzip_file(
     progress.enter(FileImportPhase::Parsing);
 
     let file = std::fs::File::open(archive_path).map_err(OxidGeneError::Io)?;
-    let (mut reader, plan) =
-        oxidgene_gedcom::import::prepare_gedzip(file, tree_id).map_err(OxidGeneError::Gedcom)?;
+    let (mut reader, plan) = tracing::info_span!("import.parse", import.format = "gedzip")
+        .in_scope(|| oxidgene_gedcom::import::prepare_gedzip(file, tree_id))
+        .map_err(OxidGeneError::Gedcom)?;
     let oxidgene_gedcom::import::GedzipImportPlan { mut result, files } = plan;
     let names: std::collections::HashMap<Uuid, String> = result
         .media
@@ -298,34 +316,39 @@ pub(crate) async fn prepare_gedzip_file(
 
     progress.expect(files.len());
     progress.enter(FileImportPhase::Media);
-    for (media_id, entry_name) in files {
-        let display_name = names.get(&media_id).map_or("upload", String::as_str);
-        let outcome = match reader.read_media_file(&entry_name) {
-            Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
-            Err(error) => {
-                result.warnings.push(format!(
-                    "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
-                ));
-                progress.advance();
-                continue;
-            }
-        };
-
-        match outcome {
-            Ok(ingested) => {
-                if let Some(media) = media_by_id
-                    .get(&media_id)
-                    .and_then(|index| result.media.get_mut(*index))
-                {
-                    apply_ingested_media(media, ingested);
+    let media_span = tracing::info_span!("import.media", import.format = "gedzip");
+    async {
+        for (media_id, entry_name) in files {
+            let display_name = names.get(&media_id).map_or("upload", String::as_str);
+            let outcome = match reader.read_media_file(&entry_name) {
+                Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
+                Err(error) => {
+                    result.warnings.push(format!(
+                        "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
+                    ));
+                    progress.advance();
+                    continue;
                 }
+            };
+
+            match outcome {
+                Ok(ingested) => {
+                    if let Some(media) = media_by_id
+                        .get(&media_id)
+                        .and_then(|index| result.media.get_mut(*index))
+                    {
+                        apply_ingested_media(media, ingested);
+                    }
+                }
+                Err(error) => result
+                    .warnings
+                    .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),
             }
-            Err(error) => result
-                .warnings
-                .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),
+            progress.advance();
         }
-        progress.advance();
     }
+    .instrument(media_span)
+    .await;
 
     Ok(result)
 }
@@ -362,6 +385,7 @@ pub(crate) async fn persist_import_result(
     persist_import_result_with_progress(db, result, |_| {}).await
 }
 
+#[tracing::instrument(name = "import.persist", skip_all)]
 pub(crate) async fn persist_import_result_with_progress(
     db: &DatabaseConnection,
     result: oxidgene_gedcom::ImportResult,
@@ -378,6 +402,7 @@ pub(crate) async fn persist_import_result_with_progress(
     Ok(summary)
 }
 
+#[tracing::instrument(name = "import.persist", skip_all)]
 pub(crate) async fn persist_import_result_in(
     db: &impl ConnectionTrait,
     result: oxidgene_gedcom::ImportResult,
@@ -729,6 +754,7 @@ async fn persist_import_result_in_with_progress(
 /// person's multiple `OCCU` tags back into one, and `merge_names` collapses
 /// each person's non-primary names into the primary name's `SURN` tag (see
 /// `oxidgene_gedcom::export::export_gedcom`).
+#[tracing::instrument(skip_all)]
 pub async fn load_and_export(
     db: &DatabaseConnection,
     tree_id: Uuid,

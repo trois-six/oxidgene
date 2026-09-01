@@ -20,6 +20,7 @@ use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache, use_view_
 use crate::components::union_form::UnionForm;
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 use crate::utils::resolve_name;
 
 /// Describes which linking flow is active.
@@ -43,6 +44,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
+    let load_trace = use_ui_load_trace(UiPage::Pedigree);
 
     // ── Global caches ──
     let tree_cache = use_tree_cache();
@@ -114,7 +116,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // ── Fetch tree details (cache-backed) ──
     let api_tree = api.clone();
-    let mut tree_resource = use_resource(move || {
+    let mut tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
         let api = api_tree.clone();
         let _gen = tree_cache.generation();
         let tid = tree_id_parsed();
@@ -133,32 +135,33 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     // This set is used to display the green SOSA badge on ancestor cards,
     // even when jumping to a distant ancestor outside the pedigree window.
     let api_sosa = api.clone();
-    let sosa_ancestors_resource = use_resource(move || {
-        let api = api_sosa.clone();
-        let tid = tree_id_parsed();
-        let _gen = tree_cache.generation();
-        // Read sosa_root_person_id reactively from tree_resource.
-        let sosa_root = match &*tree_resource.read() {
-            Some(Ok(tree)) => tree.sosa_root_person_id,
-            _ => None,
-        };
-        async move {
-            let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
-                return std::collections::HashSet::new();
+    let sosa_ancestors_resource =
+        use_traced_resource(load_trace.clone(), "sosa_ancestors", move || {
+            let api = api_sosa.clone();
+            let tid = tree_id_parsed();
+            let _gen = tree_cache.generation();
+            // Read sosa_root_person_id reactively from tree_resource.
+            let sosa_root = match &*tree_resource.read() {
+                Some(Ok(tree)) => tree.sosa_root_person_id,
+                _ => None,
             };
-            match api.get_ancestors(tid, sosa_id, None).await {
-                Ok(entries) => entries
-                    .into_iter()
-                    .map(|a| a.person_id)
-                    .collect::<std::collections::HashSet<Uuid>>(),
-                Err(_) => std::collections::HashSet::new(),
+            async move {
+                let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
+                    return std::collections::HashSet::new();
+                };
+                match api.get_ancestors(tid, sosa_id, None).await {
+                    Ok(entries) => entries
+                        .into_iter()
+                        .map(|a| a.person_id)
+                        .collect::<std::collections::HashSet<Uuid>>(),
+                    Err(_) => std::collections::HashSet::new(),
+                }
             }
-        }
-    });
+        });
 
     // ── Fetch pedigree from the API ──
     let api_pedigree = api.clone();
-    let mut pedigree_resource = use_resource(move || {
+    let mut pedigree_resource = use_traced_resource(load_trace.clone(), "pedigree", move || {
         let api = api_pedigree.clone();
         let _gen = tree_cache.generation();
         let tid = tree_id_parsed();
@@ -216,7 +219,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // ── Fetch the portrait map for the tree (person_id → image URL) ──
     let api_photos = api.clone();
-    let photos_resource = use_resource(move || {
+    let photos_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
         let api = api_photos.clone();
         let tid = tree_id_parsed();
         let _gen = tree_cache.generation();
@@ -238,28 +241,29 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     }
 
     // ── Build pedigree data from the fetched pedigree ──
-    let (pedigree_data, root_person_id): (Option<PedigreeData>, Option<Uuid>) = {
-        let ped_data = pedigree_resource.read();
-        let photos: std::collections::HashMap<Uuid, String> = {
-            let guard = photos_resource.read();
-            match &*guard {
-                Some(map) => map.clone(),
-                None => std::collections::HashMap::new(),
+    let (pedigree_data, root_person_id): (Option<PedigreeData>, Option<Uuid>) =
+        load_trace.measure("pedigree_data", || {
+            let ped_data = pedigree_resource.read();
+            let photos: std::collections::HashMap<Uuid, String> = {
+                let guard = photos_resource.read();
+                match &*guard {
+                    Some(map) => map.clone(),
+                    None => std::collections::HashMap::new(),
+                }
+            };
+            match &*ped_data {
+                Some(Ok(pedigree)) => {
+                    let mut pd = PedigreeData::from_pedigree(pedigree);
+                    pd.photos = photos;
+                    pd.self_person_id = match &*tree_resource.read() {
+                        Some(Ok(tree)) => tree.self_person_id,
+                        _ => None,
+                    };
+                    (Some(pd), Some(pedigree.root_person_id))
+                }
+                _ => (None, selected_root()),
             }
-        };
-        match &*ped_data {
-            Some(Ok(pedigree)) => {
-                let mut pd = PedigreeData::from_pedigree(pedigree);
-                pd.photos = photos;
-                pd.self_person_id = match &*tree_resource.read() {
-                    Some(Ok(tree)) => tree.self_person_id,
-                    _ => None,
-                };
-                (Some(pd), Some(pedigree.root_person_id))
-            }
-            _ => (None, selected_root()),
-        }
-    };
+        });
 
     // Build name_map for context menu lookups (from pedigree data).
     let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = pedigree_data

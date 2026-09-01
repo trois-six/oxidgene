@@ -4,3 +4,11 @@ default_platform = "web"
 
 [web.app]
 title = "OxidGene"
+
+[web.resource]
+script = ["/runtime-config.js"]
+style = []
+
+[web.resource.dev]
+script = []
+style = []

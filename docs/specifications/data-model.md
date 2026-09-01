@@ -602,6 +602,15 @@ erDiagram
 
 ## 4. Read Models and Projections
 
+### 4.0 Durable background jobs
+
+`background_job` stores import and export work that may execute in another
+process after the originating request has completed. Its nullable
+`trace_parent` and `trace_state` columns contain W3C Trace Context captured when
+the job is created. They contain no user or genealogical data and do not affect
+job execution when absent. A worker restores them only as the parent of its
+consumer span; retries retain the original context.
+
 Read models are durable database data, not a cache tier. They are derived from
 the normalized entities above, refreshed with mutations, and rebuilt when
 their schema version changes. The same design is used by SQLite and PostgreSQL.

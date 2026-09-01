@@ -64,6 +64,10 @@ spec:
               value: {{ .Values.backend.logLevel | quote }}
             - name: OXIDGENE_CORS_ORIGIN
               value: {{ .Values.backend.corsOrigin | quote }}
+            {{- with .Values.backend.otlpEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
             - name: OXIDGENE_DATABASE_URL
               {{- if eq .Values.database.mode "disabled" }}
               value: {{ printf "sqlite://%s/%s?mode=rwc" (trimSuffix "/" .Values.database.sqlite.directory) .Values.database.sqlite.fileName | quote }}

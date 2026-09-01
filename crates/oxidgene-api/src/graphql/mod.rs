@@ -4,6 +4,7 @@ mod error;
 pub mod inputs;
 pub mod mutation;
 pub mod query;
+mod tracing;
 pub mod types;
 
 use crate::media::MediaStore;
@@ -21,6 +22,7 @@ use mutation::MutationRoot;
 use query::QueryRoot;
 
 use self::error::SafeErrors;
+use self::tracing::Tracing;
 
 const MAX_QUERY_DEPTH: usize = 16;
 const MAX_QUERY_COMPLEXITY: usize = 1_000;
@@ -51,6 +53,7 @@ pub(crate) fn build_schema_with_local_file_access(
         .limit_depth(MAX_QUERY_DEPTH)
         .limit_complexity(MAX_QUERY_COMPLEXITY)
         .limit_recursive_depth(MAX_RECURSIVE_DEPTH)
+        .extension(Tracing)
         .extension(SafeErrors)
         .data(db)
         .data(profiles)

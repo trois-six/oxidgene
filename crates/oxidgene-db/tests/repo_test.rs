@@ -13,7 +13,23 @@ use oxidgene_db::repo::{
     PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
+use std::sync::{Arc, Mutex};
+use tracing::{Subscriber, field::Visit};
+use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 use uuid::Uuid;
+
+#[cfg(feature = "telemetry-context")]
+use opentelemetry::global;
+#[cfg(feature = "telemetry-context")]
+use opentelemetry::trace::TracerProvider as _;
+#[cfg(feature = "telemetry-context")]
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+#[cfg(feature = "telemetry-context")]
+use opentelemetry_sdk::trace::SdkTracerProvider;
+#[cfg(feature = "telemetry-context")]
+use tracing_opentelemetry::OpenTelemetryLayer;
+#[cfg(feature = "telemetry-context")]
+use tracing_subscriber::layer::SubscriberExt as _;
 
 /// Helper: create a fresh in-memory DB with migrations applied.
 async fn setup_db() -> DatabaseConnection {
@@ -40,6 +56,105 @@ async fn create_person(db: &DatabaseConnection, tree_id: Uuid) -> Uuid {
         .await
         .expect("create person");
     id
+}
+
+type CapturedDbSpan = (String, Vec<String>);
+type CapturedDbSpanList = Arc<Mutex<Vec<CapturedDbSpan>>>;
+
+#[derive(Clone, Default)]
+struct CapturedDbSpans(CapturedDbSpanList);
+
+impl<S> Layer<S> for CapturedDbSpans
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+{
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        _id: &tracing::span::Id,
+        _context: Context<'_, S>,
+    ) {
+        #[derive(Default)]
+        struct FieldNames(Vec<String>);
+
+        impl Visit for FieldNames {
+            fn record_debug(
+                &mut self,
+                field: &tracing::field::Field,
+                _value: &dyn std::fmt::Debug,
+            ) {
+                self.0.push(field.name().to_string());
+            }
+        }
+
+        let mut fields = FieldNames::default();
+        attributes.record(&mut fields);
+        self.0
+            .lock()
+            .expect("capture lock")
+            .push((attributes.metadata().name().to_string(), fields.0));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn database_spans_exclude_sql_statements() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    let captured = CapturedDbSpans::default();
+    let subscriber = tracing_subscriber::registry().with(captured.clone());
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let db = setup_db().await;
+
+    TreeRepo::list(&db, &PaginationParams::default())
+        .await
+        .expect("list trees");
+
+    let spans = captured.0.lock().expect("capture lock");
+    assert!(spans.iter().any(|(name, _)| name.starts_with("sea_orm.")));
+    assert!(
+        spans
+            .iter()
+            .all(|(_, fields)| !fields.iter().any(|field| field == "db.statement"))
+    );
+}
+
+#[cfg(feature = "telemetry-context")]
+#[tokio::test]
+async fn background_job_persists_the_current_trace_context() {
+    global::set_text_map_propagator(TraceContextPropagator::new());
+    let provider = SdkTracerProvider::builder().build();
+    let subscriber =
+        tracing_subscriber::registry().with(OpenTelemetryLayer::new(provider.tracer("test")));
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let job_id = Uuid::now_v7();
+
+    let _subscriber_guard = tracing::subscriber::set_default(subscriber);
+    let span = tracing::info_span!("request");
+    let _entered = span.enter();
+    BackgroundJobRepo::create(
+        &db,
+        NewBackgroundJob {
+            id: job_id,
+            tree_id,
+            kind: BackgroundJobKind::Import,
+            format: "gedcom".into(),
+            source_key: Some("jobs/source".into()),
+            payload_json: None,
+            original_filename: Some("tree.ged".into()),
+            merge_occupations: false,
+            merge_names: false,
+        },
+    )
+    .await
+    .expect("create traced job");
+
+    let job = BackgroundJobRepo::get_in_tree(&db, tree_id, job_id)
+        .await
+        .expect("read traced job");
+    let trace_parent = job.trace_parent.expect("stored traceparent");
+    assert_eq!(trace_parent.len(), 55);
+    assert!(trace_parent.starts_with("00-"));
 }
 
 #[tokio::test]

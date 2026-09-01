@@ -8,13 +8,13 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-oxidgene-api = { workspace = true, features = ["graphql", "postgres", "s3"] }
+oxidgene-api = { workspace = true, features = ["graphql", "postgres", "s3", "telemetry-context"] }
 oxidgene-db = { workspace = true, features = ["postgres"] }
+oxidgene-observability = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["net", "signal"] }
 tower-http = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 config = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

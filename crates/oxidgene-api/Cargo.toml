@@ -14,12 +14,14 @@ postgres = ["oxidgene-db/postgres"]
 graphql = ["dep:async-graphql", "dep:async-graphql-axum"]
 # S3-compatible media storage — the standalone server opts in; desktop stays local.
 s3 = ["dep:object_store"]
+telemetry-context = ["dep:oxidgene-observability", "oxidgene-db/telemetry-context"]
 
 [dependencies]
 oxidgene-core = { workspace = true }
 oxidgene-db = { workspace = true }
 oxidgene-gedcom = { workspace = true }
 oxidgene-geneanet = { workspace = true }
+oxidgene-observability = { workspace = true, optional = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
 async-graphql = { workspace = true, optional = true }
@@ -61,3 +63,4 @@ tokio = { workspace = true, features = ["time"] }
 tower = { workspace = true }
 uuid = { workspace = true }
 http-body-util = "0.1"
+tracing-subscriber = { workspace = true }

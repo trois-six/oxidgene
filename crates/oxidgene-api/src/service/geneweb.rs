@@ -20,6 +20,7 @@ use super::gedcom::{FileImportPhase, FileImportProgress, ImportSummary, persist_
 /// into UTF-8, so it must not be decoded before it reaches the reader.
 /// `origin_file` is the uploaded file's name, which GeneWeb records on every
 /// family and which is echoed back in parse warnings.
+#[tracing::instrument(name = "import.geneweb", skip_all)]
 pub async fn import_and_persist(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -29,12 +30,15 @@ pub async fn import_and_persist(
     // Verify tree exists
     let _tree = TreeRepo::get(db, tree_id).await?;
 
-    let result = import_geneweb(input, origin_file, tree_id).map_err(OxidGeneError::Gedcom)?;
+    let result = tracing::info_span!("import.parse", import.format = "geneweb")
+        .in_scope(|| import_geneweb(input, origin_file, tree_id))
+        .map_err(OxidGeneError::Gedcom)?;
 
     persist_import_result(db, result).await
 }
 
 /// Read a GeneWeb temporary file and persist its entities.
+#[tracing::instrument(name = "import.geneweb", skip_all)]
 pub async fn import_file_and_persist(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -45,7 +49,9 @@ pub async fn import_file_and_persist(
     progress.enter(FileImportPhase::Parsing);
     let input = tokio::fs::read(path).await?;
     let _tree = TreeRepo::get(db, tree_id).await?;
-    let result = import_geneweb(&input, origin_file, tree_id).map_err(OxidGeneError::Gedcom)?;
+    let result = tracing::info_span!("import.parse", import.format = "geneweb")
+        .in_scope(|| import_geneweb(&input, origin_file, tree_id))
+        .map_err(OxidGeneError::Gedcom)?;
     progress.enter(FileImportPhase::Database);
     persist_import_result(db, result).await
 }

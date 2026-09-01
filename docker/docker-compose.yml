@@ -6,6 +6,23 @@
 #   docker compose -f docker/docker-compose.yml down -v
 
 services:
+  # ── OpenTelemetry collector ─────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.159.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:13133:13133"
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol-contrib/config.yaml"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   # ── PostgreSQL ────────────────────────────────────────────────────────
   postgres:
     image: postgres:18-trixie
@@ -87,7 +104,7 @@ services:
       OXIDGENE_HOST: "0.0.0.0"
       OXIDGENE_PORT: "8080"
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
-      OXIDGENE_LOG_LEVEL: "info"
+      OXIDGENE_LOG_LEVEL: "${OXIDGENE_SERVER_LOG_LEVEL:-info}"
       OXIDGENE_CORS_ORIGIN: "http://127.0.0.1:8081"
       OXIDGENE_MEDIA_BACKEND: "s3"
       OXIDGENE_S3_ENDPOINT: "http://rustfs:9000"
@@ -95,6 +112,7 @@ services:
       OXIDGENE_S3_REGION: "us-east-1"
       OXIDGENE_S3_ACCESS_KEY_ID: "oxidgene-admin"
       OXIDGENE_S3_SECRET_ACCESS_KEY: "oxidgene-development-secret"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OXIDGENE_SERVER_OTLP_ENDPOINT-http://otel-collector:4317}"
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -117,13 +135,14 @@ services:
     restart: unless-stopped
     environment:
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
-      OXIDGENE_LOG_LEVEL: "info"
+      OXIDGENE_LOG_LEVEL: "${OXIDGENE_WORKER_LOG_LEVEL:-info}"
       OXIDGENE_MEDIA_BACKEND: "s3"
       OXIDGENE_S3_ENDPOINT: "http://rustfs:9000"
       OXIDGENE_S3_BUCKET: "oxidgene-media"
       OXIDGENE_S3_REGION: "us-east-1"
       OXIDGENE_S3_ACCESS_KEY_ID: "oxidgene-admin"
       OXIDGENE_S3_SECRET_ACCESS_KEY: "oxidgene-development-secret"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OXIDGENE_WORKER_OTLP_ENDPOINT-http://otel-collector:4317}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,6 +156,8 @@ services:
       dockerfile: docker/Dockerfile.web
       args:
         OXIDGENE_API_URL: "http://127.0.0.1:8080"
+        OXIDGENE_LOG_LEVEL: "${OXIDGENE_WEB_LOG_LEVEL:-info}"
+        OTEL_EXPORTER_OTLP_ENDPOINT: "${OXIDGENE_WEB_OTLP_ENDPOINT-http://127.0.0.1:4318}"
     restart: unless-stopped
     ports:
       - "127.0.0.1:8081:8080"

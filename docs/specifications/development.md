@@ -1,8 +1,8 @@
 ---
 type: "Development Specification"
 title: "Development Environment and Workflows"
-description: "Local development prerequisites and just command reference for OxidGene."
-tags: [oxidgene, specification, development, rust, just]
+description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
+tags: [oxidgene, specification, development, rust, security, just]
 timestamp: 2026-08-26T00:00:00Z
 ---
 
@@ -17,6 +17,7 @@ timestamp: 2026-08-26T00:00:00Z
 
 - [Rust](https://rustup.rs/) stable toolchain.
 - [just](https://github.com/casey/just) task runner.
+- [mise](https://mise.jdx.dev/) tool version manager.
 - PostgreSQL 16+ or Docker Compose for the web backend. The Compose stack also
    provides RustFS for S3-compatible media storage and Redis for future user
    sessions.
@@ -26,11 +27,12 @@ timestamp: 2026-08-26T00:00:00Z
 - `cargo-watch` for backend hot reload; optional unless using `just dev-web-watch`.
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install cargo-nextest --locked
-cargo install dioxus-cli --version 0.7.10 --locked
-cargo install cargo-watch --locked
+just setup
 ```
+
+This installs the versions declared in `mise.toml` and adds the
+`wasm32-unknown-unknown` target to the active Rust toolchain. Rust, rustup,
+just, Docker, and Docker Compose remain host prerequisites.
 
 The complete installation and deployment paths are in the
 [Quickstart](quickstart.md).
@@ -83,12 +85,93 @@ variables before starting `dx`. Direct `dx serve` and `dx build` invocations are
 not supported because they can persist shell credentials in those local build
 artifacts.
 
+`OXIDGENE_LOG_LEVEL` sets the browser log threshold at compile time. Supported
+values are `trace`, `debug`, `info`, `warn`, and `error`; the default is
+`info`. Because the deployed WASM bundle is static, changing a frontend pod's
+environment does not change an already-built bundle.
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` configures browser tracing at compile time for
+local and Compose builds. The published web image also reads
+`globalThis.OXIDGENE_OTLP_ENDPOINT` from `/runtime-config.js` before starting
+WASM; Helm writes this value from `frontend.otlpEndpoint`, so the same image can
+target a different collector per installation. A non-empty value enables
+OTLP/HTTP protobuf export to `/v1/traces` and W3C Trace Context injection on API
+requests. The URL must be public to the browser, and the collector must allow
+the frontend origin on its OTLP/HTTP receiver. An absent or empty value keeps
+client spans and trace headers disabled.
+
 ### 2.4 Desktop Application
 
 | Command | Purpose |
 |---------|---------|
 | `just desktop` | Run the desktop application in development mode. |
-| `just build-desktop-release` | Build the desktop application in release mode. |
+| `just desktop-telemetry [log_level]` | Start the local collector and run the desktop with OTLP enabled; the optional filter defaults to `info`. |
+| `just build-desktop-release` | Build an optimized desktop release with tracing and OpenTelemetry compiled out. |
+| `just build-desktop-release-telemetry` | Build a desktop release retaining optional OTLP telemetry support. |
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` when running either command to export native
+desktop logs, spans, and metrics over OTLP/gRPC. The export covers the embedded
+API and worker as well as native UI `tracing` events; it is disabled when the
+variable is absent. In that mode, log events still reach the console but span
+callsites are disabled rather than creating spans that are later discarded.
+
+`OXIDGENE_LOG_LEVEL` configures desktop logs. `--log-level FILTER` overrides
+the environment for one invocation, and `--debug` selects
+`info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug` only when neither
+explicit setting is present.
+
+For the common local collection workflow, use `just desktop-telemetry`. It
+starts the Compose collector, waits for it, and points the desktop process to
+`http://127.0.0.1:4317`. Pass an optional filter when needed, for example
+`just desktop-telemetry debug` or
+`just desktop-telemetry 'info,oxidgene_api=debug,sea_orm=warn'`.
+
+Production desktop releases built with `just build-desktop-release` exclude the
+OpenTelemetry dependency and HTTP trace layer, and enable
+`tracing/release_max_level_off` so tracing spans and events are compiled out.
+This build intentionally ignores desktop log and OTLP settings. Use
+`just build-desktop-release-telemetry` when a diagnosable release binary is
+required; its export remains disabled at runtime until an OTLP endpoint is set.
+
+### 2.5 Observability configuration by process
+
+Each native process reads only its own environment. It can therefore choose a
+different filter and collector, or disable OTLP independently:
+
+| Process | Log configuration | OTLP configuration |
+|---|---|---|
+| Server | `OXIDGENE_LOG_LEVEL` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Worker | `OXIDGENE_LOG_LEVEL` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Desktop | `OXIDGENE_LOG_LEVEL` or `--log-level` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Browser WASM | Build-time `OXIDGENE_LOG_LEVEL` threshold | Runtime `frontend.otlpEndpoint`, falling back to build-time `OTEL_EXPORTER_OTLP_ENDPOINT`, over OTLP/HTTP |
+
+Native log filters use `tracing_subscriber::EnvFilter` syntax. A simple level
+such as `warn` applies globally; a directive list such as
+`info,oxidgene_api=debug,sea_orm=warn` sets per-target levels. Invalid filters
+fail process initialization. `RUST_LOG` is not read, so there is no hidden
+second source of filter configuration.
+
+Compose exposes the same separation through host-side substitution variables:
+`OXIDGENE_SERVER_LOG_LEVEL`, `OXIDGENE_WORKER_LOG_LEVEL`,
+`OXIDGENE_WEB_LOG_LEVEL`, `OXIDGENE_SERVER_OTLP_ENDPOINT`, and
+`OXIDGENE_WORKER_OTLP_ENDPOINT`, and `OXIDGENE_WEB_OTLP_ENDPOINT`. Web settings
+are build arguments because the resulting WASM bundle is static. Leaving a
+Compose endpoint variable unset uses the bundled collector; setting it to an
+empty string disables OTLP for that process or bundle.
+
+An absent or empty `OTEL_EXPORTER_OTLP_ENDPOINT` disables OpenTelemetry export
+and span callsites for that native process while retaining console log events.
+For example, the server and worker may target separate collectors:
+
+```bash
+OXIDGENE_LOG_LEVEL=info \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317 \
+   cargo run --package oxidgene-server
+
+OXIDGENE_LOG_LEVEL=warn \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5317 \
+   cargo run --package oxidgene-worker
+```
 
 ## 3. Local Web Workflow
 
@@ -121,6 +204,20 @@ cargo test --package oxidgene-api --features s3 \
    s3_round_trip_deduplication_and_tree_deletion -- --ignored
 ```
 
+The Compose stack includes an OpenTelemetry Collector. It receives OTLP on
+loopback ports `4317` (gRPC) and `4318` (HTTP), exposes its health endpoint on
+`13133`, and writes log, trace, and metric summaries to its logs:
+
+```bash
+docker compose -f docker/docker-compose.yml logs -f otel-collector
+```
+
+Replace the `debug` exporters in `docker/otel-collector.yaml` with the desired
+telemetry backend exporters for persistent storage. Native host processes can
+export to it with
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317`; export remains disabled
+when the variable is absent.
+
 Kubernetes deployment and both supported S3 modes are documented in the
 [OxidGene Helm chart](../../charts/oxidgene/README.md).
 
@@ -151,7 +248,207 @@ Use anonymized content in screenshots and measurements. A responsive change is
 not complete when only the outer page fits; its significant descendants must
 fit and remain usable as well.
 
-## 5. Release Automation
+## 5. Secure Development Practices
+
+These rules apply whenever code accepts network input, imported files, archive
+entries, media, local paths, WebView messages, environment variables, or
+storage keys. Security controls preserve legitimate genealogy workflows: a
+scanner finding alone does not justify removing a supported developer surface
+or imposing an arbitrary limit that rejects valid large exports.
+
+### 5.1 Trust boundaries and secure defaults
+
+- Treat request bodies, GraphQL documents, uploaded files, archive metadata,
+   decoded media, external URLs, WebView IPC, environment variables, and
+   persisted object keys as untrusted at their first application boundary.
+- Put enforcement in the component that performs the sensitive operation, not
+   only in the UI or a caller. Comments such as `desktop-only` are not access
+   controls.
+- Model privileged local behavior as an explicit runtime capability. The
+   local-file capability defaults to disabled in shared API constructors and
+   the standalone server; only the embedded desktop backend enables it.
+- Check the capability before opening, indexing, decoding, deleting, or
+   returning any local path. REST handlers and GraphQL resolvers enforce and
+   test the same rule.
+- Keep public constructors and default configurations on the least-privileged
+   path. A more capable constructor remains crate-internal unless external
+   callers have a documented need for it.
+- OpenAPI and GraphiQL are intentional developer surfaces. Do not remove them
+   as a substitute for authentication or network isolation; control exposure
+   at the actual deployment and authorization boundaries.
+
+### 5.2 Bounded input and resource use
+
+- Enforce request and file limits while reading or streaming, before an
+   untrusted payload is fully buffered. On rejection, remove partial spool
+   files and other operation-owned state.
+- For archive entries, validate both the declared uncompressed size and the
+   bytes actually produced. Read at most `limit + 1` when detecting overflow;
+   never trust a ZIP central-directory size for allocation or acceptance.
+- Prefer structural and per-entry limits plus sequential processing over a
+   cumulative archive cap. A GEDZIP may legitimately contain a large media
+   collection, so process one medium at a time instead of retaining every
+   decompressed entry in memory.
+- A compressed-size bound does not by itself prevent decompression bombs.
+   Bound expanded output independently and reject declared/decoded size
+   mismatches where the format provides both values.
+- Before allocating an image buffer, inspect `ImageDecoder::total_bytes()` and
+   compare it with the documented decoded-byte budget. Also configure
+   `image::Limits`; codec allocation limits are defense in depth, not a
+   substitute for the explicit decoded-size check.
+- Detect media formats from their bytes rather than trusting a MIME type or
+   filename extension. Keep parsing and decoding errors sanitized at API
+   boundaries.
+- Validate storage keys with a strict grammar before joining paths or issuing
+   object-store operations. Reject traversal segments and cross-namespace
+   identifiers rather than trying to normalize them.
+- Bound recursive or user-shaped computation as well as bytes. GraphQL schemas
+   retain explicit depth, complexity, and recursion limits, with regression
+   tests that assert rejection behavior.
+
+Endpoint-specific budgets and exceptions remain authoritative in the
+[API Contract](api.md). New limits must be justified by actual memory, storage,
+or protocol constraints and must account for existing large genealogy exports.
+
+### 5.3 Temporary files and ownership
+
+- Use `tempfile::NamedTempFile`, `TempPath`, or `TempDir` for private,
+   collision-resistant creation. Do not construct predictable names under
+   `/tmp` and then open them separately.
+- Transfer ownership explicitly when a temporary input moves from a request or
+   WebView session into a durable background job. A worker must not depend on a
+   login window or request-owned temporary directory remaining alive.
+- Delete only files and directories created and registered by the current
+   process. Never accept an arbitrary client path as cleanup authority.
+- Prefer RAII cleanup and retain explicit cleanup on success, failure,
+   cancellation, and startup recovery where durable staging is involved.
+- Keep temporary paths, original filenames, and archive contents out of client
+   errors, logs, fixtures, and committed artifacts.
+
+### 5.4 Desktop WebView and external content
+
+- Validate application-controlled download and IPC URLs at the action boundary:
+   require HTTPS and an approved Geneanet host before native code fetches or
+   writes anything.
+- Do not confuse an action allowlist with a global WebView network filter. The
+   authenticated page may load required scripts, styles, redirects, and other
+   subresources from its provider's related domains, such as `geneacdn.net`.
+- Never move cookies, tokens, passwords, page HTML, or session archives through
+   logs or ordinary application telemetry. Keep authenticated network requests
+   inside the WebView session when direct clients are intentionally rejected.
+- Treat every filesystem path received from JavaScript as untrusted even when
+   the top-level page URL was validated; native handlers still apply capability,
+   ownership, and path checks.
+
+### 5.5 Build secrets and generated artifacts
+
+- Invoke Dioxus through `scripts/dx.sh`, including in local recipes and image
+   builds. Dioxus serializes rustc arguments and environment data under
+   `target/dx/.captured-args`; the wrapper removes credential-shaped variables
+   before those files are generated.
+- Do not pass credentials through compile-time frontend environment variables.
+   A WASM bundle and its build metadata are client-visible artifacts.
+- Keep fuzz corpora, crash artifacts, and fuzz build targets ignored. Commit the
+   harness and its reproducible manifest, not generated inputs or binaries.
+- Never use real genealogy exports, media, sessions, or files under `samples/`
+   as a fuzz corpus, fixture, screenshot source, or committed reproduction.
+
+### 5.6 API symmetry and regression coverage
+
+- Security behavior is part of the REST/GraphQL symmetry requirement. Apply
+   equivalent capability checks, size rules, error codes, and tests to both
+   surfaces in the same change.
+- Test both sides of a security boundary: secure defaults must reject the
+   operation, while the explicitly capable desktop path must retain its
+   legitimate workflow.
+- Bug fixes include a focused test that would fail without the fix. Resource
+   tests exercise declared-size lies, expanded-output overflow, decoder memory
+   budgets, traversal attempts, and cleanup after failures as applicable.
+- Keep public errors generic and stable. Tests may assert the machine-readable
+   code and absence of internal paths, request IDs for expected validation
+   failures, SQL, archive details, or source chains.
+
+### 5.7 Static analysis, dependency audit, and fuzzing
+
+Install or make the optional security tools available before running their
+checks. Semgrep, Trivy, `cargo-audit`, and `cargo-fuzz` are declared in
+`mise.toml`; fuzzing requires a nightly Rust toolchain.
+
+```bash
+just setup
+rustup toolchain install nightly
+```
+
+Run a repository scan without generated build trees or fuzz outputs:
+
+```bash
+semgrep scan --config p/rust --config p/security-audit \
+   --jobs 1 --max-target-bytes 2000000 \
+   --exclude target --exclude '*/fuzz/target' \
+   --exclude '*/fuzz/corpus' --exclude '*/fuzz/artifacts' .
+
+trivy fs --scanners vuln,misconfig,secret \
+   --skip-dirs target --skip-dirs crates/oxidgene-geneanet/fuzz/target .
+
+cargo audit
+```
+
+Run the session decoder fuzz target with synthetic libFuzzer inputs and an
+explicit time budget:
+
+```bash
+cargo +nightly fuzz run \
+   --fuzz-dir crates/oxidgene-geneanet/fuzz \
+   session_decode -- -max_total_time=30
+```
+
+Fuzzing is opt-in and never part of `just check`. A crash is not fixed until a
+minimal anonymized regression test covers it; generated corpora remain local.
+
+### 5.8 Triage findings before changing code
+
+- Confirm that a dependency advisory is in an active target's normal or build
+   graph with `cargo tree -i <crate>@<version> -e normal,build`. A lockfile-only
+   package is tracked but is not linked into the current binaries.
+- Trace active transitive advisories to their owning framework. Do not force an
+   incompatible isolated upgrade; document the residual risk and update the
+   framework when a compatible path exists.
+- Distinguish a dangerous source/sink flow from a syntactic match. A static
+   analysis result is accepted only after checking how the value reaches a
+   filesystem, process, network, authorization, parser, or allocation boundary.
+- Render templated deployment files before accepting a template-scanner result.
+   For Helm, use `helm lint charts/oxidgene` and inspect `helm template`; values
+   injected through `toYaml` may be invisible to a raw-template scanner.
+- Do not hard-code a Helm namespace merely to satisfy a scanner; namespace is
+   an installation choice. Treat the configured project registry as a trust
+   decision, and prefer immutable tags or digests where release policy requires
+   stronger provenance.
+- Kubernetes startup, readiness, and liveness probes provide workload health
+   checks. A Dockerfile `HEALTHCHECK` is separately useful for direct
+   `docker run`, but duplicating probes or inventing a worker HTTP endpoint is
+   not a security fix.
+
+Record confirmed defects, contextual findings, false positives, residual
+dependency risks, and commands actually executed separately. Never weaken a
+scanner globally to hide one understood exception.
+
+### 5.9 Validation sequence
+
+During implementation, run the cheapest focused test that can falsify the
+current fix immediately after the edit. Then run the affected crate tests and
+finish code changes with:
+
+```bash
+just check
+```
+
+For deployment changes, additionally lint and render the chart. For parser,
+archive, image, or session changes, run the relevant focused regression tests
+and fuzz target where practical. Do not run concurrent Cargo builds in the same
+workspace target directory; they add contention and make failures harder to
+attribute.
+
+## 6. Release Automation
 
 Pushing a tag that matches `v<workspace-version>` starts
 `.github/workflows/release.yml`. The workflow rejects a tag whose version does

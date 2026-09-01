@@ -1,3 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oxidgene.fullname" . }}-frontend-runtime
+  labels:
+    {{- include "oxidgene.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+data:
+  runtime-config.js: |
+    globalThis.OXIDGENE_OTLP_ENDPOINT = {{ .Values.frontend.otlpEndpoint | quote }};
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,9 +68,16 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: runtime-config
+              mountPath: /usr/share/nginx/html/runtime-config.js
+              subPath: runtime-config.js
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: runtime-config
+          configMap:
+            name: {{ include "oxidgene.fullname" . }}-frontend-runtime
       {{- with .Values.frontend.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

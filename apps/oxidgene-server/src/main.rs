@@ -17,12 +17,12 @@ use axum::routing::get;
 use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{BackgroundJobRepo, connect, run_migrations};
+use oxidgene_observability::{init, make_http_span, on_http_response};
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 
 use oxidgene_server::config::{MediaBackend, ServerConfig};
 
@@ -34,12 +34,12 @@ async fn main() {
         std::process::exit(1);
     });
 
-    // ── Initialize tracing ───────────────────────────────────────────
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cfg.log_level)),
-        )
-        .init();
+    // ── Initialize observability ─────────────────────────────────────
+    let telemetry = init("oxidgene-server", env!("CARGO_PKG_VERSION"), &cfg.log_level)
+        .unwrap_or_else(|_| {
+            eprintln!("Failed to initialize observability");
+            std::process::exit(1);
+        });
 
     info!(
         host = %cfg.host,
@@ -121,11 +121,11 @@ async fn main() {
         .route("/healthz", get(healthz))
         .merge(api_router)
         .layer(cors)
-        .layer(TraceLayer::new_for_http().make_span_with(
-            |request: &axum::http::Request<_>| {
-                tracing::debug_span!("http_request", method = %request.method())
-            },
-        ));
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(make_http_span)
+                .on_response(on_http_response),
+        );
 
     // ── Bind and serve ───────────────────────────────────────────────
     let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);
@@ -145,6 +145,7 @@ async fn main() {
         });
 
     info!("Server shut down gracefully");
+    telemetry.shutdown();
 }
 
 /// Health check handler returning `200 OK` with a JSON body.

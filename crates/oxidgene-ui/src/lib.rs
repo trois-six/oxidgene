@@ -14,6 +14,7 @@ pub mod i18n;
 pub mod pages;
 pub mod prefs;
 pub mod router;
+pub mod ui_observability;
 pub mod utils;
 
 use dioxus::prelude::*;

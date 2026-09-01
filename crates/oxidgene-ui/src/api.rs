@@ -6,6 +6,10 @@
 //! `Serialize` / `Deserialize`.
 
 use base64::Engine as _;
+#[cfg(feature = "telemetry-client")]
+use opentelemetry::global;
+#[cfg(feature = "telemetry-client")]
+use opentelemetry::propagation::Injector;
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile, SearchResult};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse,
@@ -17,6 +21,10 @@ use oxidgene_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+#[cfg(feature = "telemetry-client")]
+use tracing::Instrument as _;
+#[cfg(feature = "telemetry-client")]
+use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use uuid::Uuid;
 
 // ── PersonDetail — person + server-computed SOSA number ──────────────
@@ -1112,6 +1120,53 @@ pub enum ApiError {
 }
 
 impl ApiClient {
+    async fn read_response_body(response: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
+        #[cfg(feature = "telemetry-client")]
+        {
+            let span = tracing::info_span!(
+                "ui.response.read",
+                response.body.size = tracing::field::Empty,
+                otel.status_code = tracing::field::Empty,
+            );
+            let result = response.bytes().instrument(span.clone()).await;
+            match &result {
+                Ok(bytes) => {
+                    span.record("response.body.size", bytes.len());
+                }
+                Err(_) => {
+                    span.record("otel.status_code", "ERROR");
+                }
+            }
+            result.map(|bytes| bytes.to_vec())
+        }
+
+        #[cfg(not(feature = "telemetry-client"))]
+        {
+            response.bytes().await.map(|bytes| bytes.to_vec())
+        }
+    }
+
+    fn deserialize<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error> {
+        #[cfg(feature = "telemetry-client")]
+        {
+            let span = tracing::info_span!(
+                "ui.response.deserialize",
+                response.body.size = bytes.len(),
+                otel.status_code = tracing::field::Empty,
+            );
+            let result = span.in_scope(|| serde_json::from_slice(bytes));
+            if result.is_err() {
+                span.record("otel.status_code", "ERROR");
+            }
+            result
+        }
+
+        #[cfg(not(feature = "telemetry-client"))]
+        {
+            serde_json::from_slice(bytes)
+        }
+    }
+
     /// Create a new API client pointing at the given base URL.
     ///
     /// The `base_url` should include scheme and port, e.g.
@@ -1139,6 +1194,50 @@ impl ApiClient {
         self.url("/graphql")
     }
 
+    #[cfg(feature = "telemetry-client")]
+    async fn send_request(
+        &self,
+        method: &'static str,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        let span = tracing::info_span!(
+            "http.client.request",
+            otel.name = method,
+            otel.kind = "client",
+            http.request.method = method,
+            http.response.status_code = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty,
+        );
+        let mut request = request.build()?;
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&span.context(), &mut HeaderInjector(request.headers_mut()));
+        });
+
+        let response = self.client.execute(request).instrument(span.clone()).await;
+        match &response {
+            Ok(response) => {
+                let status = response.status();
+                span.record("http.response.status_code", status.as_u16());
+                if status.is_server_error() {
+                    span.record("otel.status_code", "ERROR");
+                }
+            }
+            Err(_) => {
+                span.record("otel.status_code", "ERROR");
+            }
+        }
+        response
+    }
+
+    #[cfg(not(feature = "telemetry-client"))]
+    async fn send_request(
+        &self,
+        _method: &'static str,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        request.send().await
+    }
+
     /// Invalidate all cached responses for a given tree.
     pub fn invalidate_tree(&self, tree_id: Uuid) {
         self.cache
@@ -1148,13 +1247,13 @@ impl ApiClient {
     /// Helper: send a cached GET request and deserialize JSON response.
     async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         if let Some(cached) = self.cache.get(path)
-            && let Ok(val) = serde_json::from_slice(&cached)
+            && let Ok(val) = Self::deserialize(&cached)
         {
             tracing::debug!(method = "GET", cached = true, "API request completed");
             return Ok(val);
         }
         let url = self.url(path);
-        let resp = self.client.get(&url).send().await?;
+        let resp = self.send_request("GET", self.client.get(&url)).await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -1164,10 +1263,10 @@ impl ApiClient {
                 body,
             });
         }
-        let bytes = resp.bytes().await?;
+        let bytes = Self::read_response_body(resp).await?;
         tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
-        let val: T = serde_json::from_slice(&bytes)?;
-        self.cache.set(path.to_string(), bytes.to_vec());
+        let val: T = Self::deserialize(&bytes)?;
+        self.cache.set(path.to_string(), bytes);
         Ok(val)
     }
 
@@ -1198,13 +1297,15 @@ impl ApiClient {
             serde_json::to_string(query).unwrap_or_default()
         );
         if let Some(cached) = self.cache.get(&cache_key)
-            && let Ok(val) = serde_json::from_slice(&cached)
+            && let Ok(val) = Self::deserialize(&cached)
         {
             tracing::debug!(method = "GET", cached = true, "API request completed");
             return Ok(val);
         }
         let url = self.url(path);
-        let resp = self.client.get(&url).query(query).send().await?;
+        let resp = self
+            .send_request("GET", self.client.get(&url).query(query))
+            .await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -1214,10 +1315,10 @@ impl ApiClient {
                 body,
             });
         }
-        let bytes = resp.bytes().await?;
+        let bytes = Self::read_response_body(resp).await?;
         tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
-        let val: T = serde_json::from_slice(&bytes)?;
-        self.cache.set(cache_key, bytes.to_vec());
+        let val: T = Self::deserialize(&bytes)?;
+        self.cache.set(cache_key, bytes);
         Ok(val)
     }
 
@@ -1228,7 +1329,9 @@ impl ApiClient {
         body: &B,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        let resp = self.client.post(&url).json(body).send().await?;
+        let resp = self
+            .send_request("POST", self.client.post(&url).json(body))
+            .await?;
         Self::handle_response("POST", resp).await
     }
 
@@ -1246,12 +1349,14 @@ impl ApiClient {
         let url = self.url(path);
         let bytes = body.len();
         let resp = self
-            .client
-            .post(&url)
-            .query(query)
-            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
-            .body(body)
-            .send()
+            .send_request(
+                "POST",
+                self.client
+                    .post(&url)
+                    .query(query)
+                    .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                    .body(body),
+            )
             .await?;
         tracing::debug!(method = "POST", bytes, "API binary request sent");
         Self::handle_response("POST", resp).await
@@ -1264,7 +1369,9 @@ impl ApiClient {
         body: &B,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        let resp = self.client.put(&url).json(body).send().await?;
+        let resp = self
+            .send_request("PUT", self.client.put(&url).json(body))
+            .await?;
         Self::handle_response("PUT", resp).await
     }
 
@@ -1275,7 +1382,9 @@ impl ApiClient {
         body: &B,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        let resp = self.client.patch(&url).json(body).send().await?;
+        let resp = self
+            .send_request("PATCH", self.client.patch(&url).json(body))
+            .await?;
         Self::handle_response("PATCH", resp).await
     }
 
@@ -1284,7 +1393,9 @@ impl ApiClient {
     /// the endpoints that answer with it (see `delete_source_if_unused`).
     async fn delete_status(&self, path: &str) -> Result<u16, ApiError> {
         let url = self.url(path);
-        let resp = self.client.delete(&url).send().await?;
+        let resp = self
+            .send_request("DELETE", self.client.delete(&url))
+            .await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -1301,13 +1412,17 @@ impl ApiClient {
     /// Helper: send a DELETE whose response carries a body.
     async fn delete_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         let url = self.url(path);
-        let resp = self.client.delete(&url).send().await?;
+        let resp = self
+            .send_request("DELETE", self.client.delete(&url))
+            .await?;
         Self::handle_response("DELETE", resp).await
     }
 
     async fn delete_no_content(&self, path: &str) -> Result<(), ApiError> {
         let url = self.url(path);
-        let resp = self.client.delete(&url).send().await?;
+        let resp = self
+            .send_request("DELETE", self.client.delete(&url))
+            .await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -1327,7 +1442,9 @@ impl ApiClient {
         body: &B,
     ) -> Result<(), ApiError> {
         let url = self.url(path);
-        let resp = self.client.delete(&url).json(body).send().await?;
+        let resp = self
+            .send_request("DELETE", self.client.delete(&url).json(body))
+            .await?;
         let status = resp.status();
         if !status.is_success() {
             return Err(ApiError::Api {
@@ -1352,9 +1469,9 @@ impl ApiClient {
                 body,
             });
         }
-        let bytes = resp.bytes().await?;
+        let bytes = Self::read_response_body(resp).await?;
         tracing::debug!(method, %status, bytes = bytes.len(), "API request completed");
-        Ok(serde_json::from_slice(&bytes)?)
+        Ok(Self::deserialize(&bytes)?)
     }
 
     // ── Trees ───────────────────────────────────────────────────────
@@ -2437,7 +2554,9 @@ impl ApiClient {
     /// `ETag` revalidation the endpoint offers, which pulling them through
     /// this client would throw away.
     async fn get_binary(&self, path: &str) -> Result<(Vec<u8>, String), ApiError> {
-        let response = self.client.get(self.url(path)).send().await?;
+        let response = self
+            .send_request("GET", self.client.get(self.url(path)))
+            .await?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
@@ -2453,7 +2572,7 @@ impl ApiClient {
             .and_then(|value| value.to_str().ok())
             .unwrap_or("application/octet-stream")
             .to_string();
-        let bytes = response.bytes().await?.to_vec();
+        let bytes = Self::read_response_body(response).await?;
         tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API binary request completed");
         Ok((bytes, content_type))
     }
@@ -2648,7 +2767,9 @@ impl ApiClient {
             form = form.text("document_id", document_id.to_string());
         }
 
-        let resp = self.client.post(&url).multipart(form).send().await?;
+        let resp = self
+            .send_request("POST", self.client.post(&url).multipart(form))
+            .await?;
         let media = Self::handle_response("POST", resp).await?;
         self.invalidate_tree(tree_id);
         Ok(media)
@@ -3024,9 +3145,11 @@ impl ApiClient {
         job_id: Uuid,
     ) -> Result<FileImportJobStatus, ApiError> {
         let response = self
-            .client
-            .get(self.url(&format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}")))
-            .send()
+            .send_request(
+                "GET",
+                self.client
+                    .get(self.url(&format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"))),
+            )
             .await?;
         let status = response.status();
         if !status.is_success() {
@@ -3090,7 +3213,9 @@ impl ApiClient {
         // JSON would only base64 it again — the very thing the container
         // exists to stop.
         let url = self.url("/api/v1/geneanet/session/encode");
-        let resp = self.client.post(&url).json(body).send().await?;
+        let resp = self
+            .send_request("POST", self.client.post(&url).json(body))
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
@@ -3100,7 +3225,7 @@ impl ApiClient {
             });
         }
 
-        Ok(resp.bytes().await?.to_vec())
+        Self::read_response_body(resp).await.map_err(ApiError::from)
     }
 
     /// Read a saved session back, checking it really is one.
@@ -3166,10 +3291,12 @@ impl ApiClient {
             ("merge_names", merge_names.to_string()),
         ];
         let response = self
-            .client
-            .post(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs")))
-            .query(&query)
-            .send()
+            .send_request(
+                "POST",
+                self.client
+                    .post(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs")))
+                    .query(&query),
+            )
             .await?;
         Self::handle_response("POST", response).await
     }
@@ -3181,9 +3308,11 @@ impl ApiClient {
         job_id: Uuid,
     ) -> Result<ExportJobStatus, ApiError> {
         let response = self
-            .client
-            .get(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}")))
-            .send()
+            .send_request(
+                "GET",
+                self.client
+                    .get(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}"))),
+            )
             .await?;
         Self::handle_response("GET", response).await
     }
@@ -3203,7 +3332,9 @@ impl ApiClient {
     ) -> Result<(), ApiError> {
         use tokio::io::AsyncWriteExt;
 
-        let mut response = self.client.get(self.url(path)).send().await?;
+        let mut response = self
+            .send_request("GET", self.client.get(self.url(path)))
+            .await?;
         let status = response.status();
         if !status.is_success() {
             return Err(ApiError::Api {
@@ -3228,7 +3359,9 @@ impl ApiClient {
         query: &Q,
     ) -> Result<T, ApiError> {
         let url = self.url(path);
-        let resp = self.client.patch(&url).query(query).send().await?;
+        let resp = self
+            .send_request("PATCH", self.client.patch(&url).query(query))
+            .await?;
         Self::handle_response("PATCH", resp).await
     }
 
@@ -3310,6 +3443,21 @@ impl ApiClient {
             &[("term", term)],
         )
         .await
+    }
+}
+
+#[cfg(feature = "telemetry-client")]
+struct HeaderInjector<'a>(&'a mut reqwest::header::HeaderMap);
+
+#[cfg(feature = "telemetry-client")]
+impl Injector for HeaderInjector<'_> {
+    fn set(&mut self, key: &str, value: String) {
+        if let (Ok(name), Ok(value)) = (
+            reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+            reqwest::header::HeaderValue::from_str(&value),
+        ) {
+            self.0.insert(name, value);
+        }
     }
 }
 

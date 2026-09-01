@@ -12,6 +12,7 @@ use uuid::Uuid;
 /// retained when it has any other reference. The database cleanup is committed
 /// before objects leave the store, so readers never observe rows whose
 /// relationships were only partly removed.
+#[tracing::instrument(skip_all)]
 pub async fn purge_media(
     db: &DatabaseConnection,
     store: &dyn MediaStore,

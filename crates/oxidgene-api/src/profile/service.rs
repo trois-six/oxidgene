@@ -648,6 +648,7 @@ impl ProfileService {
 
     /// Read the projections for a set of persons, rebuilding any that are
     /// missing (a person created before the tree was materialized).
+    #[instrument(name = "pedigree.projections", skip_all, fields(count = person_ids.len()))]
     async fn projections_for(
         &self,
         conn: &impl ConnectionTrait,
@@ -678,6 +679,11 @@ impl ProfileService {
 
     /// Assemble a pedigree window for a root person from the closure table
     /// and the stored projections.
+    #[instrument(
+        name = "pedigree.build",
+        skip_all,
+        fields(ancestor_depth, descendant_depth)
+    )]
     async fn build_pedigree(
         &self,
         conn: &impl ConnectionTrait,

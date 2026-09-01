@@ -21,6 +21,7 @@ use crate::Migrator;
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
     let mut opts = ConnectOptions::new(database_url);
     opts.sqlx_logging(false);
+    opts.record_stmt_in_spans(false);
     let db = Database::connect(opts).await?;
     enable_wal(&db).await;
     info!("Connected to database");

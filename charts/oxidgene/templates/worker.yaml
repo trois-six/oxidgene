@@ -40,6 +40,10 @@ spec:
           env:
             - name: OXIDGENE_LOG_LEVEL
               value: {{ .Values.worker.logLevel | quote }}
+            {{- with .Values.worker.otlpEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
             - name: OXIDGENE_DATABASE_URL
               valueFrom:
                 secretKeyRef:

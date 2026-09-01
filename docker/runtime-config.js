@@ -1,0 +1,1 @@
+globalThis.OXIDGENE_OTLP_ENDPOINT = "";

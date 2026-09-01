@@ -7,6 +7,11 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+default = ["telemetry"]
+telemetry = ["dep:oxidgene-observability", "dep:tower-http", "oxidgene-api/telemetry-context", "oxidgene-ui/telemetry-client"]
+release-no-telemetry = ["tracing/release_max_level_off"]
+
 # Embed the .ico as a Windows resource (IDI_APPLICATION / 32512) so that
 # Explorer shows the OxidGene icon and Dioxus's default_icon() picks it up.
 [target.'cfg(windows)'.build-dependencies]
@@ -25,6 +30,7 @@ gtk = { version = "0.18", default-features = false }
 [dependencies]
 oxidgene-api = { workspace = true }
 oxidgene-db = { workspace = true }
+oxidgene-observability = { workspace = true, optional = true }
 oxidgene-ui = { workspace = true }
 oxidgene-geneanet = { workspace = true }
 serde = { workspace = true }
@@ -35,9 +41,8 @@ futures-channel = "0.3"
 dioxus = { workspace = true, features = ["desktop", "router"] }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["net", "signal", "sync"] }
-tower-http = { workspace = true }
+tower-http = { workspace = true, optional = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 dirs = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
