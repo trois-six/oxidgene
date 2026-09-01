@@ -5,6 +5,13 @@
 default:
     @just --list
 
+# Install the project development tools and Rust targets
+setup:
+    @command -v mise >/dev/null 2>&1 || { echo "mise is required: https://mise.jdx.dev/getting-started.html" >&2; exit 1; }
+    @command -v rustup >/dev/null 2>&1 || { echo "rustup is required: https://rustup.rs" >&2; exit 1; }
+    mise install
+    rustup target add wasm32-unknown-unknown
+
 # Build all workspace crates
 build:
     cargo build
@@ -80,10 +87,19 @@ dev-web-watch:
 desktop:
     cargo run --package oxidgene-desktop
 
-# Build the desktop app in release mode
-build-desktop-release:
-    cargo build --release --package oxidgene-desktop
+# Start the local collector and run the desktop app with telemetry enabled
+# examples: `just desktop-telemetry debug` or `just desktop-telemetry 'info,oxidgene_api=debug,sea_orm=warn'`
+desktop-telemetry log_level="info":
+    docker compose -f docker/docker-compose.yml up -d --wait otel-collector
+    OXIDGENE_LOG_LEVEL="{{log_level}}" OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:4317" cargo run --package oxidgene-desktop
 
+# Build an optimized desktop release with all tracing callsites compiled out
+build-desktop-release:
+    cargo build --release --package oxidgene-desktop --no-default-features --features release-no-telemetry
+
+# Build a desktop release retaining optional OTLP telemetry support
+build-desktop-release-telemetry:
+    cargo build --release --package oxidgene-desktop
 
 # Generate documentation
 doc:
