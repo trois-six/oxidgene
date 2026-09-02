@@ -57,9 +57,6 @@ use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
-#[cfg(all(feature = "telemetry", feature = "release-no-telemetry"))]
-compile_error!("features `telemetry` and `release-no-telemetry` are mutually exclusive");
-
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
 
 #[cfg(any(

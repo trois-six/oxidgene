@@ -10,7 +10,6 @@ repository.workspace = true
 [features]
 default = ["telemetry"]
 telemetry = ["dep:oxidgene-observability", "dep:tower-http", "oxidgene-api/telemetry-context", "oxidgene-ui/telemetry-client"]
-release-no-telemetry = ["tracing/release_max_level_off"]
 
 # Embed the .ico as a Windows resource (IDI_APPLICATION / 32512) so that
 # Explorer shows the OxidGene icon and Dioxus's default_icon() picks it up.

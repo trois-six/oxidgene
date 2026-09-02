@@ -221,10 +221,11 @@ rejected value.
 ### 5.5 OpenTelemetry export
 
 - Native server, worker, and desktop runtimes always emit structured `tracing`
-  logs. Setting `OTEL_EXPORTER_OTLP_ENDPOINT` additionally exports logs, traces,
-  and metrics through OTLP/gRPC to an OpenTelemetry Collector; leaving it
-  unset performs no network export and keeps span callsites disabled. Console
-  log events remain enabled independently of span collection.
+  logs, including optimized desktop release builds. Setting a non-empty
+  `OTEL_EXPORTER_OTLP_ENDPOINT` additionally exports logs, traces, and metrics
+  through OTLP/gRPC to an OpenTelemetry Collector; leaving it unset performs no
+  network export and keeps span callsites disabled. Console log events remain
+  enabled independently of span collection.
 - Every native runtime reports a distinct `service.name` and its package
   version. Incoming HTTP `traceparent` headers are extracted with W3C Trace
   Context so calls remain connected across trusted gateways and services.
@@ -277,10 +278,10 @@ rejected value.
 - Export failures must not stop application work. Providers flush during
   graceful native runtime shutdown; abrupt process termination can still lose
   buffered signals.
-- Optimized desktop releases may compile with `release-no-telemetry`; this
-  excludes OpenTelemetry and client propagation dependencies and enables
-  `tracing/release_max_level_off`, so spans and events are removed at compile
-  time rather than merely disabled by configuration.
+- Optimized desktop releases retain OpenTelemetry and client propagation
+  dependencies. Export remains a runtime choice controlled by
+  `OTEL_EXPORTER_OTLP_ENDPOINT`, with no network telemetry when it is absent or
+  empty.
 
 ## 6. UI feedback states
 
