@@ -93,12 +93,8 @@ desktop-telemetry log_level="info":
     docker compose -f docker/docker-compose.yml up -d --wait otel-collector
     OXIDGENE_LOG_LEVEL="{{log_level}}" OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:4317" cargo run --package oxidgene-desktop
 
-# Build an optimized desktop release with all tracing callsites compiled out
+# Build an optimized desktop release with runtime-optional OTLP telemetry
 build-desktop-release:
-    cargo build --release --package oxidgene-desktop --no-default-features --features release-no-telemetry
-
-# Build a desktop release retaining optional OTLP telemetry support
-build-desktop-release-telemetry:
     cargo build --release --package oxidgene-desktop
 
 # Generate documentation

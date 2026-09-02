@@ -106,10 +106,9 @@ client spans and trace headers disabled.
 |---------|---------|
 | `just desktop` | Run the desktop application in development mode. |
 | `just desktop-telemetry [log_level]` | Start the local collector and run the desktop with OTLP enabled; the optional filter defaults to `info`. |
-| `just build-desktop-release` | Build an optimized desktop release with tracing and OpenTelemetry compiled out. |
-| `just build-desktop-release-telemetry` | Build a desktop release retaining optional OTLP telemetry support. |
+| `just build-desktop-release` | Build an optimized desktop release retaining runtime-optional OTLP telemetry support. |
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` when running either command to export native
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` when running the desktop binary to export native
 desktop logs, spans, and metrics over OTLP/gRPC. The export covers the embedded
 API and worker as well as native UI `tracing` events; it is disabled when the
 variable is absent. In that mode, log events still reach the console but span
@@ -126,12 +125,10 @@ starts the Compose collector, waits for it, and points the desktop process to
 `just desktop-telemetry debug` or
 `just desktop-telemetry 'info,oxidgene_api=debug,sea_orm=warn'`.
 
-Production desktop releases built with `just build-desktop-release` exclude the
-OpenTelemetry dependency and HTTP trace layer, and enable
-`tracing/release_max_level_off` so tracing spans and events are compiled out.
-This build intentionally ignores desktop log and OTLP settings. Use
-`just build-desktop-release-telemetry` when a diagnosable release binary is
-required; its export remains disabled at runtime until an OTLP endpoint is set.
+Production desktop releases built with `just build-desktop-release` retain the
+OpenTelemetry dependency, HTTP trace layer, and tracing callsites. Export
+remains disabled at runtime until a non-empty `OTEL_EXPORTER_OTLP_ENDPOINT` is
+set, at which point logs, spans, and metrics are sent to that collector.
 
 ### 2.5 Observability configuration by process
 
