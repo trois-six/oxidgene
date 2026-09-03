@@ -136,6 +136,18 @@ impl Cli {
         #[cfg(feature = "telemetry")]
         let mut log_level = None;
         let mut args = std::env::args_os().skip(1);
+        // A build without telemetry accepts no flags at all, so every arm below
+        // ends the process and the loop provably runs at most once — which is
+        // what both lints report. The loop is still what the telemetry build
+        // needs, where `--log-level` consumes the argument after it.
+        #[cfg_attr(
+            not(feature = "telemetry"),
+            allow(
+                clippy::never_loop,
+                clippy::while_let_on_iterator,
+                reason = "no flag is accepted without telemetry, so every arm exits"
+            )
+        )]
         while let Some(arg) = args.next() {
             match arg.to_str() {
                 #[cfg(feature = "telemetry")]
