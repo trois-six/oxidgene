@@ -45,7 +45,7 @@ use crate::api::{
 };
 use crate::geneanet::{GeneanetEvent, WindowStrings, use_geneanet_bridge};
 use crate::i18n::use_i18n;
-use crate::ui_observability::{UiImportStep, trace_ui_import, trace_ui_import_step};
+use crate::ui_observability::{UiAction, UiActionStep, trace_ui_action, trace_ui_action_step};
 
 /// Whether this build can open a Geneanet login window and read local
 /// archives by path.
@@ -279,8 +279,8 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
         progress.set(None);
         spawn(async move {
             let format = format_of(&name);
-            let outcome = trace_ui_import(
-                format.api_name(),
+            let outcome = trace_ui_action(
+                UiAction::Import(format.api_name()),
                 run_file_import_job(&api, tree_id, format, &mut progress),
             )
             .await;
@@ -444,7 +444,7 @@ async fn run_file_import_job(
         "#,
     );
     let mut eval = document::eval(&script);
-    let job_id = trace_ui_import_step(UiImportStep::Upload, async {
+    let job_id = trace_ui_action_step(UiActionStep::ImportUpload, async {
         loop {
             match eval.recv::<UploadEvent>().await {
                 Ok(UploadEvent::Upload { done, total }) => {
@@ -463,7 +463,7 @@ async fn run_file_import_job(
     .await?;
     api.invalidate_tree_list();
 
-    trace_ui_import_step(UiImportStep::Poll, async {
+    trace_ui_action_step(UiActionStep::ImportPoll, async {
         loop {
             let status = api.file_import_status(tree_id, job_id).await?;
             progress.set(Some(FileImportUiProgress::Server {
@@ -636,8 +636,8 @@ fn GeneanetTab(
                 },
             );
 
-            spawn(trace_ui_import("geneanet", async move {
-                trace_ui_import_step(UiImportStep::Connect, async {
+            spawn(trace_ui_action(UiAction::GeneanetImport, async move {
+                trace_ui_action_step(UiActionStep::GeneanetConnect, async {
                     use futures_util::StreamExt as _;
                     while let Some(event) = rx.next().await {
                         match event {
@@ -715,7 +715,7 @@ fn GeneanetTab(
         }
         preview_error.set(None);
 
-        spawn(trace_ui_import("geneanet", async move {
+        spawn(trace_ui_action(UiAction::GeneanetImport, async move {
             let paths: Vec<String> = archives.read().iter().map(|a| a.path.clone()).collect();
             let body = GeneanetPreviewBody {
                 gw_base64: encode_gw(&file.bytes),
@@ -725,7 +725,7 @@ fn GeneanetTab(
                 archive_paths: paths.clone(),
             };
 
-            let needed = match trace_ui_import_step(UiImportStep::Preview, async {
+            let needed = match trace_ui_action_step(UiActionStep::GeneanetPreview, async {
                 match api.preview_geneanet_import(&body).await {
                     Ok(stats) => preview.set(Some(stats)),
                     Err(e) => return Err(e),
@@ -770,7 +770,7 @@ fn GeneanetTab(
             fetch_progress.set(Some((0, urls.len())));
             bridge.fetch(urls, tx);
 
-            trace_ui_import_step(UiImportStep::Collect, async {
+            trace_ui_action_step(UiActionStep::GeneanetCollect, async {
                 use futures_util::StreamExt as _;
                 while let Some(event) = rx.next().await {
                     match event {
@@ -826,7 +826,7 @@ fn GeneanetTab(
             total: 0,
         }));
 
-        spawn(trace_ui_import("geneanet", async move {
+        spawn(trace_ui_action(UiAction::GeneanetImport, async move {
             let body = GeneanetImportBody {
                 gw_base64: encode_gw(&file.bytes),
                 file_name: file.name.clone(),
@@ -836,15 +836,17 @@ fn GeneanetTab(
                 fetched: fetched.read().clone(),
             };
             let outcome = async {
-                let started =
-                    trace_ui_import_step(UiImportStep::Upload, api.import_geneanet(tree_id, &body))
-                        .await?;
+                let started = trace_ui_action_step(
+                    UiActionStep::GeneanetUpload,
+                    api.import_geneanet(tree_id, &body),
+                )
+                .await?;
                 if let Some(bridge) = &bridge {
                     bridge.close();
                 }
                 window_closed.set(true);
 
-                trace_ui_import_step(UiImportStep::Poll, async {
+                trace_ui_action_step(UiActionStep::GeneanetPoll, async {
                     loop {
                         let status = api.file_import_status(tree_id, started.job_id).await?;
                         import_progress.set(Some(ImportProgress {
@@ -1087,7 +1089,7 @@ fn GwStep(
 
     let pick = move |_| {
         let api = api.clone();
-        spawn(trace_ui_import("geneanet", async move {
+        spawn(trace_ui_action(UiAction::GeneanetImport, async move {
             let file = rfd::AsyncFileDialog::new()
                 .add_filter("GeneWeb", &["gw"])
                 .add_filter("All files", &["*"])
@@ -1097,15 +1099,15 @@ fn GwStep(
             let Some(file) = file else { return };
 
             let name = file.file_name();
-            let bytes = trace_ui_import_step(UiImportStep::Read, file.read()).await;
+            let bytes = trace_ui_action_step(UiActionStep::GeneanetRead, file.read()).await;
 
             // Parsed on selection, not at import time. It costs nothing and it
             // is the first moment the user finds out whether they picked the
             // right export — a `.ged` fails here rather than four steps later.
             busy.set(true);
             gw_error.set(None);
-            let inspected = trace_ui_import_step(
-                UiImportStep::Inspect,
+            let inspected = trace_ui_action_step(
+                UiActionStep::GeneanetInspect,
                 api.inspect_geneweb(bytes.clone(), &name),
             )
             .await;
@@ -1199,7 +1201,7 @@ fn ArchiveStep(
 
     let pick = move |_| {
         let api = api.clone();
-        spawn(trace_ui_import("geneanet", async move {
+        spawn(trace_ui_action(UiAction::GeneanetImport, async move {
             let files = rfd::AsyncFileDialog::new()
                 .add_filter("ZIP", &["zip"])
                 .set_title(i18n.t("geneanet.step2_pick"))
@@ -1218,8 +1220,11 @@ fn ArchiveStep(
 
             busy.set(true);
             archive_error.set(None);
-            let indexed =
-                trace_ui_import_step(UiImportStep::Index, api.index_geneanet_archives(paths)).await;
+            let indexed = trace_ui_action_step(
+                UiActionStep::GeneanetIndex,
+                api.index_geneanet_archives(paths),
+            )
+            .await;
             busy.set(false);
 
             match indexed {
@@ -1426,15 +1431,15 @@ fn SessionControls(
     let save = move |_: Event<MouseData>| {
         let api = api_save.clone();
         let Some(current) = collected() else { return };
-        spawn(trace_ui_import("geneanet", async move {
+        spawn(trace_ui_action(UiAction::GeneanetImport, async move {
             let body = GeneanetSessionBody {
                 collection: current.collection.clone(),
                 deposit_sizes: current.deposit_sizes.clone(),
                 account: current.account.clone(),
                 media: fetched.read().clone(),
             };
-            let archive: Vec<u8> = match trace_ui_import_step(
-                UiImportStep::SessionEncode,
+            let archive: Vec<u8> = match trace_ui_action_step(
+                UiActionStep::GeneanetSessionEncode,
                 api.encode_geneanet_session(&body),
             )
             .await
@@ -1455,7 +1460,9 @@ fn SessionControls(
             else {
                 return;
             };
-            if let Err(e) = trace_ui_import_step(UiImportStep::Read, file.write(&archive)).await {
+            if let Err(e) =
+                trace_ui_action_step(UiActionStep::GeneanetWrite, file.write(&archive)).await
+            {
                 error.set(Some(format!("{e}")));
             }
         }));
@@ -1464,7 +1471,7 @@ fn SessionControls(
     let api_load = api.clone();
     let load = move |_: Event<MouseData>| {
         let api = api_load.clone();
-        spawn(trace_ui_import("geneanet", async move {
+        spawn(trace_ui_action(UiAction::GeneanetImport, async move {
             let Some(file) = rfd::AsyncFileDialog::new()
                 // A bare JSON collection still loads — the reader tells the
                 // shapes apart by content, not by extension.
@@ -1478,9 +1485,9 @@ fn SessionControls(
 
             busy.set(true);
             error.set(None);
-            let bytes = trace_ui_import_step(UiImportStep::Read, file.read()).await;
-            let restored = trace_ui_import_step(
-                UiImportStep::SessionDecode,
+            let bytes = trace_ui_action_step(UiActionStep::GeneanetRead, file.read()).await;
+            let restored = trace_ui_action_step(
+                UiActionStep::GeneanetSessionDecode,
                 api.decode_geneanet_session(bytes),
             )
             .await;

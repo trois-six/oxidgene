@@ -754,7 +754,7 @@ async fn persist_import_result_in_with_progress(
 /// person's multiple `OCCU` tags back into one, and `merge_names` collapses
 /// each person's non-primary names into the primary name's `SURN` tag (see
 /// `oxidgene_gedcom::export::export_gedcom`).
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(name = "export.load", skip_all, fields(export.for_archive = for_archive))]
 pub async fn load_and_export(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -813,26 +813,29 @@ pub async fn load_and_export(
     }
 
     // Export to GEDCOM
-    let export_result = oxidgene_gedcom::export::export_gedcom(
-        &persons,
-        &person_names,
-        &families,
-        &family_spouses,
-        &family_children,
-        &events,
-        &event_witnesses,
-        &places,
-        &sources,
-        &citations,
-        &media,
-        &media_links,
-        &vignettes,
-        &notes,
-        merge_occupations,
-        merge_names,
-        &media_paths,
-    )
-    .map_err(OxidGeneError::Gedcom)?;
+    let export_result = tracing::info_span!("export.serialize", export.format = "gedcom")
+        .in_scope(|| {
+            oxidgene_gedcom::export::export_gedcom(
+                &persons,
+                &person_names,
+                &families,
+                &family_spouses,
+                &family_children,
+                &events,
+                &event_witnesses,
+                &places,
+                &sources,
+                &citations,
+                &media,
+                &media_links,
+                &vignettes,
+                &notes,
+                merge_occupations,
+                merge_names,
+                &media_paths,
+            )
+        })
+        .map_err(OxidGeneError::Gedcom)?;
 
     Ok(ExportData {
         gedcom: export_result.gedcom,

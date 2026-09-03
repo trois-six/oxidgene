@@ -278,14 +278,28 @@ rejected value.
   include the parameterized SQL statement as `db.statement`; bound values are
   never included. Native exporters include `INFO`-or-higher OxidGene and SeaORM
   span targets only; Tokio, HTTP transport, SQLx runtime internals, and SeaORM's
-  `TRACE` wrappers are excluded so routed UI load spans remain the operational
-  roots.
-- Import traces use a format-specific root and bounded phase children for
-  parsing, upload or collection, media preparation, persistence, projections,
-  and job polling where applicable. They record format, depth, aggregate size,
-  count, phase, and outcome dimensions only. User filenames, filesystem paths,
-  external account details, genealogy, media metadata, SQL, and payloads are
-  never span attributes.
+  `TRACE` wrappers are excluded so routed UI load spans and UI action spans
+  remain the operational roots.
+- Every user-initiated import, Geneanet import, and export owns a root span of
+  its own: `ui.import`, `ui.geneanet_import`, and `ui.export`. These operations
+  outlive the render that started them, so they never attach to the load span of
+  whichever screen was active. Each Geneanet wizard step the user drives is a
+  root of its own, because the steps are separated by however long the person
+  spends on the screen between them. The root records the requested format only.
+- Each action root owns bounded phase children named after it:
+  `ui.import.upload` and `ui.import.poll`; `ui.geneanet_import.read`, `.write`,
+  `.inspect`, `.index`, `.connect`, `.preview`, `.collect`, `.upload`, `.poll`,
+  `.session_encode`, and `.session_decode`; `ui.export.request`, `.queue`,
+  `.poll`, and `.save`. A browser download the page hands to the user agent has
+  no phase span because the transfer is outside the application.
+- Import traces continue on the server with a format-specific root and bounded
+  phase children for parsing, upload or collection, media preparation,
+  persistence, projections, and job polling where applicable. Export traces
+  likewise expose `export.load`, `export.serialize`, `export.media`,
+  `export.package`, `export.publish`, and `export.job` for queued archives. They
+  record format, depth, aggregate size, count, phase, and outcome dimensions
+  only. User filenames, filesystem paths, external account details, genealogy,
+  media metadata, SQL, and payloads are never span attributes.
 - Background job spans record only bounded technical dimensions such as job
   kind and import/export format. Job IDs, tree IDs, filenames, source keys,
   user content, and media metadata are excluded.
