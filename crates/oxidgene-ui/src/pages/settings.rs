@@ -20,7 +20,10 @@ use crate::pages::app_settings::{
 };
 use crate::prefs::{PedigreeDefaults, SortParticles};
 use crate::router::Route;
-use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{
+    UiAction, UiActionStep, UiLoadTrace, UiPage, trace_ui_action, trace_ui_action_step,
+    use_traced_resource, use_ui_load_trace,
+};
 
 async fn wait_for_export(
     api: &ApiClient,
@@ -28,27 +31,32 @@ async fn wait_for_export(
     merge_occupations: bool,
     merge_names: bool,
 ) -> Result<String, ApiError> {
-    let started = api
-        .start_export_job(tree_id, merge_occupations, merge_names)
-        .await?;
-    loop {
-        let status = api.export_job_status(tree_id, started.job_id).await?;
-        match status.phase.as_str() {
-            "completed" => {
-                return status.download_url.ok_or_else(|| ApiError::Api {
-                    status: 500,
-                    body: "completed export has no artifact".to_string(),
-                });
+    let started = trace_ui_action_step(
+        UiActionStep::ExportQueue,
+        api.start_export_job(tree_id, merge_occupations, merge_names),
+    )
+    .await?;
+    trace_ui_action_step(UiActionStep::ExportPoll, async {
+        loop {
+            let status = api.export_job_status(tree_id, started.job_id).await?;
+            match status.phase.as_str() {
+                "completed" => {
+                    return status.download_url.ok_or_else(|| ApiError::Api {
+                        status: 500,
+                        body: "completed export has no artifact".to_string(),
+                    });
+                }
+                "failed" => {
+                    return Err(ApiError::Api {
+                        status: 422,
+                        body: status.error.unwrap_or_else(|| "export_failed".to_string()),
+                    });
+                }
+                _ => crate::utils::sleep_ms(500).await,
             }
-            "failed" => {
-                return Err(ApiError::Api {
-                    status: 422,
-                    body: status.error.unwrap_or_else(|| "export_failed".to_string()),
-                });
-            }
-            _ => crate::utils::sleep_ms(500).await,
         }
-    }
+    })
+    .await
 }
 
 /// Settings page for a tree.
@@ -114,7 +122,8 @@ pub fn Settings(tree_id: String) -> Element {
         export_loading.set(true);
         export_error.set(None);
         export_success.set(None);
-        spawn(async move {
+        let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
+        spawn(trace_ui_action(action, async move {
             if let Some(tid) = tree_id_parsed {
                 let extension = if is_gedzip { "gdz" } else { "ged" };
                 let file_name = format!("{base_name}.{extension}");
@@ -151,7 +160,12 @@ pub fn Settings(tree_id: String) -> Element {
                                     .await;
                                 if let Some(file) = file {
                                     let path = file.path().to_path_buf();
-                                    match api.download_export_to_file(&download_path, &path).await {
+                                    let saved = trace_ui_action_step(
+                                        UiActionStep::ExportSave,
+                                        api.download_export_to_file(&download_path, &path),
+                                    )
+                                    .await;
+                                    match saved {
                                         Ok(()) => {
                                             let path_display = path.display().to_string();
                                             export_success.set(Some(i18n.t_args(
@@ -170,7 +184,12 @@ pub fn Settings(tree_id: String) -> Element {
                     return;
                 }
 
-                match api.export_gedcom(tid, merge_occupations, merge_names).await {
+                let exported = trace_ui_action_step(
+                    UiActionStep::ExportRequest,
+                    api.export_gedcom(tid, merge_occupations, merge_names),
+                )
+                .await;
+                match exported {
                     Ok(result) => {
                         let bytes = result.gedcom.into_bytes();
                         #[cfg(target_arch = "wasm32")]
@@ -206,7 +225,12 @@ pub fn Settings(tree_id: String) -> Element {
                                 .await;
                             if let Some(file) = file {
                                 let path = file.path().to_path_buf();
-                                match tokio::fs::write(&path, bytes).await {
+                                let saved = trace_ui_action_step(
+                                    UiActionStep::ExportSave,
+                                    tokio::fs::write(&path, bytes),
+                                )
+                                .await;
+                                match saved {
                                     Ok(()) => {
                                         let path_display = path.display().to_string();
                                         export_success.set(Some(i18n.t_args(
@@ -226,7 +250,7 @@ pub fn Settings(tree_id: String) -> Element {
                 }
                 export_loading.set(false);
             }
-        });
+        }));
     };
 
     let sec = active_section();

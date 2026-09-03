@@ -6,6 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
+use tracing::Instrument as _;
 use uuid::Uuid;
 
 use super::dto::{ExportGedcomQuery, ExportGedcomResponse, ImportGedcomRequest, ImportResponse};
@@ -114,18 +115,28 @@ pub async fn export_gedcom_handler(
         // fatal: the rest of the archive is still a correct export, and
         // refusing to produce one over a single absent file would be worse
         // than producing one whose `FILE` names it.
+        let media_span = tracing::info_span!(
+            "export.media",
+            export.format = "gedzip",
+            export.media.count = data.media_files.len(),
+        );
         let mut files = Vec::with_capacity(data.media_files.len());
-        for (key, path) in &data.media_files {
-            match state.media.get(key).await {
-                Ok(bytes) => files.push((path.clone(), bytes)),
-                Err(_) => tracing::warn!(
-                    error = "media_store_read",
-                    "media absent from the store; not packed"
-                ),
+        async {
+            for (key, path) in &data.media_files {
+                match state.media.get(key).await {
+                    Ok(bytes) => files.push((path.clone(), bytes)),
+                    Err(_) => tracing::warn!(
+                        error = "media_store_read",
+                        "media absent from the store; not packed"
+                    ),
+                }
             }
         }
+        .instrument(media_span)
+        .await;
 
-        let bytes = oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files)
+        let bytes = tracing::info_span!("export.package", export.format = "gedzip")
+            .in_scope(|| oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files))
             .map_err(OxidGeneError::Gedcom)
             .map_err(ApiError::from)?;
 

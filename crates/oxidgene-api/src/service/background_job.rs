@@ -446,6 +446,11 @@ impl BackgroundJobWorker {
         Ok(())
     }
 
+    #[tracing::instrument(
+        name = "export.job",
+        skip_all,
+        fields(export.format = %job.format)
+    )]
     async fn execute_export(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
         if job.format != "gedzip" {
             return Err(OxidGeneError::Validation("unknown export format".into()));
@@ -469,20 +474,30 @@ impl BackgroundJobWorker {
         let media_root = scratch.path().join("media");
         tokio::fs::create_dir_all(&media_root).await?;
         let total = as_i64(data.media_files.len());
+        let media_span = tracing::info_span!(
+            "export.media",
+            export.format = "gedzip",
+            export.media.count = total,
+        );
         let mut staged_media = Vec::with_capacity(data.media_files.len());
-        for (index, (key, archive_path)) in data.media_files.iter().enumerate() {
-            let local_path = media_root.join(index.to_string());
-            match self.media.get_to_file(key, &local_path).await {
-                Ok(()) => staged_media.push((archive_path.clone(), local_path)),
-                Err(error) => tracing::warn!(
-                    job_id = %job.id,
-                    %error,
-                    "media absent from the store; not packed"
-                ),
+        async {
+            for (index, (key, archive_path)) in data.media_files.iter().enumerate() {
+                let local_path = media_root.join(index.to_string());
+                match self.media.get_to_file(key, &local_path).await {
+                    Ok(()) => staged_media.push((archive_path.clone(), local_path)),
+                    Err(error) => tracing::warn!(
+                        job_id = %job.id,
+                        %error,
+                        "media absent from the store; not packed"
+                    ),
+                }
+                self.progress(job.id, "media", as_i64(index + 1), total)
+                    .await?;
             }
-            self.progress(job.id, "media", as_i64(index + 1), total)
-                .await?;
+            Ok::<(), OxidGeneError>(())
         }
+        .instrument(media_span)
+        .await?;
 
         let artifact_path = scratch.path().join("artifact.gdz");
         let gedcom = data.gedcom;
@@ -503,12 +518,20 @@ impl BackgroundJobWorker {
                 .await
                 .map_err(|error| OxidGeneError::Internal(error.to_string()))?
         })
+        .instrument(tracing::info_span!(
+            "export.package",
+            export.format = "gedzip"
+        ))
         .await?;
 
         let artifact_key = job_blob_key(job.id, "artifact", "gdz")?;
         self.with_heartbeat(job.id, "publishing", async {
             self.media.put_file(&artifact_key, &artifact_path).await
         })
+        .instrument(tracing::info_span!(
+            "export.publish",
+            export.format = "gedzip"
+        ))
         .await?;
         let result = serde_json::to_string(&ExportJobResult {
             warnings: data.warnings,

@@ -21,18 +21,41 @@ pub enum UiPage {
     Component,
 }
 
+/// A user-initiated operation that owns a trace of its own.
+///
+/// A page load is bounded by its resources; these are bounded by a button. They
+/// outlive the render that started them and must not be filed under whichever
+/// screen happened to be loading, so each one opens a root span of its own.
 #[derive(Clone, Copy)]
-pub enum UiImportStep {
-    Read,
-    Inspect,
-    Index,
-    Connect,
-    Preview,
-    Collect,
-    Upload,
-    Poll,
-    SessionEncode,
-    SessionDecode,
+pub enum UiAction {
+    /// A file import, named by the reader its extension picked.
+    Import(&'static str),
+    /// The Geneanet wizard. Every step the user drives is its own root: they
+    /// are separated by however long the person spends reading the screen.
+    GeneanetImport,
+    /// An export, named by the artifact the user asked for.
+    Export(&'static str),
+}
+
+#[derive(Clone, Copy)]
+pub enum UiActionStep {
+    ImportUpload,
+    ImportPoll,
+    GeneanetRead,
+    GeneanetWrite,
+    GeneanetInspect,
+    GeneanetIndex,
+    GeneanetConnect,
+    GeneanetPreview,
+    GeneanetCollect,
+    GeneanetUpload,
+    GeneanetPoll,
+    GeneanetSessionEncode,
+    GeneanetSessionDecode,
+    ExportRequest,
+    ExportQueue,
+    ExportPoll,
+    ExportSave,
 }
 
 #[cfg(feature = "telemetry-client")]
@@ -261,37 +284,25 @@ pub fn measure_ui<T>(name: &'static str, operation: impl FnOnce() -> T) -> T {
     }
 }
 
-pub async fn trace_ui_import<T>(format: &'static str, future: impl Future<Output = T>) -> T {
+/// Run `future` under a root span for the whole operation.
+pub async fn trace_ui_action<T>(action: UiAction, future: impl Future<Output = T>) -> T {
     #[cfg(feature = "telemetry-client")]
     {
-        future
-            .instrument(tracing::info_span!("ui.import", import.format = format))
-            .await
+        future.instrument(action_span(action)).await
     }
 
     #[cfg(not(feature = "telemetry-client"))]
     {
-        let _ = format;
+        let _ = action;
         future.await
     }
 }
 
-pub async fn trace_ui_import_step<T>(step: UiImportStep, future: impl Future<Output = T>) -> T {
+/// Run `future` as one bounded phase of the surrounding action.
+pub async fn trace_ui_action_step<T>(step: UiActionStep, future: impl Future<Output = T>) -> T {
     #[cfg(feature = "telemetry-client")]
     {
-        let span = match step {
-            UiImportStep::Read => tracing::info_span!("ui.import.read"),
-            UiImportStep::Inspect => tracing::info_span!("ui.import.inspect"),
-            UiImportStep::Index => tracing::info_span!("ui.import.index"),
-            UiImportStep::Connect => tracing::info_span!("ui.import.connect"),
-            UiImportStep::Preview => tracing::info_span!("ui.import.preview"),
-            UiImportStep::Collect => tracing::info_span!("ui.import.collect"),
-            UiImportStep::Upload => tracing::info_span!("ui.import.upload"),
-            UiImportStep::Poll => tracing::info_span!("ui.import.poll"),
-            UiImportStep::SessionEncode => tracing::info_span!("ui.import.session_encode"),
-            UiImportStep::SessionDecode => tracing::info_span!("ui.import.session_decode"),
-        };
-        future.instrument(span).await
+        future.instrument(action_step_span(step)).await
     }
 
     #[cfg(not(feature = "telemetry-client"))]
@@ -302,17 +313,59 @@ pub async fn trace_ui_import_step<T>(step: UiImportStep, future: impl Future<Out
 }
 
 #[cfg(feature = "telemetry-client")]
+fn action_span(action: UiAction) -> tracing::Span {
+    match action {
+        UiAction::Import(format) => {
+            tracing::info_span!(parent: None, "ui.import", import.format = format)
+        }
+        UiAction::GeneanetImport => {
+            tracing::info_span!(parent: None, "ui.geneanet_import", import.format = "geneanet")
+        }
+        UiAction::Export(format) => {
+            tracing::info_span!(parent: None, "ui.export", export.format = format)
+        }
+    }
+}
+
+#[cfg(feature = "telemetry-client")]
+fn action_step_span(step: UiActionStep) -> tracing::Span {
+    match step {
+        UiActionStep::ImportUpload => tracing::info_span!("ui.import.upload"),
+        UiActionStep::ImportPoll => tracing::info_span!("ui.import.poll"),
+        UiActionStep::GeneanetRead => tracing::info_span!("ui.geneanet_import.read"),
+        UiActionStep::GeneanetWrite => tracing::info_span!("ui.geneanet_import.write"),
+        UiActionStep::GeneanetInspect => tracing::info_span!("ui.geneanet_import.inspect"),
+        UiActionStep::GeneanetIndex => tracing::info_span!("ui.geneanet_import.index"),
+        UiActionStep::GeneanetConnect => tracing::info_span!("ui.geneanet_import.connect"),
+        UiActionStep::GeneanetPreview => tracing::info_span!("ui.geneanet_import.preview"),
+        UiActionStep::GeneanetCollect => tracing::info_span!("ui.geneanet_import.collect"),
+        UiActionStep::GeneanetUpload => tracing::info_span!("ui.geneanet_import.upload"),
+        UiActionStep::GeneanetPoll => tracing::info_span!("ui.geneanet_import.poll"),
+        UiActionStep::GeneanetSessionEncode => {
+            tracing::info_span!("ui.geneanet_import.session_encode")
+        }
+        UiActionStep::GeneanetSessionDecode => {
+            tracing::info_span!("ui.geneanet_import.session_decode")
+        }
+        UiActionStep::ExportRequest => tracing::info_span!("ui.export.request"),
+        UiActionStep::ExportQueue => tracing::info_span!("ui.export.queue"),
+        UiActionStep::ExportPoll => tracing::info_span!("ui.export.poll"),
+        UiActionStep::ExportSave => tracing::info_span!("ui.export.save"),
+    }
+}
+
+#[cfg(feature = "telemetry-client")]
 fn page_span(page: UiPage) -> tracing::Span {
     match page {
-        UiPage::Home => tracing::info_span!("ui.home.load"),
-        UiPage::Pedigree => tracing::info_span!("ui.pedigree.load"),
-        UiPage::PersonDetail => tracing::info_span!("ui.person_detail.load"),
-        UiPage::SearchResults => tracing::info_span!("ui.search_results.load"),
-        UiPage::Dictionary => tracing::info_span!("ui.dictionary.load"),
-        UiPage::Settings => tracing::info_span!("ui.settings.load"),
-        UiPage::AppSettings => tracing::info_span!("ui.app_settings.load"),
-        UiPage::NotFound => tracing::info_span!("ui.not_found.load"),
-        UiPage::Component => tracing::info_span!("ui.component.load"),
+        UiPage::Home => tracing::info_span!(parent: None, "ui.home.load"),
+        UiPage::Pedigree => tracing::info_span!(parent: None, "ui.pedigree.load"),
+        UiPage::PersonDetail => tracing::info_span!(parent: None, "ui.person_detail.load"),
+        UiPage::SearchResults => tracing::info_span!(parent: None, "ui.search_results.load"),
+        UiPage::Dictionary => tracing::info_span!(parent: None, "ui.dictionary.load"),
+        UiPage::Settings => tracing::info_span!(parent: None, "ui.settings.load"),
+        UiPage::AppSettings => tracing::info_span!(parent: None, "ui.app_settings.load"),
+        UiPage::NotFound => tracing::info_span!(parent: None, "ui.not_found.load"),
+        UiPage::Component => tracing::info_span!(parent: None, "ui.component.load"),
     }
 }
 
@@ -359,11 +412,15 @@ mod tests {
             _id: &tracing::span::Id,
             context: Context<'_, S>,
         ) {
-            let parent = attributes
-                .parent()
-                .and_then(|parent| context.span(parent))
-                .or_else(|| context.lookup_current())
-                .map(|span| span.metadata().name().to_string());
+            let parent = if attributes.is_root() {
+                None
+            } else {
+                attributes
+                    .parent()
+                    .and_then(|parent| context.span(parent))
+                    .or_else(|| context.lookup_current())
+                    .map(|span| span.metadata().name().to_string())
+            };
             self.0
                 .lock()
                 .expect("capture lock")
@@ -408,13 +465,35 @@ mod tests {
         assert!(state.root.is_none());
     }
 
+    #[test]
+    fn every_ui_action_has_a_stable_root_name() {
+        let subscriber = tracing_subscriber::registry();
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let actions = [
+            (UiAction::Import("gedcom"), "ui.import"),
+            (UiAction::GeneanetImport, "ui.geneanet_import"),
+            (UiAction::Export("gedzip"), "ui.export"),
+        ];
+
+        for (action, expected) in actions {
+            assert_eq!(
+                action_span(action).metadata().expect("enabled span").name(),
+                expected
+            );
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
-    async fn import_phase_is_a_child_of_the_import_action() {
+    async fn action_phase_is_a_child_of_the_action() {
         let captured = CapturedSpans::default();
         let subscriber = tracing_subscriber::registry().with(captured.clone());
         let _guard = tracing::subscriber::set_default(subscriber);
 
-        trace_ui_import("gedcom", trace_ui_import_step(UiImportStep::Poll, async {})).await;
+        trace_ui_action(
+            UiAction::Import("gedcom"),
+            trace_ui_action_step(UiActionStep::ImportPoll, async {}),
+        )
+        .await;
 
         assert!(
             captured
@@ -425,5 +504,34 @@ mod tests {
                 .any(|(name, parent)| name == "ui.import.poll"
                     && parent.as_deref() == Some("ui.import"))
         );
+    }
+
+    /// An action started from a screen that is still loading belongs to itself,
+    /// not to that screen's load trace: it outlives the render that began it.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_action_started_during_a_page_load_is_still_a_root() {
+        let captured = CapturedSpans::default();
+        let subscriber = tracing_subscriber::registry().with(captured.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let page = page_span(UiPage::Settings);
+        async {
+            trace_ui_action(UiAction::Export("gedzip"), async {}).await;
+            trace_ui_action(UiAction::GeneanetImport, async {}).await;
+        }
+        .instrument(page)
+        .await;
+
+        let captured = captured.0.lock().expect("capture lock");
+        for root in ["ui.settings.load", "ui.export", "ui.geneanet_import"] {
+            assert_eq!(
+                captured
+                    .iter()
+                    .find(|(name, _)| name == root)
+                    .map(|(_, parent)| parent.clone()),
+                Some(None),
+                "{root} should be a root span"
+            );
+        }
     }
 }
