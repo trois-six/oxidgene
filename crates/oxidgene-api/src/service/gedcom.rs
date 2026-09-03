@@ -27,9 +27,9 @@ use uuid::Uuid;
 
 /// Maximum number of rows per `insert_many` batch.
 ///
-/// SQLite has a variable limit of ~999; with 7 columns per row that's ~142 rows.
-/// We use 100 as a safe default that works for all entity shapes.
-const BATCH_SIZE: usize = 100;
+/// Five hundred rows keep the widest imported entity below 15,000 bind
+/// parameters while substantially reducing database round trips.
+const BATCH_SIZE: usize = 500;
 
 /// Summary returned after a GEDCOM import.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -140,12 +140,18 @@ where
     E: EntityTrait,
     A: ActiveModelTrait<Entity = E> + Send + 'static,
 {
-    for chunk in models.chunks(BATCH_SIZE) {
-        E::insert_many(chunk.to_vec())
+    let mut models = models.into_iter();
+    loop {
+        let chunk: Vec<_> = models.by_ref().take(BATCH_SIZE).collect();
+        if chunk.is_empty() {
+            break;
+        }
+        let inserted = chunk.len();
+        E::insert_many(chunk)
             .exec(txn)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        on_inserted(chunk.len());
+        on_inserted(inserted);
     }
     Ok(())
 }

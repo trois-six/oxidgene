@@ -389,7 +389,7 @@ impl BackgroundJobWorker {
         summary: geneanet::GeneanetImportSummary,
     ) -> Result<(), OxidGeneError> {
         self.profiles
-            .rebuild_tree_full(&self.db, job.tree_id)
+            .rebuild_tree_full_transactional(&self.db, job.tree_id)
             .instrument(tracing::info_span!("import.projections"))
             .await?;
         let result = serde_json::to_string(&summary)
@@ -431,7 +431,7 @@ impl BackgroundJobWorker {
         summary: gedcom::ImportSummary,
     ) -> Result<(), OxidGeneError> {
         self.profiles
-            .rebuild_tree_full(&self.db, job.tree_id)
+            .rebuild_tree_full_transactional(&self.db, job.tree_id)
             .instrument(tracing::info_span!("import.projections"))
             .await?;
         let result = serde_json::to_string(&summary)

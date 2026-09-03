@@ -516,10 +516,22 @@ Before perceptual hashing, OxidGene reads the intrinsic dimensions of the
 downloaded renditions and archive candidates without decoding their pixels.
 Only archive images whose aspect ratio is within 2% of at least one required
 page, in either intrinsic orientation, are decoded for the pHash comparison.
-Candidates whose dimensions cannot be read remain eligible. If any required
-rendition has unreadable dimensions, the shared index uses the unfiltered
-candidate set because any candidate could belong to that page; this
-optimization therefore cannot make a medium unavailable.
+Candidates whose dimensions cannot be read remain eligible, so this
+optimization cannot make a medium unavailable.
+
+A required rendition whose dimensions cannot be read is not a required page for
+this purpose. Reading dimensions and perceptual hashing open the same decoder,
+so such a rendition can never be hashed and therefore never matched; it is
+excluded from the target set rather than admitted as a page of unknown size.
+Admitting it would widen the filter to the whole candidate set, so a single
+scanned document among the pages would cost a full-resolution decode of every
+candidate in the archive. When no required rendition is hashable, no index is
+built at all, because nothing would ever query it.
+
+An archive candidate is decompressed only as far as its header until its
+dimensions have been read. A candidate the aspect ratio rejects is therefore
+never inflated in full, and one whose header needs more bytes than the probe
+falls through to the complete read and is decided there.
 
 Perceptual hashing and media decoding use at most 75% of the machine's logical
 processors, rounded down. A machine with several processors always keeps at

@@ -1550,15 +1550,60 @@ fn view_id_in_path(path: &str) -> Option<i64> {
     })
 }
 
+/// The distinct dimensions of every rendition this run could query the index
+/// with.
+///
+/// Only multi-page deposits contribute: a single-page one is recognised by its
+/// byte length and never reaches the perceptual matcher.
+///
+/// A rendition that is absent or does not decode contributes nothing. It can
+/// never be hashed — [`oxidgene_geneanet::archive::image_dimensions`] and
+/// `phash::hash_image` open the same decoder, so failing one means failing the
+/// other — therefore it can never be matched, and admitting it as a target of
+/// unknown size would widen the filter to accept every entry in the archive.
+/// One scanned dossier among the pages used to cost a full-resolution decode
+/// of the entire archive that way.
+fn hashable_target_dimensions(
+    deposits: &HashMap<i64, &ManifestDeposit>,
+    by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
+    fetched: &HashMap<String, String>,
+) -> std::collections::BTreeSet<(u32, u32)> {
+    let mut dimensions = std::collections::BTreeSet::new();
+
+    for deposit_id in by_deposit.keys() {
+        let Some(deposit) = deposits.get(deposit_id) else {
+            continue;
+        };
+        if deposit.views.len() <= 1 {
+            continue;
+        }
+        for view in &deposit.views {
+            let Some(bytes) = rendition_url(view).and_then(|url| read_fetched(fetched, &url))
+            else {
+                continue;
+            };
+            if let Some(found) = oxidgene_geneanet::archive::image_dimensions(&bytes) {
+                dimensions.insert(found);
+            }
+        }
+    }
+
+    dimensions
+}
+
 /// Hashes the archive entries a document page might be, and only those.
 ///
 /// Decoding is what this costs — several hundred full-size photographs — so it
 /// is done once, before the loop, and over as few entries as possible:
 ///
-/// - nothing at all unless a **multi-page** deposit is actually being
-///   imported, since a single-page one is recognised by its byte length;
-/// - and never an entry that byte length has *already* accounted for, which on
-///   the reference archive removes 379 of 623 before a single decode.
+/// - nothing at all unless some page of a **multi-page** deposit has a
+///   rendition this run can actually hash, since that rendition is the only
+///   thing the index is ever queried with and a single-page deposit is
+///   recognised by its byte length instead;
+/// - never an entry that byte length has *already* accounted for, which on
+///   the reference archive removes 379 of 623 before a single decode;
+/// - and never an entry whose aspect ratio matches no target, which only the
+///   header is read to establish.
 ///
 /// It runs under `block_in_place` because it is seconds of CPU inside an async
 /// handler. Without that it pins a runtime worker for the duration, and the
@@ -1576,48 +1621,32 @@ fn build_content_index(
         return None;
     }
 
-    let mut wanted = false;
-    let mut claimed: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-    let mut target_dimensions = std::collections::BTreeSet::new();
-    let mut unreadable_target = false;
+    let target_dimensions = hashable_target_dimensions(deposits, by_deposit, fetched);
 
+    // Nothing hashable to match against: every rendition this import could
+    // query the index with is absent or undecodable, so the index would be
+    // built and never asked a question.
+    if target_dimensions.is_empty() {
+        return None;
+    }
+
+    let mut claimed: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for deposit_id in by_deposit.keys() {
         let Some(deposit) = deposits.get(deposit_id) else {
             continue;
         };
-        if deposit.views.len() > 1 {
-            wanted = true;
-            for view in &deposit.views {
-                let Some(bytes) = rendition_url(view).and_then(|url| read_fetched(fetched, &url))
-                else {
-                    continue;
-                };
-                match oxidgene_geneanet::archive::image_dimensions(&bytes) {
-                    Some(dimensions) => {
-                        target_dimensions.insert(dimensions);
-                    }
-                    None => unreadable_target = true,
-                }
-            }
-        } else if let Some(size) = deposit_sizes.get(deposit_id)
+        if deposit.views.len() <= 1
+            && let Some(size) = deposit_sizes.get(deposit_id)
             && let Ok(Some(position)) = archives.locate_by_size(*size)
         {
             claimed.insert(position);
         }
     }
 
-    if !wanted {
-        return None;
-    }
-
     let candidates: Vec<usize> = (0..archives.entry_count())
         .filter(|position| !claimed.contains(position))
         .collect();
-    let target_dimensions: Vec<_> = if unreadable_target {
-        Vec::new()
-    } else {
-        target_dimensions.into_iter().collect()
-    };
+    let target_dimensions: Vec<_> = target_dimensions.into_iter().collect();
 
     let index = tokio::task::block_in_place(|| {
         PhashIndex::build_from_matching_dimensions(archives, &candidates, &target_dimensions)
@@ -2203,6 +2232,111 @@ mod tests {
             local_file: None,
             views,
         }
+    }
+
+    /// A view whose only rendition is `url`, so a test can point each page at
+    /// a file of its own. An absolute URL is used verbatim.
+    fn view_with_rendition(id: i64, url: &str) -> ManifestView {
+        ManifestView {
+            id,
+            page: Some(id),
+            files: BTreeMap::from([("normal".to_string(), url.to_string())]),
+            last_transcript: None,
+            references: Vec::new(),
+        }
+    }
+
+    fn png_bytes(width: u32, height: u32) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            let v = ((x * 7 + y * 13) % 251) as u8;
+            image::Rgb([v, v, v])
+        });
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(&mut buffer, image::ImageFormat::Png)
+            .expect("encodes");
+        buffer.into_inner()
+    }
+
+    #[test]
+    fn an_undecodable_rendition_does_not_erase_the_readable_targets() {
+        // A multi-page deposit whose pages include a scanned document the
+        // image decoder cannot read. That page can never be matched by content
+        // whatever we do, and letting it stand for "any dimensions" turned the
+        // aspect-ratio filter off for the whole archive — several hundred
+        // full-resolution decodes for nothing.
+        let dir = tempfile::tempdir().expect("scratch directory");
+        let readable = dir.path().join("page1.png");
+        std::fs::write(&readable, png_bytes(40, 30)).expect("writes the readable page");
+        let undecodable = dir.path().join("page2.bin");
+        std::fs::write(&undecodable, b"not an image at all").expect("writes the broken page");
+
+        let readable_url = "http://archive.invalid/page1.png";
+        let undecodable_url = "http://archive.invalid/page2.bin";
+        let scanned = deposit(
+            7,
+            vec![
+                view_with_rendition(1, readable_url),
+                view_with_rendition(2, undecodable_url),
+            ],
+        );
+
+        let deposits = HashMap::from([(7i64, &scanned)]);
+        let by_deposit = BTreeMap::from([(7i64, Vec::new())]);
+        let fetched = HashMap::from([
+            (
+                readable_url.to_string(),
+                readable.to_string_lossy().into_owned(),
+            ),
+            (
+                undecodable_url.to_string(),
+                undecodable.to_string_lossy().into_owned(),
+            ),
+        ]);
+
+        let dimensions = hashable_target_dimensions(&deposits, &by_deposit, &fetched);
+
+        assert_eq!(dimensions.iter().copied().collect::<Vec<_>>(), [(40, 30)]);
+    }
+
+    #[test]
+    fn a_run_with_no_hashable_rendition_has_no_targets() {
+        // And therefore builds no index: there would be nothing to query it
+        // with.
+        let dir = tempfile::tempdir().expect("scratch directory");
+        let undecodable = dir.path().join("page1.bin");
+        std::fs::write(&undecodable, b"not an image at all").expect("writes the broken page");
+
+        let url = "http://archive.invalid/page1.bin";
+        let scanned = deposit(
+            7,
+            vec![view_with_rendition(1, url), view_with_rendition(2, url)],
+        );
+
+        let deposits = HashMap::from([(7i64, &scanned)]);
+        let by_deposit = BTreeMap::from([(7i64, Vec::new())]);
+        let fetched =
+            HashMap::from([(url.to_string(), undecodable.to_string_lossy().into_owned())]);
+
+        assert!(hashable_target_dimensions(&deposits, &by_deposit, &fetched).is_empty());
+    }
+
+    #[test]
+    fn a_single_page_deposit_is_never_a_perceptual_target() {
+        // It is recognised by its exact byte length instead, so hashing
+        // anything on its behalf would be wasted work.
+        let dir = tempfile::tempdir().expect("scratch directory");
+        let page = dir.path().join("only.png");
+        std::fs::write(&page, png_bytes(40, 30)).expect("writes the page");
+
+        let url = "http://archive.invalid/only.png";
+        let portrait = deposit(7, vec![view_with_rendition(1, url)]);
+
+        let deposits = HashMap::from([(7i64, &portrait)]);
+        let by_deposit = BTreeMap::from([(7i64, Vec::new())]);
+        let fetched = HashMap::from([(url.to_string(), page.to_string_lossy().into_owned())]);
+
+        assert!(hashable_target_dimensions(&deposits, &by_deposit, &fetched).is_empty());
     }
 
     #[test]

@@ -266,17 +266,42 @@ impl ArchiveSet {
 
 fn read_declared_size(reader: &mut impl Read, expected_size: u64) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
+    read_rest_to_declared_size(reader, &mut bytes, expected_size)?;
+    Ok(bytes)
+}
+
+/// Inflates the rest of an entry onto a prefix already read from it.
+///
+/// Split out so a caller can inspect an image's header before paying to
+/// decompress the megabytes behind it, and still end up with the same
+/// length-checked buffer.
+fn read_rest_to_declared_size(
+    reader: &mut impl Read,
+    bytes: &mut Vec<u8>,
+    expected_size: u64,
+) -> Result<()> {
+    let already = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let remaining = expected_size.saturating_sub(already);
     reader
-        .take(expected_size.saturating_add(1))
-        .read_to_end(&mut bytes)?;
+        .take(remaining.saturating_add(1))
+        .read_to_end(bytes)?;
     if u64::try_from(bytes.len()) != Ok(expected_size) {
         anyhow::bail!(
             "archive entry size mismatch: declared {expected_size} bytes, decoded {}",
             bytes.len()
         );
     }
-    Ok(bytes)
+    Ok(())
 }
+
+/// How much of an entry to inflate before deciding whether to inflate the rest.
+///
+/// An image's dimensions live in its header, so an entry the aspect-ratio
+/// filter is going to reject can be rejected from a prefix. 64 KiB clears a
+/// JPEG's `SOF` marker even behind a generous EXIF block with an embedded
+/// thumbnail; a header that needs more than this simply falls through to the
+/// full read and decides there, so the size cannot make the filter wrong.
+const HEADER_PROBE_BYTES: u64 = 64 * 1024;
 
 impl ArchiveSet {
     /// The entry of exactly this length, if one can be named safely.
@@ -505,6 +530,24 @@ pub fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
         .map(|decoder| decoder.dimensions())
 }
 
+/// Whether `bytes` can be ruled out against every target on its dimensions.
+///
+/// Bytes whose dimensions cannot be read are never rejected: this filter is an
+/// optimization and must not be able to hide a format the perceptual hasher
+/// could otherwise decode. That also makes it safe to ask on a prefix, where
+/// an undecided answer simply means reading on.
+fn rejected_by_dimensions(bytes: &[u8], target_dimensions: &[(u32, u32)]) -> bool {
+    if target_dimensions.is_empty() {
+        return false;
+    }
+    image_dimensions(bytes).is_some_and(|dimensions| {
+        !target_dimensions.iter().any(|target| {
+            compatible_aspect_ratio(dimensions, *target)
+                || compatible_aspect_ratio((dimensions.1, dimensions.0), *target)
+        })
+    })
+}
+
 fn compatible_aspect_ratio(left: (u32, u32), right: (u32, u32)) -> bool {
     let left_product = u64::from(left.0) * u64::from(right.1);
     let right_product = u64::from(right.0) * u64::from(left.1);
@@ -550,19 +593,33 @@ fn hash_slice(
                 continue;
             };
             let expected_size = entry.size();
-            let Ok(bytes) = read_declared_size(&mut entry, expected_size) else {
+
+            // The header decides for most entries, and it is the first few
+            // kilobytes of a file that is often several megabytes. Rejecting
+            // from the prefix means never inflating the rest of a picture the
+            // aspect ratio was going to discard.
+            let mut bytes = Vec::new();
+            if entry
+                .by_ref()
+                .take(HEADER_PROBE_BYTES)
+                .read_to_end(&mut bytes)
+                .is_err()
+            {
                 undecodable += 1;
                 continue;
-            };
+            }
+            if rejected_by_dimensions(&bytes, target_dimensions) {
+                filtered += 1;
+                continue;
+            }
 
-            let compatible = image_dimensions(&bytes).is_none_or(|dimensions| {
-                target_dimensions.is_empty()
-                    || target_dimensions.iter().any(|target| {
-                        compatible_aspect_ratio(dimensions, *target)
-                            || compatible_aspect_ratio((dimensions.1, dimensions.0), *target)
-                    })
-            });
-            if !compatible {
+            // Undecided from the prefix — a header that needs more bytes, or
+            // dimensions that pass. Either way the pixels are needed now.
+            if read_rest_to_declared_size(&mut entry, &mut bytes, expected_size).is_err() {
+                undecodable += 1;
+                continue;
+            }
+            if rejected_by_dimensions(&bytes, target_dimensions) {
                 filtered += 1;
                 continue;
             }
@@ -870,6 +927,55 @@ mod tests {
 
         assert_eq!(index.hashed_count(), 1);
         assert_eq!(index.filtered_count(), 0);
+    }
+
+    #[test]
+    fn an_entry_larger_than_the_header_probe_hashes_its_whole_content() {
+        // The header is read before the pixels now, so the two reads have to
+        // reconstruct exactly the buffer one read produced. A hash computed
+        // from a truncated or doubled prefix would still be a hash, and
+        // nothing but this would notice.
+        let dir = TempDir::new("phash-probe");
+        let big = png(600, 600, 11);
+        assert!(
+            big.len() as u64 > HEADER_PROBE_BYTES,
+            "fixture must exceed the probe to exercise the second read"
+        );
+        let archive = dir.zip("data.zip", &[("big.png", &big)]);
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let index = PhashIndex::build_from_matching_dimensions(&set, &[0], &[(20, 20)]);
+
+        assert_eq!(index.hashed_count(), 1);
+        assert_eq!(index.filtered_count(), 0);
+
+        let wanted = crate::phash::hash_image(&big).expect("hashes");
+        assert_eq!(
+            index.resolve(&set, wanted).expect("resolves").as_deref(),
+            Some(&big[..])
+        );
+    }
+
+    #[test]
+    fn a_large_entry_the_ratio_rejects_is_still_reported_as_filtered() {
+        // Rejecting from the prefix must not turn a filtered entry into an
+        // undecodable one: the counts are what the run report is built from.
+        let dir = TempDir::new("phash-probe-reject");
+        let wide = png(1200, 300, 13);
+        assert!(
+            wide.len() as u64 > HEADER_PROBE_BYTES,
+            "fixture must exceed the probe to exercise prefix rejection"
+        );
+        let archive = dir.zip("data.zip", &[("wide.png", &wide)]);
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let index = PhashIndex::build_from_matching_dimensions(&set, &[0], &[(20, 15)]);
+
+        assert_eq!(index.hashed_count(), 0);
+        assert_eq!(index.filtered_count(), 1);
+        assert_eq!(index.undecodable_count(), 0);
     }
 
     #[test]

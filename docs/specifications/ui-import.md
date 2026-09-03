@@ -71,10 +71,12 @@ A drop zone that is also a button. Accepts one `.ged`, `.gdz` or `.gw`;
 drag-and-drop and the native picker both work.
 
 Selection retains the platform file handle and metadata, not the file bytes.
-A small file is read only when the user starts the import. A file over 16 MiB
-is never materialized in Rust/WASM memory: the browser's native `File` object
-is uploaded directly, with upload progress, then the modal polls a server-side
-job. This path is identical in web and desktop webviews.
+When the user starts the import, the file is streamed directly from that
+handle with upload progress, then the modal polls a server-side job. Rust/WASM
+never materializes the complete file in memory. The browser uses its native
+`File` object; the desktop app uses the platform file stream so its custom
+WebView origin does not turn the loopback request into a cross-origin browser
+upload.
 
 The three are told apart by extension and sent to three endpoints, because
 each arrives differently: a `.ged` is a UTF-8 string, a `.gw` is ISO-8859-1
@@ -185,8 +187,7 @@ These GEDCOM tags are parsed by ged_io but not mapped to the OxidGene data model
 
 | File size | Behavior |
 |---|---|
-| Up to 16 MiB | Read on demand and imported synchronously |
-| Over 16 MiB, up to 1 GiB | Native streamed upload, then an asynchronous server job with phase progress |
+| Up to 1 GiB | Native streamed upload, then an asynchronous server job with phase progress |
 | Over 1 GiB | Rejected while streaming; any partial upload is removed |
 
 The asynchronous path applies equally to `.ged`, `.gw`, and `.gdz`. Large text

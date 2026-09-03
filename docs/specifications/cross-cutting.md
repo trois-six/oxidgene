@@ -288,9 +288,15 @@ rejected value.
 - Every user-initiated import, Geneanet import, and export owns a root span of
   its own: `ui.import`, `ui.geneanet_import`, and `ui.export`. These operations
   outlive the render that started them, so they never attach to the load span of
-  whichever screen was active. Each Geneanet wizard step the user drives is a
-  root of its own, because the steps are separated by however long the person
-  spends on the screen between them. The root records the requested format only.
+  whichever screen was active. The root records the requested format only.
+- One run of the Geneanet assistant is one trace. Its root is opened by the
+  first step the user drives, held for as long as the assistant is on screen,
+  and closed when the import lands or the assistant is abandoned — so a reader
+  looking for an import finds it as a single trace rather than one per button.
+  The root therefore reaches the collector only when the run ends; every step
+  is exported as it completes and already carries the trace identifier, so a
+  waterfall fills in as the work happens and only the outermost span arrives
+  last.
 - Each action root owns bounded phase children named after it:
   `ui.import.upload` and `ui.import.poll`; `ui.geneanet_import.read`, `.write`,
   `.inspect`, `.index`, `.connect`, `.preview`, `.collect`, `.upload`, `.poll`,

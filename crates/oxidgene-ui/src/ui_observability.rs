@@ -284,6 +284,85 @@ pub fn measure_ui<T>(name: &'static str, operation: impl FnOnce() -> T) -> T {
     }
 }
 
+/// A trace covering a multi-step operation the user drives by hand.
+///
+/// A page load is bounded by its resources and a single action by its future.
+/// This one is bounded by the person finishing: an assistant they advance one
+/// screen at a time. The root opens on the first step and stays open across
+/// however long they spend between screens, so one import reads as one trace
+/// rather than one per button — which is what a reader looking for "that
+/// import" expects to find.
+///
+/// The cost of that is the root reaching the collector only when the operation
+/// ends. Each step is exported as it completes and already carries the trace
+/// id, so the waterfall fills in as the work happens and only the outermost
+/// bar arrives last.
+#[derive(Clone)]
+pub struct UiActionTrace {
+    #[cfg(feature = "telemetry-client")]
+    action: UiAction,
+    #[cfg(feature = "telemetry-client")]
+    root: Arc<Mutex<Option<tracing::Span>>>,
+}
+
+impl UiActionTrace {
+    #[must_use]
+    pub fn new(action: UiAction) -> Self {
+        #[cfg(not(feature = "telemetry-client"))]
+        let _ = action;
+        Self {
+            #[cfg(feature = "telemetry-client")]
+            action,
+            #[cfg(feature = "telemetry-client")]
+            root: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Run one step of the operation as a child of its root.
+    pub async fn step<T>(&self, step: UiActionStep, future: impl Future<Output = T>) -> T {
+        #[cfg(feature = "telemetry-client")]
+        {
+            // Built inside the root so the root is its contextual parent: the
+            // steps run in separate tasks with no ambient span of their own.
+            let span = self.root().in_scope(|| action_step_span(step));
+            future.instrument(span).await
+        }
+
+        #[cfg(not(feature = "telemetry-client"))]
+        {
+            let _ = step;
+            future.await
+        }
+    }
+
+    /// Close the trace. The operation is over, however it ended.
+    pub fn finish(&self) {
+        #[cfg(feature = "telemetry-client")]
+        {
+            self.root.lock().expect("UI action trace poisoned").take();
+        }
+    }
+
+    #[cfg(feature = "telemetry-client")]
+    fn root(&self) -> tracing::Span {
+        let mut root = self.root.lock().expect("UI action trace poisoned");
+        root.get_or_insert_with(|| action_span(self.action)).clone()
+    }
+}
+
+/// Provide a trace covering every step of one multi-step operation.
+///
+/// Dropped with the component that owns the operation, so abandoning the
+/// assistant closes the trace rather than leaving it open for the session.
+pub fn use_ui_action_trace(action: UiAction) -> UiActionTrace {
+    let trace = use_context_provider(|| UiActionTrace::new(action));
+    use_drop({
+        let trace = trace.clone();
+        move || trace.finish()
+    });
+    trace
+}
+
 /// Run `future` under a root span for the whole operation.
 pub async fn trace_ui_action<T>(action: UiAction, future: impl Future<Output = T>) -> T {
     #[cfg(feature = "telemetry-client")]
