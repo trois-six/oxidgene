@@ -31,6 +31,7 @@ pub fn AppSettings() -> Element {
     let mut active_section = use_signal(|| Section::Appearance);
 
     rsx! {
+        style { {SHARED_SETTINGS_STYLES} }
         style { {APP_SETTINGS_STYLES} }
 
         div { class: "sub-page",
@@ -391,11 +392,92 @@ fn ApiSection() -> Element {
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
-/// Styles for the [`AppearanceSection`] / [`LanguageSection`] widgets only
-/// (no layout/nav rules) — shared with the tree [`crate::pages::settings`]
-/// page, which embeds these same sections under its own "Global
-/// preferences" nav group.
-pub(crate) const APP_SETTINGS_WIDGET_STYLES: &str = r#"
+/// Shared settings layout and application-preference widget styles.
+///
+/// The tree [`crate::pages::settings`] page embeds the same sections under its
+/// own "Global preferences" nav group and uses this layout as the canonical
+/// visual treatment for both settings surfaces.
+pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
+    .settings-layout {
+        display: flex;
+        gap: 24px;
+        min-height: 0;
+    }
+
+    .settings-nav {
+        width: 200px;
+        min-width: 200px;
+        flex-shrink: 0;
+    }
+
+    .settings-nav-group {
+        margin-bottom: 20px;
+    }
+
+    .settings-nav-group-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: var(--orange);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+        padding: 0 8px;
+    }
+
+    .settings-nav-item {
+        display: block;
+        width: 100%;
+        padding: 6px 8px;
+        text-align: left;
+        background: none;
+        border: none;
+        border-radius: 5px;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+        font-family: var(--font-sans);
+    }
+
+    .settings-nav-item:hover {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
+    }
+
+    .settings-nav-item.active {
+        background: var(--sel-bg);
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    .settings-content {
+        flex: 1;
+        min-width: 0;
+        max-width: 860px;
+    }
+
+    .settings-section-eyebrow {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: var(--orange);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+
+    .settings-section-title {
+        font-family: var(--font-heading);
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+    }
+
+    .settings-section-subtitle {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
     .app-settings-card {
         background: var(--bg-card);
         border: 1px solid var(--border);
@@ -555,6 +637,42 @@ pub(crate) const APP_SETTINGS_WIDGET_STYLES: &str = r#"
         font-size: 1rem;
     }
 
+    @media (max-width: 768px) {
+        .settings-layout {
+            flex-direction: column;
+        }
+        .settings-nav {
+            width: 100%;
+            min-width: 0;
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: center;
+            gap: 12px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+        .settings-nav-group {
+            display: flex;
+            flex: none;
+            align-items: center;
+            flex-wrap: nowrap;
+            gap: 4px;
+            margin-bottom: 0;
+        }
+        .settings-nav-group-label {
+            width: auto;
+            margin: 0 4px 0 0;
+            padding: 0 8px 0 0;
+            border-right: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .settings-nav-item {
+            width: auto;
+            flex: none;
+            white-space: nowrap;
+        }
+    }
+
     @media (max-width: 640px) {
         .app-settings-option {
             flex-direction: column;
@@ -615,208 +733,6 @@ pub fn NamesSection(sort_particles: Signal<SortParticles>) -> Element {
 }
 
 const APP_SETTINGS_STYLES: &str = r#"
-    .settings-layout {
-        display: flex;
-        gap: 2rem;
-    }
-
-    .settings-nav {
-        width: 200px;
-        flex-shrink: 0;
-    }
-
-    .settings-nav-group {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .settings-nav-group-label {
-        font-size: 0.7rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--orange);
-        padding: 0.5rem 0.75rem 0.25rem;
-    }
-
-    .settings-nav-item {
-        display: block;
-        width: 100%;
-        text-align: left;
-        padding: 0.5rem 0.75rem;
-        border: none;
-        background: none;
-        border-radius: 6px;
-        font-size: 0.9rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s;
-    }
-
-    .settings-nav-item:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-    }
-
-    .settings-nav-item.active {
-        background: var(--bg-card);
-        color: var(--orange);
-        font-weight: 600;
-    }
-
-    .settings-content {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .settings-section {
-        margin-bottom: 2rem;
-    }
-
-    .settings-section-eyebrow {
-        display: block;
-        font-size: 0.7rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--orange);
-        margin-bottom: 0.25rem;
-    }
-
-    .settings-section-title {
-        font-family: var(--font-heading);
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        margin-bottom: 0.25rem;
-    }
-
-    .settings-section-subtitle {
-        font-size: 0.9rem;
-        color: var(--text-muted);
-        margin-bottom: 1.25rem;
-    }
-
-    /* ── Card ─────────────────────────────── */
-
-    .app-settings-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 1.25rem;
-    }
-
-    /* ── Theme toggle ────────────────────── */
-
-    .app-settings-option {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-    }
-
-    .app-settings-option-info {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-
-    .app-settings-option-label {
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .app-settings-option-hint {
-        font-size: 0.8rem;
-        color: var(--text-muted);
-    }
-
-    .theme-toggle-group {
-        display: flex;
-        gap: 0;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
-    }
-
-    .theme-toggle-btn {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        padding: 0.45rem 0.85rem;
-        border: none;
-        background: none;
-        font-size: 0.85rem;
-        color: var(--text-muted);
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s;
-    }
-
-    .theme-toggle-btn:first-child {
-        border-right: 1px solid var(--border);
-    }
-
-    .theme-toggle-btn:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-    }
-
-    .theme-toggle-btn.active {
-        background: var(--orange);
-        color: var(--white);
-    }
-
-    /* ── Language options ─────────────────── */
-
-    .lang-options {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .lang-option {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: none;
-        cursor: pointer;
-        transition: border-color 0.15s, background 0.15s;
-        width: 100%;
-        text-align: left;
-        font-size: 0.95rem;
-        color: var(--text-primary);
-    }
-
-    .lang-option:hover {
-        border-color: var(--orange);
-        background: var(--bg-card-hover);
-    }
-
-    .lang-option.active {
-        border-color: var(--orange);
-        background: color-mix(in srgb, var(--orange) 8%, transparent);
-    }
-
-    .lang-option-flag {
-        font-size: 1.3rem;
-    }
-
-    .lang-option-label {
-        flex: 1;
-        font-weight: 500;
-    }
-
-    .lang-option-check {
-        color: var(--orange);
-        font-weight: 700;
-        font-size: 1rem;
-    }
-
     .api-endpoints {
         padding: 0;
         overflow: hidden;
@@ -861,39 +777,7 @@ const APP_SETTINGS_STYLES: &str = r#"
         color: var(--text-muted);
     }
 
-    /* ── Responsive ───────────────────────── */
-
     @media (max-width: 640px) {
-        .settings-layout {
-            flex-direction: column;
-        }
-        .settings-nav {
-            width: 100%;
-            flex-direction: row;
-            overflow-x: auto;
-            padding-bottom: 4px;
-        }
-        .settings-nav-group {
-            flex-direction: row;
-            flex-wrap: nowrap;
-            gap: 0.5rem;
-        }
-        .settings-nav-group-label {
-            width: auto;
-            flex: none;
-            padding-right: 0.75rem;
-            border-right: 1px solid var(--border);
-            white-space: nowrap;
-        }
-        .settings-nav-item {
-            width: auto;
-            flex: none;
-            white-space: nowrap;
-        }
-        .app-settings-option {
-            flex-direction: column;
-            align-items: flex-start;
-        }
         .api-endpoint {
             align-items: flex-start;
             flex-direction: column;
