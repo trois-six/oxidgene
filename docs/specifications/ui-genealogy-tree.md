@@ -21,12 +21,23 @@ timestamp: 2026-06-17T00:00:00Z
 The canvas displays a **mixed tree**: the focus person is at the vertical center, ancestors go upward, descendants go downward. Each generation occupies a **strict horizontal row**. All cards in the same generation are aligned on the same Y axis.
 
 The number of generations displayed is fixed at any given time, but can be changed via the depth selector. The maximum is **10 ascending generations + 10 descending generations**.
+The global pedigree preferences initialize the window to **4 ascending generations + 3 descending generations** by default. They are editable from both [App Settings](ui-app-settings.md) and the global-preferences group in [Tree Settings](ui-settings.md). A saved per-tree view state supplies its own depths instead.
 
 ### Always a Connected Tree
 
 The canvas **never** displays isolated persons or disconnected subtrees. A person is visible only if they are reachable from the focus through a continuous chain of relationships (ascending, descending, couple) within the requested depth.
 
 Persons with no link to the current tree are accessible only via **search**.
+
+### Initial Data Loading
+
+The pedigree is loaded once for each combination of tree, focus person, and
+requested ancestor and descendant depths. Filling the shared tree metadata
+cache during that initial load must not trigger an identical second pedigree
+request. Explicit cache invalidation after a mutation still refreshes the
+pedigree. Persisting visual state such as pan, zoom, or automatic centering does
+not reload pedigree data; only a depth change in the saved view changes the
+server query.
 
 ---
 

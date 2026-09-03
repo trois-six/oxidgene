@@ -223,6 +223,24 @@ pub struct GivenNameReference {
     pub feast_day: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct GivenNameReferenceMatch {
+    pub term: String,
+    #[serde(flatten)]
+    pub reference: GivenNameReference,
+}
+
+#[derive(Debug, Serialize)]
+struct ReferenceTermsBody<'a> {
+    terms: &'a [String],
+}
+
+const REFERENCE_TERM_BATCH_SIZE: usize = 128;
+
+fn reference_term_batches(terms: &[String]) -> std::slice::Chunks<'_, String> {
+    terms.chunks(REFERENCE_TERM_BATCH_SIZE)
+}
+
 // ── Tree request bodies ─────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -512,34 +530,78 @@ fn is_remote(file_path: &str) -> bool {
     file_path.starts_with("http://") || file_path.starts_with("https://")
 }
 
-/// One person's portrait, as the tree-wide endpoint returns it.
-#[derive(Debug, Clone, Deserialize)]
-pub struct PortraitRow {
-    pub person_id: uuid::Uuid,
-    pub media_id: Option<uuid::Uuid>,
-    pub vignette_id: Option<uuid::Uuid>,
-    pub file_path: String,
-    pub has_thumbnail: bool,
+#[derive(Debug, Serialize)]
+struct PortraitImagesRequest {
+    person_ids: Vec<Uuid>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum PortraitSource {
-    Vignette(Uuid),
-    Thumbnail(Uuid),
-    Remote(String),
-    Unavailable,
+#[derive(Debug, Deserialize)]
+struct PortraitImage {
+    person_id: Uuid,
+    source: String,
 }
 
-fn portrait_source(row: &PortraitRow) -> PortraitSource {
-    if let Some(vignette_id) = row.vignette_id {
-        PortraitSource::Vignette(vignette_id)
-    } else if let Some(media_id) = row.media_id.filter(|_| row.has_thumbnail) {
-        PortraitSource::Thumbnail(media_id)
-    } else if row.media_id.is_some() && is_remote(&row.file_path) {
-        PortraitSource::Remote(row.file_path.clone())
-    } else {
-        PortraitSource::Unavailable
+const PORTRAIT_BATCH_SIZE: usize = 1_024;
+
+fn portrait_batches(person_ids: &[Uuid]) -> impl Iterator<Item = &[Uuid]> {
+    person_ids.chunks(PORTRAIT_BATCH_SIZE)
+}
+
+#[derive(Debug, Serialize)]
+struct GalleryBundleRequest {
+    media_ids: Vec<Uuid>,
+    vignette_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct RelationLabelsRequest {
+    person_ids: Vec<Uuid>,
+    family_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RelationLabels {
+    pub names: Vec<PersonName>,
+    pub spouses: Vec<FamilySpouse>,
+}
+
+const RELATION_LABEL_BATCH_SIZE: usize = 1_024;
+
+fn relation_label_batch_ranges(
+    person_count: usize,
+    family_count: usize,
+) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    let mut batches = Vec::new();
+    let (mut person_offset, mut family_offset) = (0, 0);
+    while person_offset < person_count || family_offset < family_count {
+        let person_end = (person_offset + RELATION_LABEL_BATCH_SIZE).min(person_count);
+        let remaining = RELATION_LABEL_BATCH_SIZE - (person_end - person_offset);
+        let family_end = (family_offset + remaining).min(family_count);
+        batches.push((person_offset..person_end, family_offset..family_end));
+        person_offset = person_end;
+        family_offset = family_end;
     }
+    batches
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+pub struct GalleryBundle {
+    pub media: Vec<GalleryMedia>,
+    pub vignettes: Vec<GalleryVignette>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct GalleryMedia {
+    pub media_id: Uuid,
+    pub source: Option<String>,
+    pub event_ids: Vec<Uuid>,
+    pub document_previews: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct GalleryVignette {
+    pub vignette_id: Uuid,
+    pub source: String,
 }
 
 /// A media together with the link that attached it — one gallery tile.
@@ -1033,16 +1095,30 @@ pub struct ExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
-// ── Tree Snapshot ───────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Deserialize)]
-pub struct TreeSnapshot {
+pub struct PersonDetailBundle {
+    pub sosa_number: Option<u64>,
     pub persons: Vec<oxidgene_core::types::Person>,
     pub names: Vec<oxidgene_core::types::PersonName>,
     pub events: Vec<oxidgene_core::types::Event>,
     pub places: Vec<oxidgene_core::types::Place>,
     pub spouses: Vec<oxidgene_core::types::FamilySpouse>,
     pub children: Vec<oxidgene_core::types::FamilyChild>,
+    pub citations: Vec<oxidgene_core::types::Citation>,
+    pub sources: Vec<oxidgene_core::types::Source>,
+    pub profile_media: Vec<MediaWithLink>,
+    pub profile_vignettes: Vec<Vignette>,
+    pub event_media: Vec<EventMediaTile>,
+    pub gallery: GalleryBundle,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct EventMediaTile {
+    pub event_id: Uuid,
+    pub link_id: Uuid,
+    pub sort_order: i32,
+    #[serde(flatten)]
+    pub media: Media,
 }
 
 // ── Response Cache ───────────────────────────────────────────────────
@@ -1123,15 +1199,20 @@ impl ApiClient {
     async fn read_response_body(response: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
         #[cfg(feature = "telemetry-client")]
         {
+            let status = response.status().as_u16();
+            let expected_size = response.content_length();
             let span = tracing::info_span!(
                 "ui.response.read",
-                response.body.size = tracing::field::Empty,
+                otel.name = "read HTTP response body",
+                http.response.status_code = status,
+                http.response.body.size = tracing::field::Empty,
+                http.response.body.size.expected = expected_size,
                 otel.status_code = tracing::field::Empty,
             );
             let result = response.bytes().instrument(span.clone()).await;
             match &result {
                 Ok(bytes) => {
-                    span.record("response.body.size", bytes.len());
+                    span.record("http.response.body.size", bytes.len());
                 }
                 Err(_) => {
                     span.record("otel.status_code", "ERROR");
@@ -1151,6 +1232,8 @@ impl ApiClient {
         {
             let span = tracing::info_span!(
                 "ui.response.deserialize",
+                otel.name = "deserialize JSON response",
+                serialization.format = "json",
                 response.body.size = bytes.len(),
                 otel.status_code = tracing::field::Empty,
             );
@@ -1531,10 +1614,15 @@ impl ApiClient {
         Ok(())
     }
 
-    // ── Tree Snapshot ────────────────────────────────────────────────
-
-    pub async fn get_tree_snapshot(&self, tree_id: Uuid) -> Result<TreeSnapshot, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/snapshot")).await
+    pub async fn get_person_detail_bundle(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<PersonDetailBundle, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle"
+        ))
+        .await
     }
 
     // ── Persons ─────────────────────────────────────────────────────
@@ -1627,23 +1715,6 @@ impl ApiClient {
         }
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/persons"), &params)
             .await
-    }
-
-    /// Fetch all persons by paginating through all pages.
-    pub async fn list_all_persons(&self, tree_id: Uuid) -> Result<Vec<Person>, ApiError> {
-        let mut all = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let page = self
-                .list_persons(tree_id, Some(500), cursor.as_deref())
-                .await?;
-            all.extend(page.edges.into_iter().map(|e| e.node));
-            if !page.page_info.has_next_page {
-                break;
-            }
-            cursor = page.page_info.end_cursor;
-        }
-        Ok(all)
     }
 
     pub async fn get_person(&self, tree_id: Uuid, id: Uuid) -> Result<PersonDetail, ApiError> {
@@ -1751,6 +1822,34 @@ impl ApiClient {
         .await
     }
 
+    /// Load names and spouse links in bounded batches, issuing as many
+    /// requests as needed for a larger logical set.
+    pub async fn relation_labels(
+        &self,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+        family_ids: &[Uuid],
+    ) -> Result<RelationLabels, ApiError> {
+        let mut labels = RelationLabels::default();
+        for (person_range, family_range) in
+            relation_label_batch_ranges(person_ids.len(), family_ids.len())
+        {
+            let body = RelationLabelsRequest {
+                person_ids: person_ids[person_range].to_vec(),
+                family_ids: family_ids[family_range].to_vec(),
+            };
+            let batch = self
+                .post::<RelationLabels, _>(
+                    &format!("/api/v1/trees/{tree_id}/relation-labels"),
+                    &body,
+                )
+                .await?;
+            labels.names.extend(batch.names);
+            labels.spouses.extend(batch.spouses);
+        }
+        Ok(labels)
+    }
+
     pub async fn create_person_name(
         &self,
         tree_id: Uuid,
@@ -1815,23 +1914,6 @@ impl ApiClient {
         }
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/families"), &params)
             .await
-    }
-
-    /// Fetch all families by paginating through all pages.
-    pub async fn list_all_families(&self, tree_id: Uuid) -> Result<Vec<Family>, ApiError> {
-        let mut all = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let page = self
-                .list_families(tree_id, Some(500), cursor.as_deref())
-                .await?;
-            all.extend(page.edges.into_iter().map(|e| e.node));
-            if !page.page_info.has_next_page {
-                break;
-            }
-            cursor = page.page_info.end_cursor;
-        }
-        Ok(all)
     }
 
     pub async fn get_family(&self, tree_id: Uuid, id: Uuid) -> Result<Family, ApiError> {
@@ -1995,23 +2077,6 @@ impl ApiClient {
         }
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/events"), &params)
             .await
-    }
-
-    /// Fetch all events by paginating through all pages.
-    pub async fn list_all_events(&self, tree_id: Uuid) -> Result<Vec<Event>, ApiError> {
-        let mut all = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let page = self
-                .list_events(tree_id, Some(500), cursor.as_deref(), None, None, None)
-                .await?;
-            all.extend(page.edges.into_iter().map(|e| e.node));
-            if !page.page_info.has_next_page {
-                break;
-            }
-            cursor = page.page_info.end_cursor;
-        }
-        Ok(all)
     }
 
     pub async fn get_event(&self, tree_id: Uuid, id: Uuid) -> Result<Event, ApiError> {
@@ -2605,64 +2670,35 @@ impl ApiClient {
             .map(|(bytes, _)| bytes)
     }
 
-    /// Where a person's portrait can actually be shown from, if anywhere.
-    ///
-    /// Not `file_path`. That column is the *producer's* path — the `OBJE.FILE`
-    /// a GEDCOM carried, or the address a Geneanet deposit was served under —
-    /// kept verbatim so an export round-trips. It is not a URL this
-    /// application can load, and putting it in an `<img src>` is what turned
-    /// every card with a real photograph into a broken-image icon while the
-    /// people with *no* photograph, who fell through to the silhouette,
-    /// rendered correctly.
-    ///
-    /// In order:
-    ///
-    ///   - a **vignette** — the portrait is a region of a larger image, and
-    ///     the server crops it on read, which is the whole point of storing a
-    ///     face in a group photograph as coordinates rather than as a copy;
-    ///   - a **thumbnail** — we hold the bytes and have rasterised them. A
-    ///     pedigree card is 50 pixels wide, so the 400-pixel thumbnail is not
-    ///     merely acceptable, it is the right file;
-    ///   - a **remote** URL we recorded and never fetched, the only copy there
-    ///     is;
-    ///   - otherwise **nothing to show**, and `None` lets the caller draw the
-    ///     silhouette rather than ask the browser for bytes that will 404.
-    pub async fn portrait_url(
+    /// Load portraits in bounded batches, issuing as many batches as needed.
+    pub async fn portrait_map_for_ids(
         &self,
         tree_id: Uuid,
-        row: &PortraitRow,
-    ) -> Result<Option<String>, ApiError> {
-        match portrait_source(row) {
-            PortraitSource::Vignette(vignette_id) => self
-                .vignette_image_data_url(tree_id, vignette_id)
+        person_ids: &[Uuid],
+    ) -> HashMap<Uuid, String> {
+        let mut portraits = HashMap::new();
+        for person_ids in portrait_batches(person_ids) {
+            let body = PortraitImagesRequest {
+                person_ids: person_ids.to_vec(),
+            };
+            match self
+                .post::<Vec<PortraitImage>, _>(
+                    &format!("/api/v1/trees/{tree_id}/portrait-images"),
+                    &body,
+                )
                 .await
-                .map(Some),
-            PortraitSource::Thumbnail(media_id) => self
-                .media_thumbnail_data_url(tree_id, media_id)
-                .await
-                .map(Some),
-            PortraitSource::Remote(url) => Ok(Some(url)),
-            PortraitSource::Unavailable => Ok(None),
+            {
+                Ok(images) => portraits.extend(
+                    images
+                        .into_iter()
+                        .map(|image| (image.person_id, image.source)),
+                ),
+                Err(error) => {
+                    tracing::warn!(%error, count = person_ids.len(), "portrait image batch could not be loaded");
+                }
+            }
         }
-    }
-
-    /// Load every displayable portrait without placing backend URLs in the DOM.
-    pub async fn portrait_map(&self, tree_id: Uuid, rows: &[PortraitRow]) -> HashMap<Uuid, String> {
-        let portraits = futures_util::future::join_all(rows.iter().map(|row| async move {
-            self.portrait_url(tree_id, row)
-                .await
-                .ok()
-                .flatten()
-                .map(|url| (row.person_id, url))
-        }))
-        .await;
-        portraits.into_iter().flatten().collect()
-    }
-
-    /// Every person's portrait in a tree, in one request.
-    pub async fn list_portraits(&self, tree_id: Uuid) -> Result<Vec<PortraitRow>, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/portraits"))
-            .await
+        portraits
     }
 
     /// Choose what represents a person — a media, a crop of one, or nothing.
@@ -2938,6 +2974,43 @@ impl ApiClient {
     ) -> Result<Vec<MediaLinkRow>, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/media-links"))
             .await
+    }
+
+    /// Load gallery thumbnails, mosaics, crops and event links in bounded batches.
+    pub async fn gallery_bundle(
+        &self,
+        tree_id: Uuid,
+        media_ids: &[Uuid],
+        vignette_ids: &[Uuid],
+    ) -> GalleryBundle {
+        const BATCH_SIZE: usize = 1_024;
+
+        let mut bundle = GalleryBundle::default();
+        let (mut media_offset, mut vignette_offset) = (0, 0);
+        while media_offset < media_ids.len() || vignette_offset < vignette_ids.len() {
+            let media_end = (media_offset + BATCH_SIZE).min(media_ids.len());
+            let remaining = BATCH_SIZE - (media_end - media_offset);
+            let vignette_end = (vignette_offset + remaining).min(vignette_ids.len());
+            let body = GalleryBundleRequest {
+                media_ids: media_ids[media_offset..media_end].to_vec(),
+                vignette_ids: vignette_ids[vignette_offset..vignette_end].to_vec(),
+            };
+            match self
+                .post::<GalleryBundle, _>(&format!("/api/v1/trees/{tree_id}/gallery-bundle"), &body)
+                .await
+            {
+                Ok(batch) => {
+                    bundle.media.extend(batch.media);
+                    bundle.vignettes.extend(batch.vignettes);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "gallery bundle could not be loaded");
+                }
+            }
+            media_offset = media_end;
+            vignette_offset = vignette_end;
+        }
+        bundle
     }
 
     /// Every media attached to one entity — a person, a family, an event or a
@@ -3444,6 +3517,26 @@ impl ApiClient {
         )
         .await
     }
+
+    /// Given-name references in bounded batches, issuing as many requests as
+    /// needed when `terms` exceeds the server limit.
+    pub async fn reference_given_names(
+        &self,
+        lang: &str,
+        terms: &[String],
+    ) -> Result<Vec<GivenNameReferenceMatch>, ApiError> {
+        let mut matches = Vec::new();
+        for terms in reference_term_batches(terms) {
+            let mut batch = self
+                .post::<Vec<GivenNameReferenceMatch>, _>(
+                    &format!("/api/v1/reference/{lang}/given-names/bundle"),
+                    &ReferenceTermsBody { terms },
+                )
+                .await?;
+            matches.append(&mut batch);
+        }
+        Ok(matches)
+    }
 }
 
 #[cfg(feature = "telemetry-client")]
@@ -3465,71 +3558,32 @@ impl Injector for HeaderInjector<'_> {
 mod tests {
     use super::*;
 
-    fn portrait_row(media: Option<Uuid>, path: &str, thumb: bool) -> PortraitRow {
-        PortraitRow {
-            person_id: Uuid::now_v7(),
-            media_id: media,
-            vignette_id: None,
-            file_path: path.to_string(),
-            has_thumbnail: thumb,
-        }
+    #[test]
+    fn reference_terms_over_the_limit_are_split_into_subsequent_requests() {
+        let terms = (0..129).map(|index| index.to_string()).collect::<Vec<_>>();
+        let batches = reference_term_batches(&terms).collect::<Vec<_>>();
+
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].len(), 128);
+        assert_eq!(batches[1].len(), 1);
     }
 
     #[test]
-    fn a_stored_portrait_uses_our_thumbnail_not_the_producers_path() {
-        let media = Uuid::now_v7();
-        // The address a Geneanet deposit was recorded under. Loading it
-        // directly is what turned every card holding a real photograph into a
-        // broken-image icon.
-        let row = portrait_row(Some(media), "https://www.geneanet.org/deposit/4713", true);
-        assert_eq!(portrait_source(&row), PortraitSource::Thumbnail(media));
+    fn relation_labels_over_the_limit_are_split_into_subsequent_requests() {
+        let batches = relation_label_batch_ranges(1_000, 25);
+
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0], (0..1_000, 0..24));
+        assert_eq!(batches[1], (1_000..1_000, 24..25));
     }
 
     #[test]
-    fn a_portrait_that_is_a_face_in_a_group_photo_is_served_as_the_crop() {
-        let vignette = Uuid::now_v7();
-        // The portrait most people in an old family archive actually have.
-        // Serving the containing scan here would show the whole wedding party
-        // on a card meant to show one face.
-        let mut row = portrait_row(None, "", false);
-        row.vignette_id = Some(vignette);
-        assert_eq!(portrait_source(&row), PortraitSource::Vignette(vignette));
-    }
+    fn portraits_over_the_limit_are_split_into_subsequent_requests() {
+        let person_ids = (0..1_025).map(|_| Uuid::now_v7()).collect::<Vec<_>>();
+        let batches = portrait_batches(&person_ids).collect::<Vec<_>>();
 
-    #[test]
-    fn a_crop_wins_over_a_media_if_a_row_somehow_carries_both() {
-        let vignette = Uuid::now_v7();
-        // The write path refuses both, but a deterministic answer beats an
-        // arbitrary one if a row ever escapes it: the crop is the more
-        // specific statement.
-        let mut row = portrait_row(Some(Uuid::now_v7()), "", true);
-        row.vignette_id = Some(vignette);
-        assert_eq!(portrait_source(&row), PortraitSource::Vignette(vignette));
-    }
-
-    #[test]
-    fn a_remote_media_we_never_fetched_is_shown_from_its_own_url() {
-        let row = portrait_row(Some(Uuid::now_v7()), "https://example.org/photo.jpg", false);
-        assert_eq!(
-            portrait_source(&row),
-            PortraitSource::Remote("https://example.org/photo.jpg".to_string())
-        );
-    }
-
-    #[test]
-    fn a_record_naming_a_file_nobody_uploaded_has_no_portrait() {
-        // No thumbnail, and a path that is not an address: there is nothing to
-        // load. `None` lets the card draw the silhouette rather than ask the
-        // browser for bytes that will 404.
-        let row = portrait_row(Some(Uuid::now_v7()), "C:\\Photos\\scan.jpg", false);
-        assert_eq!(portrait_source(&row), PortraitSource::Unavailable);
-    }
-
-    #[test]
-    fn a_person_with_nothing_loadable_is_classified_as_unavailable() {
-        let person = Uuid::now_v7();
-        let mut unheld = portrait_row(Some(Uuid::now_v7()), "scan.jpg", false);
-        unheld.person_id = person;
-        assert_eq!(portrait_source(&unheld), PortraitSource::Unavailable);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].len(), 1_024);
+        assert_eq!(batches[1].len(), 1);
     }
 }

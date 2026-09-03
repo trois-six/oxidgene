@@ -975,6 +975,87 @@ async fn a_portrait_can_be_a_face_in_a_group_photograph() {
 }
 
 #[tokio::test]
+async fn portrait_images_are_loaded_and_filtered_in_one_request() {
+    let h = setup().await;
+    let thumbnail_person = person(&h).await;
+    let vignette_person = person(&h).await;
+    let unselected_person = person(&h).await;
+    let (thumbnail_media_id, _) = attach_photo(&h, &thumbnail_person, "thumbnail.png").await;
+    attach_photo(&h, &unselected_person, "unselected.png").await;
+    let (media_id, _) = attach_photo(&h, &vignette_person, "group.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (status, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{media_id}/vignettes"),
+        Some(json!({
+            "x": 10,
+            "y": 10,
+            "width": 30,
+            "height": 30,
+            "person_id": vignette_person
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
+    let (status, selected) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{vignette_person}/portrait"),
+        Some(json!({"vignette_id": vignette["id"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{selected}");
+
+    let (status, images) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/portrait-images"),
+        Some(json!({"person_ids": [thumbnail_person, vignette_person]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{images}");
+    let images = images.as_array().unwrap();
+    assert_eq!(images.len(), 2, "{images:?}");
+    assert!(images.iter().all(|image| {
+        image["source"]
+            .as_str()
+            .is_some_and(|source| source.starts_with("data:image/"))
+    }));
+    assert!(
+        images
+            .iter()
+            .all(|image| image["person_id"] != unselected_person)
+    );
+
+    let (status, bundle) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/gallery-bundle"),
+        Some(json!({
+            "media_ids": [thumbnail_media_id, media_id],
+            "vignette_ids": [vignette["id"]]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(bundle["media"].as_array().unwrap().len(), 2, "{bundle}");
+    assert_eq!(bundle["vignettes"].as_array().unwrap().len(), 1, "{bundle}");
+    assert!(bundle["media"].as_array().unwrap().iter().all(|item| {
+        item["source"]
+            .as_str()
+            .is_some_and(|source| source.starts_with("data:image/"))
+    }));
+    assert!(
+        bundle["vignettes"][0]["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/")
+    );
+}
+
+#[tokio::test]
 async fn a_portrait_can_be_cleared() {
     let h = setup().await;
     let person_id = person(&h).await;

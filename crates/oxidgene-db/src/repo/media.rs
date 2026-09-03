@@ -362,6 +362,26 @@ impl MediaRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// The pages of several documents, grouped by `parent_media_id` by callers.
+    pub async fn list_pages_for(
+        db: &impl ConnectionTrait,
+        document_ids: &[Uuid],
+    ) -> Result<Vec<Media>, OxidGeneError> {
+        if document_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let models = Entity::find()
+            .filter(Column::ParentMediaId.is_in(document_ids.iter().copied()))
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::ParentMediaId)
+            .order_by_asc(Column::PageIndex)
+            .order_by_asc(Column::Id)
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Make an uploaded media the next page of a document.
     ///
     /// Appends: the page index is the count of pages already there, so pages

@@ -24,7 +24,7 @@ use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer as _;
-use tracing_subscriber::filter::{FilterExt as _, filter_fn};
+use tracing_subscriber::filter::{FilterExt as _, LevelFilter, filter_fn};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -111,7 +111,9 @@ impl TelemetryGuard {
         if let Some(provider) = self.tracer_provider {
             let _ = provider.shutdown();
         }
-        drop(self.runtime);
+        if let Some(runtime) = self.runtime {
+            runtime.shutdown_background();
+        }
     }
 }
 
@@ -194,9 +196,14 @@ pub fn init(
         .with(tracing_subscriber::fmt::layer().with_filter(
             runtime_filter(log_filter)?.and(filter_fn(|metadata| metadata.is_event())),
         ))
-        .with(OpenTelemetryLayer::new(tracer).with_filter(filter_fn(|metadata| metadata.is_span())))
+        .with(
+            OpenTelemetryLayer::new(tracer)
+                .with_filter(filter_fn(export_span).and(LevelFilter::INFO)),
+        )
         .with(log_layer.with_filter(runtime_filter(log_filter)?))
         .try_init()?;
+
+    tracing::info!(transport = "grpc", "OpenTelemetry export enabled");
 
     Ok(TelemetryGuard {
         logger_provider: Some(logger_provider),
@@ -208,6 +215,14 @@ pub fn init(
 
 fn runtime_filter(log_filter: &str) -> Result<EnvFilter, tracing_subscriber::filter::ParseError> {
     EnvFilter::try_new(log_filter)
+}
+
+fn export_span(metadata: &tracing::Metadata<'_>) -> bool {
+    metadata.is_span() && export_span_target(metadata.target())
+}
+
+fn export_span_target(target: &str) -> bool {
+    target.starts_with("oxidgene_") || target == "sea_orm" || target.starts_with("sea_orm::")
 }
 
 struct HeaderExtractor<'a>(&'a HeaderMap);
@@ -275,6 +290,50 @@ mod tests {
     use opentelemetry::trace::TraceContextExt as _;
 
     use super::*;
+
+    #[test]
+    fn span_export_keeps_application_boundaries_without_runtime_internals() {
+        for target in [
+            "oxidgene_ui::ui_observability",
+            "oxidgene_api::service::tree",
+            "oxidgene_observability",
+            "sea_orm::driver::sqlx_sqlite",
+        ] {
+            assert!(
+                export_span_target(target),
+                "expected {target} to be exported"
+            );
+        }
+
+        for target in [
+            "tokio_util::codec::framed_write",
+            "h2::codec::framed_write",
+            "hyper::proto::h1",
+            "sqlx_core::pool::connection",
+        ] {
+            assert!(
+                !export_span_target(target),
+                "expected {target} to be excluded"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn telemetry_runtime_can_stop_inside_an_async_context() {
+        let guard = TelemetryGuard {
+            logger_provider: None,
+            tracer_provider: None,
+            meter_provider: None,
+            runtime: Some(
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("telemetry runtime"),
+            ),
+        };
+
+        guard.shutdown();
+    }
 
     #[test]
     fn trace_context_round_trips_as_a_remote_parent() {

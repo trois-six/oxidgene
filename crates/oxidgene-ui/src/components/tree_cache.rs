@@ -37,6 +37,15 @@ impl TreeCache {
         }
     }
 
+    /// Return the cached tree without subscribing the current reactive scope.
+    fn tree_untracked(&self, tid: Uuid) -> Option<Tree> {
+        if *self.tree_tid.peek() == Some(tid) {
+            self.tree.peek().clone()
+        } else {
+            None
+        }
+    }
+
     /// Store freshly fetched data into the cache.
     pub fn store_tree(&self, tid: Uuid, tree: Tree) {
         let mut id = self.tree_tid;
@@ -125,6 +134,7 @@ pub struct PedigreeViewState {
 #[derive(Clone, Copy)]
 pub struct ViewStateCache {
     state: Signal<Option<PedigreeViewState>>,
+    depth_generation: Signal<u64>,
 }
 
 impl ViewStateCache {
@@ -150,6 +160,11 @@ impl ViewStateCache {
         })
     }
 
+    /// Reactive generation incremented only when requested depths change.
+    pub fn depth_generation(&self) -> u64 {
+        *self.depth_generation.read()
+    }
+
     /// Save the current view state (no-op if values are unchanged).
     pub fn save(&self, state: PedigreeViewState) {
         let dominated = self.state.peek();
@@ -164,9 +179,19 @@ impl ViewStateCache {
         {
             return;
         }
+        let depths_changed = dominated.as_ref().is_some_and(|existing| {
+            existing.tree_id == state.tree_id
+                && (existing.ancestor_levels != state.ancestor_levels
+                    || existing.descendant_levels != state.descendant_levels)
+        });
         drop(dominated);
         let mut sig = self.state;
         sig.set(Some(state));
+        if depths_changed {
+            let mut generation = self.depth_generation;
+            let next = *generation.peek() + 1;
+            generation.set(next);
+        }
     }
 }
 
@@ -174,6 +199,7 @@ impl ViewStateCache {
 pub fn use_init_view_state_cache() -> ViewStateCache {
     let cache = ViewStateCache {
         state: use_context_provider(|| Signal::new(None)),
+        depth_generation: use_context_provider(|| Signal::new(0)),
     };
     use_context_provider(|| cache);
     cache
@@ -192,7 +218,7 @@ pub async fn fetch_tree_cached(
     cache: &TreeCache,
     tid: Uuid,
 ) -> Result<Tree, ApiError> {
-    if let Some(t) = cache.tree(tid) {
+    if let Some(t) = cache.tree_untracked(tid) {
         return Ok(t);
     }
     let t = api.get_tree(tid).await?;

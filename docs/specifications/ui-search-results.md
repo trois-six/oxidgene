@@ -154,6 +154,9 @@ Each row shows:
 
 The typeahead person picker and selected-person rows reuse this same summary
 renderer so these fields and their fallback behavior remain identical.
+The result page requests portraits only for the persons on the current server-
+paginated page. A typeahead picker likewise requests portraits only for its
+bounded result set. Neither surface loads the tree-wide portrait inventory.
 
 ### Card View (pedigree grid)
 

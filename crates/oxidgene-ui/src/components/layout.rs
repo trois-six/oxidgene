@@ -109,6 +109,7 @@ pub fn set_theme(mut is_dark: Signal<bool>, dark: bool) {
 pub fn Layout() -> Element {
     let _lang_signal = i18n::use_init_language();
     let _sort_particles = crate::prefs::use_init_sort_particles();
+    let _pedigree_defaults = crate::prefs::use_init_pedigree_defaults();
     let _theme_signal = use_init_theme();
     use_init_textarea_resize_clamp();
     let _tree_cache = tree_cache::use_init_tree_cache();

@@ -221,7 +221,7 @@ pub async fn vignette_image(
 
     let bytes = state.media.get(key).await.map_err(ApiError::from)?;
     let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
-    let cropped = tokio::task::spawn_blocking(move || crop(&bytes, rect))
+    let cropped = tokio::task::spawn_blocking(move || crate::media::thumbnail::crop(&bytes, rect))
         .await
         .map_err(|e| ApiError(OxidGeneError::Internal(format!("crop panicked: {e}"))))??;
 
@@ -250,26 +250,4 @@ fn check_rect(
     height: i32,
 ) -> Result<(), ApiError> {
     crate::media::validate_crop(media, page, x, y, width, height).map_err(ApiError::from)
-}
-
-/// Decode, crop and re-encode as JPEG. CPU-bound; callers use `spawn_blocking`.
-fn crop(bytes: &[u8], (x, y, width, height): (i32, i32, i32, i32)) -> Result<Vec<u8>, ApiError> {
-    use image::ImageFormat;
-
-    let (image, _) =
-        crate::media::thumbnail::decode(bytes, 1024 * 1024 * 1024).map_err(ApiError::from)?;
-    let cropped = image::DynamicImage::crop_imm(
-        &image,
-        x.max(0) as u32,
-        y.max(0) as u32,
-        width.max(1) as u32,
-        height.max(1) as u32,
-    );
-
-    let mut out = std::io::Cursor::new(Vec::new());
-    cropped
-        .into_rgb8()
-        .write_to(&mut out, ImageFormat::Jpeg)
-        .map_err(|e| ApiError(OxidGeneError::Internal(format!("could not encode: {e}"))))?;
-    Ok(out.into_inner())
 }

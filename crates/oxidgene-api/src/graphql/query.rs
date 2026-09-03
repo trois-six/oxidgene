@@ -18,17 +18,17 @@ use oxidgene_db::repo::{
 use super::inputs::{GeneanetPreviewInput, geneanet_deposit_sizes};
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
-    GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection,
+    GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection, GqlGalleryBundle,
     GqlGeneanetArchiveIndex, GqlGeneanetImportResult, GqlGeneanetIndexedArchive,
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
-    GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection, GqlMediaLink,
-    GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference, GqlPedigree, GqlPerson,
-    GqlPersonConnection, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
-    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
-    GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
-    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
-    GqlTreeMediaLink, GqlTreeSnapshot, GqlVignette, db_from_ctx, profiles_from_ctx,
-    require_local_file_access,
+    GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection,
+    GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference, GqlPedigree,
+    GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort,
+    GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry,
+    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchResult, GqlSource,
+    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
+    GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlTreeSnapshot,
+    GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -49,6 +49,23 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
+    /// Load the family neighborhood and evidence rendered by one person page.
+    async fn person_detail_bundle(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
+    ) -> Result<GqlPersonDetailBundle> {
+        Ok(crate::service::person_detail::load_person_detail_bundle(
+            db_from_ctx(ctx),
+            media_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+            Uuid::parse_str(person_id.as_str())?,
+        )
+        .await?
+        .into())
+    }
+
     // ── Trees ────────────────────────────────────────────────────────
 
     /// List all trees with cursor-based pagination.
@@ -111,6 +128,33 @@ impl QueryRoot {
         }
     }
 
+    /// Load the names and spouse links needed to label a bounded set of relations.
+    async fn relation_labels(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_ids: Vec<ID>,
+        family_ids: Vec<ID>,
+    ) -> Result<GqlRelationLabels> {
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let person_ids = person_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let family_ids = family_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(crate::service::relation_labels::load_relation_labels(
+            db_from_ctx(ctx),
+            tree_id,
+            &person_ids,
+            &family_ids,
+        )
+        .await?
+        .into())
+    }
+
     /// Resolve one SOSA-Stradonitz number from the tree's configured root.
     ///
     /// Returns null when the tree has no SOSA root or the ancestry chain is
@@ -137,6 +181,54 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let portraits = PersonRepo::list_portraits(db, Uuid::parse_str(tree_id.as_str())?).await?;
         Ok(portraits.into_iter().map(Into::into).collect())
+    }
+
+    /// Load display-ready portraits for a bounded set of people in one operation.
+    async fn portrait_images(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_ids: Vec<ID>,
+    ) -> Result<Vec<GqlPortraitImage>> {
+        let person_ids = person_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let images = crate::service::portrait::load_portrait_images(
+            db_from_ctx(ctx),
+            media_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+            &person_ids,
+        )
+        .await?;
+        Ok(images.into_iter().map(Into::into).collect())
+    }
+
+    /// Load display-ready media gallery data in one bounded operation.
+    async fn gallery_bundle(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        media_ids: Vec<ID>,
+        vignette_ids: Vec<ID>,
+    ) -> Result<GqlGalleryBundle> {
+        let media_ids = media_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let vignette_ids = vignette_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(crate::service::gallery::load_gallery_bundle(
+            db_from_ctx(ctx),
+            media_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+            &media_ids,
+            &vignette_ids,
+        )
+        .await?
+        .into())
     }
 
     /// Get ancestors of a person.
@@ -623,6 +715,24 @@ impl QueryRoot {
         let language = crate::reference::ReferenceLang::from_code(&language)
             .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
         Ok(crate::reference::lookup_given_name(language, &term).map(Into::into))
+    }
+
+    /// Resolve several static given-name references in one operation.
+    async fn given_name_references(
+        &self,
+        _ctx: &Context<'_>,
+        language: String,
+        terms: Vec<String>,
+    ) -> Result<Vec<GqlGivenNameReferenceMatch>> {
+        let language = crate::reference::ReferenceLang::from_code(&language)
+            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+        if terms.len() > crate::reference::MAX_REFERENCE_TERMS {
+            return Err(async_graphql::Error::new("at most 128 terms are allowed"));
+        }
+        Ok(crate::reference::lookup_given_names(language, &terms)
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     /// Return the legacy all-at-once tree snapshot.

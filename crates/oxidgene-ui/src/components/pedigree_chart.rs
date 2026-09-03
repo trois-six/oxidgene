@@ -25,6 +25,7 @@ use oxidgene_core::types::{
 use oxidgene_core::{ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
 
 use crate::i18n::{I18n, use_i18n};
+use crate::prefs::use_pedigree_defaults;
 
 use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
 
@@ -3185,10 +3186,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let view_cache = use_view_state_cache();
     let tid_parsed = props.tree_id.parse::<Uuid>().ok();
     let saved = tid_parsed.and_then(|t| view_cache.get_untracked(t));
+    let defaults = use_pedigree_defaults().unwrap_or_default();
 
     // Extract initial values from saved state (or defaults)
-    let init_anc = saved.as_ref().map_or(4, |s| s.ancestor_levels);
-    let init_desc = saved.as_ref().map_or(3, |s| s.descendant_levels);
+    let init_anc = saved
+        .as_ref()
+        .map_or(defaults.ancestor_levels, |s| s.ancestor_levels);
+    let init_desc = saved
+        .as_ref()
+        .map_or(defaults.descendant_levels, |s| s.descendant_levels);
     let init_ox = saved.as_ref().map_or(0.0, |s| s.offset_x);
     let init_oy = saved.as_ref().map_or(0.0, |s| s.offset_y);
     let init_sc = saved.as_ref().map_or(1.0, |s| s.scale);

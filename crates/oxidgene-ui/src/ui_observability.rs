@@ -52,6 +52,39 @@ pub struct UiLoadTrace {
     state: Arc<Mutex<LoadState>>,
 }
 
+#[cfg(feature = "telemetry-client")]
+struct ResourceCompletion {
+    trace: UiLoadTrace,
+    root: Option<tracing::Span>,
+    cycle: u64,
+}
+
+#[cfg(feature = "telemetry-client")]
+impl ResourceCompletion {
+    fn new(trace: UiLoadTrace, root: tracing::Span, cycle: u64) -> Self {
+        Self {
+            trace,
+            root: Some(root),
+            cycle,
+        }
+    }
+
+    fn finish(mut self) {
+        if let Some(root) = self.root.take() {
+            self.trace.finish_resource(root, self.cycle);
+        }
+    }
+}
+
+#[cfg(feature = "telemetry-client")]
+impl Drop for ResourceCompletion {
+    fn drop(&mut self) {
+        if self.root.take().is_some() {
+            self.trace.cancel_resource(self.cycle);
+        }
+    }
+}
+
 impl UiLoadTrace {
     #[must_use]
     pub fn new(page: UiPage) -> Self {
@@ -69,14 +102,16 @@ impl UiLoadTrace {
         #[cfg(feature = "telemetry-client")]
         {
             let (root, cycle) = self.begin_resource();
+            let completion = ResourceCompletion::new(self.clone(), root.clone(), cycle);
             let span = tracing::info_span!(
                 parent: &root,
                 "ui.resource.load",
+                otel.name = name,
                 ui.resource.name = name,
                 otel.status_code = tracing::field::Empty,
             );
             let output = future.instrument(span).await;
-            self.finish_resource(root, cycle);
+            completion.finish();
             output
         }
 
@@ -115,7 +150,13 @@ impl UiLoadTrace {
 
         let state = self.state.clone();
         spawn(async move {
-            let stabilize = tracing::info_span!(parent: &root, "ui.render.stabilize");
+            let stabilize = tracing::info_span!(
+                parent: &root,
+                "ui.render.stabilize",
+                otel.name = "wait for render stabilization",
+                ui.render.frames = 2,
+                ui.render.reason = "resource_cycle_complete",
+            );
             wait_for_render().instrument(stabilize).await;
 
             let mut state = state.lock().expect("UI trace state poisoned");
@@ -126,6 +167,19 @@ impl UiLoadTrace {
                 state.root.take();
             }
         });
+    }
+
+    #[cfg(feature = "telemetry-client")]
+    fn cancel_resource(&self, cycle: u64) {
+        let mut state = self.state.lock().expect("UI trace state poisoned");
+        if state.cycle != cycle {
+            return;
+        }
+        state.active_resources = state.active_resources.saturating_sub(1);
+        if state.active_resources == 0 {
+            state.stabilization = state.stabilization.wrapping_add(1);
+            state.root.take();
+        }
     }
 
     pub fn measure<T>(&self, name: &'static str, operation: impl FnOnce() -> T) -> T {
@@ -139,9 +193,12 @@ impl UiLoadTrace {
                 Some(root) => tracing::info_span!(
                     parent: &root,
                     "ui.compute",
+                    otel.name = name,
                     ui.compute.name = name,
                 ),
-                None => tracing::info_span!("ui.compute", ui.compute.name = name),
+                None => {
+                    tracing::info_span!("ui.compute", otel.name = name, ui.compute.name = name,)
+                }
             };
             span.in_scope(operation)
         }
@@ -336,6 +393,19 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn cancelling_a_resource_releases_the_page_load_trace() {
+        let trace = UiLoadTrace::new(UiPage::Pedigree);
+        let (root, cycle) = trace.begin_resource();
+        let completion = ResourceCompletion::new(trace.clone(), root, cycle);
+
+        drop(completion);
+
+        let state = trace.state.lock().expect("UI trace state poisoned");
+        assert_eq!(state.active_resources, 0);
+        assert!(state.root.is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]

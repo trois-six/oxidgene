@@ -141,20 +141,6 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             .and_then(|tree| tree.sosa_root_person_id),
     };
 
-    let api_portraits = api.clone();
-    let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
-        let api = api_portraits.clone();
-        async move {
-            match tree_id {
-                Some(tree_id) => match api.list_portraits(tree_id).await {
-                    Ok(rows) => api.portrait_map(tree_id, &rows).await,
-                    Err(_) => Default::default(),
-                },
-                None => Default::default(),
-            }
-        }
-    });
-
     // ── Search query state ──
     let mut search_last = use_signal(|| props.last.clone());
     let mut search_first = use_signal(|| props.first.clone());
@@ -335,6 +321,30 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             _ => vec![],
         }
     };
+    let api_portraits = api.clone();
+    let search_for_portraits = search_resource;
+    let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
+        let api = api_portraits.clone();
+        let person_ids = search_for_portraits
+            .read()
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .and_then(|result| result.as_ref())
+            .map(|result| {
+                result
+                    .entries
+                    .iter()
+                    .map(|entry| entry.person_id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        async move {
+            match tree_id {
+                Some(tree_id) => api.portrait_map_for_ids(tree_id, &person_ids).await,
+                None => Default::default(),
+            }
+        }
+    });
     let per_page = match view_mode() {
         ViewMode::List => RESULTS_PER_PAGE,
         ViewMode::Card => GRID_RESULTS_PER_PAGE,

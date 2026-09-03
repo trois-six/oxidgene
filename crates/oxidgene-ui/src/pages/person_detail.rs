@@ -9,7 +9,7 @@ use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{Event as DomainEvent, QualifiedYear};
 use uuid::Uuid;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, MediaWithLink};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::date_input::format_event_date;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
@@ -138,14 +138,18 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Person edit modal (names are managed there — see PersonForm).
     let mut show_edit_person = use_signal(|| false);
     let mut show_create_person = use_signal(|| false);
+    let mut media_revision = use_signal(|| 0_u32);
+    let mut media_manager_open = use_signal(|| false);
 
     // ── Resources ────────────────────────────────────────────────────
 
-    // Fetch person.
-    let api_person = api.clone();
-    let person_resource = use_traced_resource(load_trace.clone(), "person", move || {
-        let api = api_person.clone();
+    // Everything specific to this page, limited to the person's visible
+    // family neighborhood and the evidence attached to its events.
+    let api_detail = api.clone();
+    let detail_resource = use_traced_resource(load_trace.clone(), "person_detail", move || {
+        let api = api_detail.clone();
         let _tick = refresh();
+        let _media_tick = media_revision();
         let tid = tree_id_parsed();
         let pid = person_id_parsed();
         async move {
@@ -155,61 +159,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     body: i18n.t("common.invalid_ids"),
                 });
             };
-            api.get_person(tid, pid).await
-        }
-    });
-
-    // Fetch person names.
-    let api_names = api.clone();
-    let names_resource = use_traced_resource(load_trace.clone(), "names", move || {
-        let api = api_names.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed();
-        let pid = person_id_parsed();
-        async move {
-            let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.list_person_names(tid, pid).await
-        }
-    });
-
-    // Fetch person events.
-    let api_events = api.clone();
-    let events_resource = use_traced_resource(load_trace.clone(), "events", move || {
-        let api = api_events.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed();
-        let pid = person_id_parsed();
-        async move {
-            let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.list_events(tid, Some(100), None, None, Some(pid), None)
-                .await
-        }
-    });
-
-    // Fetch places in tree (for place picker in events).
-    let api_places = api.clone();
-    let places_resource = use_traced_resource(load_trace.clone(), "places", move || {
-        let api = api_places.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed();
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.list_all_places(tid).await
+            api.get_person_detail_bundle(tid, pid).await
         }
     });
 
@@ -231,74 +181,24 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch all citations in the tree (unfiltered): the backend already
-    // builds the full source/citation set internally regardless of filters,
-    // so fetching once and filtering client-side (by person_id and by the
-    // relevant event ids) avoids issuing one request per event.
-    let api_citations = api.clone();
-    let citations_resource = use_traced_resource(load_trace.clone(), "citations", move || {
-        let api = api_citations.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed();
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.list_citations(tid, None, None, None, None).await
-        }
-    });
-
-    // Fetch all sources in the tree, for rendering citation source text.
-    let api_sources = api.clone();
-    let sources_resource = use_traced_resource(load_trace.clone(), "sources", move || {
-        let api = api_sources.clone();
-        let _tick = refresh();
-        let tid = tree_id_parsed();
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
-            };
-            api.list_all_sources(tid).await
-        }
-    });
-
-    // Fetch tree snapshot for enriched events (direct API call).
-    let api_snap = api.clone();
-    let snapshot_resource = use_traced_resource(load_trace.clone(), "tree_snapshot", move || {
-        let api = api_snap.clone();
-        let _tick = refresh();
-        let _gen = tree_cache.generation();
-        let tid = tree_id_parsed();
-        async move {
-            let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_tree_id"),
-                });
-            };
-            api.get_tree_snapshot(tid).await
-        }
-    });
-
-    // Name lookup for *all* persons in the tree — used by family connections
-    // (parents, spouses, children, siblings) and ancestry charts. Derived
-    // from `snapshot_resource` rather than issuing a second, duplicate
-    // `get_tree_snapshot` call.
-    let all_names = use_memo(move || match &*snapshot_resource.read() {
-        Some(Ok(snapshot)) => {
+    let all_names = use_memo(move || match &*detail_resource.read() {
+        Some(Ok(detail)) => {
             let mut name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = HashMap::new();
-            for pn in &snapshot.names {
+            for pn in &detail.names {
                 name_map.entry(pn.person_id).or_default().push(pn.clone());
             }
             Some(name_map)
         }
         _ => None,
+    });
+
+    let places_by_id = use_memo(move || match &*detail_resource.read() {
+        Some(Ok(detail)) => detail
+            .places
+            .iter()
+            .map(|place| (place.id, place.name.clone()))
+            .collect::<HashMap<_, _>>(),
+        _ => HashMap::new(),
     });
 
     // Fetch tree info (for breadcrumb, cache-backed).
@@ -342,26 +242,17 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
         });
 
-    // Tree-wide portrait map (person_id -> image URL), used both for this
-    // person's header avatar and for the mini pedigrees below — a single
-    // `list_media_links_for_tree` call instead of two duplicate ones.
-    // Bumped when the gallery below reports a change, so choosing a portrait
-    // is visible here at once rather than on the next visit to the page.
-    let mut media_revision = use_signal(|| 0_u32);
-    let mut media_manager_open = use_signal(|| false);
+    // This person's portrait, reused by the header and mini pedigree.
     let api_photos_map = api.clone();
     let photos_map_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
         let api = api_photos_map.clone();
         let tid = tree_id_parsed();
         let _ = media_revision();
         async move {
-            let Some(tid) = tid else {
+            let (Some(tid), Some(person_id)) = (tid, person_id_parsed()) else {
                 return HashMap::new();
             };
-            match api.list_portraits(tid).await {
-                Ok(rows) => api.portrait_map(tid, &rows).await,
-                Err(_) => HashMap::new(),
-            }
+            api.portrait_map_for_ids(tid, &[person_id]).await
         }
     });
 
@@ -401,10 +292,55 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             .unwrap_or_default(),
     };
 
+    let (detail, detail_error) = match &*detail_resource.read() {
+        Some(Ok(detail)) => (Some(detail.clone()), None),
+        Some(Err(error)) => (None, Some(error.to_string())),
+        None => (None, None),
+    };
+    let current_person = detail.as_ref().and_then(|detail| {
+        let person_id = person_id_parsed()?;
+        detail
+            .persons
+            .iter()
+            .find(|person| person.id == person_id)
+            .cloned()
+    });
+    let own_names = detail
+        .as_ref()
+        .and_then(|detail| {
+            let person_id = person_id_parsed()?;
+            Some(
+                detail
+                    .names
+                    .iter()
+                    .filter(|name| name.person_id == person_id)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default();
+    let own_events = detail
+        .as_ref()
+        .and_then(|detail| {
+            let person_id = person_id_parsed()?;
+            Some(
+                detail
+                    .events
+                    .iter()
+                    .filter(|event| event.person_id == Some(person_id))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default();
+
     // Derive display name from loaded names.
-    let display_name = match &*names_resource.read() {
-        Some(Ok(names)) => {
-            let primary = names.iter().find(|n| n.is_primary).or(names.first());
+    let display_name = match detail.as_ref() {
+        Some(_) => {
+            let primary = own_names
+                .iter()
+                .find(|n| n.is_primary)
+                .or(own_names.first());
             match primary {
                 Some(name) => {
                     let dn = name.display_name();
@@ -426,9 +362,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // prefix/surname/suffix parts — split out so only the given name itself
     // becomes hoverable in the header, while the rendered text stays
     // identical to `display_name` (same parts, same spacing).
-    let (header_prefix, header_given, header_rest) = match &*names_resource.read() {
-        Some(Ok(names)) => {
-            let primary = names.iter().find(|n| n.is_primary).or(names.first());
+    let (header_prefix, header_given, header_rest) = match detail.as_ref() {
+        Some(_) => {
+            let primary = own_names
+                .iter()
+                .find(|n| n.is_primary)
+                .or(own_names.first());
             match primary {
                 Some(name) => {
                     // Particle included, so the header still matches
@@ -454,9 +393,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Alternate names shown under the header name, e.g."(Given Surname)".
     // Excludes whichever name was picked as display_name above,
     // and de-duplicates identical given/surname combinations.
-    let alt_names: Vec<String> = match &*names_resource.read() {
-        Some(Ok(names)) => {
-            let primary = names.iter().find(|n| n.is_primary).or(names.first());
+    let alt_names: Vec<String> = match detail.as_ref() {
+        Some(_) => {
+            let primary = own_names
+                .iter()
+                .find(|n| n.is_primary)
+                .or(own_names.first());
             let primary_id = primary.map(|n| n.id);
             let mut seen: std::collections::HashSet<(String, String)> =
                 std::collections::HashSet::new();
@@ -468,7 +410,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     p.full_surname().unwrap_or_default(),
                 ));
             }
-            names
+            own_names
                 .iter()
                 .filter(|n| Some(n.id) != primary_id)
                 .filter_map(|n| {
@@ -489,15 +431,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Helper: resolve place_id to place name.
     let place_name = |place_id: Uuid| -> String {
-        let places_data = places_resource.read();
-        match &*places_data {
-            Some(Ok(places)) => places
-                .iter()
-                .find(|p| p.id == place_id)
-                .map(|p| p.name.clone())
-                .unwrap_or_default(),
-            _ => String::new(),
-        }
+        places_by_id
+            .read()
+            .get(&place_id)
+            .cloned()
+            .unwrap_or_default()
     };
 
     // One clause of the birth/death vitals sentence — kept structured (rather
@@ -516,19 +454,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // "Born on **10 December 1700** in Paris — **43 years old**."
     let event_date = |e: &DomainEvent| format_event_date(&i18n, e);
 
-    let vital_clauses: Vec<VitalClause> = match &*events_resource.read() {
-        Some(Ok(conn)) => {
+    let vital_clauses: Vec<VitalClause> = match detail.as_ref() {
+        Some(_) => {
             // Prefer the birth, but skip a dateless stub in favour of a dated
             // baptism — the register entry is very often the sacrament, and
             // the header should say "vers 1620" rather than a bare "Né le".
             // Same resolution as the pedigree card and its side panel.
             let dated_or_first = |preferred: EventType, fallback: EventType| {
-                let of_type = |t: EventType| {
-                    conn.edges
-                        .iter()
-                        .map(|e| &e.node)
-                        .find(move |e| e.event_type == t)
-                };
+                let of_type = |t: EventType| own_events.iter().find(move |e| e.event_type == t);
                 let dated = |e: &&DomainEvent| e.date_value.is_some() || e.date_sort.is_some();
                 of_type(preferred)
                     .filter(dated)
@@ -577,10 +510,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             // vitals (mirrors the "Profession" line on person pages).
             // A person can have several OCCU events (career changes).
             // List them all rather than picking just one.
-            let occupations: Vec<String> = conn
-                .edges
+            let occupations: Vec<String> = own_events
                 .iter()
-                .map(|e| &e.node)
                 .filter(|e| e.event_type == EventType::Occupation)
                 .filter_map(|e| e.description.clone())
                 .filter(|title| !title.is_empty())
@@ -596,10 +527,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Index of family-level events (marriage, divorce…) keyed by family_id,
     // used to describe unions in the family narrative below.
-    let events_by_family: HashMap<Uuid, Vec<DomainEvent>> = match &*snapshot_resource.read() {
-        Some(Ok(snapshot)) => {
+    let events_by_family: HashMap<Uuid, Vec<DomainEvent>> = match detail.as_ref() {
+        Some(detail) => {
             let mut map: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
-            for e in snapshot.events.iter() {
+            for e in detail.events.iter() {
                 if e.deleted_at.is_none()
                     && let Some(fid) = e.family_id
                 {
@@ -637,13 +568,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // This person's sex, used to word the family narrative ("Son of…",
     // "Daughter of…", "Married"/"In a relationship"…).
-    let person_sex: Option<Sex> = match &*person_resource.read() {
-        Some(Ok(person)) => Some(person.sex),
-        _ => None,
-    };
+    let person_sex = current_person.as_ref().map(|person| person.sex);
 
-    let related_family_ids = match (&*snapshot_resource.read(), person_id_parsed()) {
-        (Some(Ok(snapshot)), Some(person_id)) => snapshot
+    let related_family_ids = match (detail.as_ref(), person_id_parsed()) {
+        (Some(detail), Some(person_id)) => detail
             .spouses
             .iter()
             .filter(|spouse| spouse.person_id == person_id)
@@ -652,29 +580,20 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         _ => Vec::new(),
     };
 
-    // Which media document which event, for the whole tree, from the one
-    // media-links call already in flight. Per-event fetching would be forty
-    // requests on a full life; this is none.
-    let evidence_by_event = use_traced_resource(load_trace.clone(), "event_evidence", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let tid = tree_id_parsed();
-            let _ = media_revision();
-            async move {
-                let Some(tid) = tid else {
-                    return HashMap::new();
-                };
-                let mut map: HashMap<Uuid, Vec<crate::api::MediaLinkRow>> = HashMap::new();
-                if let Ok(rows) = api.list_media_links_for_tree(tid).await {
-                    for row in rows.into_iter().filter(|r| r.entity_type == "event") {
-                        map.entry(row.entity_id).or_default().push(row);
-                    }
-                }
-                map
+    let evidence_by_event = detail
+        .as_ref()
+        .map(|detail| {
+            let mut map: HashMap<Uuid, Vec<MediaWithLink>> = HashMap::new();
+            for item in &detail.event_media {
+                map.entry(item.event_id).or_default().push(MediaWithLink {
+                    link_id: item.link_id,
+                    sort_order: item.sort_order,
+                    media: item.media.clone(),
+                });
             }
-        }
-    });
+            map
+        })
+        .unwrap_or_default();
 
     // ── Handlers ─────────────────────────────────────────────────────
 
@@ -729,14 +648,14 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // half-siblings (grouped by which parent they share).
     let family_data = {
         let pid = person_id_parsed();
-        match (&*snapshot_resource.read(), pid) {
-            (Some(Ok(snapshot)), Some(pid)) => {
-                let all_spouses = snapshot
+        match (detail.as_ref(), pid) {
+            (Some(detail), Some(pid)) => {
+                let all_spouses = detail
                     .spouses
                     .iter()
                     .map(|s| (s.family_id, s.clone()))
                     .collect::<Vec<_>>();
-                let all_children = snapshot
+                let all_children = detail
                     .children
                     .iter()
                     .map(|c| (c.family_id, c.clone()))
@@ -861,7 +780,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     };
 
-    // Helper to resolve person name from all_names or names_resource
+    // Helper to resolve a name within the targeted family neighborhood.
     let resolve_person_name = |pid: Uuid| -> String {
         if let Some(name_map) = &*all_names.read() {
             return resolve_name(pid, name_map, &i18n);
@@ -873,16 +792,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // mentioned in the family narrative (sex glyph + "birth-death" suffix,
     // matching the format shown on the pedigree cards).
     let (person_sex_map, person_lifespan_map): (HashMap<Uuid, Sex>, HashMap<Uuid, String>) =
-        match &*snapshot_resource.read() {
-            Some(Ok(snapshot)) => {
+        match detail.as_ref() {
+            Some(detail) => {
                 let sex_map: HashMap<Uuid, Sex> =
-                    snapshot.persons.iter().map(|p| (p.id, p.sex)).collect();
+                    detail.persons.iter().map(|p| (p.id, p.sex)).collect();
 
                 // Years carry their qualifier so the narrative hedges the same
                 // way the pedigree cards do — "ca 1849" in both places.
                 let mut birth_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
                 let mut death_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
-                for e in &snapshot.events {
+                for e in &detail.events {
                     let Some(pid) = e.person_id else { continue };
                     let Some(year) = e.qualified_year() else {
                         continue;
@@ -963,17 +882,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     //   2. Conjugal family events (marriage, divorce…)
     //   3. Parental family events (parent death, sibling birth…)
     let enriched_events: Vec<EnrichedEvent> = {
-        let snap_data = snapshot_resource.read();
         let pid = person_id_parsed();
 
-        match (&*snap_data, pid) {
-            (Some(Ok(snapshot)), Some(pid)) => {
-                let all_spouses = snapshot
+        match (detail.as_ref(), pid) {
+            (Some(detail), Some(pid)) => {
+                let all_spouses = detail
                     .spouses
                     .iter()
                     .map(|s| (s.family_id, s.clone()))
                     .collect::<Vec<_>>();
-                let all_children = snapshot
+                let all_children = detail
                     .children
                     .iter()
                     .map(|c| (c.family_id, c.clone()))
@@ -982,7 +900,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 // Index events by person_id and family_id.
                 let mut events_by_person: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
                 let mut events_by_family: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
-                for e in snapshot.events.iter() {
+                for e in detail.events.iter() {
                     if e.deleted_at.is_some() {
                         continue;
                     }
@@ -1181,13 +1099,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // rendered directly under that event in the timeline instead of a
     // separate "Sources" section.
     let citations_by_event: HashMap<Uuid, Vec<String>> = {
-        match (&*citations_resource.read(), &*sources_resource.read()) {
-            (Some(Ok(citations)), Some(Ok(sources))) => {
+        match detail.as_ref() {
+            Some(detail) => {
                 let source_by_id: HashMap<Uuid, &oxidgene_core::types::Source> =
-                    sources.iter().map(|s| (s.id, s)).collect();
+                    detail.sources.iter().map(|s| (s.id, s)).collect();
 
                 let mut result: HashMap<Uuid, Vec<String>> = HashMap::new();
-                for citation in citations {
+                for citation in &detail.citations {
                     let Some(eid) = citation.event_id else {
                         continue;
                     };
@@ -1312,8 +1230,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
 
         // Person header
-        match &*person_resource.read() {
-            Some(Ok(person)) => {
+        match current_person.as_ref() {
+            Some(person) => {
                 let person_sex = person.sex;
                 let sex_symbol = match person_sex {
                     Sex::Male => "\u{2642}",
@@ -1422,7 +1340,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         }
                         div { class: "pd-header-actions",
                             div { class: "pd-header-sosa",
-                                if let Some(sosa) = person.sosa_number {
+                                if let Some(sosa) = detail.as_ref().and_then(|detail| detail.sosa_number) {
                                     span { class: "badge pd-sosa-badge",
                                         "SOSA {sosa}"
                                     }
@@ -1495,8 +1413,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                 }
             },
-            Some(Err(e)) => rsx! {
-                div { class: "error-msg", {i18n.t_args("person.load_error", &[("error", &e.to_string())])} }
+            None if detail_error.is_some() => rsx! {
+                div { class: "error-msg", {i18n.t_args("person.load_error", &[("error", detail_error.as_deref().unwrap_or_default())])} }
             },
             None => rsx! {
                 div { class: "loading", {i18n.t("person.loading")} }
@@ -1552,14 +1470,23 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         }
                     }
                 }
-                MediaGallery {
-                    tree_id: media_tid,
-                    owner: MediaOwner::Person(pid),
-                    related_family_ids: related_family_ids.clone(),
-                    profile_event_links: media_event_links.clone(),
-                    read_only: true,
-                    external_revision: media_revision(),
-                    on_changed: move |()| media_revision += 1,
+                if let (Some(detail), Some(person)) = (detail.as_ref(), current_person.as_ref()) {
+                    MediaGallery {
+                        tree_id: media_tid,
+                        owner: MediaOwner::Person(pid),
+                        related_family_ids: related_family_ids.clone(),
+                        profile_event_links: media_event_links.clone(),
+                        read_only: true,
+                        preloaded_tiles: Some(detail.profile_media.clone()),
+                        preloaded_bundle: Some(detail.gallery.clone()),
+                        preloaded_portrait: Some((
+                            person.portrait_media_id,
+                            person.portrait_vignette_id,
+                        )),
+                        preloaded_vignettes: Some(detail.profile_vignettes.clone()),
+                        external_revision: media_revision(),
+                        on_changed: move |()| media_revision += 1,
+                    }
                 }
             }
             if media_manager_open() {
@@ -1757,8 +1684,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 h2 { style: "font-size: 1.1rem;", {i18n.t("person.events_section")} }
             }
 
-            match &*events_resource.read() {
-                Some(Ok(_conn)) => rsx! {
+            match (detail.as_ref(), detail_error.as_ref()) {
+                (Some(_), _) => rsx! {
                     if enriched_events.is_empty() {
                         div { class: "empty-state",
                             p { {i18n.t("person.no_events")} }
@@ -1822,10 +1749,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                 // very same gallery, viewer and context menu as
                                                 // the profile's main media section.
                                                 if let Some(tid) = tree_id_parsed()
-                                                    && let Some(_) = evidence_by_event
-                                                        .read_unchecked()
-                                                        .as_ref()
-                                                        .and_then(|m| m.get(&eid))
+                                                    && let Some(tiles) = evidence_by_event
+                                                        .get(&eid)
                                                         .filter(|rows| !rows.is_empty())
                                                 {
                                                     div { class: "pd-ev-evidence",
@@ -1834,6 +1759,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                                             owner: MediaOwner::Event(eid),
                                                             read_only: true,
                                                             compact: true,
+                                                            preloaded_tiles: Some(tiles.clone()),
+                                                            preloaded_bundle: detail.as_ref().map(|detail| detail.gallery.clone()),
                                                             on_changed: move |()| media_revision += 1,
                                                         }
                                                     }
@@ -1846,10 +1773,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         }
                     }
                 },
-                Some(Err(e)) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("person.load_events_error", &[("error", &e.to_string())])} }
+                (None, Some(error)) => rsx! {
+                    div { class: "error-msg", {i18n.t_args("person.load_events_error", &[("error", error)])} }
                 },
-                None => rsx! {
+                (None, None) => rsx! {
                     div { class: "loading", {i18n.t("person.loading_events")} }
                 },
             }

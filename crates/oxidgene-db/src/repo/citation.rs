@@ -6,7 +6,8 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Citation, Connection};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ActiveModelTrait, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter, QuerySelect, Set,
+    ActiveModelTrait, Condition, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter,
+    QuerySelect, Set,
 };
 use uuid::Uuid;
 
@@ -81,6 +82,28 @@ impl CitationRepo {
     ) -> Result<Vec<Citation>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::PersonId.eq(person_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
+    /// Citations directly attached to a person or one of the supplied events.
+    pub async fn list_for_person_events(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_id: Uuid,
+        event_ids: &[Uuid],
+    ) -> Result<Vec<Citation>, OxidGeneError> {
+        let mut targets = Condition::any().add(Column::PersonId.eq(person_id));
+        if !event_ids.is_empty() {
+            targets = targets.add(Column::EventId.is_in(event_ids.iter().copied()));
+        }
+        let models = Entity::find()
+            .join(JoinType::InnerJoin, citation::Relation::Source.def())
+            .filter(source::Column::TreeId.eq(tree_id))
+            .filter(source::Column::DeletedAt.is_null())
+            .filter(targets)
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;

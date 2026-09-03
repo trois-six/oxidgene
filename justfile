@@ -91,7 +91,12 @@ desktop:
 # examples: `just desktop-telemetry debug` or `just desktop-telemetry 'info,oxidgene_api=debug,sea_orm=warn'`
 desktop-telemetry log_level="info":
     docker compose -f docker/docker-compose.yml up -d --wait otel-collector
-    OXIDGENE_LOG_LEVEL="{{log_level}}" OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:4317" cargo run --package oxidgene-desktop
+    OXIDGENE_LOG_LEVEL="{{ log_level }}" OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:4317" cargo run --package oxidgene-desktop
+
+# Run the desktop app with direct OTLP/gRPC export to OpenObserve
+desktop-openobserve log_level="info":
+    @test -n "${OPENOBSERVE_BASIC_TOKEN:-}" || { echo "OPENOBSERVE_BASIC_TOKEN is required" >&2; exit 1; }
+    OXIDGENE_LOG_LEVEL="{{ log_level }}" OTEL_EXPORTER_OTLP_ENDPOINT="${OPENOBSERVE_OTLP_ENDPOINT:-http://127.0.0.1:5081}" OTEL_EXPORTER_OTLP_HEADERS="authorization=Basic%20${OPENOBSERVE_BASIC_TOKEN},organization=${OPENOBSERVE_ORGANIZATION:-default},stream-name=${OPENOBSERVE_STREAM:-oxidgene}" cargo run --package oxidgene-desktop
 
 # Build an optimized desktop release with runtime-optional OTLP telemetry
 build-desktop-release:

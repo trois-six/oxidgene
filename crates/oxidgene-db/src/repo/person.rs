@@ -32,6 +32,18 @@ pub struct PortraitRow {
     /// remote media we recorded and never fetched.
     pub file_path: String,
     pub has_thumbnail: bool,
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub thumbnail_key: Option<String>,
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub storage_key: Option<String>,
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub mime_type: String,
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub crop: Option<(i32, i32, i32, i32)>,
 }
 
 impl PersonRepo {
@@ -229,7 +241,27 @@ impl PersonRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<PortraitRow>, OxidGeneError> {
-        use sea_orm::{DbBackend, Statement};
+        Self::list_portraits_matching(db, tree_id, None).await
+    }
+
+    /// Resolve portraits only for the supplied people.
+    pub async fn list_portraits_for(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<Vec<PortraitRow>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Self::list_portraits_matching(db, tree_id, Some(person_ids)).await
+    }
+
+    async fn list_portraits_matching(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_ids: Option<&[Uuid]>,
+    ) -> Result<Vec<PortraitRow>, OxidGeneError> {
+        use sea_orm::{DbBackend, Statement, Value};
 
         let backend = db.get_database_backend();
         let placeholder = if matches!(backend, DbBackend::Sqlite) {
@@ -237,6 +269,25 @@ impl PersonRepo {
         } else {
             "$1"
         };
+        let mut values: Vec<Value> = vec![tree_id.into()];
+        let person_filter = person_ids
+            .map(|ids| {
+                let placeholders = ids
+                    .iter()
+                    .enumerate()
+                    .map(|(index, id)| {
+                        values.push((*id).into());
+                        if matches!(backend, DbBackend::Sqlite) {
+                            "?".to_string()
+                        } else {
+                            format!("${}", index + 2)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("AND p.id IN ({placeholders})")
+            })
+            .unwrap_or_default();
         // Two questions in one query.
         //
         // First, what represents each person: the portrait they chose, or —
@@ -279,12 +330,19 @@ impl PersonRepo {
                     FROM person p
                     WHERE p.tree_id = {placeholder}
                       AND p.deleted_at IS NULL
+                                            {person_filter}
                 )
                 SELECT r.person_id,
                        r.portrait_media_id,
                        r.portrait_vignette_id,
                        COALESCE(m.file_path, vm.file_path) AS file_path,
-                       COALESCE(m.thumbnail_key, vm.thumbnail_key) AS thumbnail_key
+                                             COALESCE(m.thumbnail_key, vm.thumbnail_key) AS thumbnail_key,
+                                             COALESCE(m.storage_key, vm.storage_key) AS storage_key,
+                                             COALESCE(m.mime_type, vm.mime_type) AS mime_type,
+                                             v.x AS crop_x,
+                                             v.y AS crop_y,
+                                             v.width AS crop_width,
+                                             v.height AS crop_height
                 FROM resolved r
                 LEFT JOIN media m ON m.id = r.portrait_media_id AND m.deleted_at IS NULL
                 LEFT JOIN vignette v ON v.id = r.portrait_vignette_id
@@ -293,7 +351,7 @@ impl PersonRepo {
                    OR r.portrait_vignette_id IS NOT NULL
             "#
         );
-        let stmt = Statement::from_sql_and_values(backend, &sql, vec![tree_id.into()]);
+        let stmt = Statement::from_sql_and_values(backend, &sql, values);
         let results = db
             .query_all_raw(stmt)
             .await
@@ -302,6 +360,12 @@ impl PersonRepo {
         let mut rows = Vec::with_capacity(results.len());
         for row in results {
             let get = |name: &str| row.try_get::<Option<Uuid>>("", name);
+            let thumbnail_key = row
+                .try_get::<Option<String>>("", "thumbnail_key")
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            let crop_x = row
+                .try_get::<Option<i32>>("", "crop_x")
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
             rows.push(PortraitRow {
                 person_id: row
                     .try_get("", "person_id")
@@ -314,10 +378,28 @@ impl PersonRepo {
                     .try_get::<Option<String>>("", "file_path")
                     .map_err(|e| OxidGeneError::Database(e.to_string()))?
                     .unwrap_or_default(),
-                has_thumbnail: row
-                    .try_get::<Option<String>>("", "thumbnail_key")
+                has_thumbnail: thumbnail_key.is_some(),
+                thumbnail_key,
+                storage_key: row
+                    .try_get::<Option<String>>("", "storage_key")
                     .map_err(|e| OxidGeneError::Database(e.to_string()))?
-                    .is_some(),
+                    .filter(|key| !key.is_empty()),
+                mime_type: row
+                    .try_get::<Option<String>>("", "mime_type")
+                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .unwrap_or_default(),
+                crop: match crop_x {
+                    Some(x) => Some((
+                        x,
+                        row.try_get("", "crop_y")
+                            .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                        row.try_get("", "crop_width")
+                            .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                        row.try_get("", "crop_height")
+                            .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                    )),
+                    None => None,
+                },
             });
         }
         Ok(rows)

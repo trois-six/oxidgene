@@ -17,6 +17,25 @@ use super::dto::{PedigreeExpandQuery, PedigreeQuery, ProfileDropResponse, Profil
 use super::error::ApiError;
 use super::state::{AppState, begin_tx, commit_tx};
 
+/// `GET /api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle`
+///
+/// Returns only the family neighborhood and evidence rendered by the person
+/// detail page, assembled in bounded batch queries.
+pub async fn get_person_detail_bundle(
+    State(state): State<AppState>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<crate::service::person_detail::PersonDetailBundle>, ApiError> {
+    let bundle = crate::service::person_detail::load_person_detail_bundle(
+        &state.db,
+        &state.media,
+        tree_id,
+        person_id,
+    )
+    .await
+    .map_err(ApiError)?;
+    Ok(Json(bundle))
+}
+
 /// `GET /api/v1/trees/{tree_id}/profiles/{person_id}`
 ///
 /// Returns the denormalized person profile, building it on demand if it has

@@ -41,6 +41,7 @@ Uses the standard `sub-page` layout pattern (see [General](general.md) section 8
 |   | Preferences      |   Section title                              | |
 |   | - Appearance     |   Content (cards, toggles, options)          | |
 |   | - Language       |                                              | |
+|   | - Pedigree       |                                              | |
 |   |                  |                                              | |
 |   +------------------+---------------------------------------------+ |
 |                                                                       |
@@ -74,6 +75,7 @@ Items:
 |---|---|
 | Appearance | Theme toggle |
 | Language | Language selection |
+| Pedigree | Initial ancestor and descendant depths |
 | Names | Surname-particle sorting |
 | API | REST OpenAPI access; GraphQL access in the web build |
 
@@ -138,7 +140,24 @@ Displayed in a card:
 
 ---
 
-## 7. Section: API
+## 7. Section: Pedigree
+
+The Pedigree section controls the initial depth used when opening a tree that
+does not yet have a saved pedigree view:
+
+- **Ancestor generations**: 0–10, default 4.
+- **Descendant generations**: 0–10, default 3.
+
+Each value uses a bounded minus/value/plus stepper and is persisted immediately
+in `localStorage('oxidgene-pedigree-defaults')`. The same shared controls appear
+under **Global preferences > Pedigree** in [Tree Settings](ui-settings.md), and
+both surfaces update the same application-level preference. An existing saved
+view keeps its per-tree depths and therefore takes precedence over these
+defaults.
+
+---
+
+## 8. Section: API
 
 The API section displays absolute endpoint URLs derived from the same API base
 URL as the frontend client:
@@ -150,17 +169,17 @@ URL as the frontend client:
 The desktop build displays only the REST/OpenAPI entry and continues to compile
 the API crate without its optional `graphql` feature.
 
-## 8. Responsive
+## 9. Responsive
 
 - Content max-width: 1200px, responsive padding
 - Below **640px**: the left navigation stacks above the content area as one
 	compact, non-wrapping row. It scrolls horizontally when necessary instead of
 	growing into a tall menu, so settings content remains in the first viewport.
-- Theme toggle and language options remain full-width cards
+- Theme, language, and pedigree controls remain full-width cards
 
 ---
 
-## 9. Future Sections
+## 10. Future Sections
 
 Additional sections may be added in future EPICs:
 

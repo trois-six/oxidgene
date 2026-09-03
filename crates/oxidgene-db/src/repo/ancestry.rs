@@ -28,10 +28,76 @@ use uuid::Uuid;
 /// The deepest real pedigree measured is 38 generations.
 const MAX_GENERATIONS: i32 = 64;
 
+/// Maximum SOSA depth representable by the signed 64-bit integers shared by
+/// SQLite and PostgreSQL. The largest number at depth 62 is `i64::MAX`.
+const MAX_SOSA_GENERATIONS: i32 = 62;
+
 /// Ancestor and descendant traversal over the family links.
 pub struct AncestryRepo;
 
 impl AncestryRepo {
+    /// Return one deterministic SOSA-Stradonitz number for `person_id`
+    /// relative to `root_person_id`.
+    ///
+    /// The recursive query keeps the parent role so it can propagate `2n` for
+    /// fathers and `2n + 1` for mothers. When pedigree implex reaches the same
+    /// person through several paths, the shortest path and then lowest SOSA
+    /// number wins.
+    #[tracing::instrument(name = "pedigree.sosa_number", skip_all)]
+    pub async fn sosa_number(
+        db: &impl ConnectionTrait,
+        root_person_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<Option<u64>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let (root, target, limit) = match backend {
+            DbBackend::Sqlite => ("?1", "?2", "?3"),
+            _ => ("$1", "$2", "$3"),
+        };
+        let sql = format!(
+            "WITH RECURSIVE step(person_id, sosa, depth) AS ( \
+                 SELECT {root}, CAST(1 AS BIGINT), 0 \
+                 UNION \
+                 SELECT fs.person_id, \
+                        CASE fs.role \
+                            WHEN 'husband' THEN step.sosa * 2 \
+                            WHEN 'wife' THEN step.sosa * 2 + 1 \
+                        END, \
+                        step.depth + 1 \
+                 FROM step \
+                 JOIN family_child fc ON fc.person_id = step.person_id \
+                 JOIN family_spouse fs ON fs.family_id = fc.family_id \
+                 WHERE step.depth < {limit} \
+                   AND fs.role IN ('husband', 'wife') \
+             ) \
+             SELECT sosa \
+             FROM step \
+             WHERE person_id = {target} \
+             ORDER BY depth, sosa \
+             LIMIT 1"
+        );
+
+        let row = db
+            .query_one_raw(Statement::from_sql_and_values(
+                backend,
+                &sql,
+                [
+                    Value::from(root_person_id),
+                    Value::from(person_id),
+                    Value::from(MAX_SOSA_GENERATIONS),
+                ],
+            ))
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        row.map(|row| {
+            let number = row
+                .try_get::<i64>("", "sosa")
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            u64::try_from(number).map_err(|e| OxidGeneError::Database(e.to_string()))
+        })
+        .transpose()
+    }
+
     /// Every ancestor of `person_id`, each at its shortest distance.
     ///
     /// Walks child → family → spouses. `max_depth` counts generations, so 1 is

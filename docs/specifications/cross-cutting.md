@@ -225,7 +225,9 @@ rejected value.
   `OTEL_EXPORTER_OTLP_ENDPOINT` additionally exports logs, traces, and metrics
   through OTLP/gRPC to an OpenTelemetry Collector; leaving it unset performs no
   network export and keeps span callsites disabled. Console log events remain
-  enabled independently of span collection.
+  enabled independently of span collection. Successful exporter initialization
+  emits an informational startup event without recording the endpoint or export
+  headers.
 - Every native runtime reports a distinct `service.name` and its package
   version. Incoming HTTP `traceparent` headers are extracted with W3C Trace
   Context so calls remain connected across trusted gateways and services.
@@ -254,18 +256,30 @@ rejected value.
   Dioxus resource started by the screen or one of its nested components is a
   `ui.resource.load` child with a bounded, stable `ui.resource.name`. Resources
   remain separate siblings so their overlap exposes actual client-side
-  parallelism. After the last resource settles, `ui.render.stabilize` waits for
-  two browser animation frames before closing the load cycle.
+  parallelism. A resource that Dioxus cancels or replaces releases its place in
+  the active-resource count just like a completed resource. After the last
+  resource settles, `ui.render.stabilize` waits for two browser animation
+  frames before closing the load cycle. The stable resource name is also the
+  OpenTelemetry display name so trace waterfalls identify each load directly.
 - Client response processing separates `ui.response.read` from
   `ui.response.deserialize`. Expensive synchronous transformations use
   `ui.compute`, including pedigree-data construction and layout. These spans
-  record body sizes and stable operation names only; response content, search
-  values, filenames, identifiers, and raw endpoints remain excluded.
+  use their stable compute label as the OpenTelemetry display name. Response
+  spans use explicit display names and record HTTP status, expected and actual
+  body sizes, and serialization format. `ui.render.stabilize` records that it
+  waits for two animation frames after the resource cycle completes. Response
+  content, search values, filenames, identifiers, and raw endpoints remain
+  excluded. Events and links remain empty unless a real point-in-time event or
+  non-parent causal relationship exists; operational dimensions belong in the
+  span attributes.
 - Pedigree service work exposes `pedigree.build`, `pedigree.projections`,
   `pedigree.ancestors`, and `pedigree.descendants`. SeaORM contributes one
-  child span per query, execution, and transaction operation. SQL statements
-  and bound parameters are disabled in exported spans; database system and
-  operation names provide the diagnostic dimension.
+  child span per query, execution, and transaction operation. Query spans
+  include the parameterized SQL statement as `db.statement`; bound values are
+  never included. Native exporters include `INFO`-or-higher OxidGene and SeaORM
+  span targets only; Tokio, HTTP transport, SQLx runtime internals, and SeaORM's
+  `TRACE` wrappers are excluded so routed UI load spans remain the operational
+  roots.
 - Import traces use a format-specific root and bounded phase children for
   parsing, upload or collection, media preparation, persistence, projections,
   and job polling where applicable. They record format, depth, aggregate size,

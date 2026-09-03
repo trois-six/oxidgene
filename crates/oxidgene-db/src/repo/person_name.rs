@@ -5,9 +5,13 @@ use oxidgene_core::enums::NameType;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::PersonName;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, Set,
+};
 use uuid::Uuid;
 
+use crate::entities::person;
 use crate::entities::person_name::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 
@@ -73,6 +77,26 @@ impl PersonNameRepo {
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonName>, OxidGeneError> {
         let models = Entity::find()
+            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
+            .order_by_desc(Column::IsPrimary)
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::Id)
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
+    /// List names for a bounded set of active persons in one tree.
+    pub async fn list_by_persons_in_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<Vec<PersonName>, OxidGeneError> {
+        let models = Entity::find()
+            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
+            .filter(person::Column::TreeId.eq(tree_id))
+            .filter(person::Column::DeletedAt.is_null())
             .filter(Column::PersonId.is_in(person_ids.iter().copied()))
             .order_by_desc(Column::IsPrimary)
             .order_by_asc(Column::SortOrder)

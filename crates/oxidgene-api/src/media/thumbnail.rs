@@ -143,6 +143,28 @@ pub fn generate(bytes: &[u8]) -> Result<Thumbnail, OxidGeneError> {
     })
 }
 
+/// Decode and crop one image region, returning standalone JPEG bytes.
+pub fn crop(
+    bytes: &[u8],
+    (x, y, width, height): (i32, i32, i32, i32),
+) -> Result<Vec<u8>, OxidGeneError> {
+    let (image, _) = decode(bytes, MAX_DECODED_BYTES)?;
+    let cropped = DynamicImage::crop_imm(
+        &image,
+        x.max(0) as u32,
+        y.max(0) as u32,
+        width.max(1) as u32,
+        height.max(1) as u32,
+    );
+
+    let mut out = Cursor::new(Vec::new());
+    cropped
+        .into_rgb8()
+        .write_to(&mut out, ImageFormat::Jpeg)
+        .map_err(|e| OxidGeneError::Internal(format!("could not encode: {e}")))?;
+    Ok(out.into_inner())
+}
+
 pub(crate) fn decode(
     bytes: &[u8],
     max_decoded_bytes: u64,

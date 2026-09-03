@@ -68,6 +68,33 @@ async fn send_request(
 }
 
 #[tokio::test]
+async fn given_name_reference_bundle_is_bounded_per_request() {
+    let app = setup_app().await;
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/reference/fr/given-names/bundle",
+        Some(serde_json::json!({ "terms": ["Jean", "Marie", "Jean", "__unknown__"] })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_array().expect("array response").len(), 2);
+    assert_eq!(body[0]["term"], "Jean");
+    assert_eq!(body[1]["term"], "Marie");
+
+    let terms = (0..129).map(|index| index.to_string()).collect::<Vec<_>>();
+    let (status, _) = send_request(
+        app,
+        Method::POST,
+        "/api/v1/reference/fr/given-names/bundle",
+        Some(serde_json::json!({ "terms": terms })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn openapi_spec_is_generated_from_the_rest_router() {
     let response = setup_app()
         .await
@@ -518,6 +545,41 @@ async fn create_named_person_via_api(
     .await;
     assert_eq!(status, StatusCode::CREATED);
     person_id
+}
+
+#[tokio::test]
+async fn relation_labels_are_tree_scoped_and_bounded() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let other_tree_id = create_tree_via_api(&app).await;
+    let person_id = create_named_person_via_api(&app, &tree_id, "male", "Alex", "Martin").await;
+    let other_person_id =
+        create_named_person_via_api(&app, &other_tree_id, "female", "Sam", "Bernard").await;
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/relation-labels"),
+        Some(serde_json::json!({
+            "person_ids": [person_id, other_person_id],
+            "family_ids": []
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["names"].as_array().unwrap().len(), 1);
+    assert_eq!(body["names"][0]["person_id"], person_id);
+    assert_eq!(body["spouses"], serde_json::json!([]));
+
+    let person_ids = vec![person_id; 1_025];
+    let (status, _) = send_request(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/relation-labels"),
+        Some(serde_json::json!({ "person_ids": person_ids, "family_ids": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -1451,6 +1513,52 @@ async fn test_citation_crud() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn person_detail_bundle_excludes_unrelated_person_citations() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let target_id = create_person_via_api(&app, &tree_id).await;
+    let unrelated_id = create_person_via_api(&app, &tree_id).await;
+    let relevant_source = create_source_via_api(&app, &tree_id).await;
+    let unrelated_source = create_source_via_api(&app, &tree_id).await;
+
+    for (source_id, person_id) in [
+        (&relevant_source, &target_id),
+        (&unrelated_source, &unrelated_id),
+    ] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/citations"),
+            Some(serde_json::json!({
+                "source_id": source_id,
+                "person_id": person_id,
+                "confidence": "high"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let (status, body) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{target_id}/detail-bundle"),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["persons"].as_array().unwrap().len(), 1);
+    assert_eq!(body["persons"][0]["id"], target_id);
+    assert_eq!(body["citations"].as_array().unwrap().len(), 1);
+    assert_eq!(body["citations"][0]["source_id"], relevant_source);
+    assert_eq!(body["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(body["sources"][0]["id"], relevant_source);
+    assert_eq!(body["profile_media"], serde_json::json!([]));
+    assert_eq!(body["profile_vignettes"], serde_json::json!([]));
 }
 
 // ───────────────────────── Media tests ─────────────────────────
