@@ -5063,6 +5063,7 @@ dependencies = [
  "oxidgene-core",
  "serde",
  "serde_json",
+ "tracing",
  "uuid",
  "zip",
 ]

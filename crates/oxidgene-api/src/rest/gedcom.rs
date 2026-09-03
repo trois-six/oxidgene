@@ -122,9 +122,9 @@ pub async fn export_gedcom_handler(
         );
         let mut files = Vec::with_capacity(data.media_files.len());
         async {
-            for (key, path) in &data.media_files {
+            for (key, path, mime_type) in &data.media_files {
                 match state.media.get(key).await {
-                    Ok(bytes) => files.push((path.clone(), bytes)),
+                    Ok(bytes) => files.push((path.clone(), mime_type.clone(), bytes)),
                     Err(_) => tracing::warn!(
                         error = "media_store_read",
                         "media absent from the store; not packed"

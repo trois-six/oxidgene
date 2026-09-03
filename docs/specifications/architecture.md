@@ -183,6 +183,12 @@ disposable scratch space, and uploads the completed artifact. The status
 response exposes a same-origin download URL only after the job completes; the
 UI then starts the browser download automatically.
 
+GEDZIP compresses the textual `gedcom.ged` entry with Deflate. Media formats
+that already carry compression (JPEG, PNG, GIF, WebP, and PDF) are stored
+without recompression; raw or potentially uncompressed formats such as BMP and
+TIFF remain Deflated. This keeps common exports bounded by I/O without inflating
+raw scans.
+
 ---
 
 ## 7. Build & Testing
