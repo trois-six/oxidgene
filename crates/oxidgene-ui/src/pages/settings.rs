@@ -15,8 +15,8 @@ use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{Language, use_i18n};
 use crate::pages::app_settings::{
-    APP_SETTINGS_WIDGET_STYLES, AppearanceSection, LanguageSection, NamesSection,
-    PedigreeDefaultsSection,
+    AppearanceSection, LanguageSection, NamesSection, PedigreeDefaultsSection,
+    SHARED_SETTINGS_STYLES,
 };
 use crate::prefs::{PedigreeDefaults, SortParticles};
 use crate::router::Route;
@@ -233,7 +233,7 @@ pub fn Settings(tree_id: String) -> Element {
 
     rsx! {
         style { {SETTINGS_STYLES} }
-        style { {APP_SETTINGS_WIDGET_STYLES} }
+        style { {SHARED_SETTINGS_STYLES} }
 
         div { class: "sub-page",
             // Breadcrumb
@@ -1152,84 +1152,6 @@ fn PlaceholderSection(section_name: String) -> Element {
 }
 
 const SETTINGS_STYLES: &str = r#"
-    .settings-layout {
-        display: flex;
-        gap: 24px;
-        min-height: 0;
-    }
-
-    .settings-nav {
-        width: 200px;
-        min-width: 200px;
-        flex-shrink: 0;
-    }
-
-    .settings-nav-group {
-        margin-bottom: 20px;
-    }
-
-    .settings-nav-group-label {
-        font-size: 0.68rem;
-        font-weight: 700;
-        color: var(--orange);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 6px;
-        padding: 0 8px;
-    }
-
-    .settings-nav-item {
-        display: block;
-        width: 100%;
-        padding: 6px 8px;
-        text-align: left;
-        background: none;
-        border: none;
-        border-radius: 5px;
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: background 0.12s, color 0.12s;
-        font-family: var(--font-sans);
-    }
-    .settings-nav-item:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-    }
-    .settings-nav-item.active {
-        background: var(--sel-bg);
-        color: var(--text-primary);
-        font-weight: 600;
-    }
-
-    .settings-content {
-        flex: 1;
-        min-width: 0;
-        max-width: 860px;
-    }
-
-    .settings-section-eyebrow {
-        font-size: 0.68rem;
-        font-weight: 700;
-        color: var(--orange);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
-    }
-
-    .settings-section-title {
-        font-family: var(--font-heading);
-        font-size: 1.2rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 4px;
-    }
-
-    .settings-section-subtitle {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-    }
-
     .settings-placeholder {
         padding: 16px;
         text-align: center;
@@ -1300,39 +1222,6 @@ const SETTINGS_STYLES: &str = r#"
     }
 
     @media (max-width: 768px) {
-        .settings-layout {
-            flex-direction: column;
-        }
-        .settings-nav {
-            width: 100%;
-            min-width: 0;
-            display: flex;
-            flex-wrap: nowrap;
-            align-items: center;
-            gap: 12px;
-            overflow-x: auto;
-            padding-bottom: 4px;
-        }
-        .settings-nav-group {
-            display: flex;
-            flex: none;
-            align-items: center;
-            flex-wrap: nowrap;
-            gap: 4px;
-            margin-bottom: 0;
-        }
-        .settings-nav-group-label {
-            width: auto;
-            margin: 0 4px 0 0;
-            padding: 0 8px 0 0;
-            border-right: 1px solid var(--border);
-            white-space: nowrap;
-        }
-        .settings-nav-item {
-            width: auto;
-            flex: none;
-            white-space: nowrap;
-        }
         .sosa-root-display {
             flex-direction: column;
             align-items: stretch;

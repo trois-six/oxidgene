@@ -48,7 +48,10 @@ Uses the standard `sub-page` layout pattern (see [General](general.md) section 8
 +----------------------------------------------------------------------+
 ```
 
-Content: `max-width: 1200px`, centered, scrollable. Left navigation + content area use a flex row layout (`.settings-layout`).
+The outer content uses the standard centered `max-width: 1200px` page layout.
+Inside it, the settings content is capped at `860px` and uses the same compact
+navigation, typography, spacing, and selection treatment as Tree Settings.
+Left navigation + content area use a flex row layout (`.settings-layout`).
 
 ---
 
@@ -79,7 +82,8 @@ Items:
 | Names | Surname-particle sorting |
 | API | REST OpenAPI access; GraphQL access in the web build |
 
-Active item: orange text, bold weight, subtle background (`var(--bg-card)`).
+Active item: primary text, bold weight, and the neutral selection background
+(`var(--sel-bg)`), matching Tree Settings.
 
 ---
 
@@ -171,8 +175,8 @@ the API crate without its optional `graphql` feature.
 
 ## 9. Responsive
 
-- Content max-width: 1200px, responsive padding
-- Below **640px**: the left navigation stacks above the content area as one
+- Outer content max-width: 1200px, responsive padding; settings content max-width: 860px
+- At or below **768px**: the left navigation stacks above the content area as one
 	compact, non-wrapping row. It scrolls horizontally when necessary instead of
 	growing into a tall menu, so settings content remains in the first viewport.
 - Theme, language, and pedigree controls remain full-width cards
