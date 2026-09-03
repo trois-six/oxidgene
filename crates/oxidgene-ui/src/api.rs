@@ -3211,6 +3211,32 @@ impl ApiClient {
         self.url(&format!("/api/v1/trees/{tree_id}/import-jobs"))
     }
 
+    /// Stream a native file to durable import-job storage.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn start_file_import(
+        &self,
+        tree_id: Uuid,
+        format: &str,
+        filename: Option<String>,
+        body: reqwest::Body,
+    ) -> Result<ImportJobStarted, ApiError> {
+        let mut query = vec![("format", format.to_string())];
+        if let Some(filename) = filename {
+            query.push(("filename", filename));
+        }
+        let response = self
+            .send_request(
+                "POST",
+                self.client
+                    .post(self.file_import_upload_url(tree_id))
+                    .query(&query)
+                    .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                    .body(body),
+            )
+            .await?;
+        Self::handle_response("POST", response).await
+    }
+
     /// Poll a file import without caching its deliberately changing response.
     pub async fn file_import_status(
         &self,

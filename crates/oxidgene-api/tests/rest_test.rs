@@ -1999,6 +1999,19 @@ fn minimal_gedcom() -> &'static str {
     )
 }
 
+fn gedcom_over_insert_batch_size() -> String {
+    let mut gedcom = String::from(
+        "0 HEAD\n1 SOUR OxidGene\n1 GEDC\n2 VERS 5.5.1\n2 FORM LINEAGE-LINKED\n1 CHAR UTF-8\n",
+    );
+    for index in 1..=501 {
+        gedcom.push_str(&format!(
+            "0 @I{index}@ INDI\n1 NAME Person{index} /Example/\n1 BIRT\n2 DATE 1 JAN 1900\n"
+        ));
+    }
+    gedcom.push_str("0 TRLR\n");
+    gedcom
+}
+
 #[tokio::test]
 async fn test_gedcom_import() {
     let app = setup_app().await;
@@ -2038,6 +2051,24 @@ async fn test_gedcom_import() {
     assert_eq!(status, StatusCode::OK);
     let edges = persons["edges"].as_array().unwrap();
     assert_eq!(edges.len(), 2);
+}
+
+#[tokio::test]
+async fn test_gedcom_import_spans_multiple_insert_batches() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    let (status, body) = send_request(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/gedcom/import"),
+        Some(serde_json::json!({ "gedcom": gedcom_over_insert_batch_size() })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["persons_count"], 501);
+    assert_eq!(body["events_count"], 501);
 }
 
 #[tokio::test]
