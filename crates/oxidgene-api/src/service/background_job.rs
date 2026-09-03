@@ -481,10 +481,12 @@ impl BackgroundJobWorker {
         );
         let mut staged_media = Vec::with_capacity(data.media_files.len());
         async {
-            for (index, (key, archive_path)) in data.media_files.iter().enumerate() {
+            for (index, (key, archive_path, mime_type)) in data.media_files.iter().enumerate() {
                 let local_path = media_root.join(index.to_string());
                 match self.media.get_to_file(key, &local_path).await {
-                    Ok(()) => staged_media.push((archive_path.clone(), local_path)),
+                    Ok(()) => {
+                        staged_media.push((archive_path.clone(), mime_type.clone(), local_path));
+                    }
                     Err(error) => tracing::warn!(
                         job_id = %job.id,
                         %error,
@@ -505,10 +507,10 @@ impl BackgroundJobWorker {
         let archive_task = tokio::task::spawn_blocking(move || {
             let mut writer =
                 GedzipFileWriter::create(&archive_path, &gedcom).map_err(OxidGeneError::Gedcom)?;
-            for (entry_path, local_path) in staged_media {
+            for (entry_path, mime_type, local_path) in staged_media {
                 let bytes = std::fs::read(local_path)?;
                 writer
-                    .add_media_file(&entry_path, &bytes)
+                    .add_media_file(&entry_path, &mime_type, &bytes)
                     .map_err(OxidGeneError::Gedcom)?;
             }
             writer.finish().map_err(OxidGeneError::Gedcom)

@@ -84,6 +84,16 @@ pub fn export_gedcom(
     media_paths: &HashMap<Uuid, String>,
 ) -> Result<ExportResult, String> {
     let mut warnings: Vec<String> = Vec::new();
+    let build_span = tracing::info_span!(
+        "export.build_model",
+        export.person_count = persons.len(),
+        export.family_count = families.len(),
+        export.event_count = events.len(),
+        export.source_count = sources.len(),
+        export.citation_count = citations.len(),
+        export.media_count = media.len(),
+    );
+    let build_guard = build_span.enter();
 
     // ── Build UUID → xref maps ──────────────────────────────────────
     let mut person_xref: HashMap<Uuid, String> = HashMap::new();
@@ -183,12 +193,18 @@ pub fn export_gedcom(
     // entity_id → citations
     let mut cites_by_person: HashMap<Uuid, Vec<&Citation>> = HashMap::new();
     let mut cites_by_event: HashMap<Uuid, Vec<&Citation>> = HashMap::new();
+    let mut cites_by_family: HashMap<Uuid, Vec<&Citation>> = HashMap::new();
     for cite in citations {
         if let Some(pid) = cite.person_id {
             cites_by_person.entry(pid).or_default().push(cite);
         }
         if let Some(eid) = cite.event_id {
             cites_by_event.entry(eid).or_default().push(cite);
+        }
+        if let Some(fid) = cite.family_id
+            && cite.event_id.is_none()
+        {
+            cites_by_family.entry(fid).or_default().push(cite);
         }
     }
 
@@ -594,11 +610,14 @@ pub fn export_gedcom(
 
         // Source citations on the family
         // (citations with family_id but no event_id)
-        let fam_sources: Vec<GedCitation> = citations
-            .iter()
-            .filter(|c| c.family_id == Some(fam.id) && c.event_id.is_none())
-            .filter_map(|c| to_ged_citation(c, &source_xref, &mut warnings))
-            .collect();
+        let fam_sources: Vec<GedCitation> = cites_by_family
+            .get(&fam.id)
+            .map(|cs| {
+                cs.iter()
+                    .filter_map(|c| to_ged_citation(c, &source_xref, &mut warnings))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         // Notes on the family
         let fam_notes: Vec<GedNote> = notes_by_family
@@ -631,20 +650,43 @@ pub fn export_gedcom(
         });
     }
 
+    drop(build_guard);
+
     // ── Serialize ────────────────────────────────────────────────────
-    let gedcom = GedcomWriter::new()
-        .write_to_string(&data)
+    let write_span =
+        tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
+    let gedcom = write_span
+        .in_scope(|| GedcomWriter::new().write_to_string(&data))
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
-    let gedcom = inject_event_media_links(gedcom, event_media_by_record);
-    let (gedcom, extension_warnings) = inject_oxidgene_media_extensions(
-        gedcom,
-        media,
-        vignettes,
-        &media_xref,
-        &person_xref,
-        &place_map,
-        &notes_by_media,
+    write_span.record("export.output_bytes", gedcom.len());
+
+    let event_media_span = tracing::info_span!(
+        "export.inject_event_media",
+        export.input_bytes = gedcom.len(),
+        export.output_bytes = tracing::field::Empty,
     );
+    let gedcom =
+        event_media_span.in_scope(|| inject_event_media_links(gedcom, event_media_by_record));
+    event_media_span.record("export.output_bytes", gedcom.len());
+
+    let extensions_span = tracing::info_span!(
+        "export.inject_extensions",
+        export.input_bytes = gedcom.len(),
+        export.output_bytes = tracing::field::Empty,
+        export.vignette_count = vignettes.len(),
+    );
+    let (gedcom, extension_warnings) = extensions_span.in_scope(|| {
+        inject_oxidgene_media_extensions(
+            gedcom,
+            media,
+            vignettes,
+            &media_xref,
+            &person_xref,
+            &place_map,
+            &notes_by_media,
+        )
+    });
+    extensions_span.record("export.output_bytes", gedcom.len());
     warnings.extend(extension_warnings);
 
     Ok(ExportResult { gedcom, warnings })
@@ -741,13 +783,15 @@ fn inject_oxidgene_media_extensions(
     for line in gedcom.lines() {
         output.push_str(line);
         output.push('\n');
-        let fields = line.split_whitespace().collect::<Vec<_>>();
-        if let ["0", xref, "OBJE", ..] = fields.as_slice()
-            && let Some(rows) = by_media.get(*xref)
-        {
-            for row in rows {
-                output.push_str(row);
-                output.push('\n');
+        if let Some(header) = line.strip_prefix("0 ") {
+            let mut fields = header.split_whitespace();
+            if let (Some(xref), Some("OBJE")) = (fields.next(), fields.next())
+                && let Some(rows) = by_media.get(xref)
+            {
+                for row in rows {
+                    output.push_str(row);
+                    output.push('\n');
+                }
             }
         }
     }
@@ -807,17 +851,12 @@ fn extension_for(mime_type: &str) -> Option<&'static str> {
 /// # Errors
 ///
 /// Returns `Err` if the ZIP archive cannot be written.
-pub fn export_gedzip(gedcom: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+pub fn export_gedzip(gedcom: &str, files: &[(String, String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let cursor = std::io::Cursor::new(Vec::new());
-    let mut writer =
-        ged_io::gedzip::GedzipWriter::new(cursor).map_err(|e| format!("GEDZIP error: {e}"))?;
-    writer
-        .write_gedcom_bytes(gedcom.as_bytes())
-        .map_err(|e| format!("GEDZIP error: {e}"))?;
-    for (path, bytes) in files {
-        writer
-            .add_media_file(path, bytes)
-            .map_err(|e| format!("GEDZIP error: {e}"))?;
+    let mut writer = zip::ZipWriter::new(cursor);
+    write_gedcom_entry(&mut writer, gedcom)?;
+    for (path, mime_type, bytes) in files {
+        write_media_entry(&mut writer, path, mime_type, bytes)?;
     }
     let cursor = writer.finish().map_err(|e| format!("GEDZIP error: {e}"))?;
     Ok(cursor.into_inner())
@@ -825,26 +864,26 @@ pub fn export_gedzip(gedcom: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8
 
 /// A GEDZIP archive written directly to a local file.
 pub struct GedzipFileWriter {
-    writer: ged_io::gedzip::GedzipWriter<std::fs::File>,
+    writer: zip::ZipWriter<std::fs::File>,
 }
 
 impl GedzipFileWriter {
     /// Create an archive and write its mandatory `gedcom.ged` entry.
     pub fn create(path: &std::path::Path, gedcom: &str) -> Result<Self, String> {
         let file = std::fs::File::create(path).map_err(|e| format!("GEDZIP error: {e}"))?;
-        let mut writer =
-            ged_io::gedzip::GedzipWriter::new(file).map_err(|e| format!("GEDZIP error: {e}"))?;
-        writer
-            .write_gedcom_bytes(gedcom.as_bytes())
-            .map_err(|e| format!("GEDZIP error: {e}"))?;
+        let mut writer = zip::ZipWriter::new(file);
+        write_gedcom_entry(&mut writer, gedcom)?;
         Ok(Self { writer })
     }
 
     /// Add one media entry. Callers can release `bytes` before loading the next.
-    pub fn add_media_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
-        self.writer
-            .add_media_file(path, bytes)
-            .map_err(|e| format!("GEDZIP error: {e}"))
+    pub fn add_media_file(
+        &mut self,
+        path: &str,
+        mime_type: &str,
+        bytes: &[u8],
+    ) -> Result<(), String> {
+        write_media_entry(&mut self.writer, path, mime_type, bytes)
     }
 
     /// Finalize the ZIP central directory and flush the output file.
@@ -853,6 +892,41 @@ impl GedzipFileWriter {
             .finish()
             .map(|_| ())
             .map_err(|e| format!("GEDZIP error: {e}"))
+    }
+}
+
+fn write_gedcom_entry<W: std::io::Write + std::io::Seek>(
+    writer: &mut zip::ZipWriter<W>,
+    gedcom: &str,
+) -> Result<(), String> {
+    let options = zip::write::FileOptions::<()>::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    writer
+        .start_file(ged_io::gedzip::GEDCOM_FILENAME, options)
+        .map_err(|e| format!("GEDZIP error: {e}"))?;
+    std::io::Write::write_all(writer, gedcom.as_bytes()).map_err(|e| format!("GEDZIP error: {e}"))
+}
+
+fn write_media_entry<W: std::io::Write + std::io::Seek>(
+    writer: &mut zip::ZipWriter<W>,
+    path: &str,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let options = zip::write::FileOptions::<()>::default()
+        .compression_method(media_compression_method(mime_type));
+    writer
+        .start_file(path, options)
+        .map_err(|e| format!("GEDZIP error: {e}"))?;
+    std::io::Write::write_all(writer, bytes).map_err(|e| format!("GEDZIP error: {e}"))
+}
+
+fn media_compression_method(mime_type: &str) -> zip::CompressionMethod {
+    match mime_type {
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "application/pdf" => {
+            zip::CompressionMethod::Stored
+        }
+        _ => zip::CompressionMethod::Deflated,
     }
 }
 
@@ -1566,34 +1640,38 @@ fn inject_event_media_links(
     gedcom: String,
     insertions_by_record: HashMap<String, Vec<EventMediaInsertion>>,
 ) -> String {
+    let extra_capacity = insertions_by_record
+        .values()
+        .flatten()
+        .flat_map(|insertion| &insertion.references)
+        .map(|reference| "2 OBJE \n".len() + reference.len())
+        .sum::<usize>();
     let mut pending: HashMap<String, VecDeque<EventMediaInsertion>> = insertions_by_record
         .into_iter()
         .map(|(xref, insertions)| (xref, insertions.into()))
         .collect();
-    let mut current_record = None::<String>;
-    let mut output = Vec::<String>::new();
+    let mut current_record = None::<&str>;
+    let mut output = String::with_capacity(gedcom.len() + extra_capacity);
 
     for line in gedcom.lines() {
-        output.push(line.to_string());
-        let fields: Vec<_> = line.split_whitespace().collect();
-        let Some(level) = fields.first().and_then(|value| value.parse::<u8>().ok()) else {
-            continue;
-        };
+        output.push_str(line);
+        output.push('\n');
 
-        if level == 0 {
-            current_record = match fields.as_slice() {
-                [_, xref, "INDI" | "FAM", ..] if pending.contains_key(*xref) => {
-                    Some((*xref).to_string())
-                }
+        if let Some(header) = line.strip_prefix("0 ") {
+            let mut fields = header.split_whitespace();
+            let xref = fields.next();
+            let tag = fields.next();
+            current_record = match (xref, tag) {
+                (Some(xref), Some("INDI" | "FAM")) if pending.contains_key(xref) => Some(xref),
                 _ => None,
             };
             continue;
         }
 
-        if level != 1 {
+        let (Some(record), Some(detail)) = (current_record, line.strip_prefix("1 ")) else {
             continue;
-        }
-        let (Some(record), Some(tag)) = (current_record.as_deref(), fields.get(1)) else {
+        };
+        let Some(tag) = detail.split_whitespace().next() else {
             continue;
         };
         let Some(queue) = pending.get_mut(record) else {
@@ -1602,18 +1680,19 @@ fn inject_event_media_links(
         let Some(next) = queue.front() else {
             continue;
         };
-        if next.tag != *tag {
+        if next.tag != tag {
             continue;
         }
         let next = queue.pop_front().expect("event media insertion exists");
         for reference in next.references {
-            output.push(format!("2 OBJE {reference}"));
+            output.push_str("2 OBJE ");
+            output.push_str(&reference);
+            output.push('\n');
         }
     }
 
-    let mut output = output.join("\n");
-    if gedcom.ends_with('\n') {
-        output.push('\n');
+    if !gedcom.ends_with('\n') {
+        output.pop();
     }
     output
 }
@@ -1692,6 +1771,71 @@ mod tests {
     }
 
     #[test]
+    fn a_family_citation_survives_an_export_and_a_re_import() {
+        let tree_id = Uuid::now_v7();
+        let now = chrono::Utc::now();
+        let family = Family {
+            id: Uuid::now_v7(),
+            tree_id,
+            privacy: Privacy::Public,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        let source = Source {
+            id: Uuid::now_v7(),
+            tree_id,
+            title: "Municipal register".to_string(),
+            author: None,
+            publisher: None,
+            abbreviation: None,
+            repository_name: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        let citation = Citation {
+            id: Uuid::now_v7(),
+            source_id: source.id,
+            person_id: None,
+            event_id: None,
+            family_id: Some(family.id),
+            page: Some("folio 12".to_string()),
+            confidence: Confidence::High,
+            text: None,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let export = export_gedcom(
+            &[],
+            &[],
+            std::slice::from_ref(&family),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&source),
+            std::slice::from_ref(&citation),
+            &[],
+            &[],
+            &[],
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+
+        let imported = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7())
+            .expect("imports exported GEDCOM");
+        assert_eq!(imported.citations.len(), 1);
+        assert!(imported.citations[0].family_id.is_some());
+        assert_eq!(imported.citations[0].page.as_deref(), Some("folio 12"));
+    }
+
+    #[test]
     fn a_medium_we_hold_is_filed_under_its_id_so_two_photo_jpgs_can_coexist() {
         let first = medium("photo.jpg", "image/jpeg", true);
         let second = medium("photo.jpg", "image/jpeg", true);
@@ -1761,15 +1905,46 @@ mod tests {
         );
         assert!(!export.gedcom.contains("C:\\Photos"));
 
-        let bytes =
-            export_gedzip(&export.gedcom, &[(path.clone(), b"JPEGBYTES".to_vec())]).expect("zips");
+        let bytes = export_gedzip(
+            &export.gedcom,
+            &[(
+                path.clone(),
+                "image/jpeg".to_string(),
+                b"JPEGBYTES".to_vec(),
+            )],
+        )
+        .expect("zips");
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
+        assert_eq!(
+            archive
+                .by_name(ged_io::gedzip::GEDCOM_FILENAME)
+                .expect("GEDCOM entry")
+                .compression(),
+            zip::CompressionMethod::Deflated
+        );
         // The bug this pins: the archive used to hold gedcom.ged and nothing
         // else, so every photograph was silently dropped on export.
         let mut entry = archive.by_name(&path).expect("the photo travelled");
+        assert_eq!(entry.compression(), zip::CompressionMethod::Stored);
         let mut held = Vec::new();
         std::io::Read::read_to_end(&mut entry, &mut held).expect("reads");
         assert_eq!(held, b"JPEGBYTES");
+    }
+
+    #[test]
+    fn a_bitmap_is_compressed_inside_a_gedzip() {
+        let bytes = export_gedzip(
+            "0 HEAD\n0 TRLR\n",
+            &[(
+                "media/scan.bmp".to_string(),
+                "image/bmp".to_string(),
+                vec![0; 1024],
+            )],
+        )
+        .expect("writes GEDZIP");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
+        let entry = archive.by_name("media/scan.bmp").expect("bitmap entry");
+        assert_eq!(entry.compression(), zip::CompressionMethod::Deflated);
     }
 
     #[test]
@@ -1877,8 +2052,15 @@ mod tests {
         assert!(export.gedcom.contains("1 NOTE First line"));
         assert!(export.gedcom.contains("2 CONT Second line"));
 
-        let archive = export_gedzip(&export.gedcom, &[(archive_path, b"IMAGE BYTES".to_vec())])
-            .expect("creates GEDZIP");
+        let archive = export_gedzip(
+            &export.gedcom,
+            &[(
+                archive_path,
+                "image/jpeg".to_string(),
+                b"IMAGE BYTES".to_vec(),
+            )],
+        )
+        .expect("creates GEDZIP");
         let imported_archive =
             crate::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports GEDZIP");
         assert_eq!(imported_archive.files.len(), 1);
@@ -2089,8 +2271,11 @@ mod tests {
             export.gedcom
         );
 
-        let archive =
-            export_gedzip(&export.gedcom, &[(path, b"JPEGBYTES".to_vec())]).expect("writes GEDZIP");
+        let archive = export_gedzip(
+            &export.gedcom,
+            &[(path, "image/jpeg".to_string(), b"JPEGBYTES".to_vec())],
+        )
+        .expect("writes GEDZIP");
         let imported = crate::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports");
         let back = imported.result;
 

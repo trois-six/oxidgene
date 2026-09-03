@@ -2569,9 +2569,15 @@ mod gedzip_tests {
     }
 
     fn archive(gedcom: &str, files: &[(&str, &[u8])]) -> Vec<u8> {
-        let files: Vec<(String, Vec<u8>)> = files
+        let files: Vec<(String, String, Vec<u8>)> = files
             .iter()
-            .map(|(name, bytes)| ((*name).to_string(), (*bytes).to_vec()))
+            .map(|(name, bytes)| {
+                (
+                    (*name).to_string(),
+                    "application/octet-stream".to_string(),
+                    (*bytes).to_vec(),
+                )
+            })
             .collect();
         crate::export::export_gedzip(gedcom, &files).expect("writes the archive")
     }
