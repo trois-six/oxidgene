@@ -132,10 +132,26 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 | `GET` | `/trees/{tree_id}/persons/search` | Server-side person search with structured filters, sorting, and offset pagination (see below) |
 | `GET` | `/trees/{tree_id}/persons/sosa/{number}` | Resolve a SOSA number to a person (relative to `Tree.sosa_root_person_id`) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}` | Get a person (with names, events, families) |
+| `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}` | Update a person |
 | `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Soft-delete a person |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/ancestors` | Get ancestors (depth param) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/descendants` | Get descendants (depth param) |
+| `POST` | `/trees/{tree_id}/relation-labels` | Load names and spouse links for bounded `person_ids` and `family_ids` sets |
+
+The detail bundle contains the person, their direct parental and conjugal
+families, and parents' other unions needed to represent half-siblings. It
+includes names and timeline events for that neighborhood, only the places
+referenced by those events, citations attached to the requested person or an
+included event, and only the sources referenced by those citations. It also
+contains media attached directly to the person or their conjugal families,
+vignettes identifying the person, event media links, and one display-ready
+gallery bundle for those bounded sets. It never expands these collections to
+all records in the tree.
+
+Relation-label requests accept at most 1,024 combined person and family IDs.
+Clients split larger logical sets into consecutive requests. Results are
+strictly scoped to active people and families in the requested tree.
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Modal](ui-person-edit-modal.md) (edit/delete)
 
@@ -223,6 +239,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/media` | Create a media record from JSON metadata — names a file without holding it |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
+| `POST` | `/trees/{tree_id}/gallery-bundle` | Load gallery data for `{media_ids, vignette_ids}`: thumbnail sources, linked event ids, up to four document-page previews, and cropped vignette sources |
 | `GET` | `/trees/{tree_id}/media/{media_id}/pages` | A document's pages, in order |
 | `PUT` | `/trees/{tree_id}/media/{media_id}/pages` | Set the page order (`{page_ids: [...]}`). Must name exactly this document's pages, once each — a partial list is refused rather than guessed at |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Detach a page as an ordinary media. Its attachments, identifications, and portrait references are removed; its bytes and transcript remain; remaining pages close the gap |
@@ -237,6 +254,13 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Permanently delete the media, its related rows and unshared stored objects. With `?only_if_unreferenced_elsewhere=true&allowed_link_id={link_id}`, keep it when any reference other than that gallery link remains (`204` deleted, `200` retained) |
 
 GraphQL mirrors the status endpoint with `canDeleteMedia(treeId:, id:, allowedLinkId:)`, returning the same eligibility boolean before `deleteMedia` is called.
+
+The gallery bundle accepts at most 1,024 media and vignette ids combined. It
+resolves each database collection in one query and reads blobs with bounded
+concurrency. Clients split larger galleries into as many bundles as necessary.
+The per-media thumbnail, page-list, and vignette-image endpoints remain for a
+viewer or editor that opens one selected asset; the initial grid does not call
+them once per tile.
 
 **Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 128 MiB — comfortably above what the services we exchange with take (Geneanet caps a media file at 50 MB and accepts only JPEG, PNG, GIF and PDF), because a 1200 dpi register spread or a few-hundred-page dossier clears 64 MiB unremarkably. Larger still is EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
 
@@ -282,24 +306,27 @@ reads these values yet; see [Data Model](data-model.md) (Privacy).
 |---|---|---|
 | `PUT` | `/trees/{tree_id}/persons/{person_id}/portrait` | Choose what represents a person: `{media_id}`, `{vignette_id}`, or `{}` to clear it. Both ids together is a `400` — a portrait is a media or a crop, never both |
 | `GET` | `/trees/{tree_id}/portraits` | Every person's portrait in the tree, as `{person_id, media_id?, vignette_id?, file_path, has_thumbnail}` |
+| `POST` | `/trees/{tree_id}/portrait-images` | Load display-ready portraits for `{person_ids: [...]}` in one bounded operation, returning `{person_id, source}` rows |
 
 Replaces `PUT /media-links/{link_id}/profile`, and `MediaLink` no longer carries
 `is_profile`. The portrait is a property of the *person* — see
 [Data Model](data-model.md) (Person) for why — so setting one is a single write
 and needs no clearing pass over the person's other links.
 
-`GET /portraits` exists because a pedigree draws a hundred cards and a profile
-page draws one avatar from the same answer; before the move this was read out of
-the tree-wide media-link list, shipping every link in the tree so that a few
-could be recognised as portraits. A crop is resolved through the scan it sits
-on, so `has_thumbnail` answers for both shapes and a caller never asks twice.
+`GET /portraits` exposes the complete portrait assignments as an inventory
+operation. First-party display surfaces do not use it: a pedigree, result page,
+or picker generally needs portraits for only a bounded set of people.
 
-**Drawing one.** In order: a `vignette_id` means the cropped image
-(`/vignettes/{id}/image`); otherwise `has_thumbnail` means our own thumbnail;
-otherwise an `http(s)` `file_path` is a remote media we recorded and never
-fetched. Anything else has no portrait to draw. `file_path` is never itself a
-URL to load — it is the producer's own path, kept verbatim so an export
-round-trips.
+**Drawing portraits.** Screens submit the person ids they need to
+`POST /portrait-images` rather than loading the portrait inventory or
+downloading one image per person. The operation accepts at most 1,024 ids,
+resolves them in one database query, and returns locally held thumbnails or
+cropped vignettes as data URLs.
+Remote portraits retain their `http(s)` source; unavailable portraits are
+omitted. Clients split larger sets into as many requests of at most 1,024 ids
+as necessary. The individual thumbnail and vignette image endpoints remain for
+single-image media workflows. `file_path` is never itself assumed to be a URL:
+it is the producer's own path, kept verbatim so an export round-trips.
 
 ### Media Links
 
@@ -493,9 +520,12 @@ is compressed at build time, and is loaded once in memory.
 |---|---|---|
 | `GET` | `/reference/{lang}/occupations?term=...` | Occupation fiche (label, summary, text) for `lang` (`fr`/`en`); 404 if none |
 | `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
+| `POST` | `/reference/{lang}/given-names/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
 
 These routes sit at `/api/v1/reference/...`, not under a tree. Used by:
-[Person Profile](ui-person-profile.md).
+[Person Profile](ui-person-profile.md). A physical batch accepts at most 128
+terms. Clients split larger logical operations into consecutive batches and
+merge every response; they never truncate terms at the limit.
 
 ### Update semantics — omitted vs `null`
 
@@ -554,10 +584,13 @@ type Query {
   # Persons
   persons(treeId: ID!, first: Int, after: String, search: String): PersonConnection!
   person(treeId: ID!, id: ID!): Person
+  personDetailBundle(treeId: ID!, personId: ID!): PersonDetailBundle!
+  relationLabels(treeId: ID!, personIds: [ID!]!, familyIds: [ID!]!): RelationLabels!
   personBySosa(treeId: ID!, number: Int!): Person
   ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   descendants(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   portraits(treeId: ID!): [Portrait!]!
+  portraitImages(treeId: ID!, personIds: [ID!]!): [PortraitImage!]!
 
   # Dictionary and static reference content
   dictionaryFamilyNames(treeId: ID!): [DictionaryEntry!]!
@@ -571,6 +604,7 @@ type Query {
   placeUsage(placeId: ID!): [PersonUsageEntry!]!
   occupationReference(language: String!, term: String!): OccupationReference
   givenNameReference(language: String!, term: String!): GivenNameReference
+  givenNameReferences(language: String!, terms: [String!]!): [GivenNameReferenceMatch!]!
 
   # Geneanet import wizard (the archive path operation is desktop-only)
   inspectGeneweb(gwBase64: String!, fileName: String!): GeneanetInspection!
@@ -620,6 +654,7 @@ type Query {
   # Media
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
   media(treeId: ID!, id: ID!): Media
+  galleryBundle(treeId: ID!, mediaIds: [ID!]!, vignetteIds: [ID!]!): GalleryBundle!
 
   # Media galleries
   entityMedia(treeId: ID!, entityType: String!, entityId: ID!): [MediaWithLink!]!

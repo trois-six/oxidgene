@@ -108,17 +108,6 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let mut query = use_signal(String::new);
     let tree_id = props.tree_id;
 
-    let api_portraits = api.clone();
-    let portraits_resource = use_ui_resource("search_portraits", move || {
-        let api = api_portraits.clone();
-        async move {
-            match api.list_portraits(tree_id).await {
-                Ok(rows) => api.portrait_map(tree_id, &rows).await,
-                Err(_) => Default::default(),
-            }
-        }
-    });
-
     let placeholder = if props.placeholder.is_empty() {
         i18n.t("search.placeholder")
     } else {
@@ -147,6 +136,25 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
             }
             api.search_persons(tree_id, &q, 20, 0).await
         }
+    });
+
+    let api_portraits = api.clone();
+    let search_for_portraits = search_resource;
+    let portraits_resource = use_ui_resource("search_portraits", move || {
+        let api = api_portraits.clone();
+        let person_ids = search_for_portraits
+            .read()
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .map(|result| {
+                result
+                    .entries
+                    .iter()
+                    .map(|entry| entry.person_id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        async move { api.portrait_map_for_ids(tree_id, &person_ids).await }
     });
 
     let results: Vec<SearchEntry> = {

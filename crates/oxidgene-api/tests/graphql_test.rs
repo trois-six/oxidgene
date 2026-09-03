@@ -50,12 +50,160 @@ async fn graphql(app: axum::Router, query: &str, variables: Option<Value>) -> Va
     serde_json::from_slice(&bytes).unwrap()
 }
 
+#[tokio::test]
+async fn given_name_reference_batch_matches_rest_bounds() {
+    let app = setup_app().await;
+    let response = graphql(
+        app.clone(),
+        r#"{
+            givenNameReferences(
+                language: "fr"
+                terms: ["Jean", "Marie", "Jean", "__unknown__"]
+            ) { term reference { label } }
+        }"#,
+        None,
+    )
+    .await;
+    let response = data(&response);
+    assert_eq!(response["givenNameReferences"].as_array().unwrap().len(), 2);
+    assert_eq!(response["givenNameReferences"][0]["term"], "Jean");
+    assert_eq!(response["givenNameReferences"][1]["term"], "Marie");
+
+    let terms = (0..129)
+        .map(|index| format!("\"{index}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let response = graphql(
+        app,
+        &format!("{{ givenNameReferences(language: \"fr\", terms: [{terms}]) {{ term }} }}"),
+        None,
+    )
+    .await;
+    assert!(
+        response["errors"]
+            .as_array()
+            .is_some_and(|errors| !errors.is_empty()),
+        "oversized batch should be rejected: {response}"
+    );
+}
+
+#[tokio::test]
+async fn relation_labels_query_is_bounded() {
+    let app = setup_app().await;
+    let response = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Relation labels" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&response)["createTree"]["id"].as_str().unwrap();
+    let ids = (0..1_025)
+        .map(|_| format!("\"{}\"", uuid::Uuid::now_v7()))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let response = graphql(
+        app,
+        &format!(
+            "{{ relationLabels(treeId: \"{tree_id}\", personIds: [{ids}], familyIds: []) {{ names {{ id }} }} }}"
+        ),
+        None,
+    )
+    .await;
+    assert!(
+        response["errors"]
+            .as_array()
+            .is_some_and(|errors| !errors.is_empty()),
+        "oversized batch should be rejected: {response}"
+    );
+}
+
 /// Helper: extract `data` field from a GraphQL response, panicking on errors.
 fn data(resp: &Value) -> &Value {
     if let Some(errors) = resp.get("errors") {
         panic!("GraphQL errors: {errors}");
     }
     resp.get("data").expect("missing 'data' in response")
+}
+
+#[tokio::test]
+async fn person_detail_bundle_query_excludes_unrelated_person_citations() {
+    let app = setup_app().await;
+    let response = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Scoped detail" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&response)["createTree"]["id"].as_str().unwrap();
+
+    let mut person_ids = Vec::new();
+    for _ in 0..2 {
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: UNKNOWN }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        person_ids.push(
+            data(&response)["createPerson"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+
+    let mut source_ids = Vec::new();
+    for title in ["Relevant register", "Unrelated register"] {
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createSource(treeId: "{tree_id}", input: {{ title: "{title}" }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        source_ids.push(
+            data(&response)["createSource"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+
+    for index in 0..2 {
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createCitation(treeId: "{tree_id}", input: {{ sourceId: "{}", personId: "{}", confidence: HIGH }}) {{ id }} }}"#,
+                source_ids[index], person_ids[index]
+            ),
+            None,
+        )
+        .await;
+        assert!(data(&response)["createCitation"]["id"].is_string());
+    }
+
+    let response = graphql(
+        app,
+        &format!(
+            r#"query {{ personDetailBundle(treeId: "{tree_id}", personId: "{}") {{ persons {{ id }} citations {{ sourceId }} sources {{ id }} profileMedia {{ linkId media {{ id }} }} profileVignettes {{ id }} }} }}"#,
+            person_ids[0]
+        ),
+        None,
+    )
+    .await;
+    let bundle = &data(&response)["personDetailBundle"];
+    assert_eq!(bundle["persons"].as_array().unwrap().len(), 1);
+    assert_eq!(bundle["persons"][0]["id"], person_ids[0]);
+    assert_eq!(bundle["citations"].as_array().unwrap().len(), 1);
+    assert_eq!(bundle["citations"][0]["sourceId"], source_ids[0]);
+    assert_eq!(bundle["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(bundle["sources"][0]["id"], source_ids[0]);
+    assert_eq!(bundle["profileMedia"], serde_json::json!([]));
+    assert_eq!(bundle["profileVignettes"], serde_json::json!([]));
 }
 
 #[tokio::test]
@@ -316,7 +464,7 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
 
     let portraits = data(
         &graphql(
-            app,
+            app.clone(),
             &format!(
                 r#"{{ portraits(treeId: "{tree_id}") {{ personId mediaId vignetteId hasThumbnail }} }}"#
             ),
@@ -332,6 +480,48 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
     assert_eq!(portraits[0]["mediaId"], media_id);
     assert!(portraits[0]["vignetteId"].is_null());
     assert_eq!(portraits[0]["hasThumbnail"], true);
+
+    let images = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ personId source }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["portraitImages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0]["personId"], person_id);
+    assert!(
+        images[0]["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/")
+    );
+
+    let bundle = data(
+        &graphql(
+            app,
+            &format!(
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{media_id}"], vignetteIds: []) {{ media {{ mediaId source eventIds documentPreviews }} vignettes {{ vignetteId source }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["galleryBundle"]
+        .clone();
+    assert_eq!(bundle["media"].as_array().unwrap().len(), 1);
+    assert_eq!(bundle["media"][0]["mediaId"], media_id);
+    assert!(
+        bundle["media"][0]["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/")
+    );
 }
 
 #[tokio::test]

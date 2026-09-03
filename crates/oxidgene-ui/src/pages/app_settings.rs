@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use crate::api::ApiClient;
 use crate::components::layout::set_theme;
 use crate::i18n::{self, Language, use_i18n};
-use crate::prefs::{SortParticles, set_sort_particles};
+use crate::prefs::{PedigreeDefaults, SortParticles, set_pedigree_defaults, set_sort_particles};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_ui_load_trace};
 
@@ -14,6 +14,7 @@ use crate::ui_observability::{UiPage, use_ui_load_trace};
 enum Section {
     Appearance,
     Language,
+    Pedigree,
     Names,
     Api,
 }
@@ -25,6 +26,7 @@ pub fn AppSettings() -> Element {
     let is_dark = use_context::<Signal<bool>>();
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
+    let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
 
     let mut active_section = use_signal(|| Section::Appearance);
 
@@ -65,6 +67,11 @@ pub fn AppSettings() -> Element {
                             {i18n.t("app_settings.language")}
                         }
                         button {
+                            class: if *active_section.read() == Section::Pedigree { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set(Section::Pedigree),
+                            {i18n.t("app_settings.pedigree")}
+                        }
+                        button {
                             class: if *active_section.read() == Section::Names { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set(Section::Names),
                             {i18n.t("app_settings.names")}
@@ -85,6 +92,9 @@ pub fn AppSettings() -> Element {
                         },
                         Section::Language => rsx! {
                             LanguageSection { lang_signal }
+                        },
+                        Section::Pedigree => rsx! {
+                            PedigreeDefaultsSection { pedigree_defaults }
                         },
                         Section::Names => rsx! {
                             NamesSection { sort_particles }
@@ -207,6 +217,99 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
     }
 }
 
+// ── Pedigree section ────────────────────────────────────────────────────────
+
+#[component]
+pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults>>) -> Element {
+    let i18n = use_i18n();
+    let current = (*pedigree_defaults.read()).unwrap_or_default();
+
+    rsx! {
+        div { class: "settings-section",
+            span { class: "settings-section-eyebrow", {i18n.t("app_settings.pedigree")} }
+            h2 { class: "settings-section-title", {i18n.t("app_settings.pedigree_title")} }
+            p { class: "settings-section-subtitle", {i18n.t("app_settings.pedigree_desc")} }
+
+            div { class: "app-settings-card",
+                div { class: "app-settings-option",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.ancestor_levels")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.ancestor_levels_hint")} }
+                    }
+                    div { class: "pedigree-depth-stepper",
+                        button {
+                            class: "pedigree-depth-btn",
+                            disabled: current.ancestor_levels == 0,
+                            title: i18n.t("app_settings.decrease_ancestor_levels"),
+                            aria_label: i18n.t("app_settings.decrease_ancestor_levels"),
+                            onclick: move |_| set_pedigree_defaults(
+                                pedigree_defaults,
+                                PedigreeDefaults {
+                                    ancestor_levels: current.ancestor_levels.saturating_sub(1),
+                                    ..current
+                                },
+                            ),
+                            "-"
+                        }
+                        span { class: "pedigree-depth-value", "{current.ancestor_levels}" }
+                        button {
+                            class: "pedigree-depth-btn",
+                            disabled: current.ancestor_levels >= crate::prefs::MAX_PEDIGREE_LEVELS,
+                            title: i18n.t("app_settings.increase_ancestor_levels"),
+                            aria_label: i18n.t("app_settings.increase_ancestor_levels"),
+                            onclick: move |_| set_pedigree_defaults(
+                                pedigree_defaults,
+                                PedigreeDefaults {
+                                    ancestor_levels: current.ancestor_levels + 1,
+                                    ..current
+                                },
+                            ),
+                            "+"
+                        }
+                    }
+                }
+                div { class: "app-settings-option",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.descendant_levels")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.descendant_levels_hint")} }
+                    }
+                    div { class: "pedigree-depth-stepper",
+                        button {
+                            class: "pedigree-depth-btn",
+                            disabled: current.descendant_levels == 0,
+                            title: i18n.t("app_settings.decrease_descendant_levels"),
+                            aria_label: i18n.t("app_settings.decrease_descendant_levels"),
+                            onclick: move |_| set_pedigree_defaults(
+                                pedigree_defaults,
+                                PedigreeDefaults {
+                                    descendant_levels: current.descendant_levels.saturating_sub(1),
+                                    ..current
+                                },
+                            ),
+                            "-"
+                        }
+                        span { class: "pedigree-depth-value", "{current.descendant_levels}" }
+                        button {
+                            class: "pedigree-depth-btn",
+                            disabled: current.descendant_levels >= crate::prefs::MAX_PEDIGREE_LEVELS,
+                            title: i18n.t("app_settings.increase_descendant_levels"),
+                            aria_label: i18n.t("app_settings.increase_descendant_levels"),
+                            onclick: move |_| set_pedigree_defaults(
+                                pedigree_defaults,
+                                PedigreeDefaults {
+                                    descendant_levels: current.descendant_levels + 1,
+                                    ..current
+                                },
+                            ),
+                            "+"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ── API section ─────────────────────────────────────────────────────────────
 
 #[component]
@@ -311,6 +414,52 @@ pub(crate) const APP_SETTINGS_WIDGET_STYLES: &str = r#"
         display: flex;
         flex-direction: column;
         gap: 0.15rem;
+    }
+
+    .app-settings-option + .app-settings-option {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+    }
+
+    .pedigree-depth-stepper {
+        display: grid;
+        grid-template-columns: 2rem 2.5rem 2rem;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+
+    .pedigree-depth-btn {
+        width: 2rem;
+        height: 2rem;
+        border: none;
+        background: none;
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 1rem;
+    }
+
+    .pedigree-depth-btn:hover:not(:disabled) {
+        background: var(--bg-card-hover);
+    }
+
+    .pedigree-depth-btn:disabled {
+        color: var(--text-muted);
+        cursor: default;
+        opacity: 0.5;
+    }
+
+    .pedigree-depth-value {
+        line-height: 2rem;
+        text-align: center;
+        border-right: 1px solid var(--border);
+        border-left: 1px solid var(--border);
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
     }
 
     .app-settings-option-label {

@@ -4,13 +4,14 @@
 //! a matching fiche exists in `/api/v1/reference` (backend module
 //! `oxidgene-api::reference`) — shows it on hover. Resolves eagerly on
 //! mount (not on hover) so a term with no fiche renders as plain, unstyled
-//! text: no help cursor, no bubble, nothing. Terms are few per page and the
-//! response is cached client-side, so this costs at most a couple of small,
-//! cached GET requests per page visit.
+//! text: no help cursor, no bubble, nothing. Given-name fields resolve all
+//! their tokens through one bounded batch operation.
+
+use std::collections::HashMap;
 
 use dioxus::prelude::*;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, GivenNameReference};
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 
@@ -29,10 +30,21 @@ const HIDE_DELAY_MS: u64 = 150;
 
 /// One fetched fiche's display fields, already shaped for rendering
 /// regardless of which reference table it came from.
+#[derive(Clone, PartialEq)]
 struct FicheContent {
     label: String,
     meta: String,
     text: String,
+}
+
+impl From<GivenNameReference> for FicheContent {
+    fn from(reference: GivenNameReference) -> Self {
+        Self {
+            label: reference.label,
+            meta: format!("{} — {}", reference.origin, reference.meaning),
+            text: reference.text,
+        }
+    }
 }
 
 /// Wraps `children` so hovering over them shows a reference tooltip for
@@ -68,11 +80,7 @@ pub fn ReferenceHover(kind: ReferenceKind, term: String, children: Element) -> E
                     .await
                     .ok()
                     .flatten()
-                    .map(|r| FicheContent {
-                        label: r.label,
-                        meta: format!("{} — {}", r.origin, r.meaning),
-                        text: r.text,
-                    }),
+                    .map(Into::into),
             }
         }
     });
@@ -83,6 +91,11 @@ pub fn ReferenceHover(kind: ReferenceKind, term: String, children: Element) -> E
         return rsx! { {children} };
     };
 
+    rsx! { FicheHover { fiche: fiche.clone(), {children} } }
+}
+
+#[component]
+fn FicheHover(fiche: FicheContent, children: Element) -> Element {
     let mut visible = use_signal(|| false);
     let mut pos = use_signal(|| (0.0_f64, 0.0_f64));
     let mut hover_gen = use_signal(|| 0_u64);
@@ -154,20 +167,48 @@ fn split_given_name_tokens(given: &str) -> Vec<(String, String)> {
     tokens
 }
 
-/// Renders a (possibly multi-word / hyphen-compound) given-names field with
-/// each individual first name wrapped in its own [`ReferenceHover`] — so
-/// hovering "Marie" in "Louis Marie Emile Augustin" shows Marie's meaning,
-/// not whichever name happens to be first. Original spacing/hyphenation is
-/// preserved between tokens.
+/// Renders a (possibly multi-word / hyphen-compound) given-names field after
+/// resolving all individual names in one batch. Each resolved token gets its
+/// own hover target, and original spacing/hyphenation is preserved.
 #[component]
 pub fn GivenNamesHover(given_names: String) -> Element {
     let tokens = split_given_name_tokens(&given_names);
+    let terms_for_fetch = tokens
+        .iter()
+        .map(|(word, _)| word.clone())
+        .collect::<Vec<_>>();
+    let api = use_context::<ApiClient>();
+    let lang_code = use_i18n().0.code().to_string();
+    let references = use_ui_resource("given_name_reference_bundle", move || {
+        let api = api.clone();
+        let lang_code = lang_code.clone();
+        let terms = terms_for_fetch.clone();
+        async move {
+            api.reference_given_names(&lang_code, &terms)
+                .await
+                .unwrap_or_default()
+        }
+    });
+    let fiches = references
+        .read()
+        .as_ref()
+        .map(|matches| {
+            matches
+                .iter()
+                .cloned()
+                .map(|result| (result.term, result.reference.into()))
+                .collect::<HashMap<String, FicheContent>>()
+        })
+        .unwrap_or_default();
     rsx! {
         for (i, (word, sep)) in tokens.into_iter().enumerate() {
-            ReferenceHover {
-                key: "given-{i}-{word}",
-                kind: ReferenceKind::GivenName,
-                term: word.clone(),
+            if let Some(fiche) = fiches.get(&word) {
+                FicheHover {
+                    key: "given-{i}-{word}",
+                    fiche: fiche.clone(),
+                    "{word}"
+                }
+            } else {
                 "{word}"
             }
             if !sep.is_empty() {

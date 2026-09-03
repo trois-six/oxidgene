@@ -58,7 +58,7 @@ async fn create_person(db: &DatabaseConnection, tree_id: Uuid) -> Uuid {
     id
 }
 
-type CapturedDbSpan = (String, Vec<String>);
+type CapturedDbSpan = (String, Vec<(String, String)>);
 type CapturedDbSpanList = Arc<Mutex<Vec<CapturedDbSpan>>>;
 
 #[derive(Clone, Default)]
@@ -75,35 +75,67 @@ where
         _context: Context<'_, S>,
     ) {
         #[derive(Default)]
-        struct FieldNames(Vec<String>);
+        struct Fields(Vec<(String, String)>);
 
-        impl Visit for FieldNames {
-            fn record_debug(
-                &mut self,
-                field: &tracing::field::Field,
-                _value: &dyn std::fmt::Debug,
-            ) {
-                self.0.push(field.name().to_string());
+        impl Visit for Fields {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                self.0
+                    .push((field.name().to_string(), format!("{value:?}")));
+            }
+
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                self.0.push((field.name().to_string(), value.to_string()));
             }
         }
 
-        let mut fields = FieldNames::default();
+        let mut fields = Fields::default();
         attributes.record(&mut fields);
         self.0
             .lock()
             .expect("capture lock")
             .push((attributes.metadata().name().to_string(), fields.0));
     }
+
+    fn on_record(
+        &self,
+        id: &tracing::span::Id,
+        values: &tracing::span::Record<'_>,
+        context: Context<'_, S>,
+    ) {
+        #[derive(Default)]
+        struct Fields(Vec<(String, String)>);
+
+        impl Visit for Fields {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                self.0
+                    .push((field.name().to_string(), format!("{value:?}")));
+            }
+
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                self.0.push((field.name().to_string(), value.to_string()));
+            }
+        }
+
+        let mut fields = Fields::default();
+        values.record(&mut fields);
+        let name = context
+            .span(id)
+            .map(|span| span.metadata().name().to_string())
+            .unwrap_or_default();
+        self.0.lock().expect("capture lock").push((name, fields.0));
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn database_spans_exclude_sql_statements() {
+async fn database_spans_include_parameterized_sql_without_bound_values() {
     use tracing_subscriber::layer::SubscriberExt as _;
 
     let captured = CapturedDbSpans::default();
     let subscriber = tracing_subscriber::registry().with(captured.clone());
-    let _guard = tracing::subscriber::set_default(subscriber);
+    tracing::subscriber::set_global_default(subscriber).expect("install capture subscriber");
+    tracing::callsite::rebuild_interest_cache();
     let db = setup_db().await;
+    create_tree(&db).await;
 
     TreeRepo::list(&db, &PaginationParams::default())
         .await
@@ -111,10 +143,22 @@ async fn database_spans_exclude_sql_statements() {
 
     let spans = captured.0.lock().expect("capture lock");
     assert!(spans.iter().any(|(name, _)| name.starts_with("sea_orm.")));
+    let statements = spans
+        .iter()
+        .flat_map(|(_, fields)| fields)
+        .filter(|(field, _)| field == "db.statement")
+        .map(|(_, value)| value)
+        .collect::<Vec<_>>();
     assert!(
-        spans
+        statements
             .iter()
-            .all(|(_, fields)| !fields.iter().any(|field| field == "db.statement"))
+            .any(|statement| statement.to_ascii_uppercase().contains("SELECT"))
+    );
+    assert!(statements.iter().any(|statement| statement.contains('?')));
+    assert!(
+        statements
+            .iter()
+            .all(|statement| !statement.contains("Test Tree"))
     );
 }
 
@@ -1228,6 +1272,72 @@ async fn a_media_can_document_only_one_event() {
     );
 }
 
+#[tokio::test]
+async fn event_media_batch_excludes_other_events_and_deleted_media() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let person_id = create_person(&db, tree_id).await;
+    let event_ids = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
+    for event_id in event_ids {
+        EventRepo::create(
+            &db,
+            event_id,
+            tree_id,
+            EventType::Birth,
+            None,
+            None,
+            None,
+            Some(person_id),
+            None,
+            None,
+            DateQualifier::default(),
+            None,
+            Calendar::default(),
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    let media_ids = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
+    for (index, media_id) in media_ids.into_iter().enumerate() {
+        MediaRepo::create(
+            &db,
+            media_id,
+            tree_id,
+            format!("document-{index}.jpg"),
+            "image/jpeg".into(),
+            format!("/uploads/document-{index}.jpg"),
+            1024,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        MediaLinkRepo::create(
+            &db,
+            Uuid::now_v7(),
+            media_id,
+            None,
+            Some(event_ids[index]),
+            None,
+            None,
+            index as i32,
+        )
+        .await
+        .unwrap();
+    }
+    MediaRepo::delete(&db, media_ids[1]).await.unwrap();
+
+    let rows = MediaLinkRepo::list_with_media_for_events(&db, &event_ids[..2])
+        .await
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0.event_id, Some(event_ids[0]));
+    assert_eq!(rows[0].1.id, media_ids[0]);
+}
+
 // ───────────────────────── Note tests ─────────────────────────
 
 #[tokio::test]
@@ -1297,6 +1407,40 @@ async fn link_parents(db: &DatabaseConnection, tree_id: Uuid, parents: &[Uuid], 
             parent,
             SpouseRole::Husband,
             i as i32,
+        )
+        .await
+        .expect("add spouse");
+    }
+    FamilyChildRepo::create(
+        db,
+        Uuid::now_v7(),
+        family_id,
+        child,
+        ChildType::Biological,
+        0,
+    )
+    .await
+    .expect("add child");
+}
+
+async fn link_sosa_parents(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    parents: &[(Uuid, SpouseRole)],
+    child: Uuid,
+) {
+    let family_id = Uuid::now_v7();
+    FamilyRepo::create(db, family_id, tree_id)
+        .await
+        .expect("create family");
+    for (position, (parent, role)) in parents.iter().enumerate() {
+        FamilySpouseRepo::create(
+            db,
+            Uuid::now_v7(),
+            family_id,
+            *parent,
+            *role,
+            position as i32,
         )
         .await
         .expect("add spouse");
@@ -1409,6 +1553,69 @@ async fn ancestry_reports_shortest_depth_on_implex() {
         .find(|a| a.person_id == shared)
         .expect("shared ancestor present");
     assert_eq!(shared_link.depth, 1, "the shortest path wins");
+}
+
+#[tokio::test]
+async fn sosa_number_follows_parent_roles_and_ignores_partners() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let root = create_person(&db, tree_id).await;
+    let father = create_person(&db, tree_id).await;
+    let mother = create_person(&db, tree_id).await;
+    let paternal_grandfather = create_person(&db, tree_id).await;
+    let partner = create_person(&db, tree_id).await;
+    let unrelated = create_person(&db, tree_id).await;
+
+    link_sosa_parents(
+        &db,
+        tree_id,
+        &[
+            (father, SpouseRole::Husband),
+            (mother, SpouseRole::Wife),
+            (partner, SpouseRole::Partner),
+        ],
+        root,
+    )
+    .await;
+    link_sosa_parents(
+        &db,
+        tree_id,
+        &[(paternal_grandfather, SpouseRole::Husband)],
+        father,
+    )
+    .await;
+
+    for (person_id, expected) in [
+        (root, Some(1)),
+        (father, Some(2)),
+        (mother, Some(3)),
+        (paternal_grandfather, Some(4)),
+        (partner, None),
+        (unrelated, None),
+    ] {
+        assert_eq!(
+            AncestryRepo::sosa_number(&db, root, person_id)
+                .await
+                .unwrap(),
+            expected
+        );
+    }
+}
+
+#[tokio::test]
+async fn sosa_number_chooses_the_lowest_shortest_path_on_implex() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let root = create_person(&db, tree_id).await;
+    let shared = create_person(&db, tree_id).await;
+
+    link_sosa_parents(&db, tree_id, &[(shared, SpouseRole::Wife)], root).await;
+    link_sosa_parents(&db, tree_id, &[(shared, SpouseRole::Husband)], root).await;
+
+    assert_eq!(
+        AncestryRepo::sosa_number(&db, root, shared).await.unwrap(),
+        Some(2)
+    );
 }
 
 /// A cycle in the family links must not hang the walk. The schema does not

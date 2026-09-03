@@ -106,6 +106,7 @@ client spans and trace headers disabled.
 |---------|---------|
 | `just desktop` | Run the desktop application in development mode. |
 | `just desktop-telemetry [log_level]` | Start the local collector and run the desktop with OTLP enabled; the optional filter defaults to `info`. |
+| `just desktop-openobserve [log_level]` | Run the desktop with direct OTLP/gRPC export to a local OpenObserve instance. |
 | `just build-desktop-release` | Build an optimized desktop release retaining runtime-optional OTLP telemetry support. |
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` when running the desktop binary to export native
@@ -124,6 +125,15 @@ starts the Compose collector, waits for it, and points the desktop process to
 `http://127.0.0.1:4317`. Pass an optional filter when needed, for example
 `just desktop-telemetry debug` or
 `just desktop-telemetry 'info,oxidgene_api=debug,sea_orm=warn'`.
+
+For direct local OpenObserve export, set `OPENOBSERVE_BASIC_TOKEN` to the
+Base64-encoded credentials and run `just desktop-openobserve`. The recipe uses
+`http://127.0.0.1:5081`, organization `default`, and stream `oxidgene` unless
+`OPENOBSERVE_OTLP_ENDPOINT`, `OPENOBSERVE_ORGANIZATION`, or
+`OPENOBSERVE_STREAM` overrides them. Credentials must remain outside tracked
+files. An OpenObserve error stating that a stream is being deleted means the
+selected stream still has a deletion tombstone; choose another
+`OPENOBSERVE_STREAM` or wait for that deletion to complete.
 
 Production desktop releases built with `just build-desktop-release` retain the
 OpenTelemetry dependency, HTTP trace layer, and tracing callsites. Export

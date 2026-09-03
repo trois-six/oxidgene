@@ -1,6 +1,6 @@
 //! REST handlers for Person CRUD operations.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 
 use crate::profile::invalidation;
 use axum::Json;
@@ -17,75 +17,13 @@ use uuid::Uuid;
 
 use super::dto::{
     AncestryQuery, CreatePersonRequest, PaginationQuery, PersonDetailResponse, PersonSearchQuery,
-    UpdatePersonRequest,
+    PortraitImagesRequest, UpdatePersonRequest,
 };
 use super::error::ApiError;
 use super::state::{AppState, begin_tx, commit_tx};
 
 /// BFS from `sosa_root` through the ancestry graph to find the SOSA-Stradonitz
 /// number of `person_id`. Loads all family data for the tree in two queries.
-async fn compute_sosa_number(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    person_id: Uuid,
-) -> Result<Option<u64>, OxidGeneError> {
-    let tree = TreeRepo::get(db, tree_id).await?;
-    let root = match tree.sosa_root_person_id {
-        Some(r) => r,
-        None => return Ok(None),
-    };
-    if person_id == root {
-        return Ok(Some(1));
-    }
-    let families = FamilyRepo::list_all(db, tree_id).await?;
-    if families.is_empty() {
-        return Ok(None);
-    }
-    let family_ids: Vec<Uuid> = families.iter().map(|f| f.id).collect();
-    let spouses = FamilySpouseRepo::list_by_families(db, &family_ids).await?;
-    let children = FamilyChildRepo::list_by_families(db, &family_ids).await?;
-
-    let child_to_family: HashMap<Uuid, Uuid> = children
-        .iter()
-        .map(|c| (c.person_id, c.family_id))
-        .collect();
-    let mut family_parents: HashMap<Uuid, (Option<Uuid>, Option<Uuid>)> = HashMap::new();
-    for s in &spouses {
-        let e = family_parents.entry(s.family_id).or_default();
-        match s.role {
-            SpouseRole::Husband => e.0 = Some(s.person_id),
-            SpouseRole::Wife => e.1 = Some(s.person_id),
-            SpouseRole::Partner => {}
-        }
-    }
-
-    let mut queue: VecDeque<(Uuid, u64)> = VecDeque::new();
-    queue.push_back((root, 1));
-    let mut visited: HashSet<Uuid> = HashSet::new();
-    while let Some((current, sosa)) = queue.pop_front() {
-        if !visited.insert(current) {
-            continue;
-        }
-        if let Some(&family_id) = child_to_family.get(&current)
-            && let Some(&(father, mother)) = family_parents.get(&family_id)
-        {
-            if let Some(fid) = father {
-                if fid == person_id {
-                    return Ok(Some(sosa * 2));
-                }
-                queue.push_back((fid, sosa * 2));
-            }
-            if let Some(mid) = mother {
-                if mid == person_id {
-                    return Ok(Some(sosa * 2 + 1));
-                }
-                queue.push_back((mid, sosa * 2 + 1));
-            }
-        }
-    }
-    Ok(None)
-}
-
 /// Walks down from the tree's SOSA root to find the person at SOSA number
 /// `number` (root = 1, father = 2n, mother = 2n+1). Returns `Ok(None)` if
 /// the tree has no SOSA root configured, `number` is 0, or the chain breaks
@@ -197,9 +135,10 @@ pub async fn get_person(
     let person = PersonRepo::get_in_tree(&state.db, tree_id, person_id)
         .await
         .map_err(ApiError::from)?;
-    let sosa_number = compute_sosa_number(&state.db, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
+    let sosa_number =
+        crate::service::person_detail::compute_sosa_number(&state.db, tree_id, person_id)
+            .await
+            .map_err(ApiError::from)?;
     Ok(Json(
         serde_json::to_value(PersonDetailResponse {
             person,
@@ -402,4 +341,25 @@ pub async fn list_portraits(
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(rows).unwrap()))
+}
+
+/// POST /api/v1/trees/:tree_id/portrait-images
+///
+/// Resolve a bounded set of portraits and return sources ready for image
+/// elements. Locally-held images are embedded as data URLs, while remote
+/// portraits retain their original URL.
+pub async fn load_portrait_images(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<PortraitImagesRequest>,
+) -> Result<Json<Vec<crate::service::portrait::PortraitImage>>, ApiError> {
+    let images = crate::service::portrait::load_portrait_images(
+        &state.db,
+        &state.media,
+        tree_id,
+        &body.person_ids,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(images))
 }

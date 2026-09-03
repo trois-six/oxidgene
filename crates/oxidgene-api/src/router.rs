@@ -92,6 +92,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/{tree_id}/persons/search", get(person::search_persons))
         .route("/{tree_id}/portraits", get(person::list_portraits))
         .route(
+            "/{tree_id}/portrait-images",
+            post(person::load_portrait_images),
+        )
+        .route(
             "/{tree_id}/persons/{person_id}/portrait",
             put(person::set_person_portrait),
         )
@@ -115,6 +119,10 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let person_name_routes = Router::new()
+        .route(
+            "/{tree_id}/relation-labels",
+            post(person_name::relation_labels),
+        )
         .route(
             "/{tree_id}/persons/{person_id}/names",
             get(person_name::list_person_names).post(person_name::create_person_name),
@@ -209,6 +217,7 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let media_routes = Router::new()
+        .route("/{tree_id}/gallery-bundle", post(media::gallery_bundle))
         .route(
             "/{tree_id}/media",
             get(media::list_media).post(media::create_media),
@@ -337,6 +346,10 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let profile_routes = Router::new()
+        .route(
+            "/{tree_id}/persons/{person_id}/detail-bundle",
+            get(profile::get_person_detail_bundle),
+        )
         .route("/{tree_id}/profiles", get(profile::get_person_profiles))
         .route(
             "/{tree_id}/profiles/rebuild",
@@ -429,7 +442,8 @@ pub fn build_router(state: AppState) -> Router {
     // not tied to a tree, so kept out of the `/trees` nest.
     let reference_routes = Router::new()
         .route("/{lang}/occupations", get(reference::occupation))
-        .route("/{lang}/given-names", get(reference::given_name));
+        .route("/{lang}/given-names", get(reference::given_name))
+        .route("/{lang}/given-names/bundle", post(reference::given_names));
 
     #[cfg(feature = "graphql")]
     let schema = crate::graphql::build_schema_with_local_file_access(

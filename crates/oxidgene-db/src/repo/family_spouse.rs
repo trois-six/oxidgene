@@ -4,9 +4,10 @@ use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::FamilySpouse;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ConnectionTrait, QueryFilter, Set};
+use sea_orm::{ConnectionTrait, JoinType, QueryFilter, QuerySelect, Set};
 use uuid::Uuid;
 
+use crate::entities::family;
 use crate::entities::family_spouse::{self, Column, Entity};
 use crate::entities::sea_enums;
 
@@ -40,6 +41,23 @@ impl FamilySpouseRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List spouse links for active families in one tree.
+    pub async fn list_by_families_in_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        family_ids: &[Uuid],
+    ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
+        let models = Entity::find()
+            .join(JoinType::InnerJoin, family_spouse::Relation::Family.def())
+            .filter(family::Column::TreeId.eq(tree_id))
+            .filter(family::Column::DeletedAt.is_null())
+            .filter(Column::FamilyId.is_in(family_ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// List all family memberships where this person is a spouse.
     pub async fn list_by_person(
         db: &impl ConnectionTrait,
@@ -47,6 +65,22 @@ impl FamilySpouseRepo {
     ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::PersonId.eq(person_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
+    /// List all family memberships for multiple spouses.
+    pub async fn list_by_persons(
+        db: &impl ConnectionTrait,
+        person_ids: &[Uuid],
+    ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let models = Entity::find()
+            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;

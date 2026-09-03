@@ -18,6 +18,15 @@ timestamp: 2026-06-17T00:00:00Z
 
 The person profile is a full-page detailed view of a single individual. It is accessed via the **profile icon** (person silhouette) in the [Tree View](ui-genealogy-tree.md) left sidebar, or by clicking a search result on the [Search Results](ui-search-results.md) page. It displays the currently selected person's complete information: identity, life events timeline, family connections, media gallery, notes, and sources.
 
+The core profile read is bounded to the selected person's relevant family
+neighborhood. It includes direct parents, partners, children, full siblings,
+and parents' other unions and children needed for half-siblings. Places,
+citations, sources, and event media are fetched only when referenced by this
+neighborhood; the page does not list and filter the corresponding tree-wide
+collections. All compact event galleries reuse the page-level event-media and
+gallery bundle instead of issuing requests per event. Notes and the main person
+gallery use their entity-filtered endpoints.
+
 ---
 
 ## 2. Layout
@@ -259,6 +268,17 @@ fills the tile, two split it vertically, three give the first page one half and
 stack the other two, and four or more use a `2 x 2` mosaic. Only those four
 thumbnails are loaded regardless of the document's total page count; an empty
 document or a failed page-list request keeps the generic icon.
+The profile gallery obtains these previews, ordinary thumbnails, vignette
+crops, and event-link state from the shared gallery bundle rather than issuing
+one request per tile. The person detail bundle preloads the direct and conjugal
+media links, person vignettes, portrait assignment, and display-ready sources,
+so mounting the read-only gallery issues no additional media-list, vignette,
+person, or gallery-bundle request. Only media and vignettes rendered by that
+gallery are included. The viewer resolves identification and attachment labels
+from a bounded relation-label bundle containing only referenced people and
+families; it never loads the tree snapshot. Read-only media facts fetch only
+the media's referenced place. The complete place list is loaded only after
+opening the edit form, where it supplies the place selector.
 
 Right-clicking a media tile opens **Link an event**, listing this person's own
 events and the events of their conjugal families. A linked event is removable

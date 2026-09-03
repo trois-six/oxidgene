@@ -3,7 +3,10 @@
 use chrono::{Duration, Utc};
 use oxidgene_core::OxidGeneError;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue::Set, Condition, ExprTrait, QueryOrder, sea_query::Expr};
+use sea_orm::{
+    ActiveValue::Set, Condition, ExprTrait, FromQueryResult, QueryOrder, QuerySelect,
+    sea_query::Expr,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -61,6 +64,13 @@ pub struct NewBackgroundJob {
 }
 
 pub type BackgroundJob = background_job::Model;
+
+/// The only active-import fields needed by the tree list.
+#[derive(Debug, Clone, Copy, FromQueryResult)]
+pub struct ActiveImport {
+    pub id: Uuid,
+    pub tree_id: Uuid,
+}
 
 pub struct BackgroundJobRepo;
 
@@ -137,10 +147,13 @@ impl BackgroundJobRepo {
 
     pub async fn active_imports(
         db: &impl ConnectionTrait,
-    ) -> Result<Vec<BackgroundJob>, OxidGeneError> {
+    ) -> Result<Vec<ActiveImport>, OxidGeneError> {
         Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::TreeId])
             .filter(Column::ActiveTreeId.is_not_null())
             .filter(Column::Kind.eq(BackgroundJobKind::Import.as_str()))
+            .into_model::<ActiveImport>()
             .all(db)
             .await
             .map_err(|error| OxidGeneError::Database(error.to_string()))

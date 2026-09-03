@@ -2393,6 +2393,21 @@ impl From<crate::reference::GivenNameEntry> for GqlGivenNameReference {
     }
 }
 
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGivenNameReferenceMatch {
+    pub term: String,
+    pub reference: GqlGivenNameReference,
+}
+
+impl From<crate::reference::GivenNameMatch> for GqlGivenNameReferenceMatch {
+    fn from(result: crate::reference::GivenNameMatch) -> Self {
+        Self {
+            term: result.term,
+            reference: result.entry.into(),
+        }
+    }
+}
+
 /// The legacy all-at-once tree view, kept in GraphQL for REST parity.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlTreeSnapshot {
@@ -2422,6 +2437,159 @@ impl From<PortraitRow> for GqlPortrait {
             vignette_id: portrait.vignette_id.map(|id| ID(id.to_string())),
             file_path: portrait.file_path,
             has_thumbnail: portrait.has_thumbnail,
+        }
+    }
+}
+
+/// One display-ready portrait returned by the batched image query.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPortraitImage {
+    pub person_id: ID,
+    pub source: String,
+}
+
+impl From<crate::service::portrait::PortraitImage> for GqlPortraitImage {
+    fn from(image: crate::service::portrait::PortraitImage) -> Self {
+        Self {
+            person_id: ID(image.person_id.to_string()),
+            source: image.source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGalleryBundle {
+    pub media: Vec<GqlGalleryMedia>,
+    pub vignettes: Vec<GqlGalleryVignette>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGalleryMedia {
+    pub media_id: ID,
+    pub source: Option<String>,
+    pub event_ids: Vec<ID>,
+    pub document_previews: Vec<String>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGalleryVignette {
+    pub vignette_id: ID,
+    pub source: String,
+}
+
+impl From<crate::service::gallery::GalleryBundle> for GqlGalleryBundle {
+    fn from(bundle: crate::service::gallery::GalleryBundle) -> Self {
+        Self {
+            media: bundle
+                .media
+                .into_iter()
+                .map(|item| GqlGalleryMedia {
+                    media_id: ID(item.media_id.to_string()),
+                    source: item.source,
+                    event_ids: item
+                        .event_ids
+                        .into_iter()
+                        .map(|id| ID(id.to_string()))
+                        .collect(),
+                    document_previews: item.document_previews,
+                })
+                .collect(),
+            vignettes: bundle
+                .vignettes
+                .into_iter()
+                .map(|item| GqlGalleryVignette {
+                    vignette_id: ID(item.vignette_id.to_string()),
+                    source: item.source,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPersonDetailBundle {
+    pub sosa_number: Option<u64>,
+    pub persons: Vec<GqlPerson>,
+    pub names: Vec<GqlPersonName>,
+    pub events: Vec<GqlEvent>,
+    pub places: Vec<GqlPlace>,
+    pub spouses: Vec<GqlFamilySpouse>,
+    pub children: Vec<GqlFamilyChild>,
+    pub citations: Vec<GqlCitation>,
+    pub sources: Vec<GqlSource>,
+    pub profile_media: Vec<GqlProfileMediaTile>,
+    pub profile_vignettes: Vec<GqlVignette>,
+    pub event_media: Vec<GqlEventMediaTile>,
+    pub gallery: GqlGalleryBundle,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlRelationLabels {
+    pub names: Vec<GqlPersonName>,
+    pub spouses: Vec<GqlFamilySpouse>,
+}
+
+impl From<crate::service::relation_labels::RelationLabels> for GqlRelationLabels {
+    fn from(labels: crate::service::relation_labels::RelationLabels) -> Self {
+        Self {
+            names: labels.names.into_iter().map(Into::into).collect(),
+            spouses: labels.spouses.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlEventMediaTile {
+    pub event_id: ID,
+    pub link_id: ID,
+    pub sort_order: i32,
+    pub media: GqlMedia,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlProfileMediaTile {
+    pub link_id: ID,
+    pub sort_order: i32,
+    pub media: GqlMedia,
+}
+
+impl From<crate::service::person_detail::PersonDetailBundle> for GqlPersonDetailBundle {
+    fn from(bundle: crate::service::person_detail::PersonDetailBundle) -> Self {
+        Self {
+            sosa_number: bundle.sosa_number,
+            persons: bundle.persons.into_iter().map(Into::into).collect(),
+            names: bundle.names.into_iter().map(Into::into).collect(),
+            events: bundle.events.into_iter().map(Into::into).collect(),
+            places: bundle.places.into_iter().map(Into::into).collect(),
+            spouses: bundle.spouses.into_iter().map(Into::into).collect(),
+            children: bundle.children.into_iter().map(Into::into).collect(),
+            citations: bundle.citations.into_iter().map(Into::into).collect(),
+            sources: bundle.sources.into_iter().map(Into::into).collect(),
+            profile_media: bundle
+                .profile_media
+                .into_iter()
+                .map(|item| GqlProfileMediaTile {
+                    link_id: ID(item.link_id.to_string()),
+                    sort_order: item.sort_order,
+                    media: item.media.into(),
+                })
+                .collect(),
+            profile_vignettes: bundle
+                .profile_vignettes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            event_media: bundle
+                .event_media
+                .into_iter()
+                .map(|item| GqlEventMediaTile {
+                    event_id: ID(item.event_id.to_string()),
+                    link_id: ID(item.link_id.to_string()),
+                    sort_order: item.sort_order,
+                    media: item.media.into(),
+                })
+                .collect(),
+            gallery: bundle.gallery.into(),
         }
     }
 }

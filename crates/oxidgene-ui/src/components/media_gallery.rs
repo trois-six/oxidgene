@@ -5,12 +5,11 @@
 //! lives inside a modal, and stacking one on another leaves the user with two
 //! Cancel buttons and no way to tell which closes what.
 //!
-//! # What a tile shows without asking the server twice
+//! # What the grid shows without one request per tile
 //!
-//! Every tile needs the thumbnail, the file type and whether it is the profile
-//! photo. All three come from the one `media-links?entity_type=…` call, which
-//! is why that endpoint returns the media alongside its link; a grid of twenty
-//! scans is one request, not twenty-one.
+//! The media-link listing supplies tile metadata. One gallery bundle then
+//! supplies thumbnails, document mosaics, vignette crops, and event links for
+//! every visible tile in bounded batches.
 //!
 //! # Thumbnails are requested, never assumed
 //!
@@ -70,15 +69,22 @@ fn PrivateThumbnail(tree_id: Uuid, media_id: Uuid, alt: String, class: Option<St
         let api = api.clone();
         async move { api.media_thumbnail_data_url(tree_id, media_id).await }
     });
-    let url = image
+    let source = image
         .read_unchecked()
         .as_ref()
         .and_then(|result| result.as_ref().ok())
         .cloned();
 
     rsx! {
-        if let Some(url) = url {
-            img { class, src: "{url}", alt, loading: "lazy" }
+        BundledThumbnail { source, alt, class }
+    }
+}
+
+#[component]
+fn BundledThumbnail(source: Option<String>, alt: String, class: Option<String>) -> Element {
+    rsx! {
+        if let Some(source) = source {
+            img { class, src: "{source}", alt, loading: "lazy" }
         }
     }
 }
@@ -93,20 +99,8 @@ fn document_mosaic_class(page_count: usize) -> &'static str {
 }
 
 #[component]
-fn DocumentMosaic(tree_id: Uuid, document_id: Uuid, label: String) -> Element {
-    let api = use_context::<ApiClient>();
-    let pages = use_ui_resource("document_preview_pages", move || {
-        let api = api.clone();
-        async move { api.list_media_pages(tree_id, document_id).await }
-    });
-    let preview_pages = pages
-        .read_unchecked()
-        .as_ref()
-        .and_then(|result| result.as_ref().ok())
-        .map(|pages| pages.iter().take(4).cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    if preview_pages.is_empty() {
+fn DocumentMosaic(sources: Vec<String>, label: String) -> Element {
+    if sources.is_empty() {
         return rsx! {
             div { class: "media-thumb-icon",
                 span { class: "media-glyph", {MediaKind::Document.icon()} }
@@ -115,14 +109,13 @@ fn DocumentMosaic(tree_id: Uuid, document_id: Uuid, label: String) -> Element {
         };
     }
 
-    let mosaic_class = document_mosaic_class(preview_pages.len());
+    let mosaic_class = document_mosaic_class(sources.len());
     rsx! {
         div { class: "{mosaic_class}",
-            for page in preview_pages {
-                div { key: "{page.id}", class: "media-document-mosaic-cell",
-                    PrivateThumbnail {
-                        tree_id,
-                        media_id: page.id,
+            for (index, source) in sources.into_iter().enumerate() {
+                div { key: "{index}", class: "media-document-mosaic-cell",
+                    BundledThumbnail {
+                        source: Some(source),
                         alt: String::new(),
                         class: Some("media-document-mosaic-page".to_string()),
                     }
@@ -144,15 +137,22 @@ fn PrivateVignetteImage(
         let api = api.clone();
         async move { api.vignette_image_data_url(tree_id, vignette_id).await }
     });
-    let url = image
+    let source = image
         .read_unchecked()
         .as_ref()
         .and_then(|result| result.as_ref().ok())
         .cloned();
 
     rsx! {
-        if let Some(url) = url {
-            img { class, src: "{url}", alt, loading: "lazy" }
+        BundledVignetteImage { source, alt, class }
+    }
+}
+
+#[component]
+fn BundledVignetteImage(source: Option<String>, alt: String, class: Option<String>) -> Element {
+    rsx! {
+        if let Some(source) = source {
+            img { class, src: "{source}", alt, loading: "lazy" }
         }
     }
 }
@@ -211,6 +211,18 @@ pub struct MediaGalleryProps {
     /// Render only the linked media as a compact row of tiles.
     #[props(default = false)]
     pub compact: bool,
+    /// Page-level batch data for read-only compact galleries.
+    #[props(default)]
+    pub preloaded_tiles: Option<Vec<MediaWithLink>>,
+    /// Display-ready sources matching `preloaded_tiles`.
+    #[props(default)]
+    pub preloaded_bundle: Option<crate::api::GalleryBundle>,
+    /// Portrait assignment matching a preloaded person gallery.
+    #[props(default)]
+    pub preloaded_portrait: Option<(Option<Uuid>, Option<Uuid>)>,
+    /// Person-attributed crops matching a preloaded person gallery.
+    #[props(default)]
+    pub preloaded_vignettes: Option<Vec<Vignette>>,
     /// Bumped by a host that uploads media outside the gallery itself.
     #[props(default)]
     pub external_revision: u32,
@@ -237,6 +249,22 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let read_only = props.read_only;
     let compact = props.compact;
     let related_family_ids = props.related_family_ids.clone();
+    let mut preloaded_tiles = use_signal(|| props.preloaded_tiles.clone());
+    if *preloaded_tiles.peek() != props.preloaded_tiles {
+        preloaded_tiles.set(props.preloaded_tiles.clone());
+    }
+    let mut preloaded_bundle = use_signal(|| props.preloaded_bundle.clone());
+    if *preloaded_bundle.peek() != props.preloaded_bundle {
+        preloaded_bundle.set(props.preloaded_bundle.clone());
+    }
+    let mut preloaded_portrait = use_signal(|| props.preloaded_portrait);
+    if *preloaded_portrait.peek() != props.preloaded_portrait {
+        preloaded_portrait.set(props.preloaded_portrait);
+    }
+    let mut preloaded_vignettes = use_signal(|| props.preloaded_vignettes.clone());
+    if *preloaded_vignettes.peek() != props.preloaded_vignettes {
+        preloaded_vignettes.set(props.preloaded_vignettes.clone());
+    }
     let mut external_revision = use_signal(|| props.external_revision);
     if *external_revision.peek() != props.external_revision {
         external_revision.set(props.external_revision);
@@ -262,7 +290,11 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         move || {
             let api = api.clone();
             let _ = revision();
+            let preloaded = preloaded_portrait();
             async move {
+                if preloaded.is_some() {
+                    return preloaded;
+                }
                 let person_id = portrait_owner?;
                 api.get_person(tree_id, person_id)
                     .await
@@ -286,7 +318,11 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         move || {
             let api = api.clone();
             let _ = revision();
+            let preloaded = preloaded_vignettes();
             async move {
+                if preloaded.is_some() {
+                    return preloaded;
+                }
                 let person_id = portrait_owner?;
                 api.list_person_vignettes(tree_id, person_id).await.ok()
             }
@@ -351,7 +387,11 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             let _ = revision();
             let _ = external_revision();
             let (tree_id, owner, related_family_ids) = showing();
+            let preloaded = preloaded_tiles();
             async move {
+                if let Some(items) = preloaded {
+                    return Ok(items);
+                }
                 let mut items = api
                     .list_entity_media(tree_id, owner.entity_type(), owner.id())
                     .await?;
@@ -372,6 +412,30 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     }
                 }
                 Ok::<Vec<MediaWithLink>, ApiError>(items)
+            }
+        }
+    });
+
+    let gallery_bundle = use_ui_resource("gallery_bundle", {
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let media_ids = match &*tiles.read_unchecked() {
+                Some(Ok(items)) => items.iter().map(|item| item.media.id).collect::<Vec<_>>(),
+                _ => Vec::new(),
+            };
+            let vignette_ids = vignettes
+                .read_unchecked()
+                .as_ref()
+                .and_then(|items| items.as_ref())
+                .map(|items| items.iter().map(|item| item.id).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let preloaded = preloaded_bundle();
+            async move {
+                match preloaded {
+                    Some(bundle) => bundle,
+                    None => api.gallery_bundle(tree_id, &media_ids, &vignette_ids).await,
+                }
             }
         }
     });
@@ -441,12 +505,35 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         }
         None => Vec::new(),
     };
+    let bundle = gallery_bundle
+        .read_unchecked()
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
+    let gallery_media = bundle
+        .media
+        .into_iter()
+        .map(|item| (item.media_id, item))
+        .collect::<std::collections::HashMap<_, _>>();
+    let gallery_vignettes = bundle
+        .vignettes
+        .into_iter()
+        .map(|item| (item.vignette_id, item.source))
+        .collect::<std::collections::HashMap<_, _>>();
+    let rendered_items = items
+        .iter()
+        .cloned()
+        .map(|tile| {
+            let bundle = gallery_media.get(&tile.media.id).cloned();
+            (tile, bundle)
+        })
+        .collect::<Vec<_>>();
 
     let open_tile = editing().and_then(|id| items.iter().find(|t| t.media.id == id).cloned());
 
     rsx! {
         div { class: if compact { "media-grid media-grid-compact" } else { "media-grid" },
-            for tile in items.iter().cloned() {
+            for (tile, bundle) in rendered_items {
                 MediaTile {
                     key: "{tile.media.id}",
                     tree_id,
@@ -455,6 +542,9 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     person_id: portrait_owner,
                     is_portrait: portrait_media_id == Some(tile.media.id),
                     read_only,
+                    thumbnail_source: bundle.as_ref().and_then(|item| item.source.clone()),
+                    document_previews: bundle.as_ref().map(|item| item.document_previews.clone()).unwrap_or_default(),
+                    media_event_ids: bundle.as_ref().map(|item| item.event_ids.clone()).unwrap_or_default(),
                     profile_event_links: profile_event_links.clone(),
                     is_open: editing() == Some(tile.media.id),
                     on_edit: move |id| {
@@ -470,6 +560,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     key: "v{vignette.id}",
                     tree_id,
                     vignette: vignette.clone(),
+                    source: gallery_vignettes.get(&vignette.id).cloned(),
                     person_id: portrait_owner,
                     is_portrait: portrait_vignette_id == Some(vignette.id),
                     on_view: move |tile| open_viewer.call(tile),
@@ -564,6 +655,9 @@ fn MediaTile(
     /// Whether this media is currently that person's portrait.
     is_portrait: bool,
     read_only: bool,
+    thumbnail_source: Option<String>,
+    document_previews: Vec<String>,
+    media_event_ids: Vec<Uuid>,
     profile_event_links: Vec<MediaEventLinkOption>,
     is_open: bool,
     on_edit: EventHandler<Uuid>,
@@ -585,7 +679,6 @@ fn MediaTile(
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
     let mut event_menu = use_signal(|| None::<MediaEventMenu>);
     let mut event_menu_offset = use_signal(|| 0_usize);
-    let mut event_link_revision = use_signal(|| 0_u32);
 
     let media_id = tile.media.id;
     let link_id = tile.link_id;
@@ -595,18 +688,6 @@ fn MediaTile(
     let caption = tile.caption().to_string();
     let pages = tile.media.page_count;
 
-    let event_links = use_ui_resource("media_event_links", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let _ = event_link_revision();
-            async move { api.list_media_links_of(tree_id, media_id).await }
-        }
-    });
-    let media_event_ids: Vec<Uuid> = match &*event_links.read_unchecked() {
-        Some(Ok(links)) => links.iter().filter_map(|link| link.event_id).collect(),
-        _ => Vec::new(),
-    };
     let has_event_link = !media_event_ids.is_empty();
     let linked_events: Vec<MediaEventLinkOption> = profile_event_links
         .iter()
@@ -781,7 +862,6 @@ fn MediaTile(
                 };
                 match result {
                     Ok(()) => {
-                        event_link_revision += 1;
                         on_changed.call(());
                     }
                     Err(err) => error.set(Some(err.to_string())),
@@ -821,9 +901,9 @@ fn MediaTile(
                     menu_at.set(Some((point.x, point.y)));
                 },
                 if read_only && kind == MediaKind::Document && pages > 0 {
-                    DocumentMosaic { tree_id, document_id: media_id, label: kind_label.clone() }
+                    DocumentMosaic { sources: document_previews.clone(), label: kind_label.clone() }
                 } else if source == MediaSource::Stored && tile.media.thumbnail_key.is_some() {
-                    PrivateThumbnail { tree_id, media_id, alt: caption.clone() }
+                    BundledThumbnail { source: thumbnail_source.clone(), alt: caption.clone() }
                 } else if let Some(preview) = remote_preview.clone() {
                     img { src: "{preview}", alt: "{caption}", loading: "lazy" }
                 } else {
@@ -1078,6 +1158,7 @@ fn MediaTile(
 fn VignetteTile(
     tree_id: Uuid,
     vignette: Vignette,
+    source: Option<String>,
     person_id: Option<Uuid>,
     is_portrait: bool,
     on_view: EventHandler<MediaWithLink>,
@@ -1169,9 +1250,8 @@ fn VignetteTile(
                     let point = e.client_coordinates();
                     menu_at.set(Some((point.x, point.y)));
                 },
-                PrivateVignetteImage {
-                    tree_id,
-                    vignette_id,
+                BundledVignetteImage {
+                    source: source.clone(),
                     alt: caption.clone(),
                 }
                 if is_portrait {
@@ -2049,11 +2129,17 @@ fn MediaFacts(
             }
         }
     });
-    let places = use_ui_resource("viewer_places", {
+    let place = use_ui_resource("viewer_place", {
         let api = api.clone();
+        let place_id = media.place_id;
         move || {
             let api = api.clone();
-            async move { api.list_all_places(tree_id).await.ok() }
+            async move {
+                match place_id {
+                    Some(place_id) => api.get_place(tree_id, place_id).await.ok(),
+                    None => None,
+                }
+            }
         }
     });
     let date = format_date(
@@ -2063,15 +2149,11 @@ fn MediaFacts(
         media.date_value.as_deref(),
         media.date_value2.as_deref(),
     );
-    let place = media.place_id.and_then(|id| {
-        places
-            .read_unchecked()
-            .as_ref()?
-            .as_ref()?
-            .iter()
-            .find(|p| p.id == id)
-            .map(|p| p.name.clone())
-    });
+    let place = place
+        .read_unchecked()
+        .as_ref()
+        .and_then(|place| place.as_ref())
+        .map(|place| place.name.clone());
     let note = notes
         .read_unchecked()
         .as_ref()
@@ -2266,14 +2348,25 @@ fn MediaRelations(
                         .into_iter()
                         .map(|link| (MediaAttachmentScope::Page, link)),
                 );
-                let snapshot = api.get_tree_snapshot(tree_id).await.ok()?;
-                Some((links, snapshot))
+                let person_ids = links
+                    .iter()
+                    .filter_map(|(_, link)| link.person_id)
+                    .collect::<Vec<_>>();
+                let family_ids = links
+                    .iter()
+                    .filter_map(|(_, link)| link.family_id)
+                    .collect::<Vec<_>>();
+                let labels = api
+                    .relation_labels(tree_id, &person_ids, &family_ids)
+                    .await
+                    .ok()?;
+                Some((links, labels))
             }
         }
     });
     let data = data.read_unchecked();
     let mut relations = Vec::new();
-    if let Some(Some((links, snapshot))) = data.as_ref() {
+    if let Some(Some((links, labels))) = data.as_ref() {
         for (scope, link) in links.iter().filter(|(_, link)| {
             link.person_id
                 .is_some_and(|person_id| !has_person_identification(&vignettes, person_id))
@@ -2291,7 +2384,7 @@ fn MediaRelations(
             }) {
                 continue;
             }
-            if let Some(name) = primary_person_name(&snapshot.names, person_id) {
+            if let Some(name) = primary_person_name(&labels.names, person_id) {
                 relations.push(MediaRelation::PersonAttachment {
                     link_id: link.id,
                     person_id,
@@ -2316,11 +2409,11 @@ fn MediaRelations(
             }) {
                 continue;
             }
-            let spouse_names = snapshot
+            let spouse_names = labels
                 .spouses
                 .iter()
                 .filter(|spouse| spouse.family_id == family_id)
-                .filter_map(|spouse| primary_person_name(&snapshot.names, spouse.person_id))
+                .filter_map(|spouse| primary_person_name(&labels.names, spouse.person_id))
                 .collect::<Vec<_>>();
             let people = if spouse_names.is_empty() {
                 i18n.t("media.attach_unknown_spouse")
@@ -3090,30 +3183,25 @@ fn MediaViewer(
             let api = api.clone();
             let media_id = vignette_media_id();
             let _ = vignette_revision();
-            async move { api.list_media_vignettes(tree_id, media_id).await.ok() }
-        }
-    });
-    let content_vignettes: Vec<Vignette> = content_vignettes
-        .read_unchecked()
-        .as_ref()
-        .and_then(|vignettes| vignettes.clone())
-        .unwrap_or_default();
-    let person_names = use_ui_resource("vignette_person_names", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
             async move {
-                api.get_tree_snapshot(tree_id)
+                let vignettes = api.list_media_vignettes(tree_id, media_id).await.ok()?;
+                let person_ids = vignettes
+                    .iter()
+                    .filter_map(|vignette| vignette.person_id)
+                    .collect::<Vec<_>>();
+                let names = api
+                    .relation_labels(tree_id, &person_ids, &[])
                     .await
-                    .ok()
-                    .map(|snapshot| snapshot.names)
+                    .ok()?
+                    .names;
+                Some((vignettes, names))
             }
         }
     });
-    let person_names: Vec<PersonName> = person_names
+    let (content_vignettes, person_names): (Vec<Vignette>, Vec<PersonName>) = content_vignettes
         .read_unchecked()
         .as_ref()
-        .and_then(|names| names.clone())
+        .and_then(|content| content.clone())
         .unwrap_or_default();
     let image_id = format!("media-viewer-image-{content_media_id}");
     let image_style = match (zoom(), fitted_size()) {

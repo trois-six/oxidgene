@@ -19,6 +19,7 @@ use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache, use_view_state_cache};
 use crate::components::union_form::UnionForm;
 use crate::i18n::use_i18n;
+use crate::prefs::PedigreeDefaults;
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 use crate::utils::resolve_name;
@@ -49,6 +50,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     // ── Global caches ──
     let tree_cache = use_tree_cache();
     let view_cache = use_view_state_cache();
+    let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
 
     // Reactive tree_id: a signal always in sync with the prop so resources re-run.
     let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
@@ -166,16 +168,27 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         let _gen = tree_cache.generation();
         let tid = tree_id_parsed();
         let sel_root = selected_root();
-        let vs = tid.and_then(|t| view_cache.get(t));
-        let ancestor_levels = vs.as_ref().map(|v| v.ancestor_levels).unwrap_or(4);
-        let descendant_levels = vs.as_ref().map(|v| v.descendant_levels).unwrap_or(2);
+        let _depth_gen = view_cache.depth_generation();
+        let vs = tid.and_then(|t| view_cache.get_untracked(t));
+        let defaults = pedigree_defaults();
         async move {
+            let Some(defaults) = defaults else {
+                return std::future::pending().await;
+            };
             let Some(tid) = tid else {
                 return Err(crate::api::ApiError::Api {
                     status: 400,
                     body: "Invalid tree ID".to_string(),
                 });
             };
+            let ancestor_levels = vs
+                .as_ref()
+                .map(|view| view.ancestor_levels)
+                .unwrap_or(defaults.ancestor_levels);
+            let descendant_levels = vs
+                .as_ref()
+                .map(|view| view.descendant_levels)
+                .unwrap_or(defaults.descendant_levels);
 
             // Resolve root person: selected > sosa_root from tree > first person.
             let root_id = if let Some(sel) = sel_root {
@@ -223,14 +236,15 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         let api = api_photos.clone();
         let tid = tree_id_parsed();
         let _gen = tree_cache.generation();
+        let person_ids = match &*pedigree_resource.read() {
+            Some(Ok(pedigree)) => pedigree.persons.keys().copied().collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
         async move {
-            let Some(tid) = tid else {
+            let Some(tid) = tid.filter(|_| !person_ids.is_empty()) else {
                 return std::collections::HashMap::new();
             };
-            match api.list_portraits(tid).await {
-                Ok(rows) => api.portrait_map(tid, &rows).await,
-                Err(_) => std::collections::HashMap::new(),
-            }
+            api.portrait_map_for_ids(tid, &person_ids).await
         }
     });
 

@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use oxidgene_db::repo::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};
 use uuid::Uuid;
 
-use super::dto::{CreatePersonNameRequest, UpdatePersonNameRequest};
+use super::dto::{CreatePersonNameRequest, RelationLabelsRequest, UpdatePersonNameRequest};
 use super::error::ApiError;
 use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
 
@@ -23,6 +23,23 @@ pub async fn list_person_names(
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(names).unwrap()))
+}
+
+/// POST /api/v1/trees/:tree_id/relation-labels
+pub async fn relation_labels(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<RelationLabelsRequest>,
+) -> Result<Json<crate::service::relation_labels::RelationLabels>, ApiError> {
+    let labels = crate::service::relation_labels::load_relation_labels(
+        &state.db,
+        tree_id,
+        &body.person_ids,
+        &body.family_ids,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(labels))
 }
 
 /// POST /api/v1/trees/:tree_id/persons/:person_id/names

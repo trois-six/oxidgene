@@ -17,11 +17,30 @@ use crate::media::{self, MAX_UPLOAD_BYTES};
 use crate::service::event_date;
 
 use super::dto::{
-    CreateDocumentRequest, CreateMediaRequest, DeleteMediaQuery, MediaDeletionStatusQuery,
-    MediaTagRequest, PaginationQuery, ReorderPagesRequest, UpdateMediaRequest,
+    CreateDocumentRequest, CreateMediaRequest, DeleteMediaQuery, GalleryBundleRequest,
+    MediaDeletionStatusQuery, MediaTagRequest, PaginationQuery, ReorderPagesRequest,
+    UpdateMediaRequest,
 };
 use super::error::ApiError;
 use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+
+/// POST /api/v1/trees/:tree_id/gallery-bundle
+pub async fn gallery_bundle(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<GalleryBundleRequest>,
+) -> Result<Json<crate::service::gallery::GalleryBundle>, ApiError> {
+    let bundle = crate::service::gallery::load_gallery_bundle(
+        &state.db,
+        &state.media,
+        tree_id,
+        &body.media_ids,
+        &body.vignette_ids,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(bundle))
+}
 
 /// GET /api/v1/trees/:tree_id/media
 pub async fn list_media(

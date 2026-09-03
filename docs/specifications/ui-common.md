@@ -167,6 +167,14 @@ surname and given names, birth and death years, and birth place when known.
 field is optional. It receives `tree_id`, selected person, required state, and
 an `EventHandler<Option<Person>>`.
 
+Portrait maps used by the pedigree, person profile, search results, person
+picker, and settings load their display-ready images in one bounded API
+operation. These surfaces must not issue one thumbnail or vignette request per
+person. Sets larger than the API limit are split into as many bounded batches
+as necessary. A person profile requests only the person it renders;
+single-image endpoints are reserved for media workflows that display one
+selected asset.
+
 ### 4.3 DateInput
 
 Edits partial dates, calendar, qualifier, and an optional second bound. It
@@ -202,6 +210,13 @@ per-file progress. Files are processed through the same upload API regardless
 of entry point. The canonical gallery owns tiles, viewer opening, edit actions,
 document paging, portraits, and context menus. Pages do not implement alternate
 media grids.
+
+The initial grid loads tile thumbnails, the first four document-page previews,
+vignette crops, and linked event ids through one bounded gallery bundle. It
+must not mount one image, page-list, or reverse-link resource per tile. Larger
+sets are split into as many batches of 1,024 identifiers as necessary. Viewer
+and editor panels may use an individual endpoint after the user opens one
+asset.
 
 `MediaManagerModal` is the only editable container for a person's or family's
 gallery. It wraps the canonical `MediaGallery`, saves every media mutation

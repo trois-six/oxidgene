@@ -55,6 +55,25 @@ impl SourceRepo {
             })
     }
 
+    /// Get multiple sources from one tree (excludes soft-deleted).
+    pub async fn get_many(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        ids: &[Uuid],
+    ) -> Result<Vec<Source>, OxidGeneError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let models = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::Id.is_in(ids.iter().copied()))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Create a new source.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(

@@ -79,7 +79,7 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component:
 
 ## 4. Left Navigation
 
-Fixed width: 200px. Divided into three labeled groups.
+Fixed width: 200px. Divided into four labeled groups.
 
 Each group has an uppercase orange label. Each item is a text button. The active item has an orange text color, bold weight, and a subtle background (`var(--bg-card)`).
 
@@ -105,6 +105,14 @@ Each group has an uppercase orange label. Each item is a text button. The active
 | Item | Section ID |
 |---|---|
 | Export tree | `export` |
+
+### Group 4 — Global Preferences
+| Item | Section ID |
+|---|---|
+| Appearance | `appearance` |
+| Language | `language` |
+| Pedigree | `pedigree` |
+| Names | `names` |
 
 ---
 
@@ -147,6 +155,11 @@ or sex-specific placeholder portrait, surname and given names, birth and death
 years, and birth place when known. Two buttons appear on the right. On narrow
 screens, the complete identity uses the card width and can wrap, while the
 actions move to a separate row below it:
+
+The settings page requests portraits only for the currently selected root and
+self persons. Search results shown by either picker load portraits only for
+their bounded result set; opening this section never loads the tree-wide
+portrait inventory.
 
 - **Change** — opens a person search modal to select a different root person
 - **Clear** — removes the SOSA root assignment
@@ -412,7 +425,21 @@ Export is triggered directly by the format buttons.
 
 ---
 
-## 19. Design Consistency
+## 19. Section: Global Preferences
+
+Appearance, language, pedigree, and name-display preferences are
+application-level settings shared with [App Settings](ui-app-settings.md).
+Changing them from the tree settings page immediately updates the same global
+preference; they are not stored on the current tree.
+
+The Pedigree section uses the shared ancestor and descendant depth controls.
+Their defaults are 4 ascending generations and 3 descending generations,
+bounded independently from 0 through 10. A tree with saved view depths keeps
+those depths; the global values initialize trees without a saved view.
+
+---
+
+## 20. Design Consistency
 
 The settings page uses the shared `sub-page` layout and interaction states from
 [Common UI](ui-common.md). The light/dark theme applies globally.

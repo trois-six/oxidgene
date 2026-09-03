@@ -33,6 +33,26 @@ pub struct PaginationQuery {
     pub after: Option<String>,
 }
 
+/// People whose display-ready portraits should be loaded together.
+#[derive(Debug, Deserialize)]
+pub struct PortraitImagesRequest {
+    pub person_ids: Vec<uuid::Uuid>,
+}
+
+/// Person and family relations whose display labels should be loaded together.
+#[derive(Debug, Deserialize)]
+pub struct RelationLabelsRequest {
+    pub person_ids: Vec<uuid::Uuid>,
+    pub family_ids: Vec<uuid::Uuid>,
+}
+
+/// Media tiles and vignettes whose gallery data should be loaded together.
+#[derive(Debug, Deserialize)]
+pub struct GalleryBundleRequest {
+    pub media_ids: Vec<uuid::Uuid>,
+    pub vignette_ids: Vec<uuid::Uuid>,
+}
+
 // ── Tree DTOs ────────────────────────────────────────────────────────
 
 /// Request body for creating a tree.

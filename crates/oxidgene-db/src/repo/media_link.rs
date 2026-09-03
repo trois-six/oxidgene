@@ -3,7 +3,7 @@
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Media, MediaLink};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ConnectionTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{Condition, ConnectionTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::media_link::{self, Column, Entity};
@@ -212,6 +212,60 @@ impl MediaLinkRepo {
                 // A soft-deleted media keeps its links; the gallery should not
                 // show it, and dropping it here beats every caller remembering.
                 let media = media.filter(|m| m.deleted_at.is_none())?;
+                Some((into_domain(link), crate::repo::media::into_domain(media)))
+            })
+            .collect())
+    }
+
+    /// Every media attached directly to a person or one of their families.
+    pub async fn list_with_media_for_profile(
+        db: &impl ConnectionTrait,
+        person_id: Uuid,
+        family_ids: &[Uuid],
+    ) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
+        let mut targets = Condition::any().add(Column::PersonId.eq(person_id));
+        if !family_ids.is_empty() {
+            targets = targets.add(Column::FamilyId.is_in(family_ids.iter().copied()));
+        }
+        let rows = Entity::find()
+            .filter(targets)
+            .find_also_related(crate::entities::media::Entity)
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::Id)
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(link, media)| {
+                let media = media.filter(|item| item.deleted_at.is_none())?;
+                Some((into_domain(link), crate::repo::media::into_domain(media)))
+            })
+            .collect())
+    }
+
+    /// Every media tile attached to any of the supplied events.
+    pub async fn list_with_media_for_events(
+        db: &impl ConnectionTrait,
+        event_ids: &[Uuid],
+    ) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = Entity::find()
+            .filter(Column::EventId.is_in(event_ids.iter().copied()))
+            .find_also_related(crate::entities::media::Entity)
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::Id)
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(link, media)| {
+                let media = media.filter(|item| item.deleted_at.is_none())?;
                 Some((into_domain(link), crate::repo::media::into_domain(media)))
             })
             .collect())

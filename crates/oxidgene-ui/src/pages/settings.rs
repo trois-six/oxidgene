@@ -16,8 +16,9 @@ use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{Language, use_i18n};
 use crate::pages::app_settings::{
     APP_SETTINGS_WIDGET_STYLES, AppearanceSection, LanguageSection, NamesSection,
+    PedigreeDefaultsSection,
 };
-use crate::prefs::SortParticles;
+use crate::prefs::{PedigreeDefaults, SortParticles};
 use crate::router::Route;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 
@@ -59,6 +60,7 @@ pub fn Settings(tree_id: String) -> Element {
     let is_dark = use_context::<Signal<bool>>();
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
+    let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
     let load_trace = use_ui_load_trace(UiPage::Settings);
     let refresh = use_signal(|| 0u32);
     let mut active_section = use_signal(|| "tree-roots".to_string());
@@ -362,6 +364,11 @@ pub fn Settings(tree_id: String) -> Element {
                             {i18n.t("app_settings.language")}
                         }
                         button {
+                            class: if sec == "pedigree" { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set("pedigree".to_string()),
+                            {i18n.t("app_settings.pedigree")}
+                        }
+                        button {
                             class: if sec == "names" { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set("names".to_string()),
                             {i18n.t("app_settings.names")}
@@ -395,6 +402,8 @@ pub fn Settings(tree_id: String) -> Element {
                         AppearanceSection { is_dark }
                     } else if sec == "language" {
                         LanguageSection { lang_signal }
+                    } else if sec == "pedigree" {
+                        PedigreeDefaultsSection { pedigree_defaults }
                     } else if sec == "names" {
                         NamesSection { sort_particles }
                     } else {
@@ -418,20 +427,6 @@ fn TreeRootsSection(
     let tree_cache = use_tree_cache();
     let load_trace = use_context::<UiLoadTrace>();
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
-    let api_portraits = api.clone();
-    let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
-        let api = api_portraits.clone();
-        async move {
-            match tree_id_parsed {
-                Some(tree_id) => match api.list_portraits(tree_id).await {
-                    Ok(rows) => api.portrait_map(tree_id, &rows).await,
-                    Err(_) => Default::default(),
-                },
-                None => Default::default(),
-            }
-        }
-    });
-
     let mut show_search = use_signal(|| false);
     let mut save_message = use_signal(|| None::<String>);
     let mut save_error = use_signal(|| None::<String>);
@@ -463,6 +458,37 @@ fn TreeRootsSection(
             _ => None,
         },
     };
+    let api_portraits = api.clone();
+    let portraits_tree_resource = tree_resource;
+    let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
+        let api = api_portraits.clone();
+        let root = match local_sosa_override() {
+            Some(value) => value,
+            None => match &*portraits_tree_resource.read() {
+                Some(Some(Ok(tree))) => tree.sosa_root_person_id,
+                _ => None,
+            },
+        };
+        let self_person = match local_self_override() {
+            Some(value) => value,
+            None => match &*portraits_tree_resource.read() {
+                Some(Some(Ok(tree))) => tree.self_person_id,
+                _ => None,
+            },
+        };
+        let mut person_ids = [root, self_person]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        person_ids.sort_unstable();
+        person_ids.dedup();
+        async move {
+            match tree_id_parsed {
+                Some(tree_id) => api.portrait_map_for_ids(tree_id, &person_ids).await,
+                None => Default::default(),
+            }
+        }
+    });
     let current_tree_name = local_tree_name().unwrap_or_else(|| match &*tree_resource.read() {
         Some(Some(Ok(tree))) => tree.name.clone(),
         _ => String::new(),
