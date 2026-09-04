@@ -14,7 +14,8 @@ use std::collections::HashMap;
 
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
-    GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
+    GqlGeneanetMediaFidelity, GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole,
+    GqlTreeDefaultPrivacy,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -63,6 +64,10 @@ pub struct GeneanetPreviewInput {
     pub deposit_sizes: Vec<GeneanetDepositSizeInput>,
     #[graphql(default)]
     pub archive_paths: Vec<String>,
+    /// Which bytes to keep per medium. `RENDITIONS`, the default, ignores
+    /// `depositSizes` and `archivePaths`.
+    #[graphql(default)]
+    pub media_fidelity: GqlGeneanetMediaFidelity,
 }
 
 /// Session content to encode as a downloadable Geneanet archive.
@@ -88,6 +93,10 @@ pub struct GeneanetImportInput {
     pub archive_paths: Vec<String>,
     #[graphql(default)]
     pub fetched: Vec<GeneanetMediaPathInput>,
+    /// Which bytes to keep per medium. `RENDITIONS`, the default, ignores
+    /// `depositSizes` and `archivePaths`.
+    #[graphql(default)]
+    pub media_fidelity: GqlGeneanetMediaFidelity,
 }
 
 pub(crate) fn geneanet_deposit_sizes(

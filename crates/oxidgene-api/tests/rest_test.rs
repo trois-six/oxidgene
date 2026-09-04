@@ -2173,6 +2173,8 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
             "collection": r#"{"deposits":[],"references":[],"details":[],"view_references":{}}"#,
             "archive_paths": [archive_path],
             "fetched": { fetched_url: fetched_path },
+            // The archives are staged only for a run that will read them.
+            "media_fidelity": "originals",
         })),
     )
     .await;
@@ -2207,6 +2209,70 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     assert!(!state.media.exists(&archive_key).await);
     assert!(!state.media.exists(&fetched_key).await);
 
+    let _ = std::fs::remove_dir_all(media_root);
+}
+
+/// A renditions import stores what Geneanet re-encoded, so a data archive is
+/// gigabytes copied into job storage to be ignored. It must not be staged, and
+/// the media that *is* needed must still land — which is what makes the input
+/// numbering worth asserting rather than the mere absence of the archive.
+#[tokio::test]
+async fn a_renditions_geneanet_import_stages_no_archive() {
+    use std::io::Write as _;
+
+    let test_id = uuid::Uuid::now_v7();
+    let media_root =
+        std::env::temp_dir().join(format!("oxidgene-test-geneanet-renditions-{test_id}"));
+    let input_root =
+        std::env::temp_dir().join(format!("oxidgene-test-geneanet-rend-input-{test_id}"));
+    std::fs::create_dir_all(&input_root).expect("create Geneanet input directory");
+
+    let archive_path = input_root.join("originals.zip");
+    let archive = std::fs::File::create(&archive_path).expect("create archive");
+    let mut archive = zip::ZipWriter::new(archive);
+    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    archive
+        .start_file("unused.txt", options)
+        .expect("start archive entry");
+    archive.write_all(b"unused").expect("write archive entry");
+    archive.finish().expect("finish archive");
+
+    let fetched_path = input_root.join("normal.jpg");
+    std::fs::write(&fetched_path, b"unused rendition").expect("write fetched rendition");
+
+    let db = setup_db().await;
+    let state = AppState::new(db, &media_root).with_local_file_access();
+    let app = build_router(state.clone());
+    let tree_id = create_tree_via_api(&app).await;
+    let geneweb = "encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
+
+    let (status, started) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/geneanet/import"),
+        Some(serde_json::json!({
+            "gw_base64": base64::engine::general_purpose::STANDARD.encode(geneweb),
+            "file_name": "family.gw",
+            "collection": r#"{"deposits":[],"references":[],"details":[],"view_references":{}}"#,
+            "archive_paths": [archive_path],
+            "fetched": { "https://example.invalid/normal.jpg": fetched_path },
+            "media_fidelity": "renditions",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "job response: {started}");
+    let job_id = started["job_id"]
+        .as_str()
+        .expect("job id")
+        .parse::<uuid::Uuid>()
+        .expect("valid job id");
+
+    // The rendition is input 0, which it can only be if the archive claimed no
+    // slot before it.
+    assert!(state.media.exists(&job_input_blob_key(job_id, 0)).await);
+    assert!(!state.media.exists(&job_input_blob_key(job_id, 1)).await);
+
+    let _ = std::fs::remove_dir_all(input_root);
     let _ = std::fs::remove_dir_all(media_root);
 }
 
@@ -2247,6 +2313,7 @@ async fn test_geneanet_import_resumes_from_projection_checkpoint() {
         std::collections::HashMap::new(),
         &[],
         &std::collections::HashMap::new(),
+        oxidgene_api::service::geneanet::MediaFidelity::default(),
     )
     .await
     .expect("stage Geneanet import");

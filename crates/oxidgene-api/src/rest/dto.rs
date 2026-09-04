@@ -1046,6 +1046,10 @@ pub struct GeneanetPreviewRequest {
     pub deposit_sizes: std::collections::HashMap<i64, u64>,
     #[serde(default)]
     pub archive_paths: Vec<String>,
+    /// Which bytes to keep per medium: `renditions` (the default) or
+    /// `originals`. `renditions` ignores `deposit_sizes` and `archive_paths`.
+    #[serde(default)]
+    pub media_fidelity: crate::service::geneanet::MediaFidelity,
 }
 
 /// The stat row and the three explanatory lines of step 4.
@@ -1142,6 +1146,10 @@ pub struct GeneanetImportRequest {
     /// with the size of somebody's photo collection.
     #[serde(default)]
     pub fetched: std::collections::HashMap<String, String>,
+    /// Which bytes to keep per medium: `renditions` (the default) or
+    /// `originals`. `renditions` ignores `deposit_sizes` and `archive_paths`.
+    #[serde(default)]
+    pub media_fidelity: crate::service::geneanet::MediaFidelity,
 }
 
 /// What the import actually did.

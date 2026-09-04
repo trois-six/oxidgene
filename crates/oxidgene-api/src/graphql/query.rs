@@ -1203,6 +1203,7 @@ impl QueryRoot {
             &input.collection,
             &deposit_sizes,
             &archives,
+            input.media_fidelity.into(),
         )?
         .into())
     }
@@ -1225,6 +1226,7 @@ impl QueryRoot {
             &input.collection,
             &deposit_sizes,
             &archives,
+            input.media_fidelity.into(),
         )?
         .into_iter()
         .map(Into::into)

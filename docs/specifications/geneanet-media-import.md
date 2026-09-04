@@ -404,6 +404,15 @@ still cannot help with media: one image string per person (§12), and
 
 ## 5. Matching originals you already have
 
+This whole section is one of two answers the wizard offers. The other keeps
+Geneanet's own `normal` rendition of every page and is the default: it needs no
+data archive, issues no `HEAD` pass, builds no perceptual index, and matches
+nothing. What it gives up is stated in §4 — `normal` is provenance-unknown, and
+a PDF page arrives as a JPEG. What it keeps is everything §1 says no export can
+carry: the person↔photo mapping and the identification boxes both come from the
+collection, not from the archives, so they are identical under either answer.
+Everything below therefore describes the *originals* answer alone.
+
 The data archive's filenames cannot be matched to deposits by name: they are
 upload names, unrelated to the deposit title
 (`<media title>` → `<original filename>`), and a large deposit's pages can use
@@ -625,7 +634,8 @@ speaks HTTP any more — see §8.
 **The app takes the browser path, not the cookie path.** §8's `--cookie` flow
 is the headless one. The desktop wizard opens a real login window and evaluates
 `script.rs`'s IPC variants inside it, so the ~19 metadata requests and the
-`HEAD` sizing pass are issued by a browser on the user's own session — which is
+`HEAD` sizing pass — where one runs — are issued by a browser on the user's own
+session — which is
 what §8's Cloudflare note says the honest answer is. The cookie is read out of
 that window afterwards, and only for the downloads in §5, which have no browser
 equivalent that would not push hundreds of megabytes through an IPC channel.
@@ -633,8 +643,8 @@ equivalent that would not push hundreds of megabytes through an IPC channel.
 ## 8. Running it
 
 There is one way to run this, and it is the wizard: tree card `⋮` → Import →
-**From Geneanet**. See [Import](ui-import.md) for the five
-steps.
+**From Geneanet**. See [Import](ui-import.md) for its steps — four under the
+default renditions answer, five when the original uploads are asked for.
 
 > **The CLI is gone (2026-08-18).** `oxidgene-cli geneanet-media` had six
 > subcommands; three needed direct HTTP, which no longer works at all (below),
@@ -645,8 +655,9 @@ steps.
 
 ### Collect once, import many times
 
-Step 3 is the only part that touches Geneanet, and the expensive half of it is
-one `HEAD` per deposit — several hundred on a real account. So its output is
+Step 3 is the only part that touches Geneanet, and under the originals answer
+the expensive half of it is one `HEAD` per deposit — several hundred on a real
+account. So its output is
 **saveable**: step 3 offers *Save this connection*, and *Load a saved
 connection* takes it back. That means
 
@@ -693,7 +704,8 @@ traffic more likely to trigger automated-client detection.
 
 The heavier pass is one `HEAD` per deposit for size matching. It is irreducible
 because no endpoint reports deposit byte lengths in bulk, which is why the
-result is persisted.
+result is persisted — and why it is not issued at all under the renditions
+answer, whose only reader would have been the archive matching it does not do.
 
 Whether scripted access fits Geneanet's terms of service is the operator's
 call: the data is the account owner's own, fetched through the account's own

@@ -19,8 +19,10 @@
 //! page load and says whether the media API answers yet;
 //! [`script::ipc_collection`] gathers the person↔photo mapping once it does;
 //! [`script::ipc_sizes`] then asks each deposit's byte length, which is what
-//! the local archives are matched against. All of it is the same traffic the
-//! media manager page makes when a user clicks around it.
+//! the local archives are matched against — and which [`Collect::ListOnly`]
+//! skips outright, because an import keeping Geneanet's renditions has no
+//! archive to match. All of it is the same traffic the media manager page
+//! makes when a user clicks around it.
 //!
 //! # How the window gets created
 //!
@@ -41,7 +43,9 @@ use dioxus::desktop::wry::{WebView, WebViewBuilder};
 use dioxus::desktop::{LogicalSize, WindowBuilder};
 use futures_channel::mpsc::UnboundedSender;
 use oxidgene_geneanet::script;
-use oxidgene_ui::geneanet::{GeneanetBridge, GeneanetCollector, GeneanetEvent, WindowStrings};
+use oxidgene_ui::geneanet::{
+    Collect, GeneanetBridge, GeneanetCollector, GeneanetEvent, WindowStrings,
+};
 use serde::Deserialize;
 use tracing::{debug, warn};
 
@@ -124,7 +128,7 @@ enum Message {
 /// Something the UI asked for, waiting for the event loop to pick it up.
 enum Request {
     /// Open the window and collect.
-    Open(UnboundedSender<GeneanetEvent>, WindowStrings),
+    Open(UnboundedSender<GeneanetEvent>, WindowStrings, Collect),
     /// Fetch these media through the window that is already open.
     Fetch(Vec<String>, UnboundedSender<GeneanetEvent>),
     /// Done with the window — the import finished, or the wizard was dismissed.
@@ -144,9 +148,14 @@ type Inbox = Arc<Mutex<Vec<Message>>>;
 struct QueueingCollector(Pending);
 
 impl GeneanetCollector for QueueingCollector {
-    fn start(&self, events: UnboundedSender<GeneanetEvent>, strings: WindowStrings) {
+    fn start(
+        &self,
+        events: UnboundedSender<GeneanetEvent>,
+        strings: WindowStrings,
+        collect: Collect,
+    ) {
         if let Ok(mut pending) = self.0.lock() {
-            pending.push(Request::Open(events, strings));
+            pending.push(Request::Open(events, strings, collect));
         }
     }
 
@@ -175,6 +184,8 @@ struct Session {
     collection: Option<String>,
     /// What to put on the status panel, already translated by the wizard.
     strings: WindowStrings,
+    /// Whether the sizing pass runs after the list has been read.
+    collect: Collect,
     /// Where a fetch batch reports to. Separate from `events`, which belongs
     /// to the collection: by the time media are being fetched the wizard has
     /// moved on to its import step and is listening on a new channel.
@@ -380,14 +391,14 @@ pub fn install<T: 'static>() -> (
 
         for request in queued {
             match request {
-                Request::Open(events, strings) => {
+                Request::Open(events, strings, collect) => {
                     if session.is_some() {
                         let _ = events.unbounded_send(GeneanetEvent::Failed(
                             "a Geneanet window is already open".into(),
                         ));
                         continue;
                     }
-                    session = open(target, events, strings, Arc::clone(&handler_inbox));
+                    session = open(target, events, strings, collect, Arc::clone(&handler_inbox));
                 }
                 // Dropping the session is what closes the window.
                 Request::Close => drop(session.take()),
@@ -504,9 +515,12 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
             };
             open.collection = Some(data);
 
-            if ids.is_empty() {
-                // Nothing measurable, so nothing to match: finish here rather
-                // than running an empty sizing pass.
+            // Nothing measurable, so nothing to match — or nothing that will
+            // *be* matched, because this import keeps Geneanet's own
+            // renditions and never opens an archive. Either way the sizing
+            // pass would be several hundred `HEAD` requests for an answer
+            // nothing reads.
+            if ids.is_empty() || open.collect == Collect::ListOnly {
                 return finish(session, HashMap::new());
             }
 
@@ -650,6 +664,7 @@ fn open<T: 'static>(
     target: &EventLoopWindowTarget<T>,
     events: UnboundedSender<GeneanetEvent>,
     strings: WindowStrings,
+    collect: Collect,
     inbox: Inbox,
 ) -> Option<Session> {
     let window = WindowBuilder::new()
@@ -751,6 +766,7 @@ fn open<T: 'static>(
         webview,
         events,
         collecting: false,
+        collect,
         collection: None,
         strings,
         fetching: None,

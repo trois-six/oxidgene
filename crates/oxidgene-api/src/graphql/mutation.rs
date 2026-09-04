@@ -1722,6 +1722,7 @@ impl MutationRoot {
             geneanet_deposit_sizes(&input.deposit_sizes)?,
             &input.archive_paths,
             &geneanet_media_paths(&input.fetched),
+            input.media_fidelity.into(),
         )
         .await?;
         Ok(GqlBackgroundJobStarted {

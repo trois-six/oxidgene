@@ -442,12 +442,22 @@ bytes are carried in the request and it performs no filesystem handoff.
 | `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all |
 | `POST` | `/geneanet/session/decode` | Read one back. Body is the file itself; a ZIP and a bare JSON collection are told apart by content, not extension. Refuses anything that is not a collection, so a wrong file is reported rather than producing an import that attaches nothing |
 | `POST` | `/geneanet/preview` | **Step 4.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on |
+| `POST` | `/geneanet/plan` | **Step 4.** List the media the server cannot produce on its own, for the login window to fetch. Same body as the preview. Under `media_fidelity: "renditions"` that is one `normal` rendition per page of every attached deposit; under `"originals"` it is each single-page deposit's download that no archive length accounts for, plus a rendition per document page to recognise it by |
 | `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt |
 
 The preview and import bodies carry the `.gw` **base64-encoded** (`gw_base64`)
 because they bundle it with other fields and JSON cannot hold raw bytes — the
 two endpoints that send nothing else take it as a raw body instead. They also
 carry `deposit_sizes`, archive paths, and the `fetched` URL-to-local-path map.
+
+The preview, plan and import bodies carry `media_fidelity`, which decides which
+bytes are kept per medium: `"renditions"` (the default when the field is
+omitted) stores Geneanet's largest per-page copy and **ignores
+`deposit_sizes` and `archive_paths` entirely** — no byte-length match, no
+perceptual index, and no archive staged into job storage; `"originals"` stores
+the uploaded files, resolving them from the archives where a length or a
+content match lands and downloading the rest. A Geneanet import job staged
+before the field existed replays as `"originals"`, which is what it was.
 Media bytes are never included in these request bodies.
 The two wizard routes that sit outside the tree nest run under a **32 MiB body
 limit**: a 10 000-person tree is around 8 MiB base64-encoded before the mapping
@@ -805,9 +815,10 @@ type Mutation {
 }
 ```
 
-`GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size
-and archive-path data as REST's preview and plan bodies. `GeneanetImportInput`
-adds the source-URL-to-local-path map. These paths are the staging handoff:
+`GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size,
+archive-path and `mediaFidelity` data as REST's preview and plan bodies
+(`mediaFidelity` is `GeneanetMediaFidelity`: `RENDITIONS`, the default, or
+`ORIGINALS`). `GeneanetImportInput` adds the source-URL-to-local-path map. These paths are the staging handoff:
 GraphQL does not carry the corresponding bytes, and the mutation copies every
 input to job-owned durable storage before returning its job id.
 `indexGeneanetArchives` and paths returned from `decodeGeneanetSession` are

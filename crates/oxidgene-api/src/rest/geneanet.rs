@@ -106,6 +106,7 @@ pub async fn preview_handler(
         &body.collection,
         &body.deposit_sizes,
         &archives,
+        body.media_fidelity,
     )
     .map_err(ApiError::from)?;
 
@@ -237,6 +238,7 @@ pub async fn plan_handler(
         &body.collection,
         &body.deposit_sizes,
         &archives,
+        body.media_fidelity,
     )
     .map_err(ApiError::from)?;
 
@@ -274,6 +276,7 @@ pub async fn import_handler(
         body.deposit_sizes,
         &body.archive_paths,
         &body.fetched,
+        body.media_fidelity,
     )
     .await
     .map_err(ApiError::from)?;

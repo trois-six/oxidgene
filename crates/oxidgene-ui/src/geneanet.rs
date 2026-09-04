@@ -119,6 +119,23 @@ pub struct WindowStrings {
     pub idle: String,
 }
 
+/// How much the login window has to collect.
+///
+/// The byte lengths are the expensive half of step 3 — one `HEAD` per
+/// single-page deposit, several hundred on a real account — and they exist for
+/// exactly one purpose: matching a photo against the user's data archives. An
+/// import that keeps Geneanet's renditions has no archive to match against, so
+/// asking for them would be several hundred requests spent on an answer
+/// nothing reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Collect {
+    /// The media list alone: who is on which view, the boxes drawn round them,
+    /// and every rendition URL. Enough for a renditions import.
+    ListOnly,
+    /// The list, then each single-page deposit's exact byte length.
+    ListAndSizes,
+}
+
 /// Opens the Geneanet login window and drives the collection.
 ///
 /// Implemented by `oxidgene-desktop`. One method, because there is exactly one
@@ -127,7 +144,15 @@ pub trait GeneanetCollector: Send + Sync {
     /// Opens the window and reports progress on `events` until it sends a
     /// terminal event ([`GeneanetEvent::Collected`],
     /// [`GeneanetEvent::Cancelled`] or [`GeneanetEvent::Failed`]).
-    fn start(&self, events: UnboundedSender<GeneanetEvent>, strings: WindowStrings);
+    ///
+    /// `collect` decides whether the sizing pass runs at all; with
+    /// [`Collect::ListOnly`] the reported `deposit_sizes` are empty.
+    fn start(
+        &self,
+        events: UnboundedSender<GeneanetEvent>,
+        strings: WindowStrings,
+        collect: Collect,
+    );
 
     /// Fetches media bytes through the window that is already signed in.
     ///
@@ -160,8 +185,13 @@ impl GeneanetBridge {
         Self(collector)
     }
 
-    pub fn start(&self, events: UnboundedSender<GeneanetEvent>, strings: WindowStrings) {
-        self.0.start(events, strings);
+    pub fn start(
+        &self,
+        events: UnboundedSender<GeneanetEvent>,
+        strings: WindowStrings,
+        collect: Collect,
+    ) {
+        self.0.start(events, strings, collect);
     }
 
     pub fn fetch(&self, urls: Vec<String>, events: UnboundedSender<GeneanetEvent>) {
