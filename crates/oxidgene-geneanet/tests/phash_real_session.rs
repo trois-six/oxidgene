@@ -47,9 +47,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use base64::Engine as _;
-use oxidgene_geneanet::archive::{ArchiveSet, PhashIndex, image_dimensions};
+use oxidgene_geneanet::archive::{ArchiveSet, ContentIndex, image_dimensions};
 use oxidgene_geneanet::model::{ManifestDeposit, ManifestView};
-use oxidgene_geneanet::phash;
 
 /// Rendition preference for the perceptual sample.
 ///
@@ -308,14 +307,16 @@ fn the_matcher_resolves_a_real_session() {
         .filter(|position| !claimed.contains(position))
         .collect();
 
+    let renditions: Vec<Vec<u8>> = pages.iter().map(|page| page.rendition.clone()).collect();
     let started = Instant::now();
-    let index = PhashIndex::build_from_matching_dimensions(&set, &candidates, &targets);
+    let index = ContentIndex::build(&set, &candidates, &targets, &renditions);
     let build = started.elapsed();
+    let (coarse, fine) = index.hashed_counts();
     println!(
-        "index: {} candidates, {} filtered on ratio, {} hashed, {} undecodable, built in {:.1}s",
+        "index: {} candidates, {} filtered on ratio, {coarse} hashed coarsely, \
+         {fine} hashed in full, {} undecodable, built in {:.1}s",
         candidates.len(),
         index.filtered_count(),
-        index.hashed_count(),
         index.undecodable_count(),
         build.as_secs_f64()
     );
@@ -325,17 +326,12 @@ fn the_matcher_resolves_a_real_session() {
     let mut pairs: BTreeMap<(i64, Option<i64>), usize> = BTreeMap::new();
     let mut resolved = 0usize;
     let mut declined = 0usize;
-    let mut unhashable = 0usize;
     let mut collisions: Vec<((i64, Option<i64>), usize)> = Vec::new();
     let mut claimed_by_page: HashMap<usize, (i64, Option<i64>)> = HashMap::new();
 
     for page in &pages {
         let key = (page.deposit_id, page.page);
-        let Ok(query) = phash::hash_image(&page.rendition) else {
-            unhashable += 1;
-            continue;
-        };
-        match index.locate(&set, query) {
+        match index.locate(&set, &page.rendition) {
             Ok(Some(position)) => {
                 resolved += 1;
                 if let Some(previous) = claimed_by_page.insert(position, key) {
@@ -350,8 +346,7 @@ fn the_matcher_resolves_a_real_session() {
     let resolve = started.elapsed();
 
     println!(
-        "pages: {resolved} resolved, {declined} declined, {unhashable} unhashable \
-         — in {:.1}s",
+        "pages: {resolved} resolved, {declined} declined — in {:.1}s",
         resolve.as_secs_f64()
     );
     println!("pairing digest: {:016x}\n", digest(&pairs));

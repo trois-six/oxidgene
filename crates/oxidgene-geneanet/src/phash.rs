@@ -39,13 +39,8 @@
 
 use std::io::Cursor;
 
-#[cfg(any(test, feature = "phash-validation"))]
-use anyhow::anyhow;
-use anyhow::{Context, Result};
-#[cfg(any(test, feature = "phash-validation"))]
-use image::RgbImage;
-use image::{DynamicImage, GrayImage, ImageDecoder, ImageReader};
-#[cfg(any(test, feature = "phash-validation"))]
+use anyhow::{Context, Result, anyhow};
+use image::{DynamicImage, GrayImage, ImageDecoder, ImageReader, RgbImage};
 use jpeg_decoder::PixelFormat;
 
 /// Side of the square the image is reduced to before the transform.
@@ -59,10 +54,14 @@ const BYTES: usize = BLOCK * BLOCK / 8;
 
 /// Largest box requested from the JPEG decoder's reduced IDCT.
 ///
-/// Kept at the validation size because the reduced path stays a measurement,
-/// not the implementation. See [`hash_image_reduced_decode_for_validation`].
-#[cfg(any(test, feature = "phash-validation"))]
-const JPEG_DECODE_TARGET: u16 = 128;
+/// Sized for the cascade rather than for the reduced hash on its own, and the
+/// two want opposite things. Alone, a larger box only buys a few more matches
+/// for more time. As the coarse tier of [`crate::archive::ContentIndex`] it
+/// decides how many entries reach a *full* decode, which is the expensive half:
+/// on a real account of 244 candidates, 128 leaves 72 to decode in full and
+/// builds in 6.7 s, while 1024 leaves 26 and builds in 4.7 s. Asking for more
+/// of the image is cheaper here because it means asking for fewer images.
+const JPEG_DECODE_TARGET: u16 = 1024;
 
 const MAX_DECODED_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -198,52 +197,36 @@ fn hash_image_with_limit(bytes: &[u8], max_decoded_bytes: u64) -> Result<Phash> 
 
 /// Hashes through the JPEG decoder's reduced IDCT instead of a full decode.
 ///
-/// Kept runnable, and kept out of production, because it has been measured
-/// rather than assumed. Replaying a real session of 244 document pages against
-/// its own data archives — `tests/phash_real_session.rs` — the full decode
-/// resolves 229 of them. The reduced decode resolves fewer at every scale it
-/// can be asked for, and the shortfall does not close:
+/// The coarse tier of [`crate::archive::ContentIndex`], at roughly a fifth of
+/// [`hash_image`]'s price. It is not a cheaper substitute for it: replaying a
+/// real session of 244 document pages against its own archives, a full decode
+/// resolves 229 and the reduced hash alone resolves fewer at every box it can
+/// be asked for — 172 at 128, 218 at 1024, 222 at 4096, by which point it costs
+/// what the full decode costs. Hashing both sides reduced does not rescue it
+/// either: a rendition is already small and stays near 1:1 while an original is
+/// scaled down hard, so no requested box puts the two at a comparable
+/// resolution before the shared resample.
 ///
-/// | `JPEG_DECODE_TARGET` | index build | pages resolved |
-/// |---------------------:|------------:|---------------:|
-/// | 128                  |       3.7 s |            172 |
-/// | 512                  |       3.5 s |            194 |
-/// | 1024                 |       3.3 s |            218 |
-/// | 2048                 |       5.4 s |            220 |
-/// | 4096                 |      13.2 s |            222 |
-/// | *full decode*        |    *13.0 s* |          *229* |
+/// What makes it useful is a narrower property, and the one the cascade rests
+/// on: it never resolves a page to a *different* entry than a full decode
+/// would. Over the pages the two both resolved, all 217 agreed. It only
+/// declines more often — so it can be trusted to claim what it is sure of and
+/// hand the rest to a full decode, which is what
+/// [`crate::archive::ContentIndex`] does.
 ///
-/// Hashing both sides reduced does not rescue it, so the loss is not an
-/// artefact of comparing a reduced candidate against a fully decoded
-/// rendition: a rendition is already small and stays near 1:1 while an original
-/// is scaled down hard, and no single requested box puts the two at a
-/// comparable resolution before the shared resample.
+/// # Errors
 ///
-/// The last row is why it is not simply a speed-for-accuracy dial. Once the
-/// crates doing this work are compiled for speed rather than size (see the
-/// profile exceptions in the workspace manifest), a full decode costs what the
-/// *best* reduced variant costs and resolves seven more pages. Nor is the fast
-/// end free: every declined page is downloaded instead, and at a second or two
-/// per rendition the eleven extra downloads at 1024 outweigh the ten seconds
-/// they saved.
-///
-/// What the same measurement did establish is that the reduced hash never
-/// picks a *different* entry — at 1024 it agreed with all 217 pairings it
-/// resolved in common, declining 12 more and recovering 1. So it is sound as
-/// the first pass of a cascade, with a full decode of whatever it declined.
-/// That is worth revisiting for an account far larger than this one; it is not
-/// worth it for a few seconds, because the second pass would judge ambiguity
-/// against only the candidates the first pass left, which is a weaker test than
-/// [`MIN_MARGIN`] against the whole pool.
-#[cfg(feature = "phash-validation")]
-#[doc(hidden)]
-pub fn hash_image_reduced_decode_for_validation(bytes: &[u8]) -> Result<Phash> {
+/// Returns `Err` if the bytes are not an image this build can decode.
+pub fn hash_image_reduced(bytes: &[u8]) -> Result<Phash> {
     if bytes.starts_with(&[0xff, 0xd8])
         && let Ok(image) = decode_jpeg_reduced(bytes)
     {
         return Ok(hash_luma(&image));
     }
 
+    // Anything that is not a JPEG the reduced decoder accepts is hashed the
+    // ordinary way. The coarse tier is then no cheaper for that entry, but it
+    // still gives the same answer, which is what matters.
     hash_image_generic(bytes)
 }
 
@@ -263,7 +246,6 @@ fn hash_luma(image: &GrayImage) -> Phash {
     hash_samples(&samples)
 }
 
-#[cfg(any(test, feature = "phash-validation"))]
 fn decode_jpeg_reduced(bytes: &[u8]) -> Result<GrayImage> {
     let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
     decoder.read_info().context("reading JPEG headers")?;
@@ -473,11 +455,16 @@ mod tests {
 
     #[test]
     fn a_large_jpeg_can_be_hashed_from_a_reduced_decode() {
-        let jpeg = encoded_gradient(1600, 1200, image::ImageFormat::Jpeg);
+        // Sized from the constant rather than written in: the decoder offers
+        // halves, so an image merely larger than the requested box comes back
+        // at full size and the reduction this is checking never happens.
+        let width = u32::from(JPEG_DECODE_TARGET) * 3;
+        let height = u32::from(JPEG_DECODE_TARGET) * 2;
+        let jpeg = encoded_gradient(width, height, image::ImageFormat::Jpeg);
         let reduced = decode_jpeg_reduced(&jpeg).expect("decodes with reduced IDCT");
 
-        assert!(reduced.width() < 1600);
-        assert!(reduced.height() < 1200);
+        assert!(reduced.width() < width);
+        assert!(reduced.height() < height);
         assert_eq!(hash_luma(&reduced), hash_luma(&reduced));
     }
 

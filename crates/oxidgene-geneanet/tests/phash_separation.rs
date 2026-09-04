@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
-//!   cargo test --release -p oxidgene-geneanet --features phash-validation \
+//!   cargo test --release -p oxidgene-geneanet \
 //!     --test phash_separation a_rendition_is_never_matched_to_the_wrong_original \
 //!     -- --ignored --nocapture
 //! ```
@@ -18,7 +18,7 @@
 //!
 //! ```text
 //! OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
-//!   cargo test --release -p oxidgene-geneanet --features phash-validation \
+//!   cargo test --release -p oxidgene-geneanet \
 //!     --test phash_separation compare_full_and_reduced_decode \
 //!     -- --ignored --nocapture
 //! ```
@@ -49,8 +49,7 @@ use std::io::Read;
 
 use oxidgene_geneanet::phash::{self, MAX_DISTANCE, MIN_MARGIN, Match, Phash};
 
-#[cfg(feature = "phash-validation")]
-use oxidgene_geneanet::phash::hash_image_reduced_decode_for_validation;
+use oxidgene_geneanet::phash::hash_image_reduced;
 
 #[derive(Debug, Default)]
 struct Outcome {
@@ -240,7 +239,6 @@ fn a_rendition_is_never_matched_to_the_wrong_original() {
     );
 }
 
-#[cfg(feature = "phash-validation")]
 #[test]
 #[ignore = "needs a real Geneanet data archive; see the module docs"]
 fn compare_full_and_reduced_decode() {
@@ -263,10 +261,9 @@ fn compare_full_and_reduced_decode() {
             eprintln!("compared {entry_index}/{} archive entries", entries.len());
         }
 
-        let (Ok(full_original), Ok(reduced_original)) = (
-            phash::hash_image(bytes),
-            hash_image_reduced_decode_for_validation(bytes),
-        ) else {
+        let (Ok(full_original), Ok(reduced_original)) =
+            (phash::hash_image(bytes), hash_image_reduced(bytes))
+        else {
             undecodable += 1;
             continue;
         };
@@ -278,7 +275,7 @@ fn compare_full_and_reduced_decode() {
             .and_then(|rendition| phash::hash_image(rendition).ok());
         let reduced_rendition = fake_rendition
             .as_deref()
-            .and_then(|rendition| hash_image_reduced_decode_for_validation(rendition).ok());
+            .and_then(|rendition| hash_image_reduced(rendition).ok());
 
         names.push(name.clone());
         full_originals.push(full_original);
