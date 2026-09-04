@@ -533,6 +533,27 @@ dimensions have been read. A candidate the aspect ratio rejects is therefore
 never inflated in full, and one whose header needs more bytes than the probe
 falls through to the complete read and is decided there.
 
+The index has two tiers. A coarse tier hashes every candidate through the JPEG
+decoder's reduced inverse transform, at roughly a fifth of the cost of a full
+decode, and claims the pages it can resolve. Only the entries it left over are
+decoded at full resolution, for the pages it declined. The partition is fixed
+when the index is built, never as pages arrive: a page resolved late by the
+coarse tier must not be able to claim an entry the fine tier has already
+offered to another page.
+
+This is sound because the coarse hash never resolves a page to a *different*
+entry than a full decode would — it only declines more often. It is therefore
+not a cheaper matcher in its own right and must never be used as one: on its
+own it resolves materially fewer pages at every reduction it can be asked for.
+
+The fine tier judges ambiguity against the candidates the coarse tier left
+rather than against the whole pool, so its margin test is weaker than a single
+index's. A page both tiers could reach may therefore resolve where one index
+would have declined it as ambiguous. That is the cost of the arrangement and is
+accepted deliberately: the alternative is a full-resolution decode of every
+candidate, and the coarse tier's claims are the evidence that the entries it
+removed were not the ambiguous ones.
+
 Perceptual hashing is dominated by image decoding and downscaling, not by the
 hash itself, so the crates performing them are compiled for speed in both
 profiles. `image::imageops::resize` is generic and is therefore monomorphised

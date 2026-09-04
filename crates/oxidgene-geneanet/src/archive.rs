@@ -402,6 +402,17 @@ impl PhashIndex {
         positions: &[usize],
         target_dimensions: &[(u32, u32)],
     ) -> Self {
+        Self::build_decoding(set, positions, target_dimensions, Decode::Full)
+    }
+
+    /// Hashes candidates at a chosen decode depth.
+    #[must_use]
+    pub fn build_decoding(
+        set: &ArchiveSet,
+        positions: &[usize],
+        target_dimensions: &[(u32, u32)],
+        decode: Decode,
+    ) -> Self {
         // Decoding is the whole cost here — a data archive is several hundred
         // full-size photographs — and each entry is independent of every
         // other, so the work is split across the machine's cores. Reading is
@@ -418,7 +429,7 @@ impl PhashIndex {
         let results: Vec<HashSliceResult> = std::thread::scope(|scope| {
             let handles: Vec<_> = positions
                 .chunks(chunk)
-                .map(|slice| scope.spawn(move || hash_slice(set, slice, target_dimensions)))
+                .map(|slice| scope.spawn(move || hash_slice(set, slice, target_dimensions, decode)))
                 .collect();
 
             handles
@@ -518,6 +529,127 @@ impl PhashIndex {
     }
 }
 
+/// The content index a run queries, in two tiers.
+///
+/// Full-resolution decoding is what building an index costs — several hundred
+/// photographs — and most pages do not need it. The coarse tier hashes every
+/// candidate through the JPEG decoder's reduced IDCT, at about a fifth of the
+/// price, and claims what it is sure of. Only the entries it left over are
+/// decoded in full, for the pages it declined.
+///
+/// This is sound because of a property that was measured rather than assumed
+/// (see [`phash::hash_image_reduced`]): the coarse hash never resolves a page
+/// to a *different* entry than a full decode would. It only declines more
+/// often. So the partition it produces is a partition of confident answers,
+/// not a gamble.
+///
+/// The partition is fixed when the index is built, never as pages arrive. A
+/// page resolved late by the coarse tier must not be able to claim an entry the
+/// fine tier has already offered to another page, and deciding both tiers up
+/// front is what rules that out.
+///
+/// The cost is that the fine tier judges ambiguity against the candidates the
+/// coarse tier left rather than against the whole pool, so [`phash::MIN_MARGIN`]
+/// there is a weaker test than it is for a single index. That is the trade this
+/// type makes, and the reason it is worth making only when the archive is large
+/// enough for the decode to dominate.
+#[derive(Debug, Default)]
+pub struct ContentIndex {
+    coarse: PhashIndex,
+    fine: PhashIndex,
+}
+
+impl ContentIndex {
+    /// Builds both tiers, using `queries` to decide where the boundary falls.
+    ///
+    /// `queries` are the renditions the run will look up — the pages of
+    /// multi-page deposits. They are what makes the partition meaningful: an
+    /// entry is left to the fine tier precisely because no query claimed it
+    /// coarsely.
+    #[must_use]
+    pub fn build(
+        set: &ArchiveSet,
+        candidates: &[usize],
+        target_dimensions: &[(u32, u32)],
+        queries: &[Vec<u8>],
+    ) -> Self {
+        let coarse =
+            PhashIndex::build_decoding(set, candidates, target_dimensions, Decode::Reduced);
+
+        let mut claimed = std::collections::BTreeSet::new();
+        for query in queries {
+            if let Ok(hash) = phash::hash_image_reduced(query)
+                && let Ok(Some(position)) = coarse.locate(set, hash)
+            {
+                claimed.insert(position);
+            }
+        }
+
+        let leftover: Vec<usize> = candidates
+            .iter()
+            .copied()
+            .filter(|position| !claimed.contains(position))
+            .collect();
+        let fine = PhashIndex::build_decoding(set, &leftover, target_dimensions, Decode::Full);
+
+        Self { coarse, fine }
+    }
+
+    /// Names the archive entry `sample` is a rendition of.
+    ///
+    /// The coarse tier answers first because it is a fifth of the price. What
+    /// it declines is asked again of the fine tier, which is the only one that
+    /// ever sees a full decode.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if a candidate could not be read back for comparison.
+    pub fn locate(&self, set: &ArchiveSet, sample: &[u8]) -> Result<Option<usize>> {
+        if let Ok(coarse) = phash::hash_image_reduced(sample)
+            && let Some(position) = self.coarse.locate(set, coarse)?
+        {
+            return Ok(Some(position));
+        }
+        match phash::hash_image(sample) {
+            Ok(fine) => self.fine.locate(set, fine),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Finds the archive entry `sample` is a rendition of.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if a candidate could not be read back for comparison.
+    pub fn resolve(&self, set: &ArchiveSet, sample: &[u8]) -> Result<Option<Vec<u8>>> {
+        match self.locate(set, sample)? {
+            Some(position) => set.read_at(position).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.coarse.is_empty() && self.fine.is_empty()
+    }
+
+    /// Entries hashed coarsely and, separately, in full — for the run report.
+    #[must_use]
+    pub fn hashed_counts(&self) -> (usize, usize) {
+        (self.coarse.hashed_count(), self.fine.hashed_count())
+    }
+
+    #[must_use]
+    pub fn filtered_count(&self) -> usize {
+        self.coarse.filtered_count()
+    }
+
+    #[must_use]
+    pub fn undecodable_count(&self) -> usize {
+        self.coarse.undecodable_count()
+    }
+}
+
 /// Intrinsic dimensions without decoding the image's pixels.
 #[must_use]
 pub fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
@@ -559,10 +691,22 @@ fn compatible_aspect_ratio(left: (u32, u32), right: (u32, u32)) -> bool {
 }
 
 /// Hashes one worker's share, opening each archive it touches once.
+/// How much of an image the index decodes before hashing it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Decode {
+    /// A full-resolution decode. The only judge of a content match.
+    Full,
+    /// The JPEG decoder's reduced IDCT — about a fifth of the cost, and never
+    /// wrong about *which* entry, only less often sure. See
+    /// [`phash::hash_image_reduced`].
+    Reduced,
+}
+
 fn hash_slice(
     set: &ArchiveSet,
     positions: &[usize],
     target_dimensions: &[(u32, u32)],
+    decode: Decode,
 ) -> HashSliceResult {
     let mut by_archive: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for position in positions {
@@ -624,7 +768,11 @@ fn hash_slice(
                 continue;
             }
 
-            match phash::hash_image(&bytes) {
+            let hashed = match decode {
+                Decode::Full => phash::hash_image(&bytes),
+                Decode::Reduced => phash::hash_image_reduced(&bytes),
+            };
+            match hashed {
                 Ok(hash) => hashes.push((position, hash)),
                 // PDFs and anything else `image` cannot read. The page that
                 // would have matched one is downloaded instead.
@@ -662,6 +810,21 @@ mod tests {
         let mut buffer = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageRgb8(image)
             .write_to(&mut buffer, image::ImageFormat::Png)
+            .expect("encodes");
+        buffer.into_inner()
+    }
+
+    /// The same picture as [`png`], encoded as a JPEG so the coarse tier's
+    /// reduced IDCT is actually exercised — it falls back to a full decode for
+    /// anything else, which would make a two-tier test prove nothing.
+    fn jpeg(width: u32, height: u32, seed: u32) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            let v = ((x * 7 + y * 13 + seed * 53) % 251) as u8;
+            image::Rgb([v, v.wrapping_mul(3), v.wrapping_add(seed as u8)])
+        });
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(&mut buffer, image::ImageFormat::Jpeg)
             .expect("encodes");
         buffer.into_inner()
     }
@@ -976,6 +1139,68 @@ mod tests {
         assert_eq!(index.hashed_count(), 0);
         assert_eq!(index.filtered_count(), 1);
         assert_eq!(index.undecodable_count(), 0);
+    }
+
+    #[test]
+    fn the_two_tier_index_finds_the_entry_the_coarse_tier_claimed() {
+        let dir = TempDir::new("content-coarse");
+        let archive = dir.zip(
+            "data.zip",
+            &[
+                ("page1.jpg", &jpeg(400, 300, 3)),
+                ("page2.jpg", &jpeg(400, 300, 91)),
+            ],
+        );
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let candidates: Vec<_> = (0..set.entry_count()).collect();
+        let wanted = jpeg(400, 300, 91);
+
+        let index = ContentIndex::build(&set, &candidates, &[], std::slice::from_ref(&wanted));
+
+        // The coarse tier recognised it, so it is the one entry of the two the
+        // fine tier is not offered.
+        assert_eq!(index.hashed_counts(), (2, 1));
+        assert_eq!(
+            index.resolve(&set, &wanted).expect("resolves").as_deref(),
+            Some(&wanted[..])
+        );
+    }
+
+    #[test]
+    fn the_fine_tier_takes_only_what_the_coarse_tier_left() {
+        // The partition is the whole design: an entry the coarse tier claimed
+        // must not also be on offer from the fine tier, or two pages could be
+        // handed the same picture.
+        let dir = TempDir::new("content-partition");
+        let archive = dir.zip(
+            "data.zip",
+            &[
+                ("page1.jpg", &jpeg(400, 300, 3)),
+                ("page2.jpg", &jpeg(400, 300, 91)),
+                ("page3.jpg", &jpeg(400, 300, 140)),
+            ],
+        );
+
+        let mut set = ArchiveSet::new();
+        set.add(&archive).expect("indexes");
+        let candidates: Vec<_> = (0..set.entry_count()).collect();
+        let claimed = jpeg(400, 300, 91);
+
+        let index = ContentIndex::build(&set, &candidates, &[], std::slice::from_ref(&claimed));
+
+        // One of three claimed coarsely, so exactly two reach the full decode.
+        assert_eq!(index.hashed_counts(), (3, 2));
+    }
+
+    #[test]
+    fn a_two_tier_index_over_nothing_is_empty() {
+        let set = ArchiveSet::new();
+        let index = ContentIndex::build(&set, &[], &[], &[]);
+
+        assert!(index.is_empty());
+        assert_eq!(index.hashed_counts(), (0, 0));
     }
 
     #[test]

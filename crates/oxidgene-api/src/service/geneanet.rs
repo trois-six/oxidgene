@@ -26,7 +26,7 @@ use oxidgene_db::repo::{
     PlaceRepo, TreeRepo, UploadedMedia, VignetteInput, VignetteRepo,
 };
 use oxidgene_geneanet::Manifest;
-use oxidgene_geneanet::archive::{ArchiveSet, LocalOriginals, PhashIndex};
+use oxidgene_geneanet::archive::{ArchiveSet, ContentIndex, LocalOriginals};
 use oxidgene_geneanet::join::{self, UnjoinedReason};
 use oxidgene_geneanet::model::{GeneanetEvent, GeneanetTranscript, ManifestDeposit, ManifestView};
 use sea_orm::DatabaseConnection;
@@ -1105,7 +1105,7 @@ async fn prepare_single_pages(
     by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
-    hashes: Option<&PhashIndex>,
+    hashes: Option<&ContentIndex>,
     fetched: &HashMap<String, String>,
     progress: &ImportProgress,
     places: &mut HashMap<String, Uuid>,
@@ -1230,7 +1230,7 @@ async fn document(
     deposit: &ManifestDeposit,
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
-    hashes: Option<&PhashIndex>,
+    hashes: Option<&ContentIndex>,
     fetched: &HashMap<String, String>,
     progress: &ImportProgress,
     places: &mut HashMap<String, Uuid>,
@@ -1616,7 +1616,7 @@ fn build_content_index(
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
     fetched: &HashMap<String, String>,
-) -> Option<PhashIndex> {
+) -> Option<ContentIndex> {
     if archives.is_empty() {
         return None;
     }
@@ -1648,18 +1648,53 @@ fn build_content_index(
         .collect();
     let target_dimensions: Vec<_> = target_dimensions.into_iter().collect();
 
+    // The renditions the run will look up. They are what decides where the
+    // coarse tier stops: an entry falls to the fine tier precisely because no
+    // page claimed it cheaply.
+    let queries = hashable_renditions(deposits, by_deposit, fetched);
+
     let index = tokio::task::block_in_place(|| {
-        PhashIndex::build_from_matching_dimensions(archives, &candidates, &target_dimensions)
+        ContentIndex::build(archives, &candidates, &target_dimensions, &queries)
     });
+    let (coarse, fine) = index.hashed_counts();
     tracing::info!(
         candidates = candidates.len(),
         target_dimensions = target_dimensions.len(),
         filtered = index.filtered_count(),
-        hashed = index.hashed_count(),
+        hashed_coarse = coarse,
+        hashed_full = fine,
         undecodable = index.undecodable_count(),
         "built Geneanet archive perceptual index"
     );
     Some(index)
+}
+
+/// The rendition bytes of every page that could be looked up by content.
+///
+/// Same selection as [`hashable_target_dimensions`], carrying the bytes rather
+/// than their shape.
+fn hashable_renditions(
+    deposits: &HashMap<i64, &ManifestDeposit>,
+    by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
+    fetched: &HashMap<String, String>,
+) -> Vec<Vec<u8>> {
+    let mut renditions = Vec::new();
+
+    for deposit_id in by_deposit.keys() {
+        let Some(deposit) = deposits.get(deposit_id) else {
+            continue;
+        };
+        if deposit.views.len() <= 1 {
+            continue;
+        }
+        for view in &deposit.views {
+            if let Some(bytes) = rendition_url(view).and_then(|url| read_fetched(fetched, &url)) {
+                renditions.push(bytes);
+            }
+        }
+    }
+
+    renditions
 }
 
 /// A deposit's pages in the order they should be read.
@@ -2080,7 +2115,7 @@ async fn resolve_bytes(
     view: &ManifestView,
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
-    hashes: Option<&PhashIndex>,
+    hashes: Option<&ContentIndex>,
     fetched: &HashMap<String, String>,
 ) -> Result<Vec<u8>, String> {
     // 1. A single-page deposit *is* the file, so its length names it.
@@ -2105,8 +2140,7 @@ async fn resolve_bytes(
         // A rendition we cannot decode is not a failure — it just cannot be
         // matched, and the fetched bytes below still stand.
         if let Some(index) = hashes
-            && let Ok(query) = oxidgene_geneanet::phash::hash_image(sample)
-            && let Ok(Some(bytes)) = index.resolve(archives, query)
+            && let Ok(Some(bytes)) = index.resolve(archives, sample)
         {
             return Ok(bytes);
         }
