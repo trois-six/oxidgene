@@ -58,6 +58,9 @@ const BLOCK: usize = 16;
 const BYTES: usize = BLOCK * BLOCK / 8;
 
 /// Largest box requested from the JPEG decoder's reduced IDCT.
+///
+/// Kept at the validation size because the reduced path stays a measurement,
+/// not the implementation. See [`hash_image_reduced_decode_for_validation`].
 #[cfg(any(test, feature = "phash-validation"))]
 const JPEG_DECODE_TARGET: u16 = 128;
 
@@ -193,13 +196,52 @@ fn hash_image_with_limit(bytes: &[u8], max_decoded_bytes: u64) -> Result<Phash> 
     Ok(hash_luma(&image.to_luma8()))
 }
 
+/// Hashes through the JPEG decoder's reduced IDCT instead of a full decode.
+///
+/// Kept runnable, and kept out of production, because it has been measured
+/// rather than assumed. Replaying a real session of 244 document pages against
+/// its own data archives — `tests/phash_real_session.rs` — the full decode
+/// resolves 229 of them. The reduced decode resolves fewer at every scale it
+/// can be asked for, and the shortfall does not close:
+///
+/// | `JPEG_DECODE_TARGET` | index build | pages resolved |
+/// |---------------------:|------------:|---------------:|
+/// | 128                  |       3.7 s |            172 |
+/// | 512                  |       3.5 s |            194 |
+/// | 1024                 |       3.3 s |            218 |
+/// | 2048                 |       5.4 s |            220 |
+/// | 4096                 |      13.2 s |            222 |
+/// | *full decode*        |    *13.0 s* |          *229* |
+///
+/// Hashing both sides reduced does not rescue it, so the loss is not an
+/// artefact of comparing a reduced candidate against a fully decoded
+/// rendition: a rendition is already small and stays near 1:1 while an original
+/// is scaled down hard, and no single requested box puts the two at a
+/// comparable resolution before the shared resample.
+///
+/// The last row is why it is not simply a speed-for-accuracy dial. Once the
+/// crates doing this work are compiled for speed rather than size (see the
+/// profile exceptions in the workspace manifest), a full decode costs what the
+/// *best* reduced variant costs and resolves seven more pages. Nor is the fast
+/// end free: every declined page is downloaded instead, and at a second or two
+/// per rendition the eleven extra downloads at 1024 outweigh the ten seconds
+/// they saved.
+///
+/// What the same measurement did establish is that the reduced hash never
+/// picks a *different* entry — at 1024 it agreed with all 217 pairings it
+/// resolved in common, declining 12 more and recovering 1. So it is sound as
+/// the first pass of a cascade, with a full decode of whatever it declined.
+/// That is worth revisiting for an account far larger than this one; it is not
+/// worth it for a few seconds, because the second pass would judge ambiguity
+/// against only the candidates the first pass left, which is a weaker test than
+/// [`MIN_MARGIN`] against the whole pool.
 #[cfg(feature = "phash-validation")]
 #[doc(hidden)]
 pub fn hash_image_reduced_decode_for_validation(bytes: &[u8]) -> Result<Phash> {
-    if bytes.starts_with(&[0xff, 0xd8]) {
-        if let Ok(image) = decode_jpeg_reduced(bytes) {
-            return Ok(hash_luma(&image));
-        }
+    if bytes.starts_with(&[0xff, 0xd8])
+        && let Ok(image) = decode_jpeg_reduced(bytes)
+    {
+        return Ok(hash_luma(&image));
     }
 
     hash_image_generic(bytes)

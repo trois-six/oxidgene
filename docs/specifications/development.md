@@ -211,6 +211,42 @@ cargo test --package oxidgene-api --features s3 \
    s3_round_trip_deduplication_and_tree_deletion -- --ignored
 ```
 
+### Geneanet content matching
+
+Three opt-in harnesses measure the perceptual matcher against real data. All
+are `#[ignore]`d and self-skipping, because a data archive and a saved session
+are hundreds of megabytes of someone's family photographs and are never
+committed. Point them at your own and run them in `--release`: the decoders and
+the resampler are an order of magnitude slower otherwise, and in different
+proportions, so a development build misattributes the cost.
+
+`phash_separation` answers whether the matcher is correct, on renditions it
+generates itself. `phash_cost` answers where a hash spends its time, phase by
+phase. `phash_real_session` replays a saved session and its archives through
+the whole pipeline — exact size claims, target shapes, index build, per-page
+lookup — and prints how many pages resolved plus a digest of the pairing.
+
+That pairing is the point: judge a candidate change to the hashing by whether
+it survives, never by whether it feels faster. Record a reference with
+`OXIDGENE_GENEANET_PAIRING_OUT`, then run the variant against it with
+`OXIDGENE_GENEANET_PAIRING_REF`. The comparison separates the two ways a
+variant can differ, which are not equivalent: a page the reference resolved and
+the variant declined costs one download, while a page both resolved to
+different entries means one of them attached the wrong picture. The first is a
+number to weigh, the second fails the run.
+
+One account is also one account — a tree with no multi-page deposit exercises
+nothing here, and a green run means "this change did not regress that account",
+not a general guarantee.
+
+```bash
+OXIDGENE_GENEANET_SESSION=/path/geneanet-session.zip \
+OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
+OXIDGENE_GENEANET_PAIRING_OUT=/tmp/pairing-reference.tsv \
+  cargo test --release --package oxidgene-geneanet \
+    --test phash_real_session -- --ignored --nocapture
+```
+
 The Compose stack includes an OpenTelemetry Collector. It receives OTLP on
 loopback ports `4317` (gRPC) and `4318` (HTTP), exposes its health endpoint on
 `13133`, and writes log, trace, and metric summaries to its logs:
