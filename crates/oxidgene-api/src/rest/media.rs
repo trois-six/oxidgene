@@ -448,6 +448,7 @@ pub async fn upload_media(
         title: form.title,
         description: form.description,
         created_at: chrono::Utc::now(),
+        metadata: Default::default(),
     };
 
     let (status, media) = match form.media_id {

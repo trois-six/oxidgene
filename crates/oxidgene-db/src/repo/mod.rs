@@ -45,7 +45,7 @@ pub use event_witness::EventWitnessRepo;
 pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;
 pub use family_spouse::FamilySpouseRepo;
-pub use media::{MediaPatch, MediaRepo, UploadedMedia};
+pub use media::{MediaPatch, MediaRepo, UploadedMedia, UploadedMediaMetadata};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 pub use media_tag::MediaTagRepo;
 pub use note::{NoteFilter, NoteRepo};

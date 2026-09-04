@@ -510,6 +510,13 @@ page and a manual bulk download may produce several archives.
 
 ### Multi-page deposits
 
+Media rows are created with their Geneanet classification, privacy, date and
+place metadata in the initial insert. Pages of one document are attached in
+source order as one repository operation: existing state is validated once,
+page indexes are assigned in order, and the parent `page_count` is updated once
+after the batch. This preserves the same final model without rescanning the
+growing page list for every imported page.
+
 Their archive has no `Content-Length`, so pages cannot be size-matched. The
 default fetches each linked page's `medium` rendition as the lightweight pHash
 sample and its `normal` rendition as the readable stored fallback. The pHash

@@ -473,7 +473,10 @@ The final media bar advances as each decode and thumbnail operation completes,
 including skipped media, and the UI refreshes often enough to expose those
 individual completions rather than only the boundaries between processing
 batches. Multi-page document results are reordered before database writes, so
-this granular progress never changes page order.
+this granular progress never changes page order. Media metadata is included in
+the initial row insert, and each multi-page document is attached as one ordered
+repository batch. Projection rebuilding is then shown as the indeterminate
+finalisation phase rather than leaving the completed media bar visible.
 
 CPU-intensive import work uses at most 75% of the available logical processors,
 rounded down, and keeps at least one processor available on multi-processor

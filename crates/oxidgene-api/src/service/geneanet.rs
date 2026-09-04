@@ -23,7 +23,7 @@ use oxidgene_core::enums::{EventType, Privacy};
 use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
     MediaLinkRepo, MediaPatch, MediaRepo, NoteRepo, PersonNamePieces, PersonNameRepo, PersonRepo,
-    PlaceRepo, TreeRepo, UploadedMedia, VignetteInput, VignetteRepo,
+    PlaceRepo, TreeRepo, UploadedMedia, UploadedMediaMetadata, VignetteInput, VignetteRepo,
 };
 use oxidgene_geneanet::Manifest;
 use oxidgene_geneanet::archive::{ArchiveSet, ContentIndex, LocalOriginals};
@@ -626,6 +626,7 @@ pub async fn import(
         &mut summary,
     )
     .await;
+    progress.begin(ImportPhase::Finishing, 0);
 
     Ok(summary)
 }
@@ -1368,8 +1369,8 @@ async fn document(
         }
     }
 
-    let mut stored = 0usize;
     let mut pages: HashMap<i64, Uuid> = HashMap::new();
+    let mut prepared_pages: Vec<(i64, i64, Uuid)> = Vec::new();
 
     for chunk in resolved.chunks(ingest_width()) {
         let mut pending = FuturesUnordered::new();
@@ -1413,34 +1414,40 @@ async fn document(
                 continue;
             };
 
-            match MediaRepo::append_page(db, document_id, page_id).await {
-                Ok(_) => {
-                    stored += 1;
-                    summary.media_count += 1;
-                    pages.insert(*view_id, page_id);
-                    import_transcript(
-                        db,
-                        tree_id,
-                        page_id,
-                        deposit.id,
-                        *view_id,
-                        deposit
-                            .views
-                            .iter()
-                            .find(|view| view.id == *view_id)
-                            .and_then(|view| view.last_transcript.as_ref()),
-                        summary,
-                    )
-                    .await;
-                }
-                Err(err) => summary
-                    .skipped
-                    .push(format!("deposit {} page {page}: {err}", deposit.id)),
-            }
+            prepared_pages.push((*view_id, *page, page_id));
         }
     }
 
-    if stored == 0 {
+    let page_ids: Vec<Uuid> = prepared_pages
+        .iter()
+        .map(|(_, _, page_id)| *page_id)
+        .collect();
+    if let Err(err) = MediaRepo::append_pages(db, document_id, &page_ids).await {
+        summary
+            .skipped
+            .push(format!("deposit {} pages: {err}", deposit.id));
+        return Some((document_id, pages));
+    }
+    for (view_id, _, page_id) in &prepared_pages {
+        summary.media_count += 1;
+        pages.insert(*view_id, *page_id);
+        import_transcript(
+            db,
+            tree_id,
+            *page_id,
+            deposit.id,
+            *view_id,
+            deposit
+                .views
+                .iter()
+                .find(|view| view.id == *view_id)
+                .and_then(|view| view.last_transcript.as_ref()),
+            summary,
+        )
+        .await;
+    }
+
+    if prepared_pages.is_empty() {
         summary.skipped.push(format!(
             "deposit {}: none of its {} pages could be fetched",
             deposit.id,
@@ -1927,17 +1934,21 @@ async fn write_media(
         title,
         description: None,
         created_at,
+        metadata: UploadedMediaMetadata {
+            privacy,
+            source_media_type: classification.0,
+            document_category: classification.1,
+            date_value: metadata.date.value.clone(),
+            date_value2: metadata.date.value2.clone(),
+            date_qualifier: metadata.date.qualifier,
+            calendar: metadata.date.calendar,
+            date_sort: metadata.date.sort,
+            place_id: metadata.place_id,
+        },
     };
 
     match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, upload).await {
-        Ok(row) => match update_media_metadata(db, row.id, classification, privacy, metadata).await
-        {
-            Ok(_) => Some(row.id),
-            Err(err) => {
-                summary.skipped.push(format!("{err}"));
-                None
-            }
-        },
+        Ok(row) => Some(row.id),
         Err(err) => {
             summary.skipped.push(format!("{err}"));
             None

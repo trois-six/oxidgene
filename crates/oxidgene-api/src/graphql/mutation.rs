@@ -1051,6 +1051,7 @@ impl MutationRoot {
             title: input.title,
             description: input.description,
             created_at: chrono::Utc::now(),
+            metadata: Default::default(),
         };
 
         let media = match input.media_id {

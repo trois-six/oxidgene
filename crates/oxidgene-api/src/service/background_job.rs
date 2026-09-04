@@ -389,6 +389,7 @@ impl BackgroundJobWorker {
         job: &BackgroundJob,
         summary: geneanet::GeneanetImportSummary,
     ) -> Result<(), OxidGeneError> {
+        self.progress(job.id, "projections", 0, 0).await?;
         self.profiles
             .rebuild_tree_full_transactional(&self.db, job.tree_id)
             .instrument(tracing::info_span!("import.projections"))
