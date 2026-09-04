@@ -182,6 +182,16 @@ debug = "line-tables-only"  # smaller debug info → faster incremental builds
 [profile.dev.package."*"]
 opt-level = 3
 
+# The exception above cannot reach a generic. `image::imageops::resize` is
+# monomorphised into whichever crate calls it, so the perceptual matcher's
+# downscale is compiled here, at this crate's optimisation level, however
+# optimised `image` itself is. Measured on a real data archive it costs 1373 ms
+# per entry unoptimised against 240 ms at this level — the difference between
+# minutes and seconds on an import, and the reason the exception above exists at
+# all. The cost is that this crate rebuilds more slowly and steps less cleanly.
+[profile.dev.package.oxidgene-geneanet]
+opt-level = 3
+
 [profile.release]
 opt-level = "z"      # optimise for size
 lto = true           # cross-crate dead-code elimination
@@ -189,3 +199,19 @@ codegen-units = 1    # required for full LTO
 strip = true         # remove debug symbols
 panic = "abort"      # no unwinding machinery
 
+
+# Size is the right default for a desktop download, but "z" is a poor trade for
+# the three crates that do the Geneanet content matching: measured on a real
+# session, `opt-level = "z"` costs 94 ms per entry to decode where `3` costs 23,
+# and the whole perceptual index takes 27.8 s against 13.0 s. The matching is
+# byte-for-byte identical either way — this is an optimisation level, not an
+# algorithm — so the only question is binary size, and three crates under LTO
+# is a narrow exception to make.
+[profile.release.package.image]
+opt-level = 3
+
+[profile.release.package.zune-jpeg]
+opt-level = 3
+
+[profile.release.package.oxidgene-geneanet]
+opt-level = 3

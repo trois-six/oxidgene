@@ -533,6 +533,14 @@ dimensions have been read. A candidate the aspect ratio rejects is therefore
 never inflated in full, and one whose header needs more bytes than the probe
 falls through to the complete read and is decided there.
 
+Perceptual hashing is dominated by image decoding and downscaling, not by the
+hash itself, so the crates performing them are compiled for speed in both
+profiles. `image::imageops::resize` is generic and is therefore monomorphised
+into its caller, where a development build would otherwise leave it
+unoptimised; the release profile optimises for size everywhere else, which
+costs the decoder about four times its speed. Neither exception changes a hash
+value: the matching is identical, only its cost differs.
+
 Perceptual hashing and media decoding use at most 75% of the machine's logical
 processors, rounded down. A machine with several processors always keeps at
 least one available for the desktop UI and the operating system. Media decoding
