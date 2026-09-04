@@ -1205,7 +1205,7 @@ fn phase_key(phase: Option<&str>, fidelity: MediaFidelity) -> &'static str {
     match phase {
         Some("matching") if fidelity.uses_archives() => "geneanet.phase_matching",
         Some("matching" | "media") => "geneanet.phase_media",
-        Some("finishing") => "geneanet.phase_finishing",
+        Some("finishing" | "projections") => "geneanet.phase_finishing",
         // Including `staging`, which is the request in flight: people are
         // what it is about to write.
         _ => "geneanet.phase_people",
@@ -2418,6 +2418,10 @@ mod tests {
             assert_eq!(phase_key(Some("media"), fidelity), "geneanet.phase_media");
             assert_eq!(
                 phase_key(Some("finishing"), fidelity),
+                "geneanet.phase_finishing"
+            );
+            assert_eq!(
+                phase_key(Some("projections"), fidelity),
                 "geneanet.phase_finishing"
             );
         }

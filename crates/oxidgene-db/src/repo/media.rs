@@ -31,6 +31,21 @@ pub struct UploadedMedia {
     pub title: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub metadata: UploadedMediaMetadata,
+}
+
+/// Optional metadata known when uploaded bytes are first recorded.
+#[derive(Debug, Clone, Default)]
+pub struct UploadedMediaMetadata {
+    pub privacy: oxidgene_core::enums::Privacy,
+    pub source_media_type: oxidgene_core::enums::SourceMediaType,
+    pub document_category: Option<oxidgene_core::enums::DocumentCategory>,
+    pub date_value: Option<String>,
+    pub date_value2: Option<String>,
+    pub date_qualifier: oxidgene_core::DateQualifier,
+    pub calendar: oxidgene_core::Calendar,
+    pub date_sort: Option<chrono::NaiveDate>,
+    pub place_id: Option<Uuid>,
 }
 
 /// Fields a caller may change on a media record.
@@ -225,17 +240,20 @@ impl MediaRepo {
             page_index: Set(0),
             is_document: Set(false),
             file_size: Set(upload.file_size),
-            privacy: Set(oxidgene_core::enums::Privacy::default().into()),
-            source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
-            document_category: Set(None),
+            privacy: Set(upload.metadata.privacy.into()),
+            source_media_type: Set(upload.metadata.source_media_type.into()),
+            document_category: Set(upload
+                .metadata
+                .document_category
+                .map(|category| category.as_str().to_string())),
             title: Set(upload.title),
             description: Set(upload.description),
-            date_value: Set(None),
-            date_sort: Set(None),
-            date_qualifier: Set(oxidgene_core::DateQualifier::default().into()),
-            date_value2: Set(None),
-            calendar: Set(oxidgene_core::Calendar::default().into()),
-            place_id: Set(None),
+            date_value: Set(upload.metadata.date_value),
+            date_sort: Set(upload.metadata.date_sort),
+            date_qualifier: Set(upload.metadata.date_qualifier.into()),
+            date_value2: Set(upload.metadata.date_value2),
+            calendar: Set(upload.metadata.calendar.into()),
+            place_id: Set(upload.metadata.place_id),
             created_at: Set(upload.created_at),
             updated_at: Set(Utc::now()),
             deleted_at: Set(None),
@@ -432,6 +450,88 @@ impl MediaRepo {
 
         Self::refresh_page_count(db, document_id).await?;
         Ok(into_domain(result))
+    }
+
+    /// Append several uploaded media to a document in the supplied order.
+    pub async fn append_pages(
+        db: &impl ConnectionTrait,
+        document_id: Uuid,
+        media_ids: &[Uuid],
+    ) -> Result<(), OxidGeneError> {
+        if media_ids.is_empty() {
+            return Ok(());
+        }
+
+        let document = Entity::find_by_id(document_id)
+            .filter(Column::DeletedAt.is_null())
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Media",
+                id: document_id,
+            })?;
+        if !document.is_document {
+            return Err(OxidGeneError::Validation(
+                "that media is not a multi-page document".into(),
+            ));
+        }
+
+        let existing = Self::list_pages(db, document_id).await?;
+        let pages = Entity::find()
+            .filter(Column::Id.is_in(media_ids.iter().copied()))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let page_by_id: HashMap<Uuid, media::Model> =
+            pages.into_iter().map(|page| (page.id, page)).collect();
+        if page_by_id.len() != media_ids.len() {
+            return Err(OxidGeneError::Validation(
+                "every document page must be a distinct existing media".into(),
+            ));
+        }
+        if media_ids.iter().any(|id| {
+            page_by_id
+                .get(id)
+                .is_none_or(|page| page.is_document || page.tree_id != document.tree_id)
+        }) {
+            return Err(OxidGeneError::Validation(
+                "a document page must be a non-document media in the same tree".into(),
+            ));
+        }
+
+        let first_index = existing.len();
+        for (offset, media_id) in media_ids.iter().enumerate() {
+            Entity::update_many()
+                .col_expr(
+                    Column::ParentMediaId,
+                    sea_orm::sea_query::Expr::value(Some(document_id)),
+                )
+                .col_expr(
+                    Column::PageIndex,
+                    sea_orm::sea_query::Expr::value((first_index + offset) as i32),
+                )
+                .col_expr(
+                    Column::UpdatedAt,
+                    sea_orm::sea_query::Expr::value(Utc::now()),
+                )
+                .filter(Column::Id.eq(*media_id))
+                .exec(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        }
+
+        Entity::update_many()
+            .col_expr(
+                Column::PageCount,
+                sea_orm::sea_query::Expr::value((first_index + media_ids.len()) as i32),
+            )
+            .filter(Column::Id.eq(document_id))
+            .exec(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(())
     }
 
     /// Set the order of a document's pages, by id.

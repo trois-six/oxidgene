@@ -3,14 +3,16 @@
 //! All tests run against an in-memory SQLite database.
 
 use oxidgene_core::enums::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Sex, SpouseRole,
+    Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
+    Sex, SourceMediaType, SpouseRole,
 };
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventFilter,
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo,
     NewBackgroundJob, NoteRepo, PaginationParams, PersonNamePieces, PersonNamePiecesPatch,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
+    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia,
+    UploadedMediaMetadata, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
 use std::sync::{Arc, Mutex};
@@ -1092,6 +1094,116 @@ async fn media_and_media_link_lifecycle() {
     MediaRepo::delete(&db, media_id).await.unwrap();
     let err = MediaRepo::get(&db, media_id).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
+}
+
+#[tokio::test]
+async fn uploaded_media_is_created_with_its_metadata() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let place_id = Uuid::now_v7();
+    PlaceRepo::create(
+        &db,
+        place_id,
+        tree_id,
+        "Fictional Harbor".into(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let date_sort = chrono::NaiveDate::from_ymd_opt(1912, 4, 3).unwrap();
+
+    let media = MediaRepo::create_uploaded(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        UploadedMedia {
+            file_name: "register.jpg".into(),
+            mime_type: "image/jpeg".into(),
+            storage_key: "media/register.jpg".into(),
+            sha256: "0123456789abcdef".into(),
+            file_size: 2048,
+            thumbnail_key: None,
+            width: Some(800),
+            height: Some(600),
+            page_count: 1,
+            title: Some("Civil register".into()),
+            description: None,
+            created_at: chrono::Utc::now(),
+            metadata: UploadedMediaMetadata {
+                privacy: Privacy::Private,
+                source_media_type: SourceMediaType::Manuscript,
+                document_category: Some(DocumentCategory::CivilRecord),
+                date_value: Some("3 APR 1912".into()),
+                date_value2: None,
+                date_qualifier: DateQualifier::Exact,
+                calendar: Calendar::Gregorian,
+                date_sort: Some(date_sort),
+                place_id: Some(place_id),
+            },
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(media.privacy, Privacy::Private);
+    assert_eq!(media.source_media_type, SourceMediaType::Manuscript);
+    assert_eq!(media.document_category, Some(DocumentCategory::CivilRecord));
+    assert_eq!(media.date_value.as_deref(), Some("3 APR 1912"));
+    assert_eq!(media.date_sort, Some(date_sort));
+    assert_eq!(media.place_id, Some(place_id));
+}
+
+#[tokio::test]
+async fn media_pages_can_be_appended_as_an_ordered_batch() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let document_id = Uuid::now_v7();
+    MediaRepo::create_document(
+        &db,
+        document_id,
+        tree_id,
+        Some("Fictional register".into()),
+        chrono::Utc::now(),
+    )
+    .await
+    .unwrap();
+
+    let page_ids = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
+    for (index, page_id) in page_ids.iter().enumerate() {
+        MediaRepo::create(
+            &db,
+            *page_id,
+            tree_id,
+            format!("page-{index}.jpg"),
+            "image/jpeg".into(),
+            format!("page-{index}.jpg"),
+            1024,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+    let ordered = [page_ids[2], page_ids[0], page_ids[1]];
+
+    MediaRepo::append_pages(&db, document_id, &ordered)
+        .await
+        .unwrap();
+
+    let pages = MediaRepo::list_pages(&db, document_id).await.unwrap();
+    assert_eq!(
+        pages.iter().map(|page| page.id).collect::<Vec<_>>(),
+        ordered
+    );
+    assert_eq!(
+        pages.iter().map(|page| page.page_index).collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(
+        MediaRepo::get(&db, document_id).await.unwrap().page_count,
+        3
+    );
 }
 
 #[tokio::test]
