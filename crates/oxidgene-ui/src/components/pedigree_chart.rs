@@ -2665,13 +2665,17 @@ fn compute_layout(
 
 /// Measures the canvas area actually free of the event panel.
 ///
-/// Returns `(width, height, left)` in viewport pixels. The panel overlaps the
-/// canvas rather than shrinking it below 900px, where it is a drawer — so
-/// there the whole rect is fair game and only the wider layout has to carve
-/// the panel out.
+/// Returns `(width, height, left, pageLeft, pageTop)` in viewport pixels,
+/// where `left` is relative to the viewport's own free area (event-panel
+/// overlap already carved out) and `pageLeft`/`pageTop` are the viewport
+/// element's own position in page/client coordinates — cached by callers so
+/// the wheel-zoom handler doesn't need its own round trip on every tick. The
+/// panel overlaps the canvas rather than shrinking it below 900px, where it
+/// is a drawer — so there the whole rect is fair game and only the wider
+/// layout has to carve the panel out.
 const MEASURE_PEDIGREE_VIEWPORT_JS: &str = r#"
     const viewport = document.querySelector('.pedigree-viewport');
-    if (!viewport) return [800, 600, 0];
+    if (!viewport) return [800, 600, 0, 0, 0];
     const rect = viewport.getBoundingClientRect();
     const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
     const isNarrow = window.innerWidth <= 900;
@@ -2684,7 +2688,7 @@ const MEASURE_PEDIGREE_VIEWPORT_JS: &str = r#"
             availableRight = Math.min(availableRight, panelRect.left - rect.left);
         }
     }
-    return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft];
+    return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft, rect.left, rect.top];
 "#;
 
 /// Scales and pans the canvas so the whole graph sits inside the free area.
@@ -2696,11 +2700,12 @@ async fn fit_graph_in_viewport(
     mut scale: Signal<f64>,
     mut offset_x: Signal<f64>,
     mut offset_y: Signal<f64>,
-    content_cx: f64,
-    content_cy: f64,
-    content_w: f64,
-    content_h: f64,
+    mut viewport_page_pos: Signal<(f64, f64)>,
+    // (center x, center y, width, height) of the graph content, in content
+    // units — grouped into one tuple to keep the argument count clippy-clean.
+    content: (f64, f64, f64, f64),
 ) {
+    let (content_cx, content_cy, content_w, content_h) = content;
     let Ok(val) = document::eval(MEASURE_PEDIGREE_VIEWPORT_JS).await else {
         return;
     };
@@ -2713,6 +2718,9 @@ async fn fit_graph_in_viewport(
         .and_then(|v| v.as_f64())
         .unwrap_or(VIEWPORT_DEFAULT_H);
     let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let page_x = val.get(3).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let page_y = val.get(4).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    viewport_page_pos.set((page_x, page_y));
     let side_padding = vw * FIT_SIDE_PADDING_RATIO;
     let fit_w = (vw - 2.0 * side_padding).max(1.0);
     let fit_scale = (fit_w / content_w)
@@ -3216,6 +3224,10 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // ── Zoom state ──
     let mut scale = use_signal(move || init_sc);
+    // Viewport's own page position, cached from each fit measurement so
+    // wheel-zoom can convert mouse coordinates without an async round trip
+    // on every tick (see `onwheel` below).
+    let viewport_page_pos = use_signal(|| (0.0f64, 0.0f64));
 
     // ── Selected person (drives event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
@@ -3373,10 +3385,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 scale,
                 offset_x,
                 offset_y,
-                fit_content_cx,
-                fit_content_cy,
-                fit_content_w,
-                fit_content_h,
+                viewport_page_pos,
+                (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
             )
             .await;
             // Re-enable animation after fitting.
@@ -3695,10 +3705,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             scale,
                             offset_x,
                             offset_y,
-                            fit_content_cx,
-                            fit_content_cy,
-                            fit_content_w,
-                            fit_content_h,
+                            viewport_page_pos,
+                            (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
                         ));
                     },
                     svg {
@@ -3747,6 +3755,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 class: "pedigree-viewport",
 
                 onpointerdown: move |evt| {
+                    // Direct manipulation tracks the pointer 1:1 — the CSS
+                    // transition is only for programmatic jumps (fit/center).
+                    animating.set(false);
                     let coords = evt.client_coordinates();
                     drag_start_x.set(coords.x);
                     drag_start_y.set(coords.y);
@@ -3773,29 +3784,25 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     let old_scale = scale();
                     let new_scale = (old_scale * factor).clamp(ZOOM_MIN, ZOOM_MAX);
                     if (new_scale - old_scale).abs() > f64::EPSILON {
+                        // Same reasoning as onpointerdown: a wheel gesture is
+                        // a stream of many small updates, each of which must
+                        // land instantly or they visibly fight the CSS
+                        // transition and the zoom feels laggy. Reading the
+                        // cached viewport position (refreshed on each fit)
+                        // instead of an async DOM query per tick keeps this
+                        // handler fully synchronous, so there is no
+                        // round-trip latency and no risk of updates applying
+                        // out of order.
+                        animating.set(false);
                         let coords = evt.client_coordinates();
-                        let old_offset_x = offset_x();
-                        let old_offset_y = offset_y();
-                        spawn(async move {
-                            if let Ok(val) = document::eval(
-                                r#"
-                                const viewport = document.querySelector('.pedigree-viewport');
-                                if (!viewport) return [0, 0];
-                                const rect = viewport.getBoundingClientRect();
-                                return [rect.left, rect.top];
-                                "#
-                            ).await {
-                                let vx = val.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                let vy = val.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                let mouse_x = coords.x - vx;
-                                let mouse_y = coords.y - vy;
-                                let world_x = (mouse_x - old_offset_x) / old_scale;
-                                let world_y = (mouse_y - old_offset_y) / old_scale;
-                                scale.set(new_scale);
-                                offset_x.set(mouse_x - world_x * new_scale);
-                                offset_y.set(mouse_y - world_y * new_scale);
-                            }
-                        });
+                        let (vx, vy) = viewport_page_pos();
+                        let mouse_x = coords.x - vx;
+                        let mouse_y = coords.y - vy;
+                        let world_x = (mouse_x - offset_x()) / old_scale;
+                        let world_y = (mouse_y - offset_y()) / old_scale;
+                        scale.set(new_scale);
+                        offset_x.set(mouse_x - world_x * new_scale);
+                        offset_y.set(mouse_y - world_y * new_scale);
                     }
                 },
 
