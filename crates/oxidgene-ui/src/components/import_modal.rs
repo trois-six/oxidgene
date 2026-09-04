@@ -1166,6 +1166,8 @@ fn GeneanetTab(
                 on_open: move |_| open.set(Step::Import),
                 ImportStep {
                     preview: preview(),
+                    fidelity: fidelity(),
+                    gathered: fetched.read().len(),
                     importing: importing(),
                     progress: import_progress(),
                     error: import_error(),
@@ -1190,6 +1192,23 @@ const fn step_number(step: Step, archives_step: bool) -> usize {
         Step::Connect => 2 + shift,
         Step::Preview => 3 + shift,
         Step::Import => 4 + shift,
+    }
+}
+
+/// What to call the phase an import reports it is in.
+///
+/// The `matching` phase is the archive pass. A renditions run still enters it —
+/// it begins the phase, finds no archive to index and leaves — so naming it
+/// would claim work against archives that run never opened. It is folded into
+/// the media phase it precedes instead.
+fn phase_key(phase: Option<&str>, fidelity: MediaFidelity) -> &'static str {
+    match phase {
+        Some("matching") if fidelity.uses_archives() => "geneanet.phase_matching",
+        Some("matching" | "media") => "geneanet.phase_media",
+        Some("finishing") => "geneanet.phase_finishing",
+        // Including `staging`, which is the request in flight: people are
+        // what it is about to write.
+        _ => "geneanet.phase_people",
     }
 }
 
@@ -2050,9 +2069,21 @@ fn PreviewStep(
 
 // ── Step 5 ──────────────────────────────────────────────────────────
 
+/// The final step. Nothing here reaches the network.
+///
+/// That is the whole point of gathering in step 4, and it is what this screen
+/// has to say: the media are already on this machine, so the minutes ahead are
+/// decoding and thumbnailing, not waiting on Geneanet.
 #[component]
 fn ImportStep(
     preview: Option<GeneanetPreview>,
+    /// Which bytes this run keeps, so a run that matches nothing does not
+    /// announce a matching phase.
+    fidelity: MediaFidelity,
+    /// How many media the login window — or a loaded session — actually handed
+    /// over. Nothing past this step can fetch another, so this is what says
+    /// whether they are here to be imported at all.
+    gathered: usize,
     importing: bool,
     progress: Option<crate::api::ImportProgress>,
     error: Option<String>,
@@ -2071,9 +2102,17 @@ fn ImportStep(
                     ],
                 )}
             }
-            if stats.to_download > 0 {
-                p { class: "gn-note",
-                    {i18n.t_plural("geneanet.step5_downloads", stats.to_download)}
+            // Whatever had to come from Geneanet came in step 4, and the login
+            // window is closed the moment this step is started. Promising a
+            // download here read as though the network were still ahead.
+            if gathered > 0 {
+                p { class: "gn-note", {i18n.t("geneanet.step5_local")} }
+            } else if stats.to_download + stats.to_match > 0 {
+                // Reachable: a build with no login window, or a step 4 that
+                // could not gather. Those media are skipped, and saying so
+                // before the write beats finding it in the receipt.
+                div { class: "warning-msg",
+                    {i18n.t_plural("geneanet.step5_missing", stats.to_download + stats.to_match)}
                 }
             }
         }
@@ -2089,12 +2128,7 @@ fn ImportStep(
             match progress.as_ref().filter(|p| p.total > 0) {
                 Some(p) => rsx! {
                     ProgressBar {
-                        label: i18n.t(match p.phase.as_str() {
-                            "people" => "geneanet.phase_people",
-                            "matching" => "geneanet.phase_matching",
-                            "finishing" => "geneanet.phase_finishing",
-                            _ => "geneanet.phase_media",
-                        }),
+                        label: i18n.t(phase_key(Some(&p.phase), fidelity)),
                         done: p.done,
                         total: p.total,
                     }
@@ -2103,12 +2137,7 @@ fn ImportStep(
                 None => rsx! {
                     div { class: "gn-progress-block",
                         div { class: "gn-progress-label", "aria-live": "polite",
-                            {i18n.t(match progress.as_ref().map(|p| p.phase.as_str()) {
-                                Some("matching") => "geneanet.phase_matching",
-                                Some("finishing") => "geneanet.phase_finishing",
-                                Some("media") => "geneanet.phase_media",
-                                _ => "geneanet.phase_people",
-                            })}
+                            {i18n.t(phase_key(progress.as_ref().map(|p| p.phase.as_str()), fidelity))}
                         }
                         div { class: "gn-progress",
                             div { class: "gn-progress-fill is-indeterminate" }
@@ -2363,6 +2392,35 @@ mod tests {
         .map(|step| step_number(step, true))
         .collect();
         assert_eq!(originals, [1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn a_run_that_matches_nothing_never_announces_the_matching_phase() {
+        // The phase is entered either way — it begins, finds no archive to
+        // index and leaves — so the bar would name archive work a renditions
+        // import never does.
+        assert_eq!(
+            phase_key(Some("matching"), MediaFidelity::Originals),
+            "geneanet.phase_matching"
+        );
+        assert_eq!(
+            phase_key(Some("matching"), MediaFidelity::Renditions),
+            "geneanet.phase_media"
+        );
+
+        // Staging is the request in flight; people are what it writes first.
+        for fidelity in [MediaFidelity::Renditions, MediaFidelity::Originals] {
+            assert_eq!(
+                phase_key(Some("staging"), fidelity),
+                "geneanet.phase_people"
+            );
+            assert_eq!(phase_key(None, fidelity), "geneanet.phase_people");
+            assert_eq!(phase_key(Some("media"), fidelity), "geneanet.phase_media");
+            assert_eq!(
+                phase_key(Some("finishing"), fidelity),
+                "geneanet.phase_finishing"
+            );
+        }
     }
 
     #[test]

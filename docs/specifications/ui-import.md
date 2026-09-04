@@ -453,6 +453,18 @@ All direct Geneanet access ends before the final write.
 
 ### 9.7 Step 5: local write
 
+Nothing on this step reaches the network. Everything Geneanet had to supply
+was gathered in §9.6 and the login window is closed as the write is queued, so
+the step states that the media are already on the machine rather than
+announcing a download still to come. Media that were expected and never
+gathered — a build with no login window, or a gathering that could not run —
+are reported here as media that will be skipped, before the write rather than
+in the receipt.
+
+The progress label never names the archive-matching phase under the renditions
+answer: that phase is entered, finds no archive to index and leaves, so naming
+it would claim work against archives the run never opened.
+
 The genealogy uses the shared GeneWeb persistence path. Media use the ordinary
 storage path, preserving validation, deduplication, type detection, thumbnails,
 and projection refresh.
