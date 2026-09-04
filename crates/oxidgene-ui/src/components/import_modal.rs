@@ -1397,16 +1397,18 @@ fn MediaChoice(fidelity: MediaFidelity, on_choose: EventHandler<MediaFidelity>) 
     rsx! {
         fieldset { class: "gn-choice",
             legend { class: "gn-choice-legend", {i18n.t("geneanet.media_choice_title")} }
-            {option(
-                MediaFidelity::Renditions,
-                "geneanet.media_renditions",
-                "geneanet.media_renditions_why",
-            )}
-            {option(
-                MediaFidelity::Originals,
-                "geneanet.media_originals",
-                "geneanet.media_originals_why",
-            )}
+            div { class: "gn-choice-opts",
+                {option(
+                    MediaFidelity::Renditions,
+                    "geneanet.media_renditions",
+                    "geneanet.media_renditions_why",
+                )}
+                {option(
+                    MediaFidelity::Originals,
+                    "geneanet.media_originals",
+                    "geneanet.media_originals_why",
+                )}
+            }
         }
     }
 }
