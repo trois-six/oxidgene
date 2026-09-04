@@ -969,6 +969,14 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 9px 0;
         border-top: 1px solid var(--border);
         font-size: 0.9rem;
+        /* A documented ancestor can have dozens of rows, several carrying a
+           full media gallery of their own — skip layout/paint for the ones
+           currently scrolled out of view instead of keeping the whole
+           timeline "hot". `auto` remembers each row's real size once it has
+           been rendered, so the placeholder guess only matters the first
+           time a row comes into view. */
+        content-visibility: auto;
+        contain-intrinsic-size: auto 44px;
     }
     .pd-timeline li:first-child {
         border-top: none;
