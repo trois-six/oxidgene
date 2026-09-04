@@ -544,7 +544,12 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 16px;
     }
 
-    input, select, textarea {
+    /* Text fields, and only those. A bare `input` selector here reaches the
+       checkbox and radio too, and full width plus padding, a border and a
+       panel background turn one into a large empty box with the label it
+       belongs to squeezed beside it — a fault every such control then had to
+       undo for itself, and rediscover when it forgot to. */
+    input:not([type="checkbox"]):not([type="radio"]), select, textarea {
         font-family: var(--font-sans);
         font-size: 0.9rem;
         padding: 8px 12px;
@@ -556,12 +561,23 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
+    /* What they are instead, in one place. Sized rather than left to the
+       engine's default so a row can reserve a column for one. */
+    input[type="checkbox"],
+    input[type="radio"] {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--orange);
+        cursor: pointer;
+    }
+
     input::placeholder,
     textarea::placeholder {
         color: var(--text-muted);
     }
 
-    input:focus, select:focus, textarea:focus {
+    input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:focus {
         outline: none;
         border-color: var(--orange);
         box-shadow: 0 0 0 3px rgba(224, 120, 32, 0.15);
@@ -2718,11 +2734,10 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
+    /* Size and accent colour come from the shared checkbox rule; the flex
+       basis is this row's own. */
     .pf-embedded .sr-media-filter input {
         flex: 0 0 16px;
-        width: 16px;
-        height: 16px;
-        accent-color: var(--orange);
     }
 
     .sr-relation-group.pf-subform {
@@ -3922,7 +3937,7 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
-    .media-event-row input { margin: 0; flex: 0 0 auto; }
+    .media-event-row input { flex: 0 0 auto; }
 
     .media-viewer {
         display: flex;
@@ -5006,10 +5021,17 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 8px;
     }
 
+    /* The fieldset stays a block and the options get their own flex box: a
+       `legend` is lifted out of its parent's layout by the engine, so a
+       fieldset that is itself the flex container lays out one child fewer
+       than it appears to. */
     .gn-choice {
         border: 0;
         margin: 14px 0 4px;
         padding: 0;
+    }
+
+    .gn-choice-opts {
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -5023,14 +5045,18 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 2px;
     }
 
+    /* Grid rather than flex: the radio gets a column of its own width, so a
+       long description cannot push it about. */
     .gn-choice-opt {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
+        display: grid;
+        grid-template-columns: 16px 1fr;
+        column-gap: 10px;
+        align-items: start;
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: 10px 12px;
+        margin: 0;
         cursor: pointer;
     }
 
@@ -5043,10 +5069,10 @@ pub const LAYOUT_STYLES: &str = r#"
         background: rgba(224, 120, 32, 0.08);
     }
 
+    /* Level with the first line of the option's name, not with the top of the
+       box it sits in. */
     .gn-choice-opt input {
-        accent-color: var(--orange);
         margin-top: 2px;
-        flex-shrink: 0;
     }
 
     .gn-choice-text {

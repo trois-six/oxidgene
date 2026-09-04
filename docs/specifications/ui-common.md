@@ -139,8 +139,13 @@ badge text `0.65rem`. Spacing follows 4, 8, 12/16, 20/24, and 32px steps.
 - `--shadow-md`: modals, popovers, and the navbar.
 - Buttons use card background and border by default, orange focus/hover, solid
   accent for primary actions, and danger tokens for destructive actions.
-- Inputs use card background and border, orange focus, red validation state,
-  and `0.5` opacity while disabled.
+- Text inputs, selects and textareas use card background and border, orange
+  focus, red validation state, and `0.5` opacity while disabled.
+- Checkboxes and radios are excluded from that styling and are sized once,
+  centrally, with the orange accent colour. They keep their native appearance:
+  a control given a text field's full width, padding, border and background
+  renders as a large empty box beside a squeezed label. A row that reserves a
+  column for one sets only its own layout, never the control's size.
 - Cards may lift by 2px on hover only where motion does not move adjacent
   controls or impair repeated use.
 - Gender cannot be communicated by color alone. Male uses blue, female pink,
