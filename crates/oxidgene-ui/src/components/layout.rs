@@ -5006,6 +5006,67 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 8px;
     }
 
+    .gn-choice {
+        border: 0;
+        margin: 14px 0 4px;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .gn-choice-legend {
+        color: var(--text-primary);
+        font-size: 0.84rem;
+        font-weight: 600;
+        padding: 0;
+        margin-bottom: 2px;
+    }
+
+    .gn-choice-opt {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+        cursor: pointer;
+    }
+
+    .gn-choice-opt:hover {
+        border-color: var(--orange);
+    }
+
+    .gn-choice-opt.is-on {
+        border-color: var(--orange);
+        background: rgba(224, 120, 32, 0.08);
+    }
+
+    .gn-choice-opt input {
+        accent-color: var(--orange);
+        margin-top: 2px;
+        flex-shrink: 0;
+    }
+
+    .gn-choice-text {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .gn-choice-name {
+        color: var(--text-primary);
+        font-size: 0.84rem;
+        font-weight: 600;
+    }
+
+    .gn-choice-why {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        line-height: 1.5;
+    }
+
     .gn-warn-box {
         background: rgba(224, 120, 32, 0.08);
         border-left: 3px solid var(--orange);

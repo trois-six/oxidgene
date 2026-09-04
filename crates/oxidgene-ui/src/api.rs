@@ -918,6 +918,29 @@ pub struct ArchiveIndex {
     pub file_count: usize,
 }
 
+/// Which bytes a Geneanet import keeps for each medium.
+///
+/// `Renditions` is the default and needs nothing from the user but their
+/// login: every page is stored as Geneanet's own `normal` variant, recompressed
+/// and resized. `Originals` keeps the uploaded files, which means the data
+/// archives — a separate Geneanet request and several gigabytes of ZIP — plus a
+/// byte-length pass to match them on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaFidelity {
+    #[default]
+    Renditions,
+    Originals,
+}
+
+impl MediaFidelity {
+    /// Whether this import consults the user's data archives at all.
+    #[must_use]
+    pub const fn uses_archives(self) -> bool {
+        matches!(self, Self::Originals)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct GeneanetPreviewBody {
     /// The `.gw`, base64-encoded: JSON cannot carry the raw bytes the
@@ -928,6 +951,7 @@ pub struct GeneanetPreviewBody {
     pub collection: String,
     pub deposit_sizes: std::collections::HashMap<i64, u64>,
     pub archive_paths: Vec<String>,
+    pub media_fidelity: MediaFidelity,
 }
 
 /// A step-3 session, encoded for the file the wizard saves.
@@ -1012,6 +1036,7 @@ pub struct GeneanetImportBody {
     /// succeeds. The window writes each medium to a temp directory and this
     /// names them, which keeps the request small however many there are.
     pub fetched: std::collections::HashMap<String, String>,
+    pub media_fidelity: MediaFidelity,
 }
 
 /// How far a running import has got.

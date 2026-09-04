@@ -312,15 +312,22 @@ Every user-visible instruction, state, warning, error, tooltip, screenshot
 description, and accessibility label uses the i18n mechanism with English and
 French key parity.
 
-### 9.1 Five-step structure
+### 9.1 Step structure
 
-Exactly one of these steps is expanded at a time:
+Exactly one step is expanded at a time. How many there are depends on the
+media answer given in step 1 (§9.3.1):
 
-1. Select the GeneWeb tree file.
-2. Select optional Geneanet data archives.
-3. Connect to Geneanet.
-4. Review and gather the import.
-5. Write the import.
+| # | Geneanet renditions (default) | Original uploads |
+|---|---|---|
+| 1 | GeneWeb tree file and media answer | GeneWeb tree file and media answer |
+| 2 | — | Geneanet data archives |
+| 3 | Connect to Geneanet | Connect to Geneanet |
+| 4 | Review and gather | Review and gather |
+| 5 | Write the import | Write the import |
+
+The archive step is not shown at all under the renditions answer, and the steps
+after it are numbered as the four-step journey they then form. No user-visible
+string refers to a step by its number.
 
 A completed step collapses to a one-line receipt with a status icon, aggregate
 counts, and an **Edit** action. Reopening it collapses the current step.
@@ -330,7 +337,7 @@ Unreachable steps remain visible but disabled.
 
 | Step | Web | Desktop | Reason |
 |---|---|---|---|
-| GeneWeb file | Yes | Yes | Small file read through the shared file API. |
+| GeneWeb file and media answer | Yes | Yes | Small file read through the shared file API. |
 | Data archives | No | Yes | Multi-gigabyte ZIPs are indexed by path without loading their contents. |
 | Geneanet login | No | Yes | Collection runs in a second authenticated WebView. |
 | Preview and gathering | Genealogy only | Yes | Media gathering depends on archives and login. |
@@ -345,10 +352,34 @@ The UI explains how to export GeneWeb (`.gw`) from Geneanet and why GEDCOM is
 insufficient for media recovery. The file is parsed immediately, before any
 network operation.
 
-- A valid file collapses to a sanitized filename and person count.
+- A valid file collapses to a sanitized filename, person count, and the media
+	answer of §9.3.1.
 - A GEDCOM file explains that the GeneWeb export is required.
 - A file containing no people is rejected.
 - Recoverable skipped blocks are reported as warnings.
+
+#### 9.3.1 Which media to keep
+
+The same step asks which bytes to store for each medium. Both answers import
+the identical genealogy, the identical person-to-media links, and the identical
+identification boxes; they differ only in the bytes behind each medium.
+
+**Geneanet renditions** (the default) stores the largest per-page copy Geneanet
+serves. It is provenance-unknown and often a re-encoding, and a PDF page
+arrives as a JPEG. It requires nothing of the user beyond signing in: there is
+no archive step, no byte-length pass, and nothing to match. It is the default
+because it is the only answer available to a user who has never requested their
+Geneanet data export.
+
+**Original uploads** stores the uploaded files. It requires the data archives of
+§9.4 and the byte-length pass of §9.5, and downloads a deposit only where
+neither identifies it.
+
+Changing the answer discards the decisions that depended on it: the computed
+preview, the media already gathered, and — when switching to originals from a
+collection taken without byte lengths — the collection itself, because keeping
+it would silently match no archive entry and download everything. Selecting
+renditions clears any archives already chosen.
 
 Instructions stand on their own. Optional screenshots may illustrate external
 steps, but they use an anonymized account, tightly crop unrelated data, include
@@ -356,7 +387,8 @@ localized alt text, and are never required to complete the flow.
 
 ### 9.4 Step 2: data archives
 
-This optional desktop step accepts multiple Geneanet data-export ZIP files.
+This step exists only under the original-uploads answer. It accepts multiple
+Geneanet data-export ZIP files.
 The user is told not to extract them. Each archive's central directory is
 indexed without reading media bytes.
 
@@ -382,8 +414,12 @@ Cloudflare challenge. OxidGene never receives or stores the password.
 - Session expiry permits reauthentication without discarding completed work.
 - Saved collection payloads are sensitive and must never be committed.
 
-Collection first reads media links, then matches media against selected archive
-indexes. Once gathering reaches 100%, the login window is hidden while its
+Collection first reads media links. It then asks Geneanet each single-page
+deposit's byte length — one `HEAD` per deposit, several hundred on a real
+account — **only under the original-uploads answer**, because that length is
+matched against the archive indexes and nothing else reads it. Under the
+renditions answer the pass is skipped outright and the reported deposit lengths
+are empty. Once gathering reaches 100%, the login window is hidden while its
 in-memory session retains the staged files. The session is destroyed after the
 backend has copied those files into durable job storage, or if the modal closes.
 Optional enrichment payloads with unsupported shapes do not invalidate
@@ -401,7 +437,13 @@ If fewer than 10 percent of keyed references match people in the `.gw`, the
 account and export are likely unrelated. The flow blocks by default and offers
 actions to replace the file or explicitly continue.
 
-Media resolution uses, in order:
+Under the renditions answer, resolution has one rule: every page of every
+attached deposit is fetched as its largest rendition, which is also what is
+stored. The archives, the byte lengths, and the perceptual index take no part,
+and the preview reports every page as a download rather than claiming local
+hits or content matches it will not attempt.
+
+Under the original-uploads answer, media resolution uses, in order:
 
 1. exact archive size matches for single-page media;
 2. perceptual matches against gathered renditions when size is unavailable;
@@ -458,6 +500,8 @@ the UI and embedded backend to share a filesystem.
 - Shared media are stored once and linked many times.
 - Failed media are reported and skipped without rolling back the genealogy.
 - Archive matches are never downloaded again.
+- Archives are neither staged into job storage nor read under the renditions
+	answer, whatever paths the request carries.
 - A multi-page deposit imports as one document plus ordered page media.
 - Missing pages are reported by page number.
 
@@ -468,6 +512,8 @@ The receipt contains aggregate counts and skipped-item summaries, followed by
 
 - Import cancellation is not implemented. Interrupting the media pass can
 	leave complete genealogy with partial media.
+- The renditions answer stores what Geneanet serves. Those bytes are not
+	guaranteed to be the uploaded file, and a PDF page becomes an image.
 - Unlinked media are counted but not imported.
 - Event links are created only when type, date, and optional normalized place
 	identify exactly one event; ambiguous references remain person-media links.

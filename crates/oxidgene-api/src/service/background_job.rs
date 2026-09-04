@@ -351,6 +351,7 @@ impl BackgroundJobWorker {
             &payload.deposit_sizes,
             &archive_paths,
             &fetched,
+            payload.media_fidelity,
             &progress,
         );
         tokio::pin!(import);
@@ -786,6 +787,16 @@ struct GeneanetJobPayload {
     deposit_sizes: HashMap<i64, u64>,
     archives: Vec<GeneanetArchiveInput>,
     fetched: Vec<GeneanetFetchedInput>,
+    /// Absent in a job staged before the wizard offered the choice; those were
+    /// all archive-and-original runs, so they must not decode as the new
+    /// default.
+    #[serde(default = "originals_fidelity")]
+    media_fidelity: geneanet::MediaFidelity,
+}
+
+/// What a payload with no `media_fidelity` meant when it was written.
+const fn originals_fidelity() -> geneanet::MediaFidelity {
+    geneanet::MediaFidelity::Originals
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -811,6 +822,7 @@ pub async fn stage_geneanet_import(
     deposit_sizes: HashMap<i64, u64>,
     archive_paths: &[String],
     fetched_paths: &HashMap<String, String>,
+    media_fidelity: geneanet::MediaFidelity,
 ) -> Result<Uuid, OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
     let job_id = Uuid::now_v7();
@@ -825,6 +837,14 @@ pub async fn stage_geneanet_import(
         staged_keys.push(source_key.clone());
 
         let mut next_input = 0usize;
+        // Nothing is staged for a run that will not open them — a data archive
+        // is gigabytes, and copying it into job storage to be ignored is the
+        // most expensive way to do nothing.
+        let archive_paths: &[String] = if media_fidelity.uses_archives() {
+            archive_paths
+        } else {
+            &[]
+        };
         let mut archives = Vec::with_capacity(archive_paths.len());
         for path in archive_paths {
             let key = job_input_blob_key(job_id, next_input);
@@ -856,6 +876,7 @@ pub async fn stage_geneanet_import(
             deposit_sizes,
             archives,
             fetched,
+            media_fidelity,
         })
         .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         BackgroundJobRepo::create(

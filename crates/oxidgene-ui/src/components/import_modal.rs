@@ -12,10 +12,20 @@
 //! # Shape
 //!
 //! Two tabs. **File** is the old behaviour, made to work in a browser as well
-//! as on the desktop. **Geneanet** is five steps of which exactly one is
-//! expanded — the current one. A settled step collapses to a one-line receipt
-//! of what it decided; steps not yet reachable are visible but dimmed, so the
-//! whole journey is legible from the first second.
+//! as on the desktop. **Geneanet** is four or five steps of which exactly one
+//! is expanded — the current one. A settled step collapses to a one-line
+//! receipt of what it decided; steps not yet reachable are visible but dimmed,
+//! so the whole journey is legible from the first second.
+//!
+//! # Four steps or five
+//!
+//! Step 1 asks which bytes to keep for each photograph, and that answer
+//! decides how long the journey is. Keeping Geneanet's own renditions needs
+//! nothing but the login, so there is no archive step at all and the flow is
+//! four steps. Keeping the original uploads needs the user's data archives —
+//! another Geneanet request, an email, and gigabytes of ZIP — so step 2
+//! appears and the numbering shifts with it. Renditions is the default because
+//! it is the only path a user who has never downloaded their data can take.
 //!
 //! # What only the desktop build can do
 //!
@@ -42,9 +52,9 @@ use uuid::Uuid;
 use crate::api::{
     ApiClient, ArchiveIndex, GeneanetImportBody, GeneanetImportResult, GeneanetPreview,
     GeneanetPreviewBody, GeneanetSessionBody, GwInspection, ImportProgress, ImportResult,
-    IndexedArchive,
+    IndexedArchive, MediaFidelity,
 };
-use crate::geneanet::{GeneanetEvent, WindowStrings, use_geneanet_bridge};
+use crate::geneanet::{Collect, GeneanetEvent, WindowStrings, use_geneanet_bridge};
 use crate::i18n::use_i18n;
 use crate::ui_observability::{
     UiAction, UiActionStep, UiActionTrace, trace_ui_action, trace_ui_action_step,
@@ -66,7 +76,11 @@ enum Tab {
     Geneanet,
 }
 
-/// The Geneanet flow's five steps, in order.
+/// The Geneanet flow's steps, in order.
+///
+/// [`Step::Archives`] is skipped entirely by a
+/// [`MediaFidelity::Renditions`] import, which has no archive to read — see
+/// [`step_number`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Step {
     Gw,
@@ -612,9 +626,10 @@ fn GeneanetTab(
 
     let gw = use_signal(|| None::<GwFile>);
     let gw_error = use_signal(|| None::<String>);
+    let mut fidelity = use_signal(MediaFidelity::default);
 
-    let archives = use_signal(Vec::<IndexedArchive>::new);
-    let archives_skipped = use_signal(|| false);
+    let mut archives = use_signal(Vec::<IndexedArchive>::new);
+    let mut archives_skipped = use_signal(|| false);
     let archive_error = use_signal(|| None::<String>);
 
     let mut collected = use_signal(|| None::<Collected>);
@@ -623,7 +638,7 @@ fn GeneanetTab(
 
     let mut preview = use_signal(|| None::<GeneanetPreview>);
     let mut preview_error = use_signal(|| None::<String>);
-    let override_mismatch = use_signal(|| false);
+    let mut override_mismatch = use_signal(|| false);
 
     let mut importing = busy;
     // Media the login window retrieved, keyed by URL and represented by a
@@ -672,10 +687,44 @@ fn GeneanetTab(
 
     // Step 2 is settled either by adding archives or by explicitly skipping;
     // both let the flow move on, and the difference is only whether photos get
-    // downloaded.
-    let archives_settled = move || !archives.read().is_empty() || archives_skipped();
+    // downloaded. A renditions import has no step 2 to settle.
+    let archives_settled =
+        move || !fidelity().uses_archives() || !archives.read().is_empty() || archives_skipped();
     let can_connect = move || gw().is_some() && (archives_settled() || !NATIVE);
     let can_preview = move || collected().is_some();
+
+    // Changing the answer to step 1 invalidates every decision that depended
+    // on it, so they are dropped rather than left to look settled.
+    let choose_fidelity = move |next: MediaFidelity| {
+        if next == fidelity() {
+            return;
+        }
+        fidelity.set(next);
+
+        // Which media are needed, and therefore what has been gathered for
+        // them, is a different set under each answer: renditions want one
+        // `normal` per page, originals want deposit downloads.
+        preview.set(None);
+        preview_error.set(None);
+        override_mismatch.set(false);
+        fetched.write().clear();
+
+        if next.uses_archives() {
+            // The archives are matched on exact byte lengths, and a list-only
+            // collection has none. Keeping it would silently match nothing and
+            // download everything, so the collection is taken again.
+            let unmeasured = collected
+                .read()
+                .as_ref()
+                .is_some_and(|c| c.deposit_sizes.is_empty());
+            if unmeasured {
+                collected.set(None);
+            }
+        } else {
+            archives.write().clear();
+            archives_skipped.set(false);
+        }
+    };
 
     // ── Step 3 — drive the login window ──────────────────────────────
     let start_connect = {
@@ -699,6 +748,14 @@ fn GeneanetTab(
                     invalid_collection: i18n.t("geneanet.error_collection_invalid"),
                     cancel_hint: i18n.t("geneanet.window_cancel_hint"),
                     idle: i18n.t("geneanet.window_idle"),
+                },
+                // The sizing pass is one `HEAD` per deposit and exists only to
+                // match the archives. A renditions import never opens one, so
+                // it is several hundred requests nothing would read.
+                if fidelity().uses_archives() {
+                    Collect::ListAndSizes
+                } else {
+                    Collect::ListOnly
                 },
             );
 
@@ -793,6 +850,7 @@ fn GeneanetTab(
                 collection: collected.collection.clone(),
                 deposit_sizes: collected.deposit_sizes.clone(),
                 archive_paths: paths.clone(),
+                media_fidelity: fidelity(),
             };
 
             let needed = match trace
@@ -908,6 +966,7 @@ fn GeneanetTab(
                 deposit_sizes: collected.deposit_sizes.clone(),
                 archive_paths: archives.read().iter().map(|a| a.path.clone()).collect(),
                 fetched: fetched.read().clone(),
+                media_fidelity: fidelity(),
             };
             let outcome = async {
                 let started = trace
@@ -977,32 +1036,46 @@ fn GeneanetTab(
         return rsx! { GeneanetDone { result } };
     }
 
+    // How many steps this journey has, and therefore what each one is called.
+    let archives_step = fidelity().uses_archives();
+    let number = move |step: Step| step_number(step, archives_step);
+
     rsx! {
         div { class: "gn-steps",
 
-            // ── Step 1 — the .gw file ────────────────────────────────
+            // ── Step 1 — the .gw file and the media choice ───────────
             StepShell {
-                index: 1,
+                index: number(Step::Gw),
                 title: i18n.t("geneanet.step1_title"),
                 open: open() == Step::Gw,
                 reachable: true,
                 summary: gw().map(|f| i18n.t_args(
                     "geneanet.step1_summary",
-                    &[("file", &f.name), ("count", &group_digits(f.inspection.person_count))],
+                    &[
+                        ("file", &f.name),
+                        ("count", &group_digits(f.inspection.person_count)),
+                        ("media", &i18n.t(fidelity_label(fidelity()))),
+                    ],
                 )),
                 on_open: move |_| open.set(Step::Gw),
                 GwStep {
                     gw,
                     gw_error,
+                    fidelity: fidelity(),
+                    on_fidelity: choose_fidelity,
                     on_settled: move |_| {
-                        open.set(if NATIVE { Step::Archives } else { Step::Connect });
+                        open.set(if NATIVE && archives_step { Step::Archives } else { Step::Connect });
                     },
                 }
             }
 
             // ── Step 2 — the photo archives ──────────────────────────
+            // Only for an originals import. A renditions one never opens an
+            // archive, so offering the step would ask for gigabytes of ZIP to
+            // do nothing with.
+            if archives_step {
             StepShell {
-                index: 2,
+                index: number(Step::Archives),
                 title: i18n.t("geneanet.step2_title"),
                 open: open() == Step::Archives,
                 reachable: gw().is_some(),
@@ -1029,10 +1102,11 @@ fn GeneanetTab(
                     on_settled: move |_| open.set(Step::Connect),
                 }
             }
+            }
 
             // ── Step 3 — sign in and collect ─────────────────────────
             StepShell {
-                index: 3,
+                index: number(Step::Connect),
                 title: i18n.t("geneanet.step3_title"),
                 open: open() == Step::Connect,
                 reachable: can_connect(),
@@ -1060,7 +1134,7 @@ fn GeneanetTab(
 
             // ── Step 4 — what will be imported ───────────────────────
             StepShell {
-                index: 4,
+                index: number(Step::Preview),
                 title: i18n.t("geneanet.step4_title"),
                 open: open() == Step::Preview,
                 reachable: can_preview(),
@@ -1069,6 +1143,7 @@ fn GeneanetTab(
                 PreviewStep {
                     preview: preview(),
                     error: preview_error(),
+                    fidelity: fidelity(),
                     collected,
                     fetched,
                     session_error: preview_error,
@@ -1083,7 +1158,7 @@ fn GeneanetTab(
 
             // ── Step 5 — import ──────────────────────────────────────
             StepShell {
-                index: 5,
+                index: number(Step::Import),
                 title: i18n.t("geneanet.step5_title"),
                 open: open() == Step::Import,
                 reachable: preview().is_some() && (!preview().unwrap_or_default().mismatch || override_mismatch()),
@@ -1098,6 +1173,31 @@ fn GeneanetTab(
                 }
             }
         }
+    }
+}
+
+/// What a step is called on screen.
+///
+/// The journey is four steps or five depending on step 1's answer, and the
+/// numbers have to say so: a wizard that skipped from 1 to 3 would read as a
+/// step gone missing rather than a step that was never needed.
+const fn step_number(step: Step, archives_step: bool) -> usize {
+    // What step 2 costs the steps after it: one, or nothing at all.
+    let shift = archives_step as usize;
+    match step {
+        Step::Gw => 1,
+        Step::Archives => 2,
+        Step::Connect => 2 + shift,
+        Step::Preview => 3 + shift,
+        Step::Import => 4 + shift,
+    }
+}
+
+/// The name of the translation key for one media answer.
+const fn fidelity_label(fidelity: MediaFidelity) -> &'static str {
+    match fidelity {
+        MediaFidelity::Renditions => "geneanet.media_renditions",
+        MediaFidelity::Originals => "geneanet.media_originals",
     }
 }
 
@@ -1159,6 +1259,10 @@ fn StepShell(
 fn GwStep(
     gw: Signal<Option<GwFile>>,
     gw_error: Signal<Option<String>>,
+    /// Which bytes to keep per medium — the answer that decides whether there
+    /// is a step 2 at all.
+    fidelity: MediaFidelity,
+    on_fidelity: EventHandler<MediaFidelity>,
     on_settled: EventHandler<()>,
 ) -> Element {
     let api = use_context::<ApiClient>();
@@ -1245,6 +1349,12 @@ fn GwStep(
             }
         }
 
+        // Asked here, and last, because it is the answer that decides how much
+        // of the rest of the wizard exists — and the step it removes is the one
+        // that would otherwise send the user off to request a data export and
+        // come back days later.
+        MediaChoice { fidelity, on_choose: on_fidelity }
+
         div { class: "modal-actions",
             button {
                 class: "btn btn-primary",
@@ -1252,6 +1362,51 @@ fn GwStep(
                 onclick: pick,
                 if busy() { {i18n.t("geneanet.reading")} } else { {i18n.t("geneanet.step1_pick")} }
             }
+        }
+    }
+}
+
+/// The two answers to "which bytes do you want for each photograph".
+///
+/// Radio inputs rather than a select or a switch: each answer needs a sentence
+/// of its own to be a real choice — one costs nothing but quality, the other
+/// costs a data export — and neither is legible as a label alone.
+#[component]
+fn MediaChoice(fidelity: MediaFidelity, on_choose: EventHandler<MediaFidelity>) -> Element {
+    let i18n = use_i18n();
+
+    let option = |value: MediaFidelity, name: &str, why: &str| {
+        let selected = fidelity == value;
+        rsx! {
+            label {
+                class: if selected { "gn-choice-opt is-on" } else { "gn-choice-opt" },
+                input {
+                    r#type: "radio",
+                    name: "oxidgene-geneanet-fidelity",
+                    checked: selected,
+                    onchange: move |_| on_choose.call(value),
+                }
+                span { class: "gn-choice-text",
+                    span { class: "gn-choice-name", {i18n.t(name)} }
+                    span { class: "gn-choice-why", {i18n.t(why)} }
+                }
+            }
+        }
+    };
+
+    rsx! {
+        fieldset { class: "gn-choice",
+            legend { class: "gn-choice-legend", {i18n.t("geneanet.media_choice_title")} }
+            {option(
+                MediaFidelity::Renditions,
+                "geneanet.media_renditions",
+                "geneanet.media_renditions_why",
+            )}
+            {option(
+                MediaFidelity::Originals,
+                "geneanet.media_originals",
+                "geneanet.media_originals_why",
+            )}
         }
     }
 }
@@ -1698,6 +1853,9 @@ fn progress_percent(done: usize, total: usize) -> usize {
 fn PreviewStep(
     preview: Option<GeneanetPreview>,
     error: Option<String>,
+    /// Which bytes this run keeps, so the findings describe the work it will
+    /// actually do rather than the archive matching it is not doing.
+    fidelity: MediaFidelity,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
     session_error: Signal<Option<String>>,
@@ -1734,7 +1892,16 @@ fn PreviewStep(
         }
 
         ul { class: "gn-findings",
-            if stats.to_download == 0 && stats.in_archives > 0 {
+            if !fidelity.uses_archives() {
+                if stats.to_download > 0 {
+                    li { class: "is-info",
+                        {i18n.t_args(
+                            "geneanet.finding_renditions",
+                            &[("count", &group_digits(stats.to_download))],
+                        )}
+                    }
+                }
+            } else if stats.to_download == 0 && stats.in_archives > 0 {
                 li { class: "is-good",
                     {i18n.t_args(
                         "geneanet.finding_all_local",
@@ -1839,7 +2006,11 @@ fn PreviewStep(
             // window can be shut before anything is written.
             if let Some((done, total)) = fetch_progress {
                 ProgressBar {
-                    label: i18n.t("geneanet.step4_gathering"),
+                    label: i18n.t(if fidelity.uses_archives() {
+                        "geneanet.step4_gathering"
+                    } else {
+                        "geneanet.step4_downloading"
+                    }),
                     done,
                     total,
                 }
@@ -2167,6 +2338,38 @@ mod tests {
         assert_eq!(progress_percent(50, 100), 50);
         assert_eq!(progress_percent(31_866_880, 697_900_330), 4);
         assert_eq!(progress_percent(800_000_000, 697_900_330), 100);
+    }
+
+    #[test]
+    fn dropping_the_archive_step_renumbers_the_ones_after_it() {
+        // Not cosmetic: a wizard that went 1, 3, 4, 5 would read as a step
+        // gone missing rather than a step that was never needed.
+        let renditions: Vec<usize> = [Step::Gw, Step::Connect, Step::Preview, Step::Import]
+            .into_iter()
+            .map(|step| step_number(step, false))
+            .collect();
+        assert_eq!(renditions, [1, 2, 3, 4]);
+
+        let originals: Vec<usize> = [
+            Step::Gw,
+            Step::Archives,
+            Step::Connect,
+            Step::Preview,
+            Step::Import,
+        ]
+        .into_iter()
+        .map(|step| step_number(step, true))
+        .collect();
+        assert_eq!(originals, [1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn only_the_originals_answer_reaches_for_the_archives() {
+        // The one predicate that decides whether step 2 exists, whether the
+        // sizing pass runs, and which URLs the plan asks for.
+        assert!(!MediaFidelity::default().uses_archives());
+        assert!(!MediaFidelity::Renditions.uses_archives());
+        assert!(MediaFidelity::Originals.uses_archives());
     }
 
     #[test]

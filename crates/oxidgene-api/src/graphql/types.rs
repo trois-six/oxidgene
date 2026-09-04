@@ -2065,6 +2065,27 @@ pub struct GqlGeneanetPreview {
     pub mismatch: bool,
 }
 
+/// Which bytes a Geneanet import keeps for each medium.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Enum)]
+pub enum GqlGeneanetMediaFidelity {
+    /// Geneanet's own `normal` rendition of every page: recompressed and
+    /// resized, and needing nothing from the user but their login.
+    #[default]
+    Renditions,
+    /// The uploaded files, taken from the user's data archives where they can
+    /// be identified there and downloaded otherwise.
+    Originals,
+}
+
+impl From<GqlGeneanetMediaFidelity> for crate::service::geneanet::MediaFidelity {
+    fn from(fidelity: GqlGeneanetMediaFidelity) -> Self {
+        match fidelity {
+            GqlGeneanetMediaFidelity::Renditions => Self::Renditions,
+            GqlGeneanetMediaFidelity::Originals => Self::Originals,
+        }
+    }
+}
+
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlGeneanetNeededMedia {
     pub deposit_id: i64,

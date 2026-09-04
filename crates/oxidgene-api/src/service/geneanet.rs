@@ -139,6 +139,43 @@ fn file_name_of(path: &Path) -> String {
     )
 }
 
+/// Which bytes an import is asked to keep for each medium.
+///
+/// The two are not variations on one pipeline; they need different things from
+/// the user. Originals need the data archives — a separate Geneanet request,
+/// an email, and several gigabytes of ZIP — and reach for the network only for
+/// what those archives cannot account for. Renditions need nothing but the
+/// login: every page is taken from Geneanet's own largest per-page variant.
+///
+/// `normal` is provenance-unknown (see
+/// `docs/specifications/geneanet-media-import.md` §4): sometimes the uploaded
+/// bytes, more often a re-encoding, and always a JPEG where the deposit was a
+/// PDF. That is the trade this makes, and it is the default because it is the
+/// only path a user with no data archive can take at all.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaFidelity {
+    /// Geneanet's `normal` rendition of every page. No archives, no byte-length
+    /// match, no perceptual match — one fetch per view and nothing to reconcile.
+    #[default]
+    Renditions,
+    /// The uploaded files: from the data archives wherever a byte length or a
+    /// content match lands, downloaded from the deposit otherwise.
+    Originals,
+}
+
+impl MediaFidelity {
+    /// Whether the archives take part in this import at all.
+    ///
+    /// Also what says whether they are worth staging: a caller that sends
+    /// archive paths with `Renditions` would otherwise have gigabytes copied
+    /// into job storage for a run that never opens them.
+    #[must_use]
+    pub const fn uses_archives(self) -> bool {
+        matches!(self, Self::Originals)
+    }
+}
+
 /// Everything step 4 shows, computed with no further network access.
 #[derive(Debug, Clone, Default)]
 pub struct Preview {
@@ -196,7 +233,8 @@ pub struct Preview {
 ///
 /// Nothing is written and nothing is fetched. `deposit_sizes` is the byte
 /// length of each single-page deposit, gathered in the login window during
-/// step 3 — it is what decides whether a photo is already in the archives.
+/// step 3 — it is what decides whether a photo is already in the archives, and
+/// [`MediaFidelity::Renditions`] therefore ignores it along with the archives.
 ///
 /// # Errors
 ///
@@ -208,6 +246,7 @@ pub fn preview(
     collection_json: &str,
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
+    fidelity: MediaFidelity,
 ) -> Result<Preview, OxidGeneError> {
     let (database, _) = oxidgene_geneanet::parse_gw(gw_bytes, file_name)
         .map_err(|e| OxidGeneError::Validation(e.to_string()))?;
@@ -276,6 +315,20 @@ pub fn preview(
             continue;
         }
 
+        // A document is still a document whichever bytes are kept for its
+        // pages, and every one of them is imported either way.
+        if deposit.views.len() > 1 {
+            preview.documents += 1;
+            preview.document_pages += deposit.views.len();
+        }
+
+        // Renditions are fetched for every page and matched against nothing,
+        // so there is one download per view and no local hit to report.
+        if !fidelity.uses_archives() {
+            preview.to_download += deposit.views.len();
+            continue;
+        }
+
         if deposit.views.len() == 1 {
             if held_locally(deposit, deposit.views[0].id, deposit_sizes, archives) {
                 preview.in_archives += 1;
@@ -288,8 +341,6 @@ pub fn preview(
         // Every page of a document is fetched, because a page has no byte
         // length to match an archive entry against — it is recognised from its
         // rendition instead, and that rendition has to be retrieved first.
-        preview.documents += 1;
-        preview.document_pages += deposit.views.len();
         preview.to_match += deposit.views.len();
     }
 
@@ -346,7 +397,12 @@ pub struct NeededMedia {
 /// whatever the cookie, so anything it cannot find locally has to come through
 /// the window the user signed in to. This is the question it asks first.
 ///
-/// The rule per medium, in the order [`resolve_bytes`] applies it:
+/// Under [`MediaFidelity::Renditions`] the rule is one line: every page of
+/// every attached deposit, as its `normal` rendition. Nothing is matched, so
+/// nothing smaller is fetched to match with.
+///
+/// Under [`MediaFidelity::Originals`] the rule per medium, in the order
+/// [`resolve_bytes`] applies it:
 ///
 /// - resolvable from the archives by **exact byte length** → nothing needed
 /// - otherwise, a **single-page** deposit → its original, which is exact
@@ -364,6 +420,7 @@ pub fn plan(
     collection_json: &str,
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
+    fidelity: MediaFidelity,
 ) -> Result<Vec<NeededMedia>, OxidGeneError> {
     let (database, _) = oxidgene_geneanet::parse_gw(gw_bytes, file_name)
         .map_err(|e| OxidGeneError::Validation(e.to_string()))?;
@@ -388,7 +445,8 @@ pub fn plan(
         }
 
         let single = deposit.views.len() == 1;
-        if single
+        let original = fidelity.uses_archives() && single;
+        if original
             && deposit_sizes
                 .get(&deposit.id)
                 .is_some_and(|size| matches!(archives.resolve(*size), Ok(Some(_))))
@@ -397,7 +455,12 @@ pub fn plan(
         }
 
         for view in pages_in_order(deposit) {
-            let urls = if single {
+            let urls = if !fidelity.uses_archives() {
+                // The one rendition that will be stored. The smaller sample
+                // `rendition_urls` adds exists only to hash against an
+                // archive, and there is no archive here.
+                stored_rendition_url(view).into_iter().collect()
+            } else if single {
                 original_url(deposit).into_iter().collect()
             } else {
                 rendition_urls(view)
@@ -408,7 +471,7 @@ pub fn plan(
                     view_id: view.id,
                     page: view.page,
                     url,
-                    original: single,
+                    original,
                 });
             }
         }
@@ -452,6 +515,10 @@ pub struct GeneanetImportSummary {
 /// the archives when a size matches, over the network when it does not — and
 /// writes one `media` row per photo with one `media_link` per person on it.
 ///
+/// `fidelity` decides whether the archives are consulted at all;
+/// [`MediaFidelity::Renditions`] ignores `archive_paths` and `deposit_sizes`
+/// and stores the `normal` rendition the login window fetched for each page.
+///
 /// # Errors
 ///
 /// `fetched` carries the bytes the login window retrieved, keyed by URL — no
@@ -474,9 +541,20 @@ pub async fn import(
     deposit_sizes: &HashMap<i64, u64>,
     archive_paths: &[String],
     fetched: &HashMap<String, String>,
+    fidelity: MediaFidelity,
     progress: &ImportProgress,
 ) -> Result<GeneanetImportSummary, OxidGeneError> {
     let _tree = TreeRepo::get(db, tree_id).await?;
+
+    // Renditions keep what Geneanet re-encoded, so the archives take no part:
+    // dropping the paths here is what turns off the byte-length match, the
+    // perceptual index, and the archive reads all three depend on — rather
+    // than each of them asking again further down.
+    let archive_paths: &[String] = if fidelity.uses_archives() {
+        archive_paths
+    } else {
+        &[]
+    };
 
     let (mut import_result, manifest, joined) =
         tracing::info_span!("import.parse", import.format = "geneanet").in_scope(|| {
@@ -2690,16 +2768,171 @@ mod tests {
                 "views":[{"id":10,"page":1,"files":{"normal":"/n.jpg"}}]}"#,
         );
 
+        for fidelity in [MediaFidelity::Renditions, MediaFidelity::Originals] {
+            let needed = plan(
+                gw,
+                "tree.gw",
+                &collection,
+                &HashMap::new(),
+                &ArchiveSet::new(),
+                fidelity,
+            )
+            .expect("plans");
+
+            assert!(
+                needed.is_empty(),
+                "{fidelity:?} planned an unattached deposit"
+            );
+        }
+    }
+
+    /// A `.gw` and a collection whose one deposit is attached to a person of
+    /// it, so a plan and a preview both have something to say about them.
+    ///
+    /// `deposit` is spliced in verbatim: the caller decides whether it is a
+    /// single photograph or a document. The link is placed through
+    /// `view_references`, which pins it to a page — the bulk endpoint cannot,
+    /// which is why the collection carries both shapes.
+    fn attached_case(deposit: &str) -> (&'static [u8], String) {
+        let gw: &[u8] = b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
+        let collection = format!(
+            r#"{{"deposits":[{deposit}],
+                 "references":[],
+                 "view_references":{{"1:10":[
+                   {{"lastname":"BRANCH_A","firstname":"person_a",
+                     "reference_extra_geneweb":{{"ref":"branch a|person a|"}}}}
+                 ]}}}}"#
+        );
+        (gw, collection)
+    }
+
+    #[test]
+    fn the_shared_attached_case_really_does_attach() {
+        // Every assertion below rests on this: a case whose reference joined
+        // nobody would make an empty plan look like a correct one.
+        let (gw, collection) = attached_case(
+            r#"{"id":1,"title":"t","type":"portraits","private":true,
+                "views":[{"id":10,"page":1,"files":{"normal":"/n1.jpg"}}]}"#,
+        );
+
+        let stats = preview(
+            gw,
+            "tree.gw",
+            &collection,
+            &HashMap::new(),
+            &ArchiveSet::new(),
+            MediaFidelity::Renditions,
+        )
+        .expect("previews");
+
+        assert_eq!(stats.attachment_count, 1);
+        assert_eq!(stats.unlinked_views, 0);
+    }
+
+    #[test]
+    fn renditions_ask_for_one_normal_per_page_and_never_an_original() {
+        // The whole point of the mode: no archive to match against, so no
+        // original download and no smaller sample to hash — one fetch per
+        // view, and it is the one whose bytes get stored.
+        let (gw, collection) = attached_case(
+            r#"{"id":1,"title":"t","type":"portraits","private":true,
+                "views":[{"id":10,"page":1,"files":{"normal":"/n1.jpg","medium":"/m1.jpg"}},
+                         {"id":11,"page":2,"files":{"normal":"/n2.jpg","medium":"/m2.jpg"}}]}"#,
+        );
+
         let needed = plan(
             gw,
             "tree.gw",
             &collection,
             &HashMap::new(),
             &ArchiveSet::new(),
+            MediaFidelity::Renditions,
         )
         .expect("plans");
 
-        assert!(needed.is_empty());
+        let urls: Vec<&str> = needed.iter().map(|item| item.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://gw.geneanet.org/n1.jpg",
+                "https://gw.geneanet.org/n2.jpg"
+            ]
+        );
+        assert!(needed.iter().all(|item| !item.original));
+    }
+
+    #[test]
+    fn renditions_ignore_a_size_that_would_have_matched_an_archive() {
+        // Originals skip a deposit whose length names an archive entry.
+        // Renditions have no archive in play at all, so the same deposit is
+        // still fetched — and as its rendition, not its original.
+        let (gw, collection) = attached_case(
+            r#"{"id":1,"title":"t","type":"portraits","private":true,
+                "views":[{"id":10,"page":1,"files":{"normal":"/n1.jpg"}}]}"#,
+        );
+
+        let needed = plan(
+            gw,
+            "tree.gw",
+            &collection,
+            &HashMap::from([(1i64, 4096u64)]),
+            &ArchiveSet::new(),
+            MediaFidelity::Renditions,
+        )
+        .expect("plans");
+
+        assert_eq!(needed.len(), 1);
+        assert_eq!(needed[0].url, "https://gw.geneanet.org/n1.jpg");
+    }
+
+    #[test]
+    fn originals_still_ask_for_the_deposit_download_of_a_single_page() {
+        let (gw, collection) = attached_case(
+            r#"{"id":1,"title":"t","type":"portraits","private":true,
+                "views":[{"id":10,"page":1,"files":{"normal":"/n1.jpg"}}]}"#,
+        );
+
+        let needed = plan(
+            gw,
+            "tree.gw",
+            &collection,
+            &HashMap::new(),
+            &ArchiveSet::new(),
+            MediaFidelity::Originals,
+        )
+        .expect("plans");
+
+        assert_eq!(needed.len(), 1);
+        assert!(needed[0].url.contains("deposits[]=1"));
+        assert!(needed[0].original);
+    }
+
+    #[test]
+    fn a_renditions_preview_counts_every_page_as_a_download_and_matches_none() {
+        // Nothing is held locally and nothing is recognised by content, so
+        // reporting either would promise work this mode does not do — while
+        // the deposit is still a document with both its pages.
+        let (gw, collection) = attached_case(
+            r#"{"id":1,"title":"t","type":"documents","private":true,
+                "views":[{"id":10,"page":1,"files":{"normal":"/n1.jpg"}},
+                         {"id":11,"page":2,"files":{"normal":"/n2.jpg"}}]}"#,
+        );
+
+        let stats = preview(
+            gw,
+            "tree.gw",
+            &collection,
+            &HashMap::new(),
+            &ArchiveSet::new(),
+            MediaFidelity::Renditions,
+        )
+        .expect("previews");
+
+        assert_eq!(stats.to_download, 2);
+        assert_eq!(stats.to_match, 0);
+        assert_eq!(stats.in_archives, 0);
+        assert_eq!(stats.documents, 1);
+        assert_eq!(stats.document_pages, 2);
     }
 
     #[test]
