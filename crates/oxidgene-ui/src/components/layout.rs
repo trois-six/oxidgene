@@ -1029,7 +1029,10 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 200;
+        /* Above every other overlay (the media viewer's .cropper-backdrop
+           included, at 1200) so a confirmation raised from within one is
+           never stacked underneath it and left unclickable. */
+        z-index: 1300;
         backdrop-filter: blur(4px);
     }
 

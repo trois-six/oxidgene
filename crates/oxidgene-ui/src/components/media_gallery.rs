@@ -2916,22 +2916,62 @@ fn MediaViewer(
     let mut family_choices = use_signal(Vec::<MediaFamilyChoice>::new);
     let mut media_revision = use_signal(|| 0_u32);
     let mut delete_confirming = use_signal(|| false);
+    let mut checking_delete = use_signal(|| false);
     let mut deleting = use_signal(|| false);
     let mut delete_error = use_signal(|| None::<String>);
+    let retained_message = i18n.t("media.delete_kept_referenced");
+
+    // Mirrors the gallery tile's context-menu delete: only offer a
+    // definitive-delete confirmation when this link is the media's sole
+    // external reference, so the dialog never promises a deletion the
+    // backend would in fact just retain.
+    let request_delete_confirmation = {
+        let api = api.clone();
+        let media_id = tile.media.id;
+        let link_id = tile.link_id;
+        let retained_message = retained_message.clone();
+        move |_| {
+            let api = api.clone();
+            let retained_message = retained_message.clone();
+            spawn(async move {
+                checking_delete.set(true);
+                delete_error.set(None);
+                match api
+                    .can_delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
+                    .await
+                {
+                    Ok(true) => delete_confirming.set(true),
+                    Ok(false) => delete_error.set(Some(retained_message)),
+                    Err(err) => delete_error.set(Some(err.to_string())),
+                }
+                checking_delete.set(false);
+            });
+        }
+    };
 
     let delete_media = {
         let api = api.clone();
         let media_id = tile.media.id;
+        let link_id = tile.link_id;
+        let retained_message = retained_message.clone();
         move |_| {
             let api = api.clone();
+            let retained_message = retained_message.clone();
             spawn(async move {
                 deleting.set(true);
                 delete_error.set(None);
-                match api.delete_media(tree_id, media_id).await {
-                    Ok(()) => {
+                match api
+                    .delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
+                    .await
+                {
+                    Ok(true) => {
                         delete_confirming.set(false);
                         on_changed.call(());
                         on_close.call(());
+                    }
+                    Ok(false) => {
+                        delete_confirming.set(false);
+                        delete_error.set(Some(retained_message));
                     }
                     Err(err) => delete_error.set(Some(err.to_string())),
                 }
@@ -3512,13 +3552,15 @@ fn MediaViewer(
                             button {
                                 class: "pf-delete-person-btn media-facts-delete",
                                 r#type: "button",
-                                disabled: deleting(),
-                                onclick: move |_| {
-                                    delete_error.set(None);
-                                    delete_confirming.set(true);
-                                },
+                                disabled: deleting() || checking_delete(),
+                                onclick: request_delete_confirmation,
                                 {i18n.t("media.viewer_delete")}
                             }
+                        }
+                        if !delete_confirming()
+                            && let Some(err) = delete_error()
+                        {
+                            div { class: "error-msg", "{err}" }
                         }
                     }
                 }
