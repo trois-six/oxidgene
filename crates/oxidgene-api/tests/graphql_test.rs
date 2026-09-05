@@ -2628,14 +2628,13 @@ async fn test_vignette_lifecycle_over_graphql() {
         &format!(
             r#"mutation {{ createVignette(treeId: "{tree_id}", input: {{
                                  mediaId: "{media_id}", x: 10, y: 20, width: 200, height: 150
-                             }}) {{ id x y width height page }} }}"#
+                             }}) {{ id x y width height }} }}"#
         ),
         None,
     )
     .await;
     let vignette = &data(&resp)["createVignette"];
     assert_eq!(vignette["x"], 10);
-    assert_eq!(vignette["page"], 0);
     let vignette_id = vignette["id"].as_str().unwrap().to_string();
 
     // Query by media

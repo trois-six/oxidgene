@@ -703,7 +703,6 @@ async fn persist_import_result_in_with_progress(
             .map(|v| vignette::ActiveModel {
                 id: Set(v.id),
                 media_id: Set(v.media_id),
-                page: Set(v.page),
                 x: Set(v.x),
                 y: Set(v.y),
                 width: Set(v.width),

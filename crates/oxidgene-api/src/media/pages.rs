@@ -3,8 +3,8 @@
 //! Genealogy sources arrive as documents far more often than as single photos:
 //! a parish register scan is forty pages, a notarial act is three, and the
 //! citation that matters points at page 27. Knowing the count at upload time is
-//! what lets the UI offer a page carousel instead of a download link, and what
-//! lets a vignette say which page it was cropped from.
+//! what lets the UI say how many pages a file holds rather than presenting it
+//! as a single image.
 //!
 //! Counting is header work, not rendering. Nothing here decodes a pixel.
 //!

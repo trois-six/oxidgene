@@ -374,9 +374,6 @@ pub struct UpdateMediaInput {
 #[derive(Debug, InputObject)]
 pub struct CreateVignetteInput {
     pub media_id: String,
-    /// Zero-based page of a multi-page document; defaults to 0.
-    #[graphql(default)]
-    pub page: i32,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -390,7 +387,6 @@ pub struct CreateVignetteInput {
 /// The four rectangle fields travel together: send all of them or none.
 #[derive(Debug, InputObject)]
 pub struct UpdateVignetteInput {
-    pub page: Option<i32>,
     pub x: Option<i32>,
     pub y: Option<i32>,
     pub width: Option<i32>,

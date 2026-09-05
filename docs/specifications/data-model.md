@@ -316,8 +316,7 @@ its own image.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
-| `media_id` | UUID v7 | FK → Media (cascade) |
-| `page` | i32 | Zero-based page of a multi-page document; `0` for a photo |
+| `media_id` | UUID v7 | FK → Media (cascade) — always a page, the row holding the pixels, never the document grouping pages |
 | `x` | i32 | Crop origin, in the source image's own pixel coordinates |
 | `y` | i32 | |
 | `width` | i32 | |
@@ -363,8 +362,8 @@ than to an error.
 A link to the parent `Media` row attaches the complete multi-page document. A
 link to one of its child `Media` rows attaches that page only. The link needs no
 separate page column because a page is already a media in its own right. A
-`Vignette` remains page-specific and identifies a rectangular region of its
-page media.
+`Vignette` identifies a rectangular region of one page media, and carries no
+page number of its own: the page it belongs to is the media it points at.
 
 ### Note
 

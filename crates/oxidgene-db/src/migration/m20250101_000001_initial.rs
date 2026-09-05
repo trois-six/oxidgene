@@ -798,7 +798,6 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(uuid(Vignette::Id).primary_key())
                     .col(uuid(Vignette::MediaId))
-                    .col(integer(Vignette::Page).default(0))
                     .col(integer(Vignette::X))
                     .col(integer(Vignette::Y))
                     .col(integer(Vignette::Width))
@@ -1441,7 +1440,6 @@ enum Vignette {
     Table,
     Id,
     MediaId,
-    Page,
     X,
     Y,
     Width,

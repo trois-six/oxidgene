@@ -843,8 +843,6 @@ pub struct MediaTagBody {
 
 #[derive(Debug, Serialize)]
 pub struct CreateVignetteBody {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<i32>,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -858,8 +856,6 @@ pub struct CreateVignetteBody {
 /// The four rectangle fields travel together — send all or none.
 #[derive(Debug, Default, Serialize)]
 pub struct UpdateVignetteBody {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub x: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]

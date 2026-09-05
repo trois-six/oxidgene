@@ -1082,17 +1082,17 @@ fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
             };
             continue;
         }
-        let [
-            "1",
-            "_OXIDGENE_VIGNETTE",
-            person_xref,
-            page,
-            x,
-            y,
-            width,
-            height,
-        ] = fields.as_slice()
+        let ["1", "_OXIDGENE_VIGNETTE", person_xref, x, y, width, height] = fields.as_slice()
         else {
+            // An arity we do not write. Saying so beats dropping the crop in
+            // silence: a file written by an older OxidGene carried a page
+            // number here, and its identifications would otherwise vanish
+            // without a word.
+            if fields.get(1) == Some(&"_OXIDGENE_VIGNETTE") {
+                result.warnings.push(format!(
+                    "Vignette on {media_xref:?}: unrecognised _OXIDGENE_VIGNETTE line — skipped"
+                ));
+            }
             continue;
         };
         let Some(media_id) = media_xref.and_then(|xref| result.media_by_xref.get(xref).copied())
@@ -1111,19 +1111,18 @@ fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
             continue;
         }
         let parsed = (
-            page.parse::<i32>(),
             x.parse::<i32>(),
             y.parse::<i32>(),
             width.parse::<i32>(),
             height.parse::<i32>(),
         );
-        let (Ok(page), Ok(x), Ok(y), Ok(width), Ok(height)) = parsed else {
+        let (Ok(x), Ok(y), Ok(width), Ok(height)) = parsed else {
             result.warnings.push(format!(
                 "Vignette on {media_xref:?}: invalid crop coordinates"
             ));
             continue;
         };
-        if page < 0 || x < 0 || y < 0 || width <= 0 || height <= 0 {
+        if x < 0 || y < 0 || width <= 0 || height <= 0 {
             result.warnings.push(format!(
                 "Vignette on {media_xref:?}: invalid crop rectangle"
             ));
@@ -1133,7 +1132,6 @@ fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
         result.vignettes.push(Vignette {
             id: Uuid::now_v7(),
             media_id,
-            page,
             x,
             y,
             width,
@@ -2682,6 +2680,36 @@ mod gedzip_tests {
     fn something_that_is_not_an_archive_at_all_fails_rather_than_importing_nothing() {
         let err = import_gedzip(b"0 HEAD\n0 TRLR\n", Uuid::now_v7()).unwrap_err();
         assert!(err.contains("GEDZIP"), "got {err}");
+    }
+
+    /// A file written before the page number was dropped carries one field too
+    /// many. It cannot be imported — the coordinate it names no longer exists —
+    /// but losing an identification without a word is the outcome worth
+    /// preventing, so the arity mismatch has to be reported.
+    #[test]
+    fn a_vignette_line_of_an_unexpected_arity_is_reported_rather_than_dropped() {
+        let gedcom = "0 HEAD\n\
+             1 GEDC\n\
+             2 VERS 5.5.1\n\
+             0 @I1@ INDI\n\
+             1 SEX U\n\
+             0 @M1@ OBJE\n\
+             1 FILE photo.jpg\n\
+             2 FORM image/jpeg\n\
+             1 _OXIDGENE_VIGNETTE @I1@ 0 120 45 64 82\n\
+             0 TRLR\n";
+
+        let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+
+        assert!(result.vignettes.is_empty(), "the line is not understood");
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("_OXIDGENE_VIGNETTE")),
+            "got {:?}",
+            result.warnings
+        );
     }
 
     #[test]

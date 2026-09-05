@@ -84,15 +84,13 @@ pub async fn create_vignette(
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
-    let page = body.page.unwrap_or(0);
-    check_rect(&media, page, body.x, body.y, body.width, body.height)?;
+    check_rect(&media, body.x, body.y, body.width, body.height)?;
 
     let vignette = VignetteRepo::create(
         &state.db,
         Uuid::now_v7(),
         VignetteInput {
             media_id,
-            page,
             x: body.x,
             y: body.y,
             width: body.width,
@@ -146,21 +144,17 @@ pub async fn update_vignette(
         }
     };
 
-    if rect.is_some() || body.page.is_some() {
+    if let Some((x, y, width, height)) = rect {
         let media = MediaRepo::get(&state.db, existing.media_id)
             .await
             .map_err(ApiError::from)?;
-        let page = body.page.unwrap_or(existing.page);
-        let (x, y, width, height) =
-            rect.unwrap_or((existing.x, existing.y, existing.width, existing.height));
-        check_rect(&media, page, x, y, width, height)?;
+        check_rect(&media, x, y, width, height)?;
     }
 
     let vignette = VignetteRepo::update(
         &state.db,
         vignette_id,
         VignettePatch {
-            page: body.page,
             rect,
             person_id: body.person_id,
             event_id: body.event_id,
@@ -241,13 +235,6 @@ pub async fn vignette_image(
 }
 
 /// Thin wrapper over [`crate::media::validate_crop`] that speaks `ApiError`.
-fn check_rect(
-    media: &Media,
-    page: i32,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-) -> Result<(), ApiError> {
-    crate::media::validate_crop(media, page, x, y, width, height).map_err(ApiError::from)
+fn check_rect(media: &Media, x: i32, y: i32, width: i32, height: i32) -> Result<(), ApiError> {
+    crate::media::validate_crop(media, x, y, width, height).map_err(ApiError::from)
 }

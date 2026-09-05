@@ -2,7 +2,7 @@
 //!
 //! No soft delete here. A vignette is a coordinate annotation, not a record
 //! anyone cites; deleting one throws away four integers, and keeping tombstones
-//! for it would only make "which crops are on this page" a filtered query.
+//! for it would only make "which crops are on this media" a filtered query.
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
@@ -18,7 +18,6 @@ use crate::entities::vignette::{self, ActiveModel, Column, Entity};
 #[derive(Debug, Clone)]
 pub struct VignetteInput {
     pub media_id: Uuid,
-    pub page: i32,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -33,7 +32,6 @@ pub struct VignetteInput {
 /// rectangle, and clearing an attribution sends `Some(None)`.
 #[derive(Debug, Clone, Default)]
 pub struct VignettePatch {
-    pub page: Option<i32>,
     pub rect: Option<(i32, i32, i32, i32)>,
     pub person_id: Option<Option<Uuid>>,
     pub event_id: Option<Option<Uuid>>,
@@ -54,7 +52,6 @@ impl VignetteRepo {
         let models = Entity::find()
             .filter(Column::MediaId.is_in(media_ids.to_vec()))
             .order_by_asc(Column::MediaId)
-            .order_by_asc(Column::Page)
             .order_by_asc(Column::Id)
             .all(db)
             .await
@@ -69,9 +66,7 @@ impl VignetteRepo {
     ) -> Result<Vec<Vignette>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::MediaId.eq(media_id))
-            // Page order first so a document reads front to back; `id` is a
-            // UUID v7, so within a page it breaks ties by creation time.
-            .order_by_asc(Column::Page)
+            // `id` is a UUID v7, so this is creation order.
             .order_by_asc(Column::Id)
             .all(db)
             .await
@@ -148,7 +143,6 @@ impl VignetteRepo {
         let model = vignette::ActiveModel {
             id: Set(id),
             media_id: Set(input.media_id),
-            page: Set(input.page),
             x: Set(input.x),
             y: Set(input.y),
             width: Set(input.width),
@@ -181,9 +175,6 @@ impl VignetteRepo {
             })?;
 
         let mut active: ActiveModel = existing.into_active_model();
-        if let Some(page) = patch.page {
-            active.page = Set(page);
-        }
         if let Some((x, y, width, height)) = patch.rect {
             active.x = Set(x);
             active.y = Set(y);
@@ -234,7 +225,6 @@ fn into_domain(v: vignette::Model) -> Vignette {
     Vignette {
         id: v.id,
         media_id: v.media_id,
-        page: v.page,
         x: v.x,
         y: v.y,
         width: v.width,

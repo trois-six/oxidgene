@@ -282,8 +282,8 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/media/{media_id}/vignettes` | Vignettes on a media file, in page order |
-| `POST` | `/trees/{tree_id}/media/{media_id}/vignettes` | Create one. Body: `x`, `y`, `width`, `height` (required), `page`, `person_id`, `event_id` |
+| `GET` | `/trees/{tree_id}/media/{media_id}/vignettes` | Vignettes on a media file, oldest first |
+| `POST` | `/trees/{tree_id}/media/{media_id}/vignettes` | Create one. Body: `x`, `y`, `width`, `height` (required), `person_id`, `event_id` |
 | `GET` | `/trees/{tree_id}/vignettes?person_id=…` / `?event_id=…` | Vignettes attributed to a person, or standing as evidence for an event. Exactly one filter is required |
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}` | Get one |
 | `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move or re-attribute. The four rectangle fields travel together — all or none |

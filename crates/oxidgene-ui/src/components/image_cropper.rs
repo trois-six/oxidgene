@@ -161,7 +161,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
             saving.set(true);
             error.set(None);
             let body = CreateVignetteBody {
-                page: None,
                 x: rect.x,
                 y: rect.y,
                 width: rect.width,

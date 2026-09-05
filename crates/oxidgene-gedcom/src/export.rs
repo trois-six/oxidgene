@@ -774,8 +774,8 @@ fn inject_oxidgene_media_extensions(
             None => "-",
         };
         by_media.entry(media.clone()).or_default().push(format!(
-            "1 _OXIDGENE_VIGNETTE {person} {} {} {} {} {}",
-            vignette.page, vignette.x, vignette.y, vignette.width, vignette.height
+            "1 _OXIDGENE_VIGNETTE {person} {} {} {} {}",
+            vignette.x, vignette.y, vignette.width, vignette.height
         ));
     }
 
@@ -2229,7 +2229,6 @@ mod tests {
         let vignette = Vignette {
             id: Uuid::now_v7(),
             media_id: medium.id,
-            page: 0,
             x: 120,
             y: 45,
             width: 64,
@@ -2266,7 +2265,7 @@ mod tests {
         assert!(
             export
                 .gedcom
-                .contains("1 _OXIDGENE_VIGNETTE @I1@ 0 120 45 64 82"),
+                .contains("1 _OXIDGENE_VIGNETTE @I1@ 120 45 64 82"),
             "{}",
             export.gedcom
         );
@@ -2285,14 +2284,8 @@ mod tests {
         assert_eq!(restored.media_id, back.media[0].id);
         assert_eq!(restored.person_id, Some(back.persons[0].id));
         assert_eq!(
-            (
-                restored.page,
-                restored.x,
-                restored.y,
-                restored.width,
-                restored.height,
-            ),
-            (0, 120, 45, 64, 82)
+            (restored.x, restored.y, restored.width, restored.height),
+            (120, 45, 64, 82)
         );
     }
 

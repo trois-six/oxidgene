@@ -1323,21 +1323,13 @@ impl MutationRoot {
         let media_id = Uuid::parse_str(&input.media_id)?;
         require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
         let media = MediaRepo::get(db, media_id).await?;
-        crate::media::validate_crop(
-            &media,
-            input.page,
-            input.x,
-            input.y,
-            input.width,
-            input.height,
-        )?;
+        crate::media::validate_crop(&media, input.x, input.y, input.width, input.height)?;
 
         let vignette = VignetteRepo::create(
             db,
             Uuid::now_v7(),
             VignetteInput {
                 media_id,
-                page: input.page,
                 x: input.x,
                 y: input.y,
                 width: input.width,
@@ -1378,19 +1370,15 @@ impl MutationRoot {
             }
         };
 
-        if rect.is_some() || input.page.is_some() {
+        if let Some((x, y, width, height)) = rect {
             let media = MediaRepo::get(db, existing.media_id).await?;
-            let page = input.page.unwrap_or(existing.page);
-            let (x, y, width, height) =
-                rect.unwrap_or((existing.x, existing.y, existing.width, existing.height));
-            crate::media::validate_crop(&media, page, x, y, width, height)?;
+            crate::media::validate_crop(&media, x, y, width, height)?;
         }
 
         let vignette = VignetteRepo::update(
             db,
             uuid,
             VignettePatch {
-                page: input.page,
                 rect,
                 person_id: patch_parse(input.person_id, |s| Uuid::parse_str(&s), "personId")?,
                 event_id: patch_parse(input.event_id, |s| Uuid::parse_str(&s), "eventId")?,

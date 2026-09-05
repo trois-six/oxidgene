@@ -533,8 +533,6 @@ pub struct VignetteListQuery {
 /// Request body for cropping a region out of a media file.
 #[derive(Debug, Deserialize)]
 pub struct CreateVignetteRequest {
-    /// Zero-based page of a multi-page document; defaults to `0`.
-    pub page: Option<i32>,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -548,7 +546,6 @@ pub struct CreateVignetteRequest {
 /// The four rectangle fields travel together: send all of them or none.
 #[derive(Debug, Deserialize)]
 pub struct UpdateVignetteRequest {
-    pub page: Option<i32>,
     pub x: Option<i32>,
     pub y: Option<i32>,
     pub width: Option<i32>,

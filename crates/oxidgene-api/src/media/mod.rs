@@ -224,7 +224,6 @@ pub async fn ingest(
 /// handler because REST and GraphQL both create vignettes and must agree.
 pub fn validate_crop(
     media: &oxidgene_core::types::Media,
-    page: i32,
     x: i32,
     y: i32,
     width: i32,
@@ -237,12 +236,6 @@ pub fn validate_crop(
     }
     if x < 0 || y < 0 {
         return invalid("crop origin must not be negative".into());
-    }
-    if page < 0 || page >= media.page_count {
-        return invalid(format!(
-            "page {page} is out of range: the media has {} page(s)",
-            media.page_count
-        ));
     }
     // Dimensions are only known for rasters we decoded at upload. A PDF has
     // none, and a rectangle on one is checked when it is rendered, not here.
@@ -345,38 +338,29 @@ mod tests {
 
     #[test]
     fn a_crop_inside_the_image_is_accepted() {
-        validate_crop(&media_800x600(), 0, 10, 10, 100, 100).expect("fits");
+        validate_crop(&media_800x600(), 10, 10, 100, 100).expect("fits");
         // Flush against the far edge is still inside.
-        validate_crop(&media_800x600(), 0, 700, 500, 100, 100).expect("fits exactly");
+        validate_crop(&media_800x600(), 700, 500, 100, 100).expect("fits exactly");
     }
 
     #[test]
     fn a_crop_hanging_off_the_edge_is_rejected() {
-        assert!(validate_crop(&media_800x600(), 0, 750, 10, 100, 100).is_err());
-        assert!(validate_crop(&media_800x600(), 0, 10, 550, 100, 100).is_err());
+        assert!(validate_crop(&media_800x600(), 750, 10, 100, 100).is_err());
+        assert!(validate_crop(&media_800x600(), 10, 550, 100, 100).is_err());
     }
 
     #[test]
     fn an_empty_or_negative_crop_is_rejected() {
-        assert!(validate_crop(&media_800x600(), 0, 10, 10, 0, 100).is_err());
-        assert!(validate_crop(&media_800x600(), 0, 10, 10, 100, -5).is_err());
-        assert!(validate_crop(&media_800x600(), 0, -1, 10, 100, 100).is_err());
+        assert!(validate_crop(&media_800x600(), 10, 10, 0, 100).is_err());
+        assert!(validate_crop(&media_800x600(), 10, 10, 100, -5).is_err());
+        assert!(validate_crop(&media_800x600(), -1, 10, 100, 100).is_err());
     }
 
     #[test]
     fn a_crop_whose_extent_would_overflow_is_rejected_not_wrapped() {
         // Without a saturating add, `x + width` wraps negative and the bound
         // check passes — a rectangle nobody could crop.
-        assert!(validate_crop(&media_800x600(), 0, i32::MAX, 0, i32::MAX, 10).is_err());
-    }
-
-    #[test]
-    fn a_page_the_document_does_not_have_is_rejected() {
-        let mut media = media_800x600();
-        media.page_count = 3;
-        validate_crop(&media, 2, 0, 0, 10, 10).expect("last page is in range");
-        assert!(validate_crop(&media, 3, 0, 0, 10, 10).is_err());
-        assert!(validate_crop(&media, -1, 0, 0, 10, 10).is_err());
+        assert!(validate_crop(&media_800x600(), i32::MAX, 0, i32::MAX, 10).is_err());
     }
 
     #[test]
@@ -385,8 +369,7 @@ mod tests {
         media.mime_type = "application/pdf".into();
         media.width = None;
         media.height = None;
-        media.page_count = 4;
-        validate_crop(&media, 3, 5000, 5000, 100, 100).expect("no dimensions, no bound check");
+        validate_crop(&media, 5000, 5000, 100, 100).expect("no dimensions, no bound check");
     }
 
     #[test]

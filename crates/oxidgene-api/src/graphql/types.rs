@@ -1760,8 +1760,6 @@ impl From<oxidgene_db::repo::MediaLinkRow> for GqlTreeMediaLink {
 pub struct GqlVignette {
     pub id: ID,
     pub media_id: ID,
-    /// Zero-based page of a multi-page document; 0 for a photo.
-    pub page: i32,
     /// Crop rectangle, in the source image's own pixel coordinates.
     pub x: i32,
     pub y: i32,
@@ -1778,7 +1776,6 @@ impl From<oxidgene_core::types::Vignette> for GqlVignette {
         Self {
             id: ID(v.id.to_string()),
             media_id: ID(v.media_id.to_string()),
-            page: v.page,
             x: v.x,
             y: v.y,
             width: v.width,

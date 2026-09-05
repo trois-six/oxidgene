@@ -8,7 +8,6 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
     pub media_id: Uuid,
-    pub page: i32,
     pub x: i32,
     pub y: i32,
     pub width: i32,

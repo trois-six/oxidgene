@@ -150,10 +150,9 @@ impl Portrait {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Vignette {
     pub id: Uuid,
-    /// The media this is a region of.
+    /// The media this is a region of. Always a page — the row that holds the
+    /// pixels — never the document that groups pages together.
     pub media_id: Uuid,
-    /// Zero-based page of a multi-page document; `0` for a photo.
-    pub page: i32,
     /// Crop rectangle, in the source image's own pixel coordinates.
     pub x: i32,
     pub y: i32,

@@ -1146,7 +1146,6 @@ async fn add_vignette(
 
     let input = VignetteInput {
         media_id,
-        page: 0,
         x,
         y,
         width: w,

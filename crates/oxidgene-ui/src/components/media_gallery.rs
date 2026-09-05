@@ -4535,7 +4535,6 @@ mod tests {
         let vignette = Vignette {
             id: Uuid::now_v7(),
             media_id: Uuid::now_v7(),
-            page: 0,
             x: 10,
             y: 20,
             width: 30,
