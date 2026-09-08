@@ -1563,10 +1563,25 @@ async fn person_detail_bundle_excludes_unrelated_person_citations() {
 
 // ───────────────────────── Media tests ─────────────────────────
 
+async fn create_document_via_api(app: &axum::Router, tree_id: &str) -> String {
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media/document"),
+        Some(serde_json::json!({"title": "Sample document"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["title"], "Sample document");
+    assert_eq!(body["page_count"], 0);
+    body["id"].as_str().unwrap().to_string()
+}
+
 #[tokio::test]
 async fn test_media_crud() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
+    let document_id = create_document_via_api(&app, &tree_id).await;
 
     // Create media
     let (status, body) = send_request(
@@ -1574,18 +1589,17 @@ async fn test_media_crud() {
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media"),
         Some(serde_json::json!({
+            "document_id": document_id,
             "file_name": "photo.jpg",
             "mime_type": "image/jpeg",
             "file_path": "/uploads/photo.jpg",
-            "file_size": 1024000,
-            "title": "Family portrait",
-            "description": "Summer 1990"
+            "file_size": 1024000
         })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["file_name"], "photo.jpg");
-    assert_eq!(body["title"], "Family portrait");
+    assert_eq!(body["parent_media_id"], document_id);
     let media_id = body["id"].as_str().unwrap().to_string();
 
     // Get media
@@ -1599,11 +1613,11 @@ async fn test_media_crud() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["file_name"], "photo.jpg");
 
-    // Update media
+    // Descriptive metadata belongs to the document, not its page.
     let (status, body) = send_request(
         app.clone(),
         Method::PUT,
-        &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
+        &format!("/api/v1/trees/{tree_id}/media/{document_id}"),
         Some(serde_json::json!({
             "title": "Updated portrait",
             "description": "Winter 1990"
@@ -1625,11 +1639,13 @@ async fn test_media_crud() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["total_count"], 1);
 
-    // Delete media
+    assert_eq!(body["edges"][0]["node"]["id"], document_id);
+
+    // Deleting the document also removes its page.
     let (status, _) = send_request(
         app.clone(),
         Method::DELETE,
-        &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
+        &format!("/api/v1/trees/{tree_id}/media/{document_id}"),
         None,
     )
     .await;
@@ -1650,6 +1666,7 @@ async fn test_media_crud() {
 async fn test_media_create_validation() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
+    let document_id = create_document_via_api(&app, &tree_id).await;
 
     // Empty file_name should fail
     let (status, body) = send_request(
@@ -1657,6 +1674,7 @@ async fn test_media_create_validation() {
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media"),
         Some(serde_json::json!({
+            "document_id": document_id,
             "file_name": "  ",
             "mime_type": "image/jpeg",
             "file_path": "/uploads/photo.jpg",
@@ -1675,13 +1693,15 @@ async fn test_media_link_create_delete() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
     let person_id = create_person_via_api(&app, &tree_id).await;
+    let document_id = create_document_via_api(&app, &tree_id).await;
 
     // Create media first
-    let (_, media_body) = send_request(
+    let (status, media_body) = send_request(
         app.clone(),
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media"),
         Some(serde_json::json!({
+            "document_id": document_id,
             "file_name": "doc.pdf",
             "mime_type": "application/pdf",
             "file_path": "/uploads/doc.pdf",
@@ -1689,7 +1709,9 @@ async fn test_media_link_create_delete() {
         })),
     )
     .await;
-    let media_id = media_body["id"].as_str().unwrap().to_string();
+    assert_eq!(status, StatusCode::CREATED, "{media_body}");
+    assert_eq!(media_body["parent_media_id"], document_id);
+    let media_id = document_id;
 
     // Create a media link
     let (status, body) = send_request(

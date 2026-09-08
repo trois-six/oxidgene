@@ -12,7 +12,8 @@ use oxidgene_core::Sex;
 use oxidgene_core::projection::{PersonProfile, SearchEntry};
 use uuid::Uuid;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, CroppedSource};
+use crate::components::cropped_image::CroppedImage;
 use crate::components::pedigree_chart::default_portrait;
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
@@ -166,7 +167,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     };
 
     let is_loading = search_resource.read().is_none();
-    let portrait_urls = {
+    let portraits = {
         let data = portraits_resource.read();
         match &*data {
             Some(urls) => urls.clone(),
@@ -202,7 +203,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
                         {render_search_entry(
                             entry,
                             props.on_select,
-                            portrait_urls.get(&entry.person_id).cloned(),
+                            portraits.get(&entry.person_id).cloned(),
                         )}
                     }
                 }
@@ -215,7 +216,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
 fn render_search_entry(
     entry: &SearchEntry,
     on_select: EventHandler<Uuid>,
-    portrait_url: Option<String>,
+    portrait: Option<CroppedSource>,
 ) -> Element {
     let summary = PersonSearchSummary::from(entry);
     let rid = summary.person_id;
@@ -229,22 +230,27 @@ fn render_search_entry(
         button {
             class: "search-person-result {sex_class}",
             onclick: move |_| on_select.call(rid),
-            {render_person_search_summary(&summary, portrait_url)}
+            {render_person_search_summary(&summary, portrait)}
         }
     }
 }
 
 pub(crate) fn render_person_search_summary(
     summary: &PersonSearchSummary,
-    portrait_url: Option<String>,
+    portrait: Option<CroppedSource>,
 ) -> Element {
     let given = &summary.given_names;
     let surname = &summary.surname;
-    let portrait_src = portrait_url.unwrap_or_else(|| default_portrait(summary.sex).to_string());
+    let portrait =
+        portrait.unwrap_or_else(|| CroppedSource::whole(default_portrait(summary.sex).to_string()));
 
     rsx! {
         div { class: "sp-result-photo",
-            img { class: "sp-result-portrait", src: "{portrait_src}", alt: "" }
+            CroppedImage {
+                class: "sp-result-portrait",
+                image: portrait,
+                alt: String::new(),
+            }
         }
         div { class: "sp-result-info",
             div { class: "sp-result-name",

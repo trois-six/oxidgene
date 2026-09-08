@@ -243,6 +243,7 @@ fn unique_ids(ids: impl IntoIterator<Item = Uuid>) -> Vec<Uuid> {
 mod tests {
     use super::*;
     use crate::media::store::FsStore;
+    use chrono::Utc;
     use oxidgene_core::enums::{
         Calendar, ChildType, Confidence, DateQualifier, EventType, Sex, SpouseRole,
     };
@@ -284,12 +285,17 @@ mod tests {
         id
     }
 
+    /// One document holding one page, which is what any media is now.
     async fn create_media(db: &DatabaseConnection, tree_id: Uuid, name: &str) -> Uuid {
-        let id = Uuid::now_v7();
+        let document_id = Uuid::now_v7();
+        MediaRepo::create_document(db, document_id, tree_id, Some(name.to_string()), Utc::now())
+            .await
+            .unwrap();
         MediaRepo::create(
             db,
-            id,
+            Uuid::now_v7(),
             tree_id,
+            Some(document_id),
             name.into(),
             "image/jpeg".into(),
             name.into(),
@@ -299,7 +305,9 @@ mod tests {
         )
         .await
         .unwrap();
-        id
+        // The document is what a gallery lists and what a link points at; the
+        // page it holds is an implementation detail of where the bytes live.
+        document_id
     }
 
     #[tokio::test]

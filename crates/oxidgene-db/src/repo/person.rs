@@ -44,6 +44,12 @@ pub struct PortraitRow {
     #[doc(hidden)]
     #[serde(skip)]
     pub crop: Option<(i32, i32, i32, i32)>,
+    /// The pixel size of the image the crop was measured against, when it is
+    /// known. Absent for a remote file nobody has measured yet, which is why
+    /// it is two options and not a pair.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub source_size: (Option<i32>, Option<i32>),
 }
 
 impl PersonRepo {
@@ -227,11 +233,6 @@ impl PersonRepo {
         Ok(())
     }
 
-    /// Set — or clear — which image represents a person.
-    ///
-    /// One row, one write. The two columns are written together from a single
-    /// [`Portrait`], so "media *and* vignette" is not a state this can produce,
-    /// and no caller has to clear the other one first.
     /// Every person's portrait in a tree, with enough to draw it.
     ///
     /// `has_thumbnail` says whether we hold rasterised bytes for the media, so
@@ -292,21 +293,26 @@ impl PersonRepo {
         //
         // First, what represents each person: the portrait they chose, or —
         // when they have chosen none — their first linked photograph. That
-        // fallback is not a nicety: no import sets a portrait, because neither
-        // GEDCOM nor a `.gw` says which of somebody's pictures represents
-        // them, so without it a freshly imported tree draws silhouettes for
-        // everyone who has photographs.
+        // fallback lets imported photographs represent people even when the
+        // source does not specify a portrait choice.
         //
         // Only a medium that can actually be drawn qualifies as a fallback: one
         // we have rasterised, or a remote URL we recorded. A PDF or a record
         // naming a file nobody uploaded is not somebody's portrait by default.
+        //
+        // Either way the answer is then resolved to a page: what a reader
+        // chooses is a tile, and a tile is a document. A document holds no
+        // pixels, so reporting one would hand the caller an id whose bytes do
+        // not exist — a silhouette where a photograph was chosen. The same
+        // rule as the fallback's, applied once at the end so a chosen portrait
+        // and an inferred one cannot disagree.
         //
         // Second, where to fetch it: a vignette resolves through the media it
         // crops, so one query answers both shapes and the caller never asks
         // twice.
         let sql = format!(
             r#"
-                WITH resolved AS (
+                WITH chosen AS (
                     SELECT p.id AS person_id,
                            p.portrait_vignette_id,
                            COALESCE(p.portrait_media_id, CASE
@@ -315,15 +321,42 @@ impl PersonRepo {
                              -- would report both, which is not a state the
                              -- model holds.
                              WHEN p.portrait_vignette_id IS NULL THEN (
-                               SELECT ml.media_id
-                               FROM media_link ml
-                               INNER JOIN media mm
-                                   ON mm.id = ml.media_id AND mm.deleted_at IS NULL
-                               WHERE ml.person_id = p.id
-                                 AND mm.parent_media_id IS NULL
-                                 AND (mm.thumbnail_key IS NOT NULL
-                                      OR mm.file_path LIKE 'http%')
-                               ORDER BY ml.sort_order, ml.id
+                               -- A link names a document, and a document holds
+                               -- no pixels: it is its first drawable page that
+                               -- can represent somebody. A link that names a
+                               -- page already points at the pixels and is used
+                               -- as it stands. Resolving each candidate first
+                               -- and filtering afterwards keeps the link order
+                               -- authoritative — picking a link and then
+                               -- discovering it resolves to nothing would skip
+                               -- the person's other photographs.
+                               SELECT candidate.drawable
+                               FROM (
+                                 SELECT COALESCE(
+                                          (SELECT page.id
+                                           FROM media page
+                                           WHERE page.parent_media_id = mm.id
+                                             AND page.deleted_at IS NULL
+                                             AND (page.thumbnail_key IS NOT NULL
+                                                  OR page.file_path LIKE 'http%')
+                                           ORDER BY page.page_index, page.id
+                                           LIMIT 1),
+                                          CASE
+                                            WHEN mm.parent_media_id IS NOT NULL
+                                                 AND (mm.thumbnail_key IS NOT NULL
+                                                      OR mm.file_path LIKE 'http%')
+                                            THEN mm.id
+                                          END
+                                        ) AS drawable,
+                                        ml.sort_order AS sort_order,
+                                        ml.id AS link_id
+                                 FROM media_link ml
+                                 INNER JOIN media mm
+                                     ON mm.id = ml.media_id AND mm.deleted_at IS NULL
+                                 WHERE ml.person_id = p.id
+                               ) AS candidate
+                               WHERE candidate.drawable IS NOT NULL
+                               ORDER BY candidate.sort_order, candidate.link_id
                                LIMIT 1
                              )
                            END) AS portrait_media_id
@@ -331,6 +364,22 @@ impl PersonRepo {
                     WHERE p.tree_id = {placeholder}
                       AND p.deleted_at IS NULL
                                             {person_filter}
+                ),
+                resolved AS (
+                    SELECT c.person_id,
+                           c.portrait_vignette_id,
+                           COALESCE(
+                             (SELECT page.id
+                              FROM media page
+                              WHERE page.parent_media_id = c.portrait_media_id
+                                AND page.deleted_at IS NULL
+                                AND (page.thumbnail_key IS NOT NULL
+                                     OR page.file_path LIKE 'http%')
+                              ORDER BY page.page_index, page.id
+                              LIMIT 1),
+                             c.portrait_media_id
+                           ) AS portrait_media_id
+                    FROM chosen c
                 )
                 SELECT r.person_id,
                        r.portrait_media_id,
@@ -339,6 +388,8 @@ impl PersonRepo {
                                              COALESCE(m.thumbnail_key, vm.thumbnail_key) AS thumbnail_key,
                                              COALESCE(m.storage_key, vm.storage_key) AS storage_key,
                                              COALESCE(m.mime_type, vm.mime_type) AS mime_type,
+                                             COALESCE(m.width, vm.width) AS source_width,
+                                             COALESCE(m.height, vm.height) AS source_height,
                                              v.x AS crop_x,
                                              v.y AS crop_y,
                                              v.width AS crop_width,
@@ -400,11 +451,18 @@ impl PersonRepo {
                     )),
                     None => None,
                 },
+                source_size: (
+                    row.try_get::<Option<i32>>("", "source_width")
+                        .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                    row.try_get::<Option<i32>>("", "source_height")
+                        .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                ),
             });
         }
         Ok(rows)
     }
 
+    /// Set or clear the portrait, writing both columns from a single value.
     pub async fn set_portrait(
         db: &impl ConnectionTrait,
         person_id: Uuid,
@@ -430,39 +488,6 @@ impl PersonRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         Ok(into_domain(result))
-    }
-
-    /// Forget any portrait pointing at a media, or at a crop of one.
-    ///
-    /// Called when a media is deleted: the pointer is not a foreign key — SQLite
-    /// cannot add one through `ALTER TABLE` — so nothing else would clear it, and
-    /// a card would go on asking for bytes that are gone.
-    pub async fn clear_portraits_for_media(
-        db: &impl ConnectionTrait,
-        media_id: Uuid,
-        vignette_ids: &[Uuid],
-    ) -> Result<(), OxidGeneError> {
-        Entity::update_many()
-            .col_expr(
-                Column::PortraitMediaId,
-                sea_orm::sea_query::Expr::value(None::<Uuid>),
-            )
-            .filter(Column::PortraitMediaId.eq(media_id))
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        if !vignette_ids.is_empty() {
-            Entity::update_many()
-                .col_expr(
-                    Column::PortraitVignetteId,
-                    sea_orm::sea_query::Expr::value(None::<Uuid>),
-                )
-                .filter(Column::PortraitVignetteId.is_in(vignette_ids.to_vec()))
-                .exec(db)
-                .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        }
-        Ok(())
     }
 }
 

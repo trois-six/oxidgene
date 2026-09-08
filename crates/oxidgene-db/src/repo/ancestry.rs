@@ -1,12 +1,6 @@
 //! Ancestor / descendant traversal.
 //!
-//! This used to read a `person_ancestry` closure table holding every
-//! (ancestor, descendant, depth) triple. That table was dropped: on a real
-//! 10k-person tree it held 364k rows and, with its four indexes, accounted for
-//! 62 % of the database — while the recursive CTE below answered the same
-//! question about 12x faster (13 ms against 160 ms for a depth-10 pedigree).
-//! It also had to be rebuilt on every re-parenting. Behaviour is unchanged:
-//! both it and this walk report an ancestor at the *shortest* distance when
+//! Recursive queries report each ancestor at the shortest distance when
 //! pedigree implex makes them reachable by several paths.
 //!
 //! Both back-ends support `WITH RECURSIVE` (SQLite since 3.8.3), and the
@@ -23,9 +17,6 @@ use uuid::Uuid;
 /// The CTE walks `depth` upwards without ever revisiting a (person, depth)
 /// pair, so a cycle in the family links — which the schema does not prevent,
 /// and which corrupt imports do produce — would otherwise recurse forever.
-/// The closure-table builder was implicitly safe because it keyed its visited
-/// set on (ancestor, descendant); this bound is what replaces that safety.
-/// The deepest real pedigree measured is 38 generations.
 const MAX_GENERATIONS: i32 = 64;
 
 /// Maximum SOSA depth representable by the signed 64-bit integers shared by
@@ -165,8 +156,7 @@ impl AncestryRepo {
         // `UNION` (not UNION ALL) keeps the walk finite over the diamond
         // shapes that pedigree implex produces: a (person, depth) pair reached
         // by two different paths is only expanded once. MIN(depth) then
-        // reports each person at their closest generation, matching what the
-        // closure table stored.
+        // reports each person at their closest generation.
         let sql = format!(
             "WITH RECURSIVE step(person_id, depth) AS ( \
                  SELECT {root}, 0 \

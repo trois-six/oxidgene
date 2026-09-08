@@ -59,8 +59,7 @@ impl ProfileService {
 
     /// Rebuild every projection of a tree, plus its search rows.
     ///
-    /// Used after a GEDCOM import, and lazily the first time a tree is read
-    /// after the `person_denorm` migration.
+    /// Used after imports and when current projections or search rows are absent.
     #[instrument(skip_all)]
     pub async fn rebuild_tree_full(
         &self,
@@ -114,17 +113,13 @@ impl ProfileService {
 
     /// Materialize a tree's projections if they have never been built.
     ///
-    /// Covers the cold path for trees that predate the `person_denorm`
-    /// migration, and any tree whose search rows were dropped independently.
+    /// Covers missing or outdated projections and independently cleared search rows.
     async fn ensure_materialized(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
-        // `count_current` and not `count_tree`: a tree whose rows an older
-        // build wrote is as unusable as one nobody has built, and answering
-        // "already materialized" for it is what let a projection change stay
-        // invisible until somebody happened to re-import.
+        // Only projections matching the current schema version are usable.
         let denorm_rows = PersonDenormRepo::count_current(conn, tree_id).await?;
         let search_rows = PersonSearchRepo::count_tree(conn, tree_id).await?;
         if denorm_rows > 0 && search_rows > 0 {
@@ -249,7 +244,7 @@ impl ProfileService {
     /// `other_depth` is the depth already loaded in the *opposite* direction;
     /// pass it so the reported `*_depth_loaded` values match what the caller
     /// actually holds. Both windows are assembled and diffed — cheap now that
-    /// a pedigree is a closure-table read plus a projection batch read.
+    /// a pedigree is a family-graph traversal plus a projection batch read.
     #[instrument(skip_all)]
     #[allow(clippy::too_many_arguments)]
     pub async fn expand_pedigree(
@@ -591,12 +586,22 @@ impl ProfileService {
             MediaRepo::get_many(conn, &media_ids),
         )?;
 
+        // The pages of every linked document. A link names a document, and a
+        // document holds no pixels: what a card can actually draw is its first
+        // page, so the pages have to be here for the builder to find one.
+        let mut media = media;
+        let document_ids: Vec<Uuid> = media
+            .iter()
+            .filter(|item| item.is_document())
+            .map(|item| item.id)
+            .collect();
+        media.extend(MediaRepo::list_pages_for(conn, &document_ids).await?);
+
         // The portrait crop, and the scan it sits on. Fetched after the
         // person rather than alongside, because which crop to fetch is
         // written on the person; and appended to `media` because the
         // containing scan need not be one of this person's own links — a face
         // in somebody else's group photograph is still their portrait.
-        let mut media = media;
         let mut portrait_vignettes = Vec::new();
         if let Some(vignette_id) = persons
             .iter()
@@ -707,7 +712,7 @@ impl ProfileService {
         Ok(found)
     }
 
-    /// Assemble a pedigree window for a root person from the closure table
+    /// Assemble a pedigree window for a root person from family links
     /// and the stored projections.
     #[instrument(
         name = "pedigree.build",
@@ -811,7 +816,7 @@ impl ProfileService {
         }
 
         // 5. Build pedigree nodes. Sosa numbering depends on the path from the
-        //    root, which the closure table alone does not give us, so only the
+        //    root, which ancestor membership alone does not give us, so only the
         //    root carries one here; the UI derives the rest from the layout.
         let mut nodes: HashMap<Uuid, PedigreeNode> = HashMap::new();
         for &pid in &person_ids {

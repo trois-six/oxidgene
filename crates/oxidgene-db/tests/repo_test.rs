@@ -1027,18 +1027,68 @@ async fn source_is_only_collected_once_nothing_points_at_it() {
 
 // ───────────────────────── Media + MediaLink tests ─────────────────────────
 
+/// One document with a single page, the shape every media now has. Returns
+/// (document id, page id) — the document is what a gallery link points at.
+async fn create_document_with_page(
+    db: &sea_orm::DatabaseConnection,
+    tree_id: Uuid,
+    file_name: &str,
+    title: Option<&str>,
+) -> (Uuid, Uuid) {
+    let document_id = Uuid::now_v7();
+    MediaRepo::create_document(
+        db,
+        document_id,
+        tree_id,
+        title.map(str::to_string),
+        chrono::Utc::now(),
+    )
+    .await
+    .unwrap();
+    let page_id = Uuid::now_v7();
+    MediaRepo::create(
+        db,
+        page_id,
+        tree_id,
+        Some(document_id),
+        file_name.into(),
+        "image/jpeg".into(),
+        file_name.into(),
+        1024,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    MediaRepo::refresh_page_count(db, document_id)
+        .await
+        .unwrap();
+    (document_id, page_id)
+}
+
 #[tokio::test]
 async fn media_and_media_link_lifecycle() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
     let person_id = create_person(&db, tree_id).await;
 
-    // Create media
+    // Create media: a document holding one page.
+    let document_id = Uuid::now_v7();
+    MediaRepo::create_document(
+        &db,
+        document_id,
+        tree_id,
+        Some("Family Photo".into()),
+        chrono::Utc::now(),
+    )
+    .await
+    .unwrap();
     let media_id = Uuid::now_v7();
     let media = MediaRepo::create(
         &db,
         media_id,
         tree_id,
+        Some(document_id),
         "photo.jpg".into(),
         "image/jpeg".into(),
         "/uploads/photo.jpg".into(),
@@ -1050,6 +1100,7 @@ async fn media_and_media_link_lifecycle() {
     .unwrap();
     assert_eq!(media.file_name, "photo.jpg");
     assert_eq!(media.file_size, 1024);
+    assert_eq!(media.parent_media_id, Some(document_id));
 
     // Get
     let fetched = MediaRepo::get(&db, media_id).await.unwrap();
@@ -1113,10 +1164,15 @@ async fn uploaded_media_is_created_with_its_metadata() {
     .unwrap();
     let date_sort = chrono::NaiveDate::from_ymd_opt(1912, 4, 3).unwrap();
 
+    let document_id = Uuid::now_v7();
+    MediaRepo::create_document(&db, document_id, tree_id, None, chrono::Utc::now())
+        .await
+        .unwrap();
     let media = MediaRepo::create_uploaded(
         &db,
         Uuid::now_v7(),
         tree_id,
+        Some(document_id),
         UploadedMedia {
             file_name: "register.jpg".into(),
             mime_type: "image/jpeg".into(),
@@ -1154,8 +1210,10 @@ async fn uploaded_media_is_created_with_its_metadata() {
     assert_eq!(media.place_id, Some(place_id));
 }
 
+/// Pages are born attached, so their order is the order they are written in;
+/// nothing adopts a loose media afterwards.
 #[tokio::test]
-async fn media_pages_can_be_appended_as_an_ordered_batch() {
+async fn pages_are_indexed_in_the_order_they_are_written() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
     let document_id = Uuid::now_v7();
@@ -1169,12 +1227,14 @@ async fn media_pages_can_be_appended_as_an_ordered_batch() {
     .await
     .unwrap();
 
-    let page_ids = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
-    for (index, page_id) in page_ids.iter().enumerate() {
+    let mut ordered = Vec::new();
+    for index in 0..3 {
+        let page_id = Uuid::now_v7();
         MediaRepo::create(
             &db,
-            *page_id,
+            page_id,
             tree_id,
+            Some(document_id),
             format!("page-{index}.jpg"),
             "image/jpeg".into(),
             format!("page-{index}.jpg"),
@@ -1184,10 +1244,9 @@ async fn media_pages_can_be_appended_as_an_ordered_batch() {
         )
         .await
         .unwrap();
+        ordered.push(page_id);
     }
-    let ordered = [page_ids[2], page_ids[0], page_ids[1]];
-
-    MediaRepo::append_pages(&db, document_id, &ordered)
+    MediaRepo::refresh_page_count(&db, document_id)
         .await
         .unwrap();
 
@@ -1213,20 +1272,7 @@ async fn media_is_purged_only_when_its_gallery_link_is_unique() {
     let first_person_id = create_person(&db, tree_id).await;
     let second_person_id = create_person(&db, tree_id).await;
 
-    let unique_media_id = Uuid::now_v7();
-    MediaRepo::create(
-        &db,
-        unique_media_id,
-        tree_id,
-        "unique.jpg".into(),
-        "image/jpeg".into(),
-        "/uploads/unique.jpg".into(),
-        1024,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let (unique_media_id, _) = create_document_with_page(&db, tree_id, "unique.jpg", None).await;
     let unique_link_id = Uuid::now_v7();
     MediaLinkRepo::create(
         &db,
@@ -1257,20 +1303,7 @@ async fn media_is_purged_only_when_its_gallery_link_is_unique() {
         Err(OxidGeneError::NotFound { .. })
     ));
 
-    let shared_media_id = Uuid::now_v7();
-    MediaRepo::create(
-        &db,
-        shared_media_id,
-        tree_id,
-        "shared.jpg".into(),
-        "image/jpeg".into(),
-        "/uploads/shared.jpg".into(),
-        1024,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let (shared_media_id, _) = create_document_with_page(&db, tree_id, "shared.jpg", None).await;
     let first_link_id = Uuid::now_v7();
     MediaLinkRepo::create(
         &db,
@@ -1316,20 +1349,7 @@ async fn a_media_can_document_only_one_event() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
     let person_id = create_person(&db, tree_id).await;
-    let media_id = Uuid::now_v7();
-    MediaRepo::create(
-        &db,
-        media_id,
-        tree_id,
-        "certificate.jpg".into(),
-        "image/jpeg".into(),
-        "/uploads/certificate.jpg".into(),
-        1024,
-        None,
-        None,
-    )
-    .await
-    .expect("create media");
+    let (media_id, _) = create_document_with_page(&db, tree_id, "certificate.jpg", None).await;
 
     let event_ids = [Uuid::now_v7(), Uuid::now_v7()];
     for event_id in event_ids {
@@ -1411,27 +1431,17 @@ async fn event_media_batch_excludes_other_events_and_deleted_media() {
         .unwrap();
     }
 
-    let media_ids = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
-    for (index, media_id) in media_ids.into_iter().enumerate() {
-        MediaRepo::create(
-            &db,
-            media_id,
-            tree_id,
-            format!("document-{index}.jpg"),
-            "image/jpeg".into(),
-            format!("/uploads/document-{index}.jpg"),
-            1024,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+    let mut media_ids = Vec::new();
+    for (index, &event_id) in event_ids.iter().enumerate() {
+        let (media_id, _) =
+            create_document_with_page(&db, tree_id, &format!("document-{index}.jpg"), None).await;
+        media_ids.push(media_id);
         MediaLinkRepo::create(
             &db,
             Uuid::now_v7(),
             media_id,
             None,
-            Some(event_ids[index]),
+            Some(event_id),
             None,
             None,
             index as i32,

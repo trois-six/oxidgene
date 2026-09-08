@@ -10,7 +10,7 @@
 //! in-process and reads the very files the user picked.
 
 use axum::Json;
-use axum::body::Bytes;
+use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -188,13 +188,31 @@ pub async fn encode_session_handler(
 /// the file itself.
 pub async fn decode_session_handler(
     State(state): State<AppState>,
-    body: Bytes,
+    body: Body,
 ) -> Result<Json<DecodeSessionResponse>, ApiError> {
+    use futures_util::StreamExt as _;
+    use tokio::io::{AsyncSeekExt as _, AsyncWriteExt as _};
+
     state.local_file_access.require().map_err(ApiError::from)?;
-    // Bytes, not text: the file is an archive now, and a bare JSON one is
-    // still told apart by content rather than by extension.
-    let restored = session::decode(&body)
-        .map_err(|e| ApiError::from(OxidGeneError::Validation(e.to_string())))?;
+    let permit = crate::service::session_media::LOADS
+        .acquire()
+        .await
+        .map_err(|_| OxidGeneError::Internal("session loading is unavailable".into()))?;
+    let mut upload = tokio::fs::File::from_std(tempfile::tempfile().map_err(OxidGeneError::Io)?);
+    let mut chunks = body.into_data_stream();
+    while let Some(chunk) = chunks.next().await {
+        let chunk = chunk
+            .map_err(|_| OxidGeneError::Validation("session upload was interrupted".into()))?;
+        upload.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
+    }
+    upload.rewind().await.map_err(OxidGeneError::Io)?;
+    let upload = upload.into_std().await;
+    let restored = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        crate::service::session_media::decode(upload)
+    })
+    .await
+    .map_err(|_| OxidGeneError::Internal("session decoding failed".into()))??;
 
     // Reported rather than inferred from the sizes, which only cover the
     // single-page deposits.
@@ -202,17 +220,12 @@ pub async fn decode_session_handler(
         .map(|manifest| manifest.view_count)
         .unwrap_or(0);
 
-    // Written out rather than handed back as bytes, so a loaded session looks
-    // exactly like a freshly gathered one: the wizard holds paths either way,
-    // and an air-gapped import reads them from disk like any other.
-    let media = stage_media(&restored.media)?;
-
     Ok(Json(DecodeSessionResponse {
         collection: restored.collection,
         deposit_sizes: restored.deposit_sizes,
         account: restored.account,
         photo_count,
-        media,
+        media: restored.media,
     }))
 }
 
@@ -303,17 +316,6 @@ pub(crate) fn import_response(summary: geneanet::GeneanetImportSummary) -> Genea
         skipped: summary.skipped,
         warnings: summary.warnings,
     }
-}
-
-/// Writes a loaded session's media to disk and returns where each landed.
-///
-/// The import reads media from paths, so a session loaded from a file has to
-/// look like one gathered live. Under the OS temp directory: these exist only
-/// until the import has read them.
-fn stage_media(
-    media: &std::collections::HashMap<String, String>,
-) -> Result<std::collections::HashMap<String, String>, ApiError> {
-    crate::service::session_media::stage(media).map_err(ApiError::from)
 }
 
 /// Decodes the base64 the JSON bodies carry the `.gw` in.

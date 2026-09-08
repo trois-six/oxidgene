@@ -6,6 +6,7 @@ use std::sync::Arc;
 use base64::Engine as _;
 use futures_util::{StreamExt as _, stream};
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::types::ImageCrop;
 use oxidgene_db::repo::{MediaLinkRepo, MediaRepo, VignetteRepo};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
@@ -15,6 +16,8 @@ use crate::media::MediaStore;
 
 const MAX_ITEMS_PER_REQUEST: usize = 1_024;
 const BLOB_READ_CONCURRENCY: usize = 8;
+/// How many pages a document tile draws. The grid is two by two.
+const MAX_DOCUMENT_PREVIEWS: usize = 4;
 type CropRect = (i32, i32, i32, i32);
 type CropJob = (Uuid, String, CropRect);
 
@@ -36,6 +39,10 @@ pub struct GalleryMedia {
 pub struct GalleryVignette {
     pub vignette_id: Uuid,
     pub source: String,
+    /// Set when `source` is a whole picture the client must crop itself — a
+    /// region of a file we do not hold, which we never fetch to cut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop: Option<ImageCrop>,
 }
 
 pub async fn load_gallery_bundle(
@@ -59,7 +66,7 @@ pub async fn load_gallery_bundle(
     let valid_media_ids = media.iter().map(|item| item.id).collect::<Vec<_>>();
     let document_ids = media
         .iter()
-        .filter(|item| item.is_document)
+        .filter(|item| item.is_document())
         .map(|item| item.id)
         .collect::<Vec<_>>();
     let pages = MediaRepo::list_pages_for(db, &document_ids)
@@ -103,6 +110,31 @@ pub async fn load_gallery_bundle(
         })
         .collect::<Vec<_>>();
     let crops = load_crops(store, crop_jobs).await;
+    // A region drawn on a page we only have a URL for cannot be cut here:
+    // cutting means re-decoding our own copy, and we never fetch somebody
+    // else's file. So the whole picture is sent with the rectangle to take out
+    // of it, and the client does the cutting. Where the page's pixel size was
+    // never recorded there is no scale to cut at, and the whole picture stands
+    // on its own — the crop badge already says it is a region.
+    let remote_crops = vignettes
+        .iter()
+        .filter(|vignette| !crops.contains_key(&vignette.id))
+        .filter_map(|vignette| {
+            let media = vignette_media.get(&vignette.media_id)?;
+            is_remote_image(media).then_some(())?;
+            Some((
+                vignette.id,
+                media.file_path.trim().to_string(),
+                ImageCrop::for_remote(
+                    media,
+                    vignette.x,
+                    vignette.y,
+                    vignette.width,
+                    vignette.height,
+                ),
+            ))
+        })
+        .collect::<Vec<_>>();
 
     let event_ids =
         links
@@ -119,10 +151,18 @@ pub async fn load_gallery_bundle(
             continue;
         };
         let document_previews = previews.entry(document_id).or_default();
-        if document_previews.len() < 4
-            && let Some(source) = thumbnails.get(&page.id)
-        {
+        if document_previews.len() >= MAX_DOCUMENT_PREVIEWS {
+            continue;
+        }
+        // A page we hold is drawn from the thumbnail we rasterised. A page we
+        // only have a URL for is drawn by the browser from that URL — it is a
+        // picture like any other, and the alternative is a document tile
+        // showing a file icon for a photograph the viewer can see perfectly
+        // well one click away.
+        if let Some(source) = thumbnails.get(&page.id) {
             document_previews.push(source.clone());
+        } else if is_remote_image(&page) {
+            document_previews.push(page.file_path.trim().to_string());
         }
     }
 
@@ -141,9 +181,32 @@ pub async fn load_gallery_bundle(
             .map(|(vignette_id, source)| GalleryVignette {
                 vignette_id,
                 source,
+                crop: None,
             })
+            .chain(
+                remote_crops
+                    .into_iter()
+                    .map(|(vignette_id, source, crop)| GalleryVignette {
+                        vignette_id,
+                        source,
+                        crop,
+                    }),
+            )
             .collect(),
     })
+}
+
+/// Whether a page is a picture the browser can fetch for itself.
+///
+/// Only an image: a remote PDF or video has no still to draw, and an `<img>`
+/// pointed at one renders the broken-image glyph rather than nothing.
+fn is_remote_image(page: &oxidgene_core::types::Media) -> bool {
+    oxidgene_core::types::is_remote_url(&page.file_path)
+        && page
+            .mime_type
+            .trim()
+            .to_ascii_lowercase()
+            .starts_with("image/")
 }
 
 async fn load_thumbnails(

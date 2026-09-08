@@ -643,7 +643,7 @@ pub async fn import(
 ///   attaches the cover — so importing only linked pages would import a cover
 ///   and discard 143 pages of a naturalisation file. Measured on the reference
 ///   account, that is every one of the 235 "unlinked" views. So the deposit
-///   becomes one document (`is_document`) with every page beneath it in page
+///   becomes one document with every page beneath it in page
 ///   order, and the people any of its pages named are linked to the document.
 ///
 /// Errors are collected rather than propagated: by the time this runs the tree
@@ -1258,10 +1258,27 @@ async fn prepare_single_pages(
                 }
             };
 
+            // A one-view deposit is still a document, holding a single page:
+            // a photograph is not a different kind of thing from a register.
+            let document_id = Uuid::now_v7();
+            if let Err(err) =
+                MediaRepo::create_document(db, document_id, tree_id, title.clone(), *created_at)
+                    .await
+            {
+                summary.skipped.push(format!("deposit {deposit_id}: {err}"));
+                continue;
+            }
+            if let Err(err) =
+                update_media_metadata(db, document_id, *classification, *privacy, metadata).await
+            {
+                summary.skipped.push(format!("deposit {deposit_id}: {err}"));
+                continue;
+            }
             if let Some(id) = write_media(
                 db,
                 tree_id,
                 MediaWrite {
+                    document_id,
                     ingested,
                     title: title.clone(),
                     classification: *classification,
@@ -1298,7 +1315,7 @@ async fn prepare_single_pages(
 /// Stores a multi-page deposit as a document with every page beneath it.
 ///
 /// Page order is the deposit's own, not the order the pages happen to arrive
-/// in: `append_page` indexes by how many pages are already there, so the pages
+/// in: a page is indexed by how many pages are already there, so the pages
 /// are sorted by their Geneanet page number before any of them is written.
 #[allow(clippy::too_many_arguments)]
 async fn document(
@@ -1346,7 +1363,7 @@ async fn document(
     // dossier is 144 full-size decodes — and each page is independent of the
     // others, so one at a time wastes every core but one.
     //
-    // The *writes* stay sequential and in page order: `append_page` indexes by
+    // The *writes* stay sequential and in page order: a page is indexed by
     // how many pages are already there, so racing them would shuffle the
     // document.
     let mut resolved: Vec<(i64, i64, String, Vec<u8>)> = Vec::new();
@@ -1399,6 +1416,7 @@ async fn document(
                 db,
                 tree_id,
                 MediaWrite {
+                    document_id,
                     ingested,
                     title: None,
                     classification,
@@ -1417,11 +1435,10 @@ async fn document(
         }
     }
 
-    let page_ids: Vec<Uuid> = prepared_pages
-        .iter()
-        .map(|(_, _, page_id)| *page_id)
-        .collect();
-    if let Err(err) = MediaRepo::append_pages(db, document_id, &page_ids).await {
+    // The pages were written already attached, in the deposit's own page
+    // order, so their indices are settled; the document only needs its count
+    // brought in line with what it holds.
+    if let Err(err) = MediaRepo::refresh_page_count(db, document_id).await {
         summary
             .skipped
             .push(format!("deposit {} pages: {err}", deposit.id));
@@ -1560,7 +1577,9 @@ fn take_portrait_urls(
         }
     }
 
-    // Which media rows are portraits we are about to replace.
+    // Which pages are portraits we are about to replace. Only a page names a
+    // file, so only a page can carry the `#image` URL — the document above it
+    // holds the description and no address at all.
     let mut replaced: HashMap<Uuid, i64> = HashMap::new();
     for medium in &result.media {
         let path = strip_query(&medium.file_path);
@@ -1584,7 +1603,41 @@ fn take_portrait_urls(
         return HashMap::new();
     }
 
-    // The link is what says whose portrait it was.
+    // Removing the page alone would leave its document behind: an empty shell
+    // in the gallery, named after a file nobody holds, beside the very
+    // photograph it was replaced by. A document goes only when every one of
+    // its pages goes with it — a regrouped `_OXIDGENE_DOC` could hold pages we
+    // are keeping.
+    let mut pages_of: HashMap<Uuid, (usize, usize)> = HashMap::new();
+    for medium in &result.media {
+        if let Some(document_id) = medium.parent_media_id {
+            let counted = pages_of.entry(document_id).or_insert((0, 0));
+            counted.0 += 1;
+            if replaced.contains_key(&medium.id) {
+                counted.1 += 1;
+            }
+        }
+    }
+    let emptied: HashMap<Uuid, i64> = result
+        .media
+        .iter()
+        .filter(|medium| medium.is_document())
+        .filter_map(|document| {
+            let (pages, gone) = pages_of.get(&document.id).copied()?;
+            if pages == 0 || pages != gone {
+                return None;
+            }
+            let view_id = result
+                .media
+                .iter()
+                .filter(|page| page.parent_media_id == Some(document.id))
+                .find_map(|page| replaced.get(&page.id).copied())?;
+            Some((document.id, view_id))
+        })
+        .collect();
+
+    // The link is what says whose portrait it was, and a link names the
+    // document, never the page inside it.
     let mut portraits: HashMap<String, i64> = HashMap::new();
     let person_xref: HashMap<Uuid, String> = result
         .person_by_xref
@@ -1593,7 +1646,9 @@ fn take_portrait_urls(
         .collect();
 
     for link in &result.media_links {
-        if let Some(view_id) = replaced.get(&link.media_id)
+        if let Some(view_id) = emptied
+            .get(&link.media_id)
+            .or_else(|| replaced.get(&link.media_id))
             && let Some(person_id) = link.person_id
             && let Some(xref) = person_xref.get(&person_id)
         {
@@ -1601,12 +1656,17 @@ fn take_portrait_urls(
         }
     }
 
+    let removed = |id: &Uuid| replaced.contains_key(id) || emptied.contains_key(id);
+    result.media.retain(|medium| !removed(&medium.id));
+    result.media_links.retain(|link| !removed(&link.media_id));
     result
-        .media
-        .retain(|medium| !replaced.contains_key(&medium.id));
-    result
-        .media_links
-        .retain(|link| !replaced.contains_key(&link.media_id));
+        .notes
+        .retain(|note| !note.media_id.is_some_and(|id| removed(&id)));
+    for person in &mut result.persons {
+        if person.portrait_media_id.is_some_and(|id| removed(&id)) {
+            person.portrait_media_id = None;
+        }
+    }
 
     portraits
 }
@@ -1645,8 +1705,6 @@ fn view_id_in_path(path: &str) -> Option<i64> {
 /// `phash::hash_image` open the same decoder, so failing one means failing the
 /// other — therefore it can never be matched, and admitting it as a target of
 /// unknown size would widen the filter to accept every entry in the archive.
-/// One scanned dossier among the pages used to cost a full-resolution decode
-/// of the entire archive that way.
 fn hashable_target_dimensions(
     deposits: &HashMap<i64, &ManifestDeposit>,
     by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
@@ -1785,7 +1843,7 @@ fn hashable_renditions(
 ///
 /// Sorted by Geneanet's own page number rather than left in whatever order the
 /// collection produced, because that order is what the reader sees:
-/// `append_page` indexes each page by how many are already there, `list_pages`
+/// each page is indexed by how many are already there, `list_pages`
 /// reads back by that index, and the gallery renders that. So the sort here is
 /// the only thing standing between a scanned dossier and a shuffled one — the
 /// order pages are *fetched* in is irrelevant and must not leak into it.
@@ -1894,6 +1952,8 @@ pub(crate) fn ingest_width() -> usize {
 }
 
 struct MediaWrite<'a> {
+    /// The document this becomes a page of. Every set of bytes is a page.
+    document_id: Uuid,
     ingested: crate::media::IngestedMedia,
     title: Option<String>,
     classification: (
@@ -1913,6 +1973,7 @@ async fn write_media(
     summary: &mut GeneanetImportSummary,
 ) -> Option<Uuid> {
     let MediaWrite {
+        document_id,
         ingested,
         title,
         classification,
@@ -1946,7 +2007,7 @@ async fn write_media(
         },
     };
 
-    match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, upload).await {
+    match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, Some(document_id), upload).await {
         Ok(row) => Some(row.id),
         Err(err) => {
             summary.skipped.push(format!("{err}"));
@@ -2739,6 +2800,75 @@ mod tests {
         );
     }
 
+    /// The `.gw` above, imported, plus the collection listing the very
+    /// rendition its `#image` names.
+    fn portrait_case() -> (oxidgene_gedcom::ImportResult, Manifest) {
+        let gw: &[u8] = b"encoding: utf-8\n\nfam BRANCH_A person_a.0 #image http://gw.geneanet.org/public/img/media/deposits/12/34/9224/h/medium.jpg?t=1785419513 + BRANCH_B person_b.0\n";
+        let result = oxidgene_gedcom::geneweb::import_geneweb(gw, "tree.gw", Uuid::now_v7())
+            .expect("the .gw parses");
+        let manifest = oxidgene_geneanet::manifest_from_collection(&collection_with(
+            r#"{"id":1,"title":"t","type":"portraits","private":true,
+                "views":[{"id":10,"page":1,"files":{
+                  "medium":"/public/img/media/deposits/12/34/9224/h/medium.jpg"}}]}"#,
+        ))
+        .expect("the collection parses");
+        (result, manifest)
+    }
+
+    #[test]
+    fn the_portrait_case_really_does_import_a_url_medium() {
+        // Everything below rests on this: a `.gw` whose `#image` produced no
+        // media at all would make a correct removal indistinguishable from a
+        // parser that never read the field.
+        let (result, _) = portrait_case();
+
+        let page = result
+            .media
+            .iter()
+            .find(|medium| !medium.is_document())
+            .expect("the #image became a page");
+        assert!(page.file_path.contains("medium.jpg"));
+        assert_eq!(
+            result.media.iter().filter(|m| m.is_document()).count(),
+            1,
+            "one OBJE is one document"
+        );
+    }
+
+    #[test]
+    fn a_replaced_portrait_takes_its_document_with_it() {
+        // One `OBJE` is two rows: the page that names the URL and the document
+        // that describes it. Dropping the page alone would leave an empty
+        // document in the gallery — "file not held", named after a photograph —
+        // standing beside the very photograph the media import brings in.
+        let (mut result, manifest) = portrait_case();
+
+        take_portrait_urls(&mut result, &manifest);
+
+        assert!(
+            result.media.is_empty(),
+            "both the page and its document are gone: {:?}",
+            result.media
+        );
+        assert!(result.media_links.is_empty(), "no link is left dangling");
+    }
+
+    #[test]
+    fn a_replaced_portrait_names_the_view_that_replaces_it() {
+        // The link names the document, never the page inside it, so reading
+        // the person off the page's id finds nobody — and every portrait the
+        // import then stores is left unchosen.
+        let (mut result, manifest) = portrait_case();
+
+        let portraits = take_portrait_urls(&mut result, &manifest);
+
+        assert_eq!(
+            portraits.get("@I1@"),
+            Some(&10),
+            "the person whose #image it was gets the view that replaces it"
+        );
+    }
+
     #[test]
     fn a_document_with_a_linked_page_counts_all_its_pages_not_one() {
         // What the preview promises has to be what the import does. It brings
@@ -2962,7 +3092,7 @@ mod tests {
     #[test]
     fn a_documents_pages_are_ordered_by_their_page_number_not_their_arrival() {
         // The order the collection happens to list views in, or the order the
-        // window fetches them in, must not reach the reader. `append_page`
+        // window fetches them in, must not reach the reader. Page indexing
         // indexes by how many pages are already there, so whatever order this
         // returns is the order the gallery shows.
         let shuffled = deposit(

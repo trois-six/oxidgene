@@ -423,6 +423,15 @@ Two export format options, each displayed as a card with icon, name, description
 
 Export is triggered directly by the format buttons.
 
+GEDZIP exports use the shared download transport described in
+[Common UI](ui-common.md). On browsers with a file-system save picker, the
+destination is requested immediately on click, before starting the export job;
+cancelling starts neither a job nor a file transfer. Once the job completes,
+its artifact is streamed to that destination. Browsers without that capability
+use a native Blob fallback without moving archive contents through WASM or JSON.
+Desktop artifact downloads stream to a temporary file and only replace the
+selected destination on success.
+
 ---
 
 ## 19. Section: Global Preferences
@@ -443,4 +452,3 @@ those depths; the global values initialize trees without a saved view.
 
 The settings page uses the shared `sub-page` layout and interaction states from
 [Common UI](ui-common.md). The light/dark theme applies globally.
-

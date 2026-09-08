@@ -439,11 +439,12 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
         .clone();
     assert_eq!(sosa["id"], person_id);
 
+    let document_id = document_id_for(&app, &tree_id).await;
     let media_id = data(
         &graphql(
             app.clone(),
             &format!(
-                r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ fileName: "portrait.png", contentBase64: "{}" }}) {{ id }} }}"#,
+                r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "portrait.png", contentBase64: "{}" }}) {{ id }} }}"#,
                 png_base64(20, 20)
             ),
             None,
@@ -522,6 +523,216 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
             .unwrap()
             .starts_with("data:image/")
     );
+}
+
+#[tokio::test]
+async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql() {
+    // The REST twin of this lives in `media_test.rs`. Both surfaces have to
+    // answer the same two questions about a photograph we do not hold: what a
+    // gallery tile draws for it, and what it resolves to once somebody makes
+    // it a person's portrait.
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let person_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let document_id = document_id_for(&app, &tree_id).await;
+    let url = "https://archives.example.invalid/scan/42.jpg";
+    let page_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ uploadMedia(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "42.jpg", mimeType: "image/jpeg", filePath: "{url}", fileSize: 0 }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["uploadMedia"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ setPersonPortrait(treeId: "{tree_id}", personId: "{person_id}", mediaId: "{document_id}") {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+
+    let bundle = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{document_id}"], vignetteIds: []) {{ media {{ mediaId source documentPreviews }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["galleryBundle"]
+        .clone();
+    assert_eq!(
+        bundle["media"][0]["documentPreviews"],
+        serde_json::json!([url]),
+        "the browser draws it from its own address: {bundle}"
+    );
+    assert!(bundle["media"][0]["source"].is_null(), "{bundle}");
+
+    let portraits = data(
+        &graphql(
+            app.clone(),
+            &format!(r#"{{ portraits(treeId: "{tree_id}") {{ mediaId filePath hasThumbnail }} }}"#),
+            None,
+        )
+        .await,
+    )["portraits"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(portraits.len(), 1);
+    assert_eq!(
+        portraits[0]["mediaId"], page_id,
+        "the chosen document resolves to the page that holds the file"
+    );
+    assert_eq!(portraits[0]["filePath"], url);
+    assert_eq!(portraits[0]["hasThumbnail"], false);
+
+    let images = data(
+        &graphql(
+            app,
+            &format!(
+                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ source }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["portraitImages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(images.len(), 1);
+    assert_eq!(
+        images[0]["source"], url,
+        "we never fetch it: the card is given the address"
+    );
+}
+
+#[tokio::test]
+async fn a_region_of_a_remote_page_carries_its_rectangle_over_graphql() {
+    // The REST twin lives in `media_test.rs`. Both surfaces have to hand a
+    // client the same two things about a face identified on a photograph we do
+    // not hold: the picture's address, and the rectangle to take out of it.
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let person_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let document_id = document_id_for(&app, &tree_id).await;
+    let url = "https://archives.example.invalid/group/7.jpg";
+    let page_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ uploadMedia(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "7.jpg", mimeType: "image/jpeg", filePath: "{url}", fileSize: 0 }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["uploadMedia"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The size only a browser could know, recorded so the region can be placed.
+    let sized = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ updateMedia(treeId: "{tree_id}", id: "{page_id}", input: {{ width: 1600, height: 1200 }}) {{ width height }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["updateMedia"]
+        .clone();
+    assert_eq!(sized["width"], 1600);
+    assert_eq!(sized["height"], 1200);
+
+    let vignette_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createVignette(treeId: "{tree_id}", input: {{ mediaId: "{page_id}", personId: "{person_id}", x: 120, y: 40, width: 200, height: 260 }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createVignette"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let bundle = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: [], vignetteIds: ["{vignette_id}"]) {{ vignettes {{ source crop {{ x y width height sourceWidth sourceHeight }} }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["galleryBundle"]
+        .clone();
+    assert_eq!(bundle["vignettes"][0]["source"], url, "{bundle}");
+    assert_eq!(
+        bundle["vignettes"][0]["crop"],
+        serde_json::json!({"x": 120, "y": 40, "width": 200, "height": 260,
+                           "sourceWidth": 1600, "sourceHeight": 1200}),
+        "{bundle}"
+    );
+
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ setPersonPortrait(treeId: "{tree_id}", personId: "{person_id}", vignetteId: "{vignette_id}") {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let images = data(
+        &graphql(
+            app,
+            &format!(
+                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ source crop {{ width sourceWidth }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["portraitImages"]
+        .clone();
+    assert_eq!(images[0]["source"], url, "{images}");
+    assert_eq!(images[0]["crop"]["width"], 200, "{images}");
+    assert_eq!(images[0]["crop"]["sourceWidth"], 1600, "{images}");
 }
 
 #[tokio::test]
@@ -1043,7 +1254,7 @@ async fn test_event_with_place() {
 }
 
 #[tokio::test]
-async fn test_dictionary_snapshot_and_reference_over_graphql() {
+async fn test_dictionary_and_reference_over_graphql() {
     let app = setup_app().await;
     let tree_id = data(
         &graphql(
@@ -1132,7 +1343,6 @@ async fn test_dictionary_snapshot_and_reference_over_graphql() {
                 occupationUsage(treeId: "{tree_id}", value: "Agriculteur") {{ personId }}
                 sourceUsage(sourceId: "{source_id}") {{ personId }}
                 placeUsage(placeId: "{place_id}") {{ personId }}
-                treeSnapshot(treeId: "{tree_id}") {{ persons {{ id }} names {{ surname }} events {{ eventType }} places {{ name }} }}
                 occupationReference(language: "fr", term: "Agriculteur") {{ label }}
                 givenNameReference(language: "fr", term: "Marie") {{ label }}
             }}"#
@@ -1156,13 +1366,6 @@ async fn test_dictionary_snapshot_and_reference_over_graphql() {
     ] {
         assert_eq!(response[key][0]["personId"], person_id, "{key}: {response}");
     }
-    assert_eq!(response["treeSnapshot"]["persons"][0]["id"], person_id);
-    assert_eq!(response["treeSnapshot"]["names"][0]["surname"], "Durand");
-    assert_eq!(
-        response["treeSnapshot"]["events"][0]["eventType"],
-        "OCCUPATION"
-    );
-    assert_eq!(response["treeSnapshot"]["places"][0]["name"], "Lyon");
     assert_eq!(response["occupationReference"]["label"], "Agriculteur");
     assert_eq!(response["givenNameReference"]["label"], "Marie");
 }
@@ -1171,8 +1374,7 @@ async fn test_dictionary_snapshot_and_reference_over_graphql() {
 
 /// A date written in another calendar has to be normalised to Gregorian
 /// before it can be sorted against the rest, and only the server can do that.
-/// A Republican `2 BRUM 14` read at face value files under year 14 — thirteen
-/// centuries adrift — which is what the frontend used to send.
+/// A Republican `2 BRUM 14` must sort by its Gregorian equivalent, not year 14.
 #[tokio::test]
 async fn a_republican_date_is_sorted_where_it_belongs() {
     let app = setup_app().await;
@@ -1390,19 +1592,20 @@ async fn test_media_and_media_link() {
     .await;
     assert_eq!(data(&resp)["personProfile"]["noteCount"], 0);
 
-    // Upload media
+    // Create the document, then its unheld page.
+    let document_id = document_id_for(&app, &tree_id).await;
     let resp = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ uploadMedia(treeId: "{tree_id}", input: {{ fileName: "photo.jpg", mimeType: "image/jpeg", filePath: "/uploads/photo.jpg", fileSize: 1024, title: "Portrait" }}) {{ id fileName title }} }}"#
+            r#"mutation {{ uploadMedia(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "photo.jpg", mimeType: "image/jpeg", filePath: "/uploads/photo.jpg", fileSize: 1024 }}) {{ id fileName parentMediaId }} }}"#
         ),
         None,
     )
     .await;
     let media = &data(&resp)["uploadMedia"];
     assert_eq!(media["fileName"], "photo.jpg");
-    assert_eq!(media["title"], "Portrait");
-    let media_id = media["id"].as_str().unwrap().to_string();
+    assert_eq!(media["parentMediaId"], document_id);
+    let media_id = document_id;
 
     // Create media link
     let resp = graphql(
@@ -2446,19 +2649,40 @@ async fn tree_id_for(app: &axum::Router) -> String {
         .to_string()
 }
 
+async fn document_id_for(app: &axum::Router, tree_id: &str) -> String {
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createMediaDocument(treeId: "{tree_id}", title: "Sample document") {{ id title pageCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(
+        data(&resp)["createMediaDocument"]["title"],
+        "Sample document"
+    );
+    assert_eq!(data(&resp)["createMediaDocument"]["pageCount"], 0);
+    data(&resp)["createMediaDocument"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 #[tokio::test]
 async fn test_upload_media_file_over_graphql() {
     let (app, _root) = setup_app_with_media().await;
     let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
 
     let resp = graphql(
         app.clone(),
         &format!(
             r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
+                 documentId: "{document_id}",
                  fileName: "portrait.png",
-                 contentBase64: "{}",
-                 title: "A portrait"
-               }}) {{ id fileName mimeType width height pageCount sha256 storageKey thumbnailKey title }} }}"#,
+                 contentBase64: "{}"
+               }}) {{ id fileName mimeType width height pageCount sha256 storageKey thumbnailKey parentMediaId }} }}"#,
             png_base64(640, 480)
         ),
         None,
@@ -2471,14 +2695,14 @@ async fn test_upload_media_file_over_graphql() {
     assert_eq!(media["width"], 640);
     assert_eq!(media["height"], 480);
     assert_eq!(media["pageCount"], 1);
-    assert_eq!(media["title"], "A portrait");
+    assert_eq!(media["parentMediaId"], document_id);
     assert_eq!(media["sha256"].as_str().unwrap().len(), 64);
     assert!(media["storageKey"].is_string());
     assert!(media["thumbnailKey"].is_string());
 }
 
 #[tokio::test]
-async fn detaching_a_page_over_graphql_removes_its_relations() {
+async fn deleting_a_page_over_graphql_removes_its_relations() {
     let (app, _root) = setup_app_with_media().await;
     let tree_id = tree_id_for(&app).await;
 
@@ -2506,7 +2730,7 @@ async fn detaching_a_page_over_graphql_removes_its_relations() {
         app.clone(),
         &format!(
             r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
-                 fileName: "page.png", contentBase64: "{}"
+                 documentId: "{document_id}", fileName: "page.png", contentBase64: "{}"
                }}) {{ id }} }}"#,
             png_base64(300, 400)
         ),
@@ -2514,14 +2738,6 @@ async fn detaching_a_page_over_graphql_removes_its_relations() {
     )
     .await;
     let page_id = data(&page)["uploadMediaFile"]["id"].as_str().unwrap();
-    data(&graphql(
-        app.clone(),
-        &format!(
-            r#"mutation {{ appendMediaPage(treeId: "{tree_id}", documentId: "{document_id}", mediaId: "{page_id}") {{ id }} }}"#
-        ),
-        None,
-    )
-    .await);
     data(&graphql(
         app.clone(),
         &format!(
@@ -2550,21 +2766,23 @@ async fn detaching_a_page_over_graphql_removes_its_relations() {
     )
     .await);
 
-    let detached = graphql(
+    let deleted = graphql(
         app.clone(),
         &format!(
-            r#"mutation {{ detachMediaPage(treeId: "{tree_id}", documentId: "{document_id}", pageId: "{page_id}") {{ id parentMediaId }} }}"#
+            r#"mutation {{ deleteMediaPage(treeId: "{tree_id}", documentId: "{document_id}", pageId: "{page_id}") }}"#
         ),
         None,
     )
     .await;
-    assert!(data(&detached)["detachMediaPage"]["parentMediaId"].is_null());
+    assert_eq!(data(&deleted)["deleteMediaPage"], true);
 
     let result = graphql(
         app,
         &format!(
             r#"{{
-                mediaLinks(treeId: "{tree_id}", mediaId: "{page_id}") {{ id }}
+                media(treeId: "{tree_id}", id: "{page_id}") {{ id }}
+                document: media(treeId: "{tree_id}", id: "{document_id}") {{ id pageCount }}
+                treeMediaLinks(treeId: "{tree_id}") {{ linkId }}
                 vignettes(treeId: "{tree_id}", personId: "{person_id}") {{ id }}
                 person(treeId: "{tree_id}", id: "{person_id}") {{ portraitMediaId portraitVignetteId }}
             }}"#
@@ -2573,7 +2791,10 @@ async fn detaching_a_page_over_graphql_removes_its_relations() {
     )
     .await;
     let result = data(&result);
-    assert!(result["mediaLinks"].as_array().unwrap().is_empty());
+    assert!(result["media"].is_null());
+    assert_eq!(result["document"]["id"], document_id);
+    assert_eq!(result["document"]["pageCount"], 0);
+    assert!(result["treeMediaLinks"].as_array().unwrap().is_empty());
     assert!(result["vignettes"].as_array().unwrap().is_empty());
     assert!(result["person"]["portraitMediaId"].is_null());
     assert!(result["person"]["portraitVignetteId"].is_null());
@@ -2583,12 +2804,13 @@ async fn detaching_a_page_over_graphql_removes_its_relations() {
 async fn test_upload_media_file_rejects_content_that_is_not_base64() {
     let (app, _root) = setup_app_with_media().await;
     let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
 
     let resp = graphql(
         app.clone(),
         &format!(
             r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
-                 fileName: "x.png", contentBase64: "not base64 at all!!"
+                 documentId: "{document_id}", fileName: "x.png", contentBase64: "not base64 at all!!"
                }}) {{ id }} }}"#
         ),
         None,
@@ -2605,12 +2827,13 @@ async fn test_upload_media_file_rejects_content_that_is_not_base64() {
 async fn test_vignette_lifecycle_over_graphql() {
     let (app, _root) = setup_app_with_media().await;
     let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
 
     let resp = graphql(
         app.clone(),
         &format!(
             r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{
-                 fileName: "register.png", contentBase64: "{}"
+                 documentId: "{document_id}", fileName: "register.png", contentBase64: "{}"
                }}) {{ id }} }}"#,
             png_base64(800, 600)
         ),

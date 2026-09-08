@@ -122,32 +122,41 @@ pub fn Settings(tree_id: String) -> Element {
         export_loading.set(true);
         export_error.set(None);
         export_success.set(None);
+        #[cfg(target_arch = "wasm32")]
+        let browser_download =
+            is_gedzip.then(|| crate::api::BrowserDownload::new(&format!("{base_name}.gdz")));
         let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
         spawn(trace_ui_action(action, async move {
             if let Some(tid) = tree_id_parsed {
                 let extension = if is_gedzip { "gdz" } else { "ged" };
                 let file_name = format!("{base_name}.{extension}");
                 if is_gedzip {
+                    #[cfg(target_arch = "wasm32")]
+                    let destination = {
+                        let mut destination = browser_download.expect("GEDZIP save session");
+                        match destination.ready().await {
+                            Ok(true) => destination,
+                            result => {
+                                if result.is_err() {
+                                    export_error.set(Some(i18n.t("media.save_failed")));
+                                }
+                                export_loading.set(false);
+                                return;
+                            }
+                        }
+                    };
                     match wait_for_export(&api, tid, merge_occupations, merge_names).await {
                         Ok(download_path) => {
                             #[cfg(target_arch = "wasm32")]
                             {
-                                let url =
-                                    serde_json::to_string(&api.export_download_url(&download_path))
-                                        .unwrap_or_else(|_| "\"\"".to_string());
-                                let download_name = serde_json::to_string(&file_name)
-                                    .unwrap_or_else(|_| "\"export.gdz\"".to_string());
-                                document::eval(&format!(
-                                    r#"
-                                    const a = document.createElement('a');
-                                    a.href = {url};
-                                    a.download = {download_name};
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    document.body.removeChild(a);
-                                    "#
-                                ));
-                                export_success.set(Some(i18n.t("settings.export_success")));
+                                match api.download_in_browser(destination, &download_path).await {
+                                    Ok(()) => {
+                                        export_success.set(Some(i18n.t("settings.export_success")))
+                                    }
+                                    Err(_) => {
+                                        export_error.set(Some(i18n.t("media.download_failed")))
+                                    }
+                                }
                             }
                             #[cfg(not(target_arch = "wasm32"))]
                             {
@@ -162,7 +171,7 @@ pub fn Settings(tree_id: String) -> Element {
                                     let path = file.path().to_path_buf();
                                     let saved = trace_ui_action_step(
                                         UiActionStep::ExportSave,
-                                        api.download_export_to_file(&download_path, &path),
+                                        api.download_to_file(&download_path, &path),
                                     )
                                     .await;
                                     match saved {
@@ -1176,14 +1185,6 @@ fn PlaceholderSection(section_name: String) -> Element {
 }
 
 const SETTINGS_STYLES: &str = r#"
-    .settings-placeholder {
-        padding: 16px;
-        text-align: center;
-        color: var(--text-muted);
-        font-size: 0.85rem;
-        font-style: italic;
-    }
-
     .settings-tree-name-form {
         display: flex;
         gap: 8px;

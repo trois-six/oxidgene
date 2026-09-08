@@ -347,18 +347,24 @@ fn test_import_multimedia() {
     let tree_id = Uuid::now_v7();
     let result = import_gedcom(MULTIMEDIA_GEDCOM, tree_id).unwrap();
 
-    assert_eq!(result.media.len(), 1);
-    let m = &result.media[0];
+    assert_eq!(result.media.len(), 2);
+    let document = result.media.iter().find(|m| m.is_document()).unwrap();
+    let m = result.media.iter().find(|m| !m.is_document()).unwrap();
+    assert_eq!(m.parent_media_id, Some(document.id));
+    assert_eq!(m.page_index, 0);
+    assert_eq!(document.page_count, 1);
+    assert!(document.file_path.is_empty());
     assert_eq!(m.file_path, "/photos/john_doe.jpg");
     assert_eq!(m.file_name, "john_doe.jpg");
     assert_eq!(m.mime_type, "image/jpeg");
-    assert_eq!(m.title.as_deref(), Some("Portrait of John Doe"));
+    assert!(m.title.is_none());
+    assert_eq!(document.title.as_deref(), Some("Portrait of John Doe"));
 
     // Multimedia link on the individual
     assert_eq!(result.media_links.len(), 1);
     let ml = &result.media_links[0];
-    assert_eq!(ml.media_id, m.id);
-    assert!(ml.person_id.is_some());
+    assert_eq!(ml.media_id, document.id);
+    assert_eq!(ml.person_id, Some(result.persons[0].id));
 }
 
 #[test]

@@ -86,28 +86,57 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let tree_id = props.tree_id;
     let media = props.media.clone();
     let media_id = media.id;
-    let source = (media.width.unwrap_or(0), media.height.unwrap_or(0));
-    let image = use_ui_resource("crop_image", {
+    // A page whose file is somebody else's is loaded from its own address. The
+    // server holds no bytes to serve and would only ever answer `404` — and
+    // fetching it there to answer is exactly what a remote media exists to
+    // avoid.
+    let remote_url = (crate::api::media_source(&media) == crate::api::MediaSource::Remote)
+        .then(|| media.file_path.trim().to_string());
+    let stored_image = use_ui_resource("crop_image", {
         let api = api.clone();
+        let is_remote = remote_url.is_some();
         move || {
             let api = api.clone();
-            async move { api.media_file_data_url(tree_id, media_id).await }
+            async move {
+                if is_remote {
+                    return None;
+                }
+                api.media_file_data_url(tree_id, media_id).await.ok()
+            }
         }
     });
-    let image_url = image
-        .read_unchecked()
-        .as_ref()
-        .and_then(|result| result.as_ref().ok())
-        .cloned();
+    let image_url = remote_url.clone().or_else(|| {
+        stored_image
+            .read_unchecked()
+            .as_ref()
+            .and_then(|result| result.clone())
+    });
+
+    // The size the crop is measured in. Our own files were decoded on upload;
+    // a remote one has never been opened here, so the browser that just drew
+    // it is the only witness — and what it reports is recorded on save, so
+    // every later reader can cut the same region without measuring again.
+    let mut measured = use_signal(|| None::<(i32, i32)>);
+    let source = match (media.width, media.height) {
+        (Some(width), Some(height)) => (width, height),
+        _ => measured().unwrap_or((0, 0)),
+    };
+    let record_measured = media.width.is_none() || media.height.is_none();
+    let image_element_id = format!("cropper-image-{media_id}");
+    let measure_script = format!(
+        "const image = document.getElementById('{image_element_id}');\n\
+         return image ? [image.naturalWidth, image.naturalHeight] : null;"
+    );
     let on_saved = props.on_saved;
     let on_close = props.on_close;
     let person_id = props.person_id;
     let events = props.events.clone();
 
-    // A media whose dimensions were never recorded — a PDF, or a row imported
-    // from GEDCOM that has no bytes — cannot be cropped, and saying so beats
-    // showing a canvas where dragging does nothing.
-    if source.0 <= 0 || source.1 <= 0 {
+    // Nothing to draw a rectangle on: a file that is not a picture, or a
+    // record naming a file nobody ever uploaded and that names no address
+    // either. Saying so beats showing a canvas where dragging does nothing.
+    let no_file = remote_url.is_none() && matches!(&*stored_image.read_unchecked(), Some(None));
+    if !oxidgene_core::types::is_image_mime(&media.mime_type) || no_file {
         return rsx! {
             div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
                 div { class: "cropper-panel", onclick: move |e| e.stop_propagation(),
@@ -157,9 +186,30 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
         let Some(rect) = to_source() else { return };
         let api = api.clone();
         let event = Uuid::parse_str(event_id().trim()).ok();
+        let learnt = record_measured.then(&*measured).flatten();
         spawn(async move {
             saving.set(true);
             error.set(None);
+            // Record what the browser measured before the region that depends
+            // on it. A rectangle in pixels means nothing without the size it
+            // was measured against, and nothing else will ever open this file.
+            if let Some((width, height)) = learnt
+                && let Err(err) = api
+                    .update_media(
+                        tree_id,
+                        media_id,
+                        &crate::api::UpdateMediaBody {
+                            width: Some(width),
+                            height: Some(height),
+                            ..crate::api::UpdateMediaBody::default()
+                        },
+                    )
+                    .await
+            {
+                error.set(Some(err.to_string()));
+                saving.set(false);
+                return;
+            }
             let body = CreateVignetteBody {
                 x: rect.x,
                 y: rect.y,
@@ -236,12 +286,33 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
 
                     if let Some(image_url) = image_url {
                         img {
+                            id: "{image_element_id}",
                             class: "cropper-image",
                             src: "{image_url}",
                             alt: "{media.file_name}",
                             // The browser would otherwise start its own drag of the
                             // image, which cancels ours halfway through.
                             draggable: "false",
+                            // The only place a remote picture's pixel size can
+                            // be learnt: it has just been decoded, right here.
+                            onload: move |_| {
+                                if !record_measured {
+                                    return;
+                                }
+                                let script = measure_script.clone();
+                                spawn(async move {
+                                    if let Ok(value) = document::eval(&script).await
+                                        && let (Some(width), Some(height)) = (
+                                            value.get(0).and_then(|item| item.as_i64()),
+                                            value.get(1).and_then(|item| item.as_i64()),
+                                        )
+                                        && width > 0
+                                        && height > 0
+                                    {
+                                        measured.set(Some((width as i32, height as i32)));
+                                    }
+                                });
+                            },
                         }
                     }
 

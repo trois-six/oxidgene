@@ -28,12 +28,10 @@
 //! "skip Geneanet entirely", and neither needs the user to know which kind of
 //! file they have.
 //!
-//! # A ZIP holding the JSON it used to be
+//! # ZIP container
 //!
 //! The file is a ZIP with `session.json` inside it, and the media beside that
-//! as the files they are. Base64 inside JSON was the obvious first shape and
-//! the wrong one: it inflates binary by a third, and an account with no data
-//! archive has every medium in there.
+//! as binary files, without base64 expansion.
 //!
 //! `session.json` *is* the JSON the window produced with a few fields added
 //! beside it. [`crate::model::BrowserCollection`] ignores fields it does not
@@ -41,11 +39,11 @@
 //! no second format to keep in step — unzip the file and the collection is
 //! right there, readable.
 //!
-//! [`decode`] also accepts a **bare JSON file**: sessions saved before this
-//! became a ZIP, and the raw output of a browser console script. Both still
-//! carry the mapping, which is the part that matters.
+//! [`decode`] also accepts the raw JSON collection from a browser console
+//! script. Media in saved sessions must reference files in the ZIP.
 
 use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
@@ -72,7 +70,8 @@ pub struct Session {
     /// `HEAD` per deposit.
     pub deposit_sizes: HashMap<i64, u64>,
     pub account: Option<String>,
-    /// Media the login window fetched, keyed by URL and base64-encoded.
+    /// Media keyed by URL: base64 for `encode`/`decode`, or the handles
+    /// returned by the sink passed to `decode_with_media`.
     ///
     /// Empty in a file saved after step 3, populated in one saved after step
     /// 4 — and that difference is the whole point. With it, an import needs no
@@ -190,21 +189,16 @@ fn encode_manifest(session: &Session, media: Map<String, Value>) -> Result<Strin
     );
     if let Some(account) = &session.account {
         object.insert(ACCOUNT_KEY.to_string(), Value::from(account.clone()));
+    } else {
+        object.remove(ACCOUNT_KEY);
     }
-    // URL → the entry holding it, not the bytes themselves.
-    if !media.is_empty() {
-        object.insert(MEDIA_KEY.to_string(), Value::Object(media));
-    }
+    // Replace references from a loaded manifest with the entries actually written.
+    object.insert(MEDIA_KEY.to_string(), Value::Object(media));
 
     serde_json::to_string(&Value::Object(object)).context("serialising the session")
 }
 
-/// Reads a session back, from either shape the wizard has ever written.
-///
-/// A ZIP is the current one. A bare JSON file is accepted too: sessions saved
-/// before the container changed, and the raw output of a browser console
-/// script. Both carry the mapping, which is the part that cannot be recovered
-/// any other way.
+/// Reads a ZIP session or a raw JSON collection from a browser console script.
 ///
 /// Told apart by content rather than by extension, because a file that has
 /// been renamed is still the file it was.
@@ -214,32 +208,55 @@ fn encode_manifest(session: &Session, media: Map<String, Value>) -> Result<Strin
 /// Returns `Err` if the bytes are neither, or hold no collection this crate
 /// can read.
 pub fn decode(bytes: &[u8]) -> Result<Session> {
-    if bytes.starts_with(b"PK\x03\x04") {
-        return decode_zip(bytes);
-    }
-
-    let json = std::str::from_utf8(bytes).context("the session file is not UTF-8")?;
-    decode_manifest(json, &HashMap::new())
+    decode_with_media(std::io::Cursor::new(bytes), read_base64)
 }
 
-/// Reads the ZIP shape: `session.json` plus the media it names.
-fn decode_zip(bytes: &[u8]) -> Result<Session> {
-    let archive_bytes = u64::try_from(bytes.len()).context("the session archive is too large")?;
+/// Reads a seekable session, passing each media entry to a streaming sink.
+/// The returned media map contains the sink's handles, not file bytes.
+/// Callers must discard those handles if decoding fails.
+///
+/// # Errors
+/// Returns an error for an invalid archive, collection, or failed media sink.
+pub fn decode_with_media(
+    mut reader: impl Read + Seek,
+    mut store: impl FnMut(&mut dyn Read) -> Result<String>,
+) -> Result<Session> {
+    let archive_bytes = reader.seek(SeekFrom::End(0))?;
+    reader.rewind()?;
+    let mut magic = [0; 4];
+    let is_zip = reader.read_exact(&mut magic).is_ok() && &magic == b"PK\x03\x04";
+    reader.rewind()?;
+    if !is_zip {
+        let mut json = String::new();
+        reader
+            .read_to_string(&mut json)
+            .context("the session file is not UTF-8")?;
+        return decode_manifest(&json, &HashMap::new());
+    }
     decode_zip_with_limits(
-        bytes,
+        reader,
         DecodeLimits {
             manifest_bytes: archive_bytes.max(MIN_MANIFEST_LIMIT),
             total_media_bytes: archive_bytes,
         },
+        &mut store,
     )
 }
 
-fn decode_zip_with_limits(bytes: &[u8], limits: DecodeLimits) -> Result<Session> {
+fn read_base64(reader: &mut dyn Read) -> Result<String> {
     use base64::Engine as _;
-    use std::io::Read as _;
+    let mut body = Vec::new();
+    reader.read_to_end(&mut body)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(body))
+}
 
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))
-        .context("the session file is not a readable archive")?;
+fn decode_zip_with_limits(
+    reader: impl Read + Seek,
+    limits: DecodeLimits,
+    store: &mut impl FnMut(&mut dyn Read) -> Result<String>,
+) -> Result<Session> {
+    let mut zip =
+        zip::ZipArchive::new(reader).context("the session file is not a readable archive")?;
 
     let mut manifest = Vec::new();
     zip.by_name(MANIFEST_ENTRY)
@@ -252,14 +269,11 @@ fn decode_zip_with_limits(bytes: &[u8], limits: DecodeLimits) -> Result<Session>
     }
     let manifest = std::str::from_utf8(&manifest).context("the session manifest is not UTF-8")?;
 
-    // Read every medium first: the manifest names them, and a name that is not
-    // there is simply a medium the import will have to do without.
+    // Resolve manifest references after reading the archive's media entries.
     let mut bodies: HashMap<String, String> = HashMap::new();
     let mut total_media_bytes = 0u64;
     for index in 0..zip.len() {
-        let Ok(entry) = zip.by_index(index) else {
-            continue;
-        };
+        let entry = zip.by_index(index).context("reading session media entry")?;
         let name = entry.name().to_string();
         if name == MANIFEST_ENTRY || entry.is_dir() {
             continue;
@@ -267,19 +281,22 @@ fn decode_zip_with_limits(bytes: &[u8], limits: DecodeLimits) -> Result<Session>
         if entry.compression() != zip::CompressionMethod::Stored {
             bail!("session media entries must not be compressed");
         }
-        let mut body = Vec::new();
-        entry
-            .take(limits.total_media_bytes.saturating_add(1))
-            .read_to_end(&mut body)
-            .with_context(|| format!("reading session media entry {index}"))?;
+        let remaining = limits.total_media_bytes - total_media_bytes;
+        if entry.size() > remaining {
+            bail!("the session media exceed the archive size");
+        }
+        let bound = remaining.saturating_add(1);
+        let mut body = entry.take(bound);
+        let handle = store(&mut body).context("storing session media entry")?;
+        // Finish the entry even if a sink stops early, to validate its CRC and size.
+        std::io::copy(&mut body, &mut std::io::sink())?;
         total_media_bytes = total_media_bytes
-            .checked_add(body.len() as u64)
+            .checked_add(bound - body.limit())
             .filter(|total| *total <= limits.total_media_bytes)
             .context("the session media exceed the archive size")?;
-        bodies.insert(
-            name,
-            base64::engine::general_purpose::STANDARD.encode(&body),
-        );
+        if bodies.insert(name, handle).is_some() {
+            bail!("duplicate session media entry");
+        }
     }
 
     decode_manifest(manifest, &bodies)
@@ -323,18 +340,17 @@ fn decode_manifest(json: &str, bodies: &HashMap<String, String>) -> Result<Sessi
         .map(|media| {
             media
                 .iter()
-                .filter_map(|(url, entry)| {
-                    let entry = entry.as_str()?;
-                    // A file written before the container changed holds the
-                    // bytes inline; the ZIP holds a name to look up.
+                .map(|(url, entry)| {
+                    let entry = entry.as_str().context("invalid session media reference")?;
                     let body = bodies
                         .get(entry)
                         .cloned()
-                        .unwrap_or_else(|| entry.to_string());
-                    Some((url.clone(), body))
+                        .context("session media entry is missing")?;
+                    Ok((url.clone(), body))
                 })
-                .collect()
+                .collect::<Result<HashMap<_, _>>>()
         })
+        .transpose()?
         .unwrap_or_default();
 
     Ok(Session {
@@ -463,13 +479,33 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_json_file_still_loads() {
-        // Sessions saved before the container changed, and the raw output of a
-        // browser console script. Both carry the mapping.
+    fn a_raw_browser_collection_loads() {
         let restored = decode(collection().as_bytes()).expect("decodes");
 
         assert!(restored.deposit_sizes.is_empty());
         assert!(restored.media.is_empty());
+    }
+
+    #[test]
+    fn media_references_require_an_archive_entry() {
+        for reference in ["media/missing.jpg", "aGVsbG8="] {
+            let manifest = encode_manifest(
+                &session(HashMap::new()),
+                Map::from_iter([(
+                    "https://example.invalid/image.jpg".into(),
+                    Value::from(reference),
+                )]),
+            )
+            .expect("manifest");
+            let archive = archive_with_entries(
+                &[(MANIFEST_ENTRY, manifest.as_bytes())],
+                zip::CompressionMethod::Stored,
+            );
+            for bytes in [manifest.as_bytes(), archive.as_slice()] {
+                let error = decode(bytes).expect_err("a reference is not file content");
+                assert!(error.to_string().contains("media entry is missing"));
+            }
+        }
     }
 
     #[test]
@@ -478,6 +514,22 @@ mod tests {
         let restored = decode(&archive).expect("decodes");
 
         assert!(restored.media.is_empty());
+    }
+
+    #[test]
+    fn resaving_a_session_does_not_restore_cleared_metadata() {
+        let original = session(HashMap::from([(
+            "https://example.invalid/medium.jpg".into(),
+            "aGVsbG8=".into(),
+        )]));
+        let mut loaded = decode(&encode(&original).unwrap()).unwrap();
+        loaded.account = None;
+        loaded.media.clear();
+        loaded.deposit_sizes.clear();
+        let restored = decode(&encode(&loaded).unwrap()).unwrap();
+        assert!(restored.media.is_empty());
+        assert!(restored.deposit_sizes.is_empty());
+        assert!(restored.account.is_none());
     }
 
     #[test]
@@ -510,7 +562,12 @@ mod tests {
             zip::CompressionMethod::Deflated,
         );
 
-        let error = decode_zip_with_limits(&archive, test_limits()).expect_err("must be refused");
+        let error = decode_zip_with_limits(
+            std::io::Cursor::new(&archive),
+            test_limits(),
+            &mut read_base64,
+        )
+        .expect_err("must be refused");
 
         assert!(
             error.to_string().contains("must not be compressed"),
@@ -530,7 +587,12 @@ mod tests {
             zip::CompressionMethod::Stored,
         );
 
-        let error = decode_zip_with_limits(&archive, test_limits()).expect_err("must be refused");
+        let error = decode_zip_with_limits(
+            std::io::Cursor::new(&archive),
+            test_limits(),
+            &mut read_base64,
+        )
+        .expect_err("must be refused");
 
         assert!(
             error.to_string().contains("exceed the archive size"),

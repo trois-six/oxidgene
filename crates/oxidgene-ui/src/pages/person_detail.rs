@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, MediaWithLink};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::format_event_date;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::media_manager_modal::MediaManagerModal;
@@ -219,7 +220,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
-    // Fetch SOSA ancestor IDs from the closure table (same query as the tree
+    // Fetch SOSA ancestor IDs from the family graph (same query as the tree
     // view) — used to show the green SOSA badge in the family narrative.
     let api_sosa = api.clone();
     let sosa_ancestors_resource =
@@ -1238,14 +1239,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     Sex::Female => "\u{2640}",
                     Sex::Unknown => "?",
                 };
-                let avatar_src = match &*photo.read() {
-                    Some(url) => url.clone(),
-                    None => crate::components::pedigree_chart::default_portrait(person_sex).to_string(),
+                let avatar = match &*photo.read() {
+                    Some(portrait) => portrait.clone(),
+                    None => crate::api::CroppedSource::whole(
+                        crate::components::pedigree_chart::default_portrait(person_sex).to_string(),
+                    ),
                 };
                 rsx! {
                     div { class: "card page-header",
                         div { class: "pd-header-left",
-                            img { class: "pd-avatar", alt: "", src: "{avatar_src}" }
+                            CroppedImage { class: "pd-avatar", image: avatar, alt: String::new() }
                             div { class: "pd-header-main",
                                 div { class: "pd-header-top",
                                     h1 {
@@ -1858,7 +1861,7 @@ fn age_span(birth: chrono::NaiveDate, end: chrono::NaiveDate) -> AgeSpan {
 /// grandchildren) sections, depending on the levels passed in.
 fn render_mini_pedigree(
     pedigree_resource: &Resource<Result<Option<Pedigree>, crate::api::ApiError>>,
-    photos_resource: &Resource<HashMap<Uuid, String>>,
+    photos_resource: &Resource<HashMap<Uuid, crate::api::CroppedSource>>,
     ancestor_levels: usize,
     descendant_levels: usize,
     on_navigate: EventHandler<Uuid>,

@@ -20,13 +20,13 @@ use uuid::Uuid;
 
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
-    Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source, Vignette, is_remote_url, normalize_mime,
+    Citation, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media,
+    MediaLink, Note, Person, PersonName, Place, Source, Vignette, is_remote_url, normalize_mime,
     split_surname_particle, split_surname_with,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
-use crate::{ImportResult, MediaMetadataExtension};
+use crate::{DocumentExtension, ImportResult, MediaMetadataExtension};
 
 const GEDZIP_GEDCOM_LIMIT: u64 = 1024 * 1024 * 1024;
 const GEDZIP_MEDIA_LIMIT: u64 = 128 * 1024 * 1024;
@@ -196,7 +196,9 @@ pub fn prepare_gedzip<R: Read + Seek>(
 
     let mut wanted: Vec<(Uuid, String)> = Vec::new();
     for media in &result.media {
-        if is_remote_url(&media.file_path) {
+        // Only a page names a file. A document holds no bytes, so looking one
+        // up for it asks the archive for an entry called nothing at all.
+        if media.is_document() || is_remote_url(&media.file_path) {
             continue;
         }
         match entries.get(&entry_key(&media.file_path)) {
@@ -296,6 +298,9 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
     let mut fam_map: HashMap<String, Uuid> = HashMap::new();
     let mut source_map: HashMap<String, Uuid> = HashMap::new();
     let mut media_map: HashMap<String, Uuid> = HashMap::new();
+    // The page each `OBJE` became, as distinct from the document holding it.
+    // Links point at the document; crops and page metadata at the page.
+    let mut page_map: HashMap<String, Uuid> = HashMap::new();
     // Place name → UUID (dedup by exact name match)
     let mut place_map: HashMap<String, Uuid> = HashMap::new();
     // Free-text SOUR description → UUID of a synthesized Source (dedup by
@@ -422,7 +427,9 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
                 continue;
             }
         };
-        let id = media_map[xref];
+        let document_id = media_map[xref];
+        let id = Uuid::now_v7();
+        page_map.insert(xref.clone(), id);
 
         // Extract file info from the multimedia record
         // GEDCOM's `FORM` is the "multimedia format", and what producers put
@@ -460,6 +467,49 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             .unwrap_or(&file_path)
             .to_string();
 
+        // One `OBJE` becomes two rows: the page that names the file, and the
+        // document that describes it. GEDCOM has no container, so a foreign
+        // file gives us one document per record — which is exactly right, an
+        // ordinary photograph being a document of one page. An OxidGene file
+        // then regroups its pages from `_OXIDGENE_DOC`.
+        let description = mm
+            .note_structure
+            .as_ref()
+            .and_then(|note| note.value.clone());
+        result.media.push(Media {
+            id: document_id,
+            tree_id,
+            file_name: mm.title.clone().unwrap_or_else(|| file_name.clone()),
+            mime_type: DOCUMENT_MIME.to_string(),
+            file_path: String::new(),
+            storage_key: None,
+            sha256: None,
+            thumbnail_key: None,
+            width: None,
+            height: None,
+            page_count: 1,
+            parent_media_id: None,
+            page_index: 0,
+            file_size: 0,
+            title: mm.title.clone(),
+            description,
+            date_value: None,
+            date_sort: None,
+            date_qualifier: Default::default(),
+            date_value2: None,
+            calendar: Default::default(),
+            // GEDCOM has no privacy tag; a scan arrives following the tree.
+            privacy: Privacy::default(),
+            source_media_type,
+            // GEDCOM has no field for this; it stays unset until a user
+            // classifies the record or a Geneanet import supplies one.
+            document_category: None,
+            tags: Vec::new(),
+            place_id: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        });
         result.media.push(Media {
             id,
             tree_id,
@@ -474,25 +524,18 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             width: None,
             height: None,
             page_count: 1,
-            parent_media_id: None,
+            parent_media_id: Some(document_id),
             page_index: 0,
-            is_document: false,
             file_size: 0, // Unknown from GEDCOM
-            title: mm.title.clone(),
-            description: mm
-                .note_structure
-                .as_ref()
-                .and_then(|note| note.value.clone()),
+            title: None,
+            description: None,
             date_value: None,
             date_sort: None,
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
-            // GEDCOM has no privacy tag; a scan arrives following the tree.
             privacy: Privacy::default(),
             source_media_type,
-            // GEDCOM has no field for this; it stays unset until a user
-            // classifies the record or a Geneanet import supplies one.
             document_category: None,
             tags: Vec::new(),
             place_id: None,
@@ -571,6 +614,7 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
                 person_id,
                 now,
                 &source_map,
+                &media_map,
                 &mut get_or_create_place,
                 &mut get_or_create_text_source,
                 &mut result,
@@ -950,7 +994,7 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
     // Handed back so a caller holding links keyed by something outside the
     // domain model can resolve them to person ids — see the field's docs.
     result.person_by_xref = indi_map;
-    result.media_by_xref = media_map;
+    result.media_by_xref = page_map;
 
     Ok(result)
 }
@@ -961,76 +1005,57 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
 /// resolved against the xref maps it produced.
 fn import_oxidgene_media_extensions(gedcom: &str, result: &mut ImportResult) {
     import_media_metadata_extensions(gedcom, result);
+    import_document_extensions(gedcom, result);
     import_vignette_extensions(gedcom, result);
 }
 
-fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
+/// Collect the `_OXIDGENE_*` lines that sit under each top-level `OBJE`.
+///
+/// `ged_io` drops unknown extension tags, so this is a plain text scan over the
+/// same file: for each media xref, the payloads written beneath it.
+fn media_extension_lines<'a>(gedcom: &'a str, tag: &str) -> Vec<(&'a str, &'a str)> {
+    let prefix = format!("1 {tag} ");
     let mut media_xref = None::<&str>;
-
+    let mut found = Vec::new();
     for line in gedcom.lines() {
-        let fields = line.split_whitespace().collect::<Vec<_>>();
-        if fields.first() == Some(&"0") {
+        if line.starts_with("0 ") {
+            let fields = line.split_whitespace().collect::<Vec<_>>();
             media_xref = match fields.as_slice() {
                 ["0", xref, "OBJE", ..] => Some(*xref),
                 _ => None,
             };
             continue;
         }
-        let Some(value) = line.strip_prefix("1 _OXIDGENE_MEDIA ") else {
-            continue;
-        };
-        let Some(media_id) = media_xref.and_then(|xref| result.media_by_xref.get(xref).copied())
-        else {
+        if let (Some(xref), Some(value)) = (media_xref, line.strip_prefix(&prefix)) {
+            found.push((xref, value));
+        }
+    }
+    found
+}
+
+/// Restore what a page says about itself: its file name, its timestamps and
+/// its transcript.
+fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
+    for (media_xref, value) in media_extension_lines(gedcom, "_OXIDGENE_MEDIA") {
+        let Some(media_id) = result.media_by_xref.get(media_xref).copied() else {
             continue;
         };
         let metadata = match serde_json::from_str::<MediaMetadataExtension>(value) {
             Ok(metadata) if metadata.version == 1 => metadata,
             Ok(metadata) => {
                 result.warnings.push(format!(
-                    "Media {media_xref:?}: unsupported OxidGene metadata version {}",
+                    "Media {media_xref}: unsupported OxidGene metadata version {}",
                     metadata.version
                 ));
                 continue;
             }
             Err(err) => {
                 result.warnings.push(format!(
-                    "Media {media_xref:?}: invalid OxidGene metadata: {err}"
+                    "Media {media_xref}: invalid OxidGene metadata: {err}"
                 ));
                 continue;
             }
         };
-
-        let place_id = metadata.place.and_then(|place| {
-            if place.name.trim().is_empty() {
-                return None;
-            }
-            if let Some(existing) = result
-                .places
-                .iter_mut()
-                .find(|item| item.name == place.name)
-            {
-                existing.latitude = existing.latitude.or(place.latitude);
-                existing.longitude = existing.longitude.or(place.longitude);
-                return Some(existing.id);
-            }
-            let id = Uuid::now_v7();
-            let now = Utc::now();
-            let tree_id = result
-                .media
-                .iter()
-                .find(|item| item.id == media_id)
-                .map(|item| item.tree_id)?;
-            result.places.push(Place {
-                id,
-                tree_id,
-                name: place.name,
-                latitude: place.latitude,
-                longitude: place.longitude,
-                created_at: now,
-                updated_at: now,
-            });
-            Some(id)
-        });
 
         let Some(media) = result.media.iter_mut().find(|item| item.id == media_id) else {
             continue;
@@ -1038,24 +1063,13 @@ fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
         media.file_name = metadata.file_name;
         media.created_at = metadata.created_at.unwrap_or(media.created_at);
         media.updated_at = metadata.updated_at.unwrap_or(media.updated_at);
-        media.title = metadata.title;
-        media.description = metadata.description;
-        media.date_value = metadata.date_value;
-        media.date_qualifier = metadata.date_qualifier;
-        media.date_value2 = metadata.date_value2;
-        media.calendar = metadata.calendar;
-        media.date_sort = crate::date::sort_key(media.calendar, media.date_value.as_deref());
-        media.privacy = metadata.privacy;
-        media.source_media_type = metadata.source_media_type;
-        media.document_category = metadata.document_category;
-        media.tags = metadata.tags;
-        media.place_id = place_id;
+        let tree_id = media.tree_id;
 
         for note in metadata.notes {
             let created_at = note.created_at.unwrap_or_else(Utc::now);
             result.notes.push(Note {
                 id: Uuid::now_v7(),
-                tree_id: media.tree_id,
+                tree_id,
                 text: note.text,
                 person_id: None,
                 event_id: None,
@@ -1067,6 +1081,215 @@ fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
                 deleted_at: None,
             });
         }
+    }
+}
+
+/// Put the pages of a document back together.
+///
+/// The standard import gave every `OBJE` a document of its own, which is the
+/// right answer for a foreign file. Here the pages that name the same `doc`
+/// token are re-parented onto one of those documents, the now-empty ones are
+/// dropped, and any link that pointed at a dropped document is moved to the
+/// survivor — so a person attached to a forty-page dossier stays attached to
+/// it rather than to page one.
+fn import_document_extensions(gedcom: &str, result: &mut ImportResult) {
+    let mut by_token: HashMap<String, Vec<(Uuid, DocumentExtension)>> = HashMap::new();
+    for (media_xref, value) in media_extension_lines(gedcom, "_OXIDGENE_DOC") {
+        let Some(page_id) = result.media_by_xref.get(media_xref).copied() else {
+            continue;
+        };
+        let container = match serde_json::from_str::<DocumentExtension>(value) {
+            Ok(container) if container.version == 1 => container,
+            Ok(container) => {
+                result.warnings.push(format!(
+                    "Media {media_xref}: unsupported OxidGene document version {}",
+                    container.version
+                ));
+                continue;
+            }
+            Err(err) => {
+                result.warnings.push(format!(
+                    "Media {media_xref}: invalid OxidGene document metadata: {err}"
+                ));
+                continue;
+            }
+        };
+        by_token
+            .entry(container.doc.clone())
+            .or_default()
+            .push((page_id, container));
+    }
+
+    let mut dropped: HashMap<Uuid, Uuid> = HashMap::new();
+    for (token, mut pages) in by_token {
+        pages.sort_by_key(|(_, container)| container.index);
+        // The document to keep is the one written for the first page, because
+        // that is the page the shared metadata travelled on.
+        let Some(keeper) = pages
+            .first()
+            .and_then(|(page_id, _)| document_of(result, *page_id))
+        else {
+            result
+                .warnings
+                .push(format!("Document {token}: none of its pages was imported"));
+            continue;
+        };
+
+        for (index, (page_id, _)) in pages.iter().enumerate() {
+            if let Some(previous) = document_of(result, *page_id)
+                && previous != keeper
+            {
+                dropped.insert(previous, keeper);
+            }
+            if let Some(page) = result.media.iter_mut().find(|item| item.id == *page_id) {
+                page.parent_media_id = Some(keeper);
+                page.page_index = index as i32;
+            }
+        }
+
+        let page_count = pages.len() as i32;
+        let meta = pages.into_iter().find_map(|(_, container)| container.meta);
+        apply_document_metadata(result, keeper, page_count, meta);
+    }
+
+    if dropped.is_empty() {
+        return;
+    }
+    // A link, a portrait or a note that named a dropped document now names the
+    // survivor; anything still pointing at a row we are about to remove would
+    // dangle.
+    for link in &mut result.media_links {
+        if let Some(keeper) = dropped.get(&link.media_id) {
+            link.media_id = *keeper;
+        }
+    }
+    for note in &mut result.notes {
+        if let Some(media_id) = note.media_id
+            && let Some(keeper) = dropped.get(&media_id)
+        {
+            note.media_id = Some(*keeper);
+        }
+    }
+    for person in &mut result.persons {
+        if let Some(media_id) = person.portrait_media_id
+            && let Some(keeper) = dropped.get(&media_id)
+        {
+            person.portrait_media_id = Some(*keeper);
+        }
+    }
+    result.media.retain(|item| !dropped.contains_key(&item.id));
+    // Two links to the same document, one per page, are one link.
+    result.media_links.sort_by_key(|link| {
+        (
+            link.media_id,
+            link.person_id,
+            link.family_id,
+            link.event_id,
+            link.source_id,
+        )
+    });
+    result.media_links.dedup_by_key(|link| {
+        (
+            link.media_id,
+            link.person_id,
+            link.family_id,
+            link.event_id,
+            link.source_id,
+        )
+    });
+}
+
+/// The document a page belongs to, as the result currently records it.
+fn document_of(result: &ImportResult, page_id: Uuid) -> Option<Uuid> {
+    result
+        .media
+        .iter()
+        .find(|item| item.id == page_id)
+        .and_then(|page| page.parent_media_id)
+}
+
+/// Write what a document says about itself onto its row.
+fn apply_document_metadata(
+    result: &mut ImportResult,
+    document_id: Uuid,
+    page_count: i32,
+    meta: Option<crate::DocumentMetadataExtension>,
+) {
+    let Some(meta) = meta else {
+        if let Some(document) = result.media.iter_mut().find(|item| item.id == document_id) {
+            document.page_count = page_count;
+        }
+        return;
+    };
+
+    let place_id = meta.place.as_ref().and_then(|place| {
+        if place.name.trim().is_empty() {
+            return None;
+        }
+        if let Some(existing) = result
+            .places
+            .iter_mut()
+            .find(|item| item.name == place.name)
+        {
+            existing.latitude = existing.latitude.or(place.latitude);
+            existing.longitude = existing.longitude.or(place.longitude);
+            return Some(existing.id);
+        }
+        let id = Uuid::now_v7();
+        let now = Utc::now();
+        let tree_id = result
+            .media
+            .iter()
+            .find(|item| item.id == document_id)
+            .map(|item| item.tree_id)?;
+        result.places.push(Place {
+            id,
+            tree_id,
+            name: place.name.clone(),
+            latitude: place.latitude,
+            longitude: place.longitude,
+            created_at: now,
+            updated_at: now,
+        });
+        Some(id)
+    });
+
+    let Some(document) = result.media.iter_mut().find(|item| item.id == document_id) else {
+        return;
+    };
+    document.file_name = meta.file_name;
+    document.created_at = meta.created_at.unwrap_or(document.created_at);
+    document.updated_at = meta.updated_at.unwrap_or(document.updated_at);
+    document.title = meta.title;
+    document.description = meta.description;
+    document.date_value = meta.date_value;
+    document.date_qualifier = meta.date_qualifier;
+    document.date_value2 = meta.date_value2;
+    document.calendar = meta.calendar;
+    document.date_sort = crate::date::sort_key(document.calendar, document.date_value.as_deref());
+    document.privacy = meta.privacy;
+    document.source_media_type = meta.source_media_type;
+    document.document_category = meta.document_category;
+    document.tags = meta.tags;
+    document.place_id = place_id;
+    document.page_count = page_count;
+    let tree_id = document.tree_id;
+
+    for note in meta.notes {
+        let created_at = note.created_at.unwrap_or_else(Utc::now);
+        result.notes.push(Note {
+            id: Uuid::now_v7(),
+            tree_id,
+            text: note.text,
+            person_id: None,
+            event_id: None,
+            family_id: None,
+            source_id: None,
+            media_id: Some(document_id),
+            created_at,
+            updated_at: note.updated_at.unwrap_or(created_at),
+            deleted_at: None,
+        });
     }
 }
 
@@ -1850,10 +2073,10 @@ fn import_event_detail(
 /// Imports a GEDCOM individual attribute (OCCU, RESI, TITL, ...) as one or
 /// more `Event`s. Mirrors `import_event_detail`, adapted to
 /// `AttributeDetail`'s shape: the tag's own value (e.g. "Presales" for OCCU)
-/// or its TYPE sub-tag is preserved as the description, and there is no
-/// multimedia sub-structure on attributes. OCCU is special-cased: its value
-/// is split on common separators and case-normalized into one Occupation
-/// event per profession (see `split_occupations`/`normalize_occupation_case`).
+/// or its TYPE sub-tag is preserved as the description. OCCU is special-cased:
+/// its value is split on common separators and case-normalized into one
+/// Occupation event per profession (see
+/// `split_occupations`/`normalize_occupation_case`).
 #[allow(clippy::too_many_arguments)]
 fn import_attribute_detail(
     detail: &ged_io::types::individual::attribute::detail::AttributeDetail,
@@ -1861,6 +2084,7 @@ fn import_attribute_detail(
     person_id: Uuid,
     now: chrono::DateTime<Utc>,
     source_map: &HashMap<String, Uuid>,
+    media_map: &HashMap<String, Uuid>,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
@@ -1950,6 +2174,25 @@ fn import_attribute_detail(
                 get_or_create_text_source,
                 result,
             );
+        }
+
+        // Multimedia on the attribute — the trade card behind an OCCU, the
+        // deed behind a TITL. A value that split into several professions
+        // gives each of them the scan, the same way each gets the citations:
+        // one line documented them all.
+        for mm in &detail.multimedia {
+            let mid = resolve_or_create_media(mm, tree_id, now, media_map, result);
+            if let Some(media_id) = mid {
+                result.media_links.push(MediaLink {
+                    id: Uuid::now_v7(),
+                    media_id,
+                    person_id: None,
+                    event_id: Some(event_id),
+                    source_id: None,
+                    family_id: None,
+                    sort_order: 0,
+                });
+            }
         }
 
         // Note on the attribute
@@ -2122,8 +2365,8 @@ fn import_note(
 /// Resolve a multimedia reference to a `Media` UUID.
 ///
 /// If the multimedia has an xref that matches a top-level OBJE record, return
-/// its UUID. Otherwise, if it has inline file data, create a new `Media` entry
-/// and return its UUID. Returns `None` if neither case applies.
+/// its document UUID. Otherwise, if it has inline file data, create a document
+/// and its page and return the document UUID. Returns `None` if neither applies.
 fn resolve_or_create_media(
     mm: &ged_io::types::multimedia::Multimedia,
     tree_id: Uuid,
@@ -2162,9 +2405,9 @@ fn resolve_or_create_media(
             .unwrap_or(&file_path)
             .to_string();
 
-        let id = Uuid::now_v7();
-        result.media.push(Media {
-            id,
+        let document_id = Uuid::now_v7();
+        let page = Media {
+            id: Uuid::now_v7(),
             tree_id,
             file_name,
             mime_type,
@@ -2175,15 +2418,11 @@ fn resolve_or_create_media(
             width: None,
             height: None,
             page_count: 1,
-            parent_media_id: None,
+            parent_media_id: Some(document_id),
             page_index: 0,
-            is_document: false,
             file_size: 0,
-            title: mm.title.clone(),
-            description: mm
-                .note_structure
-                .as_ref()
-                .and_then(|note| note.value.clone()),
+            title: None,
+            description: None,
             date_value: None,
             date_sort: None,
             date_qualifier: Default::default(),
@@ -2198,8 +2437,22 @@ fn resolve_or_create_media(
             created_at: now,
             updated_at: now,
             deleted_at: None,
+        };
+        result.media.push(Media {
+            id: document_id,
+            file_name: mm.title.clone().unwrap_or_else(|| page.file_name.clone()),
+            mime_type: DOCUMENT_MIME.to_string(),
+            file_path: String::new(),
+            parent_media_id: None,
+            title: mm.title.clone(),
+            description: mm
+                .note_structure
+                .as_ref()
+                .and_then(|note| note.value.clone()),
+            ..page.clone()
         });
-        return Some(id);
+        result.media.push(page);
+        return Some(document_id);
     }
 
     None
@@ -2580,6 +2833,47 @@ mod gedzip_tests {
         crate::export::export_gedzip(gedcom, &files).expect("writes the archive")
     }
 
+    /// The single page in a result, which is where the bytes and the file
+    /// path live; the other row is the document describing it.
+    fn page_of(result: &ImportResult) -> &Media {
+        result
+            .media
+            .iter()
+            .find(|item| !item.is_document())
+            .expect("a page was imported")
+    }
+
+    #[test]
+    fn inline_media_imports_as_a_document_with_a_page_and_keeps_its_gedzip_bytes() {
+        let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
+                      0 @I1@ INDI\n1 NAME Sample /Person/\n\
+                      1 OBJE\n2 FILE media/portrait.jpg\n3 FORM jpeg\n\
+                      2 TITL Sample portrait\n2 NOTE Sample description\n0 TRLR\n";
+        let bytes = archive(gedcom, &[("media/portrait.jpg", b"IMAGE BYTES")]);
+        let imported = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
+        let result = &imported.result;
+        assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+        assert_eq!(result.media.len(), 2);
+        let document = result.media.iter().find(|m| m.is_document()).unwrap();
+        let page = page_of(result);
+        assert_eq!(document.title.as_deref(), Some("Sample portrait"));
+        assert_eq!(document.description.as_deref(), Some("Sample description"));
+        assert_eq!(document.mime_type, DOCUMENT_MIME);
+        assert!(document.file_path.is_empty());
+        assert_eq!(document.page_count, 1);
+        assert_eq!(page.parent_media_id, Some(document.id));
+        assert_eq!(page.page_index, 0);
+        assert_eq!(page.mime_type, "image/jpeg");
+        assert_eq!(page.file_name, "portrait.jpg");
+        assert_eq!(page.file_path, "media/portrait.jpg");
+        assert!(page.title.is_none());
+        assert!(page.description.is_none());
+        assert_eq!(result.media_links.len(), 1);
+        assert_eq!(result.media_links[0].media_id, document.id);
+        assert_eq!(result.media_links[0].person_id, Some(result.persons[0].id));
+        assert_eq!(imported.files, vec![(page.id, b"IMAGE BYTES".to_vec())]);
+    }
+
     #[test]
     fn the_bytes_of_every_medium_the_archive_carries_come_back_with_it() {
         let bytes = archive(
@@ -2590,9 +2884,11 @@ mod gedzip_tests {
         let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
 
         assert_eq!(import.result.persons.len(), 1);
-        assert_eq!(import.result.media.len(), 1);
+        // A document and the page that holds the file.
+        assert_eq!(import.result.media.len(), 2);
+        let page = page_of(&import.result);
         assert_eq!(import.files.len(), 1);
-        assert_eq!(import.files[0].0, import.result.media[0].id);
+        assert_eq!(import.files[0].0, page.id);
         assert_eq!(import.files[0].1, b"JPEGBYTES");
         assert!(
             import.result.warnings.is_empty(),
@@ -2608,8 +2904,8 @@ mod gedzip_tests {
         let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
 
         // The record survives — it is exactly what a plain `.ged` produces.
-        assert_eq!(import.result.media.len(), 1);
-        assert!(import.result.media[0].storage_key.is_none());
+        assert_eq!(import.result.media.len(), 2);
+        assert!(page_of(&import.result).storage_key.is_none());
         assert!(import.files.is_empty());
         assert!(
             import
@@ -2642,7 +2938,7 @@ mod gedzip_tests {
 
         let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
 
-        assert_eq!(import.result.media.len(), 1);
+        assert_eq!(import.result.media.len(), 2);
         assert!(import.files.is_empty());
         // Nothing to warn about: we never meant to hold this one's bytes.
         assert!(

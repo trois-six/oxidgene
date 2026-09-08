@@ -26,11 +26,13 @@ use oxidgene_core::types::{PersonName, Vignette};
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ApiError, CreateMediaLinkBody, CreateNoteBody, MediaKind, MediaSource,
-    MediaWithLink, SetPortraitBody, UpdateMediaBody, UpdateNoteBody, UpdateVignetteBody,
+    ApiClient, ApiError, CreateMediaLinkBody, CreateNoteBody, CroppedSource, MediaKind,
+    MediaSource, MediaWithLink, SetPortraitBody, UpdateMediaBody, UpdateNoteBody,
+    UpdateVignetteBody,
 };
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::ContextMenuSurface;
+use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
@@ -98,17 +100,13 @@ fn document_mosaic_class(page_count: usize) -> &'static str {
     }
 }
 
+/// The pictures a document tile draws, one to four of them.
+///
+/// Never called with none: a document that can draw nothing falls back to the
+/// labelled icon at the tile, alongside every other kind of file that has no
+/// picture to show, rather than to a second icon of its own here.
 #[component]
-fn DocumentMosaic(sources: Vec<String>, label: String) -> Element {
-    if sources.is_empty() {
-        return rsx! {
-            div { class: "media-thumb-icon",
-                span { class: "media-glyph", {MediaKind::Document.icon()} }
-                span { class: "media-kind", "{label}" }
-            }
-        };
-    }
-
+fn DocumentMosaic(sources: Vec<String>) -> Element {
     let mosaic_class = document_mosaic_class(sources.len());
     rsx! {
         div { class: "{mosaic_class}",
@@ -125,34 +123,68 @@ fn DocumentMosaic(sources: Vec<String>, label: String) -> Element {
     }
 }
 
+/// One crop, drawn from wherever its pixels are.
+///
+/// A crop of a file we hold is cut server-side and fetched as an image. A crop
+/// of a file we do not hold is cut here instead, from the picture's own
+/// address — asking the server for it would only ever be a `404`, since it
+/// never fetches somebody else's file to cut it.
 #[component]
 fn PrivateVignetteImage(
     tree_id: Uuid,
-    vignette_id: Uuid,
+    vignette: Vignette,
+    /// The page the crop is on, when the caller already has it. Without it the
+    /// crop is assumed to be one we hold, which is what the endpoint answers.
+    #[props(default)]
+    page: Option<oxidgene_core::types::Media>,
     alt: String,
     class: Option<String>,
 ) -> Element {
     let api = use_context::<ApiClient>();
+    let remote = page.as_ref().and_then(|page| {
+        let crop = oxidgene_core::types::ImageCrop::for_remote(
+            page,
+            vignette.x,
+            vignette.y,
+            vignette.width,
+            vignette.height,
+        );
+        crop.map(|crop| CroppedSource {
+            source: page.file_path.trim().to_string(),
+            crop: Some(crop),
+        })
+    });
+    let vignette_id = vignette.id;
+    let cut_here = remote.is_some();
     let image = use_ui_resource("vignette_image", move || {
         let api = api.clone();
-        async move { api.vignette_image_data_url(tree_id, vignette_id).await }
+        async move {
+            if cut_here {
+                return None;
+            }
+            api.vignette_image_data_url(tree_id, vignette_id).await.ok()
+        }
     });
-    let source = image
+    let fetched = image
         .read_unchecked()
         .as_ref()
-        .and_then(|result| result.as_ref().ok())
-        .cloned();
+        .and_then(|result| result.clone())
+        .map(CroppedSource::whole);
 
     rsx! {
-        BundledVignetteImage { source, alt, class }
+        BundledVignetteImage { image: remote.or(fetched), alt, class }
     }
 }
 
 #[component]
-fn BundledVignetteImage(source: Option<String>, alt: String, class: Option<String>) -> Element {
+fn BundledVignetteImage(
+    image: Option<CroppedSource>,
+    alt: String,
+    class: Option<String>,
+) -> Element {
     rsx! {
-        if let Some(source) = source {
-            img { class, src: "{source}", alt, loading: "lazy" }
+        if let Some(image) = image {
+            CroppedImage { image, alt, class }
         }
     }
 }
@@ -229,10 +261,7 @@ pub struct MediaGalleryProps {
     /// Fired after any change to what is attached here — an upload, a detach,
     /// a retitle, a portrait being chosen.
     ///
-    /// The gallery refreshes itself, but it is not the only thing showing this
-    /// data: a profile page draws the person's portrait from the same links,
-    /// and without this it kept drawing the old one until the reader navigated
-    /// away and back.
+    /// Notify the host so related views, including portraits, refresh too.
     #[props(default)]
     pub on_changed: Option<EventHandler<()>>,
 }
@@ -275,12 +304,8 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     // hoping they all agree with the server.
     let mut revision = use_signal(|| 0_u32);
     let on_changed = props.on_changed;
-    // Every mutation goes through here rather than touching `revision`
-    // directly: a bump the host is not told about is exactly the bug this
-    // exists to prevent.
     // Which media (or crop) represents this person, if the gallery belongs to
-    // one. Read from the person rather than from the links: the portrait is a
-    // property of the person now, so there is one place to ask.
+    // one. Portrait assignment is stored on the person.
     let portrait_owner = match owner {
         MediaOwner::Person(id) => Some(id),
         MediaOwner::Family(_) | MediaOwner::Event(_) => None,
@@ -309,10 +334,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let portrait_media_id = portrait_pair.and_then(|(media, _)| media);
     let portrait_vignette_id = portrait_pair.and_then(|(_, vignette)| vignette);
 
-    // Crops of larger images that show this person. A face in a group
-    // photograph is one of their pictures as surely as a photograph of them
-    // alone is, and until now it appeared in no gallery at all — it existed
-    // only inside the scan it was drawn on.
+    // Include the person's identified regions alongside whole-file attachments.
     let vignettes = use_ui_resource("media_vignettes", {
         let api = api.clone();
         move || {
@@ -518,7 +540,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let gallery_vignettes = bundle
         .vignettes
         .into_iter()
-        .map(|item| (item.vignette_id, item.source))
+        .map(|item| (item.vignette_id, item.image))
         .collect::<std::collections::HashMap<_, _>>();
     let rendered_items = items
         .iter()
@@ -560,7 +582,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     key: "v{vignette.id}",
                     tree_id,
                     vignette: vignette.clone(),
-                    source: gallery_vignettes.get(&vignette.id).cloned(),
+                    image: gallery_vignettes.get(&vignette.id).cloned(),
                     person_id: portrait_owner,
                     is_portrait: portrait_vignette_id == Some(vignette.id),
                     on_view: move |tile| open_viewer.call(tile),
@@ -687,6 +709,14 @@ fn MediaTile(
     let kind_label = tile.kind_label();
     let caption = tile.caption().to_string();
     let pages = tile.media.page_count;
+    // A document holds no bytes of its own, so what the tile draws — and what
+    // it may therefore say about where the file lives, or offer as somebody's
+    // portrait — is decided by its pages, which is what the previews are.
+    let draws_a_picture = !document_previews.is_empty() || kind == MediaKind::Image;
+    let draws_remote = source == MediaSource::Remote
+        || document_previews
+            .iter()
+            .any(|preview| oxidgene_core::types::is_remote_url(preview));
 
     let has_event_link = !media_event_ids.is_empty();
     let linked_events: Vec<MediaEventLinkOption> = profile_event_links
@@ -900,8 +930,8 @@ fn MediaTile(
                     event_menu_offset.set(0);
                     menu_at.set(Some((point.x, point.y)));
                 },
-                if read_only && kind == MediaKind::Document && pages > 0 {
-                    DocumentMosaic { sources: document_previews.clone(), label: kind_label.clone() }
+                if !document_previews.is_empty() {
+                    DocumentMosaic { sources: document_previews.clone() }
                 } else if source == MediaSource::Stored && tile.media.thumbnail_key.is_some() {
                     BundledThumbnail { source: thumbnail_source.clone(), alt: caption.clone() }
                 } else if let Some(preview) = remote_preview.clone() {
@@ -914,7 +944,7 @@ fn MediaTile(
                         span { class: "media-kind", "{kind_label}" }
                     }
                 }
-                if source == MediaSource::Remote {
+                if draws_remote {
                     span { class: "media-remote", title: i18n.t("media.source_remote"), "\u{1F517}" }
                 }
                 if is_portrait {
@@ -928,7 +958,7 @@ fn MediaTile(
                 div {
                     class: "media-tile-actions",
                     onclick: move |e| e.stop_propagation(),
-                    if !read_only && show_profile && kind == MediaKind::Image {
+                    if !read_only && show_profile && draws_a_picture {
                         button {
                             class: if is_portrait { "media-act is-on" } else { "media-act" },
                             r#type: "button",
@@ -1074,7 +1104,11 @@ fn MediaTile(
                             }
                         }
                     } else {
-                        if show_profile {
+                        // Offered for anything that draws a picture, and for
+                        // whatever is already the portrait so a bad choice can
+                        // be taken back. A PDF cannot represent somebody: the
+                        // card would draw the silhouette anyway.
+                        if show_profile && (draws_a_picture || is_profile) {
                             button {
                                 class: "context-menu-item",
                                 r#type: "button",
@@ -1158,7 +1192,7 @@ fn MediaTile(
 fn VignetteTile(
     tree_id: Uuid,
     vignette: Vignette,
-    source: Option<String>,
+    image: Option<CroppedSource>,
     person_id: Option<Uuid>,
     is_portrait: bool,
     on_view: EventHandler<MediaWithLink>,
@@ -1251,7 +1285,7 @@ fn VignetteTile(
                     menu_at.set(Some((point.x, point.y)));
                 },
                 BundledVignetteImage {
-                    source: source.clone(),
+                    image: image.clone(),
                     alt: caption.clone(),
                 }
                 if is_portrait {
@@ -1343,7 +1377,14 @@ fn MediaEditPanel(
     tree_id: Uuid,
     tile: MediaWithLink,
     events: Vec<(Uuid, String)>,
-    #[props(default)] page_note_media_id: Option<Uuid>,
+    /// The page on screen, when the panel is opened from the viewer.
+    ///
+    /// The document row carries the description; the page carries the file —
+    /// its bytes, or the URL somebody else serves. Editing the address of a
+    /// remote medium therefore writes the page, not the document, which holds
+    /// no address to correct.
+    #[props(default)]
+    page: Option<oxidgene_core::types::Media>,
     #[props(default)] page_number: Option<usize>,
     /// Rendered inside the viewer's own frame, which already names the file
     /// and offers a way out — so the panel's head would be a second title and
@@ -1357,10 +1398,16 @@ fn MediaEditPanel(
     let api = use_context::<ApiClient>();
 
     let media_id = tile.media.id;
-    let source = tile.source();
+    // The row whose file this panel describes: the page on screen, or the
+    // media itself when there is no document underneath it.
+    let file_media = page.clone().unwrap_or_else(|| tile.media.clone());
+    let page_note_media_id = page.as_ref().map(|page| page.id);
+    let file_media_id = file_media.id;
+    let source = crate::api::media_source(&file_media);
+    let stored_url = file_media.file_path.clone();
     let mut title = use_signal(|| tile.media.title.clone().unwrap_or_default());
     let mut description = use_signal(|| tile.media.description.clone().unwrap_or_default());
-    let mut url = use_signal(|| tile.media.file_path.clone());
+    let mut url = use_signal(|| stored_url.clone());
     let place_id = use_signal(|| {
         tile.media
             .place_id
@@ -1526,9 +1573,18 @@ fn MediaEditPanel(
             let existing_note = note_id();
             let existing_page_note = page_note_id();
             let resolved = date_parts().resolved();
+            let previous_url = stored_url.clone();
             spawn(async move {
                 saving.set(true);
                 error.set(None);
+                // Only a media whose bytes we do not hold owns its path, and
+                // only the row that names a file has one at all. Sent when it
+                // actually changed, so re-saving a description does not
+                // repoint anything.
+                let repoint = (source != MediaSource::Stored
+                    && !url_value.is_empty()
+                    && url_value != previous_url)
+                    .then_some(url_value);
                 // An emptied field clears the column rather than storing "",
                 // so "no title" is one state in the database, not two.
                 let body = UpdateMediaBody {
@@ -1539,17 +1595,35 @@ fn MediaEditPanel(
                     date_qualifier: Some(resolved.qualifier),
                     calendar: Some(resolved.calendar),
                     place_id: Some(place_value),
-                    // Only a media whose bytes we do not hold owns its path;
-                    // the server refuses the field for a stored one, so it is
-                    // not even sent.
-                    file_path: (source != MediaSource::Stored && !url_value.is_empty())
-                        .then_some(url_value),
+                    file_path: (file_media_id == media_id)
+                        .then_some(repoint.clone())
+                        .flatten(),
                     mime_type: None,
+                    // Measured by whoever draws the picture, never typed here.
+                    width: None,
+                    height: None,
                     privacy: Some(privacy_value),
                     source_media_type: Some(medium_value),
                     document_category: Some(category_value),
                 };
-                let outcome = api.update_media(tree_id, media_id, &body).await;
+                let mut outcome = api.update_media(tree_id, media_id, &body).await;
+                // The URL lives on the page, which is a different row from the
+                // document this panel otherwise describes.
+                if outcome.is_ok()
+                    && file_media_id != media_id
+                    && let Some(url_value) = repoint
+                {
+                    outcome = api
+                        .update_media(
+                            tree_id,
+                            file_media_id,
+                            &UpdateMediaBody {
+                                file_path: Some(url_value),
+                                ..UpdateMediaBody::default()
+                            },
+                        )
+                        .await;
+                }
 
                 let note_outcome =
                     save_media_note(&api, tree_id, media_id, existing_note, note_value)
@@ -1616,10 +1690,18 @@ fn MediaEditPanel(
         }
     });
 
-    let dimensions = match (tile.media.width, tile.media.height) {
+    // The technical facts belong to the file, so they are read from the row
+    // that holds it. A document is a description, not a file: reading its own
+    // columns reports no format, no size and no dimensions for a scan that
+    // has all three.
+    let dimensions = match (file_media.width, file_media.height) {
         (Some(w), Some(h)) => Some(format!("{w} × {h}")),
         _ => None,
     };
+    let file_size = file_media.file_size;
+    let file_kind_label = crate::api::media_kind_label(&file_media.mime_type);
+    // Only a page names a file, and only a file has an address to correct.
+    let editable_url = source != MediaSource::Stored && !file_media.is_document();
 
     rsx! {
         div { class: if embedded { "media-panel is-embedded" } else { "media-panel" },
@@ -1629,6 +1711,7 @@ fn MediaEditPanel(
                     button {
                         class: "cropper-close",
                         r#type: "button",
+                        aria_label: i18n.t("common.close"),
                         onclick: move |_| on_close.call(()),
                         "\u{00D7}"
                     }
@@ -1636,7 +1719,7 @@ fn MediaEditPanel(
             }
 
             div { class: "media-panel-meta",
-                span { "{tile.kind_label()}" }
+                span { "{file_kind_label}" }
                 span {
                     {match source {
                         MediaSource::Stored => i18n.t("media.source_stored"),
@@ -1647,8 +1730,8 @@ fn MediaEditPanel(
                 if let Some(dimensions) = dimensions {
                     span { "{dimensions}" }
                 }
-                if tile.media.file_size > 0 {
-                    span { {format_size(tile.media.file_size)} }
+                if file_size > 0 {
+                    span { {format_size(file_size)} }
                 }
                 if tile.media.page_count > 1 {
                     span {
@@ -1663,7 +1746,7 @@ fn MediaEditPanel(
             // Only a media we do not store owns its path. For a stored one the
             // path is the GEDCOM value an export writes back, and repointing it
             // would make the export describe a file we are not serving.
-            if source != MediaSource::Stored {
+            if editable_url {
                 div { class: "form-group",
                     label { {i18n.t("media.url")} }
                     input {
@@ -1904,7 +1987,7 @@ fn MediaEditPanel(
 /// The page strip of a multi-page document, with its own upload cell.
 ///
 /// Pages are ordinary media rows — they have bytes, thumbnails and crops — so
-/// this shows them, lets them be moved and lets them be detached, and nothing
+/// this shows them, lets them be moved and deleted, and nothing
 /// here duplicates the upload or thumbnail machinery.
 #[component]
 fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>) -> Element {
@@ -1912,8 +1995,8 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
     let api = use_context::<ApiClient>();
     let mut revision = use_signal(|| 0_u32);
     let mut error = use_signal(|| None::<String>);
-    let mut pending_detach = use_signal(|| None::<Uuid>);
-    let mut detaching = use_signal(|| false);
+    let mut pending_delete = use_signal(|| None::<Uuid>);
+    let mut deleting = use_signal(|| false);
 
     let pages = use_ui_resource("document_pages", {
         let api = api.clone();
@@ -1955,25 +2038,25 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
         }
     });
 
-    let detach = use_callback({
+    let delete = use_callback({
         let api = api.clone();
         move |()| {
-            let Some(page_id) = pending_detach() else {
+            let Some(page_id) = pending_delete() else {
                 return;
             };
             let api = api.clone();
             spawn(async move {
-                detaching.set(true);
+                deleting.set(true);
                 error.set(None);
-                match api.detach_media_page(tree_id, document_id, page_id).await {
+                match api.delete_media_page(tree_id, document_id, page_id).await {
                     Ok(_) => {
-                        pending_detach.set(None);
+                        pending_delete.set(None);
                         revision += 1;
                         on_changed.call(());
                     }
                     Err(e) => error.set(Some(e.to_string())),
                 }
-                detaching.set(false);
+                deleting.set(false);
             });
         }
     });
@@ -1986,6 +2069,11 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                 {
                     let page_id = page.id;
                     let has_thumbnail = page.thumbnail_key.is_some();
+                    // A page we never received has its own address, and the
+                    // browser draws it as readily as one of ours.
+                    let remote = (crate::api::media_source(page) == MediaSource::Remote
+                        && crate::api::media_kind(&page.mime_type) == MediaKind::Image)
+                        .then(|| page.file_path.trim().to_string());
                     let name = page.file_name.clone();
                     rsx! {
                         div { key: "{page_id}", class: "doc-page",
@@ -1993,6 +2081,8 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                             div { class: "doc-page-thumb",
                                 if has_thumbnail {
                                     PrivateThumbnail { tree_id, media_id: page_id, alt: name }
+                                } else if let Some(remote) = remote {
+                                    img { src: "{remote}", alt: "{name}", loading: "lazy" }
                                 } else {
                                     span { class: "media-glyph", "\u{1F4C4}" }
                                 }
@@ -2017,8 +2107,8 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                                 button {
                                     class: "pf-row-btn is-danger",
                                     r#type: "button",
-                                    title: i18n.t("media.page_detach"),
-                                    onclick: move |_| pending_detach.set(Some(page_id)),
+                                    title: i18n.t("media.page_delete"),
+                                    onclick: move |_| pending_delete.set(Some(page_id)),
                                     "\u{2715}"
                                 }
                             }
@@ -2041,17 +2131,17 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
         if let Some(err) = error() {
             div { class: "error-msg", "{err}" }
         }
-        if pending_detach().is_some() {
+        if pending_delete().is_some() {
             ConfirmDialog {
-                title: i18n.t("media.page_detach_title"),
-                message: i18n.t("media.page_detach_message"),
-                confirm_label: i18n.t("media.page_detach"),
-                busy: detaching(),
+                title: i18n.t("media.page_delete_title"),
+                message: i18n.t("media.page_delete_message"),
+                confirm_label: i18n.t("media.page_delete"),
+                busy: deleting(),
                 error: error(),
-                on_confirm: move |()| detach.call(()),
+                on_confirm: move |()| delete.call(()),
                 on_cancel: move |()| {
                     error.set(None);
-                    pending_detach.set(None);
+                    pending_delete.set(None);
                 },
             }
         }
@@ -2087,7 +2177,9 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
 fn MediaFacts(
     tree_id: Uuid,
     media: oxidgene_core::types::Media,
-    page_note_media_id: Option<Uuid>,
+    /// The page on screen, when the media above it is a document. Its own
+    /// transcript, and the technical facts of the file being read.
+    page: Option<oxidgene_core::types::Media>,
     page_number: Option<usize>,
     displayed_media_id: Uuid,
     document_media_id: Option<Uuid>,
@@ -2103,6 +2195,8 @@ fn MediaFacts(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let media_id = media.id;
+    let file_media = page.clone().unwrap_or_else(|| media.clone());
+    let page_note_media_id = page.as_ref().map(|page| page.id);
     let notes = use_ui_resource("viewer_notes", {
         let api = api.clone();
         move || {
@@ -2232,6 +2326,9 @@ fn MediaFacts(
                 displayed_media_id,
                 document_media_id,
                 page_number,
+                // Every crop listed is on this page, so it is what says
+                // whether they can be cut for us or have to be cut here.
+                source_media: file_media.clone(),
                 vignettes,
                 person_names,
                 on_attachments_changed: on_changed,
@@ -2251,26 +2348,20 @@ fn MediaFacts(
             // The technical facts last, and quietly: they answer "is this the
             // good scan or the phone snapshot", which is a real question, but
             // not the one the reader came with.
+            //
+            // Read from the page, never from the document above it: a document
+            // holds no bytes, so its own columns would answer this question
+            // with no format, no size and no dimensions.
             div { class: "media-fact-tech",
-                span {
-                    {
-                        media
-                            .mime_type
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or("file")
-                            .trim_start_matches("x-")
-                            .split('+')
-                            .next()
-                            .unwrap_or("file")
-                            .to_uppercase()
-                    }
-                }
-                if let (Some(w), Some(h)) = (media.width, media.height) {
+                span { {crate::api::media_kind_label(&file_media.mime_type)} }
+                if let (Some(w), Some(h)) = (file_media.width, file_media.height) {
                     span { "{w} \u{00D7} {h}" }
                 }
-                if media.file_size > 0 {
-                    span { {format_size(media.file_size)} }
+                if file_media.file_size > 0 {
+                    span { {format_size(file_media.file_size)} }
+                }
+                if crate::api::media_source(&file_media) == MediaSource::Remote {
+                    span { title: "{file_media.file_path}", {i18n.t("media.source_remote")} }
                 }
             }
         }
@@ -2294,7 +2385,7 @@ enum MediaRelation {
         thumbnail_media_id: Uuid,
     },
     Identification {
-        vignette_id: Uuid,
+        vignette: Vignette,
         name: Option<String>,
     },
 }
@@ -2305,24 +2396,30 @@ fn has_person_identification(vignettes: &[Vignette], person_id: Uuid) -> bool {
         .any(|vignette| vignette.person_id == Some(person_id))
 }
 
+/// Five-item pages remain aligned after removing the final item of a page.
+fn relation_page_range(page: usize, total: usize) -> std::ops::Range<usize> {
+    let start = page.min(total.saturating_sub(1) / 5) * 5;
+    start..start.saturating_add(5).min(total)
+}
+
 #[component]
 fn MediaRelations(
     tree_id: Uuid,
     displayed_media_id: Uuid,
     document_media_id: Option<Uuid>,
     page_number: Option<usize>,
+    /// The page every listed crop is a region of.
+    source_media: oxidgene_core::types::Media,
     vignettes: Vec<Vignette>,
     person_names: Vec<PersonName>,
     on_attachments_changed: EventHandler<()>,
     on_identifications_changed: EventHandler<()>,
     on_identification_hover: EventHandler<Option<Uuid>>,
 ) -> Element {
-    const ROWS_PER_PAGE: usize = 5;
-
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut revision = use_signal(|| 0_u32);
-    let mut relation_offset = use_signal(|| 0_usize);
+    let mut relation_page = use_signal(|| 0_usize);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let data = use_ui_resource("media_content", {
@@ -2435,23 +2532,29 @@ fn MediaRelations(
             .iter()
             .filter(|vignette| vignette.person_id.is_some())
             .map(|vignette| MediaRelation::Identification {
-                vignette_id: vignette.id,
+                vignette: vignette.clone(),
                 name: vignette
                     .person_id
                     .and_then(|person_id| primary_person_name(&person_names, person_id)),
             }),
     );
 
-    if relations.is_empty() {
-        return rsx! {};
-    }
-
-    let max_relation_offset = relations.len().saturating_sub(ROWS_PER_PAGE);
-    let current_relation_offset = relation_offset().min(max_relation_offset);
+    let relation_count = relations.len();
+    let range = relation_page_range(relation_page(), relation_count);
+    let current_relation_page = range.start / 5;
+    let has_next = range.end < relation_count;
+    let range_label = i18n.t_args(
+        "media.relations_range",
+        &[
+            ("first", &(range.start + 1).to_string()),
+            ("last", &range.end.to_string()),
+            ("total", &relation_count.to_string()),
+        ],
+    );
     let visible_relations = relations
         .into_iter()
-        .skip(current_relation_offset)
-        .take(ROWS_PER_PAGE)
+        .skip(range.start)
+        .take(range.len())
         .collect::<Vec<_>>();
 
     let delete_attachment = use_callback({
@@ -2489,10 +2592,14 @@ fn MediaRelations(
         }
     });
 
+    if relation_count == 0 {
+        return rsx! {};
+    }
+
     rsx! {
         div { class: "form-group media-fact is-relations",
             label { {i18n.t("media.relations")} }
-            div { class: "media-relations",
+            div { class: if relation_count > 5 { "media-relations is-paged" } else { "media-relations" },
                 div { class: "media-relation-list",
                     for relation in visible_relations {
                         match relation {
@@ -2516,6 +2623,7 @@ fn MediaRelations(
                                             person_id: person_id.to_string(),
                                         },
                                         class: "media-identification-person",
+                                        title: "{name}",
                                         "{name}"
                                     }
                                     if document_media_id.is_some() {
@@ -2534,6 +2642,7 @@ fn MediaRelations(
                                         r#type: "button",
                                         disabled: busy(),
                                         title: i18n.t("media.delete_attachment"),
+                                        aria_label: i18n.t("media.delete_attachment"),
                                         onclick: move |_| delete_attachment.call(link_id),
                                         "\u{00D7}"
                                     }
@@ -2553,7 +2662,7 @@ fn MediaRelations(
                                         alt: String::new(),
                                         class: "media-vignette-thumbnail",
                                     }
-                                    span { class: "media-attachment-couple", "{label}" }
+                                    span { class: "media-attachment-couple", title: "{label}", "{label}" }
                                     if document_media_id.is_some() {
                                         span { class: "media-relation-scope",
                                             {match scope {
@@ -2570,27 +2679,33 @@ fn MediaRelations(
                                         r#type: "button",
                                         disabled: busy(),
                                         title: i18n.t("media.delete_attachment"),
+                                        aria_label: i18n.t("media.delete_attachment"),
                                         onclick: move |_| delete_attachment.call(link_id),
                                         "\u{00D7}"
                                     }
                                 }
                             },
-                            MediaRelation::Identification { vignette_id, name } => rsx! {
+                            MediaRelation::Identification { vignette, name } => {
+                              let vignette_id = vignette.id;
+                              rsx! {
                                 div {
                                     key: "vignette-{vignette_id}",
                                     class: "media-identification",
                                     onpointerenter: move |_| on_identification_hover.call(Some(vignette_id)),
                                     onpointerleave: move |_| on_identification_hover.call(None),
+                                    onfocusin: move |_| on_identification_hover.call(Some(vignette_id)),
+                                    onfocusout: move |_| on_identification_hover.call(None),
                                     div { class: "media-vignette-item",
                                         div { class: "media-identification-target",
                                             PrivateVignetteImage {
                                                 tree_id,
-                                                vignette_id,
+                                                vignette: vignette.clone(),
+                                                page: Some(source_media.clone()),
                                                 alt: String::new(),
                                                 class: "media-vignette-thumbnail",
                                             }
                                             if let Some(name) = name.as_ref() {
-                                                span { class: "media-identification-person", "{name}" }
+                                                span { class: "media-identification-person", title: "{name}", "{name}" }
                                             }
                                             if document_media_id.is_some() {
                                                 span { class: "media-relation-scope",
@@ -2607,46 +2722,49 @@ fn MediaRelations(
                                                 r#type: "button",
                                                 disabled: busy(),
                                                 title: i18n.t("media.delete_identification"),
+                                                aria_label: i18n.t("media.delete_identification"),
                                                 onclick: move |_| delete_identification.call(vignette_id),
                                                 "\u{00D7}"
                                             }
                                         }
                                     }
                                 }
+                              }
                             },
                         }
                     }
                 }
-                if max_relation_offset > 0 {
-                    div { class: "media-relation-pager",
+                if relation_count > 5 {
+                    nav { class: "media-relation-pager", aria_label: i18n.t("media.relations"),
                         button {
-                            class: "media-relation-page-button",
+                            class: "media-pager-btn",
                             r#type: "button",
-                            disabled: current_relation_offset == 0,
+                            disabled: current_relation_page == 0,
                             title: i18n.t("media.previous_relations"),
                             aria_label: i18n.t("media.previous_relations"),
-                            onclick: move |_| relation_offset.set(current_relation_offset.saturating_sub(1)),
+                            onclick: move |_| relation_page.set(current_relation_page.saturating_sub(1)),
                             svg {
                                 width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
                                 stroke: "currentColor", "strokeWidth": "2",
                                 "strokeLinecap": "round", "strokeLinejoin": "round",
-                                path { d: "m18 15-6-6-6 6" }
+                                "aria-hidden": "true",
+                                path { d: "m15 18-6-6 6-6" }
                             }
                         }
+                        span { class: "media-relation-count", role: "status", "{range_label}" }
                         button {
-                            class: "media-relation-page-button",
+                            class: "media-pager-btn",
                             r#type: "button",
-                            disabled: current_relation_offset >= max_relation_offset,
+                            disabled: !has_next,
                             title: i18n.t("media.next_relations"),
                             aria_label: i18n.t("media.next_relations"),
-                            onclick: move |_| relation_offset.set(
-                                (current_relation_offset + 1).min(max_relation_offset),
-                            ),
+                            onclick: move |_| relation_page.set(current_relation_page + 1),
                             svg {
                                 width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
                                 stroke: "currentColor", "strokeWidth": "2",
                                 "strokeLinecap": "round", "strokeLinejoin": "round",
-                                path { d: "m6 9 6 6 6-6" }
+                                "aria-hidden": "true",
+                                path { d: "m9 18 6-6-6-6" }
                             }
                         }
                     }
@@ -2999,9 +3117,8 @@ fn MediaViewer(
     let mut current_tile = tile.clone();
     current_tile.media = current_media.clone();
 
-    let source = current_tile.source();
     let caption = current_tile.caption().to_string();
-    let is_document = current_tile.media.is_document;
+    let is_document = current_tile.media.is_document();
     let mut page = use_signal(|| initial_page);
     let mut page_revision = use_signal(|| 0_u32);
     // Zoom as a percentage of the fitted size; `None` is exactly fitted. This
@@ -3167,7 +3284,7 @@ fn MediaViewer(
         _ => Vec::new(),
     };
     let total_pages = page_list.len();
-    // Clamp rather than trust the signal: detaching a page while the viewer is
+    // Clamp rather than trust the signal: deleting a page while the viewer is
     // open would otherwise leave it pointing past the end.
     let current = page().min(total_pages.saturating_sub(1));
     let shown = page_list.get(current);
@@ -3184,6 +3301,10 @@ fn MediaViewer(
         .map(|media| (media.width, media.height))
         .unwrap_or((current_media.width, current_media.height));
     let content_media = shown.cloned().unwrap_or_else(|| current_media.clone());
+    // Where the bytes on screen actually are. A document is always "unheld" —
+    // it holds nothing — so asking the tile would answer about the shell and
+    // say "file absent" over a photograph the reader is looking at.
+    let content_source = crate::api::media_source(&content_media);
     // A document's visible image changes with its page. Keep that id reactive
     // so the regions in both the facts column and the image follow it.
     let mut vignette_media_id = use_signal(|| content_media_id);
@@ -3191,11 +3312,10 @@ fn MediaViewer(
     if *vignette_media_id.peek() != content_media_id {
         vignette_media_id.set(content_media_id);
     }
-    let requested_asset_id = match (shown, source) {
-        (Some(page), _) => Some(page.id),
-        (None, MediaSource::Stored) => Some(current_tile.media.id),
-        _ => None,
-    };
+    // Only a media we hold has an asset to fetch. A remote one is rendered
+    // straight from its URL, and asking the server for bytes it never stored
+    // is a request that can only 404.
+    let requested_asset_id = (content_source == MediaSource::Stored).then_some(content_media.id);
     let mut asset_media_id = use_signal(|| requested_asset_id);
     if *asset_media_id.peek() != requested_asset_id {
         asset_media_id.set(requested_asset_id);
@@ -3213,8 +3333,8 @@ fn MediaViewer(
             }
         }
     });
-    let url = match source {
-        MediaSource::Remote if shown.is_none() => Some(current_tile.media.file_path.clone()),
+    let url = match content_source {
+        MediaSource::Remote => Some(content_media.file_path.trim().to_string()),
         _ => media_asset.read_unchecked().as_ref().and_then(Clone::clone),
     };
     let content_vignettes = use_ui_resource("content_vignettes", {
@@ -3460,6 +3580,7 @@ fn MediaViewer(
                     button {
                         class: "cropper-close",
                         r#type: "button",
+                        aria_label: i18n.t("common.close"),
                         onclick: move |_| on_close.call(()),
                         "\u{00D7}"
                     }
@@ -3476,11 +3597,15 @@ fn MediaViewer(
                             tree_id,
                             tile: current_tile.clone(),
                             events: events.clone(),
-                            page_note_media_id: shown.map(|page| page.id),
+                            page: shown.cloned(),
                             page_number: shown.map(|_| current + 1),
                             embedded: true,
                             on_changed: move |()| {
                                 media_revision += 1;
+                                // The panel may have repointed the page at
+                                // another URL, and the page list is what the
+                                // image on screen is read from.
+                                page_revision += 1;
                                 on_changed.call(());
                             },
                             on_close: move |()| editing.set(false),
@@ -3514,7 +3639,7 @@ fn MediaViewer(
                             key: "facts-{content_media_id}",
                             tree_id,
                             media: current_media.clone(),
-                            page_note_media_id: shown.map(|page| page.id),
+                            page: shown.cloned(),
                             page_number: shown.map(|_| current + 1),
                             displayed_media_id: content_media_id,
                             document_media_id: shown.map(|_| current_media.id),
@@ -3886,8 +4011,11 @@ fn MediaViewer(
                             div { class: "media-viewer-fallback",
                                 span { class: "media-glyph-large", {kind.icon()} }
                                 p { {i18n.t("media.no_file")} }
-                                if !tile.media.file_path.is_empty() {
-                                    code { class: "media-viewer-path", "{tile.media.file_path}" }
+                                // The path a record names without holding —
+                                // the page's, since that is the row that names
+                                // a file at all.
+                                if !content_media.file_path.is_empty() {
+                                    code { class: "media-viewer-path", "{content_media.file_path}" }
                                 }
                             }
                         },
@@ -3979,27 +4107,16 @@ fn MediaViewer(
                 }
 
                 div { class: "cropper-foot",
-                    if let Some(description) = tile.media.description.as_ref() {
-                        p { class: "media-viewer-desc", "{description}" }
-                    }
                     div { class: "cropper-actions",
-                        if let Some(url) = url.clone() {
+                        if let Some(download_source) = MediaDownloadSource::for_media(tree_id, &content_media) {
                             DownloadMediaButton {
-                                source: match source {
-                                    MediaSource::Remote if shown.is_none() => {
-                                        MediaDownloadSource::Remote(url)
-                                    }
-                                    _ => MediaDownloadSource::File {
-                                        tree_id,
-                                        media_id: content_media_id,
-                                    },
-                                },
-                                // The page's own name when looking at a page,
-                                // and either way one the file system can open:
-                                // a Geneanet deposit is titled, not named.
-                                file_name: match shown {
-                                    Some(page) => download_name(&page.file_name, &page.mime_type),
-                                    None => download_name(&tile.media.file_name, &tile.media.mime_type),
+                                key: "download-{content_media_id}",
+                                source: download_source,
+                                file_name: download_name(&content_media.file_name, &content_media.mime_type),
+                                label: if total_pages > 1 {
+                                    i18n.t_args("media.download_page", &[("page", &(current + 1).to_string())])
+                                } else {
+                                    i18n.t("media.download_file")
                                 },
                             }
                         }
@@ -4032,6 +4149,10 @@ fn MediaViewer(
                     on_complete: move |_| {
                         identifying.set(false);
                         vignette_revision += 1;
+                        // Identifying somebody on a picture we do not hold
+                        // records its pixel size, and every crop drawn on it
+                        // is placed against that size.
+                        page_revision += 1;
                     },
                 }
             }
@@ -4053,7 +4174,7 @@ fn MediaViewer(
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum MediaDownloadSource {
     File { tree_id: Uuid, media_id: Uuid },
     Archive { tree_id: Uuid, media_id: Uuid },
@@ -4061,40 +4182,36 @@ enum MediaDownloadSource {
 }
 
 impl MediaDownloadSource {
-    async fn load(&self, api: &ApiClient) -> Result<Vec<u8>, crate::api::ApiError> {
+    /// Availability depends on the file record, never on preview decoding.
+    fn for_media(tree_id: Uuid, media: &oxidgene_core::types::Media) -> Option<Self> {
+        if media.is_document() {
+            None
+        } else if media.storage_key.is_some() {
+            Some(Self::File {
+                tree_id,
+                media_id: media.id,
+            })
+        } else if oxidgene_core::types::is_remote_url(&media.file_path) {
+            Some(Self::Remote(media.file_path.trim().to_string()))
+        } else {
+            None
+        }
+    }
+
+    fn path(&self) -> String {
         match self {
-            Self::File { tree_id, media_id } => api.media_file_bytes(*tree_id, *media_id).await,
+            Self::File { tree_id, media_id } => {
+                format!("/api/v1/trees/{tree_id}/media/{media_id}/download")
+            }
             Self::Archive { tree_id, media_id } => {
-                api.media_archive_bytes(*tree_id, *media_id).await
+                format!("/api/v1/trees/{tree_id}/media/{media_id}/archive")
             }
-            Self::Remote(url) => {
-                let response = reqwest::get(url).await?;
-                let status = response.status();
-                if !status.is_success() {
-                    return Err(crate::api::ApiError::Api {
-                        status: status.as_u16(),
-                        body: String::new(),
-                    });
-                }
-                Ok(response.bytes().await?.to_vec())
-            }
+            Self::Remote(url) => url.clone(),
         }
     }
 }
 
-/// The one download control, implemented per platform.
-///
-/// One button rather than two, because a reader looking at a photograph has
-/// exactly one intention and offering it twice under different names invites
-/// them to wonder what the difference is. There is none worth exposing — only
-/// two ways of achieving it:
-///
-///   - **Web**: an `<a download>`. The browser owns downloading, it knows
-///     where the user's downloads go, and duplicating that with our own dialog
-///     would be worse than none.
-///   - **Desktop**: the platform's save dialog. The embedded WebView has no
-///     download UI of its own, so a `download` attribute there does nothing at
-///     all — the link would look like a button and be inert.
+/// Save downloads through the shared client without buffering them in the UI.
 #[component]
 fn DownloadMediaButton(
     source: MediaDownloadSource,
@@ -4109,52 +4226,52 @@ fn DownloadMediaButton(
     let label = label.unwrap_or_else(|| i18n.t("media.download_file"));
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let icon = rsx! {
+        svg {
+            width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+            stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round",
+            "strokeLinejoin": "round", "aria-hidden": "true",
+            path { d: "M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4" }
+        }
+    };
 
     #[cfg(target_arch = "wasm32")]
     {
         let download = move |_| {
             let api = api.clone();
             let source = source.clone();
-            let file_name = file_name.clone();
+            let mut destination = crate::api::BrowserDownload::new(&file_name);
+            busy.set(true);
+            error.set(None);
             spawn(async move {
-                busy.set(true);
-                error.set(None);
-                match source.load(&api).await {
-                    Ok(bytes) => {
-                        let byte_array =
-                            serde_json::to_string(&bytes).unwrap_or_else(|_| "[]".to_string());
-                        let download_name = serde_json::to_string(&file_name)
-                            .unwrap_or_else(|_| "\"media\"".to_string());
-                        document::eval(&format!(
-                            r#"
-                            const bytes = new Uint8Array({byte_array});
-                            const blob = new Blob([bytes]);
-                            const url = URL.createObjectURL(blob);
-                            const anchor = document.createElement('a');
-                            anchor.href = url;
-                            anchor.download = {download_name};
-                            document.body.appendChild(anchor);
-                            anchor.click();
-                            anchor.remove();
-                            URL.revokeObjectURL(url);
-                            "#
-                        ));
+                match destination.ready().await {
+                    Ok(true) => {
+                        if api
+                            .download_in_browser(destination, &source.path())
+                            .await
+                            .is_err()
+                        {
+                            error.set(Some(i18n.t("media.download_failed")));
+                        }
                     }
-                    Err(err) => error.set(Some(err.to_string())),
+                    Ok(false) => {}
+                    Err(_) => error.set(Some(i18n.t("media.download_failed"))),
                 }
                 busy.set(false);
             });
         };
         rsx! {
             button {
-                class: "btn btn-outline",
+                class: "btn btn-outline media-download",
                 r#type: "button",
                 disabled: busy(),
                 onclick: download,
-                if busy() { {i18n.t("common.saving")} } else { {label} }
+                aria_busy: busy(),
+                {icon}
+                if busy() { {i18n.t("media.downloading")} } else { {label} }
             }
             if let Some(err) = error() {
-                div { class: "error-msg", "{err}" }
+                div { class: "error-msg", role: "alert", "{err}" }
             }
         }
     }
@@ -4183,13 +4300,10 @@ fn DownloadMediaButton(
                     busy.set(false);
                     return;
                 };
-                match source.load(&api).await {
-                    Ok(bytes) => {
-                        if let Err(err) = target.write(&bytes).await {
-                            error.set(Some(err.to_string()));
-                        }
-                    }
-                    Err(e) => error.set(Some(e.to_string())),
+                match api.download_to_file(&source.path(), target.path()).await {
+                    Ok(()) => {}
+                    Err(ApiError::Io(_)) => error.set(Some(i18n.t("media.save_failed"))),
+                    Err(_) => error.set(Some(i18n.t("media.download_failed"))),
                 }
                 busy.set(false);
             });
@@ -4197,14 +4311,16 @@ fn DownloadMediaButton(
 
         rsx! {
             button {
-                class: "btn btn-outline",
+                class: "btn btn-outline media-download",
                 r#type: "button",
                 disabled: busy(),
                 onclick: save,
-                if busy() { {i18n.t("common.saving")} } else { {label} }
+                aria_busy: busy(),
+                {icon}
+                if busy() { {i18n.t("media.downloading")} } else { {label} }
             }
             if let Some(err) = error() {
-                div { class: "error-msg", "{err}" }
+                div { class: "error-msg", role: "alert", "{err}" }
             }
         }
     }
@@ -4528,6 +4644,70 @@ fn format_size(bytes: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relation_pages_are_bounded_complete_and_never_repeat_rows() {
+        for total in 0_usize..100 {
+            let mut visited = Vec::new();
+            for page in 0..total.div_ceil(5) {
+                let range = relation_page_range(page, total);
+                assert!(range.len() <= 5);
+                visited.extend(range);
+            }
+            assert_eq!(visited, (0..total).collect::<Vec<_>>());
+        }
+        assert_eq!(relation_page_range(0, 0), 0..0);
+        assert_eq!(relation_page_range(1, 6), 5..6);
+        assert_eq!(relation_page_range(1, 5), 0..5);
+        assert_eq!(relation_page_range(usize::MAX, 12), 10..12);
+    }
+
+    #[test]
+    fn downloads_use_the_displayed_file_regardless_of_preview_support() {
+        let tree_id = Uuid::from_u128(1);
+        let media_id = Uuid::from_u128(2);
+        let document_id = Uuid::from_u128(3);
+        let mut media: oxidgene_core::types::Media = serde_json::from_value(serde_json::json!({
+            "id": media_id,
+            "tree_id": tree_id,
+            "parent_media_id": document_id,
+            "file_name": "sample",
+            "file_path": "sample",
+            "mime_type": "image/jpeg",
+            "storage_key": "sample-key",
+            "page_count": 1,
+            "file_size": 42,
+            "created_at": "2000-01-01T00:00:00Z",
+            "updated_at": "2000-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        for mime in [
+            "image/jpeg",
+            "application/pdf",
+            "video/mp4",
+            "audio/mpeg",
+            "application/octet-stream",
+        ] {
+            media.mime_type = mime.to_string();
+            assert_eq!(
+                MediaDownloadSource::for_media(tree_id, &media),
+                Some(MediaDownloadSource::File { tree_id, media_id })
+            );
+        }
+        media.storage_key = None;
+        assert_eq!(MediaDownloadSource::for_media(tree_id, &media), None);
+        media.file_path = "https://example.invalid/sample.pdf".to_string();
+        assert_eq!(
+            MediaDownloadSource::for_media(tree_id, &media),
+            Some(MediaDownloadSource::Remote(media.file_path.clone()))
+        );
+        media.parent_media_id = None;
+        assert_eq!(
+            MediaDownloadSource::for_media(tree_id, &media),
+            None,
+            "document containers are not individual files"
+        );
+    }
 
     #[test]
     fn an_identification_replaces_the_whole_photo_attachment_in_the_relation_list() {

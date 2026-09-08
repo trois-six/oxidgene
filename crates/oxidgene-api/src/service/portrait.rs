@@ -5,6 +5,7 @@ use std::sync::Arc;
 use base64::Engine as _;
 use futures_util::{StreamExt as _, stream};
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::types::{ImageCrop, is_remote_url};
 use oxidgene_db::repo::{PersonRepo, PortraitRow};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
@@ -20,6 +21,11 @@ const BLOB_READ_CONCURRENCY: usize = 8;
 pub struct PortraitImage {
     pub person_id: Uuid,
     pub source: String,
+    /// Set when `source` is a whole picture the client must crop itself — a
+    /// face identified on a photograph we do not hold, which we never fetch to
+    /// cut. Absent for every portrait that arrives already cut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop: Option<ImageCrop>,
 }
 
 /// Resolve locally-held and remote portraits for a bounded set of people.
@@ -61,6 +67,7 @@ async fn load_portrait_image(
     media: Arc<dyn MediaStore>,
     row: PortraitRow,
 ) -> Result<Option<PortraitImage>, OxidGeneError> {
+    let mut crop = None;
     let source = if let (Some(key), Some(rect)) = (row.storage_key.as_deref(), row.crop) {
         let bytes = media.get(key).await?;
         let cropped =
@@ -76,7 +83,15 @@ async fn load_portrait_image(
             "image/jpeg"
         };
         data_url(mime_type, &bytes)
-    } else if row.file_path.starts_with("http://") || row.file_path.starts_with("https://") {
+    } else if is_remote_url(&row.file_path) {
+        // A face identified on a photograph we do not hold. We never fetch it
+        // to cut the face out, so the whole picture travels with the rectangle
+        // to take out of it and the client does the cutting. Where nobody has
+        // measured the picture yet there is no scale to cut at, and the whole
+        // photograph stands as the portrait.
+        if let Some(rect) = row.crop {
+            crop = ImageCrop::new(rect, row.source_size);
+        }
         row.file_path
     } else {
         return Ok(None);
@@ -85,6 +100,7 @@ async fn load_portrait_image(
     Ok(Some(PortraitImage {
         person_id: row.person_id,
         source,
+        crop,
     }))
 }
 

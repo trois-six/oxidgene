@@ -13,8 +13,8 @@ use uuid::Uuid;
 
 use crate::entities::media::{self, ActiveModel, Column, Entity};
 use crate::entities::{media_link, media_tag, note, person, vignette};
-use crate::repo::MediaTagRepo;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::{MediaTagRepo, PlaceRepo, VignetteRepo};
 
 /// A file whose bytes are already in the media store, ready to be recorded.
 #[derive(Debug, Clone)]
@@ -65,6 +65,14 @@ pub struct MediaPatch {
     /// hold — a remote URL, or a GEDCOM record naming a file nobody uploaded.
     pub file_path: Option<String>,
     pub mime_type: Option<String>,
+    /// The image's pixel size, as `(width, height)`.
+    ///
+    /// One field rather than two, because half a size is not a size. Only ever
+    /// set for a page whose bytes we do not hold: for our own copy the size is
+    /// decoded from the bytes, and a client's claim about it would be a second
+    /// answer that can disagree. For a remote page the client is the only
+    /// witness there is — it is the one that loaded the picture.
+    pub dimensions: Option<(i32, i32)>,
     pub privacy: Option<oxidgene_core::enums::Privacy>,
     pub source_media_type: Option<oxidgene_core::enums::SourceMediaType>,
     pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
@@ -161,11 +169,14 @@ impl MediaRepo {
     /// This is the GEDCOM-import and metadata-only path: `file_path` is
     /// whatever the source said, and `storage_key` stays null until the file
     /// itself arrives. Use [`MediaRepo::create_uploaded`] when there are bytes.
+    ///
+    /// `parent_media_id` must name a live document in the same tree.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
+        parent_media_id: Option<Uuid>,
         file_name: String,
         mime_type: String,
         file_path: String,
@@ -173,6 +184,8 @@ impl MediaRepo {
         title: Option<String>,
         description: Option<String>,
     ) -> Result<Media, OxidGeneError> {
+        let document_id = page_document(db, tree_id, parent_media_id).await?;
+        let page_index = Self::list_pages(db, document_id).await?.len() as i32;
         let now = Utc::now();
         let model = media::ActiveModel {
             id: Set(id),
@@ -186,9 +199,8 @@ impl MediaRepo {
             width: Set(None),
             height: Set(None),
             page_count: Set(1),
-            parent_media_id: Set(None),
-            page_index: Set(0),
-            is_document: Set(false),
+            parent_media_id: Set(parent_media_id),
+            page_index: Set(page_index),
             file_size: Set(file_size),
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
@@ -209,19 +221,20 @@ impl MediaRepo {
             .insert(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Self::refresh_page_count(db, document_id).await?;
         Ok(into_domain(result))
     }
 
-    /// Everything a media row records about a file whose bytes we hold.
-    ///
-    /// Grouped into a struct because passing eleven positional arguments —
-    /// four of them `Option<i32>` — is a call site nobody can read.
+    /// Record uploaded bytes as a page of a live document in the same tree.
     pub async fn create_uploaded(
         db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
+        parent_media_id: Option<Uuid>,
         upload: UploadedMedia,
     ) -> Result<Media, OxidGeneError> {
+        let document_id = page_document(db, tree_id, parent_media_id).await?;
+        let page_index = Self::list_pages(db, document_id).await?.len() as i32;
         let model = media::ActiveModel {
             id: Set(id),
             tree_id: Set(tree_id),
@@ -236,9 +249,8 @@ impl MediaRepo {
             width: Set(upload.width),
             height: Set(upload.height),
             page_count: Set(upload.page_count),
-            parent_media_id: Set(None),
-            page_index: Set(0),
-            is_document: Set(false),
+            parent_media_id: Set(parent_media_id),
+            page_index: Set(page_index),
             file_size: Set(upload.file_size),
             privacy: Set(upload.metadata.privacy.into()),
             source_media_type: Set(upload.metadata.source_media_type.into()),
@@ -262,10 +274,11 @@ impl MediaRepo {
             .insert(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Self::refresh_page_count(db, document_id).await?;
         Ok(into_domain(result))
     }
 
-    /// Attach stored bytes to a record that had none.
+    /// Attach or replace a page's bytes without invalidating its crops.
     ///
     /// The path a GEDCOM import left in `file_path` is kept: it is what the
     /// export has to write back, and now it also documents where the file came
@@ -284,6 +297,14 @@ impl MediaRepo {
                 entity: "Media",
                 id,
             })?;
+
+        page_document(db, existing.tree_id, existing.parent_media_id).await?;
+        let mut page = into_domain(existing.clone());
+        page.width = upload.width;
+        page.height = upload.height;
+        for crop in VignetteRepo::list_for_media(db, id).await? {
+            page.validate_crop(crop.x, crop.y, crop.width, crop.height)?;
+        }
 
         let mut active: ActiveModel = existing.into_active_model();
         active.mime_type = Set(upload.mime_type);
@@ -328,7 +349,7 @@ impl MediaRepo {
             // Not a real MIME type of anything — the document has no bytes.
             // It names what the row is so a client branching on `mime_type`
             // alone does not mistake it for an image it can render.
-            mime_type: Set("application/x-oxidgene-document".to_string()),
+            mime_type: Set(oxidgene_core::types::DOCUMENT_MIME.to_string()),
             file_path: Set(name),
             storage_key: Set(None),
             sha256: Set(None),
@@ -338,7 +359,6 @@ impl MediaRepo {
             page_count: Set(0),
             parent_media_id: Set(None),
             page_index: Set(0),
-            is_document: Set(true),
             file_size: Set(0),
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             source_media_type: Set(oxidgene_core::enums::SourceMediaType::default().into()),
@@ -400,154 +420,22 @@ impl MediaRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
-    /// Make an uploaded media the next page of a document.
-    ///
-    /// Appends: the page index is the count of pages already there, so pages
-    /// arrive in upload order without the caller tracking a counter.
-    pub async fn append_page(
-        db: &impl ConnectionTrait,
-        document_id: Uuid,
-        media_id: Uuid,
-    ) -> Result<Media, OxidGeneError> {
-        let document = Self::get(db, document_id).await?;
-        if !document.is_document {
-            return Err(OxidGeneError::Validation(
-                "that media is not a multi-page document".into(),
-            ));
-        }
-        if media_id == document_id {
-            return Err(OxidGeneError::Validation(
-                "a document cannot be a page of itself".into(),
-            ));
-        }
-        let existing = Self::list_pages(db, document_id).await?;
-
-        let page = Entity::find_by_id(media_id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id: media_id,
-            })?;
-        // One level only. A document holding documents is a shape nothing in
-        // the viewer or the exporter knows how to walk.
-        if page.is_document {
-            return Err(OxidGeneError::Validation(
-                "a document cannot be a page of another document".into(),
-            ));
-        }
-
-        let mut active: ActiveModel = page.into_active_model();
-        active.parent_media_id = Set(Some(document_id));
-        active.page_index = Set(existing.len() as i32);
-        active.updated_at = Set(Utc::now());
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-        Self::refresh_page_count(db, document_id).await?;
-        Ok(into_domain(result))
-    }
-
-    /// Append several uploaded media to a document in the supplied order.
-    pub async fn append_pages(
-        db: &impl ConnectionTrait,
-        document_id: Uuid,
-        media_ids: &[Uuid],
-    ) -> Result<(), OxidGeneError> {
-        if media_ids.is_empty() {
-            return Ok(());
-        }
-
-        let document = Entity::find_by_id(document_id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id: document_id,
-            })?;
-        if !document.is_document {
-            return Err(OxidGeneError::Validation(
-                "that media is not a multi-page document".into(),
-            ));
-        }
-
-        let existing = Self::list_pages(db, document_id).await?;
-        let pages = Entity::find()
-            .filter(Column::Id.is_in(media_ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        let page_by_id: HashMap<Uuid, media::Model> =
-            pages.into_iter().map(|page| (page.id, page)).collect();
-        if page_by_id.len() != media_ids.len() {
-            return Err(OxidGeneError::Validation(
-                "every document page must be a distinct existing media".into(),
-            ));
-        }
-        if media_ids.iter().any(|id| {
-            page_by_id
-                .get(id)
-                .is_none_or(|page| page.is_document || page.tree_id != document.tree_id)
-        }) {
-            return Err(OxidGeneError::Validation(
-                "a document page must be a non-document media in the same tree".into(),
-            ));
-        }
-
-        let first_index = existing.len();
-        for (offset, media_id) in media_ids.iter().enumerate() {
-            Entity::update_many()
-                .col_expr(
-                    Column::ParentMediaId,
-                    sea_orm::sea_query::Expr::value(Some(document_id)),
-                )
-                .col_expr(
-                    Column::PageIndex,
-                    sea_orm::sea_query::Expr::value((first_index + offset) as i32),
-                )
-                .col_expr(
-                    Column::UpdatedAt,
-                    sea_orm::sea_query::Expr::value(Utc::now()),
-                )
-                .filter(Column::Id.eq(*media_id))
-                .exec(db)
-                .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        }
-
-        Entity::update_many()
-            .col_expr(
-                Column::PageCount,
-                sea_orm::sea_query::Expr::value((first_index + media_ids.len()) as i32),
-            )
-            .filter(Column::Id.eq(document_id))
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(())
-    }
-
     /// Set the order of a document's pages, by id.
     ///
-    /// Takes the whole list rather than a move-one-page operation: reordering
-    /// is a drag of the whole strip, and applying it as a sequence of single
-    /// moves would let a failure halfway leave the pages in an order nobody
-    /// asked for.
+    /// Requires a complete permutation. Call within a transaction so a failed
+    /// write cannot leave a partially reordered document.
     pub async fn reorder_pages(
         db: &impl ConnectionTrait,
         document_id: Uuid,
         ordered: &[Uuid],
     ) -> Result<Vec<Media>, OxidGeneError> {
+        if !Self::get(db, document_id).await?.is_document() {
+            return Err(OxidGeneError::Validation("media is not a document".into()));
+        }
         let current = Self::list_pages(db, document_id).await?;
-        let known: std::collections::HashSet<Uuid> = current.iter().map(|p| p.id).collect();
-        if ordered.len() != current.len() || !ordered.iter().all(|id| known.contains(id)) {
+        let known: HashSet<Uuid> = current.iter().map(|p| p.id).collect();
+        let supplied: HashSet<Uuid> = ordered.iter().copied().collect();
+        if ordered.len() != current.len() || supplied != known {
             return Err(OxidGeneError::Validation(
                 "the page order must list exactly this document's pages, once each".into(),
             ));
@@ -567,12 +455,21 @@ impl MediaRepo {
         Self::list_pages(db, document_id).await
     }
 
-    /// Detach a page as an ordinary media and remove its external relations.
-    pub async fn detach_page(
+    /// Remove a page from its document, permanently.
+    ///
+    /// A page cannot survive on its own: the bytes belong to a page, and a page
+    /// belongs to a document, so there is nowhere for a detached one to go.
+    /// Removing the last page therefore leaves the document standing and empty
+    /// rather than deleting it — the metadata is what the user wrote, and it
+    /// outlives the scans it described. Deleting the document itself is a
+    /// separate, explicit act.
+    ///
+    /// Returns the stored keys the caller must delete from the blob store.
+    pub async fn delete_page(
         db: &impl ConnectionTrait,
         document_id: Uuid,
         page_id: Uuid,
-    ) -> Result<Media, OxidGeneError> {
+    ) -> Result<MediaPurge, OxidGeneError> {
         let page = Entity::find_by_id(page_id)
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -587,28 +484,9 @@ impl MediaRepo {
                 "the media is not a page of this document".into(),
             ));
         }
+        page_document(db, page.tree_id, page.parent_media_id).await?;
 
-        delete_media_relations(db, &[page_id]).await?;
-
-        let mut active: ActiveModel = page.into_active_model();
-        active.parent_media_id = Set(None);
-        active.page_index = Set(0);
-        active.updated_at = Set(Utc::now());
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-        // Close the gap the removed page left, or page 5 of a 4-page document
-        // is a number the viewer has to special-case.
-        let remaining: Vec<Uuid> = Self::list_pages(db, document_id)
-            .await?
-            .into_iter()
-            .map(|p| p.id)
-            .collect();
-        Self::reorder_pages(db, document_id, &remaining).await?;
-        Self::refresh_page_count(db, document_id).await?;
-        Ok(into_domain(result))
+        Self::purge(db, page_id).await
     }
 
     /// Recompute a document's `page_count` from the pages it actually has.
@@ -619,6 +497,9 @@ impl MediaRepo {
         db: &impl ConnectionTrait,
         document_id: Uuid,
     ) -> Result<(), OxidGeneError> {
+        if !Self::get(db, document_id).await?.is_document() {
+            return Err(OxidGeneError::Validation("media is not a document".into()));
+        }
         let count = Self::list_pages(db, document_id).await?.len() as i32;
         Entity::update_many()
             .col_expr(Column::PageCount, sea_orm::sea_query::Expr::value(count))
@@ -629,32 +510,9 @@ impl MediaRepo {
         Ok(())
     }
 
-    /// Find a tree's media record for a given content digest, if one exists.
-    ///
-    /// Lets an import that re-runs over an archive skip files it has already
-    /// ingested, without comparing bytes it would have to fetch first.
-    pub async fn find_by_sha256(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        sha256: &str,
-    ) -> Result<Option<Media>, OxidGeneError> {
-        let model = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::Sha256.eq(sha256))
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(model.map(into_domain))
-    }
-
     /// Apply a patch to a media record.
     ///
-    /// `date_sort` is not in the patch and never comes from a client: it is
-    /// the normalized Gregorian date `calendar` + `date_value` imply, and
-    /// converting a Julian or Republican date needs `ged_io`, which a WASM
-    /// frontend cannot reach. The caller derives it and passes the result —
-    /// exactly as the event write path does.
+    /// The caller derives `date_sort` from the calendar and date, as for events.
     pub async fn update(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -669,6 +527,40 @@ impl MediaRepo {
                 entity: "Media",
                 id,
             })?;
+
+        if (patch.file_path.is_some() || patch.mime_type.is_some() || patch.dimensions.is_some())
+            && (existing.parent_media_id.is_none() || existing.storage_key.is_some())
+        {
+            return Err(OxidGeneError::Validation(
+                "file path, MIME type and dimensions can only be edited on pages without stored bytes"
+                    .into(),
+            ));
+        }
+        if let Some((width, height)) = patch.dimensions {
+            if width <= 0 || height <= 0 {
+                return Err(OxidGeneError::Validation(
+                    "image dimensions must be positive".into(),
+                ));
+            }
+            // Crops were drawn before the size was known and were accepted
+            // without bounds, so learning the size is also the moment they can
+            // first be checked. The same guard `attach_file` applies when our
+            // own bytes arrive.
+            let mut sized = into_domain(existing.clone());
+            sized.width = Some(width);
+            sized.height = Some(height);
+            for crop in VignetteRepo::list_for_media(db, id).await? {
+                sized.validate_crop(crop.x, crop.y, crop.width, crop.height)?;
+            }
+        }
+        if let Some(Some(place_id)) = patch.place_id
+            && PlaceRepo::get(db, place_id).await?.tree_id != existing.tree_id
+        {
+            return Err(OxidGeneError::NotFound {
+                entity: "Place",
+                id: place_id,
+            });
+        }
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(title) = patch.title {
@@ -732,6 +624,10 @@ impl MediaRepo {
         if let Some(mime_type) = patch.mime_type {
             active.mime_type = Set(mime_type);
         }
+        if let Some((width, height)) = patch.dimensions {
+            active.width = Set(Some(width));
+            active.height = Set(Some(height));
+        }
         if let Some(date_sort) = patch.date_sort {
             active.date_sort = Set(date_sort);
         }
@@ -782,7 +678,7 @@ impl MediaRepo {
                 entity: "Media",
                 id,
             })?;
-        let pages = if root.is_document {
+        let pages = if root.parent_media_id.is_none() {
             Entity::find()
                 .filter(Column::ParentMediaId.eq(id))
                 .filter(Column::DeletedAt.is_null())
@@ -845,6 +741,16 @@ impl MediaRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
+        if let Some(document_id) = root.parent_media_id {
+            let remaining: Vec<Uuid> = Self::list_pages(db, document_id)
+                .await?
+                .into_iter()
+                .map(|page| page.id)
+                .collect();
+            Self::reorder_pages(db, document_id, &remaining).await?;
+            Self::refresh_page_count(db, document_id).await?;
+        }
+
         Ok(MediaPurge {
             storage_keys: candidate_keys.difference(&retained_keys).cloned().collect(),
         })
@@ -871,16 +777,12 @@ impl MediaRepo {
         if media.parent_media_id.is_some() {
             return Ok(false);
         }
-        let pages = if media.is_document {
-            Entity::find()
-                .filter(Column::ParentMediaId.eq(id))
-                .filter(Column::DeletedAt.is_null())
-                .all(db)
-                .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?
-        } else {
-            Vec::new()
-        };
+        let pages = Entity::find()
+            .filter(Column::ParentMediaId.eq(id))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
         let mut media_ids: Vec<Uuid> = pages.iter().map(|page| page.id).collect();
         media_ids.push(id);
 
@@ -923,6 +825,28 @@ impl MediaRepo {
         }
         Self::purge(db, id).await.map(Some)
     }
+}
+
+async fn page_document(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    parent_media_id: Option<Uuid>,
+) -> Result<Uuid, OxidGeneError> {
+    let id = parent_media_id
+        .ok_or_else(|| OxidGeneError::Validation("a page must belong to a document".into()))?;
+    let parent = MediaRepo::get(db, id).await?;
+    if parent.tree_id != tree_id {
+        return Err(OxidGeneError::NotFound {
+            entity: "Media",
+            id,
+        });
+    }
+    if !parent.is_document() {
+        return Err(OxidGeneError::Validation(
+            "a page cannot contain pages".into(),
+        ));
+    }
+    Ok(id)
 }
 
 async fn delete_media_relations(
@@ -988,7 +912,6 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         page_count: m.page_count,
         parent_media_id: m.parent_media_id,
         page_index: m.page_index,
-        is_document: m.is_document,
         file_size: m.file_size,
         title: m.title,
         description: m.description,
@@ -997,8 +920,6 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         date_qualifier: m.date_qualifier.into(),
         privacy: m.privacy.into(),
         source_media_type: m.source_media_type.into(),
-        // A value the enum does not know is a row written by something older
-        // than this column; treated as unclassified rather than guessed at.
         document_category: m
             .document_category
             .as_deref()

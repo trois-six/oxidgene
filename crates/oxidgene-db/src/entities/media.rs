@@ -19,12 +19,10 @@ pub struct Model {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub page_count: i32,
-    /// The document this is a page of, if it is one.
+    /// The document this is a page of, or `None` when this row is a document.
     pub parent_media_id: Option<Uuid>,
     /// Zero-based position within that document.
     pub page_index: i32,
-    /// `true` when this row *is* a multi-page document rather than a file.
-    pub is_document: bool,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,

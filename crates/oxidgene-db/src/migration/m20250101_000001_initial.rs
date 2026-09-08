@@ -577,7 +577,6 @@ impl MigrationTrait for Migration {
                     .col(integer(Media::PageCount).default(1))
                     .col(uuid_null(Media::ParentMediaId))
                     .col(integer(Media::PageIndex).default(0))
-                    .col(boolean(Media::IsDocument).default(false))
                     .col(big_integer(Media::FileSize))
                     .col(string_null(Media::Title))
                     .col(string_null(Media::Description))
@@ -603,8 +602,7 @@ impl MigrationTrait for Migration {
                             .default("other"),
                     )
                     .col(string_null(Media::DocumentCategory))
-                    // No FK: kept consistent with the original ALTER TABLE
-                    // ADD COLUMN, which SQLite can't attach a FK to either.
+                    // Place references are validated by the application.
                     .col(uuid_null(Media::PlaceId))
                     .col(
                         ColumnDef::new(Media::Privacy)
@@ -899,6 +897,8 @@ impl MigrationTrait for Migration {
                     .col(boolean(BackgroundJob::CancelRequested).default(false))
                     .col(text_null(BackgroundJob::ResultJson))
                     .col(string_null(BackgroundJob::ErrorCode))
+                    .col(string_null(BackgroundJob::TraceParent))
+                    .col(string_null(BackgroundJob::TraceState))
                     .col(timestamp_with_time_zone(BackgroundJob::CreatedAt))
                     .col(timestamp_with_time_zone(BackgroundJob::UpdatedAt))
                     .col(timestamp_with_time_zone_null(BackgroundJob::StartedAt))
@@ -942,7 +942,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 18. person_search_fts (Sprint E.6): a real FTS5 virtual table on
+        // 18. person_search_fts: a real FTS5 virtual table on
         // SQLite (desktop), or a plain table + index on PostgreSQL (web,
         // where FTS5 isn't available — matching falls back to LIKE on
         // pre-normalized token columns computed in Rust before insert).
@@ -1379,7 +1379,6 @@ enum Media {
     PageCount,
     ParentMediaId,
     PageIndex,
-    IsDocument,
     FileSize,
     Title,
     Description,
@@ -1483,6 +1482,8 @@ enum BackgroundJob {
     CancelRequested,
     ResultJson,
     ErrorCode,
+    TraceParent,
+    TraceState,
     CreatedAt,
     UpdatedAt,
     StartedAt,

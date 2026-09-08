@@ -37,10 +37,11 @@ durable job status and can create export jobs, while clients use REST to upload
 import sources and download export artifacts. Pagination envelopes follow each
 transport's conventions.
 
-Direct media reads (`/file`, `/archive`, `/thumbnail`, and vignette `/image`)
+Direct media reads (`/file`, `/download`, `/archive`, `/thumbnail`, and vignette `/image`)
 remain HTTP representations because their cache validators, content types,
 download disposition and conditional `ETag` semantics are HTTP behaviour rather
-than product operations. GraphQL exposes the underlying metadata. Geneanet
+than product operations. GraphQL exposes the underlying metadata and checked
+attachment URLs through `mediaDownload` and `mediaArchive`. Geneanet
 session archives retain their existing base64 representation because they are
 desktop session handoffs rather than genealogy import or export artifacts.
 
@@ -239,21 +240,53 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/media` | Create a media record from JSON metadata — names a file without holding it |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
-| `POST` | `/trees/{tree_id}/gallery-bundle` | Load gallery data for `{media_ids, vignette_ids}`: thumbnail sources, linked event ids, up to four document-page previews, and cropped vignette sources |
+| `POST` | `/trees/{tree_id}/gallery-bundle` | Load gallery data for `{media_ids, vignette_ids}`: thumbnail sources, linked event ids, up to four document-page previews, and cropped vignette sources. A page preview is the page's generated thumbnail as a data URL, or — for a page held only as a remote image URL — that address, which the client draws directly. A remote page that is not an image contributes no preview. A vignette source is the crop, cut from our own copy; over a remote page there is nothing to cut, so the whole picture's address is sent with a `crop` object — `{x, y, width, height, source_width, source_height}` — and the client cuts it. `crop` is absent whenever the source already is the region, and for a page whose pixel size nobody has recorded |
 | `GET` | `/trees/{tree_id}/media/{media_id}/pages` | A document's pages, in order |
 | `PUT` | `/trees/{tree_id}/media/{media_id}/pages` | Set the page order (`{page_ids: [...]}`). Must name exactly this document's pages, once each — a partial list is refused rather than guessed at |
-| `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Detach a page as an ordinary media. Its attachments, identifications, and portrait references are removed; its bytes and transcript remain; remaining pages close the gap |
+| `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Permanently delete the page, its relationships and unshared stored bytes. Remaining pages close the gap; removing the last page leaves an empty document |
 | `GET` | `/trees/{tree_id}/media/{media_id}` | Get media metadata |
-| `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
+| `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes, served **inline** for previews. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
+| `GET` | `/trees/{tree_id}/media/{media_id}/download` | Stream one stored original of any supported media type with `Content-Disposition: attachment`, its MIME type, `Cache-Control: private, no-store`, and `X-Content-Type-Options: nosniff`. Always transfers the file rather than returning a conditional `304`. `404` for absent, deleted, foreign-tree or byte-less records; remote URLs are never fetched or redirected to |
 | `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px). `404` when the format cannot be rasterised — PDFs — so a gallery can fall back to an icon on the status alone |
-| `GET` | `/trees/{tree_id}/media/{media_id}/archive` | Every page of a document, in one ZIP. Entries are prefixed `001_`, `002_` so unzipping restores the reading order whatever the page file names sort as. Pages with no stored bytes are skipped; `404` when none of them has any |
-| `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata |
+| `GET` | `/trees/{tree_id}/media/{media_id}/archive` | Every live page of a document, in one ZIP attachment (`application/zip`, `private, no-store`, `nosniff`). Entries are prefixed `001_`, `002_` in current reading order; padding grows beyond 999 pages so lexical order remains correct. Empty documents and any page without stored bytes return `404`; pages are never silently skipped |
+| `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata. `width`/`height` are sent together or not at all, and only for a page whose bytes we do not hold — the browser that displayed a remote picture is the only witness to its size, and for our own copy the size is read from the bytes. Recording them re-checks the regions already drawn on that page |
 | `POST` | `/trees/{tree_id}/media/{media_id}/tags` | Add one tag (`{tag}`), idempotently by case-insensitive value |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}/tags` | Remove one tag (`{tag}`) without replacing the other tags |
 | `GET` | `/trees/{tree_id}/media/{media_id}/deletion-status?allowed_link_id={link_id}` | Whether the gallery link is the sole external reference (`{can_delete: bool}`); used to ask for confirmation only when deletion is certain |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Permanently delete the media, its related rows and unshared stored objects. With `?only_if_unreferenced_elsewhere=true&allowed_link_id={link_id}`, keep it when any reference other than that gallery link remains (`204` deleted, `200` retained) |
 
 GraphQL mirrors the status endpoint with `canDeleteMedia(treeId:, id:, allowedLinkId:)`, returning the same eligibility boolean before `deleteMedia` is called.
+
+**Download capability.** `mediaDownload(treeId: ID!, id: ID!): GqlMediaDownload!`
+and `mediaArchive(treeId: ID!, id: ID!): GqlMediaDownload!` return `{ url }`, a
+same-origin `/api/v1/trees/{tree_id}/media/{id}/download` or `/archive` URL.
+Both queries apply the same live-tree, live-parent, deletion and stored-key checks as REST and
+open each required object without collecting its body. Missing records and
+unheld or remote pages produce GraphQL errors, not usable URLs. Storage failures
+(including a referenced object lost from the store) produce REST `500` or
+GraphQL errors. Invalid UUIDs produce REST `400` or GraphQL errors. The URL is
+not a snapshot or authorization token: HTTP repeats the checks, and later
+storage failures can still abort the transfer. Binary bytes are never encoded
+in GraphQL. Single-page documents use their page id for the original download;
+`/archive` also works for a document with one stored page. Existing `/file`,
+`/thumbnail`, page-list, and vignette-image endpoints remain independent.
+
+**Archive packaging and filenames.** ZIP entries use `Stored`, not Deflate:
+JPEG, PNG, PDF and other already-compressed originals do not benefit from
+another compression pass. Files are read sequentially as store streams into an
+anonymous temporary ZIP on a blocking worker, never collected as an album in
+memory. At most two archives are packaged or streamed concurrently per process. ZIP64
+supports large entries; ZIP metadata still scales with the page count and
+temporary disk use scales with the archive size. The complete ZIP is finalized
+before HTTP success headers are sent, then streamed to the client. A missing or
+unreadable page fails the whole request instead of returning a partial archive;
+temporary files are removed on error or when the response stream is dropped.
+Attachment filenames use ASCII fallback and RFC 6266 UTF-8 encoding. Both
+attachment and ZIP entry names discard path components and neutralize control
+characters and platform-reserved punctuation; numbered entry names avoid
+collisions even when pages have identical filenames. Page rows and storage-key
+prefixes must belong to the requested tree. Remote media remain client-side
+links, never server-side fetch targets.
 
 The gallery bundle accepts at most 1,024 media and vignette ids combined. It
 resolves each database collection in one query and reads blobs with bounded
@@ -270,7 +303,18 @@ them once per tile.
 
 **Two fields for what looks like one question.** `source_media_type` is GEDCOM's `SOURCE_MEDIA_TYPE`, exactly — `photo`, `manuscript`, `tombstone`, `fiche`, `film`, `map`, `newspaper`, `book`, `card`, `magazine`, `audio`, `video`, `electronic`, `other` — and is what an export writes and other genealogy software reads. `document_category` is the distinction GEDCOM cannot draw: a census return, a marriage contract and a conscription register are all `manuscript` to it. Sending a category without a medium also sets the medium that category implies, so a census return exports as `MANUSCRIPT` rather than `OTHER`; sending both keeps both. `document_category` accepts an explicit `null` to unclassify. See [Data Model](data-model.md) (Media).
 
-**Multi-page documents.** F.1's `page_count` counts pages *inside* one file (a PDF, a TIFF). A register scanned to a folder of JPEGs is a different thing: a `media` with `is_document`, whose pages are `media` rows carrying `parent_media_id` + `page_index`. A page is a media in its own right — bytes, thumbnail, dimensions, crops — so upload, storage, thumbnailing and serving are the endpoints above, unchanged. Listings filter `parent_media_id IS NULL`, so a nine-page act is one entry rather than ten. The document carries the title, date, place, description and note; `page_count` is recomputed from the pages that exist.
+**Documents and pages.** Every document is a byte-less shell, including an
+ordinary photograph's single-page document. Its pages are media rows carrying
+`parent_media_id` and `page_index`; each page must belong to a live document in
+the same tree, never another page. A page's `page_count` counts images inside
+its file (for example, a multi-page TIFF); a document's count is recomputed from
+its live page rows, including zero. Listings filter `parent_media_id IS NULL`.
+File attachment targets pages only. Neither a document's file fields nor a
+stored page's path or sniffed MIME type can be changed through metadata updates.
+Replacing page bytes must preserve the validity of existing crop coordinates.
+Page reordering requires a complete, duplicate-free permutation. Definitive
+page deletion, through either deletion endpoint, closes the ordering gap and
+refreshes the document count.
 
 **Storage.** Media bytes are content-addressed under `{tree_id}/{aa}/{bb}/{sha256}.{ext}`. `OXIDGENE_MEDIA_BACKEND=filesystem` is the default and stores them below `OXIDGENE_MEDIA_ROOT` (the platform user-data directory, `~/.local/share/oxidgene/media` on Linux, by default). `OXIDGENE_MEDIA_BACKEND=s3` stores the same keys in the bucket configured by `OXIDGENE_S3_BUCKET`, `OXIDGENE_S3_REGION`, optional `OXIDGENE_S3_ENDPOINT`, `OXIDGENE_S3_ACCESS_KEY_ID`, and `OXIDGENE_S3_SECRET_ACCESS_KEY`. HTTP endpoints are accepted only when explicitly configured, for local S3-compatible services such as RustFS. Keys are scoped per tree so a purge can delete one tree by prefix without affecting another.
 
@@ -290,7 +334,14 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 | `DELETE` | `/trees/{tree_id}/vignettes/{vignette_id}` | Delete it. Hard delete; the media is untouched |
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read. `400` for a PDF — rasterising one needs a rendering engine OxidGene does not ship |
 
-A rectangle that does not fit the media it crops is a `400` at write time, so a stored vignette always describes a region that exists.
+Creation and updates require a page, never a document shell (`400`), and a live
+parent document. Person/event attributions must be live records in the page's
+tree; missing, deleted or foreign-tree references are rejected as not found.
+The rectangle must have a nonnegative origin, positive dimensions and
+non-overflowing extents, and fit each known page dimension (`400`). Unknown
+dimensions on imported pages and PDFs do not impose invented bounds. REST and
+GraphQL use the same domain and repository validation, including attribution-only
+updates.
 
 `PUT /trees/{id}` accepts `default_privacy` (`"public" | "private"`) — what
 `"default"` resolves to for everything in that tree. **Privacy** is accepted on
@@ -313,6 +364,13 @@ Replaces `PUT /media-links/{link_id}/profile`, and `MediaLink` no longer carries
 [Data Model](data-model.md) (Person) for why — so setting one is a single write
 and needs no clearing pass over the person's other links.
 
+`media_id` accepts a document, which is what a gallery tile is and therefore
+what a client sends. What the read operations return is the page that holds the
+file: `GET /portraits`, `POST /portrait-images` and `PersonProfile.primary_media`
+all resolve a stored document to its first drawable page — see
+[Data Model](data-model.md) (Person). A portrait may be a page held only as a
+remote URL.
+
 `GET /portraits` exposes the complete portrait assignments as an inventory
 operation. First-party display surfaces do not use it: a pedigree, result page,
 or picker generally needs portraits for only a bounded set of people.
@@ -323,7 +381,9 @@ downloading one image per person. The operation accepts at most 1,024 ids,
 resolves them in one database query, and returns locally held thumbnails or
 cropped vignettes as data URLs.
 Remote portraits retain their `http(s)` source; unavailable portraits are
-omitted. Clients split larger sets into as many requests of at most 1,024 ids
+omitted. A portrait that is a region of a remote picture comes back as that
+picture's address plus the same `crop` object the gallery bundle uses, because a
+region of a file we do not hold cannot be cut here — the client cuts it. Clients split larger sets into as many requests of at most 1,024 ids
 as necessary. The individual thumbnail and vignette image endpoints remain for
 single-image media workflows. `file_path` is never itself assumed to be a URL:
 it is the producer's own path, kept verbatim so an export round-trips.
@@ -352,16 +412,6 @@ duplicate attachment tiles for the same media are collapsed client-side.
 | `GET` | `/trees/{tree_id}/notes/{note_id}` | Get a note |
 | `PUT` | `/trees/{tree_id}/notes/{note_id}` | Update a note |
 | `DELETE` | `/trees/{tree_id}/notes/{note_id}` | Soft-delete a note |
-
-### Snapshot
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/trees/{tree_id}/snapshot` | Full tree snapshot (persons, names, events, places, spouses, children) in one response |
-
-> Legacy endpoint still used by the person profile to enrich events with
-> witness and family context. It must be removed, together with both REST and
-> GraphQL coverage, once [Data Model §4](data-model.md) includes that context.
 
 ### Dictionary
 
@@ -398,7 +448,7 @@ imports the format, it does not produce it.
 | `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 1 GiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
-The three synchronous format endpoints remain compatibility surfaces. The UI
+The synchronous format endpoints remain supported independent operations. The UI
 uses durable jobs for every file import and every GEDZIP export, regardless of
 size. It polls the job after the single initiating action and automatically
 starts the download when an export artifact is ready. Raw streaming, browser
@@ -440,7 +490,7 @@ bytes are carried in the request and it performs no filesystem handoff.
 | `POST` | `/geneweb/inspect?filename=name.gw` | **Step 1.** Parse a `.gw` and report `person_count`, `family_count` and `skipped_blocks`, writing nothing. Body is the raw file bytes, for the same encoding reason as the import above |
 | `POST` | `/geneanet/archives` | **Step 2.** JSON `{ "paths": [...] }`. Index each data archive's ZIP central directory **in place** — nothing is extracted and no bytes are uploaded. Returns per-archive `file_count`/`image_count`, and a per-archive `error` for one that could not be read, so the others still stand. Desktop only: it takes filesystem paths, which is sound because there the server is in-process |
 | `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all |
-| `POST` | `/geneanet/session/decode` | Read one back. Body is the file itself; a ZIP and a bare JSON collection are told apart by content, not extension. Refuses anything that is not a collection, so a wrong file is reported rather than producing an import that attaches nothing |
+| `POST` | `/geneanet/session/decode` | Read a ZIP session or raw browser JSON collection, detected by content. Media references must resolve to archive entries; inline base64 media and missing entries are rejected. Refuses anything that is not a collection |
 | `POST` | `/geneanet/preview` | **Step 4.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on |
 | `POST` | `/geneanet/plan` | **Step 4.** List the media the server cannot produce on its own, for the login window to fetch. Same body as the preview. Under `media_fidelity: "renditions"` that is one `normal` rendition per page of every attached deposit; under `"originals"` it is each single-page deposit's download that no archive length accounts for, plus a rendition per document page to recognise it by |
 | `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt |
@@ -456,14 +506,23 @@ omitted) stores Geneanet's largest per-page copy and **ignores
 `deposit_sizes` and `archive_paths` entirely** — no byte-length match, no
 perceptual index, and no archive staged into job storage; `"originals"` stores
 the uploaded files, resolving them from the archives where a length or a
-content match lands and downloading the rest. A Geneanet import job staged
-before the field existed replays as `"originals"`, which is what it was.
+content match lands and downloading the rest. Staged jobs require an explicit
+fidelity value.
 Media bytes are never included in these request bodies.
-The two wizard routes that sit outside the tree nest run under a **32 MiB body
-limit**: a 10 000-person tree is around 8 MiB base64-encoded before the mapping
-is added, and that number grows with tree size rather than with how many
-photographs somebody owns. The tree-scoped routes here share the **1 GiB**
-allowance of a plain import.
+Metadata-only wizard requests have a **32 MiB body limit**. Session decoding
+is excluded: saved sessions contain media, and have no fixed total-size cap.
+The desktop streams the file to REST; the backend spools the upload to a private
+temporary file and extracts media sequentially to private staging files, without
+buffering the album or converting its media to base64. Two session loads may
+upload or extract concurrently. Failed extraction discards its staged files.
+Temporary storage must accommodate the upload and extracted media.
+
+GraphQL uses the same extractor and concurrency gate. Its existing base64 input
+is decoded directly to a temporary file, but the GraphQL JSON/string itself is
+still buffered. The desktop therefore uses streamed REST for session loading.
+The GraphQL HTTP body cap is disabled only in the local-file-enabled desktop
+backend; the standalone server retains its default cap and rejects session
+operations. Other tree-scoped imports retain their **1 GiB** allowance.
 
 Used by: [Import](ui-import.md) (From Geneanet tab)
 
@@ -664,6 +723,8 @@ type Query {
   # Media
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
   media(treeId: ID!, id: ID!): Media
+  mediaDownload(treeId: ID!, id: ID!): GqlMediaDownload!    # { url }, original attachment
+  mediaArchive(treeId: ID!, id: ID!): GqlMediaDownload!     # { url }, complete document ZIP
   galleryBundle(treeId: ID!, mediaIds: [ID!]!, vignetteIds: [ID!]!): GalleryBundle!
 
   # Media galleries
@@ -712,7 +773,6 @@ type Query {
     hasMedia: Boolean = false
     sort: PersonSearchSort
   ): GqlSearchResult!
-  treeSnapshot(treeId: ID!): TreeSnapshot!
 }
 ```
 
@@ -784,7 +844,7 @@ type Mutation {
   createMediaDocument(treeId: ID!, title: String): Media!
   appendMediaPage(documentId: ID!, mediaId: ID!): Media!
   reorderMediaPages(documentId: ID!, pageIds: [ID!]!): [Media!]!
-  detachMediaPage(treeId: ID!, documentId: ID!, pageId: ID!): Media!
+  deleteMediaPage(treeId: ID!, documentId: ID!, pageId: ID!): Boolean!
   deleteMediaLink(treeId: ID!, id: ID!): Boolean!
 
   # Vignettes
@@ -1136,7 +1196,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import |
 | Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Full | Page, text, confidence level |
-| Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, MIME type, title, description and physical medium use standard `FILE`, `FORM`, `TITL`, `NOTE`, and `FORM.TYPE` structures. Person, family and event links use standard `OBJE` references. A plain `.ged` never carries file bytes; a GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry. Remote and unheld media retain only their original `FILE` reference. |
+| Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, MIME type, title, description and physical medium use standard `FILE`, `FORM`, `TITL`, `NOTE`, and `FORM.TYPE` structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan, and merging them back writes it once. A plain `.ged` never carries file bytes; a GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry. Remote and unheld media retain only their original `FILE` reference. |
 | Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, tags, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
 | Vignette identifications | OxidGene extension | OxidGene extension | Each person identification and its pixel rectangle round-trip beneath the owning `OBJE` as `_OXIDGENE_VIGNETTE`; software that does not know the extension ignores it. The same data survives both plain GEDCOM and GEDZIP export/import. |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |

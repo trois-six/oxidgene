@@ -481,7 +481,6 @@ async fn persist_import_result_in_with_progress(
                 page_count: Set(m.page_count),
                 parent_media_id: Set(m.parent_media_id),
                 page_index: Set(m.page_index),
-                is_document: Set(m.is_document),
                 file_size: Set(m.file_size),
                 title: Set(m.title.clone()),
                 description: Set(m.description.clone()),

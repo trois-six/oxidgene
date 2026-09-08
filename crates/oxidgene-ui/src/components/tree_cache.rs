@@ -3,8 +3,7 @@
 //! Provided once via [`use_init_tree_cache`] in the Layout component.
 //! Consumed in child pages via [`use_tree_cache`].
 //!
-//! Since Sprint E.4, tree snapshots are no longer cached client-side.
-//! Pedigree and search data are fetched from the server-side cache instead.
+//! Only tree metadata is held here. Pedigree and search use the API read models.
 
 use dioxus::prelude::*;
 use uuid::Uuid;

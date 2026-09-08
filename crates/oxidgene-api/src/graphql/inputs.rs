@@ -311,6 +311,10 @@ pub struct UpdateCitationInput {
 /// bytes, use `uploadMediaFile`.
 #[derive(Debug, InputObject)]
 pub struct UploadMediaInput {
+    /// The document this becomes a page of. Bytes and URLs live on pages, and
+    /// a page always belongs to a document; create one with
+    /// `createMediaDocument` first.
+    pub document_id: String,
     pub file_name: String,
     pub mime_type: String,
     pub file_path: String,
@@ -332,12 +336,15 @@ pub struct UploadMediaInput {
 /// is correspondingly lower than REST's.
 #[derive(Debug, InputObject)]
 pub struct UploadMediaFileInput {
+    /// The document the file becomes a page of. Ignored when `mediaId` names
+    /// an existing page to fill in.
+    pub document_id: Option<String>,
     pub file_name: String,
     /// Base64-encoded file content.
     pub content_base64: String,
     pub title: Option<String>,
     pub description: Option<String>,
-    /// Attach the bytes to an existing record instead of creating one.
+    /// Attach the bytes to an existing page instead of creating one.
     pub media_id: Option<String>,
 }
 
@@ -358,6 +365,11 @@ pub struct UpdateMediaInput {
     /// The URL of a remote media. Refused for a media whose bytes we hold.
     pub file_path: Option<String>,
     pub mime_type: Option<String>,
+    /// The picture's pixel size, sent together or not at all. Accepted only
+    /// for a page we do not hold: we never fetch a remote file, so the client
+    /// that displayed it is the only witness to how big it is.
+    pub width: Option<i32>,
+    pub height: Option<i32>,
     /// Whether this is shown when the tree is published.
     pub privacy: Option<GqlPrivacy>,
     /// What the medium physically is, in GEDCOM's own vocabulary.

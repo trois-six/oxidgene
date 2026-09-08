@@ -63,19 +63,11 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
 }
 
 /// Number of free 4 KiB pages past which a SQLite file is worth rewriting.
-/// 5 000 pages is ~20 MB — well above the churn of ordinary use, and far
-/// below what dropping a large table leaves behind.
+/// 5,000 pages is about 20 MB, above the churn of ordinary use.
 const VACUUM_THRESHOLD_PAGES: i64 = 5_000;
 
-/// Shrink a SQLite file that has a lot of free space, after migrations.
-///
-/// Dropping a table marks its pages free but does not return them to the
-/// filesystem — dropping `person_ancestry` left a 238 MB file holding 91 MB of
-/// data. Only `VACUUM` rewrites the file, and it cannot run inside a
-/// transaction, which is why this sits here rather than in the migration.
-///
-/// Gated on the free-page count so it costs one rewrite after a migration that
-/// frees real space, and is skipped on every ordinary start.
+/// Reclaim significant unused SQLite space at startup, outside transactions.
+/// The free-page threshold avoids rewriting the file on ordinary starts.
 async fn reclaim_free_pages(db: &DatabaseConnection) {
     if db.get_database_backend() != DatabaseBackend::Sqlite {
         return;

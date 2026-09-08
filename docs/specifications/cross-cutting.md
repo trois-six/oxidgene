@@ -253,8 +253,8 @@ rejected value.
   are not individually spanned because that would add volume without a useful
   operational boundary.
 - GEDCOM generation divides its `export.serialize` service span into
-  `export.build_model`, `export.write`, `export.inject_event_media`, and
-  `export.inject_extensions`. These spans record aggregate entity counts and
+  `export.build_model`, `export.write`, and `export.inject_extensions`. These
+  spans record aggregate entity counts and
   input/output byte lengths only; genealogical values and identifiers remain
   excluded.
 - Every routed UI screen owns one root load span named `ui.<page>.load`. Each

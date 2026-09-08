@@ -4,8 +4,7 @@
 //! `deleted_at` — one row, instant, and the tree disappears from [`TreeRepo::list`]
 //! straight away. [`TreeRepo::purge`] then does the real cascade in the
 //! background, because SQLite resolves `ON DELETE CASCADE` one row at a time
-//! and that costs seconds on a tree of any size. Doing both inside the request
-//! is what used to freeze the UI.
+//! and a large cascade must not block the request.
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;

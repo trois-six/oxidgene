@@ -100,7 +100,7 @@ opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 ged_io = { version = "0.16.3", features = ["json", "gedzip", "calendar"] }
 
 # GeneWeb .gw reader (converts to the same ged_io model as above)
-geneweb = "0.1.2"
+geneweb = "0.1.3"
 
 # Unicode folding (Geneanet media keys are unaccented — see oxidgene-cli::geneanet::key)
 unicode-normalization = "0.1"

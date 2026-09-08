@@ -133,7 +133,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
-    // ── Fetch SOSA ancestor IDs from closure table ──
+    // Fetch SOSA ancestor IDs from the family graph.
     // This set is used to display the green SOSA badge on ancestor cards,
     // even when jumping to a distant ancestor outside the pedigree window.
     let api_sosa = api.clone();
@@ -258,7 +258,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let (pedigree_data, root_person_id): (Option<PedigreeData>, Option<Uuid>) =
         load_trace.measure("pedigree_data", || {
             let ped_data = pedigree_resource.read();
-            let photos: std::collections::HashMap<Uuid, String> = {
+            let photos: std::collections::HashMap<Uuid, crate::api::CroppedSource> = {
                 let guard = photos_resource.read();
                 match &*guard {
                     Some(map) => map.clone(),

@@ -253,6 +253,25 @@ pub fn build_person(tree_id: Uuid, person_id: Uuid, data: &TreeData) -> Option<P
     Some(build_one_person(person, tree_id, &idx, Utc::now()))
 }
 
+/// The row that actually holds pixels for a media somebody picked.
+///
+/// A document has no pixels: what can be drawn is its first page. Reporting the
+/// document instead gives a card an id whose bytes do not exist, which is a
+/// broken image rather than a missing one. A row that is already a page is used
+/// as it stands. The same rule as the portrait resolution in
+/// `PersonRepo::list_portraits`, and it must stay the same, or a card and an
+/// avatar disagree about the same person.
+fn drawable_media<'a>(idx: &'a IndexedData, media: &'a Media) -> Option<&'a Media> {
+    match media.parent_media_id {
+        None => idx
+            .media_by_id
+            .values()
+            .filter(|candidate| candidate.parent_media_id == Some(media.id))
+            .min_by_key(|page| (page.page_index, page.id)),
+        Some(_) => Some(media),
+    }
+}
+
 /// Build a single `PersonProfile` from indexed data.
 fn build_one_person(
     person: &Person,
@@ -433,16 +452,9 @@ fn build_one_person(
         .unwrap_or_default();
     let media_count = person_media_links.len() as u32;
 
-    // The portrait the person actually chose.
-    //
-    // This used to take whichever media had the lowest `sort_order`, ignoring
-    // the stored choice entirely — so a person could star a photograph and
-    // have their pedigree card go on drawing a different one. A portrait that
-    // is a crop resolves through the scan it is on, and the vignette id
-    // travels with it so a card can ask for the cropped image rather than the
-    // whole wedding party.
-    // A crop resolves through the scan it sits on, and carries its own id so a
-    // card asks for the cropped image rather than the whole wedding party.
+    let drawable = |media| drawable_media(idx, media);
+
+    // Resolve the selected portrait; crops retain their vignette ID.
     let primary_media = person
         .portrait_vignette_id
         .and_then(|vignette_id| {
@@ -457,7 +469,8 @@ fn build_one_person(
             })
         })
         .or_else(|| {
-            let media = idx.media_by_id.get(&person.portrait_media_id?)?;
+            // What a reader chooses is a tile, and a tile is a document.
+            let media = drawable(idx.media_by_id.get(&person.portrait_media_id?)?)?;
             Some(ProfileMediaRef {
                 media_id: media.id,
                 vignette_id: None,
@@ -469,13 +482,12 @@ fn build_one_person(
         // Nothing chosen: their first linked photograph. No import sets a
         // portrait — neither GEDCOM nor a `.gw` says which picture represents
         // somebody — so without this a freshly imported tree draws silhouettes
-        // for everyone who has photographs. A document's page is skipped: the
-        // register it belongs to is the picture, not page 7 of it.
+        // for everyone who has photographs.
         .or_else(|| {
             let media = person_media_links
                 .iter()
                 .filter_map(|link| Some((link, idx.media_by_id.get(&link.media_id)?)))
-                .filter(|(_, media)| media.parent_media_id.is_none())
+                .filter_map(|(link, media)| Some((link, drawable(media)?)))
                 .min_by_key(|(link, _)| (link.sort_order, link.id))
                 .map(|(_, media)| media)?;
             Some(ProfileMediaRef {

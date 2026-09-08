@@ -781,7 +781,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             let p_ns = NotesSource {
                 notes: String::new(),
                 note_id: None,
-                citation_holds_notes: false,
                 ..person_ns()
             };
             spawn(async move {
@@ -2469,9 +2468,8 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
 //
 // The two are stored separately on purpose: notes go in a `Note` row and the
 // source in a `Citation` row. A `Citation` always needs a `source_id`, so it
-// cannot hold sourceless notes; and folding the notes into `Citation.text`
-// (which is what the profession form used to do) means they vanish the
-// moment the source is cleared.
+// cannot hold sourceless notes. Citation text describes the source evidence,
+// independently of the editable notes.
 
 /// The notes + source pair attached to one target, together with the row ids
 /// needed to update them in place on the next save.
@@ -2487,9 +2485,6 @@ pub(crate) struct NotesSource {
     source_id: Option<Uuid>,
     note_id: Option<Uuid>,
     citation_id: Option<Uuid>,
-    /// A pre-existing citation whose `text` still holds the notes, from
-    /// before they were split out into their own `Note`.
-    citation_holds_notes: bool,
 }
 
 /// Resolves a typed source title to a `Source` id, creating the source when
@@ -2565,7 +2560,6 @@ async fn load_notes_source(
         .into_iter()
         .find(|c| !person_level_only || c.event_id.is_none());
 
-    let citation_text = citation.as_ref().and_then(|c| c.text.clone());
     let source_id = citation.as_ref().map(|c| c.source_id);
     let source_title = match source_id {
         Some(sid) => api
@@ -2576,14 +2570,9 @@ async fn load_notes_source(
         None => String::new(),
     };
     NotesSource {
-        notes: note
-            .as_ref()
-            .map(|n| n.text.clone())
-            .or_else(|| citation_text.clone())
-            .unwrap_or_default(),
+        notes: note.as_ref().map(|n| n.text.clone()).unwrap_or_default(),
         source_title,
         source_id,
-        citation_holds_notes: note.is_none() && citation_text.is_some(),
         note_id: note.map(|n| n.id),
         citation_id: citation.map(|c| c.id),
     }
@@ -2654,29 +2643,11 @@ pub(crate) async fn save_notes_source(
         source_id: current.source_id,
         note_id,
         citation_id: current.citation_id,
-        citation_holds_notes: false,
     };
 
     // Only touch the sources when the typed title actually changed, so an
     // unrelated save never creates a `Source` row as a side effect.
     if source_title.trim() == current.source_title.trim() {
-        if current.citation_holds_notes
-            && let Some(cid) = current.citation_id
-        {
-            // The notes now live in their own Note row; clearing the legacy
-            // copy stops it coming back the next time the citation is read.
-            api.update_citation(
-                tree_id,
-                cid,
-                &UpdateCitationBody {
-                    source_id: None,
-                    page: None,
-                    confidence: None,
-                    text: Some(None),
-                },
-            )
-            .await?;
-        }
         return Ok(saved);
     }
 
@@ -2695,7 +2666,7 @@ pub(crate) async fn save_notes_source(
                     source_id: Some(sid),
                     page: None,
                     confidence: None,
-                    text: Some(None),
+                    text: None,
                 },
             )
             .await?;
@@ -3230,6 +3201,94 @@ fn render_information_form(
 mod information_form_tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn citation_evidence_is_not_loaded_or_saved_as_a_note() {
+        use serde_json::json;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        for has_note in [false, true] {
+            let tree = Uuid::now_v7();
+            let person = Uuid::now_v7();
+            let source = Uuid::now_v7();
+            let citation = Uuid::now_v7();
+            let note = Uuid::now_v7();
+            let now = chrono::Utc::now();
+            let notes = if has_note {
+                vec![json!({"cursor": note, "node": {
+                    "id": note, "tree_id": tree, "person_id": person,
+                    "text": "Editable note", "created_at": now, "updated_at": now
+                }})]
+            } else {
+                vec![]
+            };
+            let responses = [
+                (
+                    "/notes",
+                    json!({"edges": notes, "total_count": notes.len(),
+                    "page_info": {"has_next_page": false, "end_cursor": null}}),
+                ),
+                (
+                    "/citations",
+                    json!({"edges": [{"cursor": citation, "node": {
+                    "id": citation, "source_id": source, "person_id": person,
+                    "confidence": Confidence::Medium, "text": "Imported source evidence",
+                    "created_at": now, "updated_at": now
+                }}], "total_count": 1,
+                    "page_info": {"has_next_page": false, "end_cursor": null}}),
+                ),
+                (
+                    "/sources/",
+                    json!({"id": source, "tree_id": tree,
+                    "title": "Fictional source", "created_at": now, "updated_at": now}),
+                ),
+            ];
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let api = ApiClient::new(&format!("http://{}", listener.local_addr().unwrap()));
+            let server = async {
+                for (path, body) in responses {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = String::new();
+                    let mut reader = tokio::io::BufReader::new(&mut socket);
+                    while !request.ends_with("\r\n\r\n") {
+                        assert!(reader.read_line(&mut request).await.unwrap() > 0);
+                    }
+                    assert!(request.starts_with("GET "));
+                    assert!(request.lines().next().unwrap().contains(path));
+                    let body = body.to_string();
+                    socket.write_all(format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()
+                    ).as_bytes()).await.unwrap();
+                }
+            };
+            let (loaded, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                tokio::join!(load_notes_source(&api, tree, Some(person), None), server)
+            })
+            .await
+            .expect("notes, citations and source must all be requested");
+            assert_eq!(loaded.notes, if has_note { "Editable note" } else { "" });
+            assert_eq!(loaded.note_id, has_note.then_some(note));
+            assert_eq!(loaded.citation_id, Some(citation));
+            assert_eq!(loaded.source_title, "Fictional source");
+            let saved = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                save_notes_source(
+                    &api,
+                    tree,
+                    Some(person),
+                    None,
+                    &loaded.notes,
+                    &loaded.source_title,
+                    &loaded,
+                ),
+            )
+            .await
+            .expect("an unchanged save must not send mutations")
+            .unwrap();
+            assert_eq!(saved, loaded);
+        }
+    }
+
     #[test]
     fn father_inherits_the_child_surname() {
         let context = PersonFormCreateContext::AddParent {
@@ -3268,8 +3327,6 @@ mod information_form_tests {
 
     #[test]
     fn prefix_and_suffix_reach_their_own_pieces() {
-        // These two information types had no picker entry at all, so NPFX and
-        // NSFX were unreachable from the add form.
         let body = build_information_body("Prefixe", "Dr.", "DUPONT", None, None);
         assert_eq!(body.prefix.as_deref(), Some("Dr."));
         assert_eq!(body.suffix, None);
@@ -3282,8 +3339,6 @@ mod information_form_tests {
 
     #[test]
     fn each_information_type_keeps_its_own_name_type() {
-        // Previously every one of these collapsed onto AlsoKnownAs, which made
-        // the user's pick unrecoverable once saved.
         for (picked, expected) in [
             ("Alias", NameType::Alias),
             ("Surnom", NameType::Byname),
@@ -3311,9 +3366,6 @@ mod information_form_tests {
         assert_eq!(body.surname_prefix.as_deref(), Some("van der"));
     }
 
-    /// The reported bug: on a plain surname, typing a particle that is not in
-    /// the field used to inject it — after which clearing the particle field
-    /// could not remove it, because the word had become part of the surname.
     #[test]
     fn the_particle_row_stays_hidden_for_an_ordinary_surname() {
         // The common case: one word, no particle. Nothing to cut, and the

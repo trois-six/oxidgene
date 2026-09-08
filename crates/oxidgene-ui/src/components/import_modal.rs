@@ -1,8 +1,6 @@
 //! The import modal: pick a file, or walk the Geneanet flow.
 //!
-//! Replaces the bare native file picker the tree card's menu used to open.
-//! That picker was fine for the one case it handled and no use at all for the
-//! other: importing a Geneanet tree *with its photos* is not a file import.
+//! Importing a Geneanet tree with its photos requires more than a file import.
 //! Two of its three inputs cannot be downloaded, one of them exists only
 //! behind a logged-in session, and most users have never heard of a `.gw`
 //! file. So the Geneanet side is as much a set of instructions as a form.
@@ -11,8 +9,8 @@
 //!
 //! # Shape
 //!
-//! Two tabs. **File** is the old behaviour, made to work in a browser as well
-//! as on the desktop. **Geneanet** is four or five steps of which exactly one
+//! Two tabs. **File** accepts imports in the browser and on the desktop.
+//! **Geneanet** is four or five steps of which exactly one
 //! is expanded — the current one. A settled step collapses to a one-line
 //! receipt of what it decided; steps not yet reachable are visible but dimmed,
 //! so the whole journey is legible from the first second.
@@ -1755,11 +1753,30 @@ fn SessionControls(
 
             busy.set(true);
             error.set(None);
-            let bytes = trace.step(UiActionStep::GeneanetRead, file.read()).await;
+            #[cfg(target_arch = "wasm32")]
+            let body = trace
+                .step(UiActionStep::GeneanetRead, file.read())
+                .await
+                .into();
+            #[cfg(not(target_arch = "wasm32"))]
+            let body = match trace
+                .step(
+                    UiActionStep::GeneanetRead,
+                    tokio::fs::File::open(file.path()),
+                )
+                .await
+            {
+                Ok(file) => reqwest::Body::from(file),
+                Err(_) => {
+                    busy.set(false);
+                    error.set(Some(i18n.t("geneanet.file_read_error")));
+                    return;
+                }
+            };
             let restored = trace
                 .step(
                     UiActionStep::GeneanetSessionDecode,
-                    api.decode_geneanet_session(bytes),
+                    api.decode_geneanet_session(body),
                 )
                 .await;
             busy.set(false);

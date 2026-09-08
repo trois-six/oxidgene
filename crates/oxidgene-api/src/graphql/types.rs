@@ -1631,6 +1631,14 @@ impl From<oxidgene_core::types::Connection<oxidgene_core::types::Citation>>
 
 // ── Media ────────────────────────────────────────────────────────────
 
+/// A checked media attachment URL; binary content is read over HTTP.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaDownload {
+    /// Same-origin attachment URL. Availability is checked when this is resolved;
+    /// the HTTP request revalidates it and can still fail if storage changes.
+    pub url: String,
+}
+
 /// A media file.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlMedia {
@@ -1654,14 +1662,16 @@ pub struct GqlMedia {
     /// Pages in the document; 1 for photos and single-page files. For an
     /// `isDocument` row it is the number of page images assembled into it.
     pub page_count: i32,
-    /// The document this is a page of, if it is one.
+    /// The document this is a page of, or null when this row *is* a document.
+    ///
+    /// The only thing separating the two kinds of row, on both APIs: a null
+    /// parent means a document — the container a gallery lists, carrying the
+    /// title, date, place, category, medium, privacy, description, tags and
+    /// note, and no bytes. Anything else is a page, which carries the bytes
+    /// or the remote URL and nothing else of consequence.
     pub parent_media_id: Option<ID>,
     /// Zero-based position within that document.
     pub page_index: i32,
-    /// True when this row *is* a multi-page document rather than a file. Such
-    /// a row carries the title, date, place, description and note that
-    /// describe the document as a whole, and holds no bytes.
-    pub is_document: bool,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -1696,7 +1706,6 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             page_count: m.page_count,
             parent_media_id: m.parent_media_id.map(|id| ID(id.to_string())),
             page_index: m.page_index,
-            is_document: m.is_document,
             file_size: m.file_size,
             title: m.title,
             description: m.description,
@@ -2426,17 +2435,6 @@ impl From<crate::reference::GivenNameMatch> for GqlGivenNameReferenceMatch {
     }
 }
 
-/// The legacy all-at-once tree view, kept in GraphQL for REST parity.
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlTreeSnapshot {
-    pub persons: Vec<GqlPerson>,
-    pub names: Vec<GqlPersonName>,
-    pub events: Vec<GqlEvent>,
-    pub places: Vec<GqlPlace>,
-    pub spouses: Vec<GqlFamilySpouse>,
-    pub children: Vec<GqlFamilyChild>,
-}
-
 /// The media or vignette selected to represent one person.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlPortrait {
@@ -2459,11 +2457,39 @@ impl From<PortraitRow> for GqlPortrait {
     }
 }
 
+/// A region of a picture the client fetches for itself, and therefore has to
+/// cut for itself.
+#[derive(Debug, Clone, Copy, SimpleObject)]
+pub struct GqlImageCrop {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    /// The full picture's pixel size, which is what `x`/`y` are measured in.
+    pub source_width: i32,
+    pub source_height: i32,
+}
+
+impl From<oxidgene_core::types::ImageCrop> for GqlImageCrop {
+    fn from(crop: oxidgene_core::types::ImageCrop) -> Self {
+        Self {
+            x: crop.x,
+            y: crop.y,
+            width: crop.width,
+            height: crop.height,
+            source_width: crop.source_width,
+            source_height: crop.source_height,
+        }
+    }
+}
+
 /// One display-ready portrait returned by the batched image query.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlPortraitImage {
     pub person_id: ID,
     pub source: String,
+    /// Set when `source` is a whole picture the client must crop itself.
+    pub crop: Option<GqlImageCrop>,
 }
 
 impl From<crate::service::portrait::PortraitImage> for GqlPortraitImage {
@@ -2471,6 +2497,7 @@ impl From<crate::service::portrait::PortraitImage> for GqlPortraitImage {
         Self {
             person_id: ID(image.person_id.to_string()),
             source: image.source,
+            crop: image.crop.map(Into::into),
         }
     }
 }
@@ -2493,6 +2520,8 @@ pub struct GqlGalleryMedia {
 pub struct GqlGalleryVignette {
     pub vignette_id: ID,
     pub source: String,
+    /// Set when `source` is a whole picture the client must crop itself.
+    pub crop: Option<GqlImageCrop>,
 }
 
 impl From<crate::service::gallery::GalleryBundle> for GqlGalleryBundle {
@@ -2518,6 +2547,7 @@ impl From<crate::service::gallery::GalleryBundle> for GqlGalleryBundle {
                 .map(|item| GqlGalleryVignette {
                     vignette_id: ID(item.vignette_id.to_string()),
                     source: item.source,
+                    crop: item.crop.map(Into::into),
                 })
                 .collect(),
         }

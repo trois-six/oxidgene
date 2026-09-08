@@ -12,7 +12,15 @@ timestamp: 2026-07-16T00:00:00Z
 > Part of the [OxidGene Specifications](index.md).
 > See also: [Architecture](architecture.md) · [API Contract](api.md)
 
-Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `crates/oxidgene-core/src/enums.rs` (enums), `crates/oxidgene-db/src/entities/` (SeaORM entities), `crates/oxidgene-db/src/migration/` (`m20250101_000001_initial.rs` is the consolidated base schema; later `mYYYYMMDD_*` files add to it).
+Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `crates/oxidgene-core/src/enums.rs` (enums), `crates/oxidgene-db/src/entities/` (SeaORM entities), `crates/oxidgene-db/src/migration/m20250101_000001_initial.rs` (the complete current schema).
+
+The migrator registers only this initial migration, including all current tables,
+indexes, backend-specific search storage, and background-job trace context.
+Superseded migration modules and migration-history compatibility are not retained.
+Databases created with an earlier schema or migration history must be recreated
+and their genealogy reimported; running the consolidated migration is not an
+in-place upgrade. Runtime projection versioning remains independent of this
+schema reset (see §4.1).
 
 ---
 
@@ -221,7 +229,7 @@ text is valid.
 | `storage_key` | String? | Key of the stored bytes in the media store. Null for a record that names a file we have never received — every GEDCOM import starts that way |
 | `sha256` | String? | Hex SHA-256 of the stored bytes. Doubles as the HTTP `ETag` and as the deduplication key |
 | `thumbnail_key` | String? | Key of the generated thumbnail. Null for PDFs and for byte-less records |
-| `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation |
+| `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation. Decoded at upload for a file we hold; for a page held only as a URL, recorded from the browser that first displayed it |
 | `height` | i32? | Intrinsic pixel height |
 | `page_count` | i32 | Pages in the document; `1` for photos and single-page files |
 | `file_size` | i64 | Bytes |
@@ -326,15 +334,33 @@ its own image.
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 
-No soft delete: a vignette is a coordinate annotation, not a record anyone cites,
-and a rectangle that does not fit its media is refused at write time — so a stored
-vignette always describes a region that exists.
+No soft delete: a vignette is a coordinate annotation, not a record anyone cites.
+Creation and updates require a live page of a live document in the same tree;
+document shells cannot be cropped. Person and event attributions must be live
+records in that tree. Coordinates must be nonnegative, dimensions positive, and
+the rectangle's extent must not overflow or exceed either known page dimension.
+Imported pages and PDFs with unknown dimensions retain their annotations without
+inventing pixel bounds. Attaching or replacing a page's file validates existing
+crops against the new dimensions before changing the row, and so does recording
+the dimensions of a page held only as a URL: that is the first moment its
+existing crops can be checked at all.
+
+**Cropping a page we do not hold.** A region may be drawn on a page whose file
+is somebody else's. The region, its attribution and its box over the image
+belong to us and need none of the bytes. What cannot be produced here is the
+*cropped image*: cutting means re-decoding our own copy, and a remote file is
+never fetched. So the region travels to the client as the picture's address plus
+the rectangle to take out of it — see [API](api.md) — and the client cuts it.
+That needs the picture's pixel size, which nothing here has ever measured: the
+browser drawing the crop records it on `media.width` / `media.height` the first
+time somebody identifies a person on that page. A region on a page nobody has
+measured has no scale to be cut at, and the whole picture is shown instead.
 
 **Which image represents a person.** At most one of `portrait_media_id` /
-`portrait_vignette_id` is ever set, and the pair is read and written through a
+`portrait_vignette_id` is ever set. Both columns are written together through a
 single `Portrait` value (`Media(id)` / `Vignette(id)` / `None`), so "both set"
-is not a state a caller can produce — the API refuses a request carrying both
-rather than silently picking one.
+is not a state a caller can produce. The API refuses a request carrying both
+rather than silently picking one, leaving the existing assignment unchanged.
 
 It lives here rather than as a flag on `MediaLink` because a person is very
 often identified *inside* a larger photograph — a group portrait, a wedding
@@ -343,9 +369,21 @@ party — and that region is already a first-class row: a `Vignette`. A second
 person" across two tables, where it can no longer be established in a single
 statement; a pointer on `Person` makes it structural instead of enforced.
 
-Not a foreign key: SQLite cannot add one through `ALTER TABLE`, the same reason
-`media.place_id` has none. A dangling pointer resolves to "no portrait" rather
-than to an error.
+Portrait pointers and `media.place_id` are application-managed references, not
+database foreign keys. A dangling portrait pointer resolves to "no portrait"
+rather than to an error.
+
+**What is stored, and what is read back.** `portrait_media_id` holds whatever
+the caller chose, which is normally a document: a gallery tile is a document,
+and that is what a reader stars. A document holds no bytes, so every read path
+resolves the stored pointer to the first page beneath it that can actually be
+drawn — one whose thumbnail was generated, or whose `file_path` is a remote
+image URL — and reports that page. A page chosen directly resolves to itself. A
+person who chose nothing falls back to their first linked photograph, resolved
+by the same rule, in `media_link.sort_order` order. Chosen and inferred
+portraits therefore always name a row whose file exists, and the portrait
+endpoints and the `PersonProfile` projection cannot disagree about the same
+person.
 
 ### MediaLink
 
@@ -389,12 +427,6 @@ are the spouses of the family in which they are a child. Both back-ends support
 `WITH RECURSIVE`. Each reached person is returned once, at their **shortest**
 generation distance, as `AncestryLink { person_id, depth }`.
 
-The `person_ancestry` closure table it replaced was dropped in
-`m20260803_000001`: on a real 10k-person tree it held 364k rows and, with its
-four indexes, 62 % of the whole database, while being ~12x *slower* to read
-than the CTE (160 ms against 13 ms for a depth-10 pedigree) and needing a
-rebuild on every re-parenting.
-
 Traversal is bounded at 64 generations when no depth is given, because the
 schema does not prevent a cycle in the family links.
 
@@ -402,7 +434,7 @@ Used by: ancestor/descendant [API endpoints](api.md) · pedigree assembly (§4) 
 SOSA badge computation ([Person Profile](ui-person-profile.md),
 [Dictionary](ui-dictionary.md) §12)
 
-### person_search_fts (Search Table — Sprint E.6)
+### person_search_fts (Search Table)
 
 DB-native person search index; not a domain entity (no UUID PK, maintained by
 `PersonSearchRepo`). SQLite uses an FTS5 virtual table and PostgreSQL uses a
@@ -635,8 +667,9 @@ retain qualifier, both date bounds, calendar, place ID, and place display name.
 nested projection type changes. Reads filter by the current version. An older
 row is treated as absent and rebuilt lazily, because `#[serde(default)]` alone
 would deserialize a missing new field as if it were genuine empty data.
-Migration defaults intentionally leave old rows stale rather than fabricating
-current payloads.
+The initial schema defaults `schema_version` to `0`, so a row without an
+explicit current version is stale rather than assumed to contain a current
+payload. Consolidating SQL migrations does not remove this runtime version check.
 
 ### 4.2 Pedigree assembly
 

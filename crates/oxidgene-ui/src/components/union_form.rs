@@ -158,12 +158,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
         async move { api.list_all_places(tid).await }
     });
 
-    // Display names for the people this modal actually shows: the two spouses
-    // and the children. It used to list the first 500 persons of the tree and
-    // then request the names of every one of them — hundreds of sequential
-    // round trips to render seven names, which left the map empty (and every
-    // name reading "Unnamed") for as long as it ran, and missed anyone past
-    // the 500th outright.
+    // Load names only for the spouses and children shown in this modal.
     let api_names_res = api.clone();
     let names_resource = use_ui_resource("family_names", move || {
         let api = api_names_res.clone();

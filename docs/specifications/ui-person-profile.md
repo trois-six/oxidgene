@@ -262,12 +262,15 @@ Clicking an attachment or identification that targets one page of an assembled
 multi-page document opens the document viewer directly on that page, with the
 document pager and the surrounding pages available. This applies equally to a
 direct person attachment and to an attachment inherited from a conjugal family.
-In the profile gallery, a document with pages uses their first four generated
-thumbnails as its tile preview instead of a generic document icon. One page
-fills the tile, two split it vertically, three give the first page one half and
-stack the other two, and four or more use a `2 x 2` mosaic. Only those four
-thumbnails are loaded regardless of the document's total page count; an empty
-document or a failed page-list request keeps the generic icon.
+A document uses its first four page previews as its tile preview instead of a
+generic document icon, in every gallery — read-only and editable alike. One page
+fills the tile edge to edge, two split it vertically, three give the first page
+one half and stack the other two, and four or more use a `2 x 2` mosaic. A page
+whose bytes are held contributes its generated thumbnail; a page held only as a
+remote image URL contributes that address, which the browser draws directly.
+Only those four previews are loaded regardless of the document's total page
+count; an empty document, a document whose pages are none of them drawable, or a
+failed page-list request keeps the generic icon.
 The profile gallery obtains these previews, ordinary thumbnails, vignette
 crops, and event-link state from the shared gallery bundle rather than issuing
 one request per tile. The person detail bundle preloads the direct and conjugal
@@ -310,7 +313,15 @@ couple**. For a multi-page document, it offers exactly five actions:
 the multi-page document to a couple**, **Attach the page to a person**, and
 **Attach the page to a couple**. The two page actions target the page displayed
 when the person or couple is finally selected. It remains immediately above
-the image on narrow screens. **Identify a person** starts drawing an
+the image on narrow screens. Every action is available over a page held only as
+a remote URL, identification included: the region, its attribution, and its box
+over the image are ours, and none of them needs the bytes. Such a region is cut
+by the browser rather than by the server, which has no copy to cut — its gallery
+tile and any portrait made from it show the region, not the whole photograph.
+Drawing the first region on that page also records the picture's pixel size,
+measured in the browser, because a rectangle in pixels cannot be placed without
+it; a region on a page recorded before that shows the whole picture until one is
+drawn. **Identify a person** starts drawing an
 identification region on the displayed page. Its instruction and source-pixel rectangle
 readout use the same status-row typography and line box, so beginning a valid
 selection does not move the image vertically. **Attach to a person** links the
@@ -320,10 +331,14 @@ conjugal families before linking the whole image to the family. Both attachment
 actions detect an existing link and do not create duplicates. The facts column persistently lists
 whole-image attachments and cropped identifications together under
 **Attachments / identifications**. The label occupies its own row and the
-combined list spans the full width of the facts column below it. The list has a
-fixed five-row viewport; the previous control sits at its top and the next
-control at its bottom. They scroll that window by one row without making the
-facts column taller. The two relation types keep
+combined list spans the full width of the facts column below it. Up to five
+relations appear without pagination or reserved empty rows. Longer lists use a
+stable five-row viewport with a compact horizontal footer: a previous arrow,
+localized visible range and total (for example, **6-10 of 14**), and a next
+arrow. Each action moves by five relations; the final page never repeats rows
+from the preceding page. Removing the final relation on a page clamps to the
+last remaining page. The controls have localized accessible names, visible
+focus, and a politely announced range. The two relation types keep
 their distinct semantics: each attachment is a compact row with a `36 × 28 px` whole-image
 thumbnail, an ellipsized person or couple label, a **Document** or **Page N**
 scope badge on multi-page documents, and a trailing remove control that deletes
@@ -343,8 +358,8 @@ For an assembled multi-page document, the facts action row also exposes
 **Manage pages** independently from metadata editing. It opens a page strip in
 the viewer's facts column. Files selected or dropped on **Add pages** are
 appended in upload order; each existing page has move-up, move-down, and remove
-controls. Removing requires confirmation and detaches the page from the
-document without deleting its media record, stored bytes, or transcript. Every
+controls. Removing requires confirmation and deletes the page, its transcript,
+and its unshared stored bytes. Every
 attachment, identification, and portrait reference targeting that page is
 removed. Remaining pages close the numbering gap and `page_count` is
 recomputed. Permanently deleting an ordinary single media applies the same
@@ -352,9 +367,11 @@ relation cleanup before deleting its record and unshared stored objects. Every
 addition, move, or removal reloads the open viewer
 immediately; if the current last page is removed, the viewer clamps to the new
 last page.
-The facts column
-uses dense key/value rows without framed value boxes so its metadata and
-relations remain visible together. The **Edit** and
+The facts column uses the shared sans-serif body font for metadata, labels,
+controls, and prose, never a monospace face. Dense key/value rows have no framed
+value boxes; secondary-color labels, subtle section dividers, and consistent
+spacing keep metadata and relations readable together. Long values wrap, while
+compact relation names have full-text tooltips. The **Edit** and
 **Delete** action group is centered in the facts column. Each identified person
 is shown on one compact row with a `36 × 28 px` crop thumbnail, a single-line
 ellipsized name, and a trailing remove control; the facts column omits this list
@@ -367,6 +384,27 @@ appear empty.
 Identification regions remain aligned over the fitted or zoomed image;
 hovering either a region on the image or its identification row in the facts
 column reveals its frame and person label.
+
+The viewer footer provides **Download file** for every stored file type,
+including images, PDFs, audio, video, and unknown formats. Availability comes
+from the displayed file's metadata, not a successfully loaded preview. For a
+multi-page document it becomes **Download page N**, targeting the displayed
+page, alongside **All pages (ZIP)** for the complete ordered document. An empty
+document or a file reference without bytes or a remote URL has no individual
+download action. ZIP is offered when the document has more than one page.
+Remote file downloads remain subject to the remote host's availability and
+browser CORS rules; failures are localized and retryable.
+
+Web downloads of stored files use the attachment `/download` endpoint, while
+ZIP uses `/archive`; inline previews continue to use `/file`. Downloads use the
+shared streaming transfer and native-Blob browser fallback described in
+[Common UI](ui-common.md#45-mediainput-mediagallery-and-mediamanagermodal); API URLs are never navigation
+targets. Desktop downloads open a native save dialog before fetching and report localized
+download or write failures. Cancelling the dialog does not fetch the file.
+Individual suggested filenames retain their type extension; the ZIP is named
+after the document. Footer actions wrap on narrow screens without horizontal
+overflow. Description remains in the facts column rather than being duplicated
+in the footer.
 
 ---
 

@@ -120,6 +120,8 @@ UI specifications:
     the same worker code embedded in the single desktop or local backend.
 - Import sources and export artifacts use job-scoped object keys. Worker-local
     `emptyDir` files are scratch space only and may be discarded at any time.
+- Staged Geneanet jobs record an explicit `media_fidelity`; workers reject
+    incomplete payloads rather than infer a mode from a previous job format.
 - ZIP creation and parsing run as bounded blocking work. Media are copied one at
     a time so memory usage is bounded by an individual file rather than the
     complete archive.
@@ -407,6 +409,11 @@ explanation instead of the control.
 
 The workspace keeps libraries under `crates/` and application entry points
 under `apps/`. A former CLI was removed after its workflows moved into the
-desktop application. The initial migration holds the baseline schema; every
-subsequent schema change adds a migration and existing migrations are not
-squashed.
+desktop application. A single initial migration creates the complete current
+SQLite or PostgreSQL schema, including indexes, search storage, and durable
+background jobs. Schema changes are consolidated into that initial migration;
+superseded migrations and old migration-history compatibility are not retained.
+Earlier databases must be recreated and their genealogy reimported, not upgraded
+in place. This policy does not replace runtime `PROJECTION_SCHEMA_VERSION`
+checks and lazy rebuilding of stale person projections (see
+[Data Model §4](data-model.md)).

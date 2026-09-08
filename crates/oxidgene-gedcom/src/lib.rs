@@ -63,15 +63,52 @@ pub struct ExportResult {
     pub warnings: Vec<String>,
 }
 
-/// Metadata GEDCOM 5.5.1 cannot represent on an `OBJE` record.
+/// Page-level metadata GEDCOM 5.5.1 cannot represent on an `OBJE` record.
 ///
-/// The standard fields remain authoritative for interoperable values such as
-/// the title and physical medium. Their copies here make an OxidGene round
-/// trip exact even when another writer normalizes those standard fields.
+/// Strictly about the page: what the file was called, when the row was made,
+/// and the transcript of this page. Everything that describes the document as
+/// a whole rides in [`DocumentExtension`] instead — writing it here too would
+/// duplicate one title across thirty-eight scans and leave no way to tell,
+/// on re-import, which copy was the original.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct MediaMetadataExtension {
     pub version: u8,
+    pub file_name: String,
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// This page's transcript, if it has one.
+    pub notes: Vec<MediaNoteExtension>,
+}
+
+/// The document a page belongs to, and — on its first page — what that
+/// document says about itself.
+///
+/// GEDCOM has no container, so a document is exported dissolved: its pages
+/// become ordinary `OBJE` records that any other software reads as a set of
+/// files. This line is what puts them back together on the way in. `doc` is a
+/// token unique within the file, not an identifier anything outside it knows.
+///
+/// `meta` travels on `index == 0` alone. Repeating it on every page would grow
+/// a forty-page dossier by forty copies of the same JSON, and give the importer
+/// forty candidates to reconcile when it should have one.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct DocumentExtension {
+    pub version: u8,
+    /// Token grouping the pages of one document within this file.
+    pub doc: String,
+    /// Zero-based position of this page in the document.
+    pub index: i32,
+    /// How many pages the document had when it was written.
+    pub count: i32,
+    pub meta: Option<DocumentMetadataExtension>,
+}
+
+/// What a document says about itself: the fields its pages share.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct DocumentMetadataExtension {
     pub file_name: String,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -86,6 +123,7 @@ pub(crate) struct MediaMetadataExtension {
     pub document_category: Option<DocumentCategory>,
     pub tags: Vec<String>,
     pub place: Option<MediaPlaceExtension>,
+    /// Notes about the document as a whole, as distinct from a page transcript.
     pub notes: Vec<MediaNoteExtension>,
 }
 

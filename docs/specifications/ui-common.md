@@ -216,12 +216,43 @@ of entry point. The canonical gallery owns tiles, viewer opening, edit actions,
 document paging, portraits, and context menus. Pages do not implement alternate
 media grids.
 
-The initial grid loads tile thumbnails, the first four document-page previews,
-vignette crops, and linked event ids through one bounded gallery bundle. It
+The initial grid loads tile thumbnails, the first four document-page previews
+— a generated thumbnail, or a remote page's own image URL — vignette crops, and
+linked event ids through one bounded gallery bundle. It
 must not mount one image, page-list, or reverse-link resource per tile. Larger
 sets are split into as many batches of 1,024 identifiers as necessary. Viewer
 and editor panels may use an individual endpoint after the user opens one
 asset.
+
+A tile draws its document's page previews when there are any, its own
+thumbnail when the tile is a stored page, and the address when it is a remote
+image; only a tile with none of those falls back to a labelled file icon. A
+tile whose file is somebody else's — the document's page, or the tile itself —
+carries the remote badge. A document is offered as a portrait exactly when it
+draws a picture; a PDF is not, and the action is withheld rather than accepted
+and then drawn as a silhouette.
+
+Every viewer action, identification included, is available over a page held only
+as a remote URL. The server cannot cut a region out of such a page — cutting
+means re-decoding our own copy — so it sends the whole picture with the
+rectangle to take out of it and the client does the cutting, in one shared
+component used by every portrait and crop: an `svg` whose `viewBox` is the
+rectangle and whose `preserveAspectRatio` is `xMidYMid slice`, which frames the
+region exactly as `object-fit: cover` frames an image. CSS that sizes a portrait
+therefore has to reach both elements — `.thing img, .thing svg` — since which
+one is drawn depends on where the pixels are.
+
+Cutting needs the picture's pixel size, and nothing here has ever opened that
+file: the cropper measures it in the browser and records it on the page the
+first time somebody identifies a person there. Until then a region of that page
+has no scale to be cut at, and the whole picture is shown, marked as a region by
+the crop badge.
+
+The viewer and the edit panel describe the **page** on screen, not the document
+above it: its format, dimensions, size, and whether the file is stored, remote,
+or held by nobody. A remote page is rendered from its URL exactly as a stored
+one is rendered from our copy, and the panel's URL field edits that page's
+address. Only a row that names a file offers the field; a document names none.
 
 `MediaManagerModal` is the only editable container for a person's or family's
 gallery. It wraps the canonical `MediaGallery`, saves every media mutation
@@ -232,6 +263,34 @@ linked as evidence without embedding a second gallery in an event editor.
 Person profiles open it from the compact `+` action beside **Media**. Couple
 forms open it from the fixed header. Person forms, embedded person blocks, and
 event editors never render their own upload or media-management controls.
+
+The shared viewer uses the app's sans-serif body typography throughout its
+compact facts column, with readable secondary labels rather than monospace
+metadata. Relation pagination uses one horizontal previous/range/next row
+below a bounded five-item list, not tiny vertical scroll arrows. These controls
+reuse the document pager styling and have localized accessible names, visible
+focus, and live range announcements. Short lists do not reserve five empty rows.
+
+One download control serves every media kind and document ZIPs. Media and GEDZIP
+exports share a transfer implementation behind the typed client. On desktop,
+response chunks are written to a temporary file alongside the chosen destination;
+the destination is replaced only after a successful transfer. Failures and
+cancellation discard temporary data and preserve any existing destination.
+
+On the web, the save picker is opened during the initiating click, before any
+network awaits. Browsers supporting `showSaveFilePicker` pipe the response stream
+to the selected file with backpressure. Other browsers use `Response.blob()` and
+a local blob URL; this fallback still buffers the complete download in the
+browser and is not a bounded-memory path for large archives. Neither path
+copies file contents into WASM or serializes them as numeric JSON arrays. The
+typed client's browser transport uses Fetch internally; backend URLs never
+become navigation targets. Picker cancellation does not fetch a file. Errors
+are localized, and success is reported only after the transfer completes.
+
+Download availability is independent of preview
+success. File/page and all-pages ZIP labels are distinct, and the footer wraps
+within narrow viewports. The detailed viewer contract is in
+[Person Profile, Media Gallery](ui-person-profile.md#7-media-gallery).
 
 ### 4.6 EventIcon
 

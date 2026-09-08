@@ -9,10 +9,10 @@ use crate::rest::state::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, CitationFilter,
-    CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyChildRepo, FamilyRepo,
-    FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo,
-    PaginationParams, PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchSort, PlaceRepo,
-    SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
+    CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, MediaLinkRepo,
+    MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
+    PersonSearchFilters, PersonSearchSort, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo,
+    VignetteRepo,
 };
 
 use super::inputs::{GeneanetPreviewInput, geneanet_deposit_sizes};
@@ -22,13 +22,13 @@ use super::types::{
     GqlGeneanetArchiveIndex, GqlGeneanetImportResult, GqlGeneanetIndexedArchive,
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
     GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection,
-    GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference, GqlPedigree,
-    GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort,
-    GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry,
-    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchResult, GqlSource,
-    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlTreeSnapshot,
-    GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, require_local_file_access,
+    GqlMediaDownload, GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference,
+    GqlPedigree, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
+    GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
+    GqlPlaceDictionaryEntry, GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchResult,
+    GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
+    GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlVignette,
+    db_from_ctx, media_from_ctx, profiles_from_ctx, require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -735,33 +735,6 @@ impl QueryRoot {
             .collect())
     }
 
-    /// Return the legacy all-at-once tree snapshot.
-    async fn tree_snapshot(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlTreeSnapshot> {
-        let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(tree_id.as_str())?;
-        let (persons, families) = tokio::try_join!(
-            PersonRepo::list_all(db, tree_id),
-            FamilyRepo::list_all(db, tree_id),
-        )?;
-        let person_ids: Vec<Uuid> = persons.iter().map(|person| person.id).collect();
-        let family_ids: Vec<Uuid> = families.iter().map(|family| family.id).collect();
-        let (names, events, places, spouses, children) = tokio::try_join!(
-            PersonNameRepo::list_by_persons(db, &person_ids),
-            EventRepo::list_all(db, tree_id),
-            PlaceRepo::list_all(db, tree_id),
-            FamilySpouseRepo::list_by_families(db, &family_ids),
-            FamilyChildRepo::list_by_families(db, &family_ids),
-        )?;
-        Ok(GqlTreeSnapshot {
-            persons: persons.into_iter().map(Into::into).collect(),
-            names: names.into_iter().map(Into::into).collect(),
-            events: events.into_iter().map(Into::into).collect(),
-            places: places.into_iter().map(Into::into).collect(),
-            spouses: spouses.into_iter().map(Into::into).collect(),
-            children: children.into_iter().map(Into::into).collect(),
-        })
-    }
-
     // ── Media ────────────────────────────────────────────────────────
 
     /// List media in a tree with cursor-based pagination.
@@ -795,6 +768,44 @@ impl QueryRoot {
             Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// A checked HTTP attachment URL for one stored original of any media type.
+    async fn media_download(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+    ) -> Result<GqlMediaDownload> {
+        let db = db_from_ctx(ctx);
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let id = Uuid::parse_str(id.as_str())?;
+        let media = crate::rest::media::download_record(db, tree_id, id).await?;
+        let key = crate::rest::media::stored_key(&media, media.storage_key.as_deref())?;
+        // Open without collecting the body, preserving storage errors and bounded memory.
+        let _stream = media_from_ctx(ctx).get_stream(key).await?;
+        Ok(GqlMediaDownload {
+            url: format!("/api/v1/trees/{tree_id}/media/{id}/download"),
+        })
+    }
+
+    /// A checked HTTP attachment URL for a complete document ZIP.
+    async fn media_archive(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+    ) -> Result<GqlMediaDownload> {
+        let tree_id = Uuid::parse_str(tree_id.as_str())?;
+        let id = Uuid::parse_str(id.as_str())?;
+        let (_, pages) = crate::rest::media::archive_pages(db_from_ctx(ctx), tree_id, id).await?;
+        for page in &pages {
+            let key = crate::rest::media::stored_key(page, page.storage_key.as_deref())?;
+            let _stream = media_from_ctx(ctx).get_stream(key).await?;
+        }
+        Ok(GqlMediaDownload {
+            url: format!("/api/v1/trees/{tree_id}/media/{id}/archive"),
+        })
     }
 
     /// Whether the supplied gallery link is this media's sole external
@@ -1339,7 +1350,7 @@ impl QueryRoot {
     /// Get a windowed pedigree for a root person.
     ///
     /// Returns nodes and edges within the given ancestor / descendant depth,
-    /// assembled on demand from the closure table and the stored projections.
+    /// assembled on demand from family links and the stored projections.
     async fn pedigree(
         &self,
         ctx: &Context<'_>,

@@ -9,7 +9,8 @@ use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, PersonSearchParams, PersonSearchSort};
+use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort};
+use crate::components::cropped_image::CroppedImage;
 use crate::components::pedigree_chart::default_portrait;
 use crate::components::person_form::FormSection;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
@@ -359,7 +360,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let page = current_page();
     let total_pages = total_filtered.div_ceil(per_page).max(1);
     let page_results: Vec<&SearchEntry> = all_entries.iter().collect();
-    let portrait_urls = {
+    let portraits = {
         let data = portraits_resource.read();
         match &*data {
             Some(urls) => urls.clone(),
@@ -1004,7 +1005,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                 entry,
                                 &props.tree_id,
                                 &props.origin,
-                                portrait_urls.get(&entry.person_id).cloned(),
+                                portraits.get(&entry.person_id).cloned(),
                             )}
                         }
                     }
@@ -1054,7 +1055,7 @@ fn render_result_item(
     entry: &SearchEntry,
     tree_id: &str,
     origin: &str,
-    portrait_url: Option<String>,
+    portrait: Option<CroppedSource>,
 ) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
@@ -1065,7 +1066,8 @@ fn render_result_item(
     let given = entry.given_names.clone();
     let surname = entry.surname.clone();
 
-    let portrait_src = portrait_url.unwrap_or_else(|| default_portrait(entry.sex).to_string());
+    let portrait =
+        portrait.unwrap_or_else(|| CroppedSource::whole(default_portrait(entry.sex).to_string()));
 
     let tree_id_str = tree_id.to_string();
     let person_id_str = entry.person_id.to_string();
@@ -1087,7 +1089,11 @@ fn render_result_item(
             to: target,
             class: "search-person-result {sex_class}",
             div { class: "sp-result-photo",
-                img { class: "sp-result-portrait", src: "{portrait_src}", alt: "" }
+                CroppedImage {
+                    class: "sp-result-portrait",
+                    image: portrait,
+                    alt: String::new(),
+                }
             }
             div { class: "sp-result-info",
                 div { class: "sp-result-name",

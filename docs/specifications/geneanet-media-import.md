@@ -683,15 +683,21 @@ The wizard reads what it was given and asks only for what is missing, so there
 is one *Load* button and no format for the user to choose between.
 
 **The container is a ZIP**, holding `session.json` and the media beside it as
-the files they are. Base64 inside JSON was the obvious first shape and the
-wrong one: it inflates binary by a third, and an account with no data archive
-has every medium in there.
+binary files, without base64 expansion.
 
 Media entries use the ZIP `Stored` method because JPEG, PNG, PDF, and similar
 formats are already compressed. The reader rejects compressed media entries
 and bounds their total decoded bytes by the archive's own byte length, which
 prevents decompression amplification without imposing an absolute session-size
 limit. The deflated JSON manifest is read through a separate bounded path.
+
+Loading a session in the desktop streams its bytes to a private backend
+temporary file. Media are extracted sequentially to staging files, not held as
+an in-memory base64 album. There is no fixed total session-size limit; temporary
+disk capacity must cover both the archive and extracted media. At most two
+session uploads/extractions run concurrently. The collection and entry metadata
+remain in memory; media memory does not grow with album size. Invalid archives
+discard all files staged by that attempt.
 
 `session.json` *is* the collection JSON with the deposit sizes, the media names
 and a format version added beside it.
@@ -700,9 +706,10 @@ fields it does not know, so unzipping a session gives you a file the manifest
 builder reads unchanged — the mapping stays inspectable, which matters for the
 one thing no export can carry.
 
-A bare JSON file loads too: sessions saved before the container changed, and
-the raw output of a browser console script. The two are told apart by content
-rather than by extension, because a renamed file is still the file it was.
+A raw JSON collection from a browser console script also loads. File types
+are detected by content rather than extension. Saved-session media references
+must resolve to ZIP entries; missing entries and inline base64 media are
+rejected rather than treated as usable files.
 
 ### Pace
 
@@ -796,6 +803,14 @@ rows — precisely what the original export could not express, and what
 > sitting beside the stored copy of the same photo. The import now drops the
 > remote row and points the person's portrait at the stored one instead, so a portrait
 > appears once and shows up as the person's avatar.
+>
+> One `OBJE` is two rows: the page that names the URL, and the document that
+> describes it and carries the person's link. The match is made on the page,
+> which is where the URL lives; the removal takes the document with it, but only
+> when every one of that document's pages is being replaced. Notes on the
+> removed document go with it, and the person link is read from the document —
+> reading it from the page would find nobody, leaving every imported portrait
+> unchosen.
 
 Exporting that tree to `.gdz` afterwards is a separate, already-supported
 operation.

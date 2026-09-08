@@ -1,11 +1,13 @@
-use std::collections::HashMap;
-use std::io::Write as _;
+use std::collections::{HashMap, HashSet};
+use std::io::{Read, Seek, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use base64::Engine as _;
 use oxidgene_core::OxidGeneError;
+use oxidgene_geneanet::session::{self, Session};
 use tempfile::TempPath;
+
+pub(crate) static LOADS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
 static STAGED_MEDIA: OnceLock<Mutex<HashMap<PathBuf, TempPath>>> = OnceLock::new();
 
@@ -13,35 +15,31 @@ fn staged_media() -> &'static Mutex<HashMap<PathBuf, TempPath>> {
     STAGED_MEDIA.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub(crate) fn stage(
-    media: &HashMap<String, String>,
-) -> Result<HashMap<String, String>, OxidGeneError> {
-    let mut paths = HashMap::with_capacity(media.len());
-    let mut staged = Vec::with_capacity(media.len());
-
-    for (url, encoded) in media {
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|error| {
-                OxidGeneError::Validation(format!("invalid session media: {error}"))
-            })?;
+pub(crate) fn decode(reader: impl Read + Seek) -> Result<Session, OxidGeneError> {
+    let mut staged = Vec::new();
+    let session = session::decode_with_media(reader, |entry| {
         let mut file = tempfile::Builder::new()
             .prefix("oxidgene-geneanet-")
             .tempfile()?;
-        file.write_all(&bytes)?;
+        std::io::copy(entry, &mut file)?;
         file.flush()?;
         let path = file.into_temp_path();
-        paths.insert(url.clone(), path.to_string_lossy().into_owned());
+        let handle = path.to_string_lossy().into_owned();
         staged.push(path);
-    }
+        Ok(handle)
+    })
+    .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
 
     let mut registry = staged_media()
         .lock()
         .map_err(|_| OxidGeneError::Internal("session media registry is unavailable".into()))?;
+    let referenced: HashSet<&Path> = session.media.values().map(Path::new).collect();
     for path in staged {
-        registry.insert(path.to_path_buf(), path);
+        if referenced.contains::<Path>(&path) {
+            registry.insert(path.to_path_buf(), path);
+        }
     }
-    Ok(paths)
+    Ok(session)
 }
 
 pub(crate) fn remove_owned<'a>(paths: impl IntoIterator<Item = &'a str>) {
@@ -63,11 +61,18 @@ mod tests {
 
     #[test]
     fn staged_media_are_private_and_removed_only_when_owned() {
-        let paths = stage(&HashMap::from([(
-            "https://example.invalid/media.jpg".to_string(),
-            "aGVsbG8=".to_string(),
-        )]))
-        .expect("stages media");
+        let archive = session::encode(&Session {
+            collection: r#"{"deposits":[],"references":[],"view_references":{}}"#.into(),
+            media: HashMap::from([(
+                "https://example.invalid/media.jpg".to_string(),
+                "aGVsbG8=".to_string(),
+            )]),
+            ..Default::default()
+        })
+        .unwrap();
+        let paths = decode(std::io::Cursor::new(archive))
+            .expect("stages media")
+            .media;
         let path = paths.values().next().expect("has a path");
         assert_eq!(std::fs::read(path).expect("reads staged media"), b"hello");
 

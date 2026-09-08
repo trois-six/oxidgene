@@ -4,7 +4,14 @@ use uuid::Uuid;
 
 use crate::enums::{Calendar, DateQualifier, DocumentCategory, Privacy, SourceMediaType};
 
-/// A media file (image, PDF, video, etc.).
+/// The MIME type a document row carries.
+///
+/// Not the type of anything: a document holds no bytes, its pages do. It names
+/// what the row *is*, so a reader branching on `mime_type` alone does not
+/// mistake it for an image it can render.
+pub const DOCUMENT_MIME: &str = "application/x-oxidgene-document";
+
+/// A document shell or one of its file pages (image, PDF, video, etc.).
 ///
 /// `PartialEq` so Dioxus props holding one can diff — a gallery tile is keyed
 /// on the media it shows.
@@ -29,23 +36,25 @@ pub struct Media {
     /// Intrinsic pixel size, after applying any EXIF orientation.
     pub width: Option<i32>,
     pub height: Option<i32>,
-    /// Pages in the document; `1` for photos and single-page files. For a
-    /// [`Media::is_document`] row it is the number of page images assembled
-    /// into it.
+    /// How many pages this row has, which means one of two things depending on
+    /// which kind of row it is — see [`Media::is_document`].
+    ///
+    /// On a document, the number of page media assembled into it, `0` included:
+    /// a document whose pages have all been removed is an empty shell that
+    /// still carries its metadata. On a page, the number of images inside the
+    /// file itself — a multi-page TIFF is one page media holding several.
     pub page_count: i32,
-    /// The document this is a page of, if it is one. A page is a media in its
-    /// own right — it has bytes, a thumbnail and crops — and only this field
-    /// says it belongs to something larger.
+    /// The document this is a page of, or `None` when this row *is* a document.
+    ///
+    /// This is the only thing that separates the two kinds of row. A page holds
+    /// the bytes (or the remote URL) and nothing else of consequence; the
+    /// document holds the title, date, place, category, medium, privacy,
+    /// description, tags and note that describe the whole, and holds no bytes
+    /// at all.
     pub parent_media_id: Option<Uuid>,
     /// Zero-based position within that document.
     #[serde(default)]
     pub page_index: i32,
-    /// `true` when this row *is* a multi-page document assembled from page
-    /// images rather than a file of its own. Such a row carries the title,
-    /// date, place, description and note that describe the document as a
-    /// whole, and usually holds no bytes.
-    #[serde(default)]
-    pub is_document: bool,
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -86,6 +95,52 @@ pub struct Media {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+impl Media {
+    /// Whether this row is a document — the container a gallery shows — rather
+    /// than one of its pages.
+    ///
+    /// Every media a gallery lists is a document, and every set of bytes is a
+    /// page of one. An ordinary photograph is not a different kind of thing
+    /// from a forty-page register: it is a document with one page. That is why
+    /// this is derived from [`Media::parent_media_id`] instead of being stored
+    /// beside it — a second column saying the same thing is a second column
+    /// that can disagree.
+    #[must_use]
+    pub fn is_document(&self) -> bool {
+        self.parent_media_id.is_none()
+    }
+
+    /// Validate page coordinates, checking each known dimension independently.
+    /// Imported pages and PDFs may have no known pixel dimensions yet.
+    pub fn validate_crop(
+        &self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> Result<(), crate::OxidGeneError> {
+        let invalid = |message: &str| Err(crate::OxidGeneError::Validation(message.into()));
+        if self.is_document() {
+            return invalid("a vignette must refer to a page, not a document");
+        }
+        if width <= 0 || height <= 0 {
+            return invalid("crop width and height must be positive");
+        }
+        if x < 0 || y < 0 {
+            return invalid("crop origin must not be negative");
+        }
+        let (Some(right), Some(bottom)) = (x.checked_add(width), y.checked_add(height)) else {
+            return invalid("crop coordinates exceed the supported range");
+        };
+        if self.width.is_some_and(|bound| right > bound)
+            || self.height.is_some_and(|bound| bottom > bound)
+        {
+            return invalid("crop does not fit within the page dimensions");
+        }
+        Ok(())
+    }
+}
+
 /// A link between a media item and a person, event, source, or family.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaLink {
@@ -114,21 +169,6 @@ pub enum Portrait {
 }
 
 impl Portrait {
-    /// Read the pair of columns back into one value.
-    ///
-    /// A row with both set should not exist — the write path refuses it — but
-    /// if one ever does, the vignette wins: it is the more specific statement,
-    /// and picking deterministically beats surfacing an error for something no
-    /// reader can act on.
-    #[must_use]
-    pub fn from_columns(media_id: Option<Uuid>, vignette_id: Option<Uuid>) -> Self {
-        match (vignette_id, media_id) {
-            (Some(id), _) => Self::Vignette(id),
-            (None, Some(id)) => Self::Media(id),
-            (None, None) => Self::None,
-        }
-    }
-
     /// The pair of columns to store, as (media_id, vignette_id).
     #[must_use]
     pub fn to_columns(self) -> (Option<Uuid>, Option<Uuid>) {
@@ -164,6 +204,69 @@ pub struct Vignette {
     pub event_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// A region to cut out of an image the reader will fetch for themselves.
+///
+/// Sent instead of a cropped image when the crop cannot be cut here: cutting
+/// means re-decoding our own copy, and a remote file is never fetched by us.
+/// The rectangle and the size it was measured against are enough for the
+/// reader to show exactly the same region, so a face identified on somebody
+/// else's photograph draws as a face and not as the whole group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageCrop {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    /// The full image's pixel size, which is what `x`/`y` are measured in.
+    pub source_width: i32,
+    pub source_height: i32,
+}
+
+impl ImageCrop {
+    /// A rectangle and the size it was measured against, when both are usable.
+    ///
+    /// `None` when the pixel size was never recorded, or either is degenerate:
+    /// there is then no scale to cut at, and the caller shows the whole image
+    /// rather than guessing at one.
+    #[must_use]
+    pub fn new(
+        (x, y, width, height): (i32, i32, i32, i32),
+        source: (Option<i32>, Option<i32>),
+    ) -> Option<Self> {
+        let (source_width, source_height) = (source.0?, source.1?);
+        (source_width > 0 && source_height > 0 && width > 0 && height > 0).then_some(Self {
+            x,
+            y,
+            width,
+            height,
+            source_width,
+            source_height,
+        })
+    }
+
+    /// The crop a reader has to perform themselves, if any.
+    ///
+    /// `None` whenever the region can be cut here instead — we hold the bytes —
+    /// or when nothing could draw it anyway: a file that is not a picture, or
+    /// one whose pixel size was never recorded.
+    #[must_use]
+    pub fn for_remote(media: &Media, x: i32, y: i32, width: i32, height: i32) -> Option<Self> {
+        if media.storage_key.is_some() || !is_remote_url(&media.file_path) {
+            return None;
+        }
+        if !is_image_mime(&media.mime_type) {
+            return None;
+        }
+        Self::new((x, y, width, height), (media.width, media.height))
+    }
+}
+
+/// Whether a MIME type names a picture an `<img>` can draw.
+#[must_use]
+pub fn is_image_mime(mime_type: &str) -> bool {
+    mime_type.trim().to_ascii_lowercase().starts_with("image/")
 }
 
 /// Whether a media's `file_path` points at something on the web.
@@ -269,6 +372,88 @@ pub fn normalize_mime(declared: Option<&str>, file_name: &str) -> String {
     guess_mime(file_name)
         .unwrap_or("application/octet-stream")
         .to_string()
+}
+
+#[cfg(test)]
+mod crop_tests {
+    use super::*;
+
+    fn page(file_path: &str, mime_type: &str) -> Media {
+        Media {
+            id: Uuid::nil(),
+            tree_id: Uuid::nil(),
+            file_name: "medium.jpg".into(),
+            mime_type: mime_type.into(),
+            file_path: file_path.into(),
+            storage_key: None,
+            sha256: None,
+            thumbnail_key: None,
+            width: Some(1600),
+            height: Some(1200),
+            page_count: 1,
+            parent_media_id: Some(Uuid::nil()),
+            page_index: 0,
+            file_size: 0,
+            title: None,
+            description: None,
+            date_value: None,
+            date_sort: None,
+            date_qualifier: DateQualifier::default(),
+            date_value2: None,
+            calendar: Calendar::default(),
+            source_media_type: SourceMediaType::default(),
+            document_category: None,
+            tags: Vec::new(),
+            place_id: None,
+            privacy: Privacy::default(),
+            created_at: DateTime::<Utc>::MIN_UTC,
+            updated_at: DateTime::<Utc>::MIN_UTC,
+            deleted_at: None,
+        }
+    }
+
+    const URL: &str = "https://archives.example.org/group/7.jpg";
+
+    #[test]
+    fn a_region_of_a_remote_picture_travels_with_the_size_it_was_measured_against() {
+        let crop = ImageCrop::for_remote(&page(URL, "image/jpeg"), 120, 40, 200, 260)
+            .expect("a remote picture of known size can be cut by the reader");
+
+        assert_eq!(
+            (crop.x, crop.y, crop.width, crop.height),
+            (120, 40, 200, 260)
+        );
+        assert_eq!((crop.source_width, crop.source_height), (1600, 1200));
+    }
+
+    #[test]
+    fn a_region_we_can_cut_ourselves_is_not_sent_as_one() {
+        // We hold the bytes: the caller cuts them and sends the region itself,
+        // which is smaller and needs no arithmetic at the far end.
+        let mut ours = page(URL, "image/jpeg");
+        ours.storage_key = Some("tree/scan.jpg".into());
+
+        assert!(ImageCrop::for_remote(&ours, 120, 40, 200, 260).is_none());
+    }
+
+    #[test]
+    fn nothing_is_sent_for_what_could_not_be_drawn_anyway() {
+        // A local path nobody uploaded has no address to draw from; a PDF has
+        // no still to cut; and a picture nobody has measured has no scale to
+        // cut at, so the whole of it is shown instead of a guess.
+        let mut unmeasured = page(URL, "image/jpeg");
+        unmeasured.width = None;
+
+        for media in [
+            page("media/photo.jpg", "image/jpeg"),
+            page(URL, "application/pdf"),
+            unmeasured,
+        ] {
+            assert!(ImageCrop::for_remote(&media, 120, 40, 200, 260).is_none());
+        }
+        // A degenerate rectangle is not a region.
+        assert!(ImageCrop::for_remote(&page(URL, "image/jpeg"), 0, 0, 0, 10).is_none());
+    }
 }
 
 #[cfg(test)]

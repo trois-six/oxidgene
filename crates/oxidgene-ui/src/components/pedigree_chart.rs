@@ -14,6 +14,8 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
+use crate::api::CroppedSource;
+use crate::components::cropped_image::{CroppedImage, CroppedSvgImage};
 use crate::components::date_input::format_event_date;
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -313,14 +315,7 @@ fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
             "event.type.marriages_count",
         ),
         EventType::Religion => ("\u{271F}", "ev-ic ev-ic-other", "event.type.religion"),
-        // Everything else takes the neutral icon but still names itself, from
-        // the same key table the rest of the UI uses. These used to collapse
-        // onto "event.type.other", so a Confirmation or a Military service
-        // showed up in the panel labelled "Other".
-        //
-        // Only spell out an event type above when it earns an icon of its own:
-        // an arm reading `("\u{25C6}", "ev-ic ev-ic-other", "event.type.x")`
-        // is what this line already produces.
+        // Types without a dedicated icon still retain their localized name.
         _ => ("\u{25C6}", "ev-ic ev-ic-other", event_type_label_key(et)),
     }
 }
@@ -339,10 +334,12 @@ pub struct PedigreeData {
     pub events_by_person: HashMap<Uuid, Vec<DomainEvent>>,
     pub events_by_family: HashMap<Uuid, Vec<DomainEvent>>,
     pub places: HashMap<Uuid, Place>,
-    /// person_id → the URL their portrait is shown from, built by
-    /// [`ApiClient::portrait_map`]. Absent means no portrait: the card draws
-    /// the silhouette rather than asking for bytes that do not exist.
-    pub photos: HashMap<Uuid, String>,
+    /// person_id → the picture their portrait is drawn from, built by
+    /// [`ApiClient::portrait_map_for_ids`]. Absent means no portrait: the card
+    /// draws the silhouette rather than asking for bytes that do not exist.
+    /// A portrait that arrives as a region of a larger photograph carries that
+    /// region, and the card cuts it itself.
+    pub photos: HashMap<Uuid, CroppedSource>,
     /// Pre-computed SOSA ancestor set (persons who are ancestors of the SOSA root).
     pub sosa_ancestors: HashSet<Uuid>,
     /// The SOSA root person ID (from tree settings).
@@ -396,11 +393,10 @@ fn profile_event_to_domain(
 }
 
 impl PedigreeData {
-    /// Build `PedigreeData` from a [`Pedigree`] returned by the cache API.
+    /// Build chart data from a [`Pedigree`] returned by the projection API.
     ///
     /// Creates synthetic domain objects (Person, PersonName, Event) from the
-    /// denormalized pedigree nodes so the existing layout + rendering code works
-    /// unchanged.
+    /// denormalized pedigree nodes for layout and rendering.
     pub fn from_pedigree(pedigree: &Pedigree) -> Self {
         use chrono::Utc;
 
@@ -446,11 +442,6 @@ impl PedigreeData {
         }
 
         // ── Birth/death events, carried whole by the projection ──
-        //
-        // These used to be *rebuilt* from a year string on the node, which is
-        // why the events panel showed "1788" for a birth on 2 Nov 1788 and
-        // "between 1691" for a death recorded as a range. The projection hands
-        // over the event now, so this is a conversion and can lose nothing.
         let mut events_by_person: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
         for node in pedigree.persons.values() {
             let person_events: Vec<DomainEvent> = [node.birth.as_ref(), node.death.as_ref()]
@@ -813,7 +804,7 @@ struct TreeNode {
     label_given: String,
     birth_year: Option<QualifiedYear>,
     death_year: Option<QualifiedYear>,
-    photo_url: Option<String>,
+    photo_url: Option<CroppedSource>,
     sosa_badge: SosaBadge,
     is_self: bool,
     /// Indices into the TreeNode arena of children (for RT traversal).
@@ -844,7 +835,7 @@ impl TreeNode {
         surname: String,
         birth_year: Option<QualifiedYear>,
         death_year: Option<QualifiedYear>,
-        photo_url: Option<String>,
+        photo_url: Option<CroppedSource>,
         sosa_badge: SosaBadge,
         is_self: bool,
         after: i32,
@@ -928,7 +919,7 @@ struct PersonNode {
     surname: String,
     birth_year: Option<QualifiedYear>,
     death_year: Option<QualifiedYear>,
-    photo_url: Option<String>,
+    photo_url: Option<CroppedSource>,
     sosa_badge: SosaBadge,
     is_self: bool,
 }
@@ -2279,7 +2270,7 @@ struct LayoutNode {
     label_given: String,
     birth_year: Option<QualifiedYear>,
     death_year: Option<QualifiedYear>,
-    photo_url: Option<String>,
+    photo_url: Option<CroppedSource>,
     sosa_badge: SosaBadge,
     is_self: bool,
     is_compact: bool,
@@ -3062,11 +3053,10 @@ fn render_pedigree_card(
             } else {
                 ty
             };
-            let photo_url = node.photo_url.clone();
-            let portrait_src = photo_url
-                .as_deref()
-                .unwrap_or_else(|| default_portrait(node.sex))
-                .to_string();
+            let portrait = node
+                .photo_url
+                .clone()
+                .unwrap_or_else(|| CroppedSource::whole(default_portrait(node.sex).to_string()));
             let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
             let is_self = node.is_self;
@@ -3094,7 +3084,7 @@ fn render_pedigree_card(
                     rect { class: "ped-card-rect", x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
                     rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:var(--white)" }
-                    image { "href": "{portrait_src}", x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "object-fit:cover" }
+                    CroppedSvgImage { image: portrait, x: ph_x, y: PHOTO_Y, width: PHOTO_W, height: PHOTO_H }
                     if is_self {
                         g {
                             circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-self)" }
@@ -3271,12 +3261,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // Re-fit the graph when the window is actually resized.
     //
-    // The size check is not an optimisation. A refit throws away the pan and
-    // zoom the reader set up, so it must only happen when the viewport really
-    // changed shape — and a `resize` event is not proof of that. WebKitGTK
-    // fires one whenever the window is remapped, so alt-tabbing away and back
-    // used to snap the tree home for no visible reason, which reads as the
-    // whole app having reloaded itself.
+    // WebKitGTK also fires resize on remapping. Check dimensions to preserve
+    // the reader's pan and zoom when only window focus changes.
     use_effect(move || {
         document::eval(
             r#"
@@ -3344,7 +3330,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     }
 
     // ── Compute SOSA ancestor set (persons who are ancestors of the SOSA root) ──
-    // Use server-provided SOSA ancestor set (from closure table) when available,
+    // Use the server-provided SOSA ancestor set when available,
     // falling back to local graph traversal (which only works within the pedigree window).
     let sosa_ancestors: HashSet<Uuid> = props
         .sosa_ancestor_ids
@@ -3435,13 +3421,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // The same resolver every other surface uses, so the no-name fallback is
     // the translated one rather than a hardcoded "Unknown".
     let sel_full_name = props.data.display_name(sel_pid, &i18n);
-    let sel_portrait_src = props
-        .data
-        .photos
-        .get(&sel_pid)
-        .map(|url| url.as_str())
-        .unwrap_or_else(|| default_portrait(props.data.sex_of(sel_pid)))
-        .to_string();
+    let sel_portrait = props.data.photos.get(&sel_pid).cloned().unwrap_or_else(|| {
+        CroppedSource::whole(default_portrait(props.data.sex_of(sel_pid)).to_string())
+    });
     // The same lifespan the card draws, rather than the old "n. 1620" / "d.
     // 1691" abbreviations: the panel sits beside the card showing the very
     // same person, and two spellings of one life read as two different facts.
@@ -3981,7 +3963,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     div { class: "evp-hd", {i18n.t("pedigree.events")} }
                     div { class: "evp-person",
                         div { class: "evp-av",
-                            img { src: "{sel_portrait_src}", alt: "" }
+                            CroppedImage { image: sel_portrait, alt: String::new() }
                         }
                         div { class: "evp-name",
                             strong { "{sel_full_name}" }

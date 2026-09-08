@@ -8,9 +8,12 @@ use axum::http::header::{
 };
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use futures_util::TryStreamExt;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::Media;
-use oxidgene_db::repo::{MediaPatch, MediaRepo, MediaTagRepo, PaginationParams, UploadedMedia};
+use oxidgene_db::repo::{
+    MediaPatch, MediaRepo, MediaTagRepo, PaginationParams, TreeRepo, UploadedMedia,
+};
 use uuid::Uuid;
 
 use crate::media::{self, MAX_UPLOAD_BYTES};
@@ -59,6 +62,10 @@ pub async fn list_media(
 }
 
 /// POST /api/v1/trees/:tree_id/media
+///
+/// Add a page that names a file without holding its bytes — a URL an archive
+/// serves, or a path a GEDCOM mentioned. The bytes-carrying counterpart is
+/// `POST /media/upload`; both add a page to an existing document.
 pub async fn create_media(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
@@ -84,10 +91,14 @@ pub async fn create_media(
             &body.file_path
         },
     );
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, body.document_id)
+        .await
+        .map_err(ApiError)?;
     let media = MediaRepo::create(
         &state.db,
         id,
         tree_id,
+        Some(body.document_id),
         body.file_name,
         mime_type,
         body.file_path,
@@ -97,6 +108,9 @@ pub async fn create_media(
     )
     .await
     .map_err(ApiError::from)?;
+    MediaRepo::refresh_page_count(&state.db, body.document_id)
+        .await
+        .map_err(ApiError::from)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(media).unwrap()),
@@ -183,6 +197,30 @@ pub(crate) fn media_patch(
         }
     }
 
+    // Half a size is not a size: a width without a height cannot scale
+    // anything, so the pair is required rather than half-applied.
+    let dimensions = match (body.width, body.height) {
+        (None, None) => None,
+        (Some(width), Some(height)) => {
+            if stored.storage_key.is_some() {
+                return Err(ApiError(OxidGeneError::Validation(
+                    "the dimensions of a file stored here are read from its bytes".into(),
+                )));
+            }
+            if width <= 0 || height <= 0 {
+                return Err(ApiError(OxidGeneError::Validation(
+                    "image dimensions must be positive".into(),
+                )));
+            }
+            Some((width, height))
+        }
+        _ => {
+            return Err(ApiError(OxidGeneError::Validation(
+                "width and height are sent together or not at all".into(),
+            )));
+        }
+    };
+
     // The calendar and the value are only meaningful together, so a patch that
     // moves one re-reads the other from the stored row before converting.
     let date_sort = Some(event_date::derive_patch(
@@ -202,6 +240,7 @@ pub(crate) fn media_patch(
         place_id: body.place_id,
         file_path,
         mime_type,
+        dimensions,
         privacy: body.privacy,
         source_media_type: body.source_media_type,
         document_category: body.document_category,
@@ -326,12 +365,14 @@ pub async fn reorder_pages(
 
 /// DELETE /api/v1/trees/:tree_id/media/:media_id/pages/:page_id
 ///
-/// Detach a page as an ordinary media and remove its links, identifications
-/// and portrait references. Its bytes and transcript remain with it.
-pub async fn detach_page(
+/// Remove a page from its document, permanently, along with its bytes,
+/// transcript, links, identifications and portrait references. Removing the
+/// last page leaves the document standing and empty; deleting the document is
+/// a separate act.
+pub async fn delete_page(
     State(state): State<AppState>,
     Path((tree_id, media_id, page_id)): Path<(Uuid, Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<StatusCode, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError::from)?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, media_id)
         .await
@@ -339,11 +380,16 @@ pub async fn detach_page(
     require_tree_resource(&txn, tree_id, TreeResource::Media, page_id)
         .await
         .map_err(ApiError)?;
-    let page = MediaRepo::detach_page(&txn, media_id, page_id)
+    let purge = MediaRepo::delete_page(&txn, media_id, page_id)
         .await
         .map_err(ApiError::from)?;
     commit_tx(txn).await.map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(page).unwrap()))
+    // Only once the transaction holds: a key deleted before the commit is a
+    // file gone from a page the database would still list.
+    for key in purge.storage_keys {
+        state.media.delete(&key).await.map_err(ApiError::from)?;
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// DELETE /api/v1/trees/:tree_id/media/:media_id
@@ -418,10 +464,11 @@ pub async fn media_deletion_status(
 
 /// POST /api/v1/trees/:tree_id/media/upload
 ///
-/// Multipart form. The `file` part carries the bytes; optional `title` and
+/// Multipart form. The `file` part carries the bytes and the `document_id`
+/// part names the document the file becomes a page of; optional `title` and
 /// `description` parts carry metadata. Sending a `media_id` part attaches the
-/// file to an existing record instead of creating one — the flow for filling
-/// in a GEDCOM-imported stub that names a photo nobody had.
+/// bytes to an existing page instead of creating one — the flow for filling in
+/// a GEDCOM-imported page that names a photo nobody had.
 pub async fn upload_media(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
@@ -463,28 +510,39 @@ pub async fn upload_media(
                     .map_err(ApiError::from)?,
             )
         }
-        None => (
-            StatusCode::CREATED,
-            MediaRepo::create_uploaded(&state.db, Uuid::now_v7(), tree_id, upload)
-                .await
-                .map_err(ApiError::from)?,
-        ),
-    };
-
-    // A page belongs to its document from the moment it lands: an upload that
-    // succeeded but was not attached would sit in the tree as a loose scan
-    // nobody meant to create.
-    let media = match form.document_id {
-        Some(document_id) => {
+        None => {
+            // A page belongs to its document from the moment it lands. Born
+            // attached rather than created loose and adopted afterwards: an
+            // upload that succeeded but was not attached would sit in the tree
+            // as a scan belonging to nothing, which is not a shape any reader
+            // knows how to show.
+            let document_id = form.document_id.ok_or_else(|| {
+                ApiError(OxidGeneError::Validation(
+                    "multipart form has no `document_id` part".into(),
+                ))
+            })?;
             require_tree_resource(&state.db, tree_id, TreeResource::Media, document_id)
                 .await
                 .map_err(ApiError)?;
-            MediaRepo::append_page(&state.db, document_id, media.id)
+            (
+                StatusCode::CREATED,
+                MediaRepo::create_uploaded(
+                    &state.db,
+                    Uuid::now_v7(),
+                    tree_id,
+                    Some(document_id),
+                    upload,
+                )
                 .await
-                .map_err(ApiError::from)?
+                .map_err(ApiError::from)?,
+            )
         }
-        None => media,
     };
+    if let Some(document_id) = media.parent_media_id {
+        MediaRepo::refresh_page_count(&state.db, document_id)
+            .await
+            .map_err(ApiError::from)?;
+    }
 
     Ok((status, Json(serde_json::to_value(media).unwrap())))
 }
@@ -497,12 +555,7 @@ pub async fn download_media(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let media = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
+    let media = download_record(&state.db, tree_id, media_id).await?;
     let key = stored_key(&media, media.storage_key.as_deref())?;
     serve(
         &state,
@@ -519,81 +572,125 @@ pub async fn download_media(
 ///
 /// Every page of a document, in one ZIP.
 ///
-/// A register of forty scans is one thing to the reader and forty files to
-/// the disk; saving it a page at a time means forty save dialogs and a
-/// directory whose alphabetical order has nothing to do with the document's.
-/// The archive therefore prefixes each entry with its position — `001_`,
-/// `002_` — so unzipping restores the reading order that
-/// [`MediaRepo::reorder_pages`] recorded, whatever the original file names
-/// were.
+/// Entry names include their position to preserve the document's reading order.
 ///
-/// Pages with no stored bytes are skipped rather than fatal: a document
-/// assembled from a GEDCOM can name files nobody ever uploaded, and the
-/// pages that *are* held are still worth having.
+/// Missing page files fail the request before response headers are sent.
 ///
-/// Stored, not deflated. The pages are JPEGs and PNGs — already compressed —
-/// so deflate would spend CPU to save nothing.
+/// Entries use Stored compression to avoid recompressing media files.
 pub async fn download_archive(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let document = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    let pages = MediaRepo::list_pages(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
+    use std::io::{Seek, Write};
+    use tokio::io::AsyncReadExt;
 
-    // Fetch first, zip second: the store is async and the zip writer is not,
-    // so interleaving them would mean holding a `ZipWriter` across an await.
-    let mut held = Vec::with_capacity(pages.len());
-    for page in &pages {
-        let Some(key) = page.storage_key.as_deref() else {
-            continue;
-        };
-        let bytes = state.media.get(key).await.map_err(ApiError::from)?;
-        held.push((page.file_name.clone(), bytes));
-    }
-    if held.is_empty() {
-        return Err(ApiError(OxidGeneError::NotFound {
-            entity: "Media file",
-            id: media_id,
-        }));
-    }
-
-    let bytes = tokio::task::spawn_blocking(move || zip_pages(&held))
+    // Bound temporary archives through delivery, not just while packaging them.
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let permit = SLOTS
+        .acquire()
         .await
-        .map_err(|e| ApiError(OxidGeneError::Internal(e.to_string())))??;
+        .map_err(|_| ApiError(OxidGeneError::Internal("archive worker unavailable".into())))?;
+    let (document, pages) = archive_pages(&state.db, tree_id, media_id).await?;
+    let runtime = tokio::runtime::Handle::current();
+    let (_alive, mut cancelled) = tokio::sync::oneshot::channel::<()>();
+    let (file, permit) = tokio::task::spawn_blocking(move || -> Result<_, OxidGeneError> {
+        // An anonymous temporary file is removed on error, disconnect or EOF.
+        // Finish before sending headers so a failed page cannot become a partial ZIP.
+        let mut writer = zip::ZipWriter::new(tempfile::tempfile()?);
+        let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .large_file(true);
+        let digits = pages.len().to_string().len().max(3);
+        for (index, page) in pages.iter().enumerate() {
+            let key = stored_key(page, page.storage_key.as_deref())?;
+            let mut stream = runtime.block_on(state.media.get_stream(key))?;
+            writer
+                .start_file(
+                    format!("{:0digits$}_{}", index + 1, zip_safe(&page.file_name)),
+                    options,
+                )
+                .map_err(|_| OxidGeneError::Internal("archive entry creation failed".into()))?;
+            while let Some(chunk) = runtime.block_on(stream.try_next())? {
+                if cancelled
+                    .try_recv()
+                    .is_err_and(|error| error == tokio::sync::oneshot::error::TryRecvError::Closed)
+                {
+                    return Err(OxidGeneError::Internal("archive request cancelled".into()));
+                }
+                writer.write_all(&chunk)?;
+            }
+        }
+        let mut file = writer
+            .finish()
+            .map_err(|_| OxidGeneError::Internal("archive finalization failed".into()))?;
+        file.rewind()?;
+        Ok((file, permit))
+    })
+    .await
+    .map_err(|_| ApiError(OxidGeneError::Internal("archive worker failed".into())))??;
 
     let name = format!("{}.zip", archive_stem(&document.file_name));
+    let file = tokio::fs::File::from_std(file);
+    let length = file.metadata().await.map_err(OxidGeneError::from)?.len();
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, header_value("application/zip"));
-    headers.insert(CONTENT_LENGTH, header_value(&bytes.len().to_string()));
-    headers.insert(CONTENT_DISPOSITION, header_value(&disposition(&name)));
-    Ok((headers, Body::from(bytes)).into_response())
+    headers.insert(CONTENT_LENGTH, header_value(&length.to_string()));
+    headers.insert(CACHE_CONTROL, header_value("private, no-store"));
+    headers.insert(
+        CONTENT_DISPOSITION,
+        header_value(&attachment_disposition(&name)),
+    );
+    headers.insert("x-content-type-options", header_value("nosniff"));
+    let stream =
+        futures_util::stream::try_unfold((file, permit), |(mut file, permit)| async move {
+            let mut buffer = vec![0; 64 * 1024];
+            let read = file.read(&mut buffer).await?;
+            buffer.truncate(read);
+            Ok::<_, std::io::Error>((read != 0).then_some((buffer, (file, permit))))
+        });
+    Ok((headers, Body::from_stream(stream)).into_response())
 }
 
-/// Write `pages` into a ZIP, numbered in the order given.
-fn zip_pages(pages: &[(String, Vec<u8>)]) -> Result<Vec<u8>, ApiError> {
-    use std::io::Write as _;
-
-    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options: zip::write::FileOptions<'_, ()> =
-        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    for (index, (file_name, bytes)) in pages.iter().enumerate() {
-        let entry = format!("{:03}_{}", index + 1, zip_safe(file_name));
-        writer
-            .start_file(entry, options)
-            .and_then(|()| writer.write_all(bytes).map_err(Into::into))
-            .map_err(|e| ApiError(OxidGeneError::Internal(e.to_string())))?;
+/// Download reads must not outlive a soft-deleted tree or parent document,
+/// even while the asynchronous purge has not removed the page rows yet.
+pub(crate) async fn download_record(
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+    media_id: Uuid,
+) -> Result<Media, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    require_tree_resource(db, tree_id, TreeResource::Media, media_id).await?;
+    let media = MediaRepo::get(db, media_id).await?;
+    if let Some(parent) = media.parent_media_id {
+        require_tree_resource(db, tree_id, TreeResource::Media, parent).await?;
     }
-    Ok(writer
-        .finish()
-        .map_err(|e| ApiError(OxidGeneError::Internal(e.to_string())))?
-        .into_inner())
+    Ok(media)
+}
+
+/// Validate the complete document for both HTTP and GraphQL download requests.
+pub(crate) async fn archive_pages(
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+    media_id: Uuid,
+) -> Result<(Media, Vec<Media>), OxidGeneError> {
+    let document = download_record(db, tree_id, media_id).await?;
+    let pages = MediaRepo::list_pages(db, media_id).await?;
+    if pages.is_empty() {
+        return Err(OxidGeneError::NotFound {
+            entity: "Media file",
+            id: media_id,
+        });
+    }
+    for page in &pages {
+        if page.tree_id != tree_id {
+            return Err(OxidGeneError::NotFound {
+                entity: "Media file",
+                id: media_id,
+            });
+        }
+        stored_key(page, page.storage_key.as_deref())?;
+    }
+    Ok((document, pages))
 }
 
 /// A file name that cannot escape the archive's own directory.
@@ -606,11 +703,19 @@ fn zip_safe(file_name: &str) -> String {
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or(file_name)
-        .trim_matches('.');
+        .trim_matches(['.', ' ']);
     if base.is_empty() {
         "page".to_string()
     } else {
-        base.to_string()
+        base.chars()
+            .map(|c| {
+                if c.is_control() || matches!(c, ':' | '"' | '<' | '>' | '|' | '?' | '*') {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect()
     }
 }
 
@@ -744,11 +849,15 @@ async fn read_upload_form(mut multipart: Multipart) -> Result<UploadForm, ApiErr
 /// A media row with no key is a file we know the name of and not the content —
 /// every GEDCOM import produces those. Telling the client "not found" is
 /// accurate: there are no bytes to serve.
-fn stored_key<'a>(media: &Media, key: Option<&'a str>) -> Result<&'a str, ApiError> {
-    key.ok_or(ApiError(OxidGeneError::NotFound {
-        entity: "Media file",
-        id: media.id,
-    }))
+pub(crate) fn stored_key<'a>(
+    media: &Media,
+    key: Option<&'a str>,
+) -> Result<&'a str, OxidGeneError> {
+    key.filter(|key| key.starts_with(&format!("{}/", media.tree_id)))
+        .ok_or(OxidGeneError::NotFound {
+            entity: "Media file",
+            id: media.id,
+        })
 }
 
 /// Serve stored bytes, honouring conditional requests.
@@ -798,6 +907,7 @@ async fn serve(
 /// `filename` for anything old, and a percent-encoded `filename*` that every
 /// current browser prefers.
 fn disposition(file_name: &str) -> String {
+    let file_name = zip_safe(file_name);
     let ascii: String = file_name
         .chars()
         .map(|c| {
@@ -819,6 +929,31 @@ fn disposition(file_name: &str) -> String {
         }
     }
     format!("inline; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
+}
+
+fn attachment_disposition(file_name: &str) -> String {
+    disposition(file_name).replacen("inline;", "attachment;", 1)
+}
+
+/// GET /api/v1/trees/:tree_id/media/:media_id/download
+///
+/// Stream one original as an attachment; previews keep using `/file` inline.
+pub async fn download_attachment(
+    State(state): State<AppState>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, ApiError> {
+    let media = download_record(&state.db, tree_id, media_id).await?;
+    let key = stored_key(&media, media.storage_key.as_deref())?;
+    let stream = state.media.get_stream(key).await?;
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, header_value(&media.mime_type));
+    headers.insert(CACHE_CONTROL, header_value("private, no-store"));
+    headers.insert(
+        CONTENT_DISPOSITION,
+        header_value(&attachment_disposition(&media.file_name)),
+    );
+    headers.insert("x-content-type-options", header_value("nosniff"));
+    Ok((headers, Body::from_stream(stream)).into_response())
 }
 
 pub(super) fn header_value(value: &str) -> axum::http::HeaderValue {
@@ -856,22 +991,9 @@ mod tests {
         assert_eq!(zip_safe("../../etc/passwd"), "passwd");
         assert_eq!(zip_safe("C:\\Windows\\system32\\x.dll"), "x.dll");
         assert_eq!(zip_safe(".."), "page");
-    }
-
-    #[test]
-    fn pages_are_numbered_in_the_order_they_are_given() {
-        let pages = vec![
-            ("second.jpg".to_string(), b"b".to_vec()),
-            ("first.jpg".to_string(), b"a".to_vec()),
-        ];
-        let Ok(bytes) = zip_pages(&pages) else {
-            panic!("zips two small entries")
-        };
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
-        assert_eq!(archive.len(), 2);
-        // The order given is the order stored, whatever the names sort as.
-        assert_eq!(archive.by_index(0).unwrap().name(), "001_second.jpg");
-        assert_eq!(archive.by_index(1).unwrap().name(), "002_first.jpg");
+        assert_eq!(zip_safe("scan.png:payload"), "scan.png_payload");
+        assert_eq!(zip_safe("scan\r\n\0.png"), "scan___.png");
+        assert_eq!(zip_safe(" ../ . "), "page");
     }
 
     #[test]
@@ -889,5 +1011,17 @@ mod tests {
     fn a_quote_cannot_close_the_filename_parameter_early() {
         let value = disposition(r#"a"; attachment; x=".jpg"#);
         assert_eq!(value.matches('"').count(), 2, "{value}");
+    }
+
+    #[test]
+    fn an_attachment_name_cannot_inject_headers_or_paths() {
+        let value = attachment_disposition("../../folder\\scan\r\n\0.pdf:payload");
+        assert!(value.starts_with("attachment;"));
+        assert!(
+            value.contains("filename=\"scan___.pdf_payload\""),
+            "{value}"
+        );
+        assert!(!value.contains(['\r', '\n', '\0', '/', '\\']), "{value}");
+        assert!(axum::http::HeaderValue::from_str(&value).is_ok());
     }
 }

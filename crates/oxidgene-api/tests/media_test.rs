@@ -37,6 +37,7 @@ impl Drop for TempRoot {
 /// A router, its media root, and a tree to hang media off.
 struct Harness {
     app: axum::Router,
+    db: sea_orm::DatabaseConnection,
     root: TempRoot,
     tree_id: Uuid,
 }
@@ -45,7 +46,7 @@ async fn setup() -> Harness {
     let db = connect("sqlite::memory:").await.expect("connect");
     run_migrations(&db).await.expect("migrations");
     let root = TempRoot::new();
-    let app = build_router(AppState::new(db, &root.0));
+    let app = build_router(AppState::new(db.clone(), &root.0));
 
     let (status, tree) = json_request(
         &app,
@@ -57,7 +58,12 @@ async fn setup() -> Harness {
     assert_eq!(status, StatusCode::CREATED, "tree setup failed: {tree}");
     let tree_id = Uuid::parse_str(tree["id"].as_str().unwrap()).unwrap();
 
-    Harness { app, root, tree_id }
+    Harness {
+        app,
+        db,
+        root,
+        tree_id,
+    }
 }
 
 async fn json_request(
@@ -113,11 +119,48 @@ fn multipart(parts: &[(&str, Option<&str>, &[u8])]) -> (String, Vec<u8>) {
     (format!("multipart/form-data; boundary={boundary}"), body)
 }
 
+/// Create an empty document, the container every set of bytes is a page of.
+async fn new_document(app: &axum::Router, tree_id: Uuid, title: Option<&str>) -> String {
+    let (status, document) = json_request(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media/document"),
+        Some(json!({ "title": title })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "document setup failed: {document}"
+    );
+    document["id"].as_str().unwrap().to_string()
+}
+
+/// Upload a file as a page.
+///
+/// Every set of bytes is a page of a document, so a caller that names neither
+/// a document nor an existing page to fill in gets a fresh single-page
+/// document. Tests about a document's own behaviour pass their own
+/// `document_id` part instead.
 async fn upload(
     app: &axum::Router,
     tree_id: Uuid,
     parts: &[(&str, Option<&str>, &[u8])],
 ) -> (StatusCode, Value) {
+    let named = parts
+        .iter()
+        .any(|(name, _, _)| *name == "document_id" || *name == "media_id");
+    let document_id;
+    let owned;
+    let parts = if named {
+        parts
+    } else {
+        document_id = new_document(app, tree_id, None).await;
+        let mut all = parts.to_vec();
+        all.push(("document_id", None, document_id.as_bytes()));
+        owned = all;
+        owned.as_slice()
+    };
     let (content_type, body) = multipart(parts);
     let request = Request::builder()
         .method(Method::POST)
@@ -167,6 +210,361 @@ fn png(width: u32, height: u32) -> Vec<u8> {
         .write_to(&mut out, image::ImageFormat::Png)
         .unwrap();
     out.into_inner()
+}
+
+/// Exercise the URL capability and its HTTP representation with the same inputs.
+async fn download_access(
+    h: &Harness,
+    tree_id: Uuid,
+    id: &str,
+    archive: bool,
+    expected: StatusCode,
+) -> (axum::http::HeaderMap, Vec<u8>) {
+    let suffix = if archive { "archive" } else { "download" };
+    let url = format!("/api/v1/trees/{tree_id}/media/{id}/{suffix}");
+    let (status, headers, bytes) = raw(&h.app, &url, &[]).await;
+    assert_eq!(status, expected, "{url}");
+    #[cfg(feature = "graphql")]
+    {
+        let field = if archive {
+            "mediaArchive"
+        } else {
+            "mediaDownload"
+        };
+        let (_, result) = json_request(
+            &h.app,
+            Method::POST,
+            "/graphql",
+            Some(json!({"query": format!(
+                "{{ {field}(treeId: \"{tree_id}\", id: \"{id}\") {{ url }} }}"
+            )})),
+        )
+        .await;
+        if expected.is_success() {
+            assert!(result.get("errors").is_none(), "{result}");
+            assert_eq!(result["data"][field]["url"], url, "{result}");
+        } else {
+            assert!(
+                result["errors"]
+                    .as_array()
+                    .is_some_and(|errors| !errors.is_empty()),
+                "{result}"
+            );
+            assert!(result["data"][field].is_null(), "{result}");
+        }
+    }
+    (headers, bytes)
+}
+
+#[tokio::test]
+async fn single_media_downloads_are_attachments_while_files_remain_inline() {
+    let h = setup().await;
+    for (name, content_type, content) in [
+        ("scan.png", "image/png", png(12, 10)),
+        (
+            "document.pdf",
+            "application/pdf",
+            b"%PDF-1.4\nexample\n".to_vec(),
+        ),
+    ] {
+        let (status, page) = upload(&h.app, h.tree_id, &[("file", Some(name), &content)]).await;
+        assert_eq!(status, StatusCode::CREATED, "{page}");
+        let id = page["id"].as_str().unwrap();
+        let (headers, bytes) = download_access(&h, h.tree_id, id, false, StatusCode::OK).await;
+        assert_eq!(bytes, content);
+        assert_eq!(headers[header::CONTENT_TYPE], content_type);
+        assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert!(
+            headers[header::CONTENT_DISPOSITION]
+                .to_str()
+                .unwrap()
+                .starts_with("attachment;")
+        );
+        assert!(
+            headers[header::CONTENT_DISPOSITION]
+                .to_str()
+                .unwrap()
+                .contains(name)
+        );
+
+        let file_url = format!("/api/v1/trees/{}/media/{id}/file", h.tree_id);
+        let (status, headers, bytes) = raw(&h.app, &file_url, &[]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(bytes, content);
+        assert!(
+            headers[header::CONTENT_DISPOSITION]
+                .to_str()
+                .unwrap()
+                .starts_with("inline;")
+        );
+        let etag = headers[header::ETAG].to_str().unwrap();
+        let (status, _, bytes) = raw(&h.app, &file_url, &[(header::IF_NONE_MATCH, etag)]).await;
+        assert_eq!(status, StatusCode::NOT_MODIFIED);
+        assert!(bytes.is_empty());
+        let (status, _, bytes) = raw(
+            &h.app,
+            &format!("/api/v1/trees/{}/media/{id}/download", h.tree_id),
+            &[(header::IF_NONE_MATCH, etag)],
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "explicit downloads always transfer the original"
+        );
+        assert_eq!(bytes, content);
+    }
+}
+
+#[tokio::test]
+async fn document_downloads_are_complete_stored_zips_in_reading_order() {
+    use std::io::Read;
+
+    let h = setup().await;
+    let doc = document(&h, "../../Example register.pdf").await;
+    let mut ids = Vec::new();
+    let contents = [png(12, 10), b"%PDF-1.4\nexample\n".to_vec()];
+    for content in &contents {
+        let (status, page) = upload(
+            &h.app,
+            h.tree_id,
+            &[
+                ("file", Some("same.bin"), content),
+                ("document_id", None, doc.as_bytes()),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{page}");
+        ids.push(page["id"].as_str().unwrap().to_string());
+    }
+    let (status, _) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{doc}/pages", h.tree_id),
+        Some(json!({"page_ids": [ids[1], ids[0]]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (headers, bytes) = download_access(&h, h.tree_id, &doc, true, StatusCode::OK).await;
+    assert_eq!(headers[header::CONTENT_TYPE], "application/zip");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
+    assert_eq!(headers[header::CONTENT_LENGTH], bytes.len().to_string());
+    let disposition = headers[header::CONTENT_DISPOSITION].to_str().unwrap();
+    assert!(disposition.starts_with("attachment;"), "{disposition}");
+    assert!(
+        disposition.contains("Example register.zip"),
+        "{disposition}"
+    );
+    assert!(!disposition.contains("../"), "{disposition}");
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    assert_eq!(archive.len(), 2);
+    for (index, expected) in contents.iter().rev().enumerate() {
+        let mut entry = archive.by_index(index).unwrap();
+        assert_eq!(entry.compression(), zip::CompressionMethod::Stored);
+        assert_eq!(entry.name(), format!("{:03}_same.bin", index + 1));
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).unwrap();
+        assert_eq!(&bytes, expected);
+    }
+}
+
+#[tokio::test]
+async fn media_downloads_reject_missing_foreign_and_deleted_records() {
+    let h = setup().await;
+    let doc = document(&h, "Example document").await;
+    let id = add_page(&h, &doc, "page.png").await;
+    let (_, other) = json_request(
+        &h.app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({"name": "Other test tree"})),
+    )
+    .await;
+    let other_tree = Uuid::parse_str(other["id"].as_str().unwrap()).unwrap();
+    for (archive, target) in [(false, &id), (true, &doc)] {
+        download_access(&h, other_tree, target, archive, StatusCode::NOT_FOUND).await;
+        download_access(
+            &h,
+            h.tree_id,
+            &Uuid::now_v7().to_string(),
+            archive,
+            StatusCode::NOT_FOUND,
+        )
+        .await;
+        download_access(
+            &h,
+            h.tree_id,
+            "not-a-uuid",
+            archive,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    }
+    let (status, _) = json_request(
+        &h.app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{}/media/{doc}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    download_access(&h, h.tree_id, &id, false, StatusCode::NOT_FOUND).await;
+    download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+}
+
+#[tokio::test]
+async fn media_downloads_never_fetch_remote_pages_or_skip_unheld_pages() {
+    let h = setup().await;
+    for path in ["media/missing.png", "https://example.invalid/remote.pdf"] {
+        let doc = document(&h, "Example document").await;
+        download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+        download_access(&h, h.tree_id, &doc, false, StatusCode::NOT_FOUND).await;
+        add_page(&h, &doc, "held.png").await;
+        let (status, stub) = json_request(
+            &h.app,
+            Method::POST,
+            &format!("/api/v1/trees/{}/media", h.tree_id),
+            Some(
+                json!({"document_id": doc, "file_name": "missing", "file_path": path,
+                "mime_type": "application/octet-stream", "file_size": 0}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{stub}");
+        download_access(
+            &h,
+            h.tree_id,
+            stub["id"].as_str().unwrap(),
+            false,
+            StatusCode::NOT_FOUND,
+        )
+        .await;
+        download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+    }
+}
+
+#[tokio::test]
+async fn media_downloads_report_storage_loss_instead_of_returning_partial_archives() {
+    let h = setup().await;
+    let doc = document(&h, "Example document").await;
+    add_page(&h, &doc, "held.png").await;
+    let (status, page) = upload(
+        &h.app,
+        h.tree_id,
+        &[
+            ("file", Some("lost.pdf"), b"%PDF-1.4\nexample\n"),
+            ("document_id", None, doc.as_bytes()),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+    std::fs::remove_file(h.root.0.join(page["storage_key"].as_str().unwrap())).unwrap();
+    for (archive, id) in [(false, page["id"].as_str().unwrap()), (true, doc.as_str())] {
+        let (headers, _) = download_access(
+            &h,
+            h.tree_id,
+            id,
+            archive,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .await;
+        assert_eq!(headers[header::CONTENT_TYPE], "application/json");
+        assert!(!headers.contains_key(header::CONTENT_DISPOSITION));
+    }
+}
+
+#[tokio::test]
+async fn media_downloads_reject_cross_tree_storage_keys_and_page_rows() {
+    use oxidgene_db::entities::media;
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+    let h = setup().await;
+    let doc = document(&h, "Example document").await;
+    let page = add_page(&h, &doc, "page.png").await;
+    let (_, other) = json_request(
+        &h.app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({"name": "Other test tree"})),
+    )
+    .await;
+    let other_tree = Uuid::parse_str(other["id"].as_str().unwrap()).unwrap();
+    let (_, foreign) = upload(
+        &h.app,
+        other_tree,
+        &[("file", Some("other.png"), &png(4, 4))],
+    )
+    .await;
+    let page_id = Uuid::parse_str(&page).unwrap();
+    // Simulate corrupt persisted references without weakening production writes.
+    media::ActiveModel {
+        id: Set(page_id),
+        storage_key: Set(Some(foreign["storage_key"].as_str().unwrap().to_string())),
+        ..Default::default()
+    }
+    .update(&h.db)
+    .await
+    .unwrap();
+    download_access(&h, h.tree_id, &page, false, StatusCode::NOT_FOUND).await;
+    download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+    let (status, _, _) = raw(
+        &h.app,
+        &format!("/api/v1/trees/{}/media/{page}/file", h.tree_id),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    media::ActiveModel {
+        id: Set(page_id),
+        tree_id: Set(other_tree),
+        ..Default::default()
+    }
+    .update(&h.db)
+    .await
+    .unwrap();
+    download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+}
+
+#[tokio::test]
+async fn media_downloads_reject_soft_deleted_trees_and_parent_documents_before_purge() {
+    use oxidgene_db::entities::{media, tree};
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+    for delete_tree in [false, true] {
+        let h = setup().await;
+        let doc = document(&h, "Example document").await;
+        let page = add_page(&h, &doc, "page.png").await;
+        // Keep the bytes and child rows in place to test the pre-purge window.
+        if delete_tree {
+            tree::ActiveModel {
+                id: Set(h.tree_id),
+                deleted_at: Set(Some(chrono::Utc::now())),
+                ..Default::default()
+            }
+            .update(&h.db)
+            .await
+            .unwrap();
+        } else {
+            media::ActiveModel {
+                id: Set(Uuid::parse_str(&doc).unwrap()),
+                deleted_at: Set(Some(chrono::Utc::now())),
+                ..Default::default()
+            }
+            .update(&h.db)
+            .await
+            .unwrap();
+        }
+        download_access(&h, h.tree_id, &page, false, StatusCode::NOT_FOUND).await;
+        download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+        let (status, _, _) = raw(
+            &h.app,
+            &format!("/api/v1/trees/{}/media/{page}/file", h.tree_id),
+            &[],
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
 }
 
 // ── Upload ──────────────────────────────────────────────────────────
@@ -266,11 +664,13 @@ async fn bytes_can_be_attached_to_a_record_that_had_none() {
     let h = setup().await;
 
     // The state a GEDCOM import leaves behind: a name, a path, no file.
+    let doc = new_document(&h.app, h.tree_id, None).await;
     let (status, stub) = json_request(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
         Some(json!({
+            "document_id": doc,
             "file_name": "grandpere.jpg",
             "mime_type": "image/jpeg",
             "file_path": "D:\\Photos\\grandpere.jpg",
@@ -437,6 +837,7 @@ async fn a_record_with_no_bytes_has_no_file_to_serve() {
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
         Some(json!({
+            "document_id": new_document(&h.app, h.tree_id, None).await,
             "file_name": "missing.jpg",
             "mime_type": "image/jpeg",
             "file_path": "media/missing.jpg",
@@ -456,6 +857,18 @@ async fn a_record_with_no_bytes_has_no_file_to_serve() {
 }
 
 // ── Vignettes ───────────────────────────────────────────────────────
+
+/// The document a just-uploaded page belongs to.
+///
+/// A gallery lists documents and a link points at one; the page is where the
+/// bytes and the crops live. Tests that attach a media to somebody want this,
+/// tests that assert on the file itself want the page.
+fn document_of(page: &Value) -> String {
+    page["parent_media_id"]
+        .as_str()
+        .expect("an uploaded page belongs to a document")
+        .to_string()
+}
 
 /// Upload a scan and return its id, for the vignette tests.
 async fn scan(h: &Harness, width: u32, height: u32) -> String {
@@ -812,10 +1225,15 @@ async fn person(h: &Harness) -> String {
     person["id"].as_str().unwrap().to_string()
 }
 
-/// Upload a photo, attach it to `person_id`, and return (media_id, link_id).
-async fn attach_photo(h: &Harness, person_id: &str, name: &str) -> (String, String) {
+/// Upload a photo and attach it to `person_id`.
+///
+/// Returns (document id, page id, link id). The link names the document — that
+/// is what a gallery lists — while a portrait names the page, because a
+/// portrait is pixels and a document has none.
+async fn attach_photo(h: &Harness, person_id: &str, name: &str) -> (String, String, String) {
     let (_, media) = upload(&h.app, h.tree_id, &[("file", Some(name), &png(240, 180))]).await;
-    let media_id = media["id"].as_str().unwrap().to_string();
+    let media_id = document_of(&media);
+    let page_id = media["id"].as_str().unwrap().to_string();
 
     let (status, link) = json_request(
         &h.app,
@@ -825,14 +1243,14 @@ async fn attach_photo(h: &Harness, person_id: &str, name: &str) -> (String, Stri
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{link}");
-    (media_id, link["id"].as_str().unwrap().to_string())
+    (media_id, page_id, link["id"].as_str().unwrap().to_string())
 }
 
 #[tokio::test]
 async fn one_request_returns_a_person_gallery_with_everything_a_tile_needs() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, link_id) = attach_photo(&h, &person_id, "portrait.png").await;
+    let (media_id, _page, link_id) = attach_photo(&h, &person_id, "portrait.png").await;
 
     let (status, listed) = json_request(
         &h.app,
@@ -851,9 +1269,10 @@ async fn one_request_returns_a_person_gallery_with_everything_a_tile_needs() {
     let row = &rows[0];
     assert_eq!(row["link_id"], link_id.as_str());
     assert_eq!(row["id"], media_id.as_str(), "the media is flattened in");
-    // The three things a tile cannot be drawn without.
-    assert_eq!(row["mime_type"], "image/png");
-    assert!(row["thumbnail_key"].is_string());
+    // A tile shows a document, so what it lists is the container: its type
+    // says "document", and its one page is what supplies the picture.
+    assert_eq!(row["mime_type"], oxidgene_core::types::DOCUMENT_MIME);
+    assert!(row["parent_media_id"].is_null());
     assert_eq!(row["page_count"], 1);
 }
 
@@ -881,7 +1300,7 @@ async fn a_gallery_does_not_show_another_persons_photos() {
 async fn a_soft_deleted_media_leaves_the_gallery() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
+    let (media_id, _page, _) = attach_photo(&h, &person_id, "photo.png").await;
 
     let (status, _) = json_request(
         &h.app,
@@ -912,8 +1331,9 @@ async fn a_soft_deleted_media_leaves_the_gallery() {
 async fn choosing_a_portrait_replaces_the_previous_one() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (first_media, _) = attach_photo(&h, &person_id, "first.png").await;
-    let (second_media, _) = attach_photo(&h, &person_id, "second.png").await;
+    // Chosen the way the gallery chooses: by the tile, which is a document.
+    let (first_media, _page, _) = attach_photo(&h, &person_id, "first.png").await;
+    let (second_media, second_page, _) = attach_photo(&h, &person_id, "second.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     for media in [&first_media, &second_media] {
@@ -934,14 +1354,16 @@ async fn choosing_a_portrait_replaces_the_previous_one() {
     let rows = portraits.as_array().unwrap();
     assert_eq!(rows.len(), 1, "{portraits}");
     assert_eq!(rows[0]["person_id"], person_id.as_str());
-    assert_eq!(rows[0]["media_id"], second_media.as_str());
+    // What comes back is where the pixels are: a document holds none, so
+    // reporting it would hand a card an id whose file does not exist.
+    assert_eq!(rows[0]["media_id"], second_page.as_str(), "{portraits}");
 }
 
 #[tokio::test]
 async fn a_portrait_can_be_a_face_in_a_group_photograph() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, _) = attach_photo(&h, &person_id, "wedding.png").await;
+    let (_document_id, media_id, _) = attach_photo(&h, &person_id, "wedding.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     // The portrait most people in an old family archive actually have: a
@@ -980,9 +1402,10 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
     let thumbnail_person = person(&h).await;
     let vignette_person = person(&h).await;
     let unselected_person = person(&h).await;
-    let (thumbnail_media_id, _) = attach_photo(&h, &thumbnail_person, "thumbnail.png").await;
+    let (_thumbnail_document, thumbnail_media_id, _) =
+        attach_photo(&h, &thumbnail_person, "thumbnail.png").await;
     attach_photo(&h, &unselected_person, "unselected.png").await;
-    let (media_id, _) = attach_photo(&h, &vignette_person, "group.png").await;
+    let (_group_document, media_id, _) = attach_photo(&h, &vignette_person, "group.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     let (status, vignette) = json_request(
@@ -1059,7 +1482,8 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
 async fn a_portrait_can_be_cleared() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
+    let (_document_id, page_id, _) = attach_photo(&h, &person_id, "photo.png").await;
+    let media_id = page_id;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     json_request(
@@ -1094,16 +1518,27 @@ async fn a_portrait_can_be_cleared() {
 async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
+    let (_, media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (_, vignette) = json_request(
+    let (status, vignette) = json_request(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
         Some(json!({"x": 0, "y": 0, "width": 20, "height": 20})),
     )
     .await;
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
+    assert_eq!(vignette["media_id"], media_id);
+
+    let (status, chosen) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"vignette_id": vignette["id"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chosen}");
 
     // Refused rather than resolved: the model holds one answer, and silently
     // picking one of two would make the stored portrait differ from the one
@@ -1116,6 +1551,17 @@ async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, unchanged) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("{base}/persons/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{unchanged}");
+    assert_eq!(unchanged["portrait_vignette_id"], vignette["id"]);
+    assert!(unchanged["portrait_media_id"].is_null());
 }
 
 #[tokio::test]
@@ -1161,7 +1607,7 @@ async fn the_unfiltered_list_is_still_the_tree_wide_one() {
 async fn detaching_a_media_leaves_the_file_alone() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, link_id) = attach_photo(&h, &person_id, "shared.png").await;
+    let (_document_id, media_id, link_id) = attach_photo(&h, &person_id, "shared.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     let (status, _) = json_request(
@@ -1193,7 +1639,11 @@ async fn document(h: &Harness, title: &str) -> String {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{doc}");
-    assert_eq!(doc["is_document"], true);
+    assert_eq!(
+        doc["parent_media_id"],
+        Value::Null,
+        "a document has no parent"
+    );
     assert_eq!(doc["page_count"], 0, "a new document has no pages yet");
     doc["id"].as_str().unwrap().to_string()
 }
@@ -1349,7 +1799,7 @@ async fn a_partial_page_order_is_refused() {
 }
 
 #[tokio::test]
-async fn detaching_a_page_closes_the_gap_and_keeps_the_scan() {
+async fn removing_a_page_destroys_it_and_closes_the_gap() {
     let h = setup().await;
     let person_id = person(&h).await;
     let doc = document(&h, "Register").await;
@@ -1379,15 +1829,14 @@ async fn detaching_a_page_closes_the_gap_and_keeps_the_scan() {
     )
     .await;
 
-    let (status, detached) = json_request(
+    let (status, removed) = json_request(
         &h.app,
         Method::DELETE,
         &format!("/api/v1/trees/{}/media/{doc}/pages/{middle}", h.tree_id),
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{detached}");
-    assert!(detached["parent_media_id"].is_null());
+    assert_eq!(status, StatusCode::NO_CONTENT, "{removed}");
 
     let pages = pages_of(&h, &doc).await;
     let indexes: Vec<i64> = pages
@@ -1396,23 +1845,27 @@ async fn detaching_a_page_closes_the_gap_and_keeps_the_scan() {
         .collect();
     assert_eq!(indexes, [0, 1], "page 3 of a 2-page document is not a page");
 
-    // The scan itself survives: it is a document somebody made.
+    // The page is gone, bytes included: a page belongs to a document, and a
+    // page belonging to nothing is not a shape this model holds.
     let (status, _, _) = raw(
         &h.app,
         &format!("/api/v1/trees/{}/media/{middle}/file", h.tree_id),
         &[],
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::NOT_FOUND);
 
     let (_, links) = json_request(
         &h.app,
         Method::GET,
-        &format!("{base}/media-links?media_id={middle}"),
+        &format!("{base}/media-links?person_id={person_id}"),
         None,
     )
     .await;
-    assert!(links.as_array().unwrap().is_empty(), "{links}");
+    assert!(
+        links.as_array().unwrap().is_empty(),
+        "the removed page took its links with it: {links}"
+    );
     let (_, vignettes) = json_request(
         &h.app,
         Method::GET,
@@ -1436,7 +1889,7 @@ async fn detaching_a_page_closes_the_gap_and_keeps_the_scan() {
 async fn deleting_a_simple_media_removes_all_attachments_and_identifications() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
+    let (media_id, _page, _) = attach_photo(&h, &person_id, "portrait.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
     let (_, vignette) = json_request(
         &h.app,
@@ -1524,7 +1977,7 @@ async fn media_tags_are_added_and_removed_independently() {
         &[("file", Some("archive.png"), &png(200, 200))],
     )
     .await;
-    let media_id = media["id"].as_str().unwrap();
+    let media_id = document_of(&media);
 
     let (status, updated) = json_request(
         &h.app,
@@ -1580,11 +2033,13 @@ async fn media_tags_are_added_and_removed_independently() {
 #[tokio::test]
 async fn a_record_with_no_bytes_can_be_repointed_at_a_url() {
     let h = setup().await;
+    let doc = new_document(&h.app, h.tree_id, None).await;
     let (_, stub) = json_request(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
         Some(json!({
+            "document_id": doc,
             "file_name": "unknown.jpg",
             "mime_type": "application/octet-stream",
             "file_path": "media/unknown.jpg",
@@ -1614,6 +2069,260 @@ async fn a_record_with_no_bytes_can_be_repointed_at_a_url() {
     assert_eq!(
         updated["file_name"], "42.jpg",
         "the caption follows the path when the path is all we have"
+    );
+}
+
+#[tokio::test]
+async fn a_document_tile_previews_a_page_we_only_have_a_url_for() {
+    // We never fetch a remote file, so there is no thumbnail to send — but the
+    // browser can draw it perfectly well from its own URL. Sending nothing
+    // leaves an imported photograph showing a file icon in every gallery.
+    let h = setup().await;
+    let document = new_document(&h.app, h.tree_id, None).await;
+    let url = "https://archives.example.invalid/scan/42.jpg";
+    let (status, page) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": document,
+            "file_name": "42.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": url,
+            "file_size": 0
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+
+    let (status, bundle) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
+        Some(json!({"media_ids": [document], "vignette_ids": []})),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(
+        bundle["media"][0]["document_previews"],
+        json!([url]),
+        "the page's own address is what the tile draws: {bundle}"
+    );
+    assert!(
+        bundle["media"][0]["source"].is_null(),
+        "a document holds no bytes of its own: {bundle}"
+    );
+}
+
+/// A remote page carrying a region of somebody, ready to be read back.
+///
+/// Returns `(page_id, vignette_id, person_id)`. `measured` is what a browser
+/// reported the picture's size to be — `None` leaves the page unmeasured, which
+/// is a page whose regions cannot be placed.
+async fn remote_identification(
+    h: &Harness,
+    url: &str,
+    measured: Option<(i64, i64)>,
+) -> (String, String, String) {
+    let document = new_document(&h.app, h.tree_id, None).await;
+    let (_, page) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": document,
+            "file_name": "7.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": url,
+            "file_size": 0
+        })),
+    )
+    .await;
+    let page_id = page["id"].as_str().unwrap().to_string();
+    if let Some((width, height)) = measured {
+        let (status, sized) = json_request(
+            &h.app,
+            Method::PUT,
+            &format!("/api/v1/trees/{}/media/{page_id}", h.tree_id),
+            Some(json!({"width": width, "height": height})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{sized}");
+    }
+    let person_id = person(h).await;
+    let (status, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media/{page_id}/vignettes", h.tree_id),
+        Some(json!({"x": 120, "y": 40, "width": 200, "height": 260, "person_id": person_id})),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "a region may be drawn on a page we do not hold: {vignette}"
+    );
+    (
+        page_id,
+        vignette["id"].as_str().unwrap().to_string(),
+        person_id,
+    )
+}
+
+#[tokio::test]
+async fn a_region_of_a_remote_page_travels_as_the_picture_and_the_rectangle() {
+    // Somebody can be identified on a photograph we do not hold: the region and
+    // its attribution are ours. Cutting it is not — that means re-decoding our
+    // own copy — so the whole picture goes out with the rectangle to take from
+    // it, and the client does the cutting.
+    let h = setup().await;
+    let url = "https://archives.example.invalid/group/7.jpg";
+    let (_, vignette_id, person_id) = remote_identification(&h, url, Some((1600, 1200))).await;
+
+    let (status, bundle) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
+        Some(json!({"media_ids": [], "vignette_ids": [vignette_id]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(bundle["vignettes"][0]["source"], url, "{bundle}");
+    assert_eq!(
+        bundle["vignettes"][0]["crop"],
+        json!({"x": 120, "y": 40, "width": 200, "height": 260,
+               "source_width": 1600, "source_height": 1200}),
+        "{bundle}"
+    );
+
+    // The same region as somebody's portrait reaches every card the same way.
+    let (status, portrait) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/persons/{person_id}/portrait", h.tree_id),
+        Some(json!({"vignette_id": vignette_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{portrait}");
+    let (status, images) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/portrait-images", h.tree_id),
+        Some(json!({"person_ids": [person_id]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{images}");
+    assert_eq!(images[0]["source"], url, "{images}");
+    assert_eq!(images[0]["crop"]["source_width"], 1600, "{images}");
+    assert_eq!(images[0]["crop"]["width"], 200, "{images}");
+}
+
+#[tokio::test]
+async fn a_region_of_a_picture_nobody_measured_falls_back_to_the_whole_of_it() {
+    // Without the size the rectangle was measured against there is no scale to
+    // cut at. The whole picture is honest; a guess would put the box somewhere
+    // it never was.
+    let h = setup().await;
+    let url = "https://archives.example.invalid/group/8.jpg";
+    let (_, vignette_id, _) = remote_identification(&h, url, None).await;
+
+    let (status, bundle) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
+        Some(json!({"media_ids": [], "vignette_ids": [vignette_id]})),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(bundle["vignettes"][0]["source"], url, "{bundle}");
+    assert!(bundle["vignettes"][0]["crop"].is_null(), "{bundle}");
+}
+
+#[tokio::test]
+async fn only_a_page_we_do_not_hold_is_told_how_big_it_is() {
+    // Our own copy was decoded on upload; a caller's claim about its size is a
+    // second answer that can only disagree with the first.
+    let h = setup().await;
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("ours.png"), &png(80, 80))],
+    )
+    .await;
+    let media_id = media["id"].as_str().unwrap();
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (status, body) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/media/{media_id}"),
+        Some(json!({"width": 1600, "height": 1200})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    // Half a size is not a size, whoever sends it.
+    let document = new_document(&h.app, h.tree_id, None).await;
+    let (_, page) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media"),
+        Some(json!({
+            "document_id": document,
+            "file_name": "9.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": "https://archives.example.invalid/9.jpg",
+            "file_size": 0
+        })),
+    )
+    .await;
+    let page_id = page["id"].as_str().unwrap();
+    let (status, body) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/media/{page_id}"),
+        Some(json!({"width": 1600})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn a_remote_page_that_is_not_a_picture_is_not_previewed() {
+    // An `<img>` pointed at a PDF draws the broken-image glyph, which is worse
+    // than the labelled icon the tile falls back to.
+    let h = setup().await;
+    let document = new_document(&h.app, h.tree_id, None).await;
+    let (status, page) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": document,
+            "file_name": "register.pdf",
+            "mime_type": "application/pdf",
+            "file_path": "https://archives.example.invalid/register.pdf",
+            "file_size": 0
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+
+    let (status, bundle) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
+        Some(json!({"media_ids": [document], "vignette_ids": []})),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(
+        bundle["media"][0]["document_previews"],
+        json!([]),
+        "{bundle}"
     );
 }
 
@@ -1681,10 +2390,10 @@ async fn a_note_can_be_about_a_document_rather_than_a_person() {
 async fn a_crop_portrait_reaches_the_read_projection() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, _) = attach_photo(&h, &person_id, "wedding.png").await;
+    let (_, media_id, _) = attach_photo(&h, &person_id, "wedding.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (_, vignette) = json_request(
+    let (status, vignette) = json_request(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1694,13 +2403,16 @@ async fn a_crop_portrait_reaches_the_read_projection() {
         })),
     )
     .await;
-    json_request(
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
+    assert_eq!(vignette["media_id"], media_id);
+    let (status, chosen) = json_request(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
         Some(json!({"vignette_id": vignette["id"]})),
     )
     .await;
+    assert_eq!(status, StatusCode::OK, "{chosen}");
 
     let (status, profile) = json_request(
         &h.app,
@@ -1726,8 +2438,8 @@ async fn the_projection_draws_the_portrait_that_was_chosen() {
     // Attached first, so it holds the lowest sort_order. The projection used
     // to take that one and ignore the stored choice entirely, so a person
     // could star a photograph and have their card go on drawing another.
-    let (first, _) = attach_photo(&h, &person_id, "first.png").await;
-    let (second, _) = attach_photo(&h, &person_id, "second.png").await;
+    let (first, first_page, _) = attach_photo(&h, &person_id, "first.png").await;
+    let (second, second_page, _) = attach_photo(&h, &person_id, "second.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     json_request(
@@ -1745,8 +2457,12 @@ async fn the_projection_draws_the_portrait_that_was_chosen() {
         None,
     )
     .await;
-    assert_eq!(profile["primary_media"]["media_id"], second.as_str());
+    // The chosen document, resolved to the page that holds its pixels — the
+    // same rule the portrait query applies, so a card and an avatar cannot
+    // disagree about the same person.
+    assert_eq!(profile["primary_media"]["media_id"], second_page.as_str());
     assert_ne!(profile["primary_media"]["media_id"], first.as_str());
+    assert_ne!(profile["primary_media"]["media_id"], first_page.as_str());
 }
 
 #[tokio::test]
@@ -1825,7 +2541,7 @@ async fn a_tree_says_what_default_privacy_means_and_starts_by_withholding() {
 async fn a_person_who_chose_no_portrait_still_shows_one_of_their_photographs() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (first, _) = attach_photo(&h, &person_id, "first.png").await;
+    let (_first_document, first, _) = attach_photo(&h, &person_id, "first.png").await;
     attach_photo(&h, &person_id, "second.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
@@ -1886,12 +2602,12 @@ async fn a_record_naming_a_file_nobody_uploaded_is_not_a_portrait_by_default() {
 async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_new_tree() {
     let h = setup().await;
     let person_id = person(&h).await;
-    let (media_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
+    let (media_id, page_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
     let (status, vignette) = json_request(
         &h.app,
         Method::POST,
-        &format!("{base}/media/{media_id}/vignettes"),
+        &format!("{base}/media/{page_id}/vignettes"),
         Some(json!({
             "x": 12,
             "y": 18,
@@ -1902,6 +2618,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{vignette}");
+    assert_eq!(vignette["media_id"], page_id);
 
     let (status, _, archive) =
         raw(&h.app, &format!("{base}/gedcom/export?format=gedzip"), &[]).await;
@@ -1937,6 +2654,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let summary: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     assert_eq!(status, StatusCode::CREATED, "{summary}");
+    assert_eq!(summary["warnings"], json!([]), "{summary}");
 
     let (_, media) = json_request(
         &h.app,
@@ -1948,15 +2666,28 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     let rows = media["edges"]
         .as_array()
         .unwrap_or_else(|| panic!("unexpected list shape: {media}"));
-    assert_eq!(rows.len(), 1, "{media}");
-    let imported = &rows[0]["node"];
-    // The point: bytes, not just a record naming a file.
+    assert_eq!(rows.len(), 1, "a gallery lists documents: {media}");
+    let document_id = rows[0]["node"]["id"].as_str().expect("document id");
+    assert_ne!(document_id, media_id);
+
+    // The point: bytes, not just a record naming a file. They live on the
+    // page, which is what the archive carried and what a crop is drawn on.
+    let (_, pages) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{new_tree}/media/{document_id}/pages"),
+        None,
+    )
+    .await;
+    let pages = pages.as_array().expect("page list");
+    assert_eq!(pages.len(), 1, "{pages:?}");
+    let imported = &pages[0];
     assert!(
         imported["storage_key"].is_string(),
-        "the photograph arrived without its bytes: {media}"
+        "the photograph arrived without its bytes: {imported}"
     );
     assert!(imported["thumbnail_key"].is_string());
-    assert_ne!(imported["id"], media_id.as_str(), "a new record, new tree");
+    assert_ne!(imported["id"], page_id.as_str(), "a new record, new tree");
     let imported_media_id = imported["id"].as_str().expect("media id");
 
     let (status, vignettes) = json_request(
@@ -1969,10 +2700,24 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     assert_eq!(status, StatusCode::OK, "{vignettes}");
     let rows = vignettes.as_array().expect("vignette list");
     assert_eq!(rows.len(), 1, "{vignettes}");
+    assert_eq!(rows[0]["media_id"], imported_media_id);
     assert_eq!(rows[0]["x"], 12);
     assert_eq!(rows[0]["y"], 18);
     assert_eq!(rows[0]["width"], 24);
     assert_eq!(rows[0]["height"], 30);
     assert!(rows[0]["person_id"].is_string(), "{vignettes}");
     assert_ne!(rows[0]["person_id"], person_id, "a new person, new tree");
+
+    let (status, links) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{new_tree}/media-links?media_id={document_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{links}");
+    let links = links.as_array().expect("media links");
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0]["media_id"], document_id);
+    assert_eq!(links[0]["person_id"], rows[0]["person_id"]);
 }

@@ -216,12 +216,7 @@ pub async fn ingest(
     })
 }
 
-/// Reject a crop rectangle that does not fit the media it claims to crop.
-///
-/// Catching it at write time means a vignette in the database always describes
-/// a region that exists, so serving one never has to decide what to do with a
-/// rectangle hanging off the edge of the page. Lives here rather than in a
-/// handler because REST and GraphQL both create vignettes and must agree.
+/// Apply the domain's page-only crop validation for REST and GraphQL writes.
 pub fn validate_crop(
     media: &oxidgene_core::types::Media,
     x: i32,
@@ -229,24 +224,7 @@ pub fn validate_crop(
     width: i32,
     height: i32,
 ) -> Result<(), OxidGeneError> {
-    let invalid = |message: String| Err(OxidGeneError::Validation(message));
-
-    if width <= 0 || height <= 0 {
-        return invalid("crop width and height must be positive".into());
-    }
-    if x < 0 || y < 0 {
-        return invalid("crop origin must not be negative".into());
-    }
-    // Dimensions are only known for rasters we decoded at upload. A PDF has
-    // none, and a rectangle on one is checked when it is rendered, not here.
-    if let (Some(media_width), Some(media_height)) = (media.width, media.height)
-        && (x.saturating_add(width) > media_width || y.saturating_add(height) > media_height)
-    {
-        return invalid(format!(
-            "crop {width}×{height} at ({x},{y}) does not fit in {media_width}×{media_height}"
-        ));
-    }
-    Ok(())
+    media.validate_crop(x, y, width, height)
 }
 
 /// Reduce a client-supplied name to its last component.
@@ -314,9 +292,8 @@ mod tests {
             width: Some(800),
             height: Some(600),
             page_count: 1,
-            parent_media_id: None,
+            parent_media_id: Some(Uuid::now_v7()),
             page_index: 0,
-            is_document: false,
             file_size: 1,
             title: None,
             description: None,
@@ -358,9 +335,26 @@ mod tests {
 
     #[test]
     fn a_crop_whose_extent_would_overflow_is_rejected_not_wrapped() {
-        // Without a saturating add, `x + width` wraps negative and the bound
-        // check passes — a rectangle nobody could crop.
         assert!(validate_crop(&media_800x600(), i32::MAX, 0, i32::MAX, 10).is_err());
+        let mut media = media_800x600();
+        media.width = Some(i32::MAX);
+        media.height = None;
+        assert!(validate_crop(&media, i32::MAX, 0, 1, 10).is_err());
+        media.width = None;
+        assert!(validate_crop(&media, i32::MAX, 0, 1, 10).is_err());
+    }
+
+    #[test]
+    fn documents_and_crops_outside_a_single_known_dimension_are_rejected() {
+        let mut media = media_800x600();
+        media.height = None;
+        assert!(validate_crop(&media, 750, 0, 100, 10).is_err());
+        media.width = None;
+        media.height = Some(600);
+        assert!(validate_crop(&media, 0, 550, 10, 100).is_err());
+        media.height = None;
+        media.parent_media_id = None;
+        assert!(validate_crop(&media, 0, 0, 10, 10).is_err());
     }
 
     #[test]

@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::entities::person;
 use crate::entities::vignette::{self, ActiveModel, Column, Entity};
+use crate::repo::{EventRepo, MediaRepo, PersonRepo};
 
 /// The rectangle and attribution a vignette records.
 #[derive(Debug, Clone)]
@@ -102,7 +103,6 @@ impl VignetteRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
-    /// Get a vignette by ID.
     /// Several by id, in one query. Missing ids are simply absent from the
     /// result — a portrait pointing at a deleted crop is "no portrait", not an
     /// error a reader can act on.
@@ -121,6 +121,7 @@ impl VignetteRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// Get a vignette by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Vignette, OxidGeneError> {
         Entity::find_by_id(id)
             .one(db)
@@ -139,6 +140,7 @@ impl VignetteRepo {
         id: Uuid,
         input: VignetteInput,
     ) -> Result<Vignette, OxidGeneError> {
+        validate_input(db, &input).await?;
         let now = Utc::now();
         let model = vignette::ActiveModel {
             id: Set(id),
@@ -174,6 +176,23 @@ impl VignetteRepo {
                 id,
             })?;
 
+        let (x, y, width, height) =
+            patch
+                .rect
+                .unwrap_or((existing.x, existing.y, existing.width, existing.height));
+        validate_input(
+            db,
+            &VignetteInput {
+                media_id: existing.media_id,
+                x,
+                y,
+                width,
+                height,
+                person_id: patch.person_id.unwrap_or(existing.person_id),
+                event_id: patch.event_id.unwrap_or(existing.event_id),
+            },
+        )
+        .await?;
         let mut active: ActiveModel = existing.into_active_model();
         if let Some((x, y, width, height)) = patch.rect {
             active.x = Set(x);
@@ -219,6 +238,37 @@ impl VignetteRepo {
         }
         Ok(())
     }
+}
+
+async fn validate_input(
+    db: &impl ConnectionTrait,
+    input: &VignetteInput,
+) -> Result<(), OxidGeneError> {
+    let media = MediaRepo::get(db, input.media_id).await?;
+    media.validate_crop(input.x, input.y, input.width, input.height)?;
+    if let Some(parent_id) = media.parent_media_id {
+        let parent = MediaRepo::get(db, parent_id).await?;
+        if !parent.is_document() || parent.tree_id != media.tree_id {
+            return Err(OxidGeneError::Validation("invalid page document".into()));
+        }
+    }
+    if let Some(id) = input.person_id
+        && PersonRepo::get(db, id).await?.tree_id != media.tree_id
+    {
+        return Err(OxidGeneError::NotFound {
+            entity: "Person",
+            id,
+        });
+    }
+    if let Some(id) = input.event_id
+        && EventRepo::get(db, id).await?.tree_id != media.tree_id
+    {
+        return Err(OxidGeneError::NotFound {
+            entity: "Event",
+            id,
+        });
+    }
+    Ok(())
 }
 
 fn into_domain(v: vignette::Model) -> Vignette {

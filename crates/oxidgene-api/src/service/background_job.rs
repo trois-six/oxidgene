@@ -629,6 +629,22 @@ mod tests {
     use sea_orm::{ConnectOptions, Database};
 
     #[test]
+    fn geneanet_jobs_require_an_explicit_fidelity() {
+        let mut payload = serde_json::json!({
+            "collection": "{}", "deposit_sizes": {}, "archives": [], "fetched": []
+        });
+        assert!(serde_json::from_value::<GeneanetJobPayload>(payload.clone()).is_err());
+        for fidelity in [
+            geneanet::MediaFidelity::Originals,
+            geneanet::MediaFidelity::Renditions,
+        ] {
+            payload["media_fidelity"] = serde_json::to_value(fidelity).unwrap();
+            let decoded: GeneanetJobPayload = serde_json::from_value(payload.clone()).unwrap();
+            assert_eq!(decoded.media_fidelity, fidelity);
+        }
+    }
+
+    #[test]
     fn sqlite_progress_is_published_independently_of_its_long_lease() {
         assert_eq!(
             progress_period(DEFAULT_POLL_INTERVAL, Duration::from_secs(24 * 60 * 60)),
@@ -788,16 +804,7 @@ struct GeneanetJobPayload {
     deposit_sizes: HashMap<i64, u64>,
     archives: Vec<GeneanetArchiveInput>,
     fetched: Vec<GeneanetFetchedInput>,
-    /// Absent in a job staged before the wizard offered the choice; those were
-    /// all archive-and-original runs, so they must not decode as the new
-    /// default.
-    #[serde(default = "originals_fidelity")]
     media_fidelity: geneanet::MediaFidelity,
-}
-
-/// What a payload with no `media_fidelity` meant when it was written.
-const fn originals_fidelity() -> geneanet::MediaFidelity {
-    geneanet::MediaFidelity::Originals
 }
 
 #[derive(Debug, Deserialize, Serialize)]

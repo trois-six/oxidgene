@@ -436,6 +436,12 @@ trivy fs --scanners vuln,misconfig,secret \
 cargo audit
 ```
 
+For an explicit local session-load check, set `OXIDGENE_GENEANET_SESSION` to
+an absolute archive path and run `cargo test -p oxidgene-api --features graphql
+--test geneanet_session_test supplied_session_archive_loads_without_logging_its_contents
+-- --ignored`. The check streams the archive through REST, verifies staged files,
+and removes them without printing genealogy content. It is not part of normal CI.
+
 Run the session decoder fuzz target with synthetic libFuzzer inputs and an
 explicit time budget:
 
@@ -484,6 +490,19 @@ finish code changes with:
 ```bash
 just check
 ```
+
+For browser download transport changes, also run the dependency-free Node.js
+tests (Node.js 22 or newer):
+
+```bash
+node --test crates/oxidgene-ui/tests/download.test.mjs
+```
+
+These exercise stream delivery, picker cancellation, failed writes and requests,
+and the local-Blob fallback. Native transfer tests run in the normal Rust suite
+and verify that data reaches disk before the response ends, and that failures
+preserve existing destination files. Real-browser save-dialog interaction still
+requires a manual check on supported desktop and mobile browsers.
 
 For deployment changes, additionally lint and render the chart. For parser,
 archive, image, or session changes, run the relevant focused regression tests

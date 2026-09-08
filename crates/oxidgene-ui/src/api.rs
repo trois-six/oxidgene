@@ -12,8 +12,9 @@ use opentelemetry::global;
 use opentelemetry::propagation::Injector;
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile, SearchResult};
 use oxidgene_core::types::{
-    AncestryLink, Citation, Connection, Event, EventWitness, Family, FamilyChild, FamilySpouse,
-    Media, Note, Person, PersonName, Place, QualifiedYear, Source, Tree, Vignette,
+    AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
+    FamilySpouse, ImageCrop, Media, Note, Person, PersonName, Place, QualifiedYear, Source, Tree,
+    Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -538,7 +539,8 @@ struct PortraitImagesRequest {
 #[derive(Debug, Deserialize)]
 struct PortraitImage {
     person_id: Uuid,
-    source: String,
+    #[serde(flatten)]
+    image: CroppedSource,
 }
 
 const PORTRAIT_BATCH_SIZE: usize = 1_024;
@@ -601,7 +603,28 @@ pub struct GalleryMedia {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct GalleryVignette {
     pub vignette_id: Uuid,
+    #[serde(flatten)]
+    pub image: CroppedSource,
+}
+
+/// A picture to draw, and the region of it to show.
+///
+/// One value rather than two loose fields, because they are only ever read
+/// together: `crop` is set exactly when `source` is a whole picture the server
+/// could not cut — a region of a file we do not hold and never fetch — and
+/// absent for every image that arrives already cut.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct CroppedSource {
     pub source: String,
+    #[serde(default)]
+    pub crop: Option<ImageCrop>,
+}
+
+impl CroppedSource {
+    /// A picture to be shown whole.
+    pub fn whole(source: String) -> Self {
+        Self { source, crop: None }
+    }
 }
 
 /// A media together with the link that attached it — one gallery tile.
@@ -672,16 +695,26 @@ impl MediaKind {
     }
 }
 
+/// Which of the three states a media row is in.
+///
+/// Takes the row rather than the tile: the viewer asks this of the page it is
+/// showing, which is where the bytes and the URL actually are — a document is
+/// always `Unheld`, and answering that about the register somebody is reading
+/// would be true of the shell and wrong about the file.
+pub fn media_source(media: &Media) -> MediaSource {
+    if media.storage_key.is_some() {
+        MediaSource::Stored
+    } else if is_remote(&media.file_path) {
+        MediaSource::Remote
+    } else {
+        MediaSource::Unheld
+    }
+}
+
 impl MediaWithLink {
     /// Which of the three states this media is in.
     pub fn source(&self) -> MediaSource {
-        if self.media.storage_key.is_some() {
-            MediaSource::Stored
-        } else if is_remote(&self.media.file_path) {
-            MediaSource::Remote
-        } else {
-            MediaSource::Unheld
-        }
+        media_source(&self.media)
     }
 
     /// How to present it.
@@ -711,16 +744,7 @@ impl MediaWithLink {
 
     /// A short badge for the file type — "PDF", "JPEG", "MP4".
     pub fn kind_label(&self) -> String {
-        self.media
-            .mime_type
-            .rsplit('/')
-            .next()
-            .unwrap_or("file")
-            .trim_start_matches("x-")
-            .split('+')
-            .next()
-            .unwrap_or("file")
-            .to_uppercase()
+        media_kind_label(&self.media.mime_type)
     }
 
     /// What to write under a tile: the title if there is one, else the file name.
@@ -732,10 +756,35 @@ impl MediaWithLink {
     }
 }
 
+/// A short badge for a MIME type — "PDF", "JPEG", "MP4".
+///
+/// A document's own MIME type is an internal marker, not a format anybody
+/// recognises: spelled out it reads "OXIDGENE-DOCUMENT", which tells a reader
+/// nothing and leaks a private name into the interface.
+pub fn media_kind_label(mime_type: &str) -> String {
+    if mime_type.trim().eq_ignore_ascii_case(DOCUMENT_MIME) {
+        return "DOCUMENT".to_string();
+    }
+    mime_type
+        .rsplit('/')
+        .next()
+        .unwrap_or("file")
+        .trim_start_matches("x-")
+        .split('+')
+        .next()
+        .unwrap_or("file")
+        .to_uppercase()
+}
+
 /// Classify a MIME type into what the UI can do with it.
 pub fn media_kind(mime_type: &str) -> MediaKind {
     let mime = mime_type.trim().to_ascii_lowercase();
-    if mime.starts_with("image/") {
+    if mime == DOCUMENT_MIME {
+        // A document holds no bytes of its own — what can be drawn is its
+        // pages. Reading its marker as a generic file would land it in
+        // `Other`, which is why an imported photograph drew a folder.
+        MediaKind::Document
+    } else if mime.starts_with("image/") {
         MediaKind::Image
     } else if mime.starts_with("video/") {
         MediaKind::Video
@@ -821,6 +870,13 @@ pub struct UpdateMediaBody {
     pub file_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+    /// The picture's pixel size, sent together or not at all. Accepted only
+    /// for a page we do not hold: nothing here ever opened that file, so the
+    /// browser that displayed it is the only witness to how big it is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
     /// Whether this is shown when the tree is published.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privacy: Option<Privacy>,
@@ -1216,6 +1272,45 @@ pub enum ApiError {
     Api { status: u16, body: String },
 }
 
+/// Starts the browser save picker during the click, before any network awaits.
+#[cfg(target_arch = "wasm32")]
+pub(crate) struct BrowserDownload {
+    eval: dioxus::document::Eval,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl BrowserDownload {
+    pub fn new(file_name: &str) -> Self {
+        let name = serde_json::to_string(file_name).expect("a string is serializable");
+        Self {
+            eval: dioxus::document::eval(&format!(
+                "const fileName = {name};\n{}",
+                include_str!("download.js")
+            )),
+        }
+    }
+
+    pub async fn ready(&mut self) -> Result<bool, ApiError> {
+        match self.eval.recv::<String>().await.as_deref() {
+            Ok("ready") => Ok(true),
+            Ok("cancelled") => Ok(false),
+            _ => Err(Self::error()),
+        }
+    }
+
+    fn error() -> ApiError {
+        std::io::Error::other("browser download failed").into()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for BrowserDownload {
+    fn drop(&mut self) {
+        // Release a pending picker session if export preparation fails.
+        let _ = self.eval.send(Option::<String>::None);
+    }
+}
+
 impl ApiClient {
     async fn read_response_body(response: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
         #[cfg(feature = "telemetry-client")]
@@ -1492,9 +1587,7 @@ impl ApiClient {
         Self::handle_response("PATCH", resp).await
     }
 
-    /// Helper: send a DELETE request expecting 204 No Content.
-    /// Like [`Self::delete_no_content`], but hands back the status code for
-    /// the endpoints that answer with it (see `delete_source_if_unused`).
+    /// Send a DELETE request and return its successful status code.
     async fn delete_status(&self, path: &str) -> Result<u16, ApiError> {
         let url = self.url(path);
         let resp = self
@@ -1513,31 +1606,8 @@ impl ApiClient {
         Ok(status.as_u16())
     }
 
-    /// Helper: send a DELETE whose response carries a body.
-    async fn delete_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
-        let url = self.url(path);
-        let resp = self
-            .send_request("DELETE", self.client.delete(&url))
-            .await?;
-        Self::handle_response("DELETE", resp).await
-    }
-
     async fn delete_no_content(&self, path: &str) -> Result<(), ApiError> {
-        let url = self.url(path);
-        let resp = self
-            .send_request("DELETE", self.client.delete(&url))
-            .await?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            tracing::debug!(method = "DELETE", %status, "API request failed");
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body,
-            });
-        }
-        tracing::debug!(method = "DELETE", %status, "API request completed");
-        Ok(())
+        self.delete_status(path).await.map(|_| ())
     }
 
     async fn delete_no_content_with_body<B: Serialize>(
@@ -2680,23 +2750,12 @@ impl ApiClient {
             .await
     }
 
-    /// Load a media's bytes for a client-managed download.
-    pub async fn media_file_bytes(
-        &self,
-        tree_id: Uuid,
-        media_id: Uuid,
-    ) -> Result<Vec<u8>, ApiError> {
-        self.get_binary(&format!("/api/v1/trees/{tree_id}/media/{media_id}/file"))
-            .await
-            .map(|(bytes, _)| bytes)
-    }
-
     /// Load portraits in bounded batches, issuing as many batches as needed.
     pub async fn portrait_map_for_ids(
         &self,
         tree_id: Uuid,
         person_ids: &[Uuid],
-    ) -> HashMap<Uuid, String> {
+    ) -> HashMap<Uuid, CroppedSource> {
         let mut portraits = HashMap::new();
         for person_ids in portrait_batches(person_ids) {
             let body = PortraitImagesRequest {
@@ -2712,7 +2771,7 @@ impl ApiClient {
                 Ok(images) => portraits.extend(
                     images
                         .into_iter()
-                        .map(|image| (image.person_id, image.source)),
+                        .map(|image| (image.person_id, image.image)),
                 ),
                 Err(error) => {
                     tracing::warn!(%error, count = person_ids.len(), "portrait image batch could not be loaded");
@@ -2743,17 +2802,6 @@ impl ApiClient {
     pub async fn get_media(&self, tree_id: Uuid, media_id: Uuid) -> Result<Media, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/media/{media_id}"))
             .await
-    }
-
-    /// Load a document archive through the API client.
-    pub async fn media_archive_bytes(
-        &self,
-        tree_id: Uuid,
-        media_id: Uuid,
-    ) -> Result<Vec<u8>, ApiError> {
-        self.get_binary(&format!("/api/v1/trees/{tree_id}/media/{media_id}/archive"))
-            .await
-            .map(|(bytes, _)| bytes)
     }
 
     /// Load a generated thumbnail without exposing its API URL.
@@ -2879,20 +2927,19 @@ impl ApiClient {
         Ok(pages)
     }
 
-    /// Detach a page as ordinary media and remove its external relations.
-    pub async fn detach_media_page(
+    /// Delete a document page and its external relations.
+    pub async fn delete_media_page(
         &self,
         tree_id: Uuid,
         media_id: Uuid,
         page_id: Uuid,
-    ) -> Result<Media, ApiError> {
-        let page = self
-            .delete_json(&format!(
-                "/api/v1/trees/{tree_id}/media/{media_id}/pages/{page_id}"
-            ))
-            .await?;
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
+            "/api/v1/trees/{tree_id}/media/{media_id}/pages/{page_id}"
+        ))
+        .await?;
         self.invalidate_tree(tree_id);
-        Ok(page)
+        Ok(())
     }
 
     /// Update a media's title and description.
@@ -3351,10 +3398,18 @@ impl ApiClient {
     /// Read a saved session back, checking it really is one.
     pub async fn decode_geneanet_session(
         &self,
-        json: Vec<u8>,
+        body: reqwest::Body,
     ) -> Result<GeneanetSession, ApiError> {
-        self.post_bytes("/api/v1/geneanet/session/decode", json, &())
-            .await
+        let response = self
+            .send_request(
+                "POST",
+                self.client
+                    .post(self.url("/api/v1/geneanet/session/decode"))
+                    .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                    .body(body),
+            )
+            .await?;
+        Self::handle_response("POST", response).await
     }
 
     /// Ask what the login window has to fetch before an import can run.
@@ -3437,15 +3492,34 @@ impl ApiClient {
         Self::handle_response("GET", response).await
     }
 
-    /// Resolve the same-origin artifact URL returned by the API.
-    #[must_use]
-    pub fn export_download_url(&self, path: &str) -> String {
-        self.url(path)
+    fn download_url(&self, path: &str) -> String {
+        if oxidgene_core::types::is_remote_url(path) {
+            path.to_string()
+        } else {
+            self.url(path)
+        }
     }
 
-    /// Stream a completed export directly to a native filesystem path.
+    /// Keep browser response bytes outside WASM and the JSON evaluation bridge.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) async fn download_in_browser(
+        &self,
+        download: BrowserDownload,
+        path: &str,
+    ) -> Result<(), ApiError> {
+        download
+            .eval
+            .send(self.download_url(path))
+            .map_err(|_| BrowserDownload::error())?;
+        match download.eval.join::<String>().await.as_deref() {
+            Ok("saved") => Ok(()),
+            _ => Err(BrowserDownload::error()),
+        }
+    }
+
+    /// Stream a download to disk, replacing the destination only after success.
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn download_export_to_file(
+    pub async fn download_to_file(
         &self,
         path: &str,
         destination: &std::path::Path,
@@ -3453,7 +3527,7 @@ impl ApiClient {
         use tokio::io::AsyncWriteExt;
 
         let mut response = self
-            .send_request("GET", self.client.get(self.url(path)))
+            .send_request("GET", self.client.get(self.download_url(path)))
             .await?;
         let status = response.status();
         if !status.is_success() {
@@ -3462,11 +3536,18 @@ impl ApiClient {
                 body: response.text().await.unwrap_or_default(),
             });
         }
-        let mut file = tokio::fs::File::create(destination).await?;
+        let parent = destination
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let pending = tempfile::NamedTempFile::new_in(parent)?;
+        let mut file = tokio::fs::File::from_std(pending.reopen()?);
         while let Some(chunk) = response.chunk().await? {
             file.write_all(&chunk).await?;
         }
         file.flush().await?;
+        drop(file);
+        pending.persist(destination).map_err(|error| error.error)?;
         Ok(())
     }
 
@@ -3487,7 +3568,7 @@ impl ApiClient {
 
     /// Fetch a windowed pedigree for a root person.
     ///
-    /// Assembled server-side from the closure table and the stored person
+    /// Assembled server-side from family links and the stored person
     /// projections on every call.
     pub async fn get_pedigree(
         &self,
@@ -3604,6 +3685,153 @@ impl Injector for HeaderInjector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_document_is_recognised_by_its_marker_and_never_spelled_out() {
+        // Read as a generic file it lands in `Other`, whose glyph is a folder —
+        // which is what an imported photograph drew — and whose badge spells
+        // out an internal name nobody outside the codebase has heard of.
+        assert_eq!(media_kind(DOCUMENT_MIME), MediaKind::Document);
+        assert_eq!(media_kind_label(DOCUMENT_MIME), "DOCUMENT");
+        assert_eq!(media_kind("image/jpeg"), MediaKind::Image);
+        assert_eq!(media_kind_label("image/jpeg"), "JPEG");
+        assert_eq!(media_kind_label("application/pdf"), "PDF");
+        assert_eq!(media_kind_label("image/svg+xml"), "SVG");
+    }
+
+    #[test]
+    fn a_media_is_stored_remote_or_held_by_nobody() {
+        let mut media: Media = serde_json::from_value(serde_json::json!({
+            "id": Uuid::from_u128(1),
+            "tree_id": Uuid::from_u128(2),
+            "file_name": "scan.jpg",
+            "file_path": "media/scan.jpg",
+            "mime_type": "image/jpeg",
+            "page_count": 1,
+            "file_size": 0,
+            "created_at": "2000-01-01T00:00:00Z",
+            "updated_at": "2000-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(media_source(&media), MediaSource::Unheld);
+        media.file_path = "https://archives.example.invalid/scan.jpg".to_string();
+        assert_eq!(media_source(&media), MediaSource::Remote);
+        media.storage_key = Some("tree/scan.jpg".to_string());
+        assert_eq!(
+            media_source(&media),
+            MediaSource::Stored,
+            "our own copy wins: the URL is then only where it came from"
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn deleting_a_page_accepts_no_content_and_invalidates_the_tree() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = ApiClient::new(&format!("http://{}", listener.local_addr().unwrap()));
+        let tree = Uuid::now_v7();
+        let document = Uuid::now_v7();
+        let page = Uuid::now_v7();
+        let cache_key = format!("/api/v1/trees/{tree}/media");
+        api.cache.set(cache_key.clone(), b"cached".to_vec());
+        let server = async {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = String::new();
+            let mut reader = tokio::io::BufReader::new(&mut socket);
+            while !request.ends_with("\r\n\r\n") {
+                assert!(reader.read_line(&mut request).await.unwrap() > 0);
+            }
+            assert!(request.starts_with(&format!(
+                "DELETE /api/v1/trees/{tree}/media/{document}/pages/{page} "
+            )));
+            socket
+                .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
+                .await
+                .unwrap();
+        };
+        let (result, ()) = tokio::join!(api.delete_media_page(tree, document, page), server);
+        result.unwrap();
+        assert!(api.cache.get(&cache_key).is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn downloads_write_chunks_to_disk_before_the_response_finishes() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("download.bin");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = ApiClient::new(&format!("http://{}", listener.local_addr().unwrap()));
+        let server = async {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = String::new();
+            let mut reader = tokio::io::BufReader::new(&mut socket);
+            while !request.ends_with("\r\n\r\n") {
+                assert!(reader.read_line(&mut request).await.unwrap() > 0);
+            }
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\npart")
+                .await
+                .unwrap();
+
+            // The second chunk is withheld until the first reaches disk. A
+            // response.bytes() implementation would deadlock until timeout.
+            loop {
+                let mut files = tokio::fs::read_dir(directory.path()).await.unwrap();
+                if let Some(file) = files.next_entry().await.unwrap()
+                    && file.metadata().await.unwrap().len() == 4
+                {
+                    assert!(!destination.exists());
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+            socket.write_all(b"done").await.unwrap();
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let (result, ()) =
+                tokio::join!(api.download_to_file("/download", &destination), server);
+            result.unwrap();
+        })
+        .await
+        .unwrap();
+        assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"partdone");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn failed_downloads_preserve_existing_files_and_remove_partial_data() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        for response in [
+            &b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"[..],
+            &b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial"[..],
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let destination = directory.path().join("download.bin");
+            tokio::fs::write(&destination, b"original").await.unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let remote = format!("http://{}/download", listener.local_addr().unwrap());
+            let api = ApiClient::new("http://unused.invalid");
+            let server = async {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = String::new();
+                let mut reader = tokio::io::BufReader::new(&mut socket);
+                while !request.ends_with("\r\n\r\n") {
+                    assert!(reader.read_line(&mut request).await.unwrap() > 0);
+                }
+                socket.write_all(response).await.unwrap();
+            };
+            let (result, ()) = tokio::join!(api.download_to_file(&remote, &destination), server);
+            assert!(result.is_err());
+            assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"original");
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        }
+    }
 
     #[test]
     fn reference_terms_over_the_limit_are_split_into_subsequent_requests() {

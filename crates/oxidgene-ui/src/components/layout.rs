@@ -197,8 +197,6 @@ pub const LAYOUT_STYLES: &str = r#"
         --pn-border:      #888888;
         --pn-male-line:   #00A6C0;
         --pn-female-line: #FF6699;
-        --pn-born:        #4ea832;
-        --pn-died:        #4a90d9;
         --pn-sosa:        #95C417;
         --pn-sosa-root:   #6da118;
         --pn-self:        #006AC4;
@@ -1452,7 +1450,12 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-shrink: 0;
     }
 
-    .evp-av img {
+    /* An `svg` where an `img` would be is a crop the browser is cutting for
+       itself — a region of a picture we hold no copy of. It fills the frame
+       the same way; `preserveAspectRatio` does there what `object-fit` does
+       here. Every portrait and crop below reads the same way. */
+    .evp-av img,
+    .evp-av svg {
         width: 100%;
         height: 100%;
         object-fit: cover;
@@ -2388,11 +2391,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     /* ── Per-event notes & source ──────────────────────────────────── */
-
-    /* The "Notes et source" toggle is a plain row action (.pf-row-btn), and
-       .is-active is what marks its panel as open — it had its own
-       .pf-ns-toggle style, permanently bordered and orange on hover, which
-       made it louder than the Modifier/Supprimer it sits next to. */
 
     /* Rendered as a sibling right under its .person-form-item row: the row
        loses its bottom rounding and the panel picks it up, so the two read
@@ -3424,7 +3422,8 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 3px 4px;
     }
 
-    .media-thumb img {
+    .media-thumb img,
+    .media-thumb svg {
         width: 100%;
         height: 100%;
         /* Cover, not contain: a grid of letterboxed scans is mostly
@@ -3443,6 +3442,9 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-deep);
     }
 
+    /* One page is a photograph, not a mosaic of one: no gutter, so a document
+       holding a single scan looks exactly like the scan. */
+    .media-document-mosaic.is-1 { gap: 0; padding: 0; }
     .media-document-mosaic.is-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .media-document-mosaic.is-3,
     .media-document-mosaic.is-4 {
@@ -3864,17 +3866,6 @@ pub const LAYOUT_STYLES: &str = r#"
         pointer-events: none;
     }
 
-    .cropper-existing-label {
-        position: absolute;
-        top: 0;
-        left: 0;
-        font-size: 0.62rem;
-        padding: 1px 4px;
-        background: rgba(0,0,0,0.6);
-        color: #fff;
-        white-space: nowrap;
-    }
-
     .cropper-foot {
         display: flex;
         flex-direction: column;
@@ -3961,6 +3952,7 @@ pub const LAYOUT_STYLES: &str = r#"
         border: 1px solid var(--border);
         border-radius: var(--radius);
         overflow: hidden;
+        font-family: var(--font-sans);
     }
 
     /* Image and facts side by side: what is written about a scan is most of
@@ -3983,10 +3975,19 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .media-viewer-aside {
         flex: 0 0 300px;
+        min-width: 0;
         border-right: 1px solid var(--border);
         overflow-y: auto;
-        padding: 8px 10px;
+        padding: 12px;
         background: var(--bg-card);
+    }
+
+    .media-viewer-aside label,
+    .media-viewer-aside input,
+    .media-viewer-aside textarea,
+    .media-viewer-aside select,
+    .media-viewer-aside button {
+        font-family: var(--font-sans);
     }
 
     /* Below the fold on a narrow screen: the document comes first, and a
@@ -4010,135 +4011,107 @@ pub const LAYOUT_STYLES: &str = r#"
         font-family: var(--font-sans);
     }
 
-    .media-fact {
-        margin-bottom: 16px;
-    }
-
-    .media-viewer-aside .media-facts > .media-fact {
+    .media-facts > .media-fact {
         display: grid;
-        grid-template-columns: 76px minmax(0, 1fr);
+        grid-template-columns: minmax(76px, 30%) minmax(0, 1fr);
         align-items: start;
         gap: 8px;
         margin: 0;
-        padding: 3px 0;
-        border-bottom: 1px solid var(--border-subtle);
+        padding: 4px 0;
     }
 
-    .media-viewer-aside .media-facts > .media-fact > label {
+    .media-facts > .media-fact > label {
         margin: 0;
-        color: var(--text-muted);
-        font-size: 0.68rem;
-        line-height: 1.3;
+        color: var(--text-secondary);
+        font-family: var(--font-sans);
+        font-size: 0.72rem;
+        font-weight: 600;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+        text-transform: none;
+        letter-spacing: normal;
     }
 
-    .media-viewer-aside .media-facts > .media-fact.is-relations {
+    .media-facts > .media-fact.is-relations {
         grid-template-columns: minmax(0, 1fr);
-        gap: 4px;
-        padding-top: 6px;
+        gap: 8px;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
     }
 
     .media-fact-value {
         font-family: var(--font-sans);
-        min-height: 38px;
-        padding: 8px 12px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background: var(--bg-panel);
         color: var(--text-primary);
-        font-size: 0.9rem;
-        line-height: 20px;
+        font-size: 0.78rem;
+        line-height: 1.4;
         overflow-wrap: anywhere;
         white-space: pre-wrap;
-    }
-
-    .media-fact.is-prose .media-fact-value { min-height: 76px; }
-
-    .media-viewer-aside .media-fact-value,
-    .media-viewer-aside .media-fact.is-prose .media-fact-value {
-        min-height: 0;
-        padding: 0;
-        border: 0;
-        border-radius: 0;
-        background: none;
-        font-size: 0.78rem;
-        line-height: 1.35;
     }
 
     /* An unset field is shown, not hidden: it says the fact can be recorded
        and has not been, which an absent field cannot say. */
     .media-fact-value.is-empty { color: var(--text-muted); }
 
+    .media-fact.is-prose .media-fact-value { line-height: 1.5; }
+
     .media-relations {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 4px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
         min-width: 0;
     }
 
     .media-relation-list {
         display: flex;
-        height: 162px;
+        max-height: 192px;
         min-width: 0;
         flex-direction: column;
-        gap: 3px;
+        gap: 8px;
         overflow: hidden;
     }
 
     .media-relation-list > .media-vignette-item,
     .media-relation-list > .media-identification,
     .media-relation-list > .media-identification > .media-vignette-item {
-        height: 30px;
-        min-height: 30px;
+        height: 32px;
+        min-height: 32px;
     }
+
+    .media-relations.is-paged .media-relation-list { height: 192px; }
 
     .media-relation-pager {
         display: flex;
-        width: 22px;
-        flex-direction: column;
+        gap: 8px;
         align-items: center;
         justify-content: space-between;
     }
 
-    .media-relation-page-button {
-        display: grid;
-        width: 22px;
-        height: 22px;
-        padding: 0;
-        place-items: center;
-        border: 0;
-        border-radius: 50%;
-        background: none;
-        color: var(--text-muted);
-        cursor: pointer;
+    .media-relation-count {
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        font-variant-numeric: tabular-nums;
     }
 
-    .media-relation-page-button:hover:not(:disabled),
-    .media-relation-page-button:focus-visible {
-        background: var(--bg-card-hover);
-        color: var(--orange);
+    .media-viewer :is(button, a):focus-visible {
+        outline: 2px solid var(--orange);
+        outline-offset: 2px;
     }
 
-    .media-relation-page-button:disabled {
-        cursor: default;
-        opacity: 0.25;
+    .media-attachment-couple {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-secondary);
     }
-
-    .media-attachment-person {
-        color: var(--text-primary);
-        text-decoration: none;
-    }
-
-    .media-attachment-person:hover,
-    .media-attachment-person:focus-visible { color: var(--orange); }
-
-    .media-attachment-couple { color: var(--text-secondary); }
 
     .media-relation-scope {
         flex: 0 0 auto;
         padding: 1px 4px;
         border: 1px solid var(--border);
         border-radius: 4px;
-        color: var(--text-muted);
+        color: var(--text-secondary);
         font-size: 0.65rem;
         line-height: 1.2;
     }
@@ -4193,7 +4166,7 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 6px;
         border-top: 1px solid var(--border);
         padding-top: 6px;
-        color: var(--text-muted);
+        color: var(--text-secondary);
         font-size: 0.72rem;
     }
 
@@ -4245,7 +4218,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .media-identification-delete {
-        width: 22px;
+        width: 32px;
+        height: 32px;
         flex: 0 0 auto;
         margin-left: auto;
         padding: 0;
@@ -4431,12 +4405,46 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .media-viewer-path {
+        font-family: var(--font-sans);
         font-size: 0.72rem;
         word-break: break-all;
         max-width: 40ch;
     }
 
-    .media-viewer-desc { font-size: 0.8rem; margin: 0; }
+    .media-viewer .cropper-foot {
+        padding: 8px 12px;
+        max-height: 30vh;
+        overflow-y: auto;
+        flex-shrink: 0;
+    }
+
+    .media-viewer .cropper-actions {
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .media-viewer .cropper-actions .btn {
+        min-height: 32px;
+        max-width: 100%;
+        font: 600 0.78rem/1.4 var(--font-sans);
+        white-space: normal;
+        text-align: center;
+    }
+
+    .media-download {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        text-decoration: none;
+    }
+
+    .media-download svg { flex: 0 0 auto; }
+
+    .media-viewer .cropper-actions .error-msg {
+        flex-basis: 100%;
+        margin: 0;
+    }
 
     /* ── Multi-page documents ─────────────────────────────────────── */
 
@@ -4496,6 +4504,12 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .media-pager-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 32px;
+        min-height: 32px;
+        flex: 0 0 auto;
         background: none;
         border: 1px solid var(--border);
         border-radius: 3px;

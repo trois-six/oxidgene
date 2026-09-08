@@ -2,7 +2,7 @@
 //!
 //! Converts domain model entities into a GEDCOM 5.5.1 string using `ged_io`.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use ged_io::GedcomWriter;
 use ged_io::types::GedcomData;
@@ -40,7 +40,10 @@ use oxidgene_core::types::{
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
 
-use crate::{ExportResult, MediaMetadataExtension, MediaNoteExtension, MediaPlaceExtension};
+use crate::{
+    DocumentExtension, DocumentMetadataExtension, ExportResult, MediaMetadataExtension,
+    MediaNoteExtension, MediaPlaceExtension,
+};
 
 /// Export domain model entities to a GEDCOM 5.5.1 string.
 ///
@@ -111,8 +114,11 @@ pub fn export_gedcom(
         source_xref.insert(s.id, format!("@S{}@", i + 1));
     }
 
+    // Only pages become records: a document holds no bytes and is dissolved
+    // into them. Numbering just the pages keeps the xrefs contiguous rather
+    // than leaving a gap wherever a document sat in the list.
     let mut media_xref: HashMap<Uuid, String> = HashMap::new();
-    for (i, m) in media.iter().enumerate() {
+    for (i, m) in media.iter().filter(|m| !m.is_document()).enumerate() {
         media_xref.insert(m.id, format!("@M{}@", i + 1));
     }
 
@@ -345,10 +351,17 @@ pub fn export_gedcom(
 
     for m in media {
         // Dissolved above; its pages carry the bytes.
-        if m.is_document {
+        if m.is_document() {
             continue;
         }
         let xref = media_xref.get(&m.id).cloned();
+        // Title, description, category and medium describe the document, not
+        // the scan. Reading them from the parent is what keeps a `.ged` other
+        // software opens from showing thirty-eight untitled files — and what
+        // keeps a one-page document, which is what an ordinary photograph now
+        // is, exporting under the title its owner gave it.
+        let document = m.parent_media_id.and_then(|id| media_by_id.get(&id));
+        let described = document.copied().unwrap_or(m);
         // `file_path` is the producer's own path, preserved so a plain `.ged`
         // round-trips to whatever wrote it. A GEDZIP carries the bytes, so
         // there the `FILE` must name the entry inside the archive instead —
@@ -360,7 +373,7 @@ pub fn export_gedcom(
         // A category the user chose is the better answer and implies a
         // medium; the stored medium is what they said when they answered
         // GEDCOM's own question directly, so it wins where both are set.
-        let medium = match (m.document_category, m.source_media_type) {
+        let medium = match (described.document_category, described.source_media_type) {
             (Some(category), SourceMediaType::Other) => category.implied_medium(),
             (_, medium) => medium,
         };
@@ -374,53 +387,14 @@ pub fn export_gedcom(
                 }),
                 ..Default::default()
             }),
-            title: m.title.clone(),
-            note_structure: m.description.as_deref().map(to_ged_note),
+            title: page_title(
+                described,
+                document.map(|d| pages_of_len(&pages_of, d.id)).unwrap_or(1),
+                m.page_index,
+            ),
+            note_structure: described.description.as_deref().map(to_ged_note),
             ..Default::default()
         });
-    }
-
-    // ged_io 0.16.3 models and parses event-level multimedia, but its writer
-    // omits that field. Keep a record-order-preserving insertion plan so the
-    // standard `OBJE` links can be restored after it serializes the rest.
-    let mut event_media_by_record: HashMap<String, Vec<EventMediaInsertion>> = HashMap::new();
-    for person in persons {
-        let Some(xref) = person_xref.get(&person.id) else {
-            continue;
-        };
-        let events = events_by_person
-            .get(&person.id)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        event_media_by_record.insert(
-            xref.clone(),
-            event_media_insertions(
-                events,
-                &mlinks_by_event,
-                &media_by_id,
-                &media_xref,
-                &pages_of,
-            ),
-        );
-    }
-    for family in families {
-        let Some(xref) = family_xref.get(&family.id) else {
-            continue;
-        };
-        let events = events_by_family
-            .get(&family.id)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        event_media_by_record.insert(
-            xref.clone(),
-            event_media_insertions(
-                events,
-                &mlinks_by_event,
-                &media_by_id,
-                &media_xref,
-                &pages_of,
-            ),
-        );
     }
 
     // ── Export Individuals ────────────────────────────────────────────
@@ -462,7 +436,11 @@ pub fn export_gedcom(
                     &place_map,
                     &cites_by_event,
                     &notes_by_event,
+                    &mlinks_by_event,
+                    &media_by_id,
                     &source_xref,
+                    &media_xref,
+                    &pages_of,
                     &mut warnings,
                 )),
                 None => indi_events.push(to_ged_detail(
@@ -660,15 +638,6 @@ pub fn export_gedcom(
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
     write_span.record("export.output_bytes", gedcom.len());
 
-    let event_media_span = tracing::info_span!(
-        "export.inject_event_media",
-        export.input_bytes = gedcom.len(),
-        export.output_bytes = tracing::field::Empty,
-    );
-    let gedcom =
-        event_media_span.in_scope(|| inject_event_media_links(gedcom, event_media_by_record));
-    event_media_span.record("export.output_bytes", gedcom.len());
-
     let extensions_span = tracing::info_span!(
         "export.inject_extensions",
         export.input_bytes = gedcom.len(),
@@ -703,42 +672,46 @@ fn inject_oxidgene_media_extensions(
 ) -> (String, Vec<String>) {
     let mut warnings = Vec::new();
     let mut by_media = HashMap::<String, Vec<String>>::new();
-    for item in media.iter().filter(|item| !item.is_document) {
+
+    let media_by_id: HashMap<Uuid, &Media> = media.iter().map(|m| (m.id, m)).collect();
+    let notes_of = |media_id: Uuid| -> Vec<MediaNoteExtension> {
+        notes_by_media
+            .get(&media_id)
+            .into_iter()
+            .flatten()
+            .map(|note| MediaNoteExtension {
+                text: note.text.clone(),
+                created_at: Some(note.created_at),
+                updated_at: Some(note.updated_at),
+            })
+            .collect()
+    };
+
+    // A token per document, stable within this file and meaningless outside
+    // it: the pages of one document are grouped by it on the way back in.
+    let mut document_token = HashMap::<Uuid, String>::new();
+    let mut page_count_of = HashMap::<Uuid, i32>::new();
+    for item in media.iter().filter(|item| !item.is_document()) {
+        if let Some(document_id) = item.parent_media_id {
+            let next = document_token.len() + 1;
+            document_token
+                .entry(document_id)
+                .or_insert_with(|| format!("D{next}"));
+            *page_count_of.entry(document_id).or_insert(0) += 1;
+        }
+    }
+
+    for item in media.iter().filter(|item| !item.is_document()) {
         let Some(xref) = media_xref.get(&item.id) else {
             continue;
         };
+        // Page-level, and only page-level: the file it was, and its transcript.
         let metadata = MediaMetadataExtension {
             version: 1,
             file_name: item.file_name.clone(),
             created_at: Some(item.created_at),
             updated_at: Some(item.updated_at),
-            title: item.title.clone(),
-            description: item.description.clone(),
-            date_value: item.date_value.clone(),
-            date_qualifier: item.date_qualifier,
-            date_value2: item.date_value2.clone(),
-            calendar: item.calendar,
-            privacy: item.privacy,
-            source_media_type: item.source_media_type,
-            document_category: item.document_category,
-            tags: item.tags.clone(),
-            place: item.place_id.and_then(|place_id| {
-                places.get(&place_id).map(|place| MediaPlaceExtension {
-                    name: place.name.clone(),
-                    latitude: place.latitude,
-                    longitude: place.longitude,
-                })
-            }),
-            notes: notes_by_media
-                .get(&item.id)
-                .into_iter()
-                .flatten()
-                .map(|note| MediaNoteExtension {
-                    text: note.text.clone(),
-                    created_at: Some(note.created_at),
-                    updated_at: Some(note.updated_at),
-                })
-                .collect(),
+            notes: notes_of(item.id),
         };
         match serde_json::to_string(&metadata) {
             Ok(value) => by_media
@@ -747,6 +720,59 @@ fn inject_oxidgene_media_extensions(
                 .push(format!("1 _OXIDGENE_MEDIA {value}")),
             Err(err) => warnings.push(format!(
                 "Media {} metadata could not be serialized: {err}",
+                item.id
+            )),
+        }
+
+        // The container. GEDCOM has none, so this is what reassembles the
+        // pages — and carries, on the first of them, everything the document
+        // says about itself.
+        let Some(document_id) = item.parent_media_id else {
+            continue;
+        };
+        let Some(token) = document_token.get(&document_id) else {
+            continue;
+        };
+        let meta = (item.page_index == 0)
+            .then(|| media_by_id.get(&document_id))
+            .flatten()
+            .map(|document| DocumentMetadataExtension {
+                file_name: document.file_name.clone(),
+                created_at: Some(document.created_at),
+                updated_at: Some(document.updated_at),
+                title: document.title.clone(),
+                description: document.description.clone(),
+                date_value: document.date_value.clone(),
+                date_qualifier: document.date_qualifier,
+                date_value2: document.date_value2.clone(),
+                calendar: document.calendar,
+                privacy: document.privacy,
+                source_media_type: document.source_media_type,
+                document_category: document.document_category,
+                tags: document.tags.clone(),
+                place: document.place_id.and_then(|place_id| {
+                    places.get(&place_id).map(|place| MediaPlaceExtension {
+                        name: place.name.clone(),
+                        latitude: place.latitude,
+                        longitude: place.longitude,
+                    })
+                }),
+                notes: notes_of(document.id),
+            });
+        let container = DocumentExtension {
+            version: 1,
+            doc: token.clone(),
+            index: item.page_index,
+            count: page_count_of.get(&document_id).copied().unwrap_or(0),
+            meta,
+        };
+        match serde_json::to_string(&container) {
+            Ok(value) => by_media
+                .entry(xref.clone())
+                .or_default()
+                .push(format!("1 _OXIDGENE_DOC {value}")),
+            Err(err) => warnings.push(format!(
+                "Media {} document metadata could not be serialized: {err}",
                 item.id
             )),
         }
@@ -1366,6 +1392,14 @@ fn merge_occupation_attributes(attributes: Vec<GedAttributeDetail>) -> Vec<GedAt
                     }
                 }
                 m.sources.extend(attr.sources);
+                // One OCCU line became several professions on import, each
+                // carrying the same scan. Merging them back must not write
+                // that scan once per profession.
+                for media in attr.multimedia {
+                    if !m.multimedia.iter().any(|kept| kept.xref == media.xref) {
+                        m.multimedia.push(media);
+                    }
+                }
                 if m.note.is_none() {
                     m.note = attr.note;
                 }
@@ -1401,13 +1435,18 @@ fn merge_name_aliases_into_surn(mut names: Vec<GedName>) -> Vec<GedName> {
 /// Exports an individual attribute (e.g. `EventType::Occupation`, GEDCOM
 /// `OCCU`) as an `AttributeDetail` under `Individual.attributes`, so it
 /// round-trips to its original tag instead of a generic `EVEN`.
+#[allow(clippy::too_many_arguments)]
 fn to_ged_attribute_detail(
     evt: &Event,
     attribute: GedIndividualAttribute,
     place_map: &HashMap<Uuid, &Place>,
     cites_by_event: &HashMap<Uuid, Vec<&Citation>>,
     notes_by_event: &HashMap<Uuid, Vec<&Note>>,
+    mlinks_by_event: &HashMap<Uuid, Vec<&MediaLink>>,
+    media_by_id: &HashMap<Uuid, &Media>,
     source_xref: &HashMap<Uuid, String>,
+    media_xref: &HashMap<Uuid, String>,
+    pages_of: &HashMap<Uuid, Vec<&Media>>,
     warnings: &mut Vec<String>,
 ) -> GedAttributeDetail {
     // Recompose the calendar escape and qualifier tag the columns were split
@@ -1454,6 +1493,20 @@ fn to_ged_attribute_detail(
         .and_then(|ns| ns.first())
         .map(|n| to_ged_note(&n.text));
 
+    // An attribute documents itself as readily as an event does: a scan of the
+    // trade card behind an OCCU, of the deed behind a TITL. The same links, read
+    // the same way as `to_ged_detail` reads them.
+    let multimedia: Vec<GedMultimedia> = mlinks_by_event
+        .get(&evt.id)
+        .map(|mls| {
+            mls.iter()
+                .flat_map(|ml| {
+                    to_ged_multimedia_refs(ml.media_id, media_by_id, media_xref, pages_of)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     GedAttributeDetail {
         attribute,
         // The attribute's own line value (e.g. "Account Manager" for OCCU) —
@@ -1464,6 +1517,7 @@ fn to_ged_attribute_detail(
         date,
         sources,
         note,
+        multimedia,
         attribute_type: None,
         restriction: None,
         age: None,
@@ -1503,6 +1557,28 @@ fn to_ged_citation(
     })
 }
 
+/// How many pages a document holds in this export.
+fn pages_of_len(pages_of: &HashMap<Uuid, Vec<&Media>>, document_id: Uuid) -> usize {
+    pages_of.get(&document_id).map_or(0, Vec::len)
+}
+
+/// The `TITL` written on one exported page.
+///
+/// The document's title, and for a document of several pages the page number
+/// alongside it. Other software lists these records side by side, where one
+/// title repeated thirty-eight times says nothing about which scan is which.
+/// A single-page document — an ordinary photograph — keeps its bare title.
+fn page_title(document: &Media, page_count: usize, page_index: i32) -> Option<String> {
+    let title = document.title.clone()?;
+    if page_count <= 1 {
+        return Some(title);
+    }
+    Some(format!(
+        "{title} \u{2014} page {}/{page_count}",
+        page_index + 1
+    ))
+}
+
 /// The `OBJE` pointers one media link becomes.
 ///
 /// Usually one. A link to a multi-page document becomes one per page, in
@@ -1520,7 +1596,7 @@ fn to_ged_multimedia_refs(
     let Some(media) = media_by_id.get(&media_id) else {
         return Vec::new();
     };
-    let targets: Vec<Uuid> = if media.is_document {
+    let targets: Vec<Uuid> = if media.is_document() {
         pages_of
             .get(&media_id)
             .map(|pages| pages.iter().map(|page| page.id).collect())
@@ -1537,164 +1613,6 @@ fn to_ged_multimedia_refs(
             })
         })
         .collect()
-}
-
-struct EventMediaInsertion {
-    tag: &'static str,
-    references: Vec<String>,
-}
-
-fn event_media_insertions(
-    events: &[&Event],
-    links_by_event: &HashMap<Uuid, Vec<&MediaLink>>,
-    media_by_id: &HashMap<Uuid, &Media>,
-    media_xref: &HashMap<Uuid, String>,
-    pages_of: &HashMap<Uuid, Vec<&Media>>,
-) -> Vec<EventMediaInsertion> {
-    let mut details = Vec::new();
-    let mut attributes = Vec::new();
-
-    for event in events {
-        let references = links_by_event
-            .get(&event.id)
-            .into_iter()
-            .flatten()
-            .flat_map(|link| {
-                to_ged_multimedia_refs(link.media_id, media_by_id, media_xref, pages_of)
-            })
-            .filter_map(|media| media.xref)
-            .collect();
-        let insertion = EventMediaInsertion {
-            tag: event_gedcom_tag(event.event_type),
-            references,
-        };
-        if event_type_to_attribute(event.event_type).is_some() {
-            attributes.push(insertion);
-        } else {
-            details.push(insertion);
-        }
-    }
-    details.extend(attributes);
-    details
-}
-
-fn event_gedcom_tag(event_type: EventType) -> &'static str {
-    if let Some(attribute) = event_type_to_attribute(event_type) {
-        return match attribute {
-            GedIndividualAttribute::CastName => "CAST",
-            GedIndividualAttribute::PhysicalDescription => "DSCR",
-            GedIndividualAttribute::ScholasticAchievement => "EDUC",
-            GedIndividualAttribute::NationalIDNumber => "IDNO",
-            GedIndividualAttribute::NationalOrTribalOrigin => "NATI",
-            GedIndividualAttribute::CountOfChildren => "NCHI",
-            GedIndividualAttribute::CountOfMarriages => "NMR",
-            GedIndividualAttribute::Occupation => "OCCU",
-            GedIndividualAttribute::Possessions => "PROP",
-            GedIndividualAttribute::ReligiousAffiliation => "RELI",
-            GedIndividualAttribute::ResidesAt => "RESI",
-            GedIndividualAttribute::SocialSecurityNumber => "SSN",
-            GedIndividualAttribute::NobilityTypeTitle => "TITL",
-            GedIndividualAttribute::Fact => "FACT",
-        };
-    }
-
-    match convert_event_type(event_type) {
-        GedEvent::Adoption => "ADOP",
-        GedEvent::Birth => "BIRT",
-        GedEvent::Baptism => "BAPM",
-        GedEvent::BarMitzvah => "BARM",
-        GedEvent::BasMitzvah => "BASM",
-        GedEvent::Blessing => "BLES",
-        GedEvent::Burial => "BURI",
-        GedEvent::Census => "CENS",
-        GedEvent::Christening => "CHR",
-        GedEvent::AdultChristening => "CHRA",
-        GedEvent::Confirmation => "CONF",
-        GedEvent::Cremation => "CREM",
-        GedEvent::Death => "DEAT",
-        GedEvent::Emigration => "EMIG",
-        GedEvent::FirstCommunion => "FCOM",
-        GedEvent::Graduation => "GRAD",
-        GedEvent::Immigration => "IMMI",
-        GedEvent::Naturalization => "NATU",
-        GedEvent::Ordination => "ORDN",
-        GedEvent::Retired => "RETI",
-        GedEvent::Probate => "PROB",
-        GedEvent::Will => "WILL",
-        GedEvent::Marriage => "MARR",
-        GedEvent::Annulment => "ANUL",
-        GedEvent::Divorce => "DIV",
-        GedEvent::DivorceFiled => "DIVF",
-        GedEvent::Engagement => "ENGA",
-        GedEvent::MarriageBann => "MARB",
-        GedEvent::MarriageContract => "MARC",
-        GedEvent::MarriageLicense => "MARL",
-        GedEvent::MarriageSettlement => "MARS",
-        GedEvent::Residence => "RESI",
-        GedEvent::Separated => "SEP",
-        GedEvent::Event | GedEvent::Other | GedEvent::SourceData(_) => "EVEN",
-    }
-}
-
-fn inject_event_media_links(
-    gedcom: String,
-    insertions_by_record: HashMap<String, Vec<EventMediaInsertion>>,
-) -> String {
-    let extra_capacity = insertions_by_record
-        .values()
-        .flatten()
-        .flat_map(|insertion| &insertion.references)
-        .map(|reference| "2 OBJE \n".len() + reference.len())
-        .sum::<usize>();
-    let mut pending: HashMap<String, VecDeque<EventMediaInsertion>> = insertions_by_record
-        .into_iter()
-        .map(|(xref, insertions)| (xref, insertions.into()))
-        .collect();
-    let mut current_record = None::<&str>;
-    let mut output = String::with_capacity(gedcom.len() + extra_capacity);
-
-    for line in gedcom.lines() {
-        output.push_str(line);
-        output.push('\n');
-
-        if let Some(header) = line.strip_prefix("0 ") {
-            let mut fields = header.split_whitespace();
-            let xref = fields.next();
-            let tag = fields.next();
-            current_record = match (xref, tag) {
-                (Some(xref), Some("INDI" | "FAM")) if pending.contains_key(xref) => Some(xref),
-                _ => None,
-            };
-            continue;
-        }
-
-        let (Some(record), Some(detail)) = (current_record, line.strip_prefix("1 ")) else {
-            continue;
-        };
-        let Some(tag) = detail.split_whitespace().next() else {
-            continue;
-        };
-        let Some(queue) = pending.get_mut(record) else {
-            continue;
-        };
-        let Some(next) = queue.front() else {
-            continue;
-        };
-        if next.tag != tag {
-            continue;
-        }
-        let next = queue.pop_front().expect("event media insertion exists");
-        for reference in next.references {
-            output.push_str("2 OBJE ");
-            output.push_str(&reference);
-            output.push('\n');
-        }
-    }
-
-    if !gedcom.ends_with('\n') {
-        output.pop();
-    }
-    output
 }
 
 /// Format a float coordinate as a GEDCOM coordinate string.
@@ -1720,6 +1638,7 @@ fn format_coord(value: f64, is_latitude: bool) -> String {
 mod tests {
     use super::*;
     use oxidgene_core::enums::{Calendar, DateQualifier, DocumentCategory, Privacy};
+    use oxidgene_core::types::DOCUMENT_MIME;
 
     fn person_row() -> Person {
         Person {
@@ -1733,6 +1652,20 @@ mod tests {
             updated_at: chrono::Utc::now(),
             deleted_at: None,
         }
+    }
+
+    /// A document and the single page holding its bytes — the shape every
+    /// media has now. Returns (document, page); link to the document.
+    fn document_with_page(file_name: &str, mime_type: &str, stored: bool) -> (Media, Media) {
+        let mut document = medium(file_name, DOCUMENT_MIME, false);
+        document.title = Some(file_name.to_string());
+        document.file_path = String::new();
+        document.page_count = 1;
+        let mut page = medium(file_name, mime_type, stored);
+        page.parent_media_id = Some(document.id);
+        page.page_index = 0;
+        page.tree_id = document.tree_id;
+        (document, page)
     }
 
     fn medium(file_name: &str, mime_type: &str, stored: bool) -> Media {
@@ -1750,7 +1683,6 @@ mod tests {
             page_count: 1,
             parent_media_id: None,
             page_index: 0,
-            is_document: false,
             title: None,
             description: None,
             file_size: 0,
@@ -1871,10 +1803,11 @@ mod tests {
 
     #[test]
     fn an_archive_carries_the_media_and_the_gedcom_names_them() {
-        let m = medium("photo.jpg", "image/jpeg", true);
+        let (document, m) = document_with_page("photo.jpg", "image/jpeg", true);
         let path = archive_path(&m).expect("stored");
         let mut paths = HashMap::new();
         paths.insert(m.id, path.clone());
+        let rows = [document, m];
 
         let export = export_gedcom(
             &[],
@@ -1887,7 +1820,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&m),
+            &rows,
             &[],
             &[],
             &[],
@@ -1949,8 +1882,9 @@ mod tests {
 
     #[test]
     fn the_physical_medium_survives_an_export_and_a_re_import() {
-        let mut m = medium("headstone.jpg", "image/jpeg", true);
-        m.source_media_type = SourceMediaType::Tombstone;
+        let (mut document, page) = document_with_page("headstone.jpg", "image/jpeg", true);
+        document.source_media_type = SourceMediaType::Tombstone;
+        let m = [document, page];
         let export = export_gedcom(
             &[],
             &[],
@@ -1962,7 +1896,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&m),
+            &m,
             &[],
             &[],
             &[],
@@ -1979,8 +1913,12 @@ mod tests {
 
         let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
         assert_eq!(
-            back.media.first().map(|m| m.source_media_type),
-            Some(SourceMediaType::Tombstone)
+            back.media
+                .iter()
+                .find(|m| m.is_document())
+                .map(|m| m.source_media_type),
+            Some(SourceMediaType::Tombstone),
+            "the medium describes the document"
         );
     }
 
@@ -1995,38 +1933,46 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        let mut media = medium("original group photo.jpg", "image/jpeg", true);
-        media.created_at = chrono::DateTime::parse_from_rfc3339("2024-01-02T03:04:05Z")
+        // Everything descriptive belongs to the document; the page carries
+        // the bytes and nothing else.
+        let (mut document, mut page) =
+            document_with_page("original group photo.jpg", "image/jpeg", true);
+        document.created_at = chrono::DateTime::parse_from_rfc3339("2024-01-02T03:04:05Z")
             .expect("valid timestamp")
             .to_utc();
-        media.updated_at = chrono::DateTime::parse_from_rfc3339("2024-06-07T08:09:10Z")
+        document.updated_at = chrono::DateTime::parse_from_rfc3339("2024-06-07T08:09:10Z")
             .expect("valid timestamp")
             .to_utc();
-        media.title = Some("Family celebration".to_string());
-        media.description = Some("First line\nSecond line".to_string());
-        media.date_value = Some("3 SEP 1946".to_string());
-        media.date_qualifier = DateQualifier::About;
-        media.calendar = Calendar::Gregorian;
-        media.privacy = Privacy::Private;
-        media.source_media_type = SourceMediaType::Photo;
-        media.document_category = Some(DocumentCategory::GroupPhoto);
-        media.tags = vec!["ceremony".to_string(), "outdoors".to_string()];
-        media.place_id = Some(place.id);
+        document.file_name = "Family celebration".to_string();
+        document.title = Some("Family celebration".to_string());
+        document.description = Some("First line\nSecond line".to_string());
+        document.date_value = Some("3 SEP 1946".to_string());
+        document.date_qualifier = DateQualifier::About;
+        document.calendar = Calendar::Gregorian;
+        document.privacy = Privacy::Private;
+        document.source_media_type = SourceMediaType::Photo;
+        document.document_category = Some(DocumentCategory::GroupPhoto);
+        document.tags = vec!["ceremony".to_string(), "outdoors".to_string()];
+        document.place_id = Some(place.id);
+        page.created_at = document.created_at;
+        page.updated_at = document.updated_at;
         let note = Note {
             id: Uuid::now_v7(),
-            tree_id: media.tree_id,
+            tree_id: document.tree_id,
             text: "The left edge is damaged".to_string(),
             person_id: None,
             event_id: None,
             family_id: None,
             source_id: None,
-            media_id: Some(media.id),
-            created_at: media.created_at,
-            updated_at: media.updated_at,
+            media_id: Some(document.id),
+            created_at: document.created_at,
+            updated_at: document.updated_at,
             deleted_at: None,
         };
-        let archive_path = archive_path(&media).expect("stored media has an archive path");
-        let media_paths = HashMap::from([(media.id, archive_path.clone())]);
+        let archive_path = archive_path(&page).expect("stored media has an archive path");
+        let media_paths = HashMap::from([(page.id, archive_path.clone())]);
+        let media = document.clone();
+        let rows = [document, page];
 
         let export = export_gedcom(
             &[],
@@ -2039,7 +1985,7 @@ mod tests {
             std::slice::from_ref(&place),
             &[],
             &[],
-            std::slice::from_ref(&media),
+            &rows,
             &[],
             &[],
             std::slice::from_ref(&note),
@@ -2049,6 +1995,7 @@ mod tests {
         )
         .expect("exports");
         assert!(export.gedcom.contains("1 _OXIDGENE_MEDIA {"));
+        assert!(export.gedcom.contains("1 _OXIDGENE_DOC {"));
         assert!(export.gedcom.contains("1 NOTE First line"));
         assert!(export.gedcom.contains("2 CONT Second line"));
 
@@ -2066,7 +2013,13 @@ mod tests {
         assert_eq!(imported_archive.files.len(), 1);
         assert_eq!(imported_archive.files[0].1, b"IMAGE BYTES");
         let back = imported_archive.result;
-        let imported = back.media.first().expect("one media");
+        let imported = back
+            .media
+            .iter()
+            .find(|item| item.is_document())
+            .expect("the document came back");
+        assert_eq!(back.media.len(), 2, "a document and its one page");
+        assert_eq!(imported.page_count, 1);
         assert_eq!(imported.file_name, media.file_name);
         assert_eq!(imported.created_at, media.created_at);
         assert_eq!(imported.updated_at, media.updated_at);
@@ -2105,8 +2058,9 @@ mod tests {
         // A census return is `MANUSCRIPT` to GEDCOM. Writing `OTHER` because
         // the user answered the richer question instead of the poorer one
         // would make our own export worse than the classification we hold.
-        let mut m = medium("recensement.jpg", "image/jpeg", true);
-        m.document_category = Some(DocumentCategory::Census);
+        let (mut document, page) = document_with_page("recensement.jpg", "image/jpeg", true);
+        document.document_category = Some(DocumentCategory::Census);
+        let m = [document, page];
         let export = export_gedcom(
             &[],
             &[],
@@ -2118,7 +2072,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&m),
+            &m,
             &[],
             &[],
             &[],
@@ -2133,9 +2087,9 @@ mod tests {
     #[test]
     fn an_explicit_medium_is_not_overridden_by_the_category() {
         // The user answered both questions; neither answer is ours to discard.
-        let mut m = medium("microfilm.jpg", "image/jpeg", true);
-        m.document_category = Some(DocumentCategory::CivilRecord);
-        m.source_media_type = SourceMediaType::Fiche;
+        let (mut document, page) = document_with_page("microfilm.jpg", "image/jpeg", true);
+        document.document_category = Some(DocumentCategory::CivilRecord);
+        document.source_media_type = SourceMediaType::Fiche;
         let export = export_gedcom(
             &[],
             &[],
@@ -2147,7 +2101,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&m),
+            &[document, page],
             &[],
             &[],
             &[],
@@ -2165,7 +2119,8 @@ mod tests {
         // A record-level `OBJE` pointer must carry the person-media link
         // through the full export and import path.
         let person = person_row();
-        let medium = medium("portrait.jpg", "image/jpeg", true);
+        let (medium, page) = document_with_page("portrait.jpg", "image/jpeg", true);
+        let rows = [medium.clone(), page];
         let link = MediaLink {
             id: Uuid::now_v7(),
             media_id: medium.id,
@@ -2187,7 +2142,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&medium),
+            &rows,
             std::slice::from_ref(&link),
             &[],
             &[],
@@ -2199,7 +2154,11 @@ mod tests {
         assert!(export.gedcom.contains("1 OBJE @M1@"), "{}", export.gedcom);
 
         let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
-        assert_eq!(back.media.len(), 1, "the photograph itself");
+        assert_eq!(
+            back.media.len(),
+            2,
+            "the photograph and the document holding it"
+        );
         assert_eq!(
             back.media_links.len(),
             1,
@@ -2216,7 +2175,10 @@ mod tests {
     #[test]
     fn a_photo_identification_survives_a_gedzip_round_trip() {
         let person = person_row();
-        let medium = medium("group-photo.jpg", "image/jpeg", true);
+        let (medium, page) = document_with_page("group-photo.jpg", "image/jpeg", true);
+        let rows = [medium.clone(), page.clone()];
+        // Attached to the document, identified on the page: the link is about
+        // the record, the crop is about the pixels.
         let link = MediaLink {
             id: Uuid::now_v7(),
             media_id: medium.id,
@@ -2228,7 +2190,7 @@ mod tests {
         };
         let vignette = Vignette {
             id: Uuid::now_v7(),
-            media_id: medium.id,
+            media_id: page.id,
             x: 120,
             y: 45,
             width: 64,
@@ -2238,9 +2200,9 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        let path = archive_path(&medium).expect("stored medium has an archive path");
+        let path = archive_path(&page).expect("stored medium has an archive path");
         let mut paths = HashMap::new();
-        paths.insert(medium.id, path.clone());
+        paths.insert(page.id, path.clone());
 
         let export = export_gedcom(
             std::slice::from_ref(&person),
@@ -2253,7 +2215,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&medium),
+            &rows,
             std::slice::from_ref(&link),
             std::slice::from_ref(&vignette),
             &[],
@@ -2281,7 +2243,15 @@ mod tests {
         assert_eq!(back.media_links.len(), 1, "whole-image attachment");
         assert_eq!(back.vignettes.len(), 1, "cropped identification");
         let restored = &back.vignettes[0];
-        assert_eq!(restored.media_id, back.media[0].id);
+        assert_eq!(
+            restored.media_id,
+            back.media
+                .iter()
+                .find(|m| !m.is_document())
+                .expect("the page came back")
+                .id,
+            "a crop is on the page, not on the document"
+        );
         assert_eq!(restored.person_id, Some(back.persons[0].id));
         assert_eq!(
             (restored.x, restored.y, restored.width, restored.height),
@@ -2310,7 +2280,8 @@ mod tests {
             updated_at: chrono::Utc::now(),
             deleted_at: None,
         };
-        let medium = medium("birth-record.jpg", "image/jpeg", true);
+        let (medium, page) = document_with_page("birth-record.jpg", "image/jpeg", true);
+        let rows = [medium.clone(), page];
         let link = MediaLink {
             id: Uuid::now_v7(),
             media_id: medium.id,
@@ -2332,7 +2303,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&medium),
+            &rows,
             std::slice::from_ref(&link),
             &[],
             &[],
@@ -2347,13 +2318,161 @@ mod tests {
         assert_eq!(back.events.len(), 1);
         assert_eq!(back.media_links.len(), 1);
         assert_eq!(back.media_links[0].event_id, Some(back.events[0].id));
-        assert_eq!(back.media_links[0].media_id, back.media[0].id);
+        let document = back
+            .media
+            .iter()
+            .find(|m| m.is_document())
+            .expect("the document came back");
+        assert_eq!(back.media_links[0].media_id, document.id);
+    }
+
+    #[test]
+    fn an_attributes_media_link_survives_a_round_trip_once_per_profession() {
+        // An attribute documents itself as readily as an event: the trade card
+        // behind an OCCU. The value splits into one event per profession on
+        // import and merges back into one line on export, and the scan must
+        // come through that once, not once per profession.
+        let person = person_row();
+        let occupation = Event {
+            id: Uuid::now_v7(),
+            tree_id: person.tree_id,
+            event_type: EventType::Occupation,
+            date_value: None,
+            date_sort: None,
+            date_qualifier: Default::default(),
+            date_value2: None,
+            calendar: Default::default(),
+            cause: None,
+            place_id: None,
+            person_id: Some(person.id),
+            family_id: None,
+            description: Some("Baker, Miller".to_string()),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deleted_at: None,
+        };
+        let (medium, page) = document_with_page("trade-card.jpg", "image/jpeg", true);
+        let rows = [medium.clone(), page];
+        let link = MediaLink {
+            id: Uuid::now_v7(),
+            media_id: medium.id,
+            person_id: None,
+            event_id: Some(occupation.id),
+            source_id: None,
+            family_id: None,
+            sort_order: 0,
+        };
+
+        let export = export_gedcom(
+            std::slice::from_ref(&person),
+            &[],
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&occupation),
+            &[],
+            &[],
+            &[],
+            &[],
+            &rows,
+            std::slice::from_ref(&link),
+            &[],
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+        assert!(export.gedcom.contains("1 OCCU"), "{}", export.gedcom);
+        assert_eq!(
+            export.gedcom.matches("2 OBJE @M1@").count(),
+            1,
+            "{}",
+            export.gedcom
+        );
+
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        assert_eq!(back.events.len(), 2, "one event per profession");
+        assert_eq!(
+            back.media_links.len(),
+            2,
+            "one line documented both professions"
+        );
+        let document = back
+            .media
+            .iter()
+            .find(|m| m.is_document())
+            .expect("the document came back");
+        assert!(
+            back.media_links
+                .iter()
+                .all(|link| link.media_id == document.id)
+        );
+
+        // And back out again, from the shape the import produced: two
+        // Occupation events on one person, both naming the same scan. The
+        // merge writes one OCCU line, and must write the scan once.
+        let events: Vec<Event> = back
+            .events
+            .iter()
+            .map(|event| Event {
+                person_id: Some(person.id),
+                tree_id: person.tree_id,
+                ..event.clone()
+            })
+            .collect();
+        let links: Vec<MediaLink> = events
+            .iter()
+            .map(|event| MediaLink {
+                id: Uuid::now_v7(),
+                media_id: medium.id,
+                person_id: None,
+                event_id: Some(event.id),
+                source_id: None,
+                family_id: None,
+                sort_order: 0,
+            })
+            .collect();
+        let again = export_gedcom(
+            std::slice::from_ref(&person),
+            &[],
+            &[],
+            &[],
+            &[],
+            &events,
+            &[],
+            &[],
+            &[],
+            &[],
+            &rows,
+            &links,
+            &[],
+            &[],
+            // Merging the professions back into one OCCU is the case under
+            // test: it is what has to not multiply the scan.
+            true,
+            false,
+            &HashMap::new(),
+        )
+        .expect("exports");
+
+        assert_eq!(
+            again.gedcom.matches("1 OCCU").count(),
+            1,
+            "{}",
+            again.gedcom
+        );
+        assert_eq!(
+            again.gedcom.matches("2 OBJE @M1@").count(),
+            1,
+            "{}",
+            again.gedcom
+        );
     }
 
     #[test]
     fn page_transcripts_remain_attached_to_their_pages_after_a_round_trip() {
         let mut document = medium("Sample register", "image/jpeg", false);
-        document.is_document = true;
         document.page_count = 2;
 
         let mut first_page = medium("page-1.jpg", "image/jpeg", true);
@@ -2441,10 +2560,10 @@ mod tests {
         // one happened to be written first.
         // Distinct paths, or the two are indistinguishable after a round trip:
         // the shared fixture gives every medium the same one.
-        let mut chosen = medium("chosen.jpg", "image/jpeg", true);
-        chosen.file_path = "chosen.jpg".to_string();
-        let mut other = medium("other.jpg", "image/jpeg", true);
-        other.file_path = "other.jpg".to_string();
+        let (chosen, mut chosen_page) = document_with_page("chosen.jpg", "image/jpeg", true);
+        chosen_page.file_path = "chosen.jpg".to_string();
+        let (other, mut other_page) = document_with_page("other.jpg", "image/jpeg", true);
+        other_page.file_path = "other.jpg".to_string();
 
         let mut person = person_row();
         person.portrait_media_id = Some(chosen.id);
@@ -2475,7 +2594,12 @@ mod tests {
             &[],
             &[],
             &[],
-            &[other.clone(), chosen.clone()],
+            &[
+                other.clone(),
+                other_page.clone(),
+                chosen.clone(),
+                chosen_page.clone(),
+            ],
             &links,
             &[],
             &[],
@@ -2492,11 +2616,14 @@ mod tests {
             .filter(|l| l.person_id.is_some())
             .min_by_key(|l| l.sort_order)
             .expect("she has pictures");
+        // The link names the document; the file name it was written from is
+        // its page's.
         let name = back
             .media
             .iter()
-            .find(|m| m.id == first.media_id)
-            .map(|m| m.file_name.as_str());
+            .filter(|m| m.parent_media_id == Some(first.media_id))
+            .map(|m| m.file_name.as_str())
+            .next();
         assert_eq!(name, Some("chosen.jpg"), "{:#?}", back.media_links);
         assert_eq!(back.media_links.len(), 2, "and she kept the other one");
 
@@ -2514,8 +2641,9 @@ mod tests {
         // document as its cover gave her page one and left the other
         // thirty-seven in the tree attached to nobody.
         let person = person_row();
-        let mut document = medium("Dossier de naturalisation", "image/jpeg", false);
-        document.is_document = true;
+        let mut document = medium("Dossier de naturalisation", DOCUMENT_MIME, false);
+        document.title = Some("Dossier de naturalisation".to_string());
+        document.file_path = String::new();
         document.page_count = 3;
 
         let mut pages = Vec::new();
@@ -2565,40 +2693,42 @@ mod tests {
         )
         .expect("exports");
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
-        // Three standalone media, and every one of them still hers.
-        assert_eq!(back.media.len(), 3, "the document itself is not a file");
-        assert!(
-            back.media
-                .iter()
-                .all(|m| !m.is_document && m.page_count == 1)
+        // Every page is written as an `OBJE` and she is pointed at all three,
+        // so software that knows nothing of our extensions attaches the whole
+        // dossier rather than its cover.
+        assert_eq!(
+            export.gedcom.matches("1 OBJE @").count(),
+            3,
+            "{}",
+            export.gedcom
         );
-        assert_eq!(back.media_links.len(), 3, "{:#?}", back.media_links);
 
-        // Her links are in reading order — `page_index`, not the order the
-        // rows happened to arrive in. The `OBJE` records themselves follow the
-        // media list, which is why this reads the links and not the media.
-        let ordered: Vec<&str> = back
-            .media_links
-            .iter()
-            .filter_map(|link| {
-                back.media
-                    .iter()
-                    .find(|m| m.id == link.media_id)
-                    .map(|m| m.file_name.as_str())
-            })
-            .collect();
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        // And on the way back the container is restored: one document holding
+        // three pages, and one link — to the document, which is what she was
+        // attached to before the export dissolved it.
+        let documents: Vec<_> = back.media.iter().filter(|m| m.is_document()).collect();
+        assert_eq!(documents.len(), 1, "{:#?}", back.media);
+        assert_eq!(documents[0].page_count, 3);
+        assert_eq!(back.media.len(), 4, "the document and its three pages");
+        assert_eq!(back.media_links.len(), 1, "{:#?}", back.media_links);
+        assert_eq!(back.media_links[0].media_id, documents[0].id);
+        assert_eq!(back.media_links[0].person_id, Some(back.persons[0].id));
+
+        // The pages are in reading order — `page_index`, not the order the
+        // rows happened to arrive in.
+        let mut restored: Vec<_> = back.media.iter().filter(|m| !m.is_document()).collect();
+        restored.sort_by_key(|page| page.page_index);
+        let ordered: Vec<&str> = restored.iter().map(|m| m.file_name.as_str()).collect();
         assert_eq!(ordered, vec!["page0.jpg", "page1.jpg", "page2.jpg"]);
     }
 
     #[test]
     fn a_document_is_never_written_as_a_file_of_its_own() {
-        // Its `file_path` is its title, so a GEDZIP warned once per document
-        // about an archive entry that could not have existed.
-        let mut document = medium("Dossier de naturalisation", "image/jpeg", false);
-        document.is_document = true;
-        let mut cover = medium("page1.jpg", "image/jpeg", true);
-        cover.parent_media_id = Some(document.id);
+        // A document holds no bytes, so writing it as an `OBJE` with a `FILE`
+        // made a GEDZIP warn once per document about an archive entry that
+        // could not have existed. Only its pages are records.
+        let (document, cover) = document_with_page("page1.jpg", "image/jpeg", true);
 
         let export = export_gedcom(
             &[],
@@ -2620,16 +2750,23 @@ mod tests {
             &HashMap::new(),
         )
         .expect("exports");
-        assert!(
-            !export.gedcom.contains("Dossier de naturalisation"),
-            "{}",
+        assert_eq!(
+            export.gedcom.matches(" OBJE").count(),
+            1,
+            "only the page is a record: {}",
+            export.gedcom
+        );
+        assert_eq!(
+            export.gedcom.matches("1 FILE ").count(),
+            1,
+            "and only it names a file: {}",
             export.gedcom
         );
     }
 
     #[test]
     fn a_plain_gedcom_export_still_references_the_producers_own_path() {
-        let m = medium("photo.jpg", "image/jpeg", true);
+        let (document, page) = document_with_page("photo.jpg", "image/jpeg", true);
         let export = export_gedcom(
             &[],
             &[],
@@ -2641,7 +2778,7 @@ mod tests {
             &[],
             &[],
             &[],
-            std::slice::from_ref(&m),
+            &[document, page],
             &[],
             &[],
             &[],

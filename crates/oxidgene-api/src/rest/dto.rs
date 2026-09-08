@@ -440,6 +440,11 @@ pub struct CitationListQuery {
 /// Request body for creating a media record (metadata only).
 #[derive(Debug, Deserialize)]
 pub struct CreateMediaRequest {
+    /// The document this becomes a page of.
+    ///
+    /// Required: bytes and URLs live on pages, and a page always belongs to a
+    /// document. Create the document first with `POST /media/document`.
+    pub document_id: uuid::Uuid,
     pub file_name: String,
     pub mime_type: String,
     pub file_path: String,
@@ -480,6 +485,15 @@ pub struct UpdateMediaRequest {
     /// Only meaningful alongside a `file_path` we cannot sniff. Left out, the
     /// server guesses from the URL's extension.
     pub mime_type: Option<String>,
+    /// The picture's pixel size, sent together or not at all.
+    ///
+    /// Accepted only for a page we do not hold. We never fetch a remote file,
+    /// so the client that displayed it is the only witness to how big it is —
+    /// and without that, a region of it cannot be drawn at the right scale.
+    /// For a file we do hold, the size is decoded from our own bytes and a
+    /// caller's claim about it is refused rather than believed.
+    pub width: Option<i32>,
+    pub height: Option<i32>,
     /// Whether this is shown when the tree is published. Recorded now,
     /// enforced when authentication lands.
     pub privacy: Option<oxidgene_core::enums::Privacy>,

@@ -225,6 +225,10 @@ There is deliberately **no completion dropdown**: a `<datalist>` holding every s
 
 Notes and sources are stored separately on purpose — a `Citation` always needs a `source_id`, so it cannot hold sourceless notes, and folding the notes into `Citation.text` loses them the moment the source is cleared.
 
+The notes editor reads only `Note` rows. It neither converts citation text into
+notes nor clears citation text when changing a source; imported evidence text
+remains part of the citation.
+
 ---
 
 ## 5. Section: Birth

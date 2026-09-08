@@ -31,7 +31,7 @@ use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole
 ///
 /// A bump costs one lazy rebuild per tree on first read. Not bumping costs a
 /// silent wrong answer, so when in doubt, bump.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 1;
+pub const PROJECTION_SCHEMA_VERSION: i32 = 2;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
@@ -232,14 +232,7 @@ pub struct PedigreeNode {
     pub given_names: Option<String>,
     #[serde(default)]
     pub surname: Option<String>,
-    /// The whole birth event, not a year pulled out of it.
-    ///
-    /// It used to be a `birth_year` string plus a `birth_place` string, and
-    /// every fact that did not fit those two — the day and month, the far end
-    /// of a range, the calendar, the place's id — was gone before the frontend
-    /// saw it. That is why a death recorded as "between 11 Nov 1691 and 20 Aug
-    /// 1693" reached the events panel as "between 1691". Carrying the event
-    /// itself costs a few fields per node and cannot lose anything.
+    /// The complete birth event, retaining date precision, calendar and place.
     ///
     /// Falls back to baptism when there is no birth, the way GeneWeb's
     /// `get_birth_death_date` does — see [`birth_or_baptism`].

@@ -81,15 +81,6 @@ where
     }
 }
 
-fn stage_geneanet_media(
-    media: &std::collections::HashMap<String, String>,
-) -> Result<Vec<GqlGeneanetMediaPath>> {
-    Ok(crate::service::session_media::stage(media)?
-        .into_iter()
-        .map(|(url, path)| GqlGeneanetMediaPath { url, path })
-        .collect())
-}
-
 /// The root mutation type.
 pub struct MutationRoot;
 
@@ -1001,10 +992,13 @@ impl MutationRoot {
                 &input.file_path
             },
         );
+        let document_id = Uuid::parse_str(&input.document_id)?;
+        require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
         let media = MediaRepo::create(
             db,
             id,
             tid,
+            Some(document_id),
             input.file_name,
             mime_type,
             input.file_path,
@@ -1060,7 +1054,18 @@ impl MutationRoot {
                 require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
                 MediaRepo::attach_file(db, media_id, upload).await?
             }
-            None => MediaRepo::create_uploaded(db, Uuid::now_v7(), tid, upload).await?,
+            None => {
+                // Born attached: a page belongs to its document from the
+                // moment it lands.
+                let document_id = input
+                    .document_id
+                    .as_deref()
+                    .ok_or_else(|| async_graphql::Error::new("documentId is required"))
+                    .and_then(|id| Uuid::parse_str(id).map_err(Into::into))?;
+                require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
+                MediaRepo::create_uploaded(db, Uuid::now_v7(), tid, Some(document_id), upload)
+                    .await?
+            }
         };
         Ok(media.into())
     }
@@ -1092,6 +1097,8 @@ impl MutationRoot {
             place_id: patch_parse(input.place_id, |s| Uuid::parse_str(&s), "placeId")?,
             file_path: input.file_path,
             mime_type: input.mime_type,
+            width: input.width,
+            height: input.height,
             privacy: input.privacy.map(Into::into),
             source_media_type: input.source_media_type.map(Into::into),
             document_category: match input.document_category {
@@ -1248,24 +1255,6 @@ impl MutationRoot {
         Ok(media.into())
     }
 
-    /// Append an already-uploaded media as the next page of a document.
-    async fn append_media_page(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        document_id: ID,
-        media_id: ID,
-    ) -> Result<GqlMedia> {
-        let db = db_from_ctx(ctx);
-        let tid = Uuid::parse_str(tree_id.as_str())?;
-        let document_id = Uuid::parse_str(document_id.as_str())?;
-        let media_id = Uuid::parse_str(media_id.as_str())?;
-        require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
-        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-        let page = MediaRepo::append_page(db, document_id, media_id).await?;
-        Ok(page.into())
-    }
-
     /// Set a document's page order. The list must name exactly its pages.
     async fn reorder_media_pages(
         &self,
@@ -1289,24 +1278,31 @@ impl MutationRoot {
         Ok(pages.into_iter().map(Into::into).collect())
     }
 
-    /// Detach a page as ordinary media and remove its external relations.
-    async fn detach_media_page(
+    /// Remove a page from its document, permanently.
+    ///
+    /// The bytes, transcript, links and identifications go with it. Removing
+    /// the last page leaves the document standing and empty.
+    async fn delete_media_page(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         document_id: ID,
         page_id: ID,
-    ) -> Result<GqlMedia> {
+    ) -> Result<bool> {
         let db = db_from_ctx(ctx);
+        let store = media_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let document_id = Uuid::parse_str(document_id.as_str())?;
         let page_id = Uuid::parse_str(page_id.as_str())?;
         let txn = begin_tx(db).await?;
         require_tree_resource(&txn, tid, TreeResource::Media, document_id).await?;
         require_tree_resource(&txn, tid, TreeResource::Media, page_id).await?;
-        let page = MediaRepo::detach_page(&txn, document_id, page_id).await?;
+        let purge = MediaRepo::delete_page(&txn, document_id, page_id).await?;
         commit_tx(txn).await?;
-        Ok(page.into())
+        for key in purge.storage_keys {
+            store.delete(&key).await?;
+        }
+        Ok(true)
     }
 
     // ── Vignette Mutations ───────────────────────────────────────────
@@ -1661,13 +1657,23 @@ impl MutationRoot {
         archive_base64: String,
     ) -> Result<GqlGeneanetSession> {
         require_local_file_access(ctx)?;
-        let archive = base64::engine::general_purpose::STANDARD
-            .decode(archive_base64)
-            .map_err(|error| {
-                async_graphql::Error::new(format!("invalid session base64: {error}"))
-            })?;
-        let session = oxidgene_geneanet::session::decode(&archive)
-            .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+        let permit = crate::service::session_media::LOADS
+            .acquire()
+            .await
+            .map_err(|_| async_graphql::Error::new("session loading is unavailable"))?;
+        let session = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let mut reader = base64::read::DecoderReader::new(
+                archive_base64.as_bytes(),
+                &base64::engine::general_purpose::STANDARD,
+            );
+            let mut upload = tempfile::tempfile()?;
+            std::io::copy(&mut reader, &mut upload)?;
+            std::io::Seek::rewind(&mut upload)?;
+            crate::service::session_media::decode(upload)
+        })
+        .await
+        .map_err(|_| async_graphql::Error::new("session decoding failed"))??;
         let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
             .map(|manifest| manifest.view_count as i64)
             .unwrap_or(0);
@@ -1683,7 +1689,11 @@ impl MutationRoot {
                 .collect(),
             account: session.account,
             photo_count,
-            media: stage_geneanet_media(&session.media)?,
+            media: session
+                .media
+                .into_iter()
+                .map(|(url, path)| GqlGeneanetMediaPath { url, path })
+                .collect(),
         })
     }
 

@@ -65,7 +65,6 @@ use crate::rest::person_name;
 use crate::rest::place;
 use crate::rest::profile;
 use crate::rest::reference;
-use crate::rest::snapshot;
 use crate::rest::source;
 use crate::rest::state::AppState;
 use crate::rest::tree;
@@ -253,11 +252,15 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/{tree_id}/media/{media_id}/pages/{page_id}",
-            delete(media::detach_page),
+            delete(media::delete_page),
         )
         .route(
             "/{tree_id}/media/{media_id}/file",
             get(media::download_media),
+        )
+        .route(
+            "/{tree_id}/media/{media_id}/download",
+            get(media::download_attachment),
         )
         .route(
             "/{tree_id}/media/{media_id}/archive",
@@ -306,8 +309,6 @@ pub fn build_router(state: AppState) -> Router {
                 .put(note::update_note)
                 .delete(note::delete_note),
         );
-
-    let snapshot_routes = Router::new().route("/{tree_id}/snapshot", get(snapshot::tree_snapshot));
 
     let dictionary_routes = Router::new()
         .route(
@@ -431,7 +432,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/preview", post(geneanet::preview_handler))
         .route("/plan", post(geneanet::plan_handler))
         .route("/session/encode", post(geneanet::encode_session_handler))
-        .route("/session/decode", post(geneanet::decode_session_handler))
+        .route(
+            "/session/decode",
+            post(geneanet::decode_session_handler)
+                // Saved sessions contain media bytes, not only metadata paths.
+                .layer(DefaultBodyLimit::disable()),
+        )
         .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
 
     let geneweb_routes = Router::new()
@@ -454,6 +460,14 @@ pub fn build_router(state: AppState) -> Router {
         state.local_file_access,
     );
 
+    #[cfg(feature = "graphql")]
+    let graphql_body_limit = if state.local_file_access.require().is_ok() {
+        // The desktop-only session operation carries an archive in base64.
+        DefaultBodyLimit::disable()
+    } else {
+        DefaultBodyLimit::max(2 * 1024 * 1024)
+    };
+
     let rest_router = Router::new()
         .nest(
             "/api/v1/trees",
@@ -470,7 +484,6 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(media_link_routes)
                 .merge(vignette_routes)
                 .merge(note_routes)
-                .merge(snapshot_routes)
                 .merge(dictionary_routes)
                 .merge(profile_routes)
                 .merge(import_export_routes)
@@ -492,6 +505,7 @@ pub fn build_router(state: AppState) -> Router {
     {
         let graphql_routes = Router::new()
             .route("/graphql", post(graphql_handler).get(graphql_playground))
+            .layer(graphql_body_limit)
             .with_state(schema);
         rest_router.merge(graphql_routes)
     }

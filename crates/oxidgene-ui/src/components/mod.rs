@@ -2,6 +2,7 @@
 
 pub mod confirm_dialog;
 pub mod context_menu;
+pub mod cropped_image;
 pub mod date_input;
 pub mod image_cropper;
 pub mod import_modal;

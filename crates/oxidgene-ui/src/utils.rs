@@ -6,9 +6,7 @@ use uuid::Uuid;
 
 use crate::i18n::I18n;
 
-use oxidgene_core::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex,
-};
+use oxidgene_core::{ChildType, EventType, NameType, Privacy, Sex};
 
 pub async fn sleep_ms(milliseconds: u32) {
     #[cfg(target_arch = "wasm32")]
@@ -34,10 +32,6 @@ pub fn parse_name_type(s: &str) -> NameType {
         "Birth" => NameType::Birth,
         "Married" => NameType::Married,
         "AlsoKnownAs" => NameType::AlsoKnownAs,
-        // Each information type the picker offers now has its own variant.
-        // They used to all collapse onto `AlsoKnownAs`, which made the user's
-        // choice unrecoverable on reload — "Alias" and "Surnom" both filled
-        // the surname piece, so nothing distinguished them once saved.
         "Prenom" => NameType::GivenName,
         "Alias" => NameType::Alias,
         "Surnom" => NameType::Byname,
@@ -82,10 +76,6 @@ pub fn name_type_label_key(nt: NameType) -> &'static str {
 }
 
 /// The i18n key labelling how a child is attached to their family.
-///
-/// Shown on the child rows of the couple modal, which printed the Rust
-/// spelling (`{:?}`) there — an untranslated "Biological" in the middle of a
-/// translated form.
 pub fn child_type_label_key(ct: ChildType) -> &'static str {
     match ct {
         ChildType::Biological => "child_type.biological",
@@ -97,10 +87,6 @@ pub fn child_type_label_key(ct: ChildType) -> &'static str {
 }
 
 /// i18n key naming an [`EventType`], for the badges and labels that show one.
-///
-/// Rendering an event type meant `format!("{}", …)` or `{:?}` in places, which
-/// printed the Rust spelling — an untranslated "other" or "MarriageBann" in the
-/// middle of a translated form.
 pub fn event_type_label_key(et: EventType) -> &'static str {
     match et {
         EventType::Birth => "event.type.birth",
@@ -266,49 +252,12 @@ pub fn parse_event_type(s: &str) -> EventType {
     }
 }
 
-/// Parse a string value from a `<select>` into a [`DateQualifier`] enum.
-pub fn parse_date_qualifier(s: &str) -> DateQualifier {
-    match s {
-        "About" => DateQualifier::About,
-        "Calculated" => DateQualifier::Calculated,
-        "Estimated" => DateQualifier::Estimated,
-        "Perhaps" => DateQualifier::Perhaps,
-        "Before" => DateQualifier::Before,
-        "After" => DateQualifier::After,
-        "Or" => DateQualifier::Or,
-        "Between" => DateQualifier::Between,
-        "FromAge" => DateQualifier::FromAge,
-        _ => DateQualifier::Exact,
-    }
-}
-
-/// Parse a string value from a `<select>` into a [`Calendar`] enum.
-pub fn parse_calendar(s: &str) -> Calendar {
-    match s {
-        "Julian" => Calendar::Julian,
-        "Hebrew" => Calendar::Hebrew,
-        "FrenchRepublican" => Calendar::FrenchRepublican,
-        _ => Calendar::Gregorian,
-    }
-}
-
 /// Parse a string value from a `<select>` into a [`Privacy`] enum.
 pub fn parse_privacy(s: &str) -> Privacy {
     match s {
         "Public" => Privacy::Public,
         "Private" => Privacy::Private,
         _ => Privacy::Default,
-    }
-}
-
-/// Parse a string value from a `<select>` into a [`Confidence`] enum.
-pub fn parse_confidence(s: &str) -> Confidence {
-    match s {
-        "VeryLow" => Confidence::VeryLow,
-        "Low" => Confidence::Low,
-        "High" => Confidence::High,
-        "VeryHigh" => Confidence::VeryHigh,
-        _ => Confidence::Medium,
     }
 }
 
