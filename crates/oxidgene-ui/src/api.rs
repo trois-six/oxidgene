@@ -231,6 +231,13 @@ pub struct GivenNameReferenceMatch {
     pub reference: GivenNameReference,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct OccupationReferenceMatch {
+    pub term: String,
+    #[serde(flatten)]
+    pub reference: OccupationReference,
+}
+
 #[derive(Debug, Serialize)]
 struct ReferenceTermsBody<'a> {
     terms: &'a [String],
@@ -586,13 +593,13 @@ fn relation_label_batch_ranges(
     batches
 }
 
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct GalleryBundle {
     pub media: Vec<GalleryMedia>,
     pub vignettes: Vec<GalleryVignette>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct GalleryMedia {
     pub media_id: Uuid,
     pub source: Option<String>,
@@ -600,7 +607,7 @@ pub struct GalleryMedia {
     pub document_previews: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct GalleryVignette {
     pub vignette_id: Uuid,
     #[serde(flatten)]
@@ -613,7 +620,7 @@ pub struct GalleryVignette {
 /// together: `crop` is set exactly when `source` is a whole picture the server
 /// could not cut — a region of a file we do not hold and never fetch — and
 /// absent for every image that arrives already cut.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CroppedSource {
     pub source: String,
     #[serde(default)]
@@ -1209,22 +1216,31 @@ const CACHE_TTL_SECS: i64 = 30;
 type CacheInner =
     std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (Vec<u8>, i64)>>>;
 
+/// One in-flight request per cache key. Losers of the race wait on the gate
+/// rather than issuing the same request again.
+type GateInner = std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+>;
+
 #[derive(Clone, Default)]
-struct ResponseCache(CacheInner);
+struct ResponseCache {
+    entries: CacheInner,
+    gates: GateInner,
+}
 
 impl std::fmt::Debug for ResponseCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "ResponseCache({})",
-            self.0.lock().map(|c| c.len()).unwrap_or(0)
+            self.entries.lock().map(|c| c.len()).unwrap_or(0)
         )
     }
 }
 
 impl ResponseCache {
     fn get(&self, key: &str) -> Option<Vec<u8>> {
-        let cache = self.0.lock().ok()?;
+        let cache = self.entries.lock().ok()?;
         let (data, ts) = cache.get(key)?;
         let age = chrono::Utc::now().timestamp() - ts;
         if age < CACHE_TTL_SECS {
@@ -1235,15 +1251,38 @@ impl ResponseCache {
     }
 
     fn set(&self, key: String, data: Vec<u8>) {
-        if let Ok(mut cache) = self.0.lock() {
+        if let Ok(mut cache) = self.entries.lock() {
             cache.insert(key, (data, chrono::Utc::now().timestamp()));
         }
     }
 
     /// Remove all entries whose key starts with `prefix`.
     fn invalidate_prefix(&self, prefix: &str) {
-        if let Ok(mut cache) = self.0.lock() {
+        if let Ok(mut cache) = self.entries.lock() {
             cache.retain(|k, _| !k.starts_with(prefix));
+        }
+    }
+
+    /// The gate guarding network access for `key`, created on first use.
+    fn gate(&self, key: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+        let Ok(mut gates) = self.gates.lock() else {
+            // A poisoned gate map costs a duplicate request, never a wrong
+            // answer: fall back to an ungated lock nobody else holds.
+            return std::sync::Arc::default();
+        };
+        gates.entry(key.to_string()).or_default().clone()
+    }
+
+    /// Drops the gate for `key` once nothing is waiting on it. Callers must
+    /// have released their own handle first, so a remaining reference means
+    /// another request is still queued behind this key.
+    fn release_gate(&self, key: &str) {
+        if let Ok(mut gates) = self.gates.lock()
+            && gates
+                .get(key)
+                .is_some_and(|gate| std::sync::Arc::strong_count(gate) == 1)
+        {
+            gates.remove(key);
         }
     }
 }
@@ -1445,14 +1484,56 @@ impl ApiClient {
 
     /// Helper: send a cached GET request and deserialize JSON response.
     async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
-        if let Some(cached) = self.cache.get(path)
+        let url = self.url(path);
+        self.get_deduplicated(path, || self.client.get(&url)).await
+    }
+
+    /// Serves `cache_key` from the cache when it is warm, and lets at most one
+    /// request per key reach the network at a time.
+    ///
+    /// Without that gate the cache only ever helps the *next* render: a page
+    /// whose components mount together has them all miss the still-empty cache
+    /// and all send the same request. Whoever loses the race waits here and
+    /// then finds the winner's response already cached.
+    async fn get_deduplicated<T: serde::de::DeserializeOwned>(
+        &self,
+        cache_key: &str,
+        request: impl FnOnce() -> reqwest::RequestBuilder,
+    ) -> Result<T, ApiError> {
+        if let Some(cached) = self.cache.get(cache_key)
             && let Ok(val) = Self::deserialize(&cached)
         {
             tracing::debug!(method = "GET", cached = true, "API request completed");
             return Ok(val);
         }
-        let url = self.url(path);
-        let resp = self.send_request("GET", self.client.get(&url)).await?;
+        let result = {
+            let gate = self.cache.gate(cache_key);
+            let _guard = gate.lock().await;
+            if let Some(cached) = self.cache.get(cache_key)
+                && let Ok(val) = Self::deserialize(&cached)
+            {
+                tracing::debug!(
+                    method = "GET",
+                    cached = true,
+                    coalesced = true,
+                    "API request completed"
+                );
+                Ok(val)
+            } else {
+                self.fetch_and_cache(cache_key, request()).await
+            }
+        };
+        self.cache.release_gate(cache_key);
+        result
+    }
+
+    /// Sends one GET, stores its body under `cache_key`, and deserializes it.
+    async fn fetch_and_cache<T: serde::de::DeserializeOwned>(
+        &self,
+        cache_key: &str,
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, ApiError> {
+        let resp = self.send_request("GET", request).await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -1465,23 +1546,8 @@ impl ApiClient {
         let bytes = Self::read_response_body(resp).await?;
         tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
         let val: T = Self::deserialize(&bytes)?;
-        self.cache.set(path.to_string(), bytes);
+        self.cache.set(cache_key.to_string(), bytes);
         Ok(val)
-    }
-
-    /// Helper: GET with query parameters, treating a 404 as `Ok(None)`.
-    /// Used for reference-content lookups, where "no fiche for this term
-    /// yet" is the expected common case, not an error.
-    async fn get_with_query_optional<T: serde::de::DeserializeOwned, Q: Serialize>(
-        &self,
-        path: &str,
-        query: &Q,
-    ) -> Result<Option<T>, ApiError> {
-        match self.get_with_query(path, query).await {
-            Ok(val) => Ok(Some(val)),
-            Err(ApiError::Api { status: 404, .. }) => Ok(None),
-            Err(e) => Err(e),
-        }
     }
 
     /// Helper: send a cached GET request with query parameters.
@@ -1495,30 +1561,9 @@ impl ApiClient {
             path,
             serde_json::to_string(query).unwrap_or_default()
         );
-        if let Some(cached) = self.cache.get(&cache_key)
-            && let Ok(val) = Self::deserialize(&cached)
-        {
-            tracing::debug!(method = "GET", cached = true, "API request completed");
-            return Ok(val);
-        }
         let url = self.url(path);
-        let resp = self
-            .send_request("GET", self.client.get(&url).query(query))
-            .await?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            tracing::debug!(method = "GET", %status, "API request failed");
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body,
-            });
-        }
-        let bytes = Self::read_response_body(resp).await?;
-        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
-        let val: T = Self::deserialize(&bytes)?;
-        self.cache.set(cache_key, bytes);
-        Ok(val)
+        self.get_deduplicated(&cache_key, || self.client.get(&url).query(query))
+            .await
     }
 
     /// Helper: send a POST request with a JSON body.
@@ -3615,37 +3660,6 @@ impl ApiClient {
         .await
     }
 
-    /// Occupation-sheet content for a raw GEDCOM occupation label (e.g.
-    /// "Laboureur"), localized to `lang` ("fr"/"en"). `None` when no fiche
-    /// exists yet for that term — not an error, the caller should just
-    /// skip showing a tooltip.
-    pub async fn reference_occupation(
-        &self,
-        lang: &str,
-        term: &str,
-    ) -> Result<Option<OccupationReference>, ApiError> {
-        self.get_with_query_optional(
-            &format!("/api/v1/reference/{lang}/occupations"),
-            &[("term", term)],
-        )
-        .await
-    }
-
-    /// Given-name meaning content for a raw GEDCOM given name (e.g.
-    /// "Marie"), localized to `lang` ("fr"/"en"). `None` when no fiche
-    /// exists yet for that name.
-    pub async fn reference_given_name(
-        &self,
-        lang: &str,
-        term: &str,
-    ) -> Result<Option<GivenNameReference>, ApiError> {
-        self.get_with_query_optional(
-            &format!("/api/v1/reference/{lang}/given-names"),
-            &[("term", term)],
-        )
-        .await
-    }
-
     /// Given-name references in bounded batches, issuing as many requests as
     /// needed when `terms` exceeds the server limit.
     pub async fn reference_given_names(
@@ -3658,6 +3672,26 @@ impl ApiClient {
             let mut batch = self
                 .post::<Vec<GivenNameReferenceMatch>, _>(
                     &format!("/api/v1/reference/{lang}/given-names/bundle"),
+                    &ReferenceTermsBody { terms },
+                )
+                .await?;
+            matches.append(&mut batch);
+        }
+        Ok(matches)
+    }
+
+    /// Occupation references in bounded batches, issuing as many requests as
+    /// needed when `terms` exceeds the server limit.
+    pub async fn reference_occupations(
+        &self,
+        lang: &str,
+        terms: &[String],
+    ) -> Result<Vec<OccupationReferenceMatch>, ApiError> {
+        let mut matches = Vec::new();
+        for terms in reference_term_batches(terms) {
+            let mut batch = self
+                .post::<Vec<OccupationReferenceMatch>, _>(
+                    &format!("/api/v1/reference/{lang}/occupations/bundle"),
                     &ReferenceTermsBody { terms },
                 )
                 .await?;

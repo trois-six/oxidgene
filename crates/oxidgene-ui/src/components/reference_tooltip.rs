@@ -4,23 +4,20 @@
 //! a matching fiche exists in `/api/v1/reference` (backend module
 //! `oxidgene-api::reference`) — shows it on hover. Resolves eagerly on
 //! mount (not on hover) so a term with no fiche renders as plain, unstyled
-//! text: no help cursor, no bubble, nothing. Given-name fields resolve all
-//! their tokens through one bounded batch operation.
+//! text: no help cursor, no bubble, nothing.
+//!
+//! Both fields resolve every term they display through one bounded batch
+//! operation. A component per term would put one request per term on the
+//! wire at mount, which is what made a profile with several occupations
+//! open slowly.
 
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
 
-use crate::api::{ApiClient, GivenNameReference};
+use crate::api::{ApiClient, GivenNameReference, OccupationReference};
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
-
-/// Which reference table to query for a given term.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReferenceKind {
-    Occupation,
-    GivenName,
-}
 
 /// Delay before showing the bubble, so a quick mouse pass doesn't flash one.
 const SHOW_DELAY_MS: u64 = 350;
@@ -47,51 +44,59 @@ impl From<GivenNameReference> for FicheContent {
     }
 }
 
-/// Wraps `children` so hovering over them shows a reference tooltip for
-/// `term` (the raw GEDCOM value — occupation label or given name) — but
-/// only once a matching fiche has been resolved. While loading, or when the
-/// backend has no fiche for this term (404), `children` render as plain
-/// text with no hover affordance at all.
-#[component]
-pub fn ReferenceHover(kind: ReferenceKind, term: String, children: Element) -> Element {
-    let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let lang_code = i18n.0.code().to_string();
-    let term_for_fetch = term.clone();
+impl From<OccupationReference> for FicheContent {
+    fn from(reference: OccupationReference) -> Self {
+        Self {
+            label: reference.label,
+            meta: reference.summary,
+            text: reference.text,
+        }
+    }
+}
 
-    let content_resource = use_ui_resource("reference_content", move || {
+/// Renders a person's occupation labels as a comma-separated list, resolving
+/// all of them in one batch. Each label with a fiche gets its own hover
+/// target; the others stay plain text.
+#[component]
+pub fn OccupationsHover(titles: Vec<String>) -> Element {
+    let api = use_context::<ApiClient>();
+    let lang_code = use_i18n().0.code().to_string();
+    let terms_for_fetch = titles.clone();
+    let references = use_ui_resource("occupation_reference_bundle", move || {
         let api = api.clone();
         let lang_code = lang_code.clone();
-        let term = term_for_fetch.clone();
+        let terms = terms_for_fetch.clone();
         async move {
-            match kind {
-                ReferenceKind::Occupation => api
-                    .reference_occupation(&lang_code, &term)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|r| FicheContent {
-                        label: r.label,
-                        meta: r.summary,
-                        text: r.text,
-                    }),
-                ReferenceKind::GivenName => api
-                    .reference_given_name(&lang_code, &term)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(Into::into),
-            }
+            api.reference_occupations(&lang_code, &terms)
+                .await
+                .unwrap_or_default()
         }
     });
-
-    let guard = content_resource.read();
-    let Some(Some(fiche)) = &*guard else {
-        drop(guard);
-        return rsx! { {children} };
-    };
-
-    rsx! { FicheHover { fiche: fiche.clone(), {children} } }
+    let fiches = references
+        .read()
+        .as_ref()
+        .map(|matches| {
+            matches
+                .iter()
+                .cloned()
+                .map(|result| (result.term, result.reference.into()))
+                .collect::<HashMap<String, FicheContent>>()
+        })
+        .unwrap_or_default();
+    rsx! {
+        for (i , title) in titles.into_iter().enumerate() {
+            span { key: "occ-{title}",
+                if i > 0 {
+                    ", "
+                }
+                if let Some(fiche) = fiches.get(&title) {
+                    FicheHover { fiche: fiche.clone(), "{title}" }
+                } else {
+                    "{title}"
+                }
+            }
+        }
+    }
 }
 
 #[component]

@@ -247,8 +247,14 @@ pub struct MediaGalleryProps {
     #[props(default)]
     pub preloaded_tiles: Option<Vec<MediaWithLink>>,
     /// Display-ready sources matching `preloaded_tiles`.
+    ///
+    /// Shared rather than owned: the sources are base64 data URIs of every
+    /// thumbnail, and a profile hands the same bundle to the gallery of every
+    /// event it documents. Cloning it per gallery copied megabytes of strings
+    /// on each render, and comparing it byte by byte cost as much again;
+    /// `Arc` reduces both to a pointer check.
     #[props(default)]
-    pub preloaded_bundle: Option<crate::api::GalleryBundle>,
+    pub preloaded_bundle: Option<std::sync::Arc<crate::api::GalleryBundle>>,
     /// Portrait assignment matching a preloaded person gallery.
     #[props(default)]
     pub preloaded_portrait: Option<(Option<Uuid>, Option<Uuid>)>,
@@ -456,7 +462,9 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             async move {
                 match preloaded {
                     Some(bundle) => bundle,
-                    None => api.gallery_bundle(tree_id, &media_ids, &vignette_ids).await,
+                    None => std::sync::Arc::new(
+                        api.gallery_bundle(tree_id, &media_ids, &vignette_ids).await,
+                    ),
                 }
             }
         }
@@ -527,26 +535,29 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         }
         None => Vec::new(),
     };
-    let bundle = gallery_bundle
+    // Indexed by reference: the sources are base64 data URIs, so copying them
+    // out of the bundle on every render is what made a profile with many
+    // documents scroll badly.
+    let bundle: std::sync::Arc<crate::api::GalleryBundle> = gallery_bundle
         .read_unchecked()
         .as_ref()
         .cloned()
         .unwrap_or_default();
     let gallery_media = bundle
         .media
-        .into_iter()
+        .iter()
         .map(|item| (item.media_id, item))
         .collect::<std::collections::HashMap<_, _>>();
     let gallery_vignettes = bundle
         .vignettes
-        .into_iter()
-        .map(|item| (item.vignette_id, item.image))
+        .iter()
+        .map(|item| (item.vignette_id, &item.image))
         .collect::<std::collections::HashMap<_, _>>();
     let rendered_items = items
         .iter()
         .cloned()
         .map(|tile| {
-            let bundle = gallery_media.get(&tile.media.id).cloned();
+            let bundle = gallery_media.get(&tile.media.id).copied();
             (tile, bundle)
         })
         .collect::<Vec<_>>();
@@ -564,9 +575,9 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     person_id: portrait_owner,
                     is_portrait: portrait_media_id == Some(tile.media.id),
                     read_only,
-                    thumbnail_source: bundle.as_ref().and_then(|item| item.source.clone()),
-                    document_previews: bundle.as_ref().map(|item| item.document_previews.clone()).unwrap_or_default(),
-                    media_event_ids: bundle.as_ref().map(|item| item.event_ids.clone()).unwrap_or_default(),
+                    thumbnail_source: bundle.and_then(|item| item.source.clone()),
+                    document_previews: bundle.map(|item| item.document_previews.clone()).unwrap_or_default(),
+                    media_event_ids: bundle.map(|item| item.event_ids.clone()).unwrap_or_default(),
                     profile_event_links: profile_event_links.clone(),
                     is_open: editing() == Some(tile.media.id),
                     on_edit: move |id| {
@@ -582,7 +593,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     key: "v{vignette.id}",
                     tree_id,
                     vignette: vignette.clone(),
-                    image: gallery_vignettes.get(&vignette.id).cloned(),
+                    image: gallery_vignettes.get(&vignette.id).copied().cloned(),
                     person_id: portrait_owner,
                     is_portrait: portrait_vignette_id == Some(vignette.id),
                     on_view: move |tile| open_viewer.call(tile),
