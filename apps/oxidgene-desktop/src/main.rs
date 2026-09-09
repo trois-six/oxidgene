@@ -276,6 +276,11 @@ fn main() {
     let server_thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
+            // Warm the static reference tables while SQLite comes up.
+            // Decompressing and indexing them takes tens of milliseconds;
+            // left lazy, that cost lands on the first tooltip lookup.
+            let reference_warmup = tokio::task::spawn_blocking(oxidgene_api::reference::preheat);
+
             // Connect to SQLite
             let db = connect(&database_url).await.unwrap_or_else(|_| {
                 error!(
@@ -313,6 +318,14 @@ fn main() {
             );
             tokio::spawn(worker.run());
             let api_router = build_router(state);
+
+            if reference_warmup.await.is_err() {
+                error!(
+                    error = "reference_warmup",
+                    "Failed to load static reference tables"
+                );
+                std::process::exit(1);
+            }
 
             let app = Router::new()
                 .route("/healthz", get(healthz))

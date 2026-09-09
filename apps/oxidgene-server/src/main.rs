@@ -49,6 +49,12 @@ async fn main() {
         "Starting OxidGene server"
     );
 
+    // ── Warm the static reference tables ─────────────────────────────
+    // Decompressing and indexing them takes tens of milliseconds. Done
+    // lazily it lands on whichever worker serves the first tooltip lookup
+    // and blocks it; here it overlaps with connecting to the database.
+    let reference_warmup = tokio::task::spawn_blocking(oxidgene_api::reference::preheat);
+
     // ── Connect to database ──────────────────────────────────────────
     let db = connect(&cfg.database_url).await.unwrap_or_else(|_| {
         error!(
@@ -96,6 +102,14 @@ async fn main() {
         tokio::spawn(worker.run());
     }
     let api_router = build_router(state);
+
+    if reference_warmup.await.is_err() {
+        error!(
+            error = "reference_warmup",
+            "Failed to load static reference tables"
+        );
+        std::process::exit(1);
+    }
 
     // CORS remains single-origin until authentication and authorization ship.
     if cfg.cors_origin == "*" {

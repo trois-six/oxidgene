@@ -2398,6 +2398,21 @@ impl From<crate::reference::OccupationEntry> for GqlOccupationReference {
     }
 }
 
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlOccupationReferenceMatch {
+    pub term: String,
+    pub reference: GqlOccupationReference,
+}
+
+impl From<crate::reference::OccupationMatch> for GqlOccupationReferenceMatch {
+    fn from(result: crate::reference::OccupationMatch) -> Self {
+        Self {
+            term: result.term,
+            reference: result.entry.into(),
+        }
+    }
+}
+
 /// Static reference information for one given name.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlGivenNameReference {

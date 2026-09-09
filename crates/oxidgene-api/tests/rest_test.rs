@@ -95,6 +95,37 @@ async fn given_name_reference_bundle_is_bounded_per_request() {
 }
 
 #[tokio::test]
+async fn occupation_reference_bundle_is_bounded_per_request() {
+    let app = setup_app().await;
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/reference/fr/occupations/bundle",
+        Some(serde_json::json!({
+            "terms": ["Laboureur", "Forgeron", "Laboureur", "__unknown__"]
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_array().expect("array response").len(), 2);
+    assert_eq!(body[0]["term"], "Laboureur");
+    assert_eq!(body[1]["term"], "Forgeron");
+    // The entry itself is flattened alongside the term, as for given names.
+    assert_eq!(body[0]["label"], "Laboureur");
+
+    let terms = (0..129).map(|index| index.to_string()).collect::<Vec<_>>();
+    let (status, _) = send_request(
+        app,
+        Method::POST,
+        "/api/v1/reference/fr/occupations/bundle",
+        Some(serde_json::json!({ "terms": terms })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn openapi_spec_is_generated_from_the_rest_router() {
     let response = setup_app()
         .await

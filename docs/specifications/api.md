@@ -583,11 +583,13 @@ raw free-text GEDCOM value. Matching ignores case, accents, and punctuation,
 supports aliases such as gendered variants, and falls back to the first token
 of a compound given name. Source content lives in
 `oxidgene-api/src/reference/data/*.json`, one file per language and data type,
-is compressed at build time, and is loaded once in memory.
+is compressed at build time, and is decompressed and indexed once in memory —
+warmed at server and desktop startup so no request pays for it.
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/reference/{lang}/occupations?term=...` | Occupation fiche (label, summary, text) for `lang` (`fr`/`en`); 404 if none |
+| `POST` | `/reference/{lang}/occupations/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
 | `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
 | `POST` | `/reference/{lang}/given-names/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
 
@@ -672,6 +674,7 @@ type Query {
   sourceUsage(sourceId: ID!): [PersonUsageEntry!]!
   placeUsage(placeId: ID!): [PersonUsageEntry!]!
   occupationReference(language: String!, term: String!): OccupationReference
+  occupationReferences(language: String!, terms: [String!]!): [OccupationReferenceMatch!]!
   givenNameReference(language: String!, term: String!): GivenNameReference
   givenNameReferences(language: String!, terms: [String!]!): [GivenNameReferenceMatch!]!
 

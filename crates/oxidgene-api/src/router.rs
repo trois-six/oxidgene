@@ -448,6 +448,7 @@ pub fn build_router(state: AppState) -> Router {
     // not tied to a tree, so kept out of the `/trees` nest.
     let reference_routes = Router::new()
         .route("/{lang}/occupations", get(reference::occupation))
+        .route("/{lang}/occupations/bundle", post(reference::occupations))
         .route("/{lang}/given-names", get(reference::given_name))
         .route("/{lang}/given-names/bundle", post(reference::given_names));
 

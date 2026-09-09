@@ -23,12 +23,13 @@ use super::types::{
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
     GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection,
     GqlMediaDownload, GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference,
-    GqlPedigree, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
-    GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
-    GqlPlaceDictionaryEntry, GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchResult,
-    GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlVignette,
-    db_from_ctx, media_from_ctx, profiles_from_ctx, require_local_file_access,
+    GqlOccupationReferenceMatch, GqlPedigree, GqlPerson, GqlPersonConnection,
+    GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
+    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
+    GqlPortraitImage, GqlRelationLabels, GqlSearchResult, GqlSource, GqlSourceConnection,
+    GqlSourceDictionaryDrill, GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree,
+    GqlTreeConnection, GqlTreeMediaLink, GqlVignette, db_from_ctx, media_from_ctx,
+    profiles_from_ctx, require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -703,6 +704,24 @@ impl QueryRoot {
         let language = crate::reference::ReferenceLang::from_code(&language)
             .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
         Ok(crate::reference::lookup_occupation(language, &term).map(Into::into))
+    }
+
+    /// Resolve several static occupation references in one operation.
+    async fn occupation_references(
+        &self,
+        _ctx: &Context<'_>,
+        language: String,
+        terms: Vec<String>,
+    ) -> Result<Vec<GqlOccupationReferenceMatch>> {
+        let language = crate::reference::ReferenceLang::from_code(&language)
+            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+        if terms.len() > crate::reference::MAX_REFERENCE_TERMS {
+            return Err(async_graphql::Error::new("at most 128 terms are allowed"));
+        }
+        Ok(crate::reference::lookup_occupations(language, &terms)
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     /// Resolve static given-name reference content for `fr` or `en`.

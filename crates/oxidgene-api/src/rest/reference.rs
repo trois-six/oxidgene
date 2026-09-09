@@ -48,3 +48,15 @@ pub async fn given_names(
     }
     Ok(Json(reference::lookup_given_names(lang, &request.terms)))
 }
+
+/// POST /api/v1/reference/:lang/occupations/bundle
+pub async fn occupations(
+    Path(lang): Path<String>,
+    Json(request): Json<ReferenceTermsRequest>,
+) -> Result<Json<Vec<reference::OccupationMatch>>, StatusCode> {
+    let lang = ReferenceLang::from_code(&lang).ok_or(StatusCode::BAD_REQUEST)?;
+    if request.terms.len() > reference::MAX_REFERENCE_TERMS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(Json(reference::lookup_occupations(lang, &request.terms)))
+}

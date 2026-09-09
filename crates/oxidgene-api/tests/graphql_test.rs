@@ -88,6 +88,50 @@ async fn given_name_reference_batch_matches_rest_bounds() {
 }
 
 #[tokio::test]
+async fn occupation_reference_batch_matches_rest_bounds() {
+    let app = setup_app().await;
+    let response = graphql(
+        app.clone(),
+        r#"{
+            occupationReferences(
+                language: "fr"
+                terms: ["Laboureur", "Forgeron", "Laboureur", "__unknown__"]
+            ) { term reference { label } }
+        }"#,
+        None,
+    )
+    .await;
+    let response = data(&response);
+    assert_eq!(
+        response["occupationReferences"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(response["occupationReferences"][0]["term"], "Laboureur");
+    assert_eq!(
+        response["occupationReferences"][0]["reference"]["label"],
+        "Laboureur"
+    );
+    assert_eq!(response["occupationReferences"][1]["term"], "Forgeron");
+
+    let terms = (0..129)
+        .map(|index| format!("\"{index}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let response = graphql(
+        app,
+        &format!("{{ occupationReferences(language: \"fr\", terms: [{terms}]) {{ term }} }}"),
+        None,
+    )
+    .await;
+    assert!(
+        response["errors"]
+            .as_array()
+            .is_some_and(|errors| !errors.is_empty()),
+        "oversized batch should be rejected: {response}"
+    );
+}
+
+#[tokio::test]
 async fn relation_labels_query_is_bounded() {
     let app = setup_app().await;
     let response = graphql(
