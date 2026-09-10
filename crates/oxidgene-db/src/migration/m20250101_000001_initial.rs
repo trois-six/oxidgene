@@ -1128,6 +1128,32 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // The places dictionary counts a place's uses across both events and
+        // media. Its event side had an index and its media side did not, so
+        // opening the tab scanned every media row in the database.
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_media_place_id")
+                    .table(Media::Table)
+                    .col(Media::PlaceId)
+                    .to_owned(),
+            )
+            .await?;
+        // Every "events of this tree, of this type" read — the occupations
+        // dictionary, the event list's type filter. On `idx_event_tree_id`
+        // alone the engine reads the tree's whole event history and discards
+        // all but one type of it.
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_event_tree_event_type")
+                    .table(Event::Table)
+                    .col(Event::TreeId)
+                    .col(Event::EventType)
+                    .to_owned(),
+            )
+            .await?;
         manager
             .create_index(
                 Index::create()
