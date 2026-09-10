@@ -9,6 +9,7 @@
 //! connectors are drawn via SVG overlay with Bézier curves.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
@@ -348,9 +349,39 @@ pub struct PedigreeData {
     pub self_person_id: Option<Uuid>,
 }
 
-impl PartialEq for PedigreeData {
-    fn eq(&self, _other: &Self) -> bool {
-        false
+/// A [`PedigreeData`] shared between the page that assembled it, the handlers
+/// that read it and the chart that draws it.
+///
+/// The data behind it is large — every person, name, event and place the
+/// pedigree pulled in, plus a portrait picture each — and a page reads it from
+/// a dozen closures. Handing each of them an owned copy meant rebuilding all of
+/// that on every render, including the renders that only opened a context menu.
+///
+/// Equality is identity, which is what makes it a usable prop: assembling the
+/// pedigree again produces a new handle and redraws the chart, while a render
+/// that changed nothing about the pedigree passes the same handle and does not.
+/// Comparing the contents instead would cost as much as rebuilding them.
+#[derive(Clone, Debug)]
+pub struct SharedPedigree(Arc<PedigreeData>);
+
+impl SharedPedigree {
+    #[must_use]
+    pub fn new(data: PedigreeData) -> Self {
+        Self(Arc::new(data))
+    }
+}
+
+impl PartialEq for SharedPedigree {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl std::ops::Deref for SharedPedigree {
+    type Target = PedigreeData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -2370,14 +2401,19 @@ fn person_has_hidden_relations(
 /// Uses two independent `LayoutTreeService`-equivalent passes (one per tree) and
 /// computes the SVG group transforms needed to make the root card appear at the
 /// same canvas position in both trees.
+/// Lay the pedigree out.
+///
+/// The SOSA root and its ancestor set are parameters rather than fields read
+/// off `data`: the chart resolves them from its own props, and copying the
+/// whole pedigree just to write two fields into it cost more than the layout.
 fn compute_layout(
     root_id: Uuid,
     data: &PedigreeData,
+    sosa_root_id: Option<Uuid>,
+    sosa_ancestors: &HashSet<Uuid>,
     ancestor_levels: usize,
     descendant_levels: usize,
 ) -> PedigreeLayout {
-    let sosa_root_id = data.sosa_root_id;
-    let sosa_ancestors = &data.sosa_ancestors;
     let last_asc_level = -(ancestor_levels as i32);
 
     // ── Ascending tree ──
@@ -2743,7 +2779,7 @@ const MINI_PEDIGREE_BOTTOM_MARGIN: f64 = 60.0;
 #[derive(Props, Clone, PartialEq)]
 pub struct MiniPedigreeProps {
     pub root_person_id: Uuid,
-    pub data: PedigreeData,
+    pub data: SharedPedigree,
     pub ancestor_levels: usize,
     pub descendant_levels: usize,
     /// Called when the user clicks a person card (navigate to their page).
@@ -2781,6 +2817,8 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         compute_layout(
             props.root_person_id,
             &props.data,
+            props.data.sosa_root_id,
+            &props.data.sosa_ancestors,
             props.ancestor_levels,
             props.descendant_levels,
         )
@@ -2907,7 +2945,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
 #[derive(Props, Clone, PartialEq)]
 pub struct PedigreeChartProps {
     pub root_person_id: Uuid,
-    pub data: PedigreeData,
+    pub data: SharedPedigree,
     pub tree_id: String,
     /// SOSA root person ID from tree settings. When set, ancestors of this
     /// person get a small badge indicator on their card.
@@ -3342,16 +3380,13 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         })
         .unwrap_or_default();
 
-    // ── Augment PedigreeData with SOSA info for the layout engine ──
-    let mut data_with_sosa = props.data.clone();
-    data_with_sosa.sosa_ancestors = sosa_ancestors.clone();
-    data_with_sosa.sosa_root_id = props.sosa_root_person_id;
-
     // ── Compute layout ──
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
             props.root_person_id,
-            &data_with_sosa,
+            &props.data,
+            props.sosa_root_person_id,
+            &sosa_ancestors,
             ancestor_levels(),
             descendant_levels(),
         )

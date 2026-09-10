@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
-use crate::components::pedigree_chart::{PedigreeChart, PedigreeData};
+use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::search_person::SearchPerson;
 use crate::components::topbar_search::TopbarSearch;
@@ -255,67 +255,56 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     }
 
     // ── Build pedigree data from the fetched pedigree ──
-    let (pedigree_data, root_person_id): (Option<PedigreeData>, Option<Uuid>) =
+    //
+    // Assembled once per change and shared from there. Every person, name,
+    // event, place and portrait the pedigree pulled in lives in here, and a
+    // dozen handlers below read it; rebuilt inline it was rebuilt — and deep
+    // copied once per handler — on every render, including the render that
+    // merely opened a context menu.
+    let pedigree_view = use_memo(move || {
         load_trace.measure("pedigree_data", || {
             let ped_data = pedigree_resource.read();
-            let photos: std::collections::HashMap<Uuid, crate::api::CroppedSource> = {
-                let guard = photos_resource.read();
-                match &*guard {
-                    Some(map) => map.clone(),
-                    None => std::collections::HashMap::new(),
-                }
+            let Some(Ok(pedigree)) = &*ped_data else {
+                return (None, selected_root());
             };
-            match &*ped_data {
-                Some(Ok(pedigree)) => {
-                    let mut pd = PedigreeData::from_pedigree(pedigree);
-                    pd.photos = photos;
-                    pd.self_person_id = match &*tree_resource.read() {
-                        Some(Ok(tree)) => tree.self_person_id,
-                        _ => None,
-                    };
-                    (Some(pd), Some(pedigree.root_person_id))
-                }
-                _ => (None, selected_root()),
+            let mut pd = PedigreeData::from_pedigree(pedigree);
+            if let Some(photos) = &*photos_resource.read() {
+                pd.photos = photos.clone();
             }
-        });
-
-    // Build name_map for context menu lookups (from pedigree data).
-    let name_map: HashMap<Uuid, Vec<oxidgene_core::types::PersonName>> = pedigree_data
-        .as_ref()
-        .map(|pd| pd.names.clone())
-        .unwrap_or_default();
+            pd.self_person_id = match &*tree_resource.read() {
+                Some(Ok(tree)) => tree.self_person_id,
+                _ => None,
+            };
+            (Some(SharedPedigree::new(pd)), Some(pedigree.root_person_id))
+        })
+    });
+    let (pedigree_data, root_person_id) = pedigree_view();
 
     // Context menu person name.
-    let ctx_person_name: String = {
-        let ctx = context_menu_person();
-        match ctx {
-            Some((pid, _, _)) => resolve_name(pid, &name_map, &i18n),
-            None => String::new(),
-        }
+    let ctx_person_name: String = match context_menu_person() {
+        Some((pid, _, _)) => match pedigree_data.as_ref() {
+            Some(data) => resolve_name(pid, &data.names, &i18n),
+            None => resolve_name(pid, &HashMap::new(), &i18n),
+        },
+        None => String::new(),
     };
 
     // Check if context menu person has a union (is a spouse in some family).
-    let ctx_person_has_union: bool = {
-        let ctx = context_menu_person();
-        match ctx {
-            Some((pid, _, _)) => pedigree_data
-                .as_ref()
-                .and_then(|d| d.families_as_spouse.get(&pid))
-                .is_some_and(|fids| !fids.is_empty()),
-            None => false,
-        }
+    let ctx_person_has_union: bool = match context_menu_person() {
+        Some((pid, _, _)) => pedigree_data
+            .as_ref()
+            .and_then(|d| d.families_as_spouse.get(&pid))
+            .is_some_and(|fids| !fids.is_empty()),
+        None => false,
     };
 
     // Union list for context menu multi-union sub-list.
-    let ctx_unions: Vec<(Uuid, String, String)> = {
-        let ctx = context_menu_person();
-        match ctx {
-            Some((pid, _, _)) => pedigree_data
-                .as_ref()
-                .map(|d| d.unions_for_person(pid))
-                .unwrap_or_default(),
-            None => vec![],
-        }
+    let ctx_unions: Vec<(Uuid, String, String)> = match context_menu_person() {
+        Some((pid, _, _)) => pedigree_data
+            .as_ref()
+            .map(|d| d.unions_for_person(pid))
+            .unwrap_or_default(),
+        None => vec![],
     };
 
     // ── Handlers ──

@@ -1184,12 +1184,21 @@ fn SearchPedigreeCard(
         Sex::Female => "female",
         Sex::Unknown => "",
     };
-    let ped = pedigree_resource.read();
-    let body = match &*ped {
-        Some(Ok(cached)) => {
-            let data = crate::ui_observability::measure_ui("pedigree_data", || {
+    // Assembled once per fetch: the grid draws one of these per result, and
+    // rebuilding every card's pedigree on every render of the page was the
+    // grid's whole frame budget.
+    let pedigree_data = use_memo(move || {
+        let ped = pedigree_resource.read();
+        let Some(Ok(cached)) = &*ped else { return None };
+        Some(crate::components::pedigree_chart::SharedPedigree::new(
+            crate::ui_observability::measure_ui("pedigree_data", || {
                 crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
-            });
+            }),
+        ))
+    });
+    let ped = pedigree_resource.read();
+    let body = match (&*ped, pedigree_data()) {
+        (Some(Ok(_)), Some(data)) => {
             rsx! {
                 crate::components::pedigree_chart::MiniPedigree {
                     root_person_id: person_id,
@@ -1201,10 +1210,10 @@ fn SearchPedigreeCard(
                 }
             }
         }
-        Some(Err(_)) => rsx! {
+        (Some(Err(_)), _) => rsx! {
             div { class: "sr-grid-ped-msg", {i18n.t("search.error")} }
         },
-        None => rsx! {
+        _ => rsx! {
             div { class: "sr-grid-ped-msg", {i18n.t("search.loading")} }
         },
     };

@@ -570,6 +570,26 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
     });
 
+    // The Ancestors section's pedigree fragment, assembled once per change.
+    // It carries a portrait picture per person, so rebuilding it inline meant
+    // copying those on every render of the page.
+    let mini_pedigree = use_memo(move || {
+        let cached = ancestor_pedigree_resource.read();
+        let Some(Ok(Some(cached))) = &*cached else {
+            return None;
+        };
+        let mut data = crate::ui_observability::measure_ui("pedigree_data", || {
+            crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
+        });
+        if let Some(photos) = &*photos_map_resource.read() {
+            data.photos = photos.clone();
+        }
+        Some((
+            cached.root_person_id,
+            crate::components::pedigree_chart::SharedPedigree::new(data),
+        ))
+    });
+
     // One entry per event, listing its citations ("Source title — page"),
     // rendered directly under that event in the timeline instead of a
     // separate "Sources" section.
@@ -1834,7 +1854,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 });
                 render_mini_pedigree(
                     &ancestor_pedigree_resource,
-                    &photos_map_resource,
+                    mini_pedigree(),
                     2,
                     0,
                     on_navigate,
@@ -1897,32 +1917,24 @@ fn age_span(birth: chrono::NaiveDate, end: chrono::NaiveDate) -> AgeSpan {
 /// grandchildren) sections, depending on the levels passed in.
 fn render_mini_pedigree(
     pedigree_resource: &Resource<Result<Option<Pedigree>, crate::api::ApiError>>,
-    photos_resource: &Resource<HashMap<Uuid, crate::api::CroppedSource>>,
+    mini_pedigree: Option<(Uuid, crate::components::pedigree_chart::SharedPedigree)>,
     ancestor_levels: usize,
     descendant_levels: usize,
     on_navigate: EventHandler<Uuid>,
     i18n: &crate::i18n::I18n,
 ) -> Element {
-    let ped_data = pedigree_resource.read();
-    let cached = match &*ped_data {
-        Some(Ok(Some(c))) => c,
-        Some(Ok(None)) | None => {
-            return rsx! {
-                div { class: "loading", {i18n.t("person.loading_ancestry")} }
-            };
-        }
-        Some(Err(e)) => {
-            return rsx! {
+    // The assembled fragment decides what to draw; the resource is consulted
+    // only to tell "still loading" apart from "failed".
+    let Some((root_person_id, data)) = mini_pedigree else {
+        return match &*pedigree_resource.read() {
+            Some(Err(e)) => rsx! {
                 div { class: "error-msg", {i18n.t_args("person.load_ancestry_error", &[("error", &e.to_string())])} }
-            };
-        }
+            },
+            _ => rsx! {
+                div { class: "loading", {i18n.t("person.loading_ancestry")} }
+            },
+        };
     };
-
-    let mut data = crate::ui_observability::measure_ui("pedigree_data", || {
-        crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
-    });
-    data.photos = photos_resource.read().clone().unwrap_or_default();
-    let root_person_id = cached.root_person_id;
 
     rsx! {
         crate::components::pedigree_chart::MiniPedigree {
