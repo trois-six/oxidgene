@@ -263,6 +263,32 @@ impl ImageCrop {
     }
 }
 
+/// Where a picture the reader is about to see comes from.
+///
+/// Never the picture itself. A payload that lists a hundred images — a
+/// gallery, a pedigree's portraits — says where each one lives and stays a few
+/// kilobytes; the bytes travel over their own request, which the rendering
+/// engine caches, decodes off the main thread, and skips entirely for an image
+/// that never scrolls into view. Inlining them instead cost a third again in
+/// base64, put the whole album through one JSON parse, and defeated every one
+/// of those.
+///
+/// A held variant names the resource, not a URL. Turning it into something
+/// drawable is the client's business, and deliberately so: until authentication
+/// ships, no backend address may appear in the markup (see
+/// `docs/specifications/cross-cutting.md` §7.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ImageSource {
+    /// An address outside our control, which the reader's engine fetches for
+    /// itself. We never proxy somebody else's bandwidth.
+    Remote { url: String },
+    /// The thumbnail this backend generated for a media it holds.
+    Thumbnail { media_id: Uuid },
+    /// The region this backend cuts out of a media it holds.
+    Crop { vignette_id: Uuid },
+}
+
 /// Whether a MIME type names a picture an `<img>` can draw.
 #[must_use]
 pub fn is_image_mime(mime_type: &str) -> bool {

@@ -35,7 +35,6 @@ pub async fn gallery_bundle(
 ) -> Result<Json<crate::service::gallery::GalleryBundle>, ApiError> {
     let bundle = crate::service::gallery::load_gallery_bundle(
         &state.db,
-        &state.media,
         tree_id,
         &body.media_ids,
         &body.vignette_ids,

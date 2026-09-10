@@ -19,8 +19,8 @@ pub use citation::Citation;
 pub use event::{Event, EventWitness, QualifiedYear, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
 pub use media::{
-    DOCUMENT_MIME, ImageCrop, Media, MediaLink, Portrait, Vignette, guess_mime, is_image_mime,
-    is_remote_url, normalize_mime,
+    DOCUMENT_MIME, ImageCrop, ImageSource, Media, MediaLink, Portrait, Vignette, guess_mime,
+    is_image_mime, is_remote_url, normalize_mime,
 };
 pub use note::Note;
 pub use pagination::{Connection, Edge, PageInfo};

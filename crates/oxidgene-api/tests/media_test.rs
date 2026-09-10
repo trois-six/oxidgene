@@ -1441,11 +1441,17 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
     assert_eq!(status, StatusCode::OK, "{images}");
     let images = images.as_array().unwrap();
     assert_eq!(images.len(), 2, "{images:?}");
-    assert!(images.iter().all(|image| {
-        image["source"]
-            .as_str()
-            .is_some_and(|source| source.starts_with("data:image/"))
-    }));
+    // A picture we hold names the resource that serves it, never the bytes:
+    // the client fetches each one and decides how to draw it.
+    assert!(
+        images.iter().all(|image| {
+            matches!(
+                image["source"]["kind"].as_str(),
+                Some("thumbnail") | Some("crop")
+            )
+        }),
+        "{images:?}"
+    );
     assert!(
         images
             .iter()
@@ -1465,17 +1471,15 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
     assert_eq!(status, StatusCode::OK, "{bundle}");
     assert_eq!(bundle["media"].as_array().unwrap().len(), 2, "{bundle}");
     assert_eq!(bundle["vignettes"].as_array().unwrap().len(), 1, "{bundle}");
-    assert!(bundle["media"].as_array().unwrap().iter().all(|item| {
-        item["source"]
-            .as_str()
-            .is_some_and(|source| source.starts_with("data:image/"))
-    }));
     assert!(
-        bundle["vignettes"][0]["source"]
-            .as_str()
+        bundle["media"]
+            .as_array()
             .unwrap()
-            .starts_with("data:image/")
+            .iter()
+            .all(|item| item["source"]["kind"] == "thumbnail"),
+        "{bundle}"
     );
+    assert_eq!(bundle["vignettes"][0]["source"]["kind"], "crop", "{bundle}");
 }
 
 #[tokio::test]
@@ -2106,7 +2110,7 @@ async fn a_document_tile_previews_a_page_we_only_have_a_url_for() {
     assert_eq!(status, StatusCode::OK, "{bundle}");
     assert_eq!(
         bundle["media"][0]["document_previews"],
-        json!([url]),
+        json!([{ "kind": "remote", "url": url }]),
         "the page's own address is what the tile draws: {bundle}"
     );
     assert!(
@@ -2188,7 +2192,11 @@ async fn a_region_of_a_remote_page_travels_as_the_picture_and_the_rectangle() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{bundle}");
-    assert_eq!(bundle["vignettes"][0]["source"], url, "{bundle}");
+    assert_eq!(
+        bundle["vignettes"][0]["source"],
+        json!({ "kind": "remote", "url": url }),
+        "{bundle}"
+    );
     assert_eq!(
         bundle["vignettes"][0]["crop"],
         json!({"x": 120, "y": 40, "width": 200, "height": 260,
@@ -2213,7 +2221,11 @@ async fn a_region_of_a_remote_page_travels_as_the_picture_and_the_rectangle() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{images}");
-    assert_eq!(images[0]["source"], url, "{images}");
+    assert_eq!(
+        images[0]["source"],
+        json!({ "kind": "remote", "url": url }),
+        "{images}"
+    );
     assert_eq!(images[0]["crop"]["source_width"], 1600, "{images}");
     assert_eq!(images[0]["crop"]["width"], 200, "{images}");
 }
@@ -2236,7 +2248,11 @@ async fn a_region_of_a_picture_nobody_measured_falls_back_to_the_whole_of_it() {
     .await;
 
     assert_eq!(status, StatusCode::OK, "{bundle}");
-    assert_eq!(bundle["vignettes"][0]["source"], url, "{bundle}");
+    assert_eq!(
+        bundle["vignettes"][0]["source"],
+        json!({ "kind": "remote", "url": url }),
+        "{bundle}"
+    );
     assert!(bundle["vignettes"][0]["crop"].is_null(), "{bundle}");
 }
 

@@ -59,7 +59,6 @@ impl QueryRoot {
     ) -> Result<GqlPersonDetailBundle> {
         Ok(crate::service::person_detail::load_person_detail_bundle(
             db_from_ctx(ctx),
-            media_from_ctx(ctx),
             Uuid::parse_str(tree_id.as_str())?,
             Uuid::parse_str(person_id.as_str())?,
         )
@@ -197,7 +196,6 @@ impl QueryRoot {
             .collect::<Result<Vec<_>, _>>()?;
         let images = crate::service::portrait::load_portrait_images(
             db_from_ctx(ctx),
-            media_from_ctx(ctx),
             Uuid::parse_str(tree_id.as_str())?,
             &person_ids,
         )
@@ -223,7 +221,6 @@ impl QueryRoot {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(crate::service::gallery::load_gallery_bundle(
             db_from_ctx(ctx),
-            media_from_ctx(ctx),
             Uuid::parse_str(tree_id.as_str())?,
             &media_ids,
             &vignette_ids,

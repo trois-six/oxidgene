@@ -38,6 +38,7 @@
 //!   knob, though it's an opaque store ID rather than a directory.
 
 mod geneanet;
+mod media_assets;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -380,7 +381,9 @@ fn main() {
     info!(%api_url, "API server ready");
 
     // Create the API client that will be shared with the UI
-    let api_client = ApiClient::new(&api_url);
+    // Pictures are served from the window's own origin rather than encoded
+    // into every payload — see `media_assets`.
+    let api_client = ApiClient::new(&api_url).with_image_host(media_assets::host());
 
     // ── Launch Dioxus desktop window ─────────────────────────────────
     // Dioxus `launch()` returns `-> !` (never returns), so we use a custom
@@ -444,7 +447,7 @@ fn main() {
                 }
             }
         }))
-        .launch(oxidgene_ui::App);
+        .launch(media_assets::DesktopApp);
 }
 
 /// Health check handler returning `200 OK` with a JSON body.

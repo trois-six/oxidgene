@@ -13,8 +13,8 @@ use opentelemetry::propagation::Injector;
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile, SearchResult};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
-    FamilySpouse, ImageCrop, Media, Note, Person, PersonName, Place, QualifiedYear, Source, Tree,
-    Vignette,
+    FamilySpouse, ImageCrop, ImageSource, Media, Note, Person, PersonName, Place, QualifiedYear,
+    Source, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -543,11 +543,22 @@ struct PortraitImagesRequest {
     person_ids: Vec<Uuid>,
 }
 
+/// One portrait as the API sends it: where the picture lives, not the picture.
 #[derive(Debug, Deserialize)]
-struct PortraitImage {
+struct WirePortraitImage {
     person_id: Uuid,
     #[serde(flatten)]
-    image: CroppedSource,
+    image: WireCroppedSource,
+}
+
+/// A picture's address and the region to take out of it, as sent by the API.
+/// [`ApiClient::resolve_source`] turns it into the drawable [`CroppedSource`]
+/// the components take.
+#[derive(Debug, Clone, Deserialize)]
+struct WireCroppedSource {
+    source: ImageSource,
+    #[serde(default)]
+    crop: Option<ImageCrop>,
 }
 
 const PORTRAIT_BATCH_SIZE: usize = 1_024;
@@ -593,13 +604,17 @@ fn relation_label_batch_ranges(
     batches
 }
 
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+/// A gallery's pictures, resolved to something drawable.
+///
+/// The wire form ([`WireGalleryBundle`]) carries addresses; the fields here
+/// carry whatever this platform draws them from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GalleryBundle {
     pub media: Vec<GalleryMedia>,
     pub vignettes: Vec<GalleryVignette>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GalleryMedia {
     pub media_id: Uuid,
     pub source: Option<String>,
@@ -607,11 +622,31 @@ pub struct GalleryMedia {
     pub document_previews: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GalleryVignette {
     pub vignette_id: Uuid,
-    #[serde(flatten)]
     pub image: CroppedSource,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct WireGalleryBundle {
+    media: Vec<WireGalleryMedia>,
+    vignettes: Vec<WireGalleryVignette>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct WireGalleryMedia {
+    media_id: Uuid,
+    source: Option<ImageSource>,
+    event_ids: Vec<Uuid>,
+    document_previews: Vec<ImageSource>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct WireGalleryVignette {
+    vignette_id: Uuid,
+    #[serde(flatten)]
+    image: WireCroppedSource,
 }
 
 /// A picture to draw, and the region of it to show.
@@ -620,10 +655,14 @@ pub struct GalleryVignette {
 /// together: `crop` is set exactly when `source` is a whole picture the server
 /// could not cut — a region of a file we do not hold and never fetch — and
 /// absent for every image that arrives already cut.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// A picture ready to draw, and the region of it to show.
+///
+/// `source` is whatever this platform puts in an `src`: a path on the
+/// application's own origin, an address we do not own, or a `data:` URL. It is
+/// never a backend address — see `image_host`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CroppedSource {
     pub source: String,
-    #[serde(default)]
     pub crop: Option<ImageCrop>,
 }
 
@@ -1179,7 +1218,9 @@ pub struct ExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Everything one person page renders, with its pictures already resolved to
+/// something this platform can draw.
+#[derive(Debug, Clone)]
 pub struct PersonDetailBundle {
     pub sosa_number: Option<u64>,
     pub persons: Vec<oxidgene_core::types::Person>,
@@ -1194,6 +1235,24 @@ pub struct PersonDetailBundle {
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
     pub gallery: GalleryBundle,
+}
+
+/// The same bundle as the API sends it: its gallery carries addresses.
+#[derive(Debug, Clone, Deserialize)]
+struct WirePersonDetailBundle {
+    sosa_number: Option<u64>,
+    persons: Vec<oxidgene_core::types::Person>,
+    names: Vec<oxidgene_core::types::PersonName>,
+    events: Vec<oxidgene_core::types::Event>,
+    places: Vec<oxidgene_core::types::Place>,
+    spouses: Vec<oxidgene_core::types::FamilySpouse>,
+    children: Vec<oxidgene_core::types::FamilyChild>,
+    citations: Vec<oxidgene_core::types::Citation>,
+    sources: Vec<oxidgene_core::types::Source>,
+    profile_media: Vec<MediaWithLink>,
+    profile_vignettes: Vec<Vignette>,
+    event_media: Vec<EventMediaTile>,
+    gallery: WireGalleryBundle,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -1295,6 +1354,10 @@ pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
     cache: ResponseCache,
+    /// The shell that serves backend-held pictures from its own origin, when
+    /// this build has one. Absent on the web, where pictures are fetched here
+    /// and handed to the markup as `data:` URLs instead.
+    image_host: Option<crate::image_host::ImageHost>,
 }
 
 /// Errors returned by the API client.
@@ -1417,7 +1480,15 @@ impl ApiClient {
             client: builder.build().expect("failed to build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
             cache: ResponseCache::default(),
+            image_host: None,
         }
+    }
+
+    /// Serve backend-held pictures through `host` rather than encoding them.
+    #[must_use]
+    pub fn with_image_host(mut self, host: crate::image_host::ImageHost) -> Self {
+        self.image_host = Some(host);
+        self
     }
 
     fn url(&self, path: &str) -> String {
@@ -1755,10 +1826,26 @@ impl ApiClient {
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<PersonDetailBundle, ApiError> {
-        self.get(&format!(
-            "/api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle"
-        ))
-        .await
+        let wire: WirePersonDetailBundle = self
+            .get(&format!(
+                "/api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle"
+            ))
+            .await?;
+        Ok(PersonDetailBundle {
+            gallery: self.resolve_gallery(tree_id, wire.gallery).await,
+            sosa_number: wire.sosa_number,
+            persons: wire.persons,
+            names: wire.names,
+            events: wire.events,
+            places: wire.places,
+            spouses: wire.spouses,
+            children: wire.children,
+            citations: wire.citations,
+            sources: wire.sources,
+            profile_media: wire.profile_media,
+            profile_vignettes: wire.profile_vignettes,
+            event_media: wire.event_media,
+        })
     }
 
     // ── Persons ─────────────────────────────────────────────────────
@@ -2754,7 +2841,12 @@ impl ApiClient {
     /// an `<img src>`: letting the engine fetch them means it also gets the
     /// `ETag` revalidation the endpoint offers, which pulling them through
     /// this client would throw away.
-    async fn get_binary(&self, path: &str) -> Result<(Vec<u8>, String), ApiError> {
+    /// Fetch a file's raw bytes and its content type.
+    ///
+    /// Public so a shell that serves pictures from its own origin can answer
+    /// through the same client, connection pool and tracing as every other
+    /// request, rather than opening a second path to the backend.
+    pub async fn get_binary(&self, path: &str) -> Result<(Vec<u8>, String), ApiError> {
         let response = self
             .send_request("GET", self.client.get(self.url(path)))
             .await?;
@@ -2795,6 +2887,73 @@ impl ApiClient {
             .await
     }
 
+    /// Turn a picture's address into something this platform can draw.
+    ///
+    /// A shell that serves pictures from its own origin answers synchronously
+    /// with a path; everywhere else the bytes are fetched here and handed over
+    /// as a `data:` URL. Either way the markup never carries a backend address.
+    async fn resolve_source(&self, tree_id: Uuid, source: ImageSource) -> Option<String> {
+        if let ImageSource::Remote { url } = source {
+            return Some(url);
+        }
+        if let Some(host) = &self.image_host
+            && let Some(path) = host.path(tree_id, &source)
+        {
+            return Some(path);
+        }
+        let path = crate::image_host::api_path(tree_id, &source)?;
+        match self.get_binary_data_url(&path).await {
+            Ok(url) => Some(url),
+            Err(error) => {
+                tracing::warn!(%error, %path, "picture could not be loaded");
+                None
+            }
+        }
+    }
+
+    /// Resolve every address in a gallery to something drawable.
+    async fn resolve_gallery(&self, tree_id: Uuid, wire: WireGalleryBundle) -> GalleryBundle {
+        let mut bundle = GalleryBundle::default();
+        for item in wire.media {
+            let mut previews = Vec::with_capacity(item.document_previews.len());
+            for preview in item.document_previews {
+                if let Some(source) = self.resolve_source(tree_id, preview).await {
+                    previews.push(source);
+                }
+            }
+            let source = match item.source {
+                Some(source) => self.resolve_source(tree_id, source).await,
+                None => None,
+            };
+            bundle.media.push(GalleryMedia {
+                media_id: item.media_id,
+                source,
+                event_ids: item.event_ids,
+                document_previews: previews,
+            });
+        }
+        for item in wire.vignettes {
+            if let Some(image) = self.resolve_cropped(tree_id, item.image).await {
+                bundle.vignettes.push(GalleryVignette {
+                    vignette_id: item.vignette_id,
+                    image,
+                });
+            }
+        }
+        bundle
+    }
+
+    async fn resolve_cropped(
+        &self,
+        tree_id: Uuid,
+        wire: WireCroppedSource,
+    ) -> Option<CroppedSource> {
+        Some(CroppedSource {
+            source: self.resolve_source(tree_id, wire.source).await?,
+            crop: wire.crop,
+        })
+    }
+
     /// Load portraits in bounded batches, issuing as many batches as needed.
     pub async fn portrait_map_for_ids(
         &self,
@@ -2807,17 +2966,19 @@ impl ApiClient {
                 person_ids: person_ids.to_vec(),
             };
             match self
-                .post::<Vec<PortraitImage>, _>(
+                .post::<Vec<WirePortraitImage>, _>(
                     &format!("/api/v1/trees/{tree_id}/portrait-images"),
                     &body,
                 )
                 .await
             {
-                Ok(images) => portraits.extend(
-                    images
-                        .into_iter()
-                        .map(|image| (image.person_id, image.image)),
-                ),
+                Ok(images) => {
+                    for image in images {
+                        if let Some(resolved) = self.resolve_cropped(tree_id, image.image).await {
+                            portraits.insert(image.person_id, resolved);
+                        }
+                    }
+                }
                 Err(error) => {
                     tracing::warn!(%error, count = person_ids.len(), "portrait image batch could not be loaded");
                 }
@@ -3109,10 +3270,14 @@ impl ApiClient {
                 vignette_ids: vignette_ids[vignette_offset..vignette_end].to_vec(),
             };
             match self
-                .post::<GalleryBundle, _>(&format!("/api/v1/trees/{tree_id}/gallery-bundle"), &body)
+                .post::<WireGalleryBundle, _>(
+                    &format!("/api/v1/trees/{tree_id}/gallery-bundle"),
+                    &body,
+                )
                 .await
             {
                 Ok(batch) => {
+                    let batch = self.resolve_gallery(tree_id, batch).await;
                     bundle.media.extend(batch.media);
                     bundle.vignettes.extend(batch.vignettes);
                 }

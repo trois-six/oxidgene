@@ -391,7 +391,15 @@ must never be exposed directly to an untrusted network:
   new-window navigation, or other user-visible navigation targets;
 - media, thumbnails, crops, archives, and exports are fetched through the
   typed client, then exposed to the rendering engine as local `data:` or
-  `blob:` resources or written through a platform save dialog.
+  `blob:` resources or written through a platform save dialog;
+- a shell that answers on an origin of its own may serve them from it instead —
+  the desktop build registers a handler under `/oxidgene-media/…` and proxies
+  it onto the embedded server. That is the application's own address, not the
+  backend's, so nothing about this rule is relaxed: the markup still carries no
+  backend URL, and the picture cannot be reached by anyone the shell has not
+  already let in. It is preferred where available, because the engine can then
+  cache, lazily load and decode pictures the way it does for any other image —
+  see [API §Image sources](api.md).
 
 Public backend deployment is blocked until the authentication flow and all
 authorization checks are complete. Privacy flags do not relax this rule.

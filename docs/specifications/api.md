@@ -240,7 +240,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/media` | Create a media record from JSON metadata — names a file without holding it |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
-| `POST` | `/trees/{tree_id}/gallery-bundle` | Load gallery data for `{media_ids, vignette_ids}`: thumbnail sources, linked event ids, up to four document-page previews, and cropped vignette sources. A page preview is the page's generated thumbnail as a data URL, or — for a page held only as a remote image URL — that address, which the client draws directly. A remote page that is not an image contributes no preview. A vignette source is the crop, cut from our own copy; over a remote page there is nothing to cut, so the whole picture's address is sent with a `crop` object — `{x, y, width, height, source_width, source_height}` — and the client cuts it. `crop` is absent whenever the source already is the region, and for a page whose pixel size nobody has recorded |
+| `POST` | `/trees/{tree_id}/gallery-bundle` | Load gallery data for `{media_ids, vignette_ids}`: thumbnail sources, linked event ids, up to four document-page previews, and cropped vignette sources. Every source is an **image source** (see below), never image bytes. A page preview is the page's own thumbnail, or — for a page held only as a remote image URL — that address, which the client draws directly. A remote page that is not an image contributes no preview. A vignette source is the crop we cut from our own copy; over a remote page there is nothing to cut, so the whole picture's address is sent with a `crop` object — `{x, y, width, height, source_width, source_height}` — and the client cuts it. `crop` is absent whenever the source already is the region, and for a page whose pixel size nobody has recorded |
 | `GET` | `/trees/{tree_id}/media/{media_id}/pages` | A document's pages, in order |
 | `PUT` | `/trees/{tree_id}/media/{media_id}/pages` | Set the page order (`{page_ids: [...]}`). Must name exactly this document's pages, once each — a partial list is refused rather than guessed at |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Permanently delete the page, its relationships and unshared stored bytes. Remaining pages close the gap; removing the last page leaves an empty document |
@@ -378,8 +378,8 @@ or picker generally needs portraits for only a bounded set of people.
 **Drawing portraits.** Screens submit the person ids they need to
 `POST /portrait-images` rather than loading the portrait inventory or
 downloading one image per person. The operation accepts at most 1,024 ids,
-resolves them in one database query, and returns locally held thumbnails or
-cropped vignettes as data URLs.
+resolves them in one database query, and returns an **image source** per
+person rather than an image.
 Remote portraits retain their `http(s)` source; unavailable portraits are
 omitted. A portrait that is a region of a remote picture comes back as that
 picture's address plus the same `crop` object the gallery bundle uses, because a
@@ -597,6 +597,33 @@ These routes sit at `/api/v1/reference/...`, not under a tree. Used by:
 [Person Profile](ui-person-profile.md). A physical batch accepts at most 128
 terms. Clients split larger logical operations into consecutive batches and
 merge every response; they never truncate terms at the limit.
+
+### Image sources
+
+Payloads that list pictures — the gallery bundle, portrait images — carry a
+picture's **address**, never its bytes. A source is one of:
+
+| `kind` | Payload | Meaning |
+|---|---|---|
+| `remote` | `url` | An address outside our control. The client fetches it directly; we never proxy somebody else's file |
+| `thumbnail` | `media_id` | The thumbnail we generated, served by `GET /trees/{tree_id}/media/{media_id}/thumbnail` |
+| `crop` | `vignette_id` | The region we cut, served by `GET /trees/{tree_id}/vignettes/{vignette_id}/image` |
+
+GraphQL exposes the same three shapes as an `ImageSource` object whose `kind`
+selects which of `url`, `mediaId` and `vignetteId` is set.
+
+A held source names the resource rather than a URL because until authentication
+ships no backend address may appear in UI markup — see
+[Cross-cutting §7.1](cross-cutting.md). Turning it into something drawable is
+the client's business, and the two platforms differ: the desktop shell serves
+the picture from its own origin, and the web client fetches it through its typed
+client and hands it to the markup as a `data:` URL.
+
+Sending the bytes inline instead — which is what these payloads used to do —
+inflated them by a third in base64, put a whole album through a single JSON
+parse before anything could be drawn, and denied the rendering engine every
+optimisation it has for images: no caching between renders or pages, no decode
+off the main thread, and no skipping a picture that never scrolls into view.
 
 ### Update semantics — omitted vs `null`
 

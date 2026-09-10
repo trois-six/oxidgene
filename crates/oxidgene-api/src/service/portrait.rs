@@ -1,29 +1,28 @@
-//! Batched portrait image resolution shared by REST and GraphQL.
+//! Batched portrait resolution shared by REST and GraphQL.
+//!
+//! Addresses, not pictures. A pedigree asks for every person on screen at once,
+//! and this used to read and cut each of their portraits and return the lot
+//! base64-encoded — so a chart of a hundred people read a hundred pictures out
+//! of the store before it could draw anything, and the reader's engine could
+//! neither cache one nor skip one that never scrolled into view.
 
-use std::sync::Arc;
-
-use base64::Engine as _;
-use futures_util::{StreamExt as _, stream};
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{ImageCrop, is_remote_url};
+use oxidgene_core::types::{ImageCrop, ImageSource, is_remote_url};
 use oxidgene_db::repo::{PersonRepo, PortraitRow};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::media::MediaStore;
-
 const MAX_PORTRAITS_PER_REQUEST: usize = 1_024;
-const BLOB_READ_CONCURRENCY: usize = 8;
 
-/// A portrait source ready for an image element.
+/// Where one person's portrait comes from.
 #[derive(Debug, Clone, Serialize)]
 pub struct PortraitImage {
     pub person_id: Uuid,
-    pub source: String,
+    pub source: ImageSource,
     /// Set when `source` is a whole picture the client must crop itself — a
     /// face identified on a photograph we do not hold, which we never fetch to
-    /// cut. Absent for every portrait that arrives already cut.
+    /// cut. Absent for every portrait the backend cuts for itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop: Option<ImageCrop>,
 }
@@ -31,7 +30,6 @@ pub struct PortraitImage {
 /// Resolve locally-held and remote portraits for a bounded set of people.
 pub async fn load_portrait_images(
     db: &DatabaseConnection,
-    media: &Arc<dyn MediaStore>,
     tree_id: Uuid,
     person_ids: &[Uuid],
 ) -> Result<Vec<PortraitImage>, OxidGeneError> {
@@ -41,48 +39,23 @@ pub async fn load_portrait_images(
         )));
     }
 
-    let rows = PersonRepo::list_portraits_for(db, tree_id, person_ids).await?;
-    let results = stream::iter(rows)
-        .map(|row| {
-            let media = Arc::clone(media);
-            async move { load_portrait_image(media, row).await }
-        })
-        .buffer_unordered(BLOB_READ_CONCURRENCY)
-        .collect::<Vec<_>>()
-        .await;
-
-    Ok(results
+    Ok(PersonRepo::list_portraits_for(db, tree_id, person_ids)
+        .await?
         .into_iter()
-        .filter_map(|result| match result {
-            Ok(image) => image,
-            Err(error) => {
-                tracing::warn!(%error, "portrait image could not be loaded");
-                None
-            }
-        })
+        .filter_map(portrait_image)
         .collect())
 }
 
-async fn load_portrait_image(
-    media: Arc<dyn MediaStore>,
-    row: PortraitRow,
-) -> Result<Option<PortraitImage>, OxidGeneError> {
+fn portrait_image(row: PortraitRow) -> Option<PortraitImage> {
     let mut crop = None;
-    let source = if let (Some(key), Some(rect)) = (row.storage_key.as_deref(), row.crop) {
-        let bytes = media.get(key).await?;
-        let cropped =
-            tokio::task::spawn_blocking(move || crate::media::thumbnail::crop(&bytes, rect))
-                .await
-                .map_err(|error| OxidGeneError::Internal(format!("crop panicked: {error}")))??;
-        data_url("image/jpeg", &cropped)
-    } else if let Some(key) = row.thumbnail_key.as_deref() {
-        let bytes = media.get(key).await?;
-        let mime_type = if key.ends_with(".png") {
-            "image/png"
-        } else {
-            "image/jpeg"
-        };
-        data_url(mime_type, &bytes)
+    // A region we hold is cut by the crop endpoint; a whole picture we hold is
+    // drawn from the thumbnail we generated.
+    let source = if let (Some(vignette_id), true) = (row.vignette_id, row.storage_key.is_some()) {
+        ImageSource::Crop { vignette_id }
+    } else if row.thumbnail_key.is_some() {
+        ImageSource::Thumbnail {
+            media_id: row.media_id?,
+        }
     } else if is_remote_url(&row.file_path) {
         // A face identified on a photograph we do not hold. We never fetch it
         // to cut the face out, so the whole picture travels with the rectangle
@@ -92,19 +65,14 @@ async fn load_portrait_image(
         if let Some(rect) = row.crop {
             crop = ImageCrop::new(rect, row.source_size);
         }
-        row.file_path
+        ImageSource::Remote { url: row.file_path }
     } else {
-        return Ok(None);
+        return None;
     };
 
-    Ok(Some(PortraitImage {
+    Some(PortraitImage {
         person_id: row.person_id,
         source,
         crop,
-    }))
-}
-
-fn data_url(mime_type: &str, bytes: &[u8]) -> String {
-    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-    format!("data:{mime_type};base64,{encoded}")
+    })
 }

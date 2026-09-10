@@ -1,7 +1,6 @@
 //! Targeted read model for the person detail page.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::{
@@ -15,7 +14,6 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::media::MediaStore;
 use crate::service::gallery::{GalleryBundle, load_gallery_bundle};
 
 const GALLERY_BATCH_SIZE: usize = 1_024;
@@ -56,7 +54,6 @@ pub struct EventMediaTile {
 
 pub async fn load_person_detail_bundle(
     db: &DatabaseConnection,
-    store: &Arc<dyn MediaStore>,
     tree_id: Uuid,
     person_id: Uuid,
 ) -> Result<PersonDetailBundle, OxidGeneError> {
@@ -190,7 +187,6 @@ pub async fn load_person_detail_bundle(
         let vignette_end = (vignette_offset + remaining).min(vignette_ids.len());
         let batch = load_gallery_bundle(
             db,
-            store,
             tree_id,
             &media_ids[media_offset..media_end],
             &vignette_ids[vignette_offset..vignette_end],
@@ -242,7 +238,6 @@ fn unique_ids(ids: impl IntoIterator<Item = Uuid>) -> Vec<Uuid> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media::store::FsStore;
     use chrono::Utc;
     use oxidgene_core::enums::{
         Calendar, ChildType, Confidence, DateQualifier, EventType, Sex, SpouseRole,
@@ -491,9 +486,7 @@ mod tests {
         .await
         .unwrap();
 
-        let media_root = tempfile::tempdir().unwrap();
-        let store: Arc<dyn MediaStore> = Arc::new(FsStore::new(media_root.path()));
-        let bundle = load_person_detail_bundle(&db, &store, tree_id, target)
+        let bundle = load_person_detail_bundle(&db, tree_id, target)
             .await
             .unwrap();
 

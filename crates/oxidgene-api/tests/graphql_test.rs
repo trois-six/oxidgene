@@ -530,7 +530,7 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
         &graphql(
             app.clone(),
             &format!(
-                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ personId source }} }}"#
+                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ personId source {{ kind mediaId }} }} }}"#
             ),
             None,
         )
@@ -541,18 +541,16 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
         .clone();
     assert_eq!(images.len(), 1);
     assert_eq!(images[0]["personId"], person_id);
-    assert!(
-        images[0]["source"]
-            .as_str()
-            .unwrap()
-            .starts_with("data:image/")
-    );
+    // A picture we hold names the resource that serves it, never a URL and
+    // never the bytes: the client decides how to draw it.
+    assert_eq!(images[0]["source"]["kind"], "THUMBNAIL", "{images:?}");
+    assert_eq!(images[0]["source"]["mediaId"], media_id, "{images:?}");
 
     let bundle = data(
         &graphql(
             app,
             &format!(
-                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{media_id}"], vignetteIds: []) {{ media {{ mediaId source eventIds documentPreviews }} vignettes {{ vignetteId source }} }} }}"#
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{media_id}"], vignetteIds: []) {{ media {{ mediaId source {{ kind mediaId }} eventIds documentPreviews {{ kind }} }} vignettes {{ vignetteId source {{ kind }} }} }} }}"#
             ),
             None,
         )
@@ -561,11 +559,13 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
         .clone();
     assert_eq!(bundle["media"].as_array().unwrap().len(), 1);
     assert_eq!(bundle["media"][0]["mediaId"], media_id);
-    assert!(
-        bundle["media"][0]["source"]
-            .as_str()
-            .unwrap()
-            .starts_with("data:image/")
+    assert_eq!(
+        bundle["media"][0]["source"]["kind"], "THUMBNAIL",
+        "{bundle}"
+    );
+    assert_eq!(
+        bundle["media"][0]["source"]["mediaId"], media_id,
+        "{bundle}"
     );
 }
 
@@ -618,7 +618,7 @@ async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql
         &graphql(
             app.clone(),
             &format!(
-                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{document_id}"], vignetteIds: []) {{ media {{ mediaId source documentPreviews }} }} }}"#
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{document_id}"], vignetteIds: []) {{ media {{ mediaId source {{ kind }} documentPreviews {{ kind url }} }} }} }}"#
             ),
             None,
         )
@@ -627,7 +627,7 @@ async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql
         .clone();
     assert_eq!(
         bundle["media"][0]["documentPreviews"],
-        serde_json::json!([url]),
+        serde_json::json!([{ "kind": "REMOTE", "url": url }]),
         "the browser draws it from its own address: {bundle}"
     );
     assert!(bundle["media"][0]["source"].is_null(), "{bundle}");
@@ -655,7 +655,7 @@ async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql
         &graphql(
             app,
             &format!(
-                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ source }} }}"#
+                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ source {{ kind url }} }} }}"#
             ),
             None,
         )
@@ -666,7 +666,8 @@ async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql
         .clone();
     assert_eq!(images.len(), 1);
     assert_eq!(
-        images[0]["source"], url,
+        images[0]["source"],
+        serde_json::json!({ "kind": "REMOTE", "url": url }),
         "we never fetch it: the card is given the address"
     );
 }
@@ -740,14 +741,18 @@ async fn a_region_of_a_remote_page_carries_its_rectangle_over_graphql() {
         &graphql(
             app.clone(),
             &format!(
-                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: [], vignetteIds: ["{vignette_id}"]) {{ vignettes {{ source crop {{ x y width height sourceWidth sourceHeight }} }} }} }}"#
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: [], vignetteIds: ["{vignette_id}"]) {{ vignettes {{ source {{ kind url }} crop {{ x y width height sourceWidth sourceHeight }} }} }} }}"#
             ),
             None,
         )
         .await,
     )["galleryBundle"]
         .clone();
-    assert_eq!(bundle["vignettes"][0]["source"], url, "{bundle}");
+    assert_eq!(
+        bundle["vignettes"][0]["source"],
+        serde_json::json!({ "kind": "REMOTE", "url": url }),
+        "{bundle}"
+    );
     assert_eq!(
         bundle["vignettes"][0]["crop"],
         serde_json::json!({"x": 120, "y": 40, "width": 200, "height": 260,
@@ -767,14 +772,18 @@ async fn a_region_of_a_remote_page_carries_its_rectangle_over_graphql() {
         &graphql(
             app,
             &format!(
-                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ source crop {{ width sourceWidth }} }} }}"#
+                r#"{{ portraitImages(treeId: "{tree_id}", personIds: ["{person_id}"]) {{ source {{ kind url }} crop {{ width sourceWidth }} }} }}"#
             ),
             None,
         )
         .await,
     )["portraitImages"]
         .clone();
-    assert_eq!(images[0]["source"], url, "{images}");
+    assert_eq!(
+        images[0]["source"],
+        serde_json::json!({ "kind": "REMOTE", "url": url }),
+        "{images}"
+    );
     assert_eq!(images[0]["crop"]["width"], 200, "{images}");
     assert_eq!(images[0]["crop"]["sourceWidth"], 1600, "{images}");
 }

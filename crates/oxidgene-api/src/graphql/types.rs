@@ -2502,7 +2502,7 @@ impl From<oxidgene_core::types::ImageCrop> for GqlImageCrop {
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlPortraitImage {
     pub person_id: ID,
-    pub source: String,
+    pub source: GqlImageSource,
     /// Set when `source` is a whole picture the client must crop itself.
     pub crop: Option<GqlImageCrop>,
 }
@@ -2511,8 +2511,65 @@ impl From<crate::service::portrait::PortraitImage> for GqlPortraitImage {
     fn from(image: crate::service::portrait::PortraitImage) -> Self {
         Self {
             person_id: ID(image.person_id.to_string()),
-            source: image.source,
+            source: image.source.into(),
             crop: image.crop.map(Into::into),
+        }
+    }
+}
+
+/// Which resource a picture comes from. Never the picture itself — the bytes
+/// travel over their own request, so a payload listing a hundred images stays
+/// small and each one is cached, decoded and lazily loaded by the engine that
+/// draws it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum GqlImageSourceKind {
+    /// An address outside our control, which the client fetches directly.
+    Remote,
+    /// The thumbnail this backend generated for a media it holds.
+    Thumbnail,
+    /// The region this backend cuts out of a media it holds.
+    Crop,
+}
+
+/// Where a picture lives.
+///
+/// Exactly one of the three payload fields is set, matching `kind`. A held
+/// picture names its resource rather than a URL: turning it into something
+/// drawable is the client's business, because until authentication ships no
+/// backend address may appear in the markup.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlImageSource {
+    pub kind: GqlImageSourceKind,
+    /// Set when `kind` is `REMOTE`.
+    pub url: Option<String>,
+    /// Set when `kind` is `THUMBNAIL`.
+    pub media_id: Option<ID>,
+    /// Set when `kind` is `CROP`.
+    pub vignette_id: Option<ID>,
+}
+
+impl From<oxidgene_core::types::ImageSource> for GqlImageSource {
+    fn from(source: oxidgene_core::types::ImageSource) -> Self {
+        use oxidgene_core::types::ImageSource;
+        match source {
+            ImageSource::Remote { url } => Self {
+                kind: GqlImageSourceKind::Remote,
+                url: Some(url),
+                media_id: None,
+                vignette_id: None,
+            },
+            ImageSource::Thumbnail { media_id } => Self {
+                kind: GqlImageSourceKind::Thumbnail,
+                url: None,
+                media_id: Some(ID(media_id.to_string())),
+                vignette_id: None,
+            },
+            ImageSource::Crop { vignette_id } => Self {
+                kind: GqlImageSourceKind::Crop,
+                url: None,
+                media_id: None,
+                vignette_id: Some(ID(vignette_id.to_string())),
+            },
         }
     }
 }
@@ -2526,15 +2583,15 @@ pub struct GqlGalleryBundle {
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlGalleryMedia {
     pub media_id: ID,
-    pub source: Option<String>,
+    pub source: Option<GqlImageSource>,
     pub event_ids: Vec<ID>,
-    pub document_previews: Vec<String>,
+    pub document_previews: Vec<GqlImageSource>,
 }
 
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlGalleryVignette {
     pub vignette_id: ID,
-    pub source: String,
+    pub source: GqlImageSource,
     /// Set when `source` is a whole picture the client must crop itself.
     pub crop: Option<GqlImageCrop>,
 }
@@ -2547,13 +2604,13 @@ impl From<crate::service::gallery::GalleryBundle> for GqlGalleryBundle {
                 .into_iter()
                 .map(|item| GqlGalleryMedia {
                     media_id: ID(item.media_id.to_string()),
-                    source: item.source,
+                    source: item.source.map(Into::into),
                     event_ids: item
                         .event_ids
                         .into_iter()
                         .map(|id| ID(id.to_string()))
                         .collect(),
-                    document_previews: item.document_previews,
+                    document_previews: item.document_previews.into_iter().map(Into::into).collect(),
                 })
                 .collect(),
             vignettes: bundle
@@ -2561,7 +2618,7 @@ impl From<crate::service::gallery::GalleryBundle> for GqlGalleryBundle {
                 .into_iter()
                 .map(|item| GqlGalleryVignette {
                     vignette_id: ID(item.vignette_id.to_string()),
-                    source: item.source,
+                    source: item.source.into(),
                     crop: item.crop.map(Into::into),
                 })
                 .collect(),

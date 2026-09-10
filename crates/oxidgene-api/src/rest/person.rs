@@ -353,13 +353,9 @@ pub async fn load_portrait_images(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<PortraitImagesRequest>,
 ) -> Result<Json<Vec<crate::service::portrait::PortraitImage>>, ApiError> {
-    let images = crate::service::portrait::load_portrait_images(
-        &state.db,
-        &state.media,
-        tree_id,
-        &body.person_ids,
-    )
-    .await
-    .map_err(ApiError::from)?;
+    let images =
+        crate::service::portrait::load_portrait_images(&state.db, tree_id, &body.person_ids)
+            .await
+            .map_err(ApiError::from)?;
     Ok(Json(images))
 }
