@@ -27,6 +27,28 @@ use super::dto::{
 use super::error::ApiError;
 use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
 
+/// POST /api/v1/trees/:tree_id/image-data
+///
+/// Resolve held picture sources to inline `data:` URLs, in request order, for
+/// a client that cannot serve them from an origin of its own. A slot is null
+/// when there is nothing to inline — a remote source, or a picture we no
+/// longer hold.
+pub async fn image_data(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<crate::rest::dto::ImageDataRequest>,
+) -> Result<Json<Vec<Option<String>>>, ApiError> {
+    let urls = crate::service::image_bytes::load_image_data_urls(
+        &state.db,
+        &state.media,
+        tree_id,
+        &body.sources,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(urls))
+}
+
 /// POST /api/v1/trees/:tree_id/gallery-bundle
 pub async fn gallery_bundle(
     State(state): State<AppState>,

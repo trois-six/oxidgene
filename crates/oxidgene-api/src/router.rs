@@ -217,6 +217,7 @@ pub fn build_router(state: AppState) -> Router {
 
     let media_routes = Router::new()
         .route("/{tree_id}/gallery-bundle", post(media::gallery_bundle))
+        .route("/{tree_id}/image-data", post(media::image_data))
         .route(
             "/{tree_id}/media",
             get(media::list_media).post(media::create_media),

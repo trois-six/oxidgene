@@ -15,7 +15,7 @@ use oxidgene_db::repo::{
     VignetteRepo,
 };
 
-use super::inputs::{GeneanetPreviewInput, geneanet_deposit_sizes};
+use super::inputs::{GeneanetPreviewInput, ImageSourceInput, geneanet_deposit_sizes};
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
     GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection, GqlGalleryBundle,
@@ -201,6 +201,28 @@ impl QueryRoot {
         )
         .await?;
         Ok(images.into_iter().map(Into::into).collect())
+    }
+
+    /// Resolve held picture sources to inline `data:` URLs in one operation,
+    /// for a client that cannot serve them from an origin of its own.
+    /// Mirrors REST's `image-data` endpoint.
+    async fn image_data(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        sources: Vec<ImageSourceInput>,
+    ) -> Result<Vec<Option<String>>> {
+        let sources = sources
+            .into_iter()
+            .map(oxidgene_core::types::ImageSource::try_from)
+            .collect::<Result<Vec<_>>>()?;
+        Ok(crate::service::image_bytes::load_image_data_urls(
+            db_from_ctx(ctx),
+            media_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+            &sources,
+        )
+        .await?)
     }
 
     /// Load display-ready media gallery data in one bounded operation.

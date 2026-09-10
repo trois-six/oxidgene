@@ -53,6 +53,12 @@ pub struct GalleryBundleRequest {
     pub vignette_ids: Vec<uuid::Uuid>,
 }
 
+/// Held picture sources to resolve to inline data in one operation.
+#[derive(Debug, Deserialize)]
+pub struct ImageDataRequest {
+    pub sources: Vec<oxidgene_core::types::ImageSource>,
+}
+
 // ── Tree DTOs ────────────────────────────────────────────────────────
 
 /// Request body for creating a tree.

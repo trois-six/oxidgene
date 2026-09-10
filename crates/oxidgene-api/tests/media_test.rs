@@ -2119,6 +2119,54 @@ async fn a_document_tile_previews_a_page_we_only_have_a_url_for() {
     );
 }
 
+/// The web client has no shell to serve pictures from, so it asks for a whole
+/// screen's worth of bytes at once rather than one request per portrait.
+#[tokio::test]
+async fn image_sources_resolve_to_inline_data_in_one_request() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (status, page) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("scan.png"), &png(12, 10))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+    let media_id = page["id"].as_str().unwrap().to_string();
+
+    let (status, body) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("{base}/image-data"),
+        Some(json!({
+            "sources": [
+                { "kind": "thumbnail", "media_id": media_id },
+                { "kind": "remote", "url": "https://archives.example.invalid/7.jpg" },
+                { "kind": "thumbnail", "media_id": uuid::Uuid::now_v7() }
+            ]
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let slots = body.as_array().expect("array response");
+    assert_eq!(slots.len(), 3, "one slot per source, in order: {body}");
+    assert!(
+        slots[0]
+            .as_str()
+            .is_some_and(|s| s.starts_with("data:image/")),
+        "a held picture is inlined: {body}"
+    );
+    assert!(
+        slots[1].is_null(),
+        "we never proxy somebody else's file: {body}"
+    );
+    assert!(
+        slots[2].is_null(),
+        "a picture we do not hold draws nothing: {body}"
+    );
+}
+
 /// A remote page carrying a region of somebody, ready to be read back.
 ///
 /// Returns `(page_id, vignette_id, person_id)`. `measured` is what a browser

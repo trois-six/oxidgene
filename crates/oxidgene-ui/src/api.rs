@@ -563,6 +563,14 @@ struct WireCroppedSource {
 
 const PORTRAIT_BATCH_SIZE: usize = 1_024;
 
+/// Matches the server's `MAX_IMAGES_PER_REQUEST`.
+const IMAGE_DATA_BATCH_SIZE: usize = 1_024;
+
+#[derive(Debug, Serialize)]
+struct ImageDataRequest {
+    sources: Vec<ImageSource>,
+}
+
 /// Matches the server's `MAX_PEDIGREES_PER_REQUEST`.
 const PEDIGREE_BATCH_SIZE: usize = 64;
 
@@ -2902,55 +2910,117 @@ impl ApiClient {
         Ok(format!("data:{content_type};base64,{encoded}"))
     }
 
-    /// Load a media through the API client without exposing its endpoint as a
-    /// browser or WebView navigation target.
+    /// A media's stored file, ready to draw.
+    ///
+    /// Goes through the shell that serves pictures from its own origin when
+    /// there is one — which matters most here, since this is the full-size
+    /// file: inlining a multi-megabyte scan costs a third again in base64 and
+    /// denies the engine its own caching and decoding.
     pub async fn media_file_data_url(
         &self,
         tree_id: Uuid,
         media_id: Uuid,
     ) -> Result<String, ApiError> {
-        self.get_binary_data_url(&format!("/api/v1/trees/{tree_id}/media/{media_id}/file"))
+        self.media_asset_url(tree_id, crate::image_host::MediaAsset::File { media_id })
             .await
     }
 
-    /// Turn a picture's address into something this platform can draw.
-    ///
-    /// A shell that serves pictures from its own origin answers synchronously
-    /// with a path; everywhere else the bytes are fetched here and handed over
-    /// as a `data:` URL. Either way the markup never carries a backend address.
-    async fn resolve_source(&self, tree_id: Uuid, source: ImageSource) -> Option<String> {
-        if let ImageSource::Remote { url } = source {
-            return Some(url);
-        }
+    /// The drawable form of one held picture, hosted or inlined.
+    async fn media_asset_url(
+        &self,
+        tree_id: Uuid,
+        asset: crate::image_host::MediaAsset,
+    ) -> Result<String, ApiError> {
         if let Some(host) = &self.image_host
-            && let Some(path) = host.path(tree_id, &source)
+            && let Some(path) = host.path(tree_id, asset)
         {
-            return Some(path);
+            return Ok(path);
         }
-        let path = crate::image_host::api_path(tree_id, &source)?;
-        match self.get_binary_data_url(&path).await {
-            Ok(url) => Some(url),
-            Err(error) => {
-                tracing::warn!(%error, %path, "picture could not be loaded");
-                None
-            }
-        }
+        self.get_binary_data_url(&crate::image_host::api_path(tree_id, asset))
+            .await
     }
 
-    /// Resolve every address in a gallery to something drawable.
-    async fn resolve_gallery(&self, tree_id: Uuid, wire: WireGalleryBundle) -> GalleryBundle {
-        let mut bundle = GalleryBundle::default();
-        for item in wire.media {
-            let mut previews = Vec::with_capacity(item.document_previews.len());
-            for preview in item.document_previews {
-                if let Some(source) = self.resolve_source(tree_id, preview).await {
-                    previews.push(source);
+    /// Turn a whole screen's picture addresses into things it can draw.
+    ///
+    /// A shell that serves pictures from its own origin (the desktop) answers
+    /// per source with no network at all. Everywhere else the bytes have to be
+    /// fetched and inlined as `data:` URLs — and that happens for the whole set
+    /// in one request, because a pedigree resolving one portrait at a time is
+    /// one round trip per person on screen.
+    ///
+    /// Returns one slot per source, in order.
+    async fn resolve_sources(
+        &self,
+        tree_id: Uuid,
+        sources: Vec<ImageSource>,
+    ) -> Vec<Option<String>> {
+        let mut resolved: Vec<Option<String>> = Vec::with_capacity(sources.len());
+        // Whatever the shell cannot answer for goes to the server, remembered
+        // by the slot it has to fill.
+        let mut pending: Vec<(usize, ImageSource)> = Vec::new();
+        for (index, source) in sources.into_iter().enumerate() {
+            if let ImageSource::Remote { url } = source {
+                resolved.push(Some(url));
+                continue;
+            }
+            let hosted = crate::image_host::MediaAsset::from_source(&source)
+                .zip(self.image_host.as_ref())
+                .and_then(|(asset, host)| host.path(tree_id, asset));
+            if hosted.is_none() {
+                pending.push((index, source));
+            }
+            resolved.push(hosted);
+        }
+        if pending.is_empty() {
+            return resolved;
+        }
+
+        for chunk in pending.chunks(IMAGE_DATA_BATCH_SIZE) {
+            let body = ImageDataRequest {
+                sources: chunk.iter().map(|(_, source)| source.clone()).collect(),
+            };
+            match self
+                .post::<Vec<Option<String>>, _>(
+                    &format!("/api/v1/trees/{tree_id}/image-data"),
+                    &body,
+                )
+                .await
+            {
+                Ok(urls) => {
+                    for ((index, _), url) in chunk.iter().zip(urls) {
+                        resolved[*index] = url;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, count = chunk.len(), "pictures could not be loaded");
                 }
             }
-            let source = match item.source {
-                Some(source) => self.resolve_source(tree_id, source).await,
-                None => None,
-            };
+        }
+        resolved
+    }
+
+    /// Resolve every address in a gallery to something drawable, in one pass.
+    async fn resolve_gallery(&self, tree_id: Uuid, wire: WireGalleryBundle) -> GalleryBundle {
+        // Every address on the screen, flattened so one request answers for the
+        // lot, then handed back to the slot it came from.
+        let mut sources = Vec::new();
+        for item in &wire.media {
+            sources.extend(item.source.iter().cloned());
+            sources.extend(item.document_previews.iter().cloned());
+        }
+        for item in &wire.vignettes {
+            sources.push(item.image.source.clone());
+        }
+        let mut drawn = self.resolve_sources(tree_id, sources).await.into_iter();
+
+        let mut bundle = GalleryBundle::default();
+        for item in wire.media {
+            let source = item.source.and_then(|_| drawn.next().flatten());
+            let previews = item
+                .document_previews
+                .iter()
+                .filter_map(|_| drawn.next().flatten())
+                .collect();
             bundle.media.push(GalleryMedia {
                 media_id: item.media_id,
                 source,
@@ -2959,25 +3029,17 @@ impl ApiClient {
             });
         }
         for item in wire.vignettes {
-            if let Some(image) = self.resolve_cropped(tree_id, item.image).await {
+            if let Some(source) = drawn.next().flatten() {
                 bundle.vignettes.push(GalleryVignette {
                     vignette_id: item.vignette_id,
-                    image,
+                    image: CroppedSource {
+                        source,
+                        crop: item.image.crop,
+                    },
                 });
             }
         }
         bundle
-    }
-
-    async fn resolve_cropped(
-        &self,
-        tree_id: Uuid,
-        wire: WireCroppedSource,
-    ) -> Option<CroppedSource> {
-        Some(CroppedSource {
-            source: self.resolve_source(tree_id, wire.source).await?,
-            crop: wire.crop,
-        })
     }
 
     /// Load portraits in bounded batches, issuing as many batches as needed.
@@ -2999,9 +3061,21 @@ impl ApiClient {
                 .await
             {
                 Ok(images) => {
-                    for image in images {
-                        if let Some(resolved) = self.resolve_cropped(tree_id, image.image).await {
-                            portraits.insert(image.person_id, resolved);
+                    // One request for the batch's pictures, not one per person.
+                    let sources = images
+                        .iter()
+                        .map(|image| image.image.source.clone())
+                        .collect::<Vec<_>>();
+                    let drawn = self.resolve_sources(tree_id, sources).await;
+                    for (image, source) in images.into_iter().zip(drawn) {
+                        if let Some(source) = source {
+                            portraits.insert(
+                                image.person_id,
+                                CroppedSource {
+                                    source,
+                                    crop: image.image.crop,
+                                },
+                            );
                         }
                     }
                 }
@@ -3042,9 +3116,10 @@ impl ApiClient {
         tree_id: Uuid,
         media_id: Uuid,
     ) -> Result<String, ApiError> {
-        self.get_binary_data_url(&format!(
-            "/api/v1/trees/{tree_id}/media/{media_id}/thumbnail"
-        ))
+        self.media_asset_url(
+            tree_id,
+            crate::image_host::MediaAsset::Thumbnail { media_id },
+        )
         .await
     }
 
@@ -3054,10 +3129,8 @@ impl ApiClient {
         tree_id: Uuid,
         vignette_id: Uuid,
     ) -> Result<String, ApiError> {
-        self.get_binary_data_url(&format!(
-            "/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"
-        ))
-        .await
+        self.media_asset_url(tree_id, crate::image_host::MediaAsset::Crop { vignette_id })
+            .await
     }
 
     /// Upload a file and record it.

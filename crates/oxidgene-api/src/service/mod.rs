@@ -6,6 +6,7 @@ pub mod gallery;
 pub mod gedcom;
 pub mod geneanet;
 pub mod geneweb;
+pub mod image_bytes;
 pub mod media;
 pub mod pedigrees;
 pub mod person_detail;

@@ -672,6 +672,59 @@ async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql
     );
 }
 
+/// The REST twin lives in `media_test.rs`. Both surfaces resolve a whole
+/// screen's pictures in one operation, in request order, and inline only the
+/// ones we hold.
+#[tokio::test]
+async fn image_sources_resolve_to_inline_data_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
+    let media_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "scan.png", contentBase64: "{}" }}) {{ id }} }}"#,
+                png_base64(12, 10)
+            ),
+            None,
+        )
+        .await,
+    )["uploadMediaFile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let slots = data(
+        &graphql(
+            app,
+            &format!(
+                r#"{{ imageData(treeId: "{tree_id}", sources: [
+                    {{ kind: THUMBNAIL, mediaId: "{media_id}" }},
+                    {{ kind: REMOTE, url: "https://archives.example.invalid/7.jpg" }}
+                ]) }}"#
+            ),
+            None,
+        )
+        .await,
+    )["imageData"]
+        .as_array()
+        .unwrap()
+        .clone();
+
+    assert_eq!(slots.len(), 2, "one slot per source, in order: {slots:?}");
+    assert!(
+        slots[0]
+            .as_str()
+            .is_some_and(|s| s.starts_with("data:image/")),
+        "a held picture is inlined: {slots:?}"
+    );
+    assert!(
+        slots[1].is_null(),
+        "we never proxy somebody else's file: {slots:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_region_of_a_remote_page_carries_its_rectangle_over_graphql() {
     // The REST twin lives in `media_test.rs`. Both surfaces have to hand a

@@ -24,7 +24,7 @@ use dioxus::desktop::use_asset_handler;
 use dioxus::desktop::wry::http::Response;
 use dioxus::prelude::*;
 use oxidgene_ui::api::ApiClient;
-use oxidgene_ui::image_host::{ImageHost, ImageSource, MediaAssetHost, Uuid};
+use oxidgene_ui::image_host::{ImageHost, MediaAsset, MediaAssetHost, Uuid};
 
 /// The path prefix this shell answers on. Dioxus routes `/<name>/…` here.
 const HANDLER: &str = "oxidgene-media";
@@ -33,10 +33,10 @@ const HANDLER: &str = "oxidgene-media";
 struct DesktopAssetHost;
 
 impl MediaAssetHost for DesktopAssetHost {
-    fn path(&self, tree_id: Uuid, source: &ImageSource) -> Option<String> {
+    fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String> {
         // The API path travels as-is behind the handler prefix, so the handler
         // has nothing to parse and the two cannot drift apart.
-        let api_path = oxidgene_ui::image_host::api_path(tree_id, source)?;
+        let api_path = oxidgene_ui::image_host::api_path(tree_id, asset);
         Some(format!("/{HANDLER}{api_path}"))
     }
 }

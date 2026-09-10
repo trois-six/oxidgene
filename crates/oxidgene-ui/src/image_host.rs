@@ -30,11 +30,42 @@ pub use uuid::Uuid;
 /// thing the UI cannot work out for itself: what address its own shell answers
 /// on.
 pub trait MediaAssetHost: Send + Sync {
-    /// The path this shell serves `source` from, relative to its own origin.
+    /// The path this shell serves `asset` from, relative to its own origin.
     ///
-    /// `None` for a source this host does not serve, which sends the caller
+    /// `None` for an asset this host does not serve, which sends the caller
     /// down the fetch-and-encode path instead.
-    fn path(&self, tree_id: Uuid, source: &ImageSource) -> Option<String>;
+    fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String>;
+}
+
+/// One picture the backend holds, named by what serves it.
+///
+/// A closed set of three endpoints rather than an arbitrary path: a shell that
+/// answers for these is answering for pictures, and cannot be talked into
+/// proxying the rest of the API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaAsset {
+    /// The thumbnail generated for a media.
+    Thumbnail { media_id: Uuid },
+    /// The region cut out of a media.
+    Crop { vignette_id: Uuid },
+    /// The stored file itself, at full size.
+    File { media_id: Uuid },
+}
+
+impl MediaAsset {
+    /// The asset an [`ImageSource`] names, when it names one of ours.
+    #[must_use]
+    pub fn from_source(source: &ImageSource) -> Option<Self> {
+        match source {
+            ImageSource::Remote { .. } => None,
+            ImageSource::Thumbnail { media_id } => Some(Self::Thumbnail {
+                media_id: *media_id,
+            }),
+            ImageSource::Crop { vignette_id } => Some(Self::Crop {
+                vignette_id: *vignette_id,
+            }),
+        }
+    }
 }
 
 /// Context handle the API client looks for.
@@ -48,8 +79,8 @@ impl ImageHost {
     }
 
     #[must_use]
-    pub fn path(&self, tree_id: Uuid, source: &ImageSource) -> Option<String> {
-        self.0.path(tree_id, source)
+    pub fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String> {
+        self.0.path(tree_id, asset)
     }
 }
 
@@ -67,18 +98,19 @@ pub fn use_image_host() -> Option<ImageHost> {
 /// The API path that serves one held picture.
 ///
 /// Shared by both resolution paths: the desktop handler proxies this path, and
-/// the web fallback fetches it through the typed client. A remote source has no
-/// such path — nothing of ours serves somebody else's file.
+/// the web fallback fetches it through the typed client.
 #[must_use]
-pub fn api_path(tree_id: Uuid, source: &ImageSource) -> Option<String> {
-    match source {
-        ImageSource::Remote { .. } => None,
-        ImageSource::Thumbnail { media_id } => Some(format!(
-            "/api/v1/trees/{tree_id}/media/{media_id}/thumbnail"
-        )),
-        ImageSource::Crop { vignette_id } => Some(format!(
-            "/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"
-        )),
+pub fn api_path(tree_id: Uuid, asset: MediaAsset) -> String {
+    match asset {
+        MediaAsset::Thumbnail { media_id } => {
+            format!("/api/v1/trees/{tree_id}/media/{media_id}/thumbnail")
+        }
+        MediaAsset::Crop { vignette_id } => {
+            format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image")
+        }
+        MediaAsset::File { media_id } => {
+            format!("/api/v1/trees/{tree_id}/media/{media_id}/file")
+        }
     }
 }
 
@@ -87,42 +119,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn held_sources_name_the_endpoint_that_serves_them() {
-        let tree_id = Uuid::nil();
-        let media_id = Uuid::nil();
+    fn every_asset_names_the_endpoint_that_serves_it() {
+        let id = Uuid::nil();
+        let zero = "00000000-0000-0000-0000-000000000000";
 
         assert_eq!(
-            api_path(tree_id, &ImageSource::Thumbnail { media_id }).as_deref(),
-            Some(
-                "/api/v1/trees/00000000-0000-0000-0000-000000000000/media/00000000-0000-0000-0000-000000000000/thumbnail"
-            )
+            api_path(id, MediaAsset::Thumbnail { media_id: id }),
+            format!("/api/v1/trees/{zero}/media/{zero}/thumbnail")
         );
         assert_eq!(
-            api_path(
-                tree_id,
-                &ImageSource::Crop {
-                    vignette_id: media_id
-                }
-            )
-            .as_deref(),
-            Some(
-                "/api/v1/trees/00000000-0000-0000-0000-000000000000/vignettes/00000000-0000-0000-0000-000000000000/image"
-            )
+            api_path(id, MediaAsset::Crop { vignette_id: id }),
+            format!("/api/v1/trees/{zero}/vignettes/{zero}/image")
+        );
+        assert_eq!(
+            api_path(id, MediaAsset::File { media_id: id }),
+            format!("/api/v1/trees/{zero}/media/{zero}/file")
         );
     }
 
     /// A file somebody else hosts is fetched from where it lives; we never
-    /// become a proxy for it, so there is no path of ours to name.
+    /// become a proxy for it, so it maps to no asset of ours.
     #[test]
-    fn a_remote_source_has_no_endpoint_of_ours() {
+    fn a_remote_source_names_no_asset_of_ours() {
         assert_eq!(
-            api_path(
-                Uuid::nil(),
-                &ImageSource::Remote {
-                    url: "https://archives.example.org/1.jpg".to_string()
-                }
-            ),
+            MediaAsset::from_source(&ImageSource::Remote {
+                url: "https://archives.example.org/1.jpg".to_string()
+            }),
             None
+        );
+        assert_eq!(
+            MediaAsset::from_source(&ImageSource::Thumbnail {
+                media_id: Uuid::nil()
+            }),
+            Some(MediaAsset::Thumbnail {
+                media_id: Uuid::nil()
+            })
         );
     }
 }
