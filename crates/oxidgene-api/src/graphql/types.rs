@@ -2924,6 +2924,22 @@ pub struct GqlPedigree {
     pub descendant_depth_loaded: i32,
 }
 
+/// One pedigree from a batched request, paired with the root it was asked for.
+#[derive(SimpleObject, Debug, Clone)]
+pub struct GqlPedigreeEntry {
+    pub root_person_id: ID,
+    pub pedigree: GqlPedigree,
+}
+
+impl From<crate::service::pedigrees::PedigreeEntry> for GqlPedigreeEntry {
+    fn from(entry: crate::service::pedigrees::PedigreeEntry) -> Self {
+        Self {
+            root_person_id: ID(entry.root_person_id.to_string()),
+            pedigree: entry.pedigree.into(),
+        }
+    }
+}
+
 /// Delta returned by expand operations (only the new nodes and edges).
 #[derive(SimpleObject, Debug, Clone)]
 pub struct GqlPedigreeDelta {

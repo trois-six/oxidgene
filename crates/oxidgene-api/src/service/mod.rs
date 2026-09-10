@@ -7,6 +7,7 @@ pub mod gedcom;
 pub mod geneanet;
 pub mod geneweb;
 pub mod media;
+pub mod pedigrees;
 pub mod person_detail;
 pub mod portrait;
 pub mod purge;

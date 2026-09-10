@@ -373,6 +373,7 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/pedigree/{root_person_id}",
             get(profile::get_pedigree),
         )
+        .route("/{tree_id}/pedigrees", post(profile::load_pedigrees))
         .route(
             "/{tree_id}/pedigree/{root_person_id}/expand",
             patch(profile::expand_pedigree),

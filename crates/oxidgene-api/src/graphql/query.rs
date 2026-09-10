@@ -23,7 +23,7 @@ use super::types::{
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
     GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection,
     GqlMediaDownload, GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference,
-    GqlOccupationReferenceMatch, GqlPedigree, GqlPerson, GqlPersonConnection,
+    GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
     GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
     GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
     GqlPortraitImage, GqlRelationLabels, GqlSearchResult, GqlSource, GqlSourceConnection,
@@ -1382,5 +1382,32 @@ impl QueryRoot {
             .get_or_build_pedigree(tid, rid, ancestor_depth as u32, descendant_depth as u32)
             .await?;
         Ok(pedigree.into())
+    }
+
+    /// Assemble several pedigrees in one operation, for a screen that draws one
+    /// small pedigree per row. Mirrors REST's `pedigrees` endpoint.
+    async fn pedigrees(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        root_person_ids: Vec<ID>,
+        ancestor_depth: i32,
+        descendant_depth: i32,
+    ) -> Result<Vec<GqlPedigreeEntry>> {
+        let root_person_ids = root_person_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(crate::service::pedigrees::load_pedigrees(
+            profiles_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+            &root_person_ids,
+            ancestor_depth as u32,
+            descendant_depth as u32,
+        )
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect())
     }
 }

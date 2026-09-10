@@ -1308,9 +1308,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 };
                 let avatar = match &*photo.read() {
                     Some(portrait) => portrait.clone(),
-                    None => crate::api::CroppedSource::whole(
-                        crate::components::pedigree_chart::default_portrait(person_sex).to_string(),
-                    ),
+                    None => crate::api::CroppedSource::silhouette(person_sex),
                 };
                 rsx! {
                     div { class: "card page-header",

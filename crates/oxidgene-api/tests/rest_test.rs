@@ -2851,6 +2851,41 @@ async fn test_profile_routes() {
     assert_eq!(body["persons"][&person_id]["display_name"], "Jean Dupont");
     assert_eq!(body["ancestor_depth_loaded"], 2);
 
+    // The batched form answers for several roots at once, in request order,
+    // and refuses a batch larger than the bound rather than truncating it.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/pedigrees"),
+        Some(serde_json::json!({
+            "root_person_ids": [person_id, person_id],
+            "ancestor_depth": 2,
+            "descendant_depth": 1
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "POST pedigrees failed: {body}");
+    let entries = body.as_array().expect("array response");
+    assert_eq!(entries.len(), 2, "{body}");
+    assert_eq!(entries[0]["root_person_id"], person_id);
+    assert_eq!(entries[0]["pedigree"]["ancestor_depth_loaded"], 2);
+
+    let roots = (0..65)
+        .map(|_| uuid::Uuid::now_v7().to_string())
+        .collect::<Vec<_>>();
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/pedigrees"),
+        Some(serde_json::json!({
+            "root_person_ids": roots,
+            "ancestor_depth": 2,
+            "descendant_depth": 1
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
     // Expansion returns a (here empty) delta, not an error.
     let (status, body) = send_request(
         app.clone(),

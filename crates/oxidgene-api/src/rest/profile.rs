@@ -13,7 +13,10 @@ use axum::extract::{Path, Query, State};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::dto::{PedigreeExpandQuery, PedigreeQuery, ProfileDropResponse, ProfileRebuildResponse};
+use super::dto::{
+    PedigreeExpandQuery, PedigreeQuery, PedigreesRequest, ProfileDropResponse,
+    ProfileRebuildResponse,
+};
 use super::error::ApiError;
 use super::state::{AppState, begin_tx, commit_tx};
 
@@ -147,6 +150,28 @@ pub async fn get_pedigree(
         .map_err(ApiError)?;
 
     Ok(Json(serde_json::to_value(pedigree).unwrap()))
+}
+
+/// `POST /api/v1/trees/{tree_id}/pedigrees`
+///
+/// Assemble the pedigrees of several roots in one operation, for a screen that
+/// draws one small pedigree per row. Request order is preserved and a root that
+/// cannot be assembled is omitted rather than failing the batch.
+pub async fn load_pedigrees(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<PedigreesRequest>,
+) -> Result<Json<Vec<crate::service::pedigrees::PedigreeEntry>>, ApiError> {
+    let entries = crate::service::pedigrees::load_pedigrees(
+        &state.profiles,
+        tree_id,
+        &body.root_person_ids,
+        body.ancestor_depth,
+        body.descendant_depth,
+    )
+    .await
+    .map_err(ApiError)?;
+    Ok(Json(entries))
 }
 
 /// `PATCH /api/v1/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=…&from_depth=…&to_depth=…&other_depth=…`

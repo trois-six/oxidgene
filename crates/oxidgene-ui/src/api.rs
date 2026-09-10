@@ -108,7 +108,7 @@ pub struct PersonSearchParams {
 
 /// A distinct free-text value (surname, occupation label) plus how many
 /// persons carry it.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct DictionaryEntry {
     pub value: String,
     /// Filing key when surname particles are ignored; see the sorting
@@ -149,7 +149,7 @@ pub struct SourceDrillResponse {
 }
 
 /// A place paired with its usage count (events + media referencing it).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct PlaceDictionaryEntry {
     #[serde(flatten)]
     pub place: Place,
@@ -563,6 +563,22 @@ struct WireCroppedSource {
 
 const PORTRAIT_BATCH_SIZE: usize = 1_024;
 
+/// Matches the server's `MAX_PEDIGREES_PER_REQUEST`.
+const PEDIGREE_BATCH_SIZE: usize = 64;
+
+#[derive(Debug, Serialize)]
+struct PedigreesRequest {
+    root_person_ids: Vec<Uuid>,
+    ancestor_depth: u32,
+    descendant_depth: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct PedigreeEntry {
+    root_person_id: Uuid,
+    pedigree: Pedigree,
+}
+
 fn portrait_batches(person_ids: &[Uuid]) -> impl Iterator<Item = &[Uuid]> {
     person_ids.chunks(PORTRAIT_BATCH_SIZE)
 }
@@ -670,6 +686,14 @@ impl CroppedSource {
     /// A picture to be shown whole.
     pub fn whole(source: String) -> Self {
         Self { source, crop: None }
+    }
+
+    /// The default silhouette for someone with no portrait.
+    ///
+    /// One place rather than five, so the fallback cannot drift between the
+    /// search list, the search grid, the pedigree cards and the profile header.
+    pub fn silhouette(sex: oxidgene_core::Sex) -> Self {
+        Self::whole(crate::components::pedigree_chart::default_portrait(sex).to_string())
     }
 }
 
@@ -3780,6 +3804,42 @@ impl ApiClient {
     ///
     /// Assembled server-side from family links and the stored person
     /// projections on every call.
+    /// Assemble several pedigrees in one operation, in bounded batches.
+    ///
+    /// A screen that draws one small pedigree per row asks for the whole page
+    /// at once: a request per row is both slower and drowns the load trace in
+    /// one resource per row.
+    pub async fn get_pedigrees(
+        &self,
+        tree_id: Uuid,
+        root_person_ids: &[Uuid],
+        ancestor_depth: u32,
+        descendant_depth: u32,
+    ) -> HashMap<Uuid, Pedigree> {
+        let mut pedigrees = HashMap::new();
+        for roots in root_person_ids.chunks(PEDIGREE_BATCH_SIZE) {
+            let body = PedigreesRequest {
+                root_person_ids: roots.to_vec(),
+                ancestor_depth,
+                descendant_depth,
+            };
+            match self
+                .post::<Vec<PedigreeEntry>, _>(&format!("/api/v1/trees/{tree_id}/pedigrees"), &body)
+                .await
+            {
+                Ok(entries) => pedigrees.extend(
+                    entries
+                        .into_iter()
+                        .map(|entry| (entry.root_person_id, entry.pedigree)),
+                ),
+                Err(error) => {
+                    tracing::warn!(%error, count = roots.len(), "pedigree batch could not be loaded");
+                }
+            }
+        }
+        pedigrees
+    }
+
     pub async fn get_pedigree(
         &self,
         tree_id: Uuid,

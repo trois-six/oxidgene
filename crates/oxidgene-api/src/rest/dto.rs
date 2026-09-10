@@ -832,6 +832,16 @@ pub struct PedigreeQuery {
     pub descendant_depth: u32,
 }
 
+/// Body of the batched pedigree operation.
+#[derive(Debug, Deserialize)]
+pub struct PedigreesRequest {
+    pub root_person_ids: Vec<uuid::Uuid>,
+    /// Number of ancestor generations to include, for every root.
+    pub ancestor_depth: u32,
+    /// Number of descendant generations to include, for every root.
+    pub descendant_depth: u32,
+}
+
 /// Query parameters for pedigree expansion.
 #[derive(Debug, Deserialize)]
 pub struct PedigreeExpandQuery {

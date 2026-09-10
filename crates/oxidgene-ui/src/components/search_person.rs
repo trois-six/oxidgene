@@ -14,7 +14,6 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource};
 use crate::components::cropped_image::CroppedImage;
-use crate::components::pedigree_chart::default_portrait;
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 
@@ -241,8 +240,7 @@ pub(crate) fn render_person_search_summary(
 ) -> Element {
     let given = &summary.given_names;
     let surname = &summary.surname;
-    let portrait =
-        portrait.unwrap_or_else(|| CroppedSource::whole(default_portrait(summary.sex).to_string()));
+    let portrait = portrait.unwrap_or_else(|| CroppedSource::silhouette(summary.sex));
 
     rsx! {
         div { class: "sp-result-photo",

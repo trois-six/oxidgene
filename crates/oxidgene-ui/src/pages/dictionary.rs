@@ -288,6 +288,12 @@ pub fn Dictionary(tree_id: String) -> Element {
         }
     });
 
+    // Filed once per fetch, so a keystroke in the quick filter re-filters an
+    // already-sorted list instead of re-cloning and re-sorting the dictionary.
+    let filed_family_names = use_filed_values(family_names_resource, sort_particles);
+    let filed_occupations = use_filed_values(occupations_resource, sort_particles);
+    let filed_places = use_filed_places(places_resource);
+
     // Resolve the name synchronously from the cache while the resource is
     // pending, so the breadcrumb never flashes a loading label.
     let tree_name = match &*tree_resource.read() {
@@ -407,6 +413,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         usage_resource,
                         sort_particles,
                         Some(particle_edit),
+                        filed_family_names,
                     ),
                     DictTab::Occupations => render_value_tab(
                         i18n,
@@ -422,6 +429,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         usage_resource,
                         sort_particles,
                         None,
+                        filed_occupations,
                     ),
                     DictTab::Sources => render_sources_tab(
                         i18n,
@@ -442,6 +450,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         current_page,
                         expanded,
                         usage_resource,
+                        filed_places,
                     ),
                 }
 
@@ -670,6 +679,67 @@ fn matches_filters(filing: &str, display: &str, quick: &str, letter: Option<char
         return false;
     }
     true
+}
+
+/// One tab's entries, filed and indexed once per fetch.
+///
+/// Filing and the letter index depend on the fetched data and the filing
+/// preference — never on the quick filter, which is read on every keystroke.
+/// Computed inline in the render body they were redone on every render, so
+/// typing four characters re-cloned, re-sorted and re-scanned the whole
+/// dictionary four times. The dictionary endpoints paginate nothing: they
+/// return every distinct value in the tree.
+#[derive(Clone, PartialEq)]
+struct FiledEntries<T> {
+    entries: Vec<T>,
+    letters: HashSet<char>,
+}
+
+impl<T> Default for FiledEntries<T> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            letters: HashSet::new(),
+        }
+    }
+}
+
+/// File a value tab's entries under the viewer's preferred key.
+///
+/// Entries arrive sorted by `value` (particles included). Re-file them on
+/// `sort_key` when the viewer prefers surnames under their root — for
+/// occupations the two are the same string, so this changes nothing.
+fn use_filed_values(
+    resource: Resource<Result<Vec<DictionaryEntry>, ApiError>>,
+    sort_particles: SortParticles,
+) -> Memo<FiledEntries<DictionaryEntry>> {
+    use_memo(move || {
+        let Some(Ok(entries)) = &*resource.read() else {
+            return FiledEntries::default();
+        };
+        let file_by_root = !sort_particles.0;
+        let mut entries = entries.clone();
+        if file_by_root {
+            entries.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
+        }
+        let letters = available_letters(entries.iter().map(|e| filing_label(e, file_by_root)));
+        FiledEntries { entries, letters }
+    })
+}
+
+fn use_filed_places(
+    resource: Resource<Result<Vec<PlaceDictionaryEntry>, ApiError>>,
+) -> Memo<FiledEntries<PlaceDictionaryEntry>> {
+    use_memo(move || {
+        let Some(Ok(entries)) = &*resource.read() else {
+            return FiledEntries::default();
+        };
+        let letters = available_letters(entries.iter().map(|e| e.place.name.as_str()));
+        FiledEntries {
+            entries: entries.clone(),
+            letters,
+        }
+    })
 }
 
 fn available_letters<'a>(labels: impl Iterator<Item = &'a str>) -> HashSet<char> {
@@ -958,24 +1028,16 @@ fn render_value_tab(
     sort_particles: SortParticles,
     // `Some` only on the Family Names tab: occupations have no particle to cut.
     particle_edit: Option<Signal<Option<ParticleEdit>>>,
+    filed: Memo<FiledEntries<DictionaryEntry>>,
 ) -> Element {
-    let mut all_entries: Vec<DictionaryEntry> = match &*resource.read() {
-        Some(Ok(entries)) => entries.clone(),
-        _ => Vec::new(),
-    };
-
-    // Entries arrive sorted by `value` (particles included). Re-file them on
-    // `sort_key` when the viewer prefers surnames under their root — for
-    // occupations the two are the same string, so this changes nothing.
     let file_by_root = !sort_particles.0;
-    if file_by_root {
-        all_entries.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
-    }
+    let filed = filed.read();
+    let all_entries = &filed.entries;
+    let letters = &filed.letters;
 
     let is_loading = resource.read().is_none();
     let is_error = matches!(&*resource.read(), Some(Err(_)));
 
-    let letters = available_letters(all_entries.iter().map(|e| filing_label(e, file_by_root)));
     let quick = quick_filter();
     let letter = letter_filter();
     let filtered: Vec<&DictionaryEntry> = all_entries
@@ -990,7 +1052,7 @@ fn render_value_tab(
     let rows = with_headers(&page_items, |e| filing_label(e, file_by_root));
 
     rsx! {
-        {render_toolbar(i18n, &letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
+        {render_toolbar(i18n, letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
 
         if is_loading {
             div { class: "sr-empty", {i18n.t("dictionary.loading")} }
@@ -1388,15 +1450,15 @@ fn render_places_tab(
     current_page: Signal<usize>,
     mut expanded: Signal<Option<UsageKey>>,
     usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+    filed: Memo<FiledEntries<PlaceDictionaryEntry>>,
 ) -> Element {
-    let all_entries: Vec<PlaceDictionaryEntry> = match &*resource.read() {
-        Some(Ok(entries)) => entries.clone(),
-        _ => Vec::new(),
-    };
+    let filed = filed.read();
+    let all_entries = &filed.entries;
+    let letters = &filed.letters;
+
     let is_loading = resource.read().is_none();
     let is_error = matches!(&*resource.read(), Some(Err(_)));
 
-    let letters = available_letters(all_entries.iter().map(|e| e.place.name.as_str()));
     let quick = quick_filter();
     let letter = letter_filter();
     let filtered: Vec<&PlaceDictionaryEntry> = all_entries
@@ -1411,7 +1473,7 @@ fn render_places_tab(
     let rows = with_headers(&page_items, |e| e.place.name.as_str());
 
     rsx! {
-        {render_toolbar(i18n, &letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
+        {render_toolbar(i18n, letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
 
         if is_loading {
             div { class: "sr-empty", {i18n.t("dictionary.loading")} }

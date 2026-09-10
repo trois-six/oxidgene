@@ -2543,6 +2543,44 @@ async fn test_projection_graphql_surface() {
     assert_eq!(pedigree["rootPersonId"], person_id);
     assert_eq!(pedigree["ancestorDepthLoaded"], 2);
 
+    // The batched form answers for several roots at once, in request order,
+    // and refuses a batch larger than the bound rather than truncating it.
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"query {{ pedigrees(treeId: "{tree_id}", rootPersonIds: ["{person_id}", "{person_id}"],
+                ancestorDepth: 2, descendantDepth: 1) {{
+                rootPersonId pedigree {{ ancestorDepthLoaded }}
+            }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let entries = data(&resp)["pedigrees"].as_array().unwrap().clone();
+    assert_eq!(entries.len(), 2, "{resp}");
+    assert_eq!(entries[0]["rootPersonId"], person_id);
+    assert_eq!(entries[0]["pedigree"]["ancestorDepthLoaded"], 2);
+
+    let roots = (0..65)
+        .map(|_| format!("\"{}\"", uuid::Uuid::now_v7()))
+        .collect::<Vec<_>>()
+        .join(",");
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"query {{ pedigrees(treeId: "{tree_id}", rootPersonIds: [{roots}],
+                ancestorDepth: 2, descendantDepth: 1) {{ rootPersonId }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert!(
+        resp["errors"]
+            .as_array()
+            .is_some_and(|errors| !errors.is_empty()),
+        "oversized batch should be rejected: {resp}"
+    );
+
     // rebuildTreeProfiles / rebuildPersonProfile / dropTreeProfiles.
     let resp = graphql(
         app.clone(),

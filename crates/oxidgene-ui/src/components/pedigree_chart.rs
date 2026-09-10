@@ -3094,7 +3094,7 @@ fn render_pedigree_card(
             let portrait = node
                 .photo_url
                 .clone()
-                .unwrap_or_else(|| CroppedSource::whole(default_portrait(node.sex).to_string()));
+                .unwrap_or_else(|| CroppedSource::silhouette(node.sex));
             let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
             let is_self = node.is_self;
@@ -3456,9 +3456,12 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // The same resolver every other surface uses, so the no-name fallback is
     // the translated one rather than a hardcoded "Unknown".
     let sel_full_name = props.data.display_name(sel_pid, &i18n);
-    let sel_portrait = props.data.photos.get(&sel_pid).cloned().unwrap_or_else(|| {
-        CroppedSource::whole(default_portrait(props.data.sex_of(sel_pid)).to_string())
-    });
+    let sel_portrait = props
+        .data
+        .photos
+        .get(&sel_pid)
+        .cloned()
+        .unwrap_or_else(|| CroppedSource::silhouette(props.data.sex_of(sel_pid)));
     // The same lifespan the card draws, rather than the old "n. 1620" / "d.
     // 1691" abbreviations: the panel sits beside the card showing the very
     // same person, and two spellings of one life read as two different facts.

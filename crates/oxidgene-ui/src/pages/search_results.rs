@@ -4,6 +4,8 @@
 //! sorting, and pagination.
 //! Uses the shared tree sub-page layout and icon sidebar.
 
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
 use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::{EventType, Sex};
@@ -11,18 +13,17 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort};
 use crate::components::cropped_image::CroppedImage;
-use crate::components::pedigree_chart::default_portrait;
+use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
 const RESULTS_PER_PAGE: usize = 25;
 /// Card (grid) view shows fewer results per page — each cell embeds a
-/// mini-pedigree, so a full list-sized page would overload the layout
-/// (and fire as many pedigree fetches).
+/// mini-pedigree, so a full list-sized page would overload the layout.
 const GRID_RESULTS_PER_PAGE: usize = 20;
 // ── Enums ────────────────────────────────────────────────────────────────
 
@@ -315,13 +316,13 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     };
 
     // ── Server-filtered, sorted, and paginated result ──
-    let all_entries: Vec<SearchEntry> = {
-        let data = search_resource.read();
-        match &*data {
-            Some(Ok(Some(sr))) => sr.entries.clone(),
-            _ => vec![],
-        }
-    };
+    //
+    // Memoised because the page re-renders on every keystroke in any of the
+    // filter fields, and none of those change the results already on screen.
+    let all_entries = use_memo(move || match &*search_resource.read() {
+        Some(Ok(Some(sr))) => sr.entries.clone(),
+        _ => Vec::<SearchEntry>::new(),
+    });
     let api_portraits = api.clone();
     let search_for_portraits = search_resource;
     let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
@@ -346,6 +347,55 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             }
         }
     });
+    // The card view draws a small pedigree per result. Asked for one at a time
+    // that was a request and a traced resource per card; the page asks for the
+    // whole set at once, and only while the card view is showing.
+    let api_pedigrees = api.clone();
+    let pedigrees_resource =
+        use_traced_resource(load_trace.clone(), "result_pedigrees", move || {
+            let api = api_pedigrees.clone();
+            let wanted = view_mode() == ViewMode::Card;
+            let person_ids = search_for_portraits
+                .read()
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .and_then(|result| result.as_ref())
+                .map(|result| {
+                    result
+                        .entries
+                        .iter()
+                        .map(|entry| entry.person_id)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            async move {
+                match tree_id.filter(|_| wanted && !person_ids.is_empty()) {
+                    Some(tree_id) => api.get_pedigrees(tree_id, &person_ids, 2, 0).await,
+                    None => Default::default(),
+                }
+            }
+        });
+
+    // One `SharedPedigree` per result, assembled once per batch rather than
+    // once per render of the grid.
+    let card_pedigrees = use_memo(move || {
+        let Some(pedigrees) = &*pedigrees_resource.read() else {
+            return HashMap::new();
+        };
+        crate::ui_observability::measure_ui("pedigree_data", || {
+            pedigrees
+                .iter()
+                .map(|(root, pedigree)| {
+                    (
+                        *root,
+                        SharedPedigree::new(PedigreeData::from_pedigree(pedigree)),
+                    )
+                })
+                .collect::<HashMap<_, _>>()
+        })
+    });
+    let pedigrees_loaded = pedigrees_resource.read().is_some();
+
     let per_page = match view_mode() {
         ViewMode::List => RESULTS_PER_PAGE,
         ViewMode::Card => GRID_RESULTS_PER_PAGE,
@@ -359,14 +409,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     };
     let page = current_page();
     let total_pages = total_filtered.div_ceil(per_page).max(1);
-    let page_results: Vec<&SearchEntry> = all_entries.iter().collect();
-    let portraits = {
-        let data = portraits_resource.read();
-        match &*data {
-            Some(urls) => urls.clone(),
-            None => Default::default(),
-        }
-    };
+    let page_results = all_entries.read();
+    let portraits = portraits_resource.read();
 
     let no_query = matches!(&*search_resource.read(), Some(Ok(None)));
     let is_loading = !no_query && search_resource.read().is_none();
@@ -994,6 +1038,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                 birth_year: entry.birth_year.clone(),
                                 death_year: entry.death_year.clone(),
                                 origin: props.origin.clone(),
+                                pedigree: card_pedigrees.read().get(&entry.person_id).cloned(),
+                                loaded: pedigrees_loaded,
                             }
                         }
                     }
@@ -1005,7 +1051,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                 entry,
                                 &props.tree_id,
                                 &props.origin,
-                                portraits.get(&entry.person_id).cloned(),
+                                portraits.as_ref().and_then(|map| map.get(&entry.person_id)),
                             )}
                         }
                     }
@@ -1055,7 +1101,7 @@ fn render_result_item(
     entry: &SearchEntry,
     tree_id: &str,
     origin: &str,
-    portrait: Option<CroppedSource>,
+    portrait: Option<&CroppedSource>,
 ) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
@@ -1066,8 +1112,9 @@ fn render_result_item(
     let given = entry.given_names.clone();
     let surname = entry.surname.clone();
 
-    let portrait =
-        portrait.unwrap_or_else(|| CroppedSource::whole(default_portrait(entry.sex).to_string()));
+    let portrait = portrait
+        .cloned()
+        .unwrap_or_else(|| CroppedSource::silhouette(entry.sex));
 
     let tree_id_str = tree_id.to_string();
     let person_id_str = entry.person_id.to_string();
@@ -1143,16 +1190,15 @@ fn SearchPedigreeCard(
     birth_year: Option<String>,
     death_year: Option<String>,
     origin: String,
+    /// This card's fragment, assembled by the page for the whole result set.
+    /// `None` while the batch is still in flight.
+    pedigree: Option<SharedPedigree>,
+    /// Whether the batch has answered, so a card with no fragment can tell
+    /// "still loading" from "this person has no pedigree".
+    loaded: bool,
 ) -> Element {
     let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
     let nav = navigator();
-    let load_trace = use_context::<UiLoadTrace>();
-
-    let pedigree_resource = use_traced_resource(load_trace, "result_pedigree", move || {
-        let api = api.clone();
-        async move { api.get_pedigree(tree_id, person_id, 2, 0).await }
-    });
 
     // Same navigation target rule as the list view: search launched from a
     // person page opens profiles, otherwise the tree centered on the person.
@@ -1184,36 +1230,21 @@ fn SearchPedigreeCard(
         Sex::Female => "female",
         Sex::Unknown => "",
     };
-    // Assembled once per fetch: the grid draws one of these per result, and
-    // rebuilding every card's pedigree on every render of the page was the
-    // grid's whole frame budget.
-    let pedigree_data = use_memo(move || {
-        let ped = pedigree_resource.read();
-        let Some(Ok(cached)) = &*ped else { return None };
-        Some(crate::components::pedigree_chart::SharedPedigree::new(
-            crate::ui_observability::measure_ui("pedigree_data", || {
-                crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
-            }),
-        ))
-    });
-    let ped = pedigree_resource.read();
-    let body = match (&*ped, pedigree_data()) {
-        (Some(Ok(_)), Some(data)) => {
-            rsx! {
-                crate::components::pedigree_chart::MiniPedigree {
-                    root_person_id: person_id,
-                    data: data,
-                    ancestor_levels: 2,
-                    descendant_levels: 0,
-                    on_person_navigate: on_navigate,
-                    scale: GRID_PEDIGREE_SCALE,
-                }
+    let body = match (pedigree, loaded) {
+        (Some(data), _) => rsx! {
+            crate::components::pedigree_chart::MiniPedigree {
+                root_person_id: person_id,
+                data: data,
+                ancestor_levels: 2,
+                descendant_levels: 0,
+                on_person_navigate: on_navigate,
+                scale: GRID_PEDIGREE_SCALE,
             }
-        }
-        (Some(Err(_)), _) => rsx! {
+        },
+        (None, true) => rsx! {
             div { class: "sr-grid-ped-msg", {i18n.t("search.error")} }
         },
-        _ => rsx! {
+        (None, false) => rsx! {
             div { class: "sr-grid-ped-msg", {i18n.t("search.loading")} }
         },
     };

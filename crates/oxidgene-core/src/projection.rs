@@ -309,7 +309,7 @@ pub enum PedigreeDirection {
 // remain as the API wire shape for search results.
 
 /// A single search result entry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchEntry {
     pub person_id: Uuid,
     pub sex: Sex,

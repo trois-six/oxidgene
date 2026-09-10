@@ -540,6 +540,7 @@ profiles. See [Data Model §4](data-model.md).
 | `POST` | `/trees/{tree_id}/profiles/rebuild/{person_id}` | Rebuild a single person's projection |
 | `POST` | `/trees/{tree_id}/profiles/drop` | Drop a tree's projections (rebuilt lazily on next read) |
 | `GET` | `/trees/{tree_id}/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Assemble a windowed pedigree for a root person |
+| `POST` | `/trees/{tree_id}/pedigrees` | Assemble several pedigrees at once for `{root_person_ids, ancestor_depth, descendant_depth}`. Request order is preserved; a root that cannot be assembled is omitted rather than failing the batch. At most 64 roots per request |
 | `PATCH` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
 
 The profile and pedigree vocabulary is identical across REST and GraphQL. No
@@ -777,6 +778,7 @@ type Query {
   personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
   personProfiles(treeId: ID!): [GqlPersonProfile!]!
   pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
+  pedigrees(treeId: ID!, rootPersonIds: [ID!]!, ancestorDepth: Int!, descendantDepth: Int!): [PedigreeEntry!]!
   searchPersons(
     treeId: ID!
     query: String!
