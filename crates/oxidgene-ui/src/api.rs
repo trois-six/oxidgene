@@ -1301,9 +1301,11 @@ type CacheInner =
 
 /// One in-flight request per cache key. Losers of the race wait on the gate
 /// rather than issuing the same request again.
-type GateInner = std::sync::Arc<
-    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
->;
+///
+/// `futures_util`'s mutex rather than tokio's: this crate compiles to WASM,
+/// where tokio is not a dependency at all.
+type Gate = std::sync::Arc<futures_util::lock::Mutex<()>>;
+type GateInner = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Gate>>>;
 
 #[derive(Clone, Default)]
 struct ResponseCache {
@@ -1347,7 +1349,7 @@ impl ResponseCache {
     }
 
     /// The gate guarding network access for `key`, created on first use.
-    fn gate(&self, key: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    fn gate(&self, key: &str) -> Gate {
         let Ok(mut gates) = self.gates.lock() else {
             // A poisoned gate map costs a duplicate request, never a wrong
             // answer: fall back to an ungated lock nobody else holds.

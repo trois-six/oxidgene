@@ -32,6 +32,16 @@ test-verbose:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
+# Check that the shared UI still compiles to WASM.
+#
+# `clippy --workspace` only ever builds the host target, so a dependency that
+# exists on desktop but not on the web — tokio, say — breaks the web build
+# without any native check noticing. `oxidgene-ui` is platform-independent by
+# contract (see AGENTS.md); run this before touching its dependencies.
+# Deliberately not part of `check` — the web target is not a current priority.
+wasm:
+    cargo clippy -p oxidgene-web --target wasm32-unknown-unknown --all-targets -- -D warnings
+
 # Format code
 fmt:
     cargo fmt --all
