@@ -392,10 +392,12 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 
 ### General Behavior
 
-- Default width: 29.5% of the space remaining after the 46px icon sidebar
+- Default width: a fixed 275px, until the reader resizes it
 - Resizable from its left edge with a 2px visual handle and an 8px pointer target
-- Width is constrained to 22-45% of the available space and remembered locally
-- The selected width remains proportional when the application window is resized
+- Width is constrained to 220-640px, capped at 45% of the space remaining after
+     the icon sidebar
+- A resized panel is remembered locally as a ratio of that remaining space, so it
+     stays proportional when the window is resized, within the same px bounds
 - Releasing the handle runs the existing fit-to-viewport behavior so the full tree
      remains framed without introducing a separate zoom calculation
 - The focused handle can also be adjusted with the left and right arrow keys
@@ -475,7 +477,7 @@ Each event is clickable to display full details (complete location, source, note
 | Topbar | Auto height, full width |
 | Left sidebar (ISB) | Fixed width 46px (`var(--sb)`), height = zone below topbar |
 | Canvas | Remaining space, scrollable and zoomable |
-| Right sidebar | Default width 29.5% of available space, resizable and collapsible |
+| Right sidebar | Default width 275px, resizable (proportional afterwards) and collapsible |
 
 ---
 

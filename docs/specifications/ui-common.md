@@ -126,7 +126,7 @@ Semantic aliases map generic component names to these core tokens:
 | `--font-heading` | `'Cinzel', Georgia, serif` | Brand and headings |
 | `--font-sans` | `'Lato', sans-serif` | Body, controls, and metadata |
 | `--sb` | `46px` | Tree icon sidebar |
-| `--evw` | `29.5%` of the space after `--sb` | Default tree events panel width |
+| `--evw` | `275px`, then a ratio once resized | Tree events panel width |
 | `--radius` | `8px` | Cards, buttons, inputs, modals |
 
 Reference type scale: page title `1.3rem`, section heading `1.05rem`, card
@@ -407,13 +407,14 @@ only its horizontal footprint and vertical spacing change.
 
 Above 600px, the right events sidebar has these rules:
 
-- Its default width is 29.5% of the space remaining after the left icon
-  sidebar.
+- Its default width is a fixed 275px, until the reader resizes it.
 - Its left edge has an 8px pointer target with a 2px visible resize handle.
-- Resizing is constrained to 22-45% of the available space.
-- The selected ratio is stored locally and remains proportional when the
-  application window is resized.
-- The focused handle supports the left and right arrow keys in 2% steps.
+- Resizing is constrained to 220-640px, and never beyond 45% of the space
+  remaining after the left icon sidebar.
+- A resized panel is stored locally as a ratio of that remaining space and stays
+  proportional when the application window is resized, still bounded by the
+  220-640px range.
+- The focused handle supports the left and right arrow keys in 16px steps.
 - Releasing the handle invokes the pedigree's existing fit-to-viewport path;
   it does not introduce a separate graph or zoom calculation.
 - The collapse toggle remains available. The user's manual open/closed state
@@ -423,7 +424,7 @@ The responsive states are:
 
 | Viewport | Events sidebar behavior |
 |---|---|
-| Above 600px | Uses the remembered open/closed state and proportional width; the resize handle is available while open. |
+| Above 600px | Uses the remembered open/closed state and stored ratio; the resize handle is available while open. |
 | 401-600px | Automatically collapses on initial load or when crossing the 600px threshold; the resize handle is hidden, but the toggle can reopen the panel. |
 | 400px and below | Hidden entirely, including its toggle and resize handle; the pedigree canvas reclaims the full available width. |
 

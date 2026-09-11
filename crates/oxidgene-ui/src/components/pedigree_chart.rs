@@ -107,10 +107,15 @@ const FIT_SIDE_PADDING_RATIO: f64 = 0.05;
 const EVENT_PANEL_AUTO_COLLAPSE_WIDTH: f64 = 600.0;
 const EVENT_PANEL_MANUAL_STORAGE_KEY: &str = "oxidgene-ev-panel-manual";
 const EVENT_PANEL_RATIO_STORAGE_KEY: &str = "oxidgene-ev-panel-ratio";
-const EVENT_PANEL_DEFAULT_RATIO: f64 = 0.295;
-const EVENT_PANEL_MIN_RATIO: f64 = 0.22;
+/// Bounds on the panel's rendered width. Kept in sync with the `clamp()` around
+/// `--evw` in `LAYOUT_STYLES`, which enforces them again once a stored ratio is
+/// re-applied to a window of a different size.
+const EVENT_PANEL_MIN_WIDTH: f64 = 220.0;
+const EVENT_PANEL_MAX_WIDTH: f64 = 640.0;
+/// Never let the panel eat more than this share of the space left of it, so a
+/// width chosen on a wide window stays usable on a narrow one.
 const EVENT_PANEL_MAX_RATIO: f64 = 0.45;
-const EVENT_PANEL_KEYBOARD_STEP: f64 = 0.02;
+const EVENT_PANEL_KEYBOARD_STEP: f64 = 16.0;
 const ZOOM_FACTOR: f64 = 1.2;
 const ZOOM_MIN: f64 = 0.3;
 const ZOOM_MAX: f64 = 2.0;
@@ -3302,14 +3307,16 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 r#"
                 localStorage.removeItem('oxidgene-ev-panel');
                 const storedRatio = Number.parseFloat(localStorage.getItem('{EVENT_PANEL_RATIO_STORAGE_KEY}'));
-                const ratio = Number.isFinite(storedRatio)
-                    ? Math.min({EVENT_PANEL_MAX_RATIO}, Math.max({EVENT_PANEL_MIN_RATIO}, storedRatio))
-                    : {EVENT_PANEL_DEFAULT_RATIO};
-                const sidebarWidth = document.querySelector('.pedigree-outer > .isb')?.getBoundingClientRect().width || 46;
-                document.documentElement.style.setProperty(
-                    '--evw',
-                    `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
-                );
+                if (Number.isFinite(storedRatio) && storedRatio > 0) {{
+                    // Only a panel the reader has dragged is proportional; the
+                    // untouched default stays at the fixed width from the CSS.
+                    const ratio = Math.min({EVENT_PANEL_MAX_RATIO}, storedRatio);
+                    const sidebarWidth = document.querySelector('.pedigree-outer > .isb')?.getBoundingClientRect().width || 46;
+                    document.documentElement.style.setProperty(
+                        '--evw',
+                        `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
+                    );
+                }}
                 const width = window.innerWidth || document.documentElement.clientWidth || 1024;
                 return [localStorage.getItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}') === 'collapsed', width];
                 "#,
@@ -3941,23 +3948,18 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
                             const sidebarWidth = outer.querySelector(':scope > .isb')?.getBoundingClientRect().width || 46;
                             const availableWidth = Math.max(1, outer.getBoundingClientRect().width - sidebarWidth);
+                            const maxWidth = Math.max(
+                                {EVENT_PANEL_MIN_WIDTH},
+                                Math.min({EVENT_PANEL_MAX_WIDTH}, availableWidth * {EVENT_PANEL_MAX_RATIO}),
+                            );
                             const startWidth = panel.getBoundingClientRect().width;
                             const startX = {start_x};
 
-                            const applyRatio = (ratio) => {{
-                                document.documentElement.style.setProperty(
-                                    '--evw',
-                                    `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
-                                );
-                                return ratio;
-                            }};
+                            let width = startWidth;
                             const move = (event) => {{
-                                const requestedWidth = startWidth + startX - event.clientX;
-                                const ratio = Math.min(
-                                    {EVENT_PANEL_MAX_RATIO},
-                                    Math.max({EVENT_PANEL_MIN_RATIO}, requestedWidth / availableWidth),
-                                );
-                                applyRatio(ratio);
+                                const requested = startWidth + startX - event.clientX;
+                                width = Math.min(maxWidth, Math.max({EVENT_PANEL_MIN_WIDTH}, requested));
+                                document.documentElement.style.setProperty('--evw', `${{width}}px`);
                             }};
                             const finish = () => {{
                                 window.removeEventListener('pointermove', move);
@@ -3967,7 +3969,13 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                 document.body.style.removeProperty('cursor');
                                 document.body.style.removeProperty('user-select');
 
-                                const ratio = panel.getBoundingClientRect().width / availableWidth;
+                                // Store and re-apply the width as a ratio so it
+                                // follows later window resizes.
+                                const ratio = width / availableWidth;
+                                document.documentElement.style.setProperty(
+                                    '--evw',
+                                    `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
+                                );
                                 localStorage.setItem('{EVENT_PANEL_RATIO_STORAGE_KEY}', String(ratio));
                                 document.querySelector('.pedigree-resize-fit-trigger')?.click();
                             }};
@@ -3995,11 +4003,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             if (!outer || !panel || window.innerWidth <= {EVENT_PANEL_AUTO_COLLAPSE_WIDTH}) return;
                             const sidebarWidth = outer.querySelector(':scope > .isb')?.getBoundingClientRect().width || 46;
                             const availableWidth = Math.max(1, outer.getBoundingClientRect().width - sidebarWidth);
-                            const currentRatio = panel.getBoundingClientRect().width / availableWidth;
-                            const ratio = Math.min(
-                                {EVENT_PANEL_MAX_RATIO},
-                                Math.max({EVENT_PANEL_MIN_RATIO}, currentRatio + {delta}),
+                            const maxWidth = Math.max(
+                                {EVENT_PANEL_MIN_WIDTH},
+                                Math.min({EVENT_PANEL_MAX_WIDTH}, availableWidth * {EVENT_PANEL_MAX_RATIO}),
                             );
+                            const width = Math.min(
+                                maxWidth,
+                                Math.max({EVENT_PANEL_MIN_WIDTH}, panel.getBoundingClientRect().width + {delta}),
+                            );
+                            const ratio = width / availableWidth;
                             document.documentElement.style.setProperty(
                                 '--evw',
                                 `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,

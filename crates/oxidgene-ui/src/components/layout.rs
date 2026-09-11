@@ -173,7 +173,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
         /* ── Component dimensions ──────────────────────────────────── */
         --sb:   46px;   /* icon sidebar width */
-        --evw:  calc(29.5% - 13.57px); /* 29.5% of the space after the icon sidebar */
+        --evw:  275px;  /* event panel width */
 
         /* ── Semantic aliases (used by shared components) ─────────── */
         --color-bg:           var(--bg-deep);
@@ -1335,7 +1335,10 @@ pub const LAYOUT_STYLES: &str = r#"
     /* ── Event panel ─────────────────────────────────────────────── */
 
     .ev-panel {
-        width: var(--evw);
+        /* --evw is a fixed width until the reader drags the handle, after which
+           the pedigree stores it as a ratio and it tracks the window. The clamp
+           keeps that ratio within the same bounds the drag enforced. */
+        width: clamp(220px, var(--evw), 640px);
         min-width: 0;
         background: var(--bg-panel);
         border-left: 1px solid var(--border);
@@ -1749,6 +1752,15 @@ pub const LAYOUT_STYLES: &str = r#"
             box-shadow: var(--shadow-md);
         }
 
+        .evp-resize-handle {
+            display: none;
+        }
+    }
+
+    /* ── Responsive: no event panel at all below 400px ───────────── */
+
+    @media (max-width: 400px) {
+        .ev-panel,
         .evp-resize-handle {
             display: none;
         }
