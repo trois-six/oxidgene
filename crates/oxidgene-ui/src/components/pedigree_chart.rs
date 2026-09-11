@@ -142,6 +142,36 @@ pub(crate) fn default_portrait(sex: Sex) -> &'static str {
     }
 }
 
+/// The silhouette's own bytes, for a shell that serves it as a file.
+///
+/// Decoded once from the same embedded data URL the web build inlines, so
+/// there is one copy of the picture and the two platforms cannot drift apart:
+/// whichever path a card takes, it draws the identical PNG.
+#[must_use]
+pub fn silhouette_png(sex: Sex) -> &'static [u8] {
+    use base64::Engine as _;
+    use std::sync::OnceLock;
+
+    static DECODED: OnceLock<[Vec<u8>; 3]> = OnceLock::new();
+    let decoded = DECODED.get_or_init(|| {
+        [Sex::Male, Sex::Female, Sex::Unknown].map(|sex| {
+            let data_url = default_portrait(sex);
+            let encoded = data_url
+                .split_once(";base64,")
+                .expect("the embedded silhouette is a base64 data URL")
+                .1;
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .expect("the embedded silhouette is valid base64")
+        })
+    });
+    match sex {
+        Sex::Male => &decoded[0],
+        Sex::Female => &decoded[1],
+        Sex::Unknown => &decoded[2],
+    }
+}
+
 // ── Helper functions ─────────────────────────────────────────────────────
 
 /// Extract a 4-digit year from a GEDCOM date string (e.g. "ABT 1842", "1 JAN 1900").
@@ -4093,6 +4123,27 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod silhouette_tests {
+    use super::*;
+
+    /// The two platforms draw the same picture: the web inlines the embedded
+    /// data URL, the desktop serves these bytes. If the decode ever stopped
+    /// matching, a card would render differently depending on where it ran.
+    #[test]
+    fn the_served_silhouette_is_the_embedded_png() {
+        for sex in [Sex::Male, Sex::Female, Sex::Unknown] {
+            let bytes = silhouette_png(sex);
+
+            assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "{sex:?} is a PNG");
+            assert!(
+                default_portrait(sex).starts_with("data:image/png;base64,"),
+                "{sex:?} is inlined as the same PNG"
+            );
         }
     }
 }

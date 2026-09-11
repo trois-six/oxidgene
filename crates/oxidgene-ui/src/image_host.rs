@@ -21,6 +21,7 @@ use dioxus::prelude::*;
 
 // An implementor lives outside this crate (the desktop shell) and needs both
 // types to write the trait's signature, so the trait's module exposes them.
+pub use oxidgene_core::Sex;
 pub use oxidgene_core::types::ImageSource;
 pub use uuid::Uuid;
 
@@ -35,6 +36,24 @@ pub trait MediaAssetHost: Send + Sync {
     /// `None` for an asset this host does not serve, which sends the caller
     /// down the fetch-and-encode path instead.
     fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String>;
+
+    /// The path this shell serves the default silhouette from.
+    ///
+    /// Not backend media: three pictures compiled into the application, drawn
+    /// wherever somebody has no portrait. Inline they are a few kilobytes
+    /// repeated once per card; served, they are one resource the engine
+    /// fetches and decodes once for the whole page.
+    fn silhouette_path(&self, sex: Sex) -> Option<String>;
+}
+
+/// The stable name a silhouette is served under.
+#[must_use]
+pub fn silhouette_slug(sex: Sex) -> &'static str {
+    match sex {
+        Sex::Male => "male",
+        Sex::Female => "female",
+        Sex::Unknown => "unknown",
+    }
 }
 
 /// One picture the backend holds, named by what serves it.
@@ -81,6 +100,11 @@ impl ImageHost {
     #[must_use]
     pub fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String> {
         self.0.path(tree_id, asset)
+    }
+
+    #[must_use]
+    pub fn silhouette_path(&self, sex: Sex) -> Option<String> {
+        self.0.silhouette_path(sex)
     }
 }
 
@@ -134,6 +158,19 @@ mod tests {
         assert_eq!(
             api_path(id, MediaAsset::File { media_id: id }),
             format!("/api/v1/trees/{zero}/media/{zero}/file")
+        );
+    }
+
+    /// The slug is what a shell serves the picture under, so it has to stay
+    /// stable and distinct — a collision would draw the wrong silhouette.
+    #[test]
+    fn every_sex_has_its_own_silhouette_slug() {
+        let slugs = [Sex::Male, Sex::Female, Sex::Unknown].map(silhouette_slug);
+
+        assert_eq!(slugs, ["male", "female", "unknown"]);
+        assert_eq!(
+            slugs.iter().collect::<std::collections::HashSet<_>>().len(),
+            3
         );
     }
 

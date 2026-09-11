@@ -24,7 +24,7 @@ use dioxus::desktop::use_asset_handler;
 use dioxus::desktop::wry::http::Response;
 use dioxus::prelude::*;
 use oxidgene_ui::api::ApiClient;
-use oxidgene_ui::image_host::{ImageHost, MediaAsset, MediaAssetHost, Uuid};
+use oxidgene_ui::image_host::{ImageHost, MediaAsset, MediaAssetHost, Sex, Uuid, silhouette_slug};
 
 /// The path prefix this shell answers on. Dioxus routes `/<name>/…` here.
 const HANDLER: &str = "oxidgene-media";
@@ -32,12 +32,19 @@ const HANDLER: &str = "oxidgene-media";
 /// Resolves a held picture to a path on this shell's own origin.
 struct DesktopAssetHost;
 
+/// Where the silhouettes are served from, under the handler's own prefix.
+const SILHOUETTE: &str = "silhouette";
+
 impl MediaAssetHost for DesktopAssetHost {
     fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String> {
         // The API path travels as-is behind the handler prefix, so the handler
         // has nothing to parse and the two cannot drift apart.
         let api_path = oxidgene_ui::image_host::api_path(tree_id, asset);
         Some(format!("/{HANDLER}{api_path}"))
+    }
+
+    fn silhouette_path(&self, sex: Sex) -> Option<String> {
+        Some(format!("/{HANDLER}/{SILHOUETTE}/{}", silhouette_slug(sex)))
     }
 }
 
@@ -66,6 +73,15 @@ pub fn DesktopApp() -> Element {
             responder.respond(not_found());
             return;
         };
+        // The silhouettes are compiled into the application, not held by the
+        // backend: they are answered from here rather than proxied.
+        if let Some(slug) = path.strip_prefix(&format!("/{SILHOUETTE}/")) {
+            responder.respond(match silhouette(slug) {
+                Some(response) => response,
+                None => not_found(),
+            });
+            return;
+        }
         spawn(async move {
             responder.respond(match fetch(&api, &path).await {
                 Some(response) => response,
@@ -88,6 +104,19 @@ async fn fetch(api: &ApiClient, path: &str) -> Option<Response<Vec<u8>>> {
         // the WebView may keep it for as long as it is open.
         .header("Cache-Control", "private, max-age=3600")
         .body(bytes)
+        .ok()
+}
+
+fn silhouette(slug: &str) -> Option<Response<Vec<u8>>> {
+    let sex = [Sex::Male, Sex::Female, Sex::Unknown]
+        .into_iter()
+        .find(|sex| silhouette_slug(*sex) == slug)?;
+    Response::builder()
+        .status(200)
+        .header("Content-Type", "image/png")
+        // Compiled into the binary: it cannot change while the window is open.
+        .header("Cache-Control", "private, max-age=31536000, immutable")
+        .body(oxidgene_ui::components::pedigree_chart::silhouette_png(sex).to_vec())
         .ok()
 }
 

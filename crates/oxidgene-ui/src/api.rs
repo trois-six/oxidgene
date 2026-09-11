@@ -700,8 +700,17 @@ impl CroppedSource {
     ///
     /// One place rather than five, so the fallback cannot drift between the
     /// search list, the search grid, the pedigree cards and the profile header.
+    ///
+    /// Served by the shell where there is one, so a page full of cards carries
+    /// one reference to the picture rather than a few kilobytes of it per card.
+    /// `try_consume_context` and not `use_context`: this is called from render
+    /// bodies and helper functions alike, and must not be a hook.
     pub fn silhouette(sex: oxidgene_core::Sex) -> Self {
-        Self::whole(crate::components::pedigree_chart::default_portrait(sex).to_string())
+        let hosted = dioxus::prelude::try_consume_context::<crate::image_host::ImageHost>()
+            .and_then(|host| host.silhouette_path(sex));
+        Self::whole(hosted.unwrap_or_else(|| {
+            crate::components::pedigree_chart::default_portrait(sex).to_string()
+        }))
     }
 }
 
