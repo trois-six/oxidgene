@@ -1972,16 +1972,31 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Match every editable field in the modal (birth name, given names,
        dates, notes, ...) to the same background used by a saved
        .person-form-item row (e.g. a created profession), instead of the
-       app-wide input background. */
-    .person-form-modal input,
+       app-wide input background.
+
+       The `:not()` chain is repeated from the app-wide rule, and repeating it
+       is the whole point. `:not()` carries the specificity of its argument, so
+       `input:not([type=…]):not([type=…])` scores 0-2-1 — above a bare
+       `.person-form-modal input` at 0-1-1. Without it this rule reached the
+       <select> and the <textarea> and silently missed every <input>, which is
+       why a title field sat on the panel background while the description box
+       beside it was white. */
+    .person-form-modal input:not([type="checkbox"]):not([type="radio"]),
     .person-form-modal select,
     .person-form-modal textarea,
-    .union-form-modal input,
+    .union-form-modal input:not([type="checkbox"]):not([type="radio"]),
     .union-form-modal select,
     .union-form-modal textarea,
-    .pf-embedded input,
+    .pf-embedded input:not([type="checkbox"]):not([type="radio"]),
     .pf-embedded select,
-    .pf-embedded textarea {
+    .pf-embedded textarea,
+    /* The document form is one modal reached from three places, only two of
+       which are a person or couple form. Listed here so its fields look the
+       same wherever it was opened from, rather than inheriting the panel
+       background — which is its own background — when opened from a profile. */
+    .document-form-modal input:not([type="checkbox"]):not([type="radio"]),
+    .document-form-modal select,
+    .document-form-modal textarea {
         background: var(--bg-card);
     }
 
@@ -1995,7 +2010,8 @@ pub const LAYOUT_STYLES: &str = r#"
        looked like it had simply lost its first lines. */
     .person-form-modal textarea,
     .union-form-modal textarea,
-    .pf-embedded textarea {
+    .pf-embedded textarea,
+    .document-form-modal textarea {
         resize: vertical;
         min-height: 76px;
         overflow-y: auto;
@@ -2003,17 +2019,20 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .person-form-modal textarea::-webkit-scrollbar,
     .union-form-modal textarea::-webkit-scrollbar,
-    .pf-embedded textarea::-webkit-scrollbar {
+    .pf-embedded textarea::-webkit-scrollbar,
+    .document-form-modal textarea::-webkit-scrollbar {
         width: 10px;
     }
     .person-form-modal textarea::-webkit-scrollbar-track,
     .union-form-modal textarea::-webkit-scrollbar-track,
-    .pf-embedded textarea::-webkit-scrollbar-track {
+    .pf-embedded textarea::-webkit-scrollbar-track,
+    .document-form-modal textarea::-webkit-scrollbar-track {
         background: transparent;
     }
     .person-form-modal textarea::-webkit-scrollbar-thumb,
     .union-form-modal textarea::-webkit-scrollbar-thumb,
-    .pf-embedded textarea::-webkit-scrollbar-thumb {
+    .pf-embedded textarea::-webkit-scrollbar-thumb,
+    .document-form-modal textarea::-webkit-scrollbar-thumb {
         background: var(--text-muted);
         border-radius: 5px;
         border: 2px solid var(--bg-card);
@@ -2036,7 +2055,9 @@ pub const LAYOUT_STYLES: &str = r#"
     .union-form-modal input,
     .union-form-modal select,
     .pf-embedded input,
-    .pf-embedded select {
+    .pf-embedded select,
+    .document-form-modal input,
+    .document-form-modal select {
         height: 38px;
         line-height: 20px;
     }
@@ -2049,7 +2070,8 @@ pub const LAYOUT_STYLES: &str = r#"
        both, and the arrow becomes ours to place. */
     .person-form-modal select,
     .union-form-modal select,
-    .pf-embedded select {
+    .pf-embedded select,
+    .document-form-modal select {
         appearance: none;
         -webkit-appearance: none;
         padding-right: 30px;
@@ -2064,7 +2086,8 @@ pub const LAYOUT_STYLES: &str = r#"
        the dark palette needs its own copy. */
     :root.dark .person-form-modal select,
     :root.dark .union-form-modal select,
-    :root.dark .pf-embedded select {
+    :root.dark .pf-embedded select,
+    :root.dark .document-form-modal select {
         background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%237a8da8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     }
 
@@ -3782,7 +3805,7 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow: hidden;
     }
 
-    .media-manager-modal {
+    .document-form-modal {
         display: flex;
         flex-direction: column;
         width: min(1100px, 100%);
@@ -3793,7 +3816,7 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow: hidden;
     }
 
-    .media-manager-body {
+    .document-form-body {
         min-height: 0;
         padding: 16px;
         overflow-y: auto;

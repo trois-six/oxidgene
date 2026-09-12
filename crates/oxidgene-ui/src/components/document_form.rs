@@ -305,7 +305,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
             class: "cropper-backdrop",
             onmousedown: move |event| event.stop_propagation(),
             onclick: move |_| if !busy { on_close.call(()) },
-            div { class: "media-manager-modal", onclick: move |event| event.stop_propagation(),
+            div { class: "document-form-modal", onclick: move |event| event.stop_propagation(),
                 div { class: "cropper-head",
                     span { class: "cropper-title", {i18n.t("media.new_document")} }
                     button {
@@ -317,7 +317,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                         "\u{00D7}"
                     }
                 }
-                div { class: "media-manager-body",
+                div { class: "document-form-body",
                     div { class: "media-panel is-embedded",
 
                         div { class: "form-group",
