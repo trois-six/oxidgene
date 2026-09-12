@@ -977,7 +977,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         // ── Citation form ───────────────────────────────────────────
         // ── Media (Sprint F.2) ──────────────────────────────────────
         ("media.section", "Media"),
-        ("media.manager_title", "Add and manage media"),
         ("media.upload", "Upload"),
         ("media.drop_hint", "or drop files"),
         ("media.select_files", "Select files"),
@@ -1104,8 +1103,12 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.not_embeddable", "This format cannot be shown here. Download it to open it."),
         ("media.no_file", "No file: this record names a document nobody has uploaded."),
         // ── Multi-page documents (Sprint F.3) ───────────────────────
-        ("media.new_document", "New document"),
-        ("media.new_document_hint", "several pages"),
+        ("media.new_document", "Add a document"),
+        ("media.new_document_hint", "photo, scan, or a link"),
+        ("media.new_document_pages_hint", "One image per page, in reading order. Add files, an address, or both. Nothing is saved until you click Save."),
+        ("media.new_document_needs_a_page", "Add at least one page or link before saving."),
+        ("media.link_url", "Link this address"),
+        ("media.page_remove", "Remove from this document"),
         ("media.pages", "Pages"),
         ("media.manage_pages", "Manage pages"),
         ("media.pages_hint", "Upload one image per page. The title, date, place, description, note and tags describe the whole document; each page can have its own transcript in the viewer."),

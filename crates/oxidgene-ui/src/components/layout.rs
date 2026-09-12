@@ -1910,8 +1910,6 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-shrink: 0;
     }
 
-    .uf-media-action-icon { display: none; }
-
     .person-form-body,
     .union-form-body {
         flex: 1;
@@ -2617,16 +2615,6 @@ pub const LAYOUT_STYLES: &str = r#"
 
         .union-form-header > div:first-child { min-width: 0; }
         .union-form-header h2 { overflow-wrap: anywhere; }
-        .uf-media-action {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 34px;
-            height: 34px;
-            padding: 0;
-        }
-        .uf-media-action-icon { display: block; }
-        .uf-media-action-label { display: none; }
     }
 
     @keyframes slideUpModal {
@@ -4500,9 +4488,32 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .doc-page-actions { display: flex; justify-content: center; gap: 2px; }
 
+    /* A page that has not been written yet has no thumbnail to recognise it
+       by, so the name is shown. Clipped to the cell rather than wrapped: a
+       scanner's file names are long and alike, and three wrapped lines of
+       "IMG_20240712_14" push every following page out of the grid row. */
+    .doc-page-name {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     /* The document's own upload cell sits in the same grid as its pages, so
        "add a page" is the cell after the last one. */
     .doc-pages .media-drop { aspect-ratio: 3 / 4; }
+
+    /* The address field under that grid, for a page somebody else serves. */
+    .doc-page-url {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 8px;
+    }
+
+    .doc-page-url input { flex: 1; min-width: 0; }
 
     /* ── Page navigation ──────────────────────────────────────────── */
 

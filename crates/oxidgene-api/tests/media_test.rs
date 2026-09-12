@@ -1714,6 +1714,39 @@ async fn pages_arrive_in_upload_order_and_count_themselves() {
 }
 
 #[tokio::test]
+async fn a_page_held_by_somebody_else_counts_like_one_we_store() {
+    let h = setup().await;
+    let doc = document(&h, "Archive dossier").await;
+    let (status, page) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": doc,
+            "file_name": "folio-3.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": "https://archives.example.org/dossier/3.jpg",
+            "file_size": 0,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+    assert_eq!(page["parent_media_id"], doc);
+
+    let (_, doc_row) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/{doc}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(
+        doc_row["page_count"], 1,
+        "a linked page is a page, whoever serves its bytes"
+    );
+}
+
+#[tokio::test]
 async fn a_gallery_shows_the_document_not_its_pages() {
     let h = setup().await;
     let person_id = person(&h).await;

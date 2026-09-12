@@ -13,8 +13,8 @@ use crate::api::{ApiClient, MediaWithLink};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::format_event_date;
+use crate::components::document_form::DocumentForm;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
-use crate::components::media_manager_modal::MediaManagerModal;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
 use crate::components::topbar_search::TopbarSearch;
@@ -194,7 +194,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let mut show_edit_person = use_signal(|| false);
     let mut show_create_person = use_signal(|| false);
     let mut media_revision = use_signal(|| 0_u32);
-    let mut media_manager_open = use_signal(|| false);
+    let mut document_form_open = use_signal(|| false);
 
     // ── Resources ────────────────────────────────────────────────────
 
@@ -1521,8 +1521,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         button {
                             class: "media-upload-icon-btn",
                             r#type: "button",
-                            title: i18n.t("media.manager_title"),
-                            onclick: move |_| media_manager_open.set(true),
+                            title: i18n.t("media.new_document"),
+                            onclick: move |_| document_form_open.set(true),
                             span { class: "media-upload-icon-glyph", "+" }
                         }
                     }
@@ -1546,13 +1546,19 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                 }
             }
-            if media_manager_open() {
-                MediaManagerModal {
+            if document_form_open() {
+                DocumentForm {
                     tree_id: media_tid,
                     owner: MediaOwner::Person(pid),
-                    profile_event_links: media_event_links.clone(),
-                    on_changed: move |()| media_revision += 1,
-                    on_close: move |()| media_manager_open.set(false),
+                    // The profile's own events, so a certificate can be filed
+                    // as evidence for the birth it proves while it is being
+                    // added rather than in a second pass.
+                    events: media_event_links
+                        .iter()
+                        .map(|link| (link.event_id, link.label.clone()))
+                        .collect::<Vec<_>>(),
+                    on_created: move |()| media_revision += 1,
+                    on_close: move |()| document_form_open.set(false),
                 }
             }
         }

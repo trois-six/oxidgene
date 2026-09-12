@@ -208,13 +208,16 @@ Offline place databases are optional SQLite files in the application data
 directory. They are downloaded and updated explicitly from settings; automatic
 network access is not assumed.
 
-### 4.5 MediaInput, MediaGallery, and MediaManagerModal
+### 4.5 MediaInput, MediaGallery, and DocumentForm
 
 The canonical upload cell accepts clicks and drag-and-drop and reports
 per-file progress. Files are processed through the same upload API regardless
-of entry point. The canonical gallery owns tiles, viewer opening, edit actions,
-document paging, portraits, and context menus. Pages do not implement alternate
-media grids.
+of entry point. It also has a deferred mode in which it uploads nothing and
+hands the chosen `(file name, bytes)` pairs to its caller; that mode exists for
+`DocumentForm`, which has no document to hang pages off until the user saves.
+The canonical gallery owns tiles, viewer opening, edit actions, document
+paging, portraits, and context menus. Pages do not implement alternate media
+grids.
 
 The initial grid loads tile thumbnails, the first four document-page previews
 — a generated thumbnail, or a remote page's own image URL — vignette crops, and
@@ -254,15 +257,38 @@ or held by nobody. A remote page is rendered from its URL exactly as a stored
 one is rendered from our copy, and the panel's URL field edits that page's
 address. Only a row that names a file offers the field; a document names none.
 
-`MediaManagerModal` is the only editable container for a person's or family's
-gallery. It wraps the canonical `MediaGallery`, saves every media mutation
-immediately, and closes independently of person and couple forms. Its owner is
-explicitly a person or family; its event options allow the same media to be
-linked as evidence without embedding a second gallery in an event editor.
+#### Adding a document
 
-Person profiles open it from the compact `+` action beside **Media**. Couple
-forms open it from the fixed header. Person forms, embedded person blocks, and
-event editors never render their own upload or media-management controls.
+There is exactly one way to add media, because there is one kind of thing to
+add. A single photograph and a forty-page notarial act are the same record: a
+document row that describes it and page rows that hold the files. An editable
+gallery therefore ends in one **Add a document** cell, never in a separate
+quick-upload cell beside a multi-page one — the second would be the first with
+its fields withheld, which is how a photograph ends up with no date, no place,
+and no kind while the register beside it has all three.
+
+That cell opens `DocumentForm`: the document's own fields — title, description,
+tags, kind of record, physical medium, privacy, date, place, note, and the
+events it documents — above a page list. A page is either a file, chosen from
+the shared upload cell, or an address somebody else serves, typed into the URL
+field; the two may be mixed in one document, and pages may be reordered and
+removed before saving.
+
+Nothing is written until the user saves. Cancelling issues no request, so
+closing the form cannot leave an unnamed empty document attached to somebody.
+Saving creates the document, writes its pages in list order, applies the
+metadata, tags, note, and event links, and attaches the document to its owner
+last. A failure at any step after creation purges the document — which takes
+its pages, tags, notes, and links with it — so the gallery never shows a
+half-written record. Save is refused while the page list is empty.
+
+Every editable gallery is this same one. Person forms and couple forms both
+render it as a **Media** section at the bottom of the form body, above the
+delete action; a couple's papers are the same kind of thing as a person's, and
+reaching them through a separate header button made them look like a different
+feature. Person profiles, which have no form, open `DocumentForm` directly from
+the compact `+` action beside **Media**. Event editors embed the gallery scoped
+to the event rather than rendering controls of their own.
 
 The shared viewer uses the app's sans-serif body typography throughout its
 compact facts column, with readable secondary labels rather than monospace

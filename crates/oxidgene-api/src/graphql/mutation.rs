@@ -1007,6 +1007,10 @@ impl MutationRoot {
             input.description,
         )
         .await?;
+        // `create` writes the row but does not count it: the document's
+        // `page_count` is maintained by whoever adds the page. The REST twin
+        // refreshes it here, and a page added over GraphQL is the same page.
+        MediaRepo::refresh_page_count(db, document_id).await?;
         Ok(media.into())
     }
 

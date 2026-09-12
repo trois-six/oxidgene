@@ -430,16 +430,24 @@ Once saved, an event's row carries a **"Notes & source"** toggle that expands a 
 
 ## 10. Media Management Boundary
 
-The person form, its event editors, and the person blocks embedded in the
-couple form contain no media grid, upload control, or evidence gallery. Media
-writes save independently and therefore belong to the shared media manager,
-not to a form whose footer implies one combined Save or Cancel transaction.
+The person form and the couple form each end in a **Media** section, above the
+delete action, holding the shared gallery scoped to that person or family. Both
+forms present it the same way: a couple's papers are the same kind of thing as
+a person's.
 
-On the person profile, the compact `+` action beside **Media** opens the shared
-media manager for that person. The manager receives the person's events as
-available evidence targets. Uploads, documents, metadata, portraits, crops,
-event links, detachments, and deletions are described in
-[Common UI](ui-common.md#45-mediainput-mediagallery-and-mediamanagermodal).
+Media writes are not part of the form's Save. They land as they are made, which
+the section states, and every host treats the form's `on_saved` callback as
+"refresh" so a card behind the modal updates even when the user then cancels.
+The person blocks embedded in the couple form render no media section of their
+own — each spouse's documents belong to that spouse's own form, not to two
+places at once. Event editors embed the gallery scoped to the event, which is
+its evidence.
+
+On the person profile, the compact `+` action beside **Media** opens the
+document form directly, with the person's events offered as evidence targets.
+Adding documents, metadata, portraits, crops, event links, detachments, and
+deletions are described in
+[Common UI](ui-common.md#45-mediainput-mediagallery-and-documentform).
 
 ---
 
@@ -530,8 +538,6 @@ As the user types in the surname and first name fields, a suggestion dropdown ap
 
 - Below **600px**: modal becomes full-screen drawer (slides up from bottom)
 - Union details section (for "Add spouse" in create mode) is initially collapsed on mobile
-- In the couple edit modal, the media-manager action becomes a square icon
-  button while retaining its localized tooltip and accessible name.
 
 ---
 
@@ -549,19 +555,26 @@ Same dimensions and behavior as the person edit modal: centered overlay, ~720px 
 
 - Title: both persons' names separated by ` & `, for example `<person A> & <person B>`
 - Subtitle: "Edit union"
-- **Add and manage media** — opens the shared media manager for the family; it
-  receives the union events as available evidence targets
 - Close button `×` — closes without saving, prompts confirmation if unsaved changes
+
+The header carries no media action. The family's documents live in the body,
+where a person's do.
 
 ### Body Structure
 
-The scrollable body is divided into three blocks:
+The scrollable body is divided into blocks:
 
 ```
 ┌─────────────────────────────────────────────────┐  ← fixed header
-│  <person A> & <person B>       [Media]       [×] │
+│  <person A> & <person B>                     [×] │
 │  Edit union                                     │
 ├─────────────────────────────────────────────────┤
+│                                                 │
+│  ── Person 1: <person A> ────────────────────   │  ← person 1 block
+│  (same fields as individual edit modal)         │
+│                                                 │
+│  ── Person 2: <person B> ────────────────────   │  ← person 2 block
+│  (same fields as individual edit modal)         │
 │                                                 │
 │  ── Union ──────────────────────────────────    │  ← union block
 │  Events / Date / Place / Note / Source          │
@@ -569,11 +582,10 @@ The scrollable body is divided into three blocks:
 │  ── Children ───────────────────────────────    │  ← children block
 │  [child list with detach option]                │
 │                                                 │
-│  ── Person 1: <person A> ────────────────────   │  ← person 1 block
-│  (same fields as individual edit modal)         │
+│  ── Privacy ────────────────────────────────    │  ← privacy block
 │                                                 │
-│  ── Person 2: <person B> ────────────────────   │  ← person 2 block
-│  (same fields as individual edit modal)         │
+│  ── Media ──────────────────────────────────    │  ← media block
+│  [document tiles]  [+ Add a document]           │
 │                                                 │
 ├─────────────────────────────────────────────────┤  ← fixed footer
 │  [Delete couple]          [Cancel]  [Save]      │
@@ -582,7 +594,8 @@ The scrollable body is divided into three blocks:
 
 ### Union Block
 
-Displayed first, before the children block and either person's fields.
+Displayed after the two person blocks — which are collapsed by default, so the
+union's own fields are the first thing open — and before the children block.
 
 **Union events** — dynamic list of event blocks. Each event has the same structure as the "Other events" blocks in the individual edit modal (date qualifier + place + note + source + optional calendar + optional witnesses).
 
@@ -617,7 +630,7 @@ An **"+ Add a union event"** button appends a new event block. Each block is col
 
 ### Children Block
 
-Displayed between the union block and the person blocks. Lists all children currently linked to this union.
+Displayed after the union block. Lists all children currently linked to this union.
 
 Each child is shown as a single row:
 
@@ -644,9 +657,18 @@ If the union has no children, the block shows a muted "No children linked to thi
 Each person block contains exactly the same fields as the individual edit modal
 (civil status, birth, death, privacy, supplementary fields, and other events),
 collapsed into a clearly labeled section divider showing the person's name.
-It does not duplicate the family or person media manager.
+It renders no media section of its own: a spouse's documents belong to that
+spouse's own form, and the family's are the couple's block below.
 
 Each block is **independently expandable/collapsible** via a toggle on the section divider. Collapsed by default; the union block and children block are always expanded.
+
+### Media Block
+
+Displayed last in the body, above the delete action, holding the shared gallery
+scoped to this family with the union's events offered as evidence targets. Its
+contents and the document form it opens are described in
+[Common UI](ui-common.md#45-mediainput-mediagallery-and-documentform). Media
+writes are not part of the footer's Save; they land as they are made.
 
 ### Footer
 

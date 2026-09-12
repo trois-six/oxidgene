@@ -34,6 +34,7 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::ContextMenuSurface;
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateInput, DateParts, format_date};
+use crate::components::document_form::DocumentForm;
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
 use crate::components::person_form::render_place_select;
@@ -203,7 +204,7 @@ impl MediaOwner {
         }
     }
 
-    fn id(&self) -> Uuid {
+    pub(crate) fn id(&self) -> Uuid {
         match self {
             Self::Person(id) | Self::Family(id) | Self::Event(id) => *id,
         }
@@ -369,6 +370,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         }
     });
     let mut editing = use_signal(|| None::<Uuid>);
+    let mut creating = use_signal(|| false);
     let mut cropping = use_signal(|| None::<MediaWithLink>);
     let mut viewing = use_signal(|| None::<MediaViewerSelection>);
     let mut error = use_signal(|| None::<String>);
@@ -470,63 +472,6 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         }
     });
 
-    // A media uploaded through the cell below is not attached to anything yet:
-    // the upload endpoint records the file, the link is what puts it in *this*
-    // gallery. Doing it here rather than server-side keeps the upload endpoint
-    // usable from an importer that links nothing.
-    let link_uploaded = {
-        let api = api.clone();
-        move |media_id: Uuid| {
-            let api = api.clone();
-            spawn(async move {
-                let body = CreateMediaLinkBody {
-                    media_id,
-                    person_id: matches!(owner, MediaOwner::Person(_)).then(|| owner.id()),
-                    family_id: matches!(owner, MediaOwner::Family(_)).then(|| owner.id()),
-                    event_id: matches!(owner, MediaOwner::Event(_)).then(|| owner.id()),
-                    source_id: None,
-                    sort_order: 0,
-                };
-                if let Err(e) = api.create_media_link(tree_id, &body).await {
-                    error.set(Some(e.to_string()));
-                }
-                changed.call(());
-            });
-        }
-    };
-
-    // Creating a document also links it here, exactly as an upload does: a
-    // document nobody can find is not a document.
-    let new_document = {
-        let api = api.clone();
-        move |_| {
-            let api = api.clone();
-            spawn(async move {
-                match api.create_media_document(tree_id, None).await {
-                    Ok(document) => {
-                        let body = CreateMediaLinkBody {
-                            media_id: document.id,
-                            person_id: matches!(owner, MediaOwner::Person(_)).then(|| owner.id()),
-                            family_id: matches!(owner, MediaOwner::Family(_)).then(|| owner.id()),
-                            event_id: matches!(owner, MediaOwner::Event(_)).then(|| owner.id()),
-                            source_id: None,
-                            sort_order: 0,
-                        };
-                        if let Err(e) = api.create_media_link(tree_id, &body).await {
-                            error.set(Some(e.to_string()));
-                        }
-                        changed.call(());
-                        // Open its panel straight away: an empty document is
-                        // useless until pages are added, and the panel is
-                        // where they are added.
-                        editing.set(Some(document.id));
-                    }
-                    Err(e) => error.set(Some(e.to_string())),
-                }
-            });
-        }
-    };
-
     let items: Vec<MediaWithLink> = match &*tiles.read_unchecked() {
         Some(Ok(items)) => items.clone(),
         Some(Err(e)) => {
@@ -601,21 +546,16 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                 }
             }
             if !compact && !read_only {
-                MediaInput {
-                    tree_id,
-                    on_uploaded: link_uploaded,
-                }
-            }
-            if !compact && !read_only {
-                // A document is created empty and then filled: the user says
-                // "this is a register" first, and adds its scans afterwards,
-                // which is the order the scans come out of a scanner in.
+                // One way in, because there is one kind of thing to add. A
+                // single scan and a forty-page act are the same record — a
+                // document with pages — so a second "just upload a file" cell
+                // would only be this one with its fields hidden.
                 div { class: "media-drop",
                     button {
                         class: "media-drop-btn",
                         r#type: "button",
-                        onclick: new_document,
-                        span { class: "media-drop-icon", "\u{1F4DA}" }
+                        onclick: move |_| creating.set(true),
+                        span { class: "media-drop-icon", "+" }
                         span { class: "media-drop-label", {use_i18n().t("media.new_document")} }
                         span { class: "media-drop-hint", {use_i18n().t("media.new_document_hint")} }
                     }
@@ -636,6 +576,16 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
 
         if let Some(err) = error() {
             div { class: "error-msg", "{err}" }
+        }
+
+        if creating() {
+            DocumentForm {
+                tree_id,
+                owner,
+                events: events.clone(),
+                on_created: move |()| changed.call(()),
+                on_close: move |()| creating.set(false),
+            }
         }
 
         if let Some(tile) = open_tile {
@@ -2132,7 +2082,6 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                 tree_id,
                 document_id,
                 label: i18n.t("media.add_pages"),
-                on_uploaded: move |_| {},
                 on_batch_done: move |_| {
                     revision += 1;
                     on_changed.call(());
@@ -4605,7 +4554,7 @@ fn extension_for_mime(mime_type: &str) -> Option<&'static str> {
 /// Isolated so a keystroke in this short field cannot re-render the entire
 /// media editor and its place, note, event and vignette sections.
 #[component]
-fn MediaTagForm(on_add: EventHandler<String>) -> Element {
+pub(crate) fn MediaTagForm(on_add: EventHandler<String>) -> Element {
     let i18n = use_i18n();
 
     rsx! {

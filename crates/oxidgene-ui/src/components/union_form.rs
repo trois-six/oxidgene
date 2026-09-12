@@ -13,8 +13,7 @@ use uuid::Uuid;
 
 use crate::api::{AddChildBody, ApiClient};
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
-use crate::components::media_gallery::MediaOwner;
-use crate::components::media_manager_modal::MediaManagerModal;
+use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::person_form::{
     DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
     create_event_body, focus_next_field_js, render_add_toggle, render_notes_source_fields,
@@ -90,7 +89,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // own fetches — opening both by default would load the couple twice over.
     let open_union = use_signal(|| true);
     let open_children = use_signal(|| true);
-    let mut media_manager_open = use_signal(|| false);
+    let open_media = use_signal(|| true);
     let show_person1 = use_signal(|| false);
     let show_person2 = use_signal(|| false);
 
@@ -527,22 +526,6 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     }
                     div { class: "uf-header-actions",
                         button {
-                            class: "pf-confirm-btn uf-media-action",
-                            r#type: "button",
-                            title: i18n.t("media.manager_title"),
-                            aria_label: i18n.t("media.manager_title"),
-                            onclick: move |_| media_manager_open.set(true),
-                            svg {
-                                class: "uf-media-action-icon",
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                rect { x: "3", y: "5", width: "18", height: "14", rx: "2" }
-                                circle { cx: "8.5", cy: "10", r: "1.5" }
-                                path { d: "m21 15-5-5L5 19" }
-                            }
-                            span { class: "uf-media-action-label", {i18n.t("media.manager_title")} }
-                        }
-                        button {
                             class: "person-form-close",
                             onclick: move |_| props.on_close.call(()),
                             "x"
@@ -871,6 +854,25 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
                     }
 
+                    // ── Media ──
+                    // In the body and above the delete button, exactly where
+                    // a person's documents are: a couple's papers are the same
+                    // kind of thing as a person's, and reaching them through a
+                    // separate button in the header made them look like a
+                    // different feature.
+                    FormSection { title: i18n.t("media.section"), open: open_media,
+                        MediaGallery {
+                            tree_id: tid,
+                            owner: MediaOwner::Family(fid),
+                            events: union_event_choices.clone(),
+                            // Media writes land immediately and are not part of
+                            // this form's save, so the card behind the modal
+                            // must refresh even if the user then cancels.
+                            // Every host treats `on_saved` as "refresh".
+                            on_changed: move |()| props.on_saved.call(()),
+                        }
+                    }
+
                     // ── Delete couple ──
                     // No section header and no rule above it, as in person_form:
                     // the button already says what it does.
@@ -903,16 +905,6 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                             if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
                         }
                     }
-                }
-            }
-
-            if media_manager_open() {
-                MediaManagerModal {
-                    tree_id: tid,
-                    owner: MediaOwner::Family(fid),
-                    events: union_event_choices.clone(),
-                    on_changed: move |()| props.on_saved.call(()),
-                    on_close: move |()| media_manager_open.set(false),
                 }
             }
         }

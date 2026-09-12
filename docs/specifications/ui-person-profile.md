@@ -252,8 +252,9 @@ Displayed as a full-width card below the two-column layout.
 
 This uses the canonical `MediaGallery` rendered with `read_only: true`, not a
 second grid that looks similar. The ★ badge marks the profile image; a tile's
-↗ opens the file. Editing takes place in the dedicated media manager rather
-than in the person form. The gallery combines media attached directly to the
+↗ opens the file. Restructuring what is attached takes place in the person edit
+modal's media section; describing and deleting a media takes place in the
+viewer this gallery opens. The gallery combines media attached directly to the
 person, media attached to any couple in which the person is a spouse, and
 every vignette identifying that person. Direct and couple attachments are
 de-duplicated by media id. An identification is rendered as its cropped
@@ -293,9 +294,11 @@ shows at most five events; vertical previous and next controls scroll its
 five-row window by one event when more are available.
 
 The section remains visible when the person has no media. A compact `+` button
-beside its title opens `MediaManagerModal` for this person. The modal owns
-uploading, document creation, cropping, retitling, portrait selection,
-event-link management, detaching, and deletion.
+beside its title opens `DocumentForm` for this person, with the profile's own
+individual and conjugal events offered as evidence targets. Restructuring what
+is already attached — cropping, retitling, portrait selection, detaching —
+belongs to the person edit modal's media section; deleting a media and editing
+its description belong to the viewer, which the read-only gallery opens.
 
 A tile opens the media viewer. The viewer fills the available viewport inside
 its backdrop (edge-to-edge on narrow screens), and a fitted image may use the
@@ -398,7 +401,7 @@ browser CORS rules; failures are localized and retryable.
 Web downloads of stored files use the attachment `/download` endpoint, while
 ZIP uses `/archive`; inline previews continue to use `/file`. Downloads use the
 shared streaming transfer and native-Blob browser fallback described in
-[Common UI](ui-common.md#45-mediainput-mediagallery-and-mediamanagermodal); API URLs are never navigation
+[Common UI](ui-common.md#45-mediainput-mediagallery-and-documentform); API URLs are never navigation
 targets. Desktop downloads open a native save dialog before fetching and report localized
 download or write failures. Cancelling the dialog does not fetch the file.
 Individual suggested filenames retain their type extension; the ZIP is named

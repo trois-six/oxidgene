@@ -40,6 +40,9 @@ timestamp: 2026-08-26T00:00:00Z
   storage as the local default behind `MediaStore`.
 - [x] Offer a Geneanet import that stores Geneanet's own renditions, skipping
   the data archives and the byte-length pass they need.
+- [x] Reduce media entry to one document form, reachable identically from the
+  person form, the couple form, and the profile, that writes nothing until it
+  is saved and accepts remote addresses alongside uploaded files.
 - [ ] Exercise migrations and media workflows against PostgreSQL in CI.
 - [ ] Decide whether PDF page rendering justifies a native rasterizer and its
   cross-platform binary cost.

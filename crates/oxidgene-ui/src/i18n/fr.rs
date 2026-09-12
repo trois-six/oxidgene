@@ -1003,7 +1003,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         // ── Citation form ───────────────────────────────────────────
         // ── Media (Sprint F.2) ──────────────────────────────────────
         ("media.section", "M\u{00E9}dias"),
-        ("media.manager_title", "Ajouter et g\u{00E9}rer les m\u{00E9}dias"),
         ("media.upload", "Ajouter"),
         ("media.drop_hint", "ou d\u{00E9}posez des fichiers"),
         ("media.select_files", "S\u{00E9}lectionner des fichiers"),
@@ -1130,8 +1129,12 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.not_embeddable", "Ce format ne peut pas \u{00EA}tre affich\u{00E9} ici. T\u{00E9}l\u{00E9}chargez-le pour l\u{2019}ouvrir."),
         ("media.no_file", "Aucun fichier : cette fiche nomme un document que personne n\u{2019}a d\u{00E9}pos\u{00E9}."),
         // ── Multi-page documents (Sprint F.3) ───────────────────────
-        ("media.new_document", "Nouveau document"),
-        ("media.new_document_hint", "plusieurs pages"),
+        ("media.new_document", "Ajouter un document"),
+        ("media.new_document_hint", "photo, num\u{00E9}risation ou lien"),
+        ("media.new_document_pages_hint", "Une image par page, dans l\u{2019}ordre de lecture. Ajoutez des fichiers, une adresse, ou les deux. Rien n\u{2019}est enregistr\u{00E9} tant que vous n\u{2019}avez pas cliqu\u{00E9} sur Enregistrer."),
+        ("media.new_document_needs_a_page", "Ajoutez au moins une page ou un lien avant d\u{2019}enregistrer."),
+        ("media.link_url", "Lier cette adresse"),
+        ("media.page_remove", "Retirer de ce document"),
         ("media.pages", "Pages"),
         ("media.manage_pages", "G\u{00E9}rer les pages"),
         ("media.pages_hint", "D\u{00E9}posez une image par page. Le titre, la date, le lieu, la description, la note et les \u{00E9}tiquettes d\u{00E9}crivent le document entier\u{202F}; chaque page peut avoir sa propre transcription dans la visionneuse."),

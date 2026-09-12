@@ -10,6 +10,11 @@
 //! control, and firing them all at once turns "3 of 12" — which reads as
 //! progress — into twelve stalled requests that finish in an unpredictable
 //! order.
+//!
+//! The cell also has a mode where it uploads nothing: set [`MediaInputProps::on_files`]
+//! and it hands the chosen bytes to the caller instead. That is what the new
+//! document form uses — it cannot upload a page before the document exists, and
+//! the document must not exist before the user says so.
 
 use dioxus::html::HasFileData;
 use dioxus::prelude::*;
@@ -17,6 +22,9 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, MediaUpload};
 use crate::i18n::use_i18n;
+
+/// One chosen file: the name it was picked under, and its bytes.
+pub type PickedFile = (String, Vec<u8>);
 
 /// How far along a batch of uploads is.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,10 +53,18 @@ pub struct MediaInputProps {
     /// Per file rather than per batch so the caller can link and show each
     /// tile as it lands, instead of a gallery that stays empty until the
     /// slowest file finishes.
-    pub on_uploaded: EventHandler<Uuid>,
+    #[props(default)]
+    pub on_uploaded: Option<EventHandler<Uuid>>,
     /// Called when the whole batch is done, successfully or not.
     #[props(default)]
     pub on_batch_done: Option<EventHandler<()>>,
+    /// Take the chosen files instead of uploading them.
+    ///
+    /// When set, nothing is sent: the picker and the drop target still behave
+    /// the same, and the `(file name, bytes)` pairs go to the caller. A form
+    /// that has no document to hang pages off yet holds them until it does.
+    #[props(default)]
+    pub on_files: Option<EventHandler<Vec<PickedFile>>>,
 }
 
 /// The "+ Upload" cell: file picker, drag target, and progress readout.
@@ -69,6 +85,7 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
     let compact = props.compact;
     let on_uploaded = props.on_uploaded;
     let on_batch_done = props.on_batch_done;
+    let on_files = props.on_files;
 
     let pick_files = {
         let api = api.clone();
@@ -98,6 +115,10 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                     payloads.push((file.file_name(), file.read().await));
                 }
 
+                if let Some(handler) = on_files {
+                    handler.call(payloads);
+                    return;
+                }
                 upload_files(
                     tree_id,
                     document_id,
@@ -148,6 +169,10 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                         }
                     }
                     if payloads.is_empty() {
+                        return;
+                    }
+                    if let Some(handler) = on_files {
+                        handler.call(payloads);
                         return;
                     }
                     upload_files(
@@ -215,11 +240,11 @@ fn short_name(raw: &str) -> String {
 async fn upload_files(
     tree_id: Uuid,
     document_id: Option<Uuid>,
-    files: Vec<(String, Vec<u8>)>,
+    files: Vec<PickedFile>,
     mut progress: Signal<Option<UploadProgress>>,
     mut error: Signal<Option<String>>,
     api: ApiClient,
-    on_uploaded: EventHandler<Uuid>,
+    on_uploaded: Option<EventHandler<Uuid>>,
     on_batch_done: Option<EventHandler<()>>,
     i18n: &crate::i18n::I18n,
 ) {
@@ -247,7 +272,11 @@ async fn upload_files(
             )
             .await
         {
-            Ok(media) => on_uploaded.call(media.id),
+            Ok(media) => {
+                if let Some(handler) = on_uploaded {
+                    handler.call(media.id);
+                }
+            }
             Err(e) => failures.push(format!("{file_name}: {}", friendly(&e, i18n))),
         }
     }
@@ -266,7 +295,7 @@ async fn upload_files(
 /// The upload endpoint answers `400` with a message that already says what is
 /// wrong ("unsupported file type; accepted types are …"), so a rejected file
 /// is worth quoting; anything else is plumbing and reads better generically.
-fn friendly(err: &crate::api::ApiError, i18n: &crate::i18n::I18n) -> String {
+pub fn friendly(err: &crate::api::ApiError, i18n: &crate::i18n::I18n) -> String {
     match err {
         crate::api::ApiError::Api { status: 400, body } => {
             serde_json::from_str::<serde_json::Value>(body)

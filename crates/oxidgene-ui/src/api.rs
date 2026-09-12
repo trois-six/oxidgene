@@ -905,6 +905,28 @@ pub struct CreateMediaLinkBody {
     pub sort_order: i32,
 }
 
+/// A page whose bytes somebody else serves.
+///
+/// The counterpart to [`MediaUpload`]: same destination — the next page of a
+/// document — but the address travels instead of the content. Nothing here is
+/// ever fetched; the address is recorded and handed to the browser when the
+/// page is drawn.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateMediaBody {
+    /// The document this becomes a page of. A page always belongs to one.
+    pub document_id: Uuid,
+    pub file_name: String,
+    pub mime_type: String,
+    /// The http(s) address the file lives at.
+    pub file_path: String,
+    /// Unknown until somebody fetches it, which is the point of not doing so.
+    pub file_size: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 /// One file on its way up, and what it should become on arrival.
 ///
 /// A struct rather than six positional arguments: three of them are
@@ -3190,6 +3212,22 @@ impl ApiClient {
             .send_request("POST", self.client.post(&url).multipart(form))
             .await?;
         let media = Self::handle_response("POST", resp).await?;
+        self.invalidate_tree(tree_id);
+        Ok(media)
+    }
+
+    /// Add a page that names a file without holding its bytes.
+    ///
+    /// The bytes-carrying counterpart of [`ApiClient::upload_media`]; both
+    /// append a page to an existing document.
+    pub async fn create_media(
+        &self,
+        tree_id: Uuid,
+        body: &CreateMediaBody,
+    ) -> Result<Media, ApiError> {
+        let media = self
+            .post(&format!("/api/v1/trees/{tree_id}/media"), body)
+            .await?;
         self.invalidate_tree(tree_id);
         Ok(media)
     }

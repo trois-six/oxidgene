@@ -2845,6 +2845,43 @@ async fn test_upload_media_file_over_graphql() {
     assert!(media["thumbnailKey"].is_string());
 }
 
+/// The GraphQL twin of `a_page_held_by_somebody_else_counts_like_one_we_store`.
+///
+/// `uploadMedia` writes a page whose bytes are somebody else's. The row landing
+/// is not the whole job: a document's `pageCount` is maintained by whoever adds
+/// the page, and a surface that skips it reports an empty document holding a
+/// page.
+#[tokio::test]
+async fn a_remote_page_added_over_graphql_counts_toward_its_document() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ uploadMedia(treeId: "{tree_id}", input: {{
+                 documentId: "{document_id}",
+                 fileName: "folio-3.jpg",
+                 mimeType: "image/jpeg",
+                 filePath: "https://archives.example.org/dossier/3.jpg",
+                 fileSize: 0
+               }}) {{ id parentMediaId }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["uploadMedia"]["parentMediaId"], document_id);
+
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"{{ media(treeId: "{tree_id}", id: "{document_id}") {{ pageCount }} }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["media"]["pageCount"], 1);
+}
+
 #[tokio::test]
 async fn deleting_a_page_over_graphql_removes_its_relations() {
     let (app, _root) = setup_app_with_media().await;

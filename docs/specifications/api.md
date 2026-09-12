@@ -237,7 +237,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media` | List media (cursor-paginated) |
-| `POST` | `/trees/{tree_id}/media` | Create a media record from JSON metadata — names a file without holding it |
+| `POST` | `/trees/{tree_id}/media` | Add a page that names a file without holding it — an archive's URL, or a path a GEDCOM mentioned. `document_id` is required: bytes and addresses live on pages, and a page belongs to a document. The GraphQL twin is `uploadMedia` |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
 | `POST` | `/trees/{tree_id}/image-data` | Resolve held **image sources** (see below) to inline `data:` URLs, in request order, at most 1,024 per request. A slot is `null` when there is nothing of ours to inline — a remote source, or a picture we no longer hold. For clients with no origin of their own to serve pictures from; a client that has one never calls this |
@@ -309,7 +309,9 @@ ordinary photograph's single-page document. Its pages are media rows carrying
 `parent_media_id` and `page_index`; each page must belong to a live document in
 the same tree, never another page. A page's `page_count` counts images inside
 its file (for example, a multi-page TIFF); a document's count is recomputed from
-its live page rows, including zero. Listings filter `parent_media_id IS NULL`.
+its live page rows, including zero. Every write that adds a page refreshes that
+count, whichever surface it arrives through and whether the page carries bytes
+or only an address. Listings filter `parent_media_id IS NULL`.
 File attachment targets pages only. Neither a document's file fields nor a
 stored page's path or sniffed MIME type can be changed through metadata updates.
 Replacing page bytes must preserve the validity of existing crop coordinates.
