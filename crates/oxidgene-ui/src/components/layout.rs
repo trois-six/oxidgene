@@ -4505,7 +4505,8 @@ pub const LAYOUT_STYLES: &str = r#"
        "add a page" is the cell after the last one. */
     .doc-pages .media-drop { aspect-ratio: 3 / 4; }
 
-    /* The address field under that grid, for a page somebody else serves. */
+    /* The address field under that grid, shown while a link cell or a page's
+       pencil has it open. */
     .doc-page-url {
         display: flex;
         gap: 8px;
@@ -4514,6 +4515,10 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .doc-page-url input { flex: 1; min-width: 0; }
+
+    /* The link cell stays marked while the field below belongs to it, so the
+       two read as one control rather than as a button and an unrelated row. */
+    .media-drop.is-open { border-color: var(--orange); }
 
     /* ── Page navigation ──────────────────────────────────────────── */
 

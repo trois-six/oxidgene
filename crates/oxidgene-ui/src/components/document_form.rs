@@ -70,6 +70,28 @@ impl PendingPage {
     }
 }
 
+/// Which page the address field is currently standing in for.
+#[derive(Clone, Copy, PartialEq)]
+enum UrlEdit {
+    /// A page that does not exist yet, added by the cell at the end of the
+    /// grid.
+    New,
+    /// The address of the page already at this position, being corrected.
+    Existing(usize),
+}
+
+/// One page as the grid needs it.
+///
+/// Built without the bytes: the list holds whole files, and cloning it to draw
+/// a row of names would copy every chosen megabyte on every render.
+struct PageRow {
+    index: usize,
+    label: String,
+    preview: Option<String>,
+    /// Only an address can be retyped. A file's name follows its bytes.
+    remote: bool,
+}
+
 /// The last path segment of a URL, which is the closest thing it has to a file
 /// name.
 ///
@@ -128,6 +150,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
 
     let mut pages = use_signal(Vec::<PendingPage>::new);
     let mut url_draft = use_signal(String::new);
+    let mut editing_url = use_signal(|| None::<UrlEdit>);
     let mut title = use_signal(String::new);
     let mut description = use_signal(String::new);
     let mut tags = use_signal(Vec::<String>::new);
@@ -158,15 +181,29 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
         _ => Vec::new(),
     };
 
-    let add_url = move |_| {
+    // One handler for both "add an address" and "correct that address": the
+    // difference is a position, and a typo in a URL is found after it has been
+    // added far more often than while it is being typed.
+    let commit_url = use_callback(move |()| {
         let url = url_draft().trim().to_string();
         if url.is_empty() {
             return;
         }
         let file_name = url_file_name(&url);
-        pages.write().push(PendingPage::Remote { url, file_name });
+        let page = PendingPage::Remote { url, file_name };
+        match editing_url() {
+            Some(UrlEdit::Existing(index)) => {
+                if let Some(slot) = pages.write().get_mut(index) {
+                    *slot = page;
+                }
+            }
+            // Appended, not inserted: the address is the page the user has
+            // just described, and it belongs after the ones already listed.
+            Some(UrlEdit::New) | None => pages.write().push(page),
+        }
         url_draft.set(String::new());
-    };
+        editing_url.set(None);
+    });
 
     let save = {
         let api = api.clone();
@@ -248,22 +285,20 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
         }
     };
 
-    // Read once into labels: the list holds file bytes, and cloning it to draw
-    // a row of names would copy every uploaded megabyte on every render.
-    let rows: Vec<(usize, String, Option<String>)> = pages
+    let rows: Vec<PageRow> = pages
         .read()
         .iter()
         .enumerate()
-        .map(|(index, page)| {
-            (
-                index,
-                page.label().to_string(),
-                page.preview_url().map(str::to_string),
-            )
+        .map(|(index, page)| PageRow {
+            index,
+            label: page.label().to_string(),
+            preview: page.preview_url().map(str::to_string),
+            remote: matches!(page, PendingPage::Remote { .. }),
         })
         .collect();
     let total = rows.len();
     let busy = saving();
+    let url_open = editing_url().is_some();
 
     rsx! {
         div {
@@ -284,88 +319,6 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                 }
                 div { class: "media-manager-body",
                     div { class: "media-panel is-embedded",
-
-                        // Pages first: they are what the user came to add, and
-                        // the fields below describe them.
-                        div { class: "media-panel-section",
-                            label { {i18n.t("media.pages")} }
-                            p { class: "pf-ns-hint", {i18n.t("media.new_document_pages_hint")} }
-                            div { class: "doc-pages",
-                                for (index , label , preview) in rows {
-                                    div { key: "{index}-{label}", class: "doc-page",
-                                        span { class: "doc-page-number", "{index + 1}" }
-                                        div { class: "doc-page-thumb",
-                                            if let Some(preview) = preview {
-                                                img { src: "{preview}", alt: "{label}", loading: "lazy" }
-                                            } else {
-                                                span { class: "media-glyph", "\u{1F4C4}" }
-                                            }
-                                        }
-                                        span { class: "doc-page-name", title: "{label}", "{label}" }
-                                        div { class: "doc-page-actions",
-                                            button {
-                                                class: "pf-row-btn",
-                                                r#type: "button",
-                                                disabled: index == 0 || busy,
-                                                title: i18n.t("media.page_move_up"),
-                                                onclick: move |_| pages.write().swap(index, index - 1),
-                                                "\u{2191}"
-                                            }
-                                            button {
-                                                class: "pf-row-btn",
-                                                r#type: "button",
-                                                disabled: index + 1 >= total || busy,
-                                                title: i18n.t("media.page_move_down"),
-                                                onclick: move |_| pages.write().swap(index, index + 1),
-                                                "\u{2193}"
-                                            }
-                                            button {
-                                                class: "pf-row-btn is-danger",
-                                                r#type: "button",
-                                                disabled: busy,
-                                                title: i18n.t("media.page_remove"),
-                                                onclick: move |_| { pages.write().remove(index); },
-                                                "\u{2715}"
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // The canonical upload cell, told to hand the
-                                // bytes over instead of sending them.
-                                MediaInput {
-                                    tree_id,
-                                    label: i18n.t("media.add_pages"),
-                                    on_files: move |files: Vec<PickedFile>| {
-                                        let mut list = pages.write();
-                                        for (name, bytes) in files {
-                                            list.push(PendingPage::File { name, bytes });
-                                        }
-                                    },
-                                }
-                            }
-
-                            // The other half of "a page is a file or an
-                            // address", which the database has always allowed
-                            // and no screen ever offered.
-                            div { class: "doc-page-url",
-                                input {
-                                    r#type: "text",
-                                    value: "{url_draft}",
-                                    placeholder: "https://\u{2026}",
-                                    disabled: busy,
-                                    oninput: move |e: Event<FormData>| url_draft.set(e.value()),
-                                }
-                                button {
-                                    class: "btn btn-outline btn-sm",
-                                    r#type: "button",
-                                    disabled: busy || url_draft().trim().is_empty(),
-                                    onclick: add_url,
-                                    {i18n.t("media.link_url")}
-                                }
-                            }
-                            p { class: "pf-ns-hint", {i18n.t("media.url_hint")} }
-                        }
 
                         div { class: "form-group",
                             label { {i18n.t("media.title")} }
@@ -544,6 +497,156 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        // Pages last, immediately above Save. The fields above
+                        // describe the document; this is the document itself,
+                        // and it is the last thing the user assembles before
+                        // committing.
+                        div { class: "media-panel-section",
+                            label { {i18n.t("media.pages")} }
+                            p { class: "pf-ns-hint", {i18n.t("media.new_document_pages_hint")} }
+                            div { class: "doc-pages",
+                                for row in rows {
+                                    {
+                                        let PageRow { index, label, preview, remote } = row;
+                                        let address = label.clone();
+                                        rsx! {
+                                            div { key: "{index}-{label}", class: "doc-page",
+                                                span { class: "doc-page-number", "{index + 1}" }
+                                                div { class: "doc-page-thumb",
+                                                    if let Some(preview) = preview {
+                                                        img { src: "{preview}", alt: "{label}", loading: "lazy" }
+                                                    } else if remote {
+                                                        span { class: "media-glyph", "\u{1F517}" }
+                                                    } else {
+                                                        span { class: "media-glyph", "\u{1F4C4}" }
+                                                    }
+                                                }
+                                                span { class: "doc-page-name", title: "{label}", "{label}" }
+                                                div { class: "doc-page-actions",
+                                                    button {
+                                                        class: "pf-row-btn",
+                                                        r#type: "button",
+                                                        disabled: index == 0 || busy,
+                                                        title: i18n.t("media.page_move_up"),
+                                                        onclick: move |_| pages.write().swap(index, index - 1),
+                                                        "\u{2191}"
+                                                    }
+                                                    button {
+                                                        class: "pf-row-btn",
+                                                        r#type: "button",
+                                                        disabled: index + 1 >= total || busy,
+                                                        title: i18n.t("media.page_move_down"),
+                                                        onclick: move |_| pages.write().swap(index, index + 1),
+                                                        "\u{2193}"
+                                                    }
+                                                    // Only an address can be retyped, so
+                                                    // only an address offers the pencil.
+                                                    if remote {
+                                                        button {
+                                                            class: "pf-row-btn",
+                                                            r#type: "button",
+                                                            disabled: busy,
+                                                            title: i18n.t("media.edit_url"),
+                                                            onclick: move |_| {
+                                                                url_draft.set(address.clone());
+                                                                editing_url.set(Some(UrlEdit::Existing(index)));
+                                                            },
+                                                            "\u{270E}"
+                                                        }
+                                                    }
+                                                    button {
+                                                        class: "pf-row-btn is-danger",
+                                                        r#type: "button",
+                                                        disabled: busy,
+                                                        title: i18n.t("media.page_remove"),
+                                                        onclick: move |_| {
+                                                            pages.write().remove(index);
+                                                            // The position the field
+                                                            // was standing in for has
+                                                            // moved.
+                                                            editing_url.set(None);
+                                                        },
+                                                        "\u{2715}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // The canonical upload cell, told to hand the
+                                // bytes over instead of sending them.
+                                MediaInput {
+                                    tree_id,
+                                    label: i18n.t("media.add_pages"),
+                                    on_files: move |files: Vec<PickedFile>| {
+                                        let mut list = pages.write();
+                                        for (name, bytes) in files {
+                                            list.push(PendingPage::File { name, bytes });
+                                        }
+                                    },
+                                }
+
+                                // The other half of "a page is a file or an
+                                // address", drawn as the same kind of cell: a
+                                // page somebody else serves is a page, and
+                                // adding one is the same gesture as adding a
+                                // file, not a different control in a different
+                                // place.
+                                div { class: if url_open { "media-drop is-open" } else { "media-drop" },
+                                    button {
+                                        class: "media-drop-btn",
+                                        r#type: "button",
+                                        disabled: busy,
+                                        title: i18n.t("media.link_url"),
+                                        onclick: move |_| {
+                                            url_draft.set(String::new());
+                                            editing_url.set(Some(UrlEdit::New));
+                                        },
+                                        span { class: "media-drop-icon", "\u{1F517}" }
+                                        span { class: "media-drop-label", {i18n.t("media.link_url")} }
+                                        span { class: "media-drop-hint", {i18n.t("media.link_url_hint")} }
+                                    }
+                                }
+                            }
+
+                            if url_open {
+                                form {
+                                    class: "doc-page-url",
+                                    onsubmit: move |event: Event<FormData>| {
+                                        event.prevent_default();
+                                        commit_url.call(());
+                                    },
+                                    input {
+                                        r#type: "text",
+                                        value: "{url_draft}",
+                                        placeholder: "https://\u{2026}",
+                                        autocomplete: "off",
+                                        spellcheck: "false",
+                                        disabled: busy,
+                                        oninput: move |e: Event<FormData>| url_draft.set(e.value()),
+                                    }
+                                    button {
+                                        class: "pf-confirm-btn btn-sm",
+                                        r#type: "submit",
+                                        disabled: busy || url_draft().trim().is_empty(),
+                                        {i18n.t("common.save")}
+                                    }
+                                    button {
+                                        class: "btn btn-outline btn-sm",
+                                        r#type: "button",
+                                        disabled: busy,
+                                        onclick: move |_| {
+                                            url_draft.set(String::new());
+                                            editing_url.set(None);
+                                        },
+                                        {i18n.t("common.cancel")}
+                                    }
+                                }
+                                p { class: "pf-ns-hint", {i18n.t("media.url_hint")} }
                             }
                         }
 

@@ -269,10 +269,17 @@ and no kind while the register beside it has all three.
 
 That cell opens `DocumentForm`: the document's own fields — title, description,
 tags, kind of record, physical medium, privacy, date, place, note, and the
-events it documents — above a page list. A page is either a file, chosen from
-the shared upload cell, or an address somebody else serves, typed into the URL
-field; the two may be mixed in one document, and pages may be reordered and
-removed before saving.
+events it documents — followed by the page list, which sits last, immediately
+above Save. The fields describe the document; the pages are the document, and
+assembling them is the last thing done before committing.
+
+A page is either a file or an address somebody else serves, and the two may be
+mixed in one document. Both are added the same way, from two cells at the end of
+the page grid: the shared upload cell, and a link cell drawn identically that
+opens an address field when clicked. An address stays editable afterwards — a
+remote page carries a pencil action that reopens the same field on that page —
+because a mistyped URL is found after it has been added far more often than
+while it is being typed. Pages may be reordered and removed before saving.
 
 Nothing is written until the user saves. Cancelling issues no request, so
 closing the form cannot leave an unnamed empty document attached to somebody.
