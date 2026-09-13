@@ -488,7 +488,9 @@ Each event is clickable to display full details (complete location, source, note
 
 ## 8. Responsive
 
-- Below **900px wide**: cards reduced to 130x64px, avatar 28px, smaller text
+- Card sizes do not vary with viewport width: they are fixed by the active
+	theme (see [Themes](#9-themes)), and a narrow viewport is handled by
+	zooming and panning the canvas rather than by redrawing the cards
 - At **600px wide and below**, the right events sidebar automatically collapses
      and its resize handle is hidden; the user can still reopen the collapsed panel
 - At **400px wide and below**, the right events sidebar disappears entirely and
