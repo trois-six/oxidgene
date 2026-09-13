@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title description">
+  <title id="title">OxidGene social preview</title>
+  <desc id="description">OxidGene logo, product summary, and an abstract interactive family tree.</desc>
+  <defs>
+    <pattern id="grain" width="32" height="32" patternUnits="userSpaceOnUse">
+      <circle cx="3" cy="7" r="0.8" fill="#203028" opacity="0.08"/>
+      <circle cx="23" cy="19" r="0.6" fill="#203028" opacity="0.06"/>
+    </pattern>
+    <clipPath id="brand-mark">
+      <rect x="70" y="54" width="146" height="138" rx="2"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1280" height="640" fill="#f7f3ea"/>
+  <rect width="1280" height="640" fill="url(#grain)"/>
+  <rect width="430" height="10" fill="#ef7d17"/>
+  <rect x="430" width="210" height="10" fill="#f4c51c"/>
+  <rect x="640" width="640" height="10" fill="#52a63d"/>
+
+  <path d="M665 10H1280V640H620C663 556 682 455 676 350C671 244 649 128 665 10Z" fill="#17251f"/>
+  <path d="M646 640C680 552 693 453 687 350C681 242 664 132 681 10" fill="none" stroke="#33453c" stroke-width="2"/>
+
+  <g clip-path="url(#brand-mark)">
+    <image href="OxidGene.png" x="1" y="8" width="284" height="284"/>
+  </g>
+  <text x="247" y="147" font-family="DejaVu Sans, sans-serif" font-size="61" font-weight="700" letter-spacing="0">
+    <tspan fill="#c84d0b">Oxid</tspan><tspan fill="#318b34">Gene</tspan>
+  </text>
+  <text x="249" y="181" fill="#657269" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="700" letter-spacing="0">FAMILY HISTORY, FULLY YOURS</text>
+
+  <text x="72" y="296" fill="#17251f" font-family="DejaVu Sans, sans-serif" font-size="48" font-weight="700" letter-spacing="0">
+    <tspan x="72" dy="0">Modern genealogy,</tspan>
+    <tspan x="72" dy="58">built entirely in Rust.</tspan>
+  </text>
+  <text x="75" y="428" fill="#526159" font-family="DejaVu Sans, sans-serif" font-size="22" letter-spacing="0">
+    <tspan x="75" dy="0">Import, explore and preserve complete family trees</tspan>
+    <tspan x="75" dy="34">across desktop, web and mobile.</tspan>
+  </text>
+
+  <text x="755" y="92" fill="#ffffff" font-family="DejaVu Sans, sans-serif" font-size="32" font-weight="700" letter-spacing="0">Your history, connected.</text>
+  <text x="757" y="126" fill="#aebbb4" font-family="DejaVu Sans, sans-serif" font-size="18" letter-spacing="0">Everything you need to grow and preserve a family tree.</text>
+
+  <g font-family="DejaVu Sans, sans-serif" letter-spacing="0">
+    <g transform="translate(755 170)">
+      <circle cx="18" cy="18" r="18" fill="#ef7d17"/>
+      <text x="18" y="24" fill="#ffffff" font-size="16" font-weight="700" text-anchor="middle">1</text>
+      <text x="52" y="14" fill="#ffffff" font-size="18" font-weight="700">Import and reconnect</text>
+      <text x="52" y="39" fill="#aebbb4" font-size="14">GEDCOM, GEDZIP, GeneWeb and Geneanet media</text>
+    </g>
+    <g transform="translate(755 252)">
+      <circle cx="18" cy="18" r="18" fill="#52a63d"/>
+      <text x="18" y="24" fill="#ffffff" font-size="16" font-weight="700" text-anchor="middle">2</text>
+      <text x="52" y="14" fill="#ffffff" font-size="18" font-weight="700">Explore and edit complete trees</text>
+      <text x="52" y="39" fill="#aebbb4" font-size="14">People, families, events, sources, places and media</text>
+    </g>
+    <g transform="translate(755 334)">
+      <circle cx="18" cy="18" r="18" fill="#f4c51c"/>
+      <text x="18" y="24" fill="#17251f" font-size="16" font-weight="700" text-anchor="middle">3</text>
+      <text x="52" y="14" fill="#ffffff" font-size="18" font-weight="700">Work on every screen</text>
+      <text x="52" y="39" fill="#aebbb4" font-size="14">Responsive web, mobile and native desktop apps</text>
+    </g>
+    <g transform="translate(755 416)">
+      <circle cx="18" cy="18" r="18" fill="#ef7d17"/>
+      <text x="18" y="24" fill="#ffffff" font-size="16" font-weight="700" text-anchor="middle">4</text>
+      <text x="52" y="14" fill="#ffffff" font-size="18" font-weight="700">Keep working offline</text>
+      <text x="52" y="39" fill="#aebbb4" font-size="14">Local SQLite storage with no server required</text>
+    </g>
+    <g transform="translate(755 498)">
+      <circle cx="18" cy="18" r="18" fill="#52a63d"/>
+      <text x="18" y="24" fill="#ffffff" font-size="16" font-weight="700" text-anchor="middle">5</text>
+      <text x="52" y="14" fill="#ffffff" font-size="18" font-weight="700">Or... integrate without compromise</text>
+      <text x="52" y="39" fill="#aebbb4" font-size="14">REST and GraphQL parity with OpenTelemetry</text>
+    </g>
+  </g>
+</svg>
