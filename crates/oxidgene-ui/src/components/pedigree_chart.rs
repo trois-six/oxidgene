@@ -4907,3 +4907,362 @@ mod layout_overlap_tests {
         }
     }
 }
+
+/// Golden reference for the pedigree's absolute geometry.
+///
+/// Every card position, connector path and canvas transform below is derived
+/// by pure functions from the layout constants at the top of this file. Those
+/// constants are about to be routed through a pedigree theme, and the classic
+/// theme has to stay pixel-for-pixel identical to what ships today.
+///
+/// Nothing else in the suite can catch that. The existing layout tests assert
+/// *relations* — cards do not overlap, a parent stays centered over its
+/// children — and a geometry that was uniformly wrong would satisfy every one
+/// of them. This module pins the numbers themselves.
+///
+/// The expected block is generated, not hand-written: set `OXIDGENE_BLESS=1`
+/// to have the test print the current geometry in paste-ready form instead of
+/// asserting. Regenerate it only for a change you meant to make.
+#[cfg(test)]
+mod geometry_golden_tests {
+    use super::*;
+    use oxidgene_core::{Calendar, NameType};
+
+    fn id(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn epoch() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::UNIX_EPOCH
+    }
+
+    /// Assembles a [`PedigreeData`] without going through the projection API.
+    ///
+    /// Ids are sequential rather than v7 so the fixture is byte-stable: the
+    /// layout reads relations in insertion order, so a random id would not
+    /// move a card, but it would make the golden block unreadable.
+    #[derive(Default)]
+    struct Fixture {
+        persons: HashMap<Uuid, Person>,
+        names: HashMap<Uuid, Vec<PersonName>>,
+        spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>>,
+        children_by_family: HashMap<Uuid, Vec<FamilyChild>>,
+        families_as_child: HashMap<Uuid, Vec<Uuid>>,
+        families_as_spouse: HashMap<Uuid, Vec<Uuid>>,
+        events_by_person: HashMap<Uuid, Vec<DomainEvent>>,
+    }
+
+    impl Fixture {
+        fn person(&mut self, n: u128, sex: Sex, given: &str, surname: &str) -> &mut Self {
+            let pid = id(n);
+            self.persons.insert(
+                pid,
+                Person {
+                    id: pid,
+                    tree_id: id(0),
+                    sex,
+                    privacy: Privacy::Default,
+                    portrait_media_id: None,
+                    portrait_vignette_id: None,
+                    created_at: epoch(),
+                    updated_at: epoch(),
+                    deleted_at: None,
+                },
+            );
+            self.names.insert(
+                pid,
+                vec![PersonName {
+                    id: id(n + 10_000),
+                    person_id: pid,
+                    name_type: NameType::Birth,
+                    given_names: Some(given.to_string()),
+                    surname: Some(surname.to_string()),
+                    surname_prefix: None,
+                    prefix: None,
+                    suffix: None,
+                    nickname: None,
+                    is_primary: true,
+                    sort_order: 0,
+                    created_at: epoch(),
+                    updated_at: epoch(),
+                }],
+            );
+            self
+        }
+
+        /// Gives a person a birth and/or death year, with its precision mark —
+        /// the card draws `ca 1849-< 1917` from exactly this.
+        fn life(
+            &mut self,
+            n: u128,
+            birth: Option<(&str, DateQualifier)>,
+            death: Option<(&str, DateQualifier)>,
+        ) -> &mut Self {
+            let pid = id(n);
+            let mut events = Vec::new();
+            for (offset, event_type, dated) in [
+                (20_000, EventType::Birth, birth),
+                (30_000, EventType::Death, death),
+            ] {
+                if let Some((value, qualifier)) = dated {
+                    events.push(DomainEvent {
+                        id: id(n + offset),
+                        tree_id: id(0),
+                        event_type,
+                        date_value: Some(value.to_string()),
+                        date_sort: None,
+                        date_qualifier: qualifier,
+                        date_value2: None,
+                        calendar: Calendar::Gregorian,
+                        cause: None,
+                        place_id: None,
+                        person_id: Some(pid),
+                        family_id: None,
+                        description: None,
+                        created_at: epoch(),
+                        updated_at: epoch(),
+                        deleted_at: None,
+                    });
+                }
+            }
+            self.events_by_person.insert(pid, events);
+            self
+        }
+
+        fn family(&mut self, fam: u128, spouses: &[u128], children: &[u128]) -> &mut Self {
+            let fid = id(fam);
+            self.spouses_by_family.insert(
+                fid,
+                spouses
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &n)| FamilySpouse {
+                        id: id(fam + 40_000 + i as u128),
+                        family_id: fid,
+                        person_id: id(n),
+                        role: match self.persons.get(&id(n)).map(|p| p.sex) {
+                            Some(Sex::Female) => SpouseRole::Wife,
+                            Some(Sex::Male) => SpouseRole::Husband,
+                            _ => SpouseRole::Partner,
+                        },
+                        sort_order: i as i32,
+                    })
+                    .collect(),
+            );
+            self.children_by_family.insert(
+                fid,
+                children
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &n)| FamilyChild {
+                        id: id(fam + 50_000 + i as u128),
+                        family_id: fid,
+                        person_id: id(n),
+                        child_type: ChildType::Biological,
+                        sort_order: i as i32,
+                    })
+                    .collect(),
+            );
+            for &n in spouses {
+                self.families_as_spouse.entry(id(n)).or_default().push(fid);
+            }
+            for &n in children {
+                self.families_as_child.entry(id(n)).or_default().push(fid);
+            }
+            self
+        }
+
+        fn build(self) -> PedigreeData {
+            PedigreeData {
+                persons: self.persons,
+                names: self.names,
+                spouses_by_family: self.spouses_by_family,
+                children_by_family: self.children_by_family,
+                families_as_child: self.families_as_child,
+                families_as_spouse: self.families_as_spouse,
+                events_by_person: self.events_by_person,
+                events_by_family: HashMap::new(),
+                places: HashMap::new(),
+                photos: HashMap::new(),
+                sosa_ancestors: HashSet::new(),
+                sosa_root_id: None,
+                self_person_id: None,
+            }
+        }
+    }
+
+    /// The person ids the golden block refers to, so a diff in it can be read
+    /// back to a card. `1` is the root the chart is centered on.
+    const ROOT: u128 = 1;
+
+    /// A pedigree wide enough to exercise every geometry path at once:
+    ///
+    /// - three ascending generations, so the deepest row is drawn compact
+    ///   (`COMPACT_W`/`COMPACT_H`) and the ones above it are not;
+    /// - a missing father and a wholly unknown couple, for the empty slots;
+    /// - a sibling beside the root, which is what draws the sibling connector;
+    /// - two descending generations, so both `DESC_H` and `CARD_H` rows exist;
+    /// - a married child with a child of their own, for the spouse link and
+    ///   the multi-child fan-out.
+    fn wide_pedigree() -> PedigreeData {
+        let mut f = Fixture::default();
+
+        // Root generation.
+        f.person(ROOT, Sex::Male, "Root", "Branch_A")
+            .life(
+                ROOT,
+                Some(("ABT 1849", DateQualifier::About)),
+                Some(("1917", DateQualifier::Before)),
+            )
+            .person(2, Sex::Female, "Sibling_1", "Branch_A");
+
+        // Parents and grandparents.
+        f.person(3, Sex::Male, "Father_1", "Branch_A")
+            .life(3, Some(("1820", DateQualifier::Exact)), None)
+            .person(4, Sex::Female, "Mother_1", "Branch_B")
+            .person(5, Sex::Male, "Grandfather_1", "Branch_A")
+            .person(6, Sex::Female, "Grandmother_1", "Branch_C")
+            .person(7, Sex::Female, "Grandmother_2", "Branch_D");
+
+        // Spouse, children and a grandchild.
+        f.person(8, Sex::Female, "Spouse_1", "Branch_E")
+            .person(9, Sex::Male, "Child_1", "Branch_A")
+            .person(10, Sex::Female, "Child_2", "Branch_A")
+            .person(11, Sex::Female, "Spouse_2", "Branch_F")
+            .person(12, Sex::Male, "Grandchild_1", "Branch_A");
+
+        // Root's parental family — the sibling makes the root a middle child.
+        f.family(100, &[3, 4], &[1, 2]);
+        // Father's parents: both known.
+        f.family(101, &[5, 6], &[3]);
+        // Mother's parents: only the mother, so the father slot stays empty.
+        f.family(102, &[7], &[4]);
+        // Root's own family, then the married child's.
+        f.family(103, &[1, 8], &[9, 10]);
+        f.family(104, &[9, 11], &[12]);
+
+        f.build()
+    }
+
+    /// Renders a layout as a stable text block: one line per card, per
+    /// connector and per canvas transform. Four decimals is past what a
+    /// browser can resolve and still far inside `f64`'s exactness here, so a
+    /// line changes only when the geometry really did.
+    fn describe_layout(layout: &PedigreeLayout) -> String {
+        let mut out = String::new();
+        let mut card = |side: &str, i: usize, n: &LayoutNode| {
+            let who = match n.id {
+                Some(pid) => format!("{}", pid.as_u128()),
+                None => "-".to_string(),
+            };
+            out.push_str(&format!(
+                "{side} card[{i}] id={who} x={:.4} y={:.4} compact={} sibling={} \
+                 given={:?} surname={:?} span={:?}\n",
+                n.x,
+                n.y,
+                n.is_compact,
+                n.is_sibling,
+                n.label_given,
+                n.label_surname,
+                format_lifespan(n.birth_year, n.death_year),
+            ));
+        };
+        for (i, n) in layout.asc_nodes.iter().enumerate() {
+            card("asc", i, n);
+        }
+        for (i, n) in layout.desc_nodes.iter().enumerate() {
+            card("desc", i, n);
+        }
+        for (i, p) in layout.asc_links.iter().enumerate() {
+            out.push_str(&format!("asc link[{i}] {p}\n"));
+        }
+        for (i, p) in layout.desc_links.iter().enumerate() {
+            out.push_str(&format!("desc link[{i}] {p}\n"));
+        }
+        out.push_str(&format!(
+            "canvas main=({:.4},{:.4}) desc=({:.4},{:.4}) total=({:.4},{:.4}) \
+             content=({:.4},{:.4},{:.4},{:.4}) root=({:.4},{:.4})\n",
+            layout.main_tx,
+            layout.main_ty,
+            layout.desc_tx,
+            layout.desc_ty,
+            layout.total_w,
+            layout.total_h,
+            layout.content_cx,
+            layout.content_cy,
+            layout.content_w,
+            layout.content_h,
+            layout.root_cx,
+            layout.root_cy,
+        ));
+        out
+    }
+
+    /// Compares against the golden block, or prints a fresh one under
+    /// `OXIDGENE_BLESS=1`.
+    fn assert_golden(actual: &str, expected: &str, name: &str) {
+        if std::env::var_os("OXIDGENE_BLESS").is_some() {
+            println!("\n===== {name} =====\n{actual}===== end {name} =====\n");
+            return;
+        }
+        assert_eq!(
+            actual.trim(),
+            expected.trim(),
+            "{name}: the pedigree geometry moved. If that was the point, \
+             regenerate with OXIDGENE_BLESS=1."
+        );
+    }
+
+    #[test]
+    fn the_classic_geometry_is_unchanged() {
+        let data = wide_pedigree();
+        let layout = compute_layout(id(ROOT), &data, None, &HashSet::new(), 3, 2);
+        assert_golden(
+            &describe_layout(&layout),
+            EXPECTED_WIDE_PEDIGREE,
+            "wide_pedigree",
+        );
+    }
+
+    const EXPECTED_WIDE_PEDIGREE: &str = r#"
+asc card[0] id=1 x=277.5000 y=336.0000 compact=false sibling=false given="Root" surname="Branch_A" span="ca 1849-< 1917"
+asc card[1] id=4 x=462.5000 y=240.0000 compact=false sibling=false given="Mother_1" surname="Branch_B" span=""
+asc card[2] id=7 x=555.0000 y=144.0000 compact=false sibling=false given="Grandmother_2" surname="Branch_D" span=""
+asc card[3] id=- x=647.5000 y=0.0000 compact=true sibling=false given="" surname="" span=""
+asc card[4] id=- x=555.0000 y=0.0000 compact=true sibling=false given="" surname="" span=""
+asc card[5] id=- x=370.0000 y=144.0000 compact=false sibling=false given="" surname="" span=""
+asc card[6] id=3 x=92.5000 y=240.0000 compact=false sibling=false given="Father_1" surname="Branch_A" span="1820-"
+asc card[7] id=6 x=185.0000 y=144.0000 compact=false sibling=false given="Grandmother_1" surname="Branch_C" span=""
+asc card[8] id=- x=277.5000 y=0.0000 compact=true sibling=false given="" surname="" span=""
+asc card[9] id=- x=185.0000 y=0.0000 compact=true sibling=false given="" surname="" span=""
+asc card[10] id=5 x=0.0000 y=144.0000 compact=false sibling=false given="Grandfather_1" surname="Branch_A" span=""
+asc card[11] id=- x=92.5000 y=0.0000 compact=true sibling=false given="" surname="" span=""
+asc card[12] id=- x=0.0000 y=0.0000 compact=true sibling=false given="" surname="" span=""
+asc card[13] id=2 x=662.5000 y=336.0000 compact=false sibling=false given="Sibling_1" surname="Branch_A" span=""
+desc card[0] id=1 x=92.5000 y=0.0000 compact=false sibling=false given="Root" surname="Branch_A" span="ca 1849-< 1917"
+desc card[1] id=8 x=277.5000 y=0.0000 compact=false sibling=true given="Spouse_1" surname="Branch_E" span=""
+desc card[2] id=10 x=370.0000 y=140.0000 compact=false sibling=false given="Child_2" surname="Branch_A" span=""
+desc card[3] id=9 x=0.0000 y=140.0000 compact=false sibling=false given="Child_1" surname="Branch_A" span=""
+desc card[4] id=11 x=185.0000 y=140.0000 compact=false sibling=true given="Spouse_2" surname="Branch_F" span=""
+desc card[5] id=12 x=92.5000 y=236.0000 compact=false sibling=false given="Grandchild_1" surname="Branch_A" span=""
+asc link[0] M370,340 L370,335 S370,326.5 362,326.5 L193,326.5 S185,326.5 185,318 L185,313
+asc link[1] M370,340 L370,335 S370,326.5 378,326.5 L555,326.5
+asc link[2] M555,244 L555,239 S555,230.5 547,230.5 L470.5,230.5 S462.5,230.5 462.5,222 L462.5,217
+asc link[3] M555,244 L555,239 S555,230.5 563,230.5 L639.5,230.5 S647.5,230.5 647.5,222 L647.5,217
+asc link[4] M647.5,148 L647.5,143 S647.5,134.5 639.5,134.5 L610.5,134.5 S602.5,134.5 602.5,126 L602.5,121
+asc link[5] M647.5,148 L647.5,143 S647.5,134.5 655.5,134.5 L687,134.5 S695,134.5 695,126 L695,121
+asc link[6] M185,244 L185,239 S185,230.5 177,230.5 L100.5,230.5 S92.5,230.5 92.5,222 L92.5,217
+asc link[7] M185,244 L185,239 S185,230.5 193,230.5 L269.5,230.5 S277.5,230.5 277.5,222 L277.5,217
+asc link[8] M277.5,148 L277.5,143 S277.5,134.5 269.5,134.5 L240.5,134.5 S232.5,134.5 232.5,126 L232.5,121
+asc link[9] M277.5,148 L277.5,143 S277.5,134.5 285.5,134.5 L317,134.5 S325,134.5 325,126 L325,121
+asc link[10] M92.5,148 L92.5,143 S92.5,134.5 84.5,134.5 L55.5,134.5 S47.5,134.5 47.5,126 L47.5,121
+asc link[11] M92.5,148 L92.5,143 S92.5,134.5 100.5,134.5 L132,134.5 S140,134.5 140,126 L140,121
+asc link[12] M555,313 L555,326.5 747,326.5 S755,326.5 755,334.5 L755,340
+desc link[0] M262.5,38.5 L282.5,38.5
+desc link[1] M277.5,38.5 L277.5,126.5 100.5,126.5 S92.5,126.5 92.5,134.5 L92.5,144
+desc link[2] M277.5,38.5 L277.5,126.5 454.5,126.5 S462.5,126.5 462.5,134.5 L462.5,144
+desc link[3] M170,178.5 L190,178.5
+desc link[4] M185,178.5 L185,222.5 185,222.5 185,240
+canvas main=(50.0000,50.0000) desc=(185.0000,336.0000) total=(947.5000,812.0000) content=(473.7500,406.0000,847.5000,712.0000) root=(420.0000,434.0000)
+"#;
+}
