@@ -1670,6 +1670,89 @@ pub const LAYOUT_STYLES: &str = r#"
         stroke-width: 1;
     }
 
+    /* ── Medieval pedigree theme ──────────────────────────────────────
+       An engraved pedigree is drawn on paper, so this theme owns its own
+       ground rather than borrowing the application's. The variables are
+       redefined on the canvas itself, which is what lets a parchment chart
+       sit inside the dark shell without either one bleeding into the
+       other — and why these declarations must beat the `:root.dark`
+       overrides above regardless of which theme the reader is in. */
+
+    .ped-theme-medieval {
+        --parchment:      #efe2c4;
+        --parchment-deep: #e3d2ac;
+        --ink:            #43331f;
+        --ink-soft:       #6d5838;
+        --gilt:           #9c7b32;
+
+        --pn-bg:          #f6ecd5;
+        --pn-spouse-bg:   #f1e4c8;
+        --pn-root-bg:     #7c3f2a;
+        --pn-border:      var(--ink-soft);
+        --pn-male-line:   #4a5f7a;
+        --pn-female-line: #8c4a52;
+        --pn-text:        var(--ink);
+        --pn-text-muted:  var(--ink-soft);
+        --pn-hover-bg:    #e8d7ae;
+        --pn-sosa:        #6b7c3a;
+        --pn-sosa-root:   var(--gilt);
+        --pn-self:        #7c3f2a;
+        /* The mat behind a portrait: aged paper, never a white chip. */
+        --pn-mat:         var(--parchment-deep);
+
+        /* Laid paper: two faint rules over a warm wash. Gradients rather
+           than an image keep the canvas free of a network request and of
+           bytes to inline, and they tile at any zoom. */
+        background-color: var(--parchment);
+        background-image:
+            repeating-linear-gradient(
+                0deg,
+                rgba(120, 94, 54, 0.045) 0 1px,
+                transparent 1px 4px
+            ),
+            repeating-linear-gradient(
+                90deg,
+                rgba(120, 94, 54, 0.03) 0 1px,
+                transparent 1px 7px
+            ),
+            radial-gradient(
+                ellipse at 50% 40%,
+                rgba(255, 250, 235, 0.55) 0%,
+                rgba(210, 186, 140, 0.28) 70%,
+                rgba(150, 122, 76, 0.34) 100%
+            );
+    }
+
+    /* Ruled connectors are drawn with a pen, so they carry the ink colour
+       and a little more weight than the hairline the classic theme uses. */
+    .ped-theme-medieval .pedigree-connector-path {
+        stroke: var(--ink-soft);
+        stroke-width: 1.4;
+        stroke-linejoin: miter;
+    }
+
+    /* The cartouche's second rule sits inside the frame in a lighter ink,
+       the way an engraver would cut it. */
+    .ped-theme-medieval .ped-card-inner-rule {
+        stroke: var(--gilt);
+        stroke-opacity: 0.75;
+    }
+
+    .ped-theme-medieval .ped-card-rect {
+        stroke-linejoin: miter;
+    }
+
+    /* The portrait medallion gets its own ring rather than sitting flush. */
+    .ped-theme-medieval .ped-card-mat {
+        stroke: var(--gilt);
+        stroke-width: 1.2;
+    }
+
+    .ped-theme-medieval .ped-card:hover .ped-card-rect {
+        fill: var(--pn-hover-bg) !important;
+        stroke: var(--gilt) !important;
+    }
+
     /* ── Mini pedigree (person detail: ancestors/descendants) ────────
        Pannable but not zoomable — fixed scale, drag to move. ────────── */
 

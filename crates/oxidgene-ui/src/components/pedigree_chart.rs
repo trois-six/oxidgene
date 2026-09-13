@@ -19,7 +19,7 @@ use crate::api::CroppedSource;
 use crate::components::cropped_image::{CroppedImage, CroppedSvgImage};
 use crate::components::date_input::format_event_date;
 use crate::components::pedigree_theme::{
-    LinkSpec, PedigreeMetrics, PedigreeTheme, Point, link_path,
+    CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, link_path,
 };
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -34,46 +34,6 @@ use crate::i18n::{I18n, use_i18n};
 use crate::prefs::use_pedigree_defaults;
 
 use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
-
-// ── Card inner SVG geometry (photo / text positions) ─────────────────────
-//
-// The *box* a card occupies, the frame drawn inside it and every dimension a
-// connector attaches to live in [`PedigreeMetrics`] instead: the layout pass
-// and the path generators read those, so a theme that resizes a card resizes
-// the tree around it. What stays here is the classic card's own interior,
-// which no other code has an opinion about.
-
-const PHOTO_W: f64 = 50.0;
-const PHOTO_H: f64 = 50.0;
-const PHOTO_Y: f64 = 10.0;
-const PHOTO_X_FULL: f64 = 10.0;
-const PHOTO_X_COMPACT: f64 = 20.0;
-
-const TEXT_X_FULL: f64 = 70.0;
-const TEXT_X_COMPACT: f64 = 10.0;
-const TEXT_Y_FULL: f64 = 21.0;
-const TEXT_Y_COMPACT: f64 = 81.0;
-const TEXT_MAX_WIDTH_FULL: f32 = 105.0;
-const SURNAME_FONT_SIZE_PX: f32 = 11.0;
-const GIVEN_FONT_SIZE_PX: f32 = 10.0;
-const DATE_FONT_SIZE_PX: f32 = 10.0;
-const SOSA_CX_FULL: f64 = 57.5;
-const SOSA_CX_COMPACT: f64 = 67.5;
-const SOSA_CY: f64 = 57.5;
-const SOSA_R: f64 = 7.5;
-const EDIT_FAB_R: f64 = 14.0;
-const EDIT_FAB_GAP: f64 = 16.0;
-
-/// X of the gender-coded rule running down the card's left edge, and the two
-/// ends it runs between.
-const GENDER_LINE_X_FULL: f64 = 9.0;
-const GENDER_LINE_X_COMPACT: f64 = 19.0;
-const GENDER_LINE_TOP: f64 = 10.0;
-const GENDER_LINE_BOTTOM: f64 = 60.0;
-/// Baseline step between the given name, the surname and the lifespan.
-const NAME_LINE_STEP: f64 = 14.0;
-/// Baseline nudge that centres the "+" glyph in an empty slot.
-const SLOT_PLUS_BASELINE: f64 = 8.0;
 
 // ── Viewport / zoom ──────────────────────────────────────────────────────
 
@@ -220,9 +180,10 @@ fn fit_lifespan(
     birth: Option<QualifiedYear>,
     death: Option<QualifiedYear>,
     max_width_px: f32,
+    font_size_px: f32,
 ) -> String {
     let wide = format_lifespan(birth, death);
-    if crate::utils::estimate_text_width_px(&wide, DATE_FONT_SIZE_PX) <= max_width_px {
+    if crate::utils::estimate_text_width_px(&wide, font_size_px) <= max_width_px {
         return wide;
     }
     format_lifespan_narrow(birth, death)
@@ -2668,7 +2629,6 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
     let scale = props.scale;
     let theme = props.theme.unwrap_or(&PedigreeTheme::CLASSIC);
-    let metrics = &theme.metrics;
 
     // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
     let mut offset_x = use_signal(|| 0.0f64);
@@ -2735,7 +2695,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
 
     rsx! {
         div {
-            class: "mini-pedigree",
+            class: "mini-pedigree {theme.viewport_class}",
             onpointerdown: move |evt| {
                 let coords = evt.client_coordinates();
                 drag_start_x.set(coords.x);
@@ -2779,7 +2739,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     noop_empty_slot,
                                     false,
                                     i18n,
-                                    metrics,
+                                    theme,
                                 )}
                             }
                         }
@@ -2800,7 +2760,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     noop_empty_slot,
                                     false,
                                     i18n,
-                                    metrics,
+                                    theme,
                                 )}
                             }
                         }
@@ -2851,41 +2811,45 @@ pub struct PedigreeChartProps {
     pub theme: Option<&'static PedigreeTheme>,
 }
 
-/// Render one card (person or empty slot) of the pedigree as an SVG `<g>`.
-///
-/// Used for both ascending and descending trees — pass the matching key
-/// prefix (`"an"` / `"dn"`) and `allow_empty_click=true` on both sides, so
-/// missing parents (ascending) and missing spouses (descending) can be
-/// added inline.
 /// The widest text a card's name column can hold, in pixels.
 ///
 /// The compact column is whatever the compact rectangle has left after the
 /// text indent, so a theme that narrows its compact card narrows this with it
 /// rather than letting the names run past the frame.
-fn text_max_width(is_compact: bool, metrics: &PedigreeMetrics) -> f32 {
+fn text_max_width(is_compact: bool, theme: &PedigreeTheme) -> f32 {
     if is_compact {
-        (metrics.compact_inner_w - TEXT_X_COMPACT) as f32
+        (theme.metrics.compact_inner_w - theme.card.text_x_compact) as f32
     } else {
-        TEXT_MAX_WIDTH_FULL
+        theme.card.text_max_width_full
     }
 }
 
-/// Where everything inside one classic card goes.
+/// Where everything inside one card goes, for the theme that is drawing it.
 ///
-/// Pure: the same node and metrics always give the same numbers and strings,
+/// Pure: the same node and theme always give the same numbers and strings,
 /// which is what lets a test pin a card's interior without rendering it. The
-/// `rsx!` below only places what this decided — so a themed renderer can
-/// reuse the measurements and draw its own frame around them.
+/// `rsx!` below only places what this decided, so the two themes share one
+/// renderer and differ in data rather than in code.
 struct CardGeometry {
     /// Drawn rectangle of the card.
     rect_w: f64,
     rect_h: f64,
-    /// `d` of the gender-coded rule down the card's left edge.
-    gender_line: String,
+    /// How the outline is drawn, and the inner rule's inset when it has one.
+    frame: CardFrame,
+    /// `d` of the sex-coded rule, for a theme that draws one beside the
+    /// portrait rather than colouring the whole frame.
+    gender_line: Option<String>,
+    gender_line_width: f64,
     photo_x: f64,
+    photo_y: f64,
+    photo_w: f64,
+    photo_h: f64,
+    /// Corner radius of the portrait mat; half its width makes a medallion.
+    photo_round: f64,
     text_x: f64,
     sosa_cx: f64,
     sosa_cy: f64,
+    sosa_r: f64,
     /// Name pieces already truncated to the column they must fit.
     given: String,
     surname: String,
@@ -2897,55 +2861,68 @@ struct CardGeometry {
     date_html: String,
     /// Set when the lifespan has to be squeezed to fit its column.
     date_squeeze: Option<f32>,
-    /// Centre of the edit button hanging below the focused card.
+    /// Type the theme sets its three lines in.
+    surname_font: &'static str,
+    body_font: &'static str,
+    surname_weight: &'static str,
+    surname_font_px: f32,
+    given_font_px: f32,
+    date_font_px: f32,
+    /// Centre and radius of the edit button hanging below the focused card.
     fab_x: f64,
     fab_y: f64,
+    fab_r: f64,
     /// Centre of the "+" glyph drawn in an empty slot.
     slot_plus_x: f64,
     slot_plus_y: f64,
 }
 
-fn card_geometry(node: &LayoutNode, metrics: &PedigreeMetrics, i18n: &I18n) -> CardGeometry {
+fn card_geometry(node: &LayoutNode, theme: &PedigreeTheme, i18n: &I18n) -> CardGeometry {
+    let metrics = &theme.metrics;
+    let card = &theme.card;
     let is_compact = node.is_compact;
     let (rect_w, rect_h) = metrics.rect(is_compact);
-    let (gender_line_x, photo_x, text_x, ty, sosa_cx) = if is_compact {
+    let (photo_x, text_x, ty, sosa_cx) = if is_compact {
         (
-            GENDER_LINE_X_COMPACT,
-            PHOTO_X_COMPACT,
-            TEXT_X_COMPACT,
-            TEXT_Y_COMPACT,
-            SOSA_CX_COMPACT,
+            card.photo_x_compact,
+            card.text_x_compact,
+            card.text_y_compact,
+            card.sosa_cx_compact,
         )
     } else {
         (
-            GENDER_LINE_X_FULL,
-            PHOTO_X_FULL,
-            TEXT_X_FULL,
-            TEXT_Y_FULL,
-            SOSA_CX_FULL,
+            card.photo_x_full,
+            card.text_x_full,
+            card.text_y_full,
+            card.sosa_cx_full,
         )
     };
 
-    let max_width = text_max_width(is_compact, metrics);
+    let max_width = text_max_width(is_compact, theme);
     let surname_up = node
         .label_surname
         .split(",")
         .next()
         .unwrap_or("")
         .to_uppercase();
-    let surname = truncate_text_to_fit(&surname_up, max_width, SURNAME_FONT_SIZE_PX);
+    let surname = truncate_text_to_fit(&surname_up, max_width, card.surname_font_px);
     let label_given = node.label_given.split(",").next().unwrap_or("");
-    let given = truncate_text_to_fit(label_given, max_width, GIVEN_FONT_SIZE_PX);
-    let date_text = fit_lifespan(node.birth_year, node.death_year, max_width);
+    let given = truncate_text_to_fit(label_given, max_width, card.given_font_px);
+    let date_text = fit_lifespan(
+        node.birth_year,
+        node.death_year,
+        max_width,
+        card.date_font_px,
+    );
     // Spelled-out form for the hover title; empty when both years are
     // exact and the marks need no explaining.
     let date_title = lifespan_tooltip(i18n, node.birth_year, node.death_year);
     // A bare `1849-1917` always fitted, so the date line was never
     // measured. The marks make it up to five characters longer, which
-    // overruns a compact card's 72px. Squeeze rather than truncate:
+    // overruns a compact card's column. Squeeze rather than truncate:
     // dropping characters off a date would silently change what it
     // says, while `textLength` keeps every one of them legible.
-    let date_squeeze = (crate::utils::estimate_text_width_px(&date_text, DATE_FONT_SIZE_PX)
+    let date_squeeze = (crate::utils::estimate_text_width_px(&date_text, card.date_font_px)
         > max_width)
         .then_some(max_width);
     // A native SVG tooltip is a `<title>` child, and rsx cannot make
@@ -2972,26 +2949,40 @@ fn card_geometry(node: &LayoutNode, metrics: &PedigreeMetrics, i18n: &I18n) -> C
     let surname_y = if given.is_empty() {
         ty
     } else {
-        ty + NAME_LINE_STEP
+        ty + card.name_line_step
     };
     let date_y = if !surname.is_empty() {
-        surname_y + NAME_LINE_STEP
+        surname_y + card.name_line_step
     } else if !given.is_empty() {
-        given_y + NAME_LINE_STEP
+        given_y + card.name_line_step
     } else {
         ty
     };
 
+    let gender_line = card.gender_rule.map(|rule| {
+        let x = if is_compact {
+            rule.x_compact
+        } else {
+            rule.x_full
+        };
+        format!("M{x},{} L{x},{}", rule.top, rule.bottom)
+    });
+
     CardGeometry {
         rect_w,
         rect_h,
-        gender_line: format!(
-            "M{gender_line_x},{GENDER_LINE_TOP} L{gender_line_x},{GENDER_LINE_BOTTOM}"
-        ),
+        frame: card.frame,
+        gender_line,
+        gender_line_width: card.gender_rule.map_or(0.0, |rule| rule.width),
         photo_x,
+        photo_y: card.photo_y,
+        photo_w: card.photo_w,
+        photo_h: card.photo_h,
+        photo_round: card.photo_round,
         text_x,
         sosa_cx,
-        sosa_cy: SOSA_CY,
+        sosa_cy: card.sosa_cy,
+        sosa_r: card.sosa_r,
         given,
         surname,
         given_y,
@@ -3000,10 +2991,17 @@ fn card_geometry(node: &LayoutNode, metrics: &PedigreeMetrics, i18n: &I18n) -> C
         date_text,
         date_html,
         date_squeeze,
+        surname_font: card.surname_font,
+        body_font: card.body_font,
+        surname_weight: card.surname_weight,
+        surname_font_px: card.surname_font_px,
+        given_font_px: card.given_font_px,
+        date_font_px: card.date_font_px,
         fab_x: metrics.padding + rect_w / 2.0,
-        fab_y: metrics.padding + rect_h + EDIT_FAB_GAP,
+        fab_y: metrics.padding + rect_h + card.edit_fab_gap,
+        fab_r: card.edit_fab_r,
         slot_plus_x: metrics.padding + rect_w / 2.0,
-        slot_plus_y: metrics.padding + rect_h / 2.0 + SLOT_PLUS_BASELINE,
+        slot_plus_y: metrics.padding + rect_h / 2.0 + card.slot_plus_baseline,
     }
 }
 
@@ -3025,17 +3023,24 @@ fn render_pedigree_card(
     on_empty_slot: EventHandler<(Uuid, bool)>,
     allow_empty_click: bool,
     i18n: I18n,
-    metrics: &PedigreeMetrics,
+    theme: &PedigreeTheme,
 ) -> Element {
-    let geo = card_geometry(node, metrics, &i18n);
+    let geo = card_geometry(node, theme, &i18n);
     let CardGeometry {
         rect_w: rw,
         rect_h: rh,
+        frame,
         gender_line: gl_path,
+        gender_line_width,
         photo_x: ph_x,
+        photo_y: ph_y,
+        photo_w: ph_w,
+        photo_h: ph_h,
+        photo_round,
         text_x: tx,
         sosa_cx,
         sosa_cy,
+        sosa_r,
         given: given_disp,
         surname: surname_disp,
         given_y,
@@ -3044,13 +3049,38 @@ fn render_pedigree_card(
         date_text: date_s,
         date_html,
         date_squeeze,
+        surname_font,
+        body_font,
+        surname_weight,
+        surname_font_px,
+        given_font_px,
+        date_font_px,
         fab_x,
         fab_y,
+        fab_r,
         slot_plus_x,
         slot_plus_y,
     } = geo;
-    let padding = metrics.padding;
-    let border_radius = metrics.border_radius;
+    let padding = theme.metrics.padding;
+    let border_radius = theme.metrics.border_radius;
+    // A cartouche's second rule, measured once for every branch that draws
+    // an outline — the person card, and both empty-slot forms.
+    // The classic card shows sex on a short rule beside the portrait and
+    // keeps a neutral outline; a cartouche is heavy enough to carry the
+    // colour itself, and drops the rule.
+    let frame_stroke = match theme.card.frame_stroke {
+        FrameStroke::Border => "var(--pn-border)",
+        FrameStroke::Gender => gender_stroke(node.sex),
+    };
+    let frame_width = theme.card.frame_width;
+    let inner = match frame {
+        CardFrame::Plain => None,
+        CardFrame::Cartouche { inner_inset } => Some((
+            padding + inner_inset,
+            rw - 2.0 * inner_inset,
+            rh - 2.0 * inner_inset,
+        )),
+    };
     let key = format!("{key_prefix}-{ni}");
     let nx = node.x;
     let ny = node.y;
@@ -3094,23 +3124,28 @@ fn render_pedigree_card(
                         let coords = evt.client_coordinates();
                         on_person_click.call((pid, coords.x, coords.y));
                     },
-                    rect { class: "ped-card-rect", x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
-                    path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
-                    rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:var(--white)" }
-                    CroppedSvgImage { image: portrait, x: ph_x, y: PHOTO_Y, width: PHOTO_W, height: PHOTO_H, fallback: CroppedSource::silhouette(node.sex) }
+                    rect { class: "ped-card-rect", x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
+                    if let Some((inset, iw, ih)) = inner {
+                        rect { class: "ped-card-inner-rule", x: "{inset}", y: "{inset}", width: "{iw}", height: "{ih}", style: "fill:none;stroke:var(--pn-border);stroke-width:1" }
+                    }
+                    if let Some(gl) = gl_path {
+                        path { d: "{gl}", style: "stroke:{stroke};stroke-width:{gender_line_width};fill:none" }
+                    }
+                    rect { class: "ped-card-mat", x: "{ph_x}", y: "{ph_y}", rx: "{photo_round}", ry: "{photo_round}", width: "{ph_w}", height: "{ph_h}", style: "fill:var(--pn-mat,var(--white))" }
+                    CroppedSvgImage { image: portrait, x: ph_x, y: ph_y, width: ph_w, height: ph_h, fallback: CroppedSource::silhouette(node.sex) }
                     if is_self {
                         g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-self)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-self)" }
                             circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--white)" }
                         }
                     } else if is_sosa_root {
                         g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-sosa-root)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-sosa-root)" }
                             text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:var(--white);font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
                         }
                     } else if is_sosa_direct {
                         g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-sosa)" }
+                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-sosa)" }
                             circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:var(--white)" }
                             circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--pn-sosa)" }
                         }
@@ -3118,10 +3153,10 @@ fn render_pedigree_card(
                     text {
                         class: "ped-card-name-text",
                         if has_given {
-                            tspan { x: "{tx}", y: "{given_y}", style: "font-size:10px;font-family:'Lato',sans-serif;fill:{text_fill}", "{given_disp}" }
+                            tspan { x: "{tx}", y: "{given_y}", style: "font-size:{given_font_px}px;font-family:{body_font};fill:{text_fill}", "{given_disp}" }
                         }
                         if has_surname {
-                            tspan { x: "{tx}", y: "{surname_y}", style: "font-size:11px;font-weight:700;font-family:'Lato',sans-serif;fill:{text_fill}", "{surname_disp}" }
+                            tspan { x: "{tx}", y: "{surname_y}", style: "font-size:{surname_font_px}px;font-weight:{surname_weight};font-family:{surname_font};fill:{text_fill}", "{surname_disp}" }
                         }
                     }
                     // The lifespan is its own `text` rather than a third tspan
@@ -3134,7 +3169,7 @@ fn render_pedigree_card(
                             class: "ped-card-name-text",
                             x: "{tx}",
                             y: "{date_y}",
-                            style: "font-size:{DATE_FONT_SIZE_PX}px;font-family:'Lato',sans-serif;fill:{text_fill}",
+                            style: "font-size:{date_font_px}px;font-family:{body_font};fill:{text_fill}",
                             "textLength": date_squeeze.map(|w| w.to_string()),
                             "lengthAdjust": date_squeeze.map(|_| "spacingAndGlyphs"),
                             dangerous_inner_html: "{date_html}",
@@ -3149,7 +3184,7 @@ fn render_pedigree_card(
                                 let coords = evt.client_coordinates();
                                 on_person_click.call((pid, coords.x, coords.y));
                             },
-                            circle { r: "{EDIT_FAB_R}", style: "fill:var(--pn-root-bg);stroke:var(--white);stroke-width:2" }
+                            circle { r: "{fab_r}", style: "fill:var(--pn-root-bg);stroke:var(--white);stroke-width:2" }
                             text { x: "0", y: "6", style: "fill:var(--white);font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
                         }
                     }
@@ -3359,7 +3394,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // ── Compute layout ──
     let theme = props.theme.unwrap_or(&PedigreeTheme::CLASSIC);
-    let metrics = &theme.metrics;
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
             props.root_person_id,
@@ -3752,7 +3786,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             // CANVAS VIEWPORT
             // ══════════════════════════════════
             div {
-                class: "pedigree-viewport",
+                class: "pedigree-viewport {theme.viewport_class}",
 
                 onpointerdown: move |evt| {
                     // Direct manipulation tracks the pointer 1:1 — the CSS
@@ -3839,7 +3873,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             props.on_empty_slot,
                                             true,
                                             i18n,
-                                            metrics,
+                                            theme,
                                         )}
                                     }
                                 }
@@ -3862,7 +3896,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             desc_empty_slot_adapter,
                                             true,
                                             i18n,
-                                            metrics,
+                                            theme,
                                         )}
                                     }
                                 }
@@ -4113,6 +4147,11 @@ mod silhouette_tests {
 mod lifespan_tests {
     use super::*;
 
+    /// The column and type size a classic full card gives its lifespan —
+    /// what these cases have always been measured against.
+    const CLASSIC_FULL_COLUMN: f32 = PedigreeTheme::CLASSIC.card.text_max_width_full;
+    const CLASSIC_DATE_PX: f32 = PedigreeTheme::CLASSIC.card.date_font_px;
+
     fn y(year: i32, qualifier: DateQualifier) -> Option<QualifiedYear> {
         Some(QualifiedYear::new(year, qualifier))
     }
@@ -4191,16 +4230,24 @@ mod lifespan_tests {
             range(1745, 1750, DateQualifier::Between),
         );
         assert_eq!(
-            fit_lifespan(both.0, both.1, TEXT_MAX_WIDTH_FULL),
+            fit_lifespan(both.0, both.1, CLASSIC_FULL_COLUMN, CLASSIC_DATE_PX),
             ".. 1691-.. 1745",
             "two ranges do not fit the full card and lose their far ends"
         );
 
         // A single range is 49.8px — comfortable on both card widths.
         let one = range(1691, 1693, DateQualifier::Between);
-        assert_eq!(fit_lifespan(None, one, TEXT_MAX_WIDTH_FULL), "-1691..1693");
         assert_eq!(
-            fit_lifespan(None, one, text_max_width(true, &PedigreeMetrics::CLASSIC)),
+            fit_lifespan(None, one, CLASSIC_FULL_COLUMN, CLASSIC_DATE_PX),
+            "-1691..1693"
+        );
+        assert_eq!(
+            fit_lifespan(
+                None,
+                one,
+                text_max_width(true, &PedigreeTheme::CLASSIC),
+                CLASSIC_DATE_PX
+            ),
             "-1691..1693"
         );
     }
@@ -5171,7 +5218,7 @@ mod geometry_golden_tests {
              date={:?}@{:.4} squeeze={:?} fab=({:.4},{:.4}) plus=({:.4},{:.4})\n",
             geo.rect_w,
             geo.rect_h,
-            geo.gender_line,
+            geo.gender_line.as_deref().unwrap_or("-"),
             geo.photo_x,
             geo.text_x,
             geo.sosa_cx,
@@ -5268,7 +5315,7 @@ mod geometry_golden_tests {
         for (label, node) in cases {
             out.push_str(&describe_card(
                 label,
-                &card_geometry(node, &PedigreeMetrics::CLASSIC, &i18n),
+                &card_geometry(node, &PedigreeTheme::CLASSIC, &i18n),
             ));
         }
 
@@ -5277,9 +5324,12 @@ mod geometry_golden_tests {
         // only fires once even the narrow lifespan overruns its column, and
         // the fact that the interior follows the metrics at all rather than
         // the constants it used to read.
-        let narrow = PedigreeMetrics {
-            compact_inner_w: 60.0,
-            ..PedigreeMetrics::CLASSIC
+        let narrow = PedigreeTheme {
+            metrics: PedigreeMetrics {
+                compact_inner_w: 60.0,
+                ..PedigreeMetrics::CLASSIC
+            },
+            ..PedigreeTheme::CLASSIC
         };
         out.push_str(&describe_card(
             "narrow-theme-compact",
@@ -5366,6 +5416,320 @@ mod geometry_golden_tests {
         }
         assert_golden(&out, EXPECTED_RULED_LINKS, "ruled_links");
     }
+
+    /// Writes an HTML preview of every theme, for a human to look at.
+    ///
+    /// A theme is a visual thing, and the golden blocks above cannot say
+    /// whether it is any good — only whether it changed. This builds a page
+    /// from the real geometry, the real connector paths and the real
+    /// stylesheet, so what it shows is what the chart draws; only the mapping
+    /// from measurements to SVG elements is written here rather than by
+    /// `rsx!`, which needs a running Dioxus to produce anything.
+    ///
+    /// Opt-in, and never part of `just check`:
+    ///
+    /// ```text
+    /// cargo test -p oxidgene-ui --lib theme_preview -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "writes a preview page for a human to look at"]
+    fn theme_preview() {
+        use crate::components::layout::LAYOUT_STYLES;
+        use std::fmt::Write as _;
+
+        let data = wide_pedigree();
+        let i18n = I18n(crate::i18n::Language::En);
+        let out_dir = std::env::var("OXIDGENE_PREVIEW_DIR").unwrap_or_else(|_| ".".to_string());
+
+        for (name, theme) in [
+            ("classic", &PedigreeTheme::CLASSIC),
+            ("medieval", &PedigreeTheme::MEDIEVAL),
+        ] {
+            let layout = compute_layout(id(ROOT), &data, None, &HashSet::new(), 3, 2, theme);
+            let mut svg = String::new();
+            let _ = write!(
+                svg,
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><g transform="translate({tx},{ty})">"#,
+                w = layout.total_w,
+                h = layout.total_h,
+                tx = layout.main_tx,
+                ty = layout.main_ty,
+            );
+            for path in layout.asc_links.iter() {
+                let _ = write!(svg, r#"<path class="pedigree-connector-path" d="{path}"/>"#);
+            }
+            let _ = write!(
+                svg,
+                r#"<g transform="translate({},{})">"#,
+                layout.desc_tx, layout.desc_ty
+            );
+            for path in layout.desc_links.iter() {
+                let _ = write!(svg, r#"<path class="pedigree-connector-path" d="{path}"/>"#);
+            }
+            let _ = write!(svg, "</g>");
+
+            let pad = theme.metrics.padding;
+            let radius = theme.metrics.border_radius;
+            let mut card_svg = |node: &LayoutNode, dx: f64, dy: f64| {
+                let geo = card_geometry(node, theme, &i18n);
+                let stroke = match theme.card.frame_stroke {
+                    FrameStroke::Border => "var(--pn-border)",
+                    FrameStroke::Gender => gender_stroke(node.sex),
+                };
+                let is_focus = node.id == Some(id(ROOT));
+                let (bg, fill) = match node.id {
+                    Some(_) if is_focus => (card_bg(true, node.is_sibling), "var(--white)"),
+                    Some(_) => (card_bg(false, node.is_sibling), "var(--pn-text)"),
+                    None => ("var(--pn-bg)", "var(--pn-text)"),
+                };
+                let dash = if node.id.is_none() {
+                    ";stroke-dasharray:4,4"
+                } else {
+                    ""
+                };
+                let _ = write!(
+                    svg,
+                    r#"<g class="ped-card" transform="translate({},{})"><rect class="ped-card-rect" x="{pad}" y="{pad}" rx="{radius}" ry="{radius}" width="{}" height="{}" style="fill:{bg};stroke:{stroke};stroke-width:{}{dash}"/>"#,
+                    node.x + dx,
+                    node.y + dy,
+                    geo.rect_w,
+                    geo.rect_h,
+                    theme.card.frame_width,
+                );
+                if let (CardFrame::Cartouche { inner_inset }, true) = (geo.frame, node.id.is_some())
+                {
+                    let _ = write!(
+                        svg,
+                        r#"<rect class="ped-card-inner-rule" x="{0}" y="{0}" width="{1}" height="{2}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#,
+                        pad + inner_inset,
+                        geo.rect_w - 2.0 * inner_inset,
+                        geo.rect_h - 2.0 * inner_inset,
+                    );
+                }
+                if node.id.is_some() {
+                    if let Some(line) = &geo.gender_line {
+                        let _ = write!(
+                            svg,
+                            r#"<path d="{line}" style="stroke:{};stroke-width:{};fill:none"/>"#,
+                            gender_stroke(node.sex),
+                            geo.gender_line_width,
+                        );
+                    }
+                    let _ = write!(
+                        svg,
+                        r#"<rect class="ped-card-mat" x="{}" y="{}" rx="{r}" ry="{r}" width="{}" height="{}" style="fill:var(--pn-mat,var(--white))"/>"#,
+                        geo.photo_x,
+                        geo.photo_y,
+                        geo.photo_w,
+                        geo.photo_h,
+                        r = geo.photo_round,
+                    );
+                    let _ = write!(
+                        svg,
+                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill}">{}</text>"#,
+                        geo.text_x,
+                        geo.given_y,
+                        geo.given_font_px,
+                        geo.body_font,
+                        escape_xml(&geo.given),
+                    );
+                    let _ = write!(
+                        svg,
+                        r#"<text x="{}" y="{}" style="font-size:{}px;font-weight:{};font-family:{};fill:{fill}">{}</text>"#,
+                        geo.text_x,
+                        geo.surname_y,
+                        geo.surname_font_px,
+                        geo.surname_weight,
+                        geo.surname_font,
+                        escape_xml(&geo.surname),
+                    );
+                    let _ = write!(
+                        svg,
+                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill}">{}</text>"#,
+                        geo.text_x,
+                        geo.date_y,
+                        geo.date_font_px,
+                        geo.body_font,
+                        escape_xml(&geo.date_text),
+                    );
+                }
+                let _ = write!(svg, "</g>");
+            };
+
+            for node in layout.asc_nodes.iter() {
+                card_svg(node, 0.0, 0.0);
+            }
+            for node in layout.desc_nodes.iter() {
+                card_svg(node, layout.desc_tx, layout.desc_ty);
+            }
+            let _ = write!(svg, "</g></svg>");
+
+            let page = format!(
+                "<!doctype html><meta charset=\"utf-8\"><style>{LAYOUT_STYLES}\n\
+                 body{{margin:0}} .preview{{position:relative;overflow:visible}}</style>\
+                 <div class=\"pedigree-viewport preview {}\" style=\"width:{}px;height:{}px\">{svg}</div>",
+                theme.viewport_class, layout.total_w, layout.total_h,
+            );
+            let path = format!("{out_dir}/pedigree-{name}.html");
+            std::fs::write(&path, page).expect("preview written");
+            println!("wrote {path}");
+        }
+    }
+
+    /// Three lines of text have to fit inside the card that holds them.
+    ///
+    /// Caught the medieval compact card sitting its lifespan four pixels from
+    /// the frame, which is the kind of thing a golden block records happily
+    /// and nobody reads. Every theme answers for it, at both card sizes, with
+    /// a full name and a hedged lifespan — the tallest a card ever gets.
+    #[test]
+    fn every_theme_leaves_its_lifespan_inside_the_card() {
+        let i18n = I18n(crate::i18n::Language::En);
+        for (name, theme) in [
+            ("classic", &PedigreeTheme::CLASSIC),
+            ("medieval", &PedigreeTheme::MEDIEVAL),
+        ] {
+            for is_compact in [false, true] {
+                let mut node = card(is_compact, "Given_1", "Branch_A");
+                node.birth_year = Some(QualifiedYear::new(1849, DateQualifier::About));
+                node.death_year = Some(QualifiedYear::new(1917, DateQualifier::Before));
+                let geo = card_geometry(&node, theme, &i18n);
+
+                assert!(
+                    !geo.given.is_empty() && !geo.surname.is_empty() && !geo.date_text.is_empty(),
+                    "{name} compact={is_compact}: the case stopped covering all three lines"
+                );
+                // The baseline sits above the descender, so the glyphs need
+                // roughly their own type size of room under it.
+                let needed = geo.date_y + f64::from(geo.date_font_px) * 0.3;
+                assert!(
+                    needed <= geo.rect_h,
+                    "{name} compact={is_compact}: the lifespan baseline ({}) leaves \
+                     {:.1}px under it inside a {}px card — it touches the frame",
+                    geo.date_y,
+                    geo.rect_h - geo.date_y,
+                    geo.rect_h
+                );
+            }
+        }
+    }
+
+    /// The medieval theme lays out and measures its own way.
+    ///
+    /// Beyond pinning it, this checks the property that made the card larger
+    /// in the first place: a frame and a medallion take real room, and taking
+    /// it from the text column instead would leave names truncated where the
+    /// classic theme shows them whole. So its column must be no narrower.
+    #[test]
+    fn the_medieval_theme_has_room_for_what_the_classic_one_shows() {
+        let data = wide_pedigree();
+        let layout = compute_layout(
+            id(ROOT),
+            &data,
+            None,
+            &HashSet::new(),
+            3,
+            2,
+            &PedigreeTheme::MEDIEVAL,
+        );
+        let i18n = I18n(crate::i18n::Language::En);
+
+        for is_compact in [false, true] {
+            let classic = text_max_width(is_compact, &PedigreeTheme::CLASSIC);
+            let medieval = text_max_width(is_compact, &PedigreeTheme::MEDIEVAL);
+            assert!(
+                medieval >= classic,
+                "compact={is_compact}: the medieval column ({medieval}) is narrower \
+                 than the classic one ({classic}), so it truncates names the classic \
+                 theme shows whole"
+            );
+        }
+
+        // The drawn frame, its second rule and the medallion all have to fit
+        // inside the box the layout reserved.
+        let m = PedigreeTheme::MEDIEVAL.metrics;
+        let style = PedigreeTheme::MEDIEVAL.card;
+        let CardFrame::Cartouche { inner_inset } = style.frame else {
+            panic!("the medieval theme is specified to draw a cartouche");
+        };
+        assert!(
+            style.photo_x_full + style.photo_w < m.inner_w,
+            "the medallion overruns the card"
+        );
+        assert!(
+            style.photo_y + style.photo_h < m.inner_h + m.padding,
+            "the medallion overruns the card vertically"
+        );
+        assert!(
+            inner_inset > 0.0 && inner_inset < m.inner_h / 2.0,
+            "the inner rule is not inside the frame"
+        );
+        assert!(
+            style.photo_x_full > m.padding + inner_inset,
+            "the medallion sits on top of the inner rule"
+        );
+
+        let mut out = String::new();
+        for (i, n) in layout.asc_nodes.iter().enumerate() {
+            out.push_str(&format!(
+                "asc card[{i}] x={:.4} y={:.4} compact={}\n",
+                n.x, n.y, n.is_compact
+            ));
+        }
+        for (i, p) in layout.asc_links.iter().enumerate() {
+            out.push_str(&format!("asc link[{i}] {p}\n"));
+        }
+        out.push_str(&format!(
+            "canvas total=({:.4},{:.4}) root=({:.4},{:.4})\n",
+            layout.total_w, layout.total_h, layout.root_cx, layout.root_cy
+        ));
+        out.push_str(&describe_card(
+            "root",
+            &card_geometry(&layout.asc_nodes[0], &PedigreeTheme::MEDIEVAL, &i18n),
+        ));
+        out.push_str(&describe_card(
+            "compact-named",
+            &card_geometry(
+                &card(true, "Given_1", "Branch_A"),
+                &PedigreeTheme::MEDIEVAL,
+                &i18n,
+            ),
+        ));
+        assert_golden(&out, EXPECTED_MEDIEVAL, "medieval");
+    }
+
+    const EXPECTED_MEDIEVAL: &str = r#"
+asc card[0] x=315.0000 y=388.0000 compact=false
+asc card[1] x=525.0000 y=276.0000 compact=false
+asc card[2] x=630.0000 y=164.0000 compact=false
+asc card[3] x=735.0000 y=0.0000 compact=true
+asc card[4] x=630.0000 y=0.0000 compact=true
+asc card[5] x=420.0000 y=164.0000 compact=false
+asc card[6] x=105.0000 y=276.0000 compact=false
+asc card[7] x=210.0000 y=164.0000 compact=false
+asc card[8] x=315.0000 y=0.0000 compact=true
+asc card[9] x=210.0000 y=0.0000 compact=true
+asc card[10] x=0.0000 y=164.0000 compact=false
+asc card[11] x=105.0000 y=0.0000 compact=true
+asc card[12] x=0.0000 y=0.0000 compact=true
+asc card[13] x=750.0000 y=388.0000 compact=false
+asc link[0] M420,392 L420,377 210,377 210,362
+asc link[1] M420,392 L420,377 630,377
+asc link[2] M630,280 L630,265 525,265 525,250
+asc link[3] M630,280 L630,265 735,265 735,250
+asc link[4] M735,168 L735,153 685,153 685,138
+asc link[5] M735,168 L735,153 790,153 790,138
+asc link[6] M210,280 L210,265 105,265 105,250
+asc link[7] M210,280 L210,265 315,265 315,250
+asc link[8] M315,168 L315,153 265,153 265,138
+asc link[9] M315,168 L315,153 370,153 370,138
+asc link[10] M105,168 L105,153 55,153 55,138
+asc link[11] M105,168 L105,153 160,153 160,138
+asc link[12] M630,362 L630,377 855,377 855,392
+canvas total=(1080.0000,932.0000) root=(480.0000,504.0000)
+root rect=(200.0000,82.0000) line=- photo_x=14.0000 text_x=82.0000 sosa=(64.0000,63.0000) given="Root"@30.0000 surname="BRANCH_A"@47.0000 date="ca 1849-< 1917"@64.0000 squeeze=None fab=(105.0000,103.0000) plus=(105.0000,54.0000)
+compact-named rect=(97.0000,134.0000) line=- photo_x=25.5000 text_x=12.0000 sosa=(75.5000,63.0000) given="Given_1"@94.0000 surname="BRANCH_A"@111.0000 date=""@128.0000 squeeze=None fab=(53.5000,155.0000) plus=(53.5000,80.0000)
+"#;
 
     const EXPECTED_RULED_LINKS: &str = r#"
 asc link[0] M370,340 L370,326.5 185,326.5 185,313

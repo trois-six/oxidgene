@@ -453,14 +453,103 @@ pub fn link_path(spec: &LinkSpec, style: LinkStyle, m: &PedigreeMetrics) -> Stri
     }
 }
 
+/// How a card's outline is drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CardFrame {
+    /// One rectangle, hairline, optionally rounded.
+    Plain,
+    /// Two concentric rules, the outer one heavier — how an engraved
+    /// cartouche is drawn, and most of what separates a painted pedigree
+    /// from a diagram. The value is the inset of the inner rule.
+    Cartouche { inner_inset: f64 },
+}
+
+/// What a card's outline is stroked with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameStroke {
+    /// The neutral border colour, with the sex shown by a separate rule.
+    Border,
+    /// The sex colour itself, for a frame heavy enough to carry it.
+    Gender,
+}
+
+/// A rule running down one edge of the card, coloured by the person's sex.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GenderRule {
+    pub x_full: f64,
+    pub x_compact: f64,
+    pub top: f64,
+    pub bottom: f64,
+    pub width: f64,
+}
+
+/// Where a theme puts the things inside a card, and what it sets them in.
+///
+/// Phase two kept these with the renderer, on the grounds that only one
+/// renderer had an opinion about them. A second theme sharing that renderer
+/// is what makes them data: a medieval card is larger, so a photograph left
+/// at the classic offset would sit against its frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CardStyle {
+    pub frame: CardFrame,
+    pub frame_stroke: FrameStroke,
+    /// Stroke width of the outer rule.
+    pub frame_width: f64,
+
+    pub photo_w: f64,
+    pub photo_h: f64,
+    pub photo_y: f64,
+    pub photo_x_full: f64,
+    pub photo_x_compact: f64,
+    /// Corner radius of the portrait mat. Half the width makes it a
+    /// medallion, which is what an engraved pedigree draws.
+    pub photo_round: f64,
+
+    pub text_x_full: f64,
+    pub text_x_compact: f64,
+    pub text_y_full: f64,
+    pub text_y_compact: f64,
+    pub text_max_width_full: f32,
+    /// Baseline step between the given name, the surname and the lifespan.
+    pub name_line_step: f64,
+
+    pub surname_font_px: f32,
+    pub given_font_px: f32,
+    pub date_font_px: f32,
+    /// CSS `font-family` for the surname, and for everything else.
+    pub surname_font: &'static str,
+    pub body_font: &'static str,
+    /// `font-weight` of the surname line.
+    pub surname_weight: &'static str,
+
+    /// The sex-coded rule, when the theme draws one. A card whose whole
+    /// frame carries the colour does not need it.
+    pub gender_rule: Option<GenderRule>,
+
+    pub sosa_cx_full: f64,
+    pub sosa_cx_compact: f64,
+    pub sosa_cy: f64,
+    pub sosa_r: f64,
+
+    pub edit_fab_r: f64,
+    pub edit_fab_gap: f64,
+    /// Baseline nudge that centres the "+" glyph in an empty slot.
+    pub slot_plus_baseline: f64,
+}
+
 /// Everything a theme decides about the shape of the chart.
 ///
-/// Colors are not here: those are CSS variables, swapped by a class on the
-/// viewport, and nothing in the layout needs to know about them.
+/// Colors are not here: those are CSS variables, redefined under
+/// `viewport_class`, and nothing in the layout needs to know about them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PedigreeTheme {
     pub metrics: PedigreeMetrics,
     pub link_style: LinkStyle,
+    pub card: CardStyle,
+    /// Class set on the pedigree viewport, under which the theme's CSS
+    /// variables and canvas ground are defined. Empty for the theme that
+    /// uses the application's own palette.
+    pub viewport_class: &'static str,
 }
 
 impl PedigreeTheme {
@@ -468,6 +557,129 @@ impl PedigreeTheme {
     pub const CLASSIC: Self = Self {
         metrics: PedigreeMetrics::CLASSIC,
         link_style: LinkStyle::Bezier,
+        viewport_class: "",
+        card: CardStyle {
+            frame: CardFrame::Plain,
+            frame_stroke: FrameStroke::Border,
+            frame_width: 1.0,
+
+            photo_w: 50.0,
+            photo_h: 50.0,
+            photo_y: 10.0,
+            photo_x_full: 10.0,
+            photo_x_compact: 20.0,
+            photo_round: 0.0,
+
+            text_x_full: 70.0,
+            text_x_compact: 10.0,
+            text_y_full: 21.0,
+            text_y_compact: 81.0,
+            text_max_width_full: 105.0,
+            name_line_step: 14.0,
+
+            surname_font_px: 11.0,
+            given_font_px: 10.0,
+            date_font_px: 10.0,
+            surname_font: "'Lato',sans-serif",
+            body_font: "'Lato',sans-serif",
+            surname_weight: "700",
+
+            gender_rule: Some(GenderRule {
+                x_full: 9.0,
+                x_compact: 19.0,
+                top: 10.0,
+                bottom: 60.0,
+                width: 2.0,
+            }),
+
+            sosa_cx_full: 57.5,
+            sosa_cx_compact: 67.5,
+            sosa_cy: 57.5,
+            sosa_r: 7.5,
+
+            edit_fab_r: 14.0,
+            edit_fab_gap: 16.0,
+            slot_plus_baseline: 8.0,
+        },
+    };
+
+    /// An engraved pedigree: ruled lines, a double-ruled cartouche around
+    /// each person, a portrait in a medallion, and Roman capitals.
+    ///
+    /// The card is larger than the classic one in every direction, which is
+    /// not decoration for its own sake: the second rule and the ring around
+    /// the medallion take real room, and taking it from the text instead
+    /// would leave the names of a French branch truncated where the classic
+    /// theme shows them whole.
+    pub const MEDIEVAL: Self = Self {
+        metrics: PedigreeMetrics {
+            card_w: 210.0,
+            card_h: 112.0,
+            compact_w: 110.0,
+            compact_h: 164.0,
+            desc_h: 156.0,
+
+            // Square corners: an engraver had no rounded rectangle.
+            border_radius: 0.0,
+            padding: 5.0,
+            inner_w: 200.0,
+            inner_h: 82.0,
+            compact_inner_w: 97.0,
+            compact_inner_h: 134.0,
+
+            card_bottom_offset: 26.0,
+            card_top_offset: 4.0,
+            card_top_indent: 5.0,
+            bezier_ctrl_offset: 8.0,
+            spouse_link_inset: 15.0,
+
+            layout_margin: 60.0,
+            sibling_spacing: 225.0,
+            sibling_vertical_step: 4.0,
+            sibling_min_offset: 6.0,
+        },
+        link_style: LinkStyle::Ruled,
+        viewport_class: "ped-theme-medieval",
+        card: CardStyle {
+            frame: CardFrame::Cartouche { inner_inset: 4.0 },
+            frame_stroke: FrameStroke::Gender,
+            frame_width: 2.0,
+
+            photo_w: 56.0,
+            photo_h: 56.0,
+            photo_y: 13.0,
+            photo_x_full: 14.0,
+            photo_x_compact: 25.5,
+            photo_round: 28.0,
+
+            text_x_full: 82.0,
+            text_x_compact: 12.0,
+            text_y_full: 30.0,
+            text_y_compact: 94.0,
+            text_max_width_full: 110.0,
+            name_line_step: 17.0,
+
+            surname_font_px: 12.0,
+            given_font_px: 11.0,
+            date_font_px: 10.0,
+            // Cinzel is already loaded for headings, so the theme costs no
+            // extra font request. Its Roman capitals are the whole look.
+            surname_font: "'Cinzel',Georgia,serif",
+            body_font: "Georgia,'Times New Roman',serif",
+            surname_weight: "600",
+
+            // The frame carries the sex colour instead of a separate rule.
+            gender_rule: None,
+
+            sosa_cx_full: 64.0,
+            sosa_cx_compact: 75.5,
+            sosa_cy: 63.0,
+            sosa_r: 8.0,
+
+            edit_fab_r: 14.0,
+            edit_fab_gap: 16.0,
+            slot_plus_baseline: 8.0,
+        },
     };
 }
 
