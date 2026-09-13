@@ -18,6 +18,7 @@ use uuid::Uuid;
 use crate::api::CroppedSource;
 use crate::components::cropped_image::{CroppedImage, CroppedSvgImage};
 use crate::components::date_input::format_event_date;
+use crate::components::pedigree_theme::PedigreeMetrics;
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
@@ -32,27 +33,14 @@ use crate::prefs::use_pedigree_defaults;
 
 use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
 
-// ── Layout constants (matching the JS reference implementation) ──────────
+// ── Card inner SVG geometry (photo / text positions) ─────────────────────
+//
+// The *box* a card occupies, the frame drawn inside it and every dimension a
+// connector attaches to live in [`PedigreeMetrics`] instead: the layout pass
+// and the path generators read those, so a theme that resizes a card resizes
+// the tree around it. What stays here is the classic card's own interior,
+// which no other code has an opinion about.
 
-/// Standard card width in pixels.
-const CARD_W: f64 = 185.0;
-/// Standard card height in pixels.
-const CARD_H: f64 = 96.0;
-/// Compact ancestor card width (for deepest level).
-const COMPACT_W: f64 = 95.0;
-/// Compact ancestor card height.
-const COMPACT_H: f64 = 144.0;
-/// First descendant level height.
-const DESC_H: f64 = 140.0;
-
-// ── Card inner SVG geometry (rect / photo / text positions) ──────────────
-
-const CARD_BORDER_RADIUS: f64 = 5.0;
-const CARD_PADDING: f64 = 5.0;
-const CARD_INNER_W: f64 = 175.0;
-const CARD_INNER_H: f64 = 67.0;
-const COMPACT_INNER_W: f64 = 82.0;
-const COMPACT_INNER_H: f64 = 115.0;
 const PHOTO_W: f64 = 50.0;
 const PHOTO_H: f64 = 50.0;
 const PHOTO_Y: f64 = 10.0;
@@ -64,7 +52,6 @@ const TEXT_X_COMPACT: f64 = 10.0;
 const TEXT_Y_FULL: f64 = 21.0;
 const TEXT_Y_COMPACT: f64 = 81.0;
 const TEXT_MAX_WIDTH_FULL: f32 = 105.0;
-const TEXT_MAX_WIDTH_COMPACT: f32 = (COMPACT_INNER_W - TEXT_X_COMPACT) as f32;
 const SURNAME_FONT_SIZE_PX: f32 = 11.0;
 const GIVEN_FONT_SIZE_PX: f32 = 10.0;
 const DATE_FONT_SIZE_PX: f32 = 10.0;
@@ -75,29 +62,16 @@ const SOSA_R: f64 = 7.5;
 const EDIT_FAB_R: f64 = 14.0;
 const EDIT_FAB_GAP: f64 = 16.0;
 
-// ── Connector / Bézier path parameters ───────────────────────────────────
-
-/// Card-bottom Y offset where downward connectors enter (sh − 23).
-const CARD_BOTTOM_OFFSET: f64 = 23.0;
-/// Card-top Y offset where upward connectors exit (n_y + 4).
-const CARD_TOP_OFFSET: f64 = 4.0;
-/// Small vertical indent for entry/exit segments (sy − 5, ey + 5).
-const CARD_TOP_INDENT: f64 = 5.0;
-/// Horizontal control-point offset for S-curve segments.
-const BEZIER_CTRL_OFFSET: f64 = 8.0;
-/// Spouse link inset from card edges.
-const SPOUSE_LINK_INSET: f64 = 15.0;
-
-// ── Layout spacing ───────────────────────────────────────────────────────
-
-/// Outer margin around the rendered tree before computing the SVG viewBox.
-const LAYOUT_MARGIN: f64 = 50.0;
-/// Horizontal spacing between root biological siblings.
-const SIBLING_SPACING: f64 = 200.0;
-/// Per-sibling vertical step in spouse/child connector rows.
-const SIBLING_VERTICAL_STEP: f64 = 4.0;
-/// Minimum sibling vertical offset.
-const SIBLING_MIN_OFFSET: f64 = 6.0;
+/// X of the gender-coded rule running down the card's left edge, and the two
+/// ends it runs between.
+const GENDER_LINE_X_FULL: f64 = 9.0;
+const GENDER_LINE_X_COMPACT: f64 = 19.0;
+const GENDER_LINE_TOP: f64 = 10.0;
+const GENDER_LINE_BOTTOM: f64 = 60.0;
+/// Baseline step between the given name, the surname and the lifespan.
+const NAME_LINE_STEP: f64 = 14.0;
+/// Baseline nudge that centres the "+" glyph in an empty slot.
+const SLOT_PLUS_BASELINE: f64 = 8.0;
 
 // ── Viewport / zoom ──────────────────────────────────────────────────────
 
@@ -1940,21 +1914,22 @@ fn size_node(
     translate_x: f64,
     translate_depth: i32,
     last_level: i32,
+    metrics: &PedigreeMetrics,
 ) {
     let tn = &arena[node];
     let depth = tn.depth - translate_depth;
     // Determine card height for this depth.
     let sh = if tn.depth > 0 {
-        DESC_H
+        metrics.desc_h
     } else if translate_depth < 0 && translate_depth == last_level {
-        COMPACT_H
+        metrics.compact_h
     } else {
-        CARD_H
+        metrics.card_h
     };
 
-    let pixel_x = (arena[node].x - translate_x) * CARD_W;
+    let pixel_x = (arena[node].x - translate_x) * metrics.card_w;
     let pixel_y = if depth > 0 {
-        (depth as f64 - 1.0) * CARD_H + sh
+        (depth as f64 - 1.0) * metrics.card_h + sh
     } else {
         0.0
     };
@@ -1964,7 +1939,7 @@ fn size_node(
     // Size siblings (spouses).
     let sibs = arena[node].siblings.clone();
     for si in sibs {
-        size_node(arena, si, translate_x, translate_depth, last_level);
+        size_node(arena, si, translate_x, translate_depth, last_level, metrics);
     }
 }
 
@@ -1989,7 +1964,11 @@ fn collect_all_nodes(arena: &[TreeNode]) -> Vec<usize> {
 }
 
 /// Entry point: run the full RT layout on an arena.
-fn layout_tree(arena: &mut Vec<TreeNode>, last_level: i32) -> (f64, f64) {
+fn layout_tree(
+    arena: &mut Vec<TreeNode>,
+    last_level: i32,
+    metrics: &PedigreeMetrics,
+) -> (f64, f64) {
     if arena.is_empty() {
         return (0.0, 0.0);
     }
@@ -2030,43 +2009,50 @@ fn layout_tree(arena: &mut Vec<TreeNode>, last_level: i32) -> (f64, f64) {
         if !visited.insert(n) {
             continue;
         }
-        size_node(arena, n, translate_x, translate_depth, last_level);
+        size_node(arena, n, translate_x, translate_depth, last_level, metrics);
         let children = arena[n].children.clone();
         for ci in children {
             stack.push(ci);
         }
     }
 
-    let tree_h = (max_depth - min_depth) as f64 * CARD_H;
-    let tree_w = (max_x - min_x) * CARD_W;
-    (tree_w.max(CARD_W), tree_h.max(CARD_H))
+    let tree_h = (max_depth - min_depth) as f64 * metrics.card_h;
+    let tree_w = (max_x - min_x) * metrics.card_w;
+    (tree_w.max(metrics.card_w), tree_h.max(metrics.card_h))
 }
 
 // ── Bézier path generators ────────────────────────────────────────────────
 
 /// Horizontal control-point X for an S-curve, stepping `BEZIER_CTRL_OFFSET`
 /// inward toward the destination from the source.
-fn ctrl_x_toward(src: f64, dst: f64) -> f64 {
+fn ctrl_x_toward(src: f64, dst: f64, offset: f64) -> f64 {
     if src > dst {
-        dst + BEZIER_CTRL_OFFSET
+        dst + offset
     } else {
-        dst - BEZIER_CTRL_OFFSET
+        dst - offset
     }
 }
 
-/// Horizontal control-point X stepping `BEZIER_CTRL_OFFSET` outward from the source.
-fn ctrl_x_outward(src: f64, dst: f64) -> f64 {
+/// Horizontal control-point X stepping the Bézier offset outward from the source.
+fn ctrl_x_outward(src: f64, dst: f64, offset: f64) -> f64 {
     if src > dst {
-        src - BEZIER_CTRL_OFFSET
+        src - offset
     } else {
-        src + BEZIER_CTRL_OFFSET
+        src + offset
     }
 }
 
 /// Horizontal line between spouses (from right edge of node to left edge of spouse).
-fn diagonal_spouse_link(n1_x: f64, n1_y: f64, n2_x: f64, _n2_y: f64, y_offset: f64) -> String {
-    let x1 = n1_x + CARD_W - SPOUSE_LINK_INSET;
-    let x2 = n2_x + CARD_PADDING;
+fn diagonal_spouse_link(
+    n1_x: f64,
+    n1_y: f64,
+    n2_x: f64,
+    _n2_y: f64,
+    y_offset: f64,
+    metrics: &PedigreeMetrics,
+) -> String {
+    let x1 = n1_x + metrics.card_w - metrics.spouse_link_inset;
+    let x2 = n2_x + metrics.padding;
     let y = n1_y + y_offset;
     format!("M{x1},{y} L{x2},{y}")
 }
@@ -2078,18 +2064,19 @@ fn diagonal_simple_child(
     n2_x: f64,
     n2_y: f64,
     is_first_or_last: bool,
+    metrics: &PedigreeMetrics,
 ) -> String {
-    let sx = n1_x + CARD_W / 2.0;
-    let sy = n1_y + CARD_H - CARD_BOTTOM_OFFSET;
-    let ex = n2_x + CARD_W / 2.0;
-    let ey = n2_y + CARD_PADDING;
+    let sx = n1_x + metrics.card_w / 2.0;
+    let sy = n1_y + metrics.card_h - metrics.card_bottom_offset;
+    let ex = n2_x + metrics.card_w / 2.0;
+    let ey = n2_y + metrics.padding;
     let m = (sy + ey) / 2.0;
 
     if is_first_or_last && (sx - ex).abs() > 0.5 {
-        let ctrl_offset = ctrl_x_toward(sx, ex);
+        let ctrl_offset = ctrl_x_toward(sx, ex, metrics.bezier_ctrl_offset);
         format!(
             "M{sx},{sy} L{sx},{m} L{ctrl_offset},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-            m + BEZIER_CTRL_OFFSET
+            m + metrics.bezier_ctrl_offset
         )
     } else {
         format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
@@ -2108,42 +2095,43 @@ fn diagonal_parent(
     n1_depth: i32,
     n2_depth: i32,
     last_level: i32,
+    metrics: &PedigreeMetrics,
 ) -> String {
     let sw = if n2_depth == last_level {
-        COMPACT_W
+        metrics.compact_w
     } else {
-        CARD_W
+        metrics.card_w
     };
     let sh = if n2_depth == last_level {
-        COMPACT_H
+        metrics.compact_h
     } else if n2_depth > 0 {
-        DESC_H
+        metrics.desc_h
     } else {
-        CARD_H
+        metrics.card_h
     };
 
-    let sx = n1_x + CARD_W / 2.0;
-    let sy = n1_y + CARD_TOP_OFFSET;
+    let sx = n1_x + metrics.card_w / 2.0;
+    let sy = n1_y + metrics.card_top_offset;
     let ex = n2_x + sw / 2.0;
-    let ey = n2_y + sh - CARD_BOTTOM_OFFSET;
+    let ey = n2_y + sh - metrics.card_bottom_offset;
     let m = (sy + ey) / 2.0;
 
     // Simple path when root has siblings that would cause crossings.
     // Only goes to (ex, m) — the parent x at the midpoint — matching JS p[5], not all the way to (ex, ey).
     if n1_depth == 0 && ((n1_before_sib && sx > ex) || (n1_after_sib && sx < ex)) {
-        let c1x = ctrl_x_outward(sx, ex);
+        let c1x = ctrl_x_outward(sx, ex, metrics.bezier_ctrl_offset);
         return format!(
             "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{ex},{m}",
-            sy - CARD_TOP_INDENT
+            sy - metrics.card_top_indent
         );
     }
 
-    let c1x = ctrl_x_outward(sx, ex);
-    let c2x = ctrl_x_toward(sx, ex);
+    let c1x = ctrl_x_outward(sx, ex, metrics.bezier_ctrl_offset);
+    let c2x = ctrl_x_toward(sx, ex, metrics.bezier_ctrl_offset);
     format!(
         "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{c2x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-        sy - CARD_TOP_INDENT,
-        ey + CARD_TOP_INDENT
+        sy - metrics.card_top_indent,
+        ey + metrics.card_top_indent
     )
 }
 
@@ -2159,37 +2147,44 @@ fn diagonal_sibling(
     nb_children: usize,
     simple: bool,
     last_level: i32,
+    metrics: &PedigreeMetrics,
 ) -> String {
     let sw = if n1_depth == last_level {
-        COMPACT_W
+        metrics.compact_w
     } else {
-        CARD_W
+        metrics.card_w
     };
     let sh = if n1_depth == last_level {
-        COMPACT_H
+        metrics.compact_h
     } else {
-        CARD_H
+        metrics.card_h
     };
 
     let s_x = n1_x + sw / 2.0;
-    let s_y = n1_y + sh - CARD_BOTTOM_OFFSET;
-    let e_x = n2_x + CARD_W / 2.0;
-    let e_y = n2_y + CARD_TOP_OFFSET;
+    let s_y = n1_y + sh - metrics.card_bottom_offset;
+    let e_x = n2_x + metrics.card_w / 2.0;
+    let e_y = n2_y + metrics.card_top_offset;
     let m = (s_y + e_y) / 2.0;
 
     // Simple straight path for all but the last sibling; S-curve for the last one.
     if (index != nb_children.saturating_sub(1)) || (s_x - e_x).abs() < 0.001 || simple {
         format!("M{s_x},{s_y} L{s_x},{m} {e_x},{m} {e_x},{e_y}")
     } else {
-        let ctrl_x = ctrl_x_toward(s_x, e_x);
+        let ctrl_x = ctrl_x_toward(s_x, e_x, metrics.bezier_ctrl_offset);
         format!(
             "M{s_x},{s_y} L{s_x},{m} {ctrl_x},{m} S{e_x},{m} {e_x},{} L{e_x},{e_y}",
-            m + BEZIER_CTRL_OFFSET
+            m + metrics.bezier_ctrl_offset
         )
     }
 }
 
 /// Curved path from spouse to child.
+///
+/// Threading the metrics pushed this past the argument limit, the way
+/// `diagonal_parent` and `diagonal_sibling` already were. All three lose the
+/// exception when the connectors become theme-driven and take one `LinkSpec`
+/// instead of a list of loose coordinates.
+#[allow(clippy::too_many_arguments)]
 fn diagonal_child(
     spouse_x: f64,
     spouse_y: f64,
@@ -2198,22 +2193,23 @@ fn diagonal_child(
     parent_after: i32,
     y_offset: f64,
     is_first_or_last: bool,
+    metrics: &PedigreeMetrics,
 ) -> String {
     let sx = if parent_after == 1 {
-        spouse_x + CARD_W
+        spouse_x + metrics.card_w
     } else {
         spouse_x
     };
     let sy = spouse_y + y_offset;
-    let ex = child_x + CARD_W / 2.0;
-    let ey = child_y + CARD_TOP_OFFSET;
-    let m = child_y + (CARD_H - CARD_BOTTOM_OFFSET) / 2.0 - LAYOUT_MARGIN;
+    let ex = child_x + metrics.card_w / 2.0;
+    let ey = child_y + metrics.card_top_offset;
+    let m = child_y + (metrics.card_h - metrics.card_bottom_offset) / 2.0 - metrics.layout_margin;
 
     if is_first_or_last && (sx - ex).abs() > 0.5 {
-        let ctrl_x = ctrl_x_toward(sx, ex);
+        let ctrl_x = ctrl_x_toward(sx, ex, metrics.bezier_ctrl_offset);
         format!(
             "M{sx},{sy} L{sx},{m} {ctrl_x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-            m + BEZIER_CTRL_OFFSET
+            m + metrics.bezier_ctrl_offset
         )
     } else {
         format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
@@ -2223,7 +2219,7 @@ fn diagonal_child(
 // ── Link/path collection ──────────────────────────────────────────────────
 
 /// Collects the `d` attribute of every SVG connector between placed nodes.
-fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<String> {
+fn collect_links(arena: &[TreeNode], last_level: i32, metrics: &PedigreeMetrics) -> Vec<String> {
     let mut links = Vec::new();
     let mut stack = vec![0usize];
     let mut visited: HashSet<usize> = HashSet::new();
@@ -2237,18 +2233,19 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<String> {
         if !node.siblings.is_empty() {
             // Spouse links + child links.
             let center = {
-                let exit = CARD_H - CARD_BOTTOM_OFFSET;
-                let base =
-                    exit.min((SIBLING_VERTICAL_STEP * node.siblings.len() as f64 + exit) / 2.0);
-                base.max(SIBLING_MIN_OFFSET)
+                let exit = metrics.card_h - metrics.card_bottom_offset;
+                let base = exit
+                    .min((metrics.sibling_vertical_step * node.siblings.len() as f64 + exit) / 2.0);
+                base.max(metrics.sibling_min_offset)
             };
 
             for (si, &sib_ni) in node.siblings.iter().enumerate() {
                 let y = if node.after != 1 {
-                    (center - SIBLING_VERTICAL_STEP * si as f64).max(SIBLING_MIN_OFFSET)
+                    (center - metrics.sibling_vertical_step * si as f64)
+                        .max(metrics.sibling_min_offset)
                 } else {
-                    (center - SIBLING_VERTICAL_STEP * (node.siblings.len() - si) as f64)
-                        .max(SIBLING_MIN_OFFSET)
+                    (center - metrics.sibling_vertical_step * (node.siblings.len() - si) as f64)
+                        .max(metrics.sibling_min_offset)
                 };
 
                 // Spouse connector.
@@ -2258,6 +2255,7 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<String> {
                     arena[sib_ni].x,
                     arena[sib_ni].y,
                     y,
+                    metrics,
                 ));
 
                 // Children of this spouse. A child with no recorded second
@@ -2284,6 +2282,7 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<String> {
                         node.after,
                         y,
                         is_edge,
+                        metrics,
                     ));
                     // Push child onto stack.
                     stack.push(child_ni);
@@ -2304,6 +2303,7 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<String> {
                         node.depth,
                         arena[child_ni].depth,
                         last_level,
+                        metrics,
                     ));
                 } else {
                     let is_edge = ci == 0 || ci == node.children.len() - 1;
@@ -2313,6 +2313,7 @@ fn collect_links(arena: &[TreeNode], last_level: i32) -> Vec<String> {
                         arena[child_ni].x,
                         arena[child_ni].y,
                         is_edge,
+                        metrics,
                     ));
                 }
                 stack.push(child_ni);
@@ -2448,14 +2449,15 @@ fn compute_layout(
     sosa_ancestors: &HashSet<Uuid>,
     ancestor_levels: usize,
     descendant_levels: usize,
+    metrics: &PedigreeMetrics,
 ) -> PedigreeLayout {
     let last_asc_level = -(ancestor_levels as i32);
 
     // ── Ascending tree ──
     let mut asc_arena =
         build_ascending_tree(root_id, data, ancestor_levels, sosa_root_id, sosa_ancestors);
-    layout_tree(&mut asc_arena, last_asc_level);
-    let mut asc_links = collect_links(&asc_arena, last_asc_level);
+    layout_tree(&mut asc_arena, last_asc_level, metrics);
+    let mut asc_links = collect_links(&asc_arena, last_asc_level, metrics);
 
     // ── Descending tree ──
     let mut desc_arena = build_descending_tree(
@@ -2465,8 +2467,8 @@ fn compute_layout(
         sosa_root_id,
         sosa_ancestors,
     );
-    layout_tree(&mut desc_arena, 0);
-    let desc_links = collect_links(&desc_arena, 0);
+    layout_tree(&mut desc_arena, 0, metrics);
+    let desc_links = collect_links(&desc_arena, 0, metrics);
 
     // Root is always at arena index 0 in both trees.
     let asc_root_x = asc_arena[0].x;
@@ -2522,7 +2524,7 @@ fn compute_layout(
             let len_after = sibs_after.len();
 
             for (i, &sib_id) in sibs_before.iter().enumerate() {
-                let sib_x = sib_min_x - SIBLING_SPACING * (len_before - i) as f64;
+                let sib_x = sib_min_x - metrics.sibling_spacing * (len_before - i) as f64;
                 let sib_y = asc_root_y;
                 let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
                 extra_asc_nodes.push(LayoutNode {
@@ -2557,12 +2559,13 @@ fn compute_layout(
                         len_before,
                         simple,
                         last_asc_level,
+                        metrics,
                     ));
                 }
             }
 
             for (i, &sib_id) in sibs_after.iter().enumerate() {
-                let sib_x = sib_max_x + SIBLING_SPACING * (i + 1) as f64;
+                let sib_x = sib_max_x + metrics.sibling_spacing * (i + 1) as f64;
                 let sib_y = asc_root_y;
                 let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
                 extra_asc_nodes.push(LayoutNode {
@@ -2596,6 +2599,7 @@ fn compute_layout(
                         len_after,
                         simple,
                         last_asc_level,
+                        metrics,
                     ));
                 }
             }
@@ -2614,14 +2618,14 @@ fn compute_layout(
     for &ni in &asc_all {
         let tn = &asc_arena[ni];
         let cw = if tn.depth == last_asc_level {
-            COMPACT_W
+            metrics.compact_w
         } else {
-            CARD_W
+            metrics.card_w
         };
         let ch = if tn.depth == last_asc_level {
-            COMPACT_H
+            metrics.compact_h
         } else {
-            CARD_H
+            metrics.card_h
         };
         gmin_x = gmin_x.min(tn.x);
         gmax_x = gmax_x.max(tn.x + cw);
@@ -2630,36 +2634,40 @@ fn compute_layout(
     }
     for &ni in &desc_all {
         let tn = &desc_arena[ni];
-        let ch = if tn.depth > 0 { DESC_H } else { CARD_H };
+        let ch = if tn.depth > 0 {
+            metrics.desc_h
+        } else {
+            metrics.card_h
+        };
         let gx = tn.x + desc_tx;
         let gy = tn.y + desc_ty;
         gmin_x = gmin_x.min(gx);
-        gmax_x = gmax_x.max(gx + CARD_W);
+        gmax_x = gmax_x.max(gx + metrics.card_w);
         gmin_y = gmin_y.min(gy);
         gmax_y = gmax_y.max(gy + ch);
     }
     // Include root biological siblings in bounding box.
     for node in &extra_asc_nodes {
         gmin_x = gmin_x.min(node.x);
-        gmax_x = gmax_x.max(node.x + CARD_W);
+        gmax_x = gmax_x.max(node.x + metrics.card_w);
         gmin_y = gmin_y.min(node.y);
-        gmax_y = gmax_y.max(node.y + CARD_H);
+        gmax_y = gmax_y.max(node.y + metrics.card_h);
     }
 
-    let margin = LAYOUT_MARGIN;
+    let margin = metrics.layout_margin;
     // Shift so that no node has a negative coordinate inside the main group.
     let main_tx = (-gmin_x + margin).max(margin);
     let main_ty = (-gmin_y + margin).max(margin);
-    let total_w = (gmax_x - gmin_x + 2.0 * margin).max(CARD_W);
-    let total_h = (gmax_y - gmin_y + 2.0 * margin).max(CARD_H);
+    let total_w = (gmax_x - gmin_x + 2.0 * margin).max(metrics.card_w);
+    let total_h = (gmax_y - gmin_y + 2.0 * margin).max(metrics.card_h);
     let content_cx = (gmin_x + gmax_x) / 2.0 + main_tx;
     let content_cy = (gmin_y + gmax_y) / 2.0 + main_ty;
-    let content_w = (gmax_x - gmin_x).max(CARD_W);
-    let content_h = (gmax_y - gmin_y).max(CARD_H);
+    let content_w = (gmax_x - gmin_x).max(metrics.card_w);
+    let content_h = (gmax_y - gmin_y).max(metrics.card_h);
 
     // Root card centre in final SVG coordinates (used for auto-centering).
-    let root_cx = asc_root_x + main_tx + CARD_W / 2.0;
-    let root_cy = asc_root_y + main_ty + CARD_H / 2.0;
+    let root_cx = asc_root_x + main_tx + metrics.card_w / 2.0;
+    let root_cy = asc_root_y + main_ty + metrics.card_h / 2.0;
 
     // ── Build LayoutNode lists ──
     let make_node = |ni: usize, arena: &Vec<TreeNode>, is_compact: bool| LayoutNode {
@@ -2838,6 +2846,8 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
     let scale = props.scale;
+    // One theme so far. Phase 4 resolves this from the viewer's preference.
+    let metrics = &PedigreeMetrics::CLASSIC;
 
     // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
     let mut offset_x = use_signal(|| 0.0f64);
@@ -2856,6 +2866,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
             &props.data.sosa_ancestors,
             props.ancestor_levels,
             props.descendant_levels,
+            metrics,
         )
     });
 
@@ -2947,6 +2958,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     noop_empty_slot,
                                     false,
                                     i18n,
+                                    metrics,
                                 )}
                             }
                         }
@@ -2967,6 +2979,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     noop_empty_slot,
                                     false,
                                     i18n,
+                                    metrics,
                                 )}
                             }
                         }
@@ -3018,6 +3031,162 @@ pub struct PedigreeChartProps {
 /// prefix (`"an"` / `"dn"`) and `allow_empty_click=true` on both sides, so
 /// missing parents (ascending) and missing spouses (descending) can be
 /// added inline.
+/// The widest text a card's name column can hold, in pixels.
+///
+/// The compact column is whatever the compact rectangle has left after the
+/// text indent, so a theme that narrows its compact card narrows this with it
+/// rather than letting the names run past the frame.
+fn text_max_width(is_compact: bool, metrics: &PedigreeMetrics) -> f32 {
+    if is_compact {
+        (metrics.compact_inner_w - TEXT_X_COMPACT) as f32
+    } else {
+        TEXT_MAX_WIDTH_FULL
+    }
+}
+
+/// Where everything inside one classic card goes.
+///
+/// Pure: the same node and metrics always give the same numbers and strings,
+/// which is what lets a test pin a card's interior without rendering it. The
+/// `rsx!` below only places what this decided — so a themed renderer can
+/// reuse the measurements and draw its own frame around them.
+struct CardGeometry {
+    /// Drawn rectangle of the card.
+    rect_w: f64,
+    rect_h: f64,
+    /// `d` of the gender-coded rule down the card's left edge.
+    gender_line: String,
+    photo_x: f64,
+    text_x: f64,
+    sosa_cx: f64,
+    sosa_cy: f64,
+    /// Name pieces already truncated to the column they must fit.
+    given: String,
+    surname: String,
+    given_y: f64,
+    surname_y: f64,
+    date_y: f64,
+    /// The lifespan as drawn, and as markup carrying its own `<title>`.
+    date_text: String,
+    date_html: String,
+    /// Set when the lifespan has to be squeezed to fit its column.
+    date_squeeze: Option<f32>,
+    /// Centre of the edit button hanging below the focused card.
+    fab_x: f64,
+    fab_y: f64,
+    /// Centre of the "+" glyph drawn in an empty slot.
+    slot_plus_x: f64,
+    slot_plus_y: f64,
+}
+
+fn card_geometry(node: &LayoutNode, metrics: &PedigreeMetrics, i18n: &I18n) -> CardGeometry {
+    let is_compact = node.is_compact;
+    let (rect_w, rect_h) = metrics.rect(is_compact);
+    let (gender_line_x, photo_x, text_x, ty, sosa_cx) = if is_compact {
+        (
+            GENDER_LINE_X_COMPACT,
+            PHOTO_X_COMPACT,
+            TEXT_X_COMPACT,
+            TEXT_Y_COMPACT,
+            SOSA_CX_COMPACT,
+        )
+    } else {
+        (
+            GENDER_LINE_X_FULL,
+            PHOTO_X_FULL,
+            TEXT_X_FULL,
+            TEXT_Y_FULL,
+            SOSA_CX_FULL,
+        )
+    };
+
+    let max_width = text_max_width(is_compact, metrics);
+    let surname_up = node
+        .label_surname
+        .split(",")
+        .next()
+        .unwrap_or("")
+        .to_uppercase();
+    let surname = truncate_text_to_fit(&surname_up, max_width, SURNAME_FONT_SIZE_PX);
+    let label_given = node.label_given.split(",").next().unwrap_or("");
+    let given = truncate_text_to_fit(label_given, max_width, GIVEN_FONT_SIZE_PX);
+    let date_text = fit_lifespan(node.birth_year, node.death_year, max_width);
+    // Spelled-out form for the hover title; empty when both years are
+    // exact and the marks need no explaining.
+    let date_title = lifespan_tooltip(i18n, node.birth_year, node.death_year);
+    // A bare `1849-1917` always fitted, so the date line was never
+    // measured. The marks make it up to five characters longer, which
+    // overruns a compact card's 72px. Squeeze rather than truncate:
+    // dropping characters off a date would silently change what it
+    // says, while `textLength` keeps every one of them legible.
+    let date_squeeze = (crate::utils::estimate_text_width_px(&date_text, DATE_FONT_SIZE_PX)
+        > max_width)
+        .then_some(max_width);
+    // A native SVG tooltip is a `<title>` child, and rsx cannot make
+    // one: dioxus-html defines `title` as the HTML element (its SVG
+    // twin is commented out), and an HTML-namespaced `<title>` inside
+    // an `<svg>` is inert. Assigning innerHTML on an SVG element parses
+    // the fragment in the SVG namespace, which is the only route to a
+    // real tooltip here.
+    //
+    // Both strings are ours — translated words, integers and the fixed
+    // marks — but the marks are literally `<` and `>`, so they are
+    // escaped rather than trusted.
+    let date_html = if date_title.is_empty() {
+        escape_xml(&date_text)
+    } else {
+        format!(
+            "<title>{}</title>{}",
+            escape_xml(&date_title),
+            escape_xml(&date_text)
+        )
+    };
+
+    let given_y = ty;
+    let surname_y = if given.is_empty() {
+        ty
+    } else {
+        ty + NAME_LINE_STEP
+    };
+    let date_y = if !surname.is_empty() {
+        surname_y + NAME_LINE_STEP
+    } else if !given.is_empty() {
+        given_y + NAME_LINE_STEP
+    } else {
+        ty
+    };
+
+    CardGeometry {
+        rect_w,
+        rect_h,
+        gender_line: format!(
+            "M{gender_line_x},{GENDER_LINE_TOP} L{gender_line_x},{GENDER_LINE_BOTTOM}"
+        ),
+        photo_x,
+        text_x,
+        sosa_cx,
+        sosa_cy: SOSA_CY,
+        given,
+        surname,
+        given_y,
+        surname_y,
+        date_y,
+        date_text,
+        date_html,
+        date_squeeze,
+        fab_x: metrics.padding + rect_w / 2.0,
+        fab_y: metrics.padding + rect_h + EDIT_FAB_GAP,
+        slot_plus_x: metrics.padding + rect_w / 2.0,
+        slot_plus_y: metrics.padding + rect_h / 2.0 + SLOT_PLUS_BASELINE,
+    }
+}
+
+/// Render one card (person or empty slot) of the pedigree as an SVG `<g>`.
+///
+/// Used for both ascending and descending trees — pass the matching key
+/// prefix (`"an"` / `"dn"`) and `allow_empty_click=true` on both sides, so
+/// missing parents (ascending) and missing spouses (descending) can be
+/// added inline.
 #[allow(clippy::too_many_arguments)]
 fn render_pedigree_card(
     node: &LayoutNode,
@@ -3030,29 +3199,32 @@ fn render_pedigree_card(
     on_empty_slot: EventHandler<(Uuid, bool)>,
     allow_empty_click: bool,
     i18n: I18n,
+    metrics: &PedigreeMetrics,
 ) -> Element {
-    let is_compact = node.is_compact;
-    let (rw, rh) = if is_compact {
-        (COMPACT_INNER_W, COMPACT_INNER_H)
-    } else {
-        (CARD_INNER_W, CARD_INNER_H)
-    };
-    let (gl_path, ph_x) = if is_compact {
-        ("M19,10 L19,60", PHOTO_X_COMPACT)
-    } else {
-        ("M9,10 L9,60", PHOTO_X_FULL)
-    };
-    let (tx, ty) = if is_compact {
-        (TEXT_X_COMPACT, TEXT_Y_COMPACT)
-    } else {
-        (TEXT_X_FULL, TEXT_Y_FULL)
-    };
-    let sosa_cx = if is_compact {
-        SOSA_CX_COMPACT
-    } else {
-        SOSA_CX_FULL
-    };
-    let sosa_cy = SOSA_CY;
+    let geo = card_geometry(node, metrics, &i18n);
+    let CardGeometry {
+        rect_w: rw,
+        rect_h: rh,
+        gender_line: gl_path,
+        photo_x: ph_x,
+        text_x: tx,
+        sosa_cx,
+        sosa_cy,
+        given: given_disp,
+        surname: surname_disp,
+        given_y,
+        surname_y,
+        date_y,
+        date_text: date_s,
+        date_html,
+        date_squeeze,
+        fab_x,
+        fab_y,
+        slot_plus_x,
+        slot_plus_y,
+    } = geo;
+    let padding = metrics.padding;
+    let border_radius = metrics.border_radius;
     let key = format!("{key_prefix}-{ni}");
     let nx = node.x;
     let ny = node.y;
@@ -3067,65 +3239,9 @@ fn render_pedigree_card(
                 "var(--pn-text)"
             };
             let stroke = gender_stroke(node.sex);
-            let label_surname = node
-                .label_surname
-                .split(",")
-                .next()
-                .unwrap_or("")
-                .to_string();
-            let surname_up = label_surname.to_uppercase();
-            let text_max_width = if is_compact {
-                TEXT_MAX_WIDTH_COMPACT
-            } else {
-                TEXT_MAX_WIDTH_FULL
-            };
-            let surname_disp =
-                truncate_text_to_fit(&surname_up, text_max_width, SURNAME_FONT_SIZE_PX);
-            let label_given = node.label_given.split(",").next().unwrap_or("").to_string();
-            let given_disp = truncate_text_to_fit(&label_given, text_max_width, GIVEN_FONT_SIZE_PX);
-            let date_s = fit_lifespan(node.birth_year, node.death_year, text_max_width);
-            // Spelled-out form for the hover title; empty when both years are
-            // exact and the marks need no explaining.
-            let date_title = lifespan_tooltip(&i18n, node.birth_year, node.death_year);
-            // A bare `1849-1917` always fitted, so the date line was never
-            // measured. The marks make it up to five characters longer, which
-            // overruns a compact card's 72px. Squeeze rather than truncate:
-            // dropping characters off a date would silently change what it
-            // says, while `textLength` keeps every one of them legible.
-            let date_squeeze = (crate::utils::estimate_text_width_px(&date_s, DATE_FONT_SIZE_PX)
-                > text_max_width)
-                .then_some(text_max_width);
-            // A native SVG tooltip is a `<title>` child, and rsx cannot make
-            // one: dioxus-html defines `title` as the HTML element (its SVG
-            // twin is commented out), and an HTML-namespaced `<title>` inside
-            // an `<svg>` is inert. Assigning innerHTML on an SVG element parses
-            // the fragment in the SVG namespace, which is the only route to a
-            // real tooltip here.
-            //
-            // Both strings are ours — translated words, integers and the fixed
-            // marks — but the marks are literally `<` and `>`, so they are
-            // escaped rather than trusted.
-            let date_html = if date_title.is_empty() {
-                escape_xml(&date_s)
-            } else {
-                format!(
-                    "<title>{}</title>{}",
-                    escape_xml(&date_title),
-                    escape_xml(&date_s)
-                )
-            };
             let has_surname = !surname_disp.is_empty();
             let has_given = !given_disp.is_empty();
             let has_date = !date_s.is_empty();
-            let given_y = ty;
-            let surname_y = if has_given { ty + 14.0 } else { ty };
-            let date_y = if has_surname {
-                surname_y + 14.0
-            } else if has_given {
-                given_y + 14.0
-            } else {
-                ty
-            };
             let portrait = node
                 .photo_url
                 .clone()
@@ -3133,8 +3249,6 @@ fn render_pedigree_card(
             let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
             let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
             let is_self = node.is_self;
-            let fab_x = CARD_PADDING + rw / 2.0;
-            let fab_y = CARD_PADDING + rh + EDIT_FAB_GAP;
             let card_class = if is_focus {
                 "ped-card ped-card-focus"
             } else {
@@ -3154,7 +3268,7 @@ fn render_pedigree_card(
                         let coords = evt.client_coordinates();
                         on_person_click.call((pid, coords.x, coords.y));
                     },
-                    rect { class: "ped-card-rect", x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
+                    rect { class: "ped-card-rect", x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
                     rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:var(--white)" }
                     CroppedSvgImage { image: portrait, x: ph_x, y: PHOTO_Y, width: PHOTO_W, height: PHOTO_H, fallback: CroppedSource::silhouette(node.sex) }
@@ -3215,7 +3329,7 @@ fn render_pedigree_card(
                     }
                     if node.has_more_relations {
                         g {
-                            transform: "translate({CARD_PADDING},{CARD_PADDING})",
+                            transform: "translate({padding},{padding})",
                             style: "cursor:pointer",
                             onclick: move |evt: Event<MouseData>| {
                                 evt.stop_propagation();
@@ -3231,19 +3345,19 @@ fn render_pedigree_card(
         None => {
             let child_id = node.child_of;
             let is_father = node.is_father;
-            let plus_x = CARD_PADDING + rw / 2.0;
-            let plus_y = CARD_PADDING + rh / 2.0 + 8.0;
+            let plus_x = slot_plus_x;
+            let plus_y = slot_plus_y;
             rsx! {
                 g { key: "{key}", transform: "translate({nx},{ny})",
                     if let (true, Some(cid)) = (allow_empty_click, child_id) {
                         g {
                             style: "cursor:pointer",
                             onclick: move |_| on_empty_slot.call((cid, is_father)),
-                            rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
+                            rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
                             text { x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                         }
                     } else {
-                        rect { x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
+                        rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
                     }
                 }
             }
@@ -3418,6 +3532,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         .unwrap_or_default();
 
     // ── Compute layout ──
+    // One theme so far. Phase 4 resolves this from the viewer's preference.
+    let metrics = &PedigreeMetrics::CLASSIC;
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
             props.root_person_id,
@@ -3426,6 +3542,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             &sosa_ancestors,
             ancestor_levels(),
             descendant_levels(),
+            metrics,
         )
     });
 
@@ -3896,6 +4013,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             props.on_empty_slot,
                                             true,
                                             i18n,
+                                            metrics,
                                         )}
                                     }
                                 }
@@ -3918,6 +4036,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             desc_empty_slot_adapter,
                                             true,
                                             i18n,
+                                            metrics,
                                         )}
                                     }
                                 }
@@ -4255,7 +4374,7 @@ mod lifespan_tests {
         let one = range(1691, 1693, DateQualifier::Between);
         assert_eq!(fit_lifespan(None, one, TEXT_MAX_WIDTH_FULL), "-1691..1693");
         assert_eq!(
-            fit_lifespan(None, one, TEXT_MAX_WIDTH_COMPACT),
+            fit_lifespan(None, one, text_max_width(true, &PedigreeMetrics::CLASSIC)),
             "-1691..1693"
         );
     }
@@ -4321,6 +4440,11 @@ mod lifespan_tests {
 #[cfg(test)]
 mod layout_overlap_tests {
     use super::*;
+
+    /// These tests assert against the geometry the chart actually ships, so
+    /// they read the classic metrics rather than numbers of their own.
+    const METRICS: PedigreeMetrics = PedigreeMetrics::CLASSIC;
+    const CARD_W: f64 = METRICS.card_w;
 
     fn person(depth: i32, sex: Sex, parent2: Option<usize>) -> TreeNode {
         let mut n = TreeNode::new_real(
@@ -4399,7 +4523,7 @@ mod layout_overlap_tests {
         let b_child = push(&mut arena, person(2, Sex::Female, Some(b_spouse)));
         arena[b].children = vec![b_child];
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         // Every pair of cards at the same depth must not horizontally
         // overlap (allowing exact edge-touch).
@@ -4458,7 +4582,7 @@ mod layout_overlap_tests {
         let child_b = push(&mut arena, person(2, Sex::Male, Some(branch_a_spouse)));
         arena[branch_a].children = vec![child_a, child_b];
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         let by_depth =
             |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
@@ -4533,7 +4657,7 @@ mod layout_overlap_tests {
         let child_e = push(&mut arena, person(2, Sex::Male, Some(branch_b_spouse)));
         arena[branch_b].children = vec![child_d, child_e];
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         let by_depth =
             |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
@@ -4598,7 +4722,7 @@ mod layout_overlap_tests {
         let child_6_spouse = push(&mut arena, TreeNode::new_empty(2, None, false));
         marry(&mut arena, child_6, child_6_spouse);
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         let gap = arena[branch_a_spouse].x - arena[branch_a].x;
         assert!(
@@ -4649,7 +4773,7 @@ mod layout_overlap_tests {
 
         arena[root].children = root_children;
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         arena[branch_b].x - arena[branch_a].x
     }
@@ -4729,7 +4853,7 @@ mod layout_overlap_tests {
         let child_e = push(&mut arena, person(2, Sex::Male, Some(branch_b_spouse)));
         arena[branch_b].children = vec![child_d, child_e];
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         // `branch_a`'s COUPLE (him + his spouse card) should sit centered
         // over the TRUE bounding box of all its children's subtrees
@@ -4769,7 +4893,7 @@ mod layout_overlap_tests {
         let child_b = push(&mut arena, person(1, Sex::Female, Some(root_spouse)));
         arena[root].children = vec![child_a, child_b];
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         let row_center = (arena[child_a].x + arena[child_b].x) / 2.0;
         let couple_center = (arena[root].x + arena[root_spouse].x) / 2.0;
@@ -4799,7 +4923,7 @@ mod layout_overlap_tests {
         let child_c = push(&mut arena, person(1, Sex::Male, Some(husband_2)));
         arena[root].children = vec![child_a, child_b, child_c];
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         let row_min = arena[child_a].x.min(arena[child_b].x).min(arena[child_c].x);
         let row_max = arena[child_a].x.max(arena[child_b].x).max(arena[child_c].x);
@@ -4856,7 +4980,7 @@ mod layout_overlap_tests {
         }
         arena[branch_a].children = a_children;
 
-        layout_tree(&mut arena, 0);
+        layout_tree(&mut arena, 0, &METRICS);
 
         let right_of_couple = arena[branch_a].x.max(arena[branch_a_spouse].x);
         let gap = arena[branch_b].x - right_of_couple;
@@ -4891,7 +5015,7 @@ mod layout_overlap_tests {
         let mother_mother = push(&mut arena, person(last_level, Sex::Female, None));
         arena[mother].children = vec![mother_father, mother_mother];
 
-        layout_tree(&mut arena, last_level);
+        layout_tree(&mut arena, last_level, &METRICS);
 
         let by_depth =
             |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
@@ -5213,10 +5337,155 @@ mod geometry_golden_tests {
         );
     }
 
+    /// Renders one card's interior as a stable line.
+    fn describe_card(label: &str, geo: &CardGeometry) -> String {
+        format!(
+            "{label} rect=({:.4},{:.4}) line={} photo_x={:.4} text_x={:.4} \
+             sosa=({:.4},{:.4}) given={:?}@{:.4} surname={:?}@{:.4} \
+             date={:?}@{:.4} squeeze={:?} fab=({:.4},{:.4}) plus=({:.4},{:.4})\n",
+            geo.rect_w,
+            geo.rect_h,
+            geo.gender_line,
+            geo.photo_x,
+            geo.text_x,
+            geo.sosa_cx,
+            geo.sosa_cy,
+            geo.given,
+            geo.given_y,
+            geo.surname,
+            geo.surname_y,
+            geo.date_text,
+            geo.date_y,
+            geo.date_squeeze,
+            geo.fab_x,
+            geo.fab_y,
+            geo.slot_plus_x,
+            geo.slot_plus_y,
+        )
+    }
+
+    /// The card interior is now measured by `card_geometry` rather than
+    /// inline in `rsx!`, which is what makes it checkable at all — and what
+    /// a themed renderer will reuse. This pins what it measures.
+    ///
+    /// A card carrying whatever the case under test needs.
+    ///
+    /// The layout fixture cannot supply every one of them: at three ancestor
+    /// levels its whole compact row is empty slots, so a compact card with a
+    /// name and a lifespan — the narrowest column the chart has, and the only
+    /// place a date is squeezed — has to be built here.
+    fn card(is_compact: bool, given: &str, surname: &str) -> LayoutNode {
+        LayoutNode {
+            id: Some(id(ROOT)),
+            x: 0.0,
+            y: 0.0,
+            sex: Sex::Male,
+            label_surname: surname.to_string(),
+            label_given: given.to_string(),
+            birth_year: None,
+            death_year: None,
+            photo_url: None,
+            sosa_badge: SosaBadge::None,
+            is_self: false,
+            is_compact,
+            child_of: None,
+            is_father: false,
+            is_sibling: false,
+            has_more_relations: false,
+        }
+    }
+
+    /// The cards chosen are the ones with something to say: the root carries
+    /// two qualified years and a hover title, a compact card has the narrow
+    /// column that truncates a name and squeezes a lifespan, and an empty
+    /// slot has only its "+".
+    #[test]
+    fn the_classic_card_interior_is_unchanged() {
+        let data = wide_pedigree();
+        let layout = compute_layout(
+            id(ROOT),
+            &data,
+            None,
+            &HashSet::new(),
+            3,
+            2,
+            &PedigreeMetrics::CLASSIC,
+        );
+        let i18n = I18n(crate::i18n::Language::En);
+
+        // A name past either column, and two ranges — the pair that does not
+        // fit even a full card and degrades to its marks.
+        let ranged = |from: i32, to: i32| {
+            Some(QualifiedYear {
+                year: from,
+                qualifier: DateQualifier::Between,
+                year2: Some(to),
+            })
+        };
+        let mut long_compact = card(true, "Maximilian_Alexander", "Branch_Longname");
+        long_compact.birth_year = ranged(1691, 1693);
+        long_compact.death_year = ranged(1745, 1750);
+        let mut long_full = card(false, "Maximilian_Alexander", "Branch_Longname");
+        long_full.birth_year = ranged(1691, 1693);
+        long_full.death_year = ranged(1745, 1750);
+
+        let mut out = String::new();
+        let cases: [(&str, &LayoutNode); 7] = [
+            ("root", &layout.asc_nodes[0]),
+            ("dated-ancestor", &layout.asc_nodes[6]),
+            ("empty-compact-slot", &layout.asc_nodes[3]),
+            ("empty-slot", &layout.asc_nodes[5]),
+            ("compact-named", &card(true, "Given_1", "Branch_A")),
+            ("compact-overflowing", &long_compact),
+            ("full-overflowing", &long_full),
+        ];
+        for (label, node) in cases {
+            out.push_str(&describe_card(
+                label,
+                &card_geometry(node, &PedigreeMetrics::CLASSIC, &i18n),
+            ));
+        }
+
+        // A theme with a narrower compact card. Two things are pinned here
+        // that the classic metrics cannot reach: the squeeze branch, which
+        // only fires once even the narrow lifespan overruns its column, and
+        // the fact that the interior follows the metrics at all rather than
+        // the constants it used to read.
+        let narrow = PedigreeMetrics {
+            compact_inner_w: 60.0,
+            ..PedigreeMetrics::CLASSIC
+        };
+        out.push_str(&describe_card(
+            "narrow-theme-compact",
+            &card_geometry(&long_compact, &narrow, &i18n),
+        ));
+
+        assert_golden(&out, EXPECTED_CARD_INTERIOR, "card_interior");
+    }
+
+    const EXPECTED_CARD_INTERIOR: &str = r#"
+root rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Root"@21.0000 surname="BRANCH_A"@35.0000 date="ca 1849-< 1917"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
+dated-ancestor rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Father_1"@21.0000 surname="BRANCH_A"@35.0000 date="1820-"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
+empty-compact-slot rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given=""@81.0000 surname=""@81.0000 date=""@81.0000 squeeze=None fab=(46.0000,136.0000) plus=(46.0000,70.5000)
+empty-slot rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given=""@21.0000 surname=""@21.0000 date=""@21.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
+compact-named rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Given_1"@81.0000 surname="BRANCH_A"@95.0000 date=""@109.0000 squeeze=None fab=(46.0000,136.0000) plus=(46.0000,70.5000)
+compact-overflowing rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximilian_A…"@81.0000 surname="BRANCH_LO…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=None fab=(46.0000,136.0000) plus=(46.0000,70.5000)
+full-overflowing rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Maximilian_Alexander"@21.0000 surname="BRANCH_LONGNA…"@35.0000 date=".. 1691-.. 1745"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
+narrow-theme-compact rect=(60.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximili…"@81.0000 surname="BRANCH…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=Some(50.0) fab=(35.0000,136.0000) plus=(35.0000,70.5000)
+"#;
+
     #[test]
     fn the_classic_geometry_is_unchanged() {
         let data = wide_pedigree();
-        let layout = compute_layout(id(ROOT), &data, None, &HashSet::new(), 3, 2);
+        let layout = compute_layout(
+            id(ROOT),
+            &data,
+            None,
+            &HashSet::new(),
+            3,
+            2,
+            &PedigreeMetrics::CLASSIC,
+        );
         assert_golden(
             &describe_layout(&layout),
             EXPECTED_WIDE_PEDIGREE,
