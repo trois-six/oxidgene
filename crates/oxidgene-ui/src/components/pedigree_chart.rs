@@ -2649,6 +2649,11 @@ pub struct MiniPedigreeProps {
     /// (e.g. search-result grid cells).
     #[props(default = MINI_PEDIGREE_SCALE)]
     pub scale: f64,
+    /// Which theme to draw with, when the caller wants to decide rather than
+    /// follow the viewer's preference — a settings preview showing each
+    /// option as itself, for instance. `None` means the default theme.
+    #[props(default)]
+    pub theme: Option<&'static PedigreeTheme>,
 }
 
 /// A small, pannable (but not zoomable) pedigree fragment (e.g. "parents &
@@ -2662,8 +2667,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
     let scale = props.scale;
-    // One theme so far. Phase 4 resolves this from the viewer's preference.
-    let theme = &PedigreeTheme::CLASSIC;
+    let theme = props.theme.unwrap_or(&PedigreeTheme::CLASSIC);
     let metrics = &theme.metrics;
 
     // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
@@ -2840,6 +2844,11 @@ pub struct PedigreeChartProps {
     pub on_settings: EventHandler<()>,
     #[props(default)]
     pub on_dictionary: EventHandler<()>,
+    /// Which theme to draw with, when the caller wants to decide rather than
+    /// follow the viewer's preference — a settings preview showing each
+    /// option as itself, for instance. `None` means the default theme.
+    #[props(default)]
+    pub theme: Option<&'static PedigreeTheme>,
 }
 
 /// Render one card (person or empty slot) of the pedigree as an SVG `<g>`.
@@ -3349,8 +3358,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         .unwrap_or_default();
 
     // ── Compute layout ──
-    // One theme so far. Phase 4 resolves this from the viewer's preference.
-    let theme = &PedigreeTheme::CLASSIC;
+    let theme = props.theme.unwrap_or(&PedigreeTheme::CLASSIC);
     let metrics = &theme.metrics;
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
