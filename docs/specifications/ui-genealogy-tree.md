@@ -41,47 +41,52 @@ server query.
 
 ---
 
-## 2. Grid and Spatial Layout
+## 2. Spatial Layout
 
-### Fixed-Step Grid
+### Reingold-Tilford placement
 
-All cards are placed on a regular grid. The horizontal step is identical everywhere:
+Cards are **not** placed on a fixed grid. They are positioned by the
+Reingold-Tilford algorithm in Buchheim's linear-time variant, run twice per
+render: once over the ascending tree and once over the descending one. The two
+results are then translated so both roots land on the same point, which is what
+makes the focus person the hinge of the canvas.
 
-```
-step = card_width + minimum_gap
-```
+The passes work in abstract tree units and are converted to pixels at the end:
+horizontal position is multiplied by the theme's card width, vertical position
+comes from the generation's depth and the row heights the theme defines (see
+[Themes](#9-themes)). A theme with wider cards therefore lays the whole tree out
+differently, rather than drawing differently inside the same positions.
 
-No variable spacing between cards on the same level. A cell is either occupied by a card or empty. Empty cells can only appear at the **edges** of a level, never between two occupied cards.
+### What the placement guarantees
 
-### Centering per Level
+- Each generation is a **strict horizontal row**: every card at one depth shares
+  a Y coordinate
+- A couple is **centred over the row of its children**, and a child sits under
+  its parents — this, not any global per-level centring, is what aligns the tree
+- Two cards at the same depth **never overlap**; the regression suite asserts it
+  on family shapes that once produced collisions
 
-Each level is centered relative to the **widest level** (the one occupying the most cells).
+### What it does not guarantee
 
-```
-Level -2 (8 cards) :   [A1][A2][A3][A4][A5][A6][A7][A8]   <- reference
-Level -1 (4 cards) :       [B1][B2][B3][B4]                <- centered
-Level  0 (2 cards) :           [C1][C2]                    <- centered
-Level +1 (3 cards) :          [D1][D2][D3]                 <- centered
-Level +2 (2 cards) :           [E1][E2]                    <- centered
-```
+- **Levels are not centred against the widest level.** Each subtree is placed
+  relative to its own parent, so a row's centre of mass follows its branch
+- **Gaps do appear in the middle of a row.** Two adjacent subtrees are separated
+  by their contours, not by a single step, so a wide branch beside a narrow one
+  leaves space between cards that no card fills
+- **Spacing between neighbours is not uniform.** It is whatever keeps the two
+  subtrees clear of each other
 
-### Parity Handling
+### Corrections after placement
 
-When two adjacent levels have different parity (one even, one odd), perfect centering is not possible. A **minimal left offset** is applied, always less than half a grid step. No artificial spacing is added to compensate.
+Two passes run after the main one:
 
-### Placement Constraint Priority
-
-1. A card's position is first determined by its **connections** (child centered under its parents, parents centered above their children)
-2. Cards with no connection constraints fill available cells starting from the center
-3. The global level centering is applied last, as an overall offset
-
-### Horizontal Compaction
-
-The goal is to **minimize the total width** of the graph:
-
-- Children of the same couple are contiguous, with no empty cell between them
-- Two adjacent subtrees are brought as close as possible, separated by exactly one grid step
-- No empty column in the middle of a level
+- **Spouse-group overlap.** A card and its spouse cards form a group wider than
+  the card the algorithm placed. When such a group would collide with its
+  neighbour, the offending subtree is shifted clear and the parent couple is
+  re-centred over its now-moved children row
+- **Root siblings.** The focus person's own biological siblings are placed
+  beside the tree rather than by the layout pass, at a fixed spacing set by the
+  theme, and linked back to the parent card they belong to
 
 ---
 
@@ -109,18 +114,29 @@ Horizontal arrangement: avatar on the left, text information on the right.
 +----------------------------------+
 ```
 
-**Avatar** (`.pc-ph`):
-- Square photo area, 50×50px
+The card is drawn as SVG primitives inside one `<g>`; the HTML card and its
+`.pc-*` classes were removed when the pedigree became pure SVG, and only the
+`.ped-card*` classes remain for hover and theming.
+
+**Portrait**:
+- 50×50px, square in the classic theme; shape and size are set by the theme
 - Displays a **default portrait silhouette** when no profile photo is available, chosen by gender: male (`portrait_male.png`), female (`portrait_female.png`), unknown (`portrait_unknown.png`) — embedded as data URIs in the binary
 - When a profile photo is available it replaces the default portrait with `object-fit: cover`
-- **SOSA badge**: when the person has a SOSA number (ancestor of SOSA 1), a small colored dot (12px, `var(--green)` for ancestors, `var(--orange)` for SOSA 1) is displayed at the **bottom-center of the avatar circle**, with a 2px card-background border
-- **Self badge**: the person selected in Settings → Tree & Roots → Who am I? displays the same bottom-center indicator in blue. It is a display-only preference; when a person also has a SOSA badge, the blue self badge takes precedence so the selected identity remains visible.
+- **SOSA badge**: a 15px disc at the portrait's **bottom-right corner**. An
+  ancestor of SOSA 1 gets `var(--pn-sosa)` with a ring cut out of it; SOSA 1
+  itself gets `var(--pn-sosa-root)` carrying the digit `1`
+- **Self badge**: the person selected in Settings → Tree & Roots → Who am I?
+  gets the same disc in `var(--pn-self)` with a solid centre. It is a
+  display-only preference; when a person also has a SOSA badge the self badge
+  takes precedence, so the selected identity stays visible.
 
-**Text information** (`.pc-body`):
-- First name(s) (`.pc-first`)
-- Family name in uppercase, bold (`.pc-last`)
-- Dates in priority order: Birth > Baptism for start date, Death > Burial for end date (`.pc-dates`)
-- Date format: `dd/mm/yyyy`, or year only if day/month is unknown
+**Text information**, three baselines whose type and spacing come from the
+theme:
+- First name(s)
+- Family name in uppercase
+- Lifespan, from Birth > Baptism and Death > Burial. **Years only** — a card has
+  no room for a full date, and the precision marks below carry what the year
+  alone would lose. Each piece is truncated to the column it must fit
 
 **Date precision marks.** A card has room for a year and nothing else, so an
 approximate date would otherwise be drawn as a bare number and read as a fact.
@@ -186,21 +202,22 @@ HTML-namespaced `<title>` inside an `<svg>` is inert.
 The line is still compressed with `textLength`/`lengthAdjust` when even the
 narrow form overruns: dropping characters off a date would change what it says.
 
-**Date indicators** (`.pc-born`, `.pc-died`):
-| Symbol | Color | Meaning |
-|---|---|---|
-| * | Green (`var(--green)`) | Birth |
-| (cross) | Blue (`var(--blue)`) | Death |
-
 ### Visual Indicators
 
-- **Colored left border**: blue for male, pink for female, grey for unknown (`.male`, `.female`)
-- **Orange border** for the focus person (currently selected)
-- **Slightly different background** by role: ancestor, descendant, focus, lateral generation
+- **Sex-coded rule** beside the portrait: `var(--pn-male-line)` for male,
+  `var(--pn-female-line)` for female, `var(--pn-border)` for unknown. A theme
+  whose frame is heavy enough may carry the colour on the outline instead and
+  draw no rule — the medieval theme does
+- **Focus person**: filled with `var(--pn-root-bg)` and set in white, not
+  outlined. Hovering any card fills it with `var(--pn-hover-bg)` and strokes it
+  with `var(--pn-root-bg)`
+- **Spouse cards** use `var(--pn-spouse-bg)`, other cards `var(--pn-bg)`
 
 ### Placeholder Card (Unknown Parent)
 
-Appears only at the maximum ascending level, for each person whose parents are not recorded.
+Appears at **every** ascending level, for each recorded person whose father or
+mother is missing — one slot per missing parent — and on the descending side for
+a spouse a couple does not name.
 
 - Same dimensions as regular cards
 - **Dashed border**, very subtle background
@@ -211,7 +228,7 @@ Appears only at the maximum ascending level, for each person whose parents are n
 
 When a card is clicked:
 - It becomes the new **focus** of the graph, the layout is recalculated centered on it
-- Distinctive orange border
+- The focus card is filled rather than outlined (see Visual Indicators)
 - A **pencil icon** appears just below the card, centered
 - The pencil icon disappears as soon as another card is selected or the canvas is clicked
 
@@ -253,57 +270,67 @@ Clicking a union entry closes the picker and opens the couple edit modal for tha
   a bend into an S-curve where a connector has to step sideways, the medieval
   theme rules every one of them straight
 - **Solid line only**, regardless of the type of relationship (marriage, cohabitation, other) — no visual distinction by line style
-- Color: `var(--connector)` (neutral blue-grey in dark theme, warm grey in light theme)
-- All horizontal segments within the same generation are strictly at the **same Y level**
+- Color: `var(--pn-border)`, restyled by themes that draw with ink
+- Horizontal segments of a generation share one Y level, **except** where a
+  person has several spouses: those rows are stepped apart by a few pixels each
+  so the segments of different unions stay tellable apart
 
 ### Structure of a Couple -> Children Link
 
 ```
      [Parent 1]--------------[Parent 2]
-                      |
-                      |  <- departs from the exact midpoint of the segment
-                 -----+-----
-                 |         |
-             [Child 1]  [Child 2]
+                             |
+                             |  <- departs from the spouse card's edge
+                    ---------+---------
+                    |                 |
+                [Child 1]         [Child 2]
 ```
 
 1. Horizontal segment between the two partner cards
-2. Vertical line descends from the **exact midpoint** of the horizontal segment
+2. Vertical line descends from the **spouse card's own edge** on the segment,
+   not from its midpoint — with several unions this is what keeps each union's
+   children attached to the right partner
 3. Horizontal bar at the midpoint between the parents' row and the children's row
 4. Vertical lines from the bar down to the top of each child card
 
 ### Case: One Parent Has Multiple Unions
 
-Each union produces an **independent horizontal segment**. All segments are at the same Y level. The vertical link to the children departs from the midpoint of each segment.
+Each union produces an **independent horizontal segment**, and the segments are
+stepped a few pixels apart vertically so two unions of the same person do not
+merge into one line.
 
 ```
 [Mother B]------[Father]------[Mother A]
-          |             |
-          |             |
-     -----+-----   -----+-----
-     |         |   |         |
-[Child B1][Child B2] [Child A1][Child A2]
+     |                             |
+     |                             |
+-----+-----                   -----+-----
+|         |                   |         |
+[Child B1][Child B2]      [Child A1][Child A2]
 ```
 
-The shared parent card is used by both segments. The vertical departure points are respectively the midpoint of `[Mother B]--[Father]` and the midpoint of `[Father]--[Mother A]`.
+The shared parent card serves both segments. Each union's children hang from
+**that union's own spouse card**, which is what keeps them attributed to the
+right partner. A child recorded with only one parent hangs from the empty
+placeholder standing in for the other.
 
 ### Case: Unknown Parent (Placeholder)
 
-The placeholder counts as a full card for midpoint calculation:
+The placeholder counts as a full card, and children with no second parent
+recorded are attached to it:
 
 ```
 [Known parent]----[?]
-       |
-  (midpoint of segment)
-       |
-   [Child]
+                   |
+                   |
+               [Child]
 ```
 
-### Grid Alignment
+### Alignment
 
-- The midpoint of a couple segment always falls on a **half grid step**
-- The children's horizontal bar is drawn between the two rows, at the midpoint distance
-- Vertical lines fall on the **column centers** of the grid
+- Vertical runs fall on **card centres**, and a connector attaches at offsets
+  the theme defines — so both themes attach in the same places and differ only
+  in how the line travels between them
+- The children's horizontal bar is drawn between the two rows
 
 ---
 
