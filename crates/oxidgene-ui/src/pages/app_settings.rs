@@ -495,6 +495,76 @@ fn ApiSection() -> Element {
 /// own "Global preferences" nav group and uses this layout as the canonical
 /// visual treatment for both settings surfaces.
 pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
+    /* ── Pedigree theme picker ──────────────────────────────────────
+       The label and the choices stack, because a swatch needs more
+       width than the row layout leaves beside a label. */
+    .app-settings-option-stacked {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.9rem;
+    }
+
+    .ped-theme-options {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .ped-theme-option {
+        display: grid;
+        justify-items: center;
+        gap: 0.35rem;
+        padding: 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: none;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+        text-align: center;
+        color: var(--text-primary);
+    }
+
+    .ped-theme-option:hover { border-color: var(--orange); }
+
+    .ped-theme-option.active {
+        border-color: var(--orange);
+        background: var(--sel-bg);
+    }
+
+    .ped-theme-option-label {
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+
+    .ped-theme-option-hint {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        line-height: 1.35;
+    }
+
+    /* The swatch carries the theme's own variables, so it needs a ground
+       of its own — without one the classic swatch would sit on the
+       settings panel and the medieval one on parchment, which compares
+       the two unfairly. */
+    .ped-theme-swatch {
+        width: 100%;
+        max-width: 150px;
+        height: 74px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        /* The ground is painted by the rect inside, never by a `background`
+           here: this stylesheet loads after the layout one, so a background
+           property would beat a theme's own canvas rule and every swatch
+           would come out the same colour. */
+        --pn-swatch-bg: var(--bg-deep);
+    }
+
+    /* A theme that paints its own canvas does it through its class; the rect
+       stands aside so that ground shows through. */
+    .ped-theme-swatch.ped-theme-medieval {
+        --pn-swatch-bg: transparent;
+    }
+
     .settings-layout {
         display: flex;
         gap: 24px;
@@ -829,77 +899,7 @@ pub fn NamesSection(sort_particles: Signal<SortParticles>) -> Element {
     }
 }
 
-pub(crate) const APP_SETTINGS_STYLES: &str = r#"
-    /* ── Pedigree theme picker ──────────────────────────────────────
-       The label and the choices stack, because a swatch needs more
-       width than the row layout leaves beside a label. */
-    .app-settings-option-stacked {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.9rem;
-    }
-
-    .ped-theme-options {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 0.75rem;
-    }
-
-    .ped-theme-option {
-        display: grid;
-        justify-items: center;
-        gap: 0.35rem;
-        padding: 0.85rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: none;
-        cursor: pointer;
-        transition: border-color 0.15s, background 0.15s;
-        text-align: center;
-        color: var(--text-primary);
-    }
-
-    .ped-theme-option:hover { border-color: var(--orange); }
-
-    .ped-theme-option.active {
-        border-color: var(--orange);
-        background: var(--sel-bg);
-    }
-
-    .ped-theme-option-label {
-        font-size: 0.95rem;
-        font-weight: 600;
-    }
-
-    .ped-theme-option-hint {
-        font-size: 0.8rem;
-        color: var(--text-secondary);
-        line-height: 1.35;
-    }
-
-    /* The swatch carries the theme's own variables, so it needs a ground
-       of its own — without one the classic swatch would sit on the
-       settings panel and the medieval one on parchment, which compares
-       the two unfairly. */
-    .ped-theme-swatch {
-        width: 100%;
-        max-width: 150px;
-        height: 74px;
-        border-radius: 6px;
-        border: 1px solid var(--border);
-        /* The ground is painted by the rect inside, never by a `background`
-           here: this stylesheet loads after the layout one, so a background
-           property would beat a theme's own canvas rule and every swatch
-           would come out the same colour. */
-        --pn-swatch-bg: var(--bg-deep);
-    }
-
-    /* A theme that paints its own canvas does it through its class; the rect
-       stands aside so that ground shows through. */
-    .ped-theme-swatch.ped-theme-medieval {
-        --pn-swatch-bg: transparent;
-    }
-
+const APP_SETTINGS_STYLES: &str = r#"
     .api-endpoints {
         padding: 0;
         overflow: hidden;

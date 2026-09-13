@@ -5626,7 +5626,7 @@ mod geometry_golden_tests {
             "<!doctype html><meta charset=\"utf-8\"><style>{LAYOUT_STYLES}</style>\
              <style>{}</style><body style=\"background:var(--bg-deep);padding:24px\">\
              <div class=\"ped-theme-options\" style=\"max-width:420px\">{row}</div>",
-            crate::pages::app_settings::APP_SETTINGS_STYLES,
+            crate::pages::app_settings::SHARED_SETTINGS_STYLES,
         );
         let path = format!("{out_dir}/pedigree-swatches.html");
         std::fs::write(&path, page).expect("preview written");
