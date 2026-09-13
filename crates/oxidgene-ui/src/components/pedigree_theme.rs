@@ -117,6 +117,360 @@ impl PedigreeMetrics {
     }
 }
 
+/// A point in layout coordinates — the space cards are placed in, before the
+/// canvas transforms are applied.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Point {
+    #[must_use]
+    pub const fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+}
+
+/// How a theme draws the line between two cards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkStyle {
+    /// Elbows, softened into an S-curve wherever a connector has to step
+    /// sideways — the shape OxidGene has always drawn.
+    Bezier,
+    /// Ruled elbows throughout: right angles, no curve anywhere. What a drawn
+    /// pedigree does, where every line was laid down with a straightedge.
+    Ruled,
+}
+
+/// One connector to draw, named by what it joins rather than by its shape.
+///
+/// The endpoints are derived from the cards and the metrics, so both styles
+/// attach in the same places and only the run between them differs. That is
+/// the whole seam: a theme changes how a line travels, never where it lands.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LinkSpec {
+    /// A node across to one of its spouses.
+    Spouse {
+        from: Point,
+        to: Point,
+        y_offset: f64,
+    },
+    /// A parent down to a child, where the parent carries no spouse card.
+    SimpleChild {
+        from: Point,
+        to: Point,
+        is_edge: bool,
+    },
+    /// A child up to one of its ancestors.
+    Ancestor {
+        from: Point,
+        to: Point,
+        from_has_prev_sibling: bool,
+        from_has_next_sibling: bool,
+        from_depth: i32,
+        to_depth: i32,
+        last_level: i32,
+    },
+    /// A parent across to one of the root's own biological siblings, which are
+    /// placed beside the tree rather than by the layout pass.
+    RootSibling {
+        from: Point,
+        to: Point,
+        from_depth: i32,
+        index: usize,
+        count: usize,
+        simple: bool,
+        last_level: i32,
+    },
+    /// A spouse down to one of the couple's children.
+    Child {
+        from: Point,
+        to: Point,
+        parent_after: i32,
+        y_offset: f64,
+        is_edge: bool,
+    },
+}
+
+/// Where a connector starts, where it ends, and the row it turns on.
+struct Ends {
+    sx: f64,
+    sy: f64,
+    ex: f64,
+    ey: f64,
+    /// Y of the horizontal run joining the two verticals.
+    mid: f64,
+}
+
+/// Horizontal control-point X for an S-curve, stepping `offset` inward toward
+/// the destination from the source.
+fn ctrl_x_toward(src: f64, dst: f64, offset: f64) -> f64 {
+    if src > dst {
+        dst + offset
+    } else {
+        dst - offset
+    }
+}
+
+/// Horizontal control-point X stepping `offset` outward from the source.
+fn ctrl_x_outward(src: f64, dst: f64, offset: f64) -> f64 {
+    if src > dst {
+        src - offset
+    } else {
+        src + offset
+    }
+}
+
+/// The attachment points of a connector, which every style shares.
+fn endpoints(spec: &LinkSpec, m: &PedigreeMetrics) -> Ends {
+    match *spec {
+        // Handled without endpoints — a spouse link is one horizontal run.
+        LinkSpec::Spouse { from, to, y_offset } => Ends {
+            sx: from.x + m.card_w - m.spouse_link_inset,
+            sy: from.y + y_offset,
+            ex: to.x + m.padding,
+            ey: from.y + y_offset,
+            mid: from.y + y_offset,
+        },
+        LinkSpec::SimpleChild { from, to, .. } => {
+            let sx = from.x + m.card_w / 2.0;
+            let sy = from.y + m.card_h - m.card_bottom_offset;
+            let ex = to.x + m.card_w / 2.0;
+            let ey = to.y + m.padding;
+            Ends {
+                sx,
+                sy,
+                ex,
+                ey,
+                mid: (sy + ey) / 2.0,
+            }
+        }
+        LinkSpec::Ancestor {
+            from,
+            to,
+            to_depth,
+            last_level,
+            ..
+        } => {
+            let sw = if to_depth == last_level {
+                m.compact_w
+            } else {
+                m.card_w
+            };
+            let sh = if to_depth == last_level {
+                m.compact_h
+            } else if to_depth > 0 {
+                m.desc_h
+            } else {
+                m.card_h
+            };
+            let sx = from.x + m.card_w / 2.0;
+            let sy = from.y + m.card_top_offset;
+            let ex = to.x + sw / 2.0;
+            let ey = to.y + sh - m.card_bottom_offset;
+            Ends {
+                sx,
+                sy,
+                ex,
+                ey,
+                mid: (sy + ey) / 2.0,
+            }
+        }
+        LinkSpec::RootSibling {
+            from,
+            to,
+            from_depth,
+            last_level,
+            ..
+        } => {
+            let sw = if from_depth == last_level {
+                m.compact_w
+            } else {
+                m.card_w
+            };
+            let sh = if from_depth == last_level {
+                m.compact_h
+            } else {
+                m.card_h
+            };
+            let sx = from.x + sw / 2.0;
+            let sy = from.y + sh - m.card_bottom_offset;
+            let ex = to.x + m.card_w / 2.0;
+            let ey = to.y + m.card_top_offset;
+            Ends {
+                sx,
+                sy,
+                ex,
+                ey,
+                mid: (sy + ey) / 2.0,
+            }
+        }
+        LinkSpec::Child {
+            from,
+            to,
+            parent_after,
+            y_offset,
+            ..
+        } => {
+            let sx = if parent_after == 1 {
+                from.x + m.card_w
+            } else {
+                from.x
+            };
+            Ends {
+                sx,
+                sy: from.y + y_offset,
+                ex: to.x + m.card_w / 2.0,
+                ey: to.y + m.card_top_offset,
+                // Not the midpoint: the row is pinned relative to the child so
+                // a fan of siblings turns on one line rather than on a dozen.
+                mid: to.y + (m.card_h - m.card_bottom_offset) / 2.0 - m.layout_margin,
+            }
+        }
+    }
+}
+
+/// Down, across, up: the right-angled run every style falls back to.
+///
+/// The trailing pairs carry no command letter, which SVG reads as more `L`
+/// segments. That is how these paths have always been written.
+fn elbow(e: &Ends) -> String {
+    let Ends {
+        sx,
+        sy,
+        ex,
+        ey,
+        mid,
+    } = *e;
+    format!("M{sx},{sy} L{sx},{mid} {ex},{mid} {ex},{ey}")
+}
+
+/// The `d` attribute for one connector.
+///
+/// [`LinkStyle::Ruled`] is not a reduced version of the Bézier style — it is
+/// the same elbow the Bézier style already draws for every connector that
+/// does not have to step sideways, applied throughout.
+#[must_use]
+pub fn link_path(spec: &LinkSpec, style: LinkStyle, m: &PedigreeMetrics) -> String {
+    let e = endpoints(spec, m);
+    let Ends {
+        sx,
+        sy,
+        ex,
+        ey,
+        mid,
+    } = e;
+
+    // A spouse link is one horizontal run whatever the style.
+    if matches!(spec, LinkSpec::Spouse { .. }) {
+        return format!("M{sx},{sy} L{ex},{ey}");
+    }
+
+    let ruled = style == LinkStyle::Ruled;
+    let off = m.bezier_ctrl_offset;
+
+    match *spec {
+        LinkSpec::Spouse { .. } => unreachable!("handled above"),
+
+        LinkSpec::SimpleChild { is_edge, .. } => {
+            if ruled || !(is_edge && (sx - ex).abs() > 0.5) {
+                return elbow(&e);
+            }
+            // This one spells out the second `L`, unlike its siblings below.
+            // Same geometry, and kept verbatim so the classic theme stays
+            // byte-for-byte what shipped.
+            let ctrl = ctrl_x_toward(sx, ex, off);
+            format!(
+                "M{sx},{sy} L{sx},{mid} L{ctrl},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
+                mid + off
+            )
+        }
+
+        LinkSpec::Ancestor {
+            from_has_prev_sibling,
+            from_has_next_sibling,
+            from_depth,
+            ..
+        } => {
+            // The root's own siblings would be crossed by a full run, so the
+            // connector stops on the turning row instead of climbing to the
+            // ancestor's edge.
+            let would_cross = from_depth == 0
+                && ((from_has_prev_sibling && sx > ex) || (from_has_next_sibling && sx < ex));
+            if would_cross {
+                return if ruled {
+                    format!("M{sx},{sy} L{sx},{mid} {ex},{mid}")
+                } else {
+                    let c1x = ctrl_x_outward(sx, ex, off);
+                    format!(
+                        "M{sx},{sy} L{sx},{} S{sx},{mid} {c1x},{mid} L{ex},{mid}",
+                        sy - m.card_top_indent
+                    )
+                };
+            }
+            if ruled {
+                return elbow(&e);
+            }
+            let c1x = ctrl_x_outward(sx, ex, off);
+            let c2x = ctrl_x_toward(sx, ex, off);
+            format!(
+                "M{sx},{sy} L{sx},{} S{sx},{mid} {c1x},{mid} L{c2x},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
+                sy - m.card_top_indent,
+                ey + m.card_top_indent
+            )
+        }
+
+        LinkSpec::RootSibling {
+            index,
+            count,
+            simple,
+            ..
+        } => {
+            // Only the outermost sibling curves; the ones between it and the
+            // root run straight, so the row does not turn into a ripple.
+            let straight = index != count.saturating_sub(1) || (sx - ex).abs() < 0.001 || simple;
+            if ruled || straight {
+                return elbow(&e);
+            }
+            let ctrl = ctrl_x_toward(sx, ex, off);
+            format!(
+                "M{sx},{sy} L{sx},{mid} {ctrl},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
+                mid + off
+            )
+        }
+
+        LinkSpec::Child { is_edge, .. } => {
+            if ruled || !(is_edge && (sx - ex).abs() > 0.5) {
+                return elbow(&e);
+            }
+            let ctrl = ctrl_x_toward(sx, ex, off);
+            format!(
+                "M{sx},{sy} L{sx},{mid} {ctrl},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
+                mid + off
+            )
+        }
+    }
+}
+
+/// Everything a theme decides about the shape of the chart.
+///
+/// Colors are not here: those are CSS variables, swapped by a class on the
+/// viewport, and nothing in the layout needs to know about them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PedigreeTheme {
+    pub metrics: PedigreeMetrics,
+    pub link_style: LinkStyle,
+}
+
+impl PedigreeTheme {
+    /// What OxidGene has always drawn.
+    pub const CLASSIC: Self = Self {
+        metrics: PedigreeMetrics::CLASSIC,
+        link_style: LinkStyle::Bezier,
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

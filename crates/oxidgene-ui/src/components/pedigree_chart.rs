@@ -18,7 +18,9 @@ use uuid::Uuid;
 use crate::api::CroppedSource;
 use crate::components::cropped_image::{CroppedImage, CroppedSvgImage};
 use crate::components::date_input::format_event_date;
-use crate::components::pedigree_theme::PedigreeMetrics;
+use crate::components::pedigree_theme::{
+    LinkSpec, PedigreeMetrics, PedigreeTheme, Point, link_path,
+};
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
@@ -2021,205 +2023,12 @@ fn layout_tree(
     (tree_w.max(metrics.card_w), tree_h.max(metrics.card_h))
 }
 
-// ── Bézier path generators ────────────────────────────────────────────────
-
-/// Horizontal control-point X for an S-curve, stepping `BEZIER_CTRL_OFFSET`
-/// inward toward the destination from the source.
-fn ctrl_x_toward(src: f64, dst: f64, offset: f64) -> f64 {
-    if src > dst {
-        dst + offset
-    } else {
-        dst - offset
-    }
-}
-
-/// Horizontal control-point X stepping the Bézier offset outward from the source.
-fn ctrl_x_outward(src: f64, dst: f64, offset: f64) -> f64 {
-    if src > dst {
-        src - offset
-    } else {
-        src + offset
-    }
-}
-
-/// Horizontal line between spouses (from right edge of node to left edge of spouse).
-fn diagonal_spouse_link(
-    n1_x: f64,
-    n1_y: f64,
-    n2_x: f64,
-    _n2_y: f64,
-    y_offset: f64,
-    metrics: &PedigreeMetrics,
-) -> String {
-    let x1 = n1_x + metrics.card_w - metrics.spouse_link_inset;
-    let x2 = n2_x + metrics.padding;
-    let y = n1_y + y_offset;
-    format!("M{x1},{y} L{x2},{y}")
-}
-
-/// S-curve from parent to single child (no spouse).
-fn diagonal_simple_child(
-    n1_x: f64,
-    n1_y: f64,
-    n2_x: f64,
-    n2_y: f64,
-    is_first_or_last: bool,
-    metrics: &PedigreeMetrics,
-) -> String {
-    let sx = n1_x + metrics.card_w / 2.0;
-    let sy = n1_y + metrics.card_h - metrics.card_bottom_offset;
-    let ex = n2_x + metrics.card_w / 2.0;
-    let ey = n2_y + metrics.padding;
-    let m = (sy + ey) / 2.0;
-
-    if is_first_or_last && (sx - ex).abs() > 0.5 {
-        let ctrl_offset = ctrl_x_toward(sx, ex, metrics.bezier_ctrl_offset);
-        format!(
-            "M{sx},{sy} L{sx},{m} L{ctrl_offset},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-            m + metrics.bezier_ctrl_offset
-        )
-    } else {
-        format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
-    }
-}
-
-/// Double S-curve from child up to ancestor (ascending tree).
-#[allow(clippy::too_many_arguments)]
-fn diagonal_parent(
-    n1_x: f64,
-    n1_y: f64,
-    n1_before_sib: bool,
-    n1_after_sib: bool,
-    n2_x: f64,
-    n2_y: f64,
-    n1_depth: i32,
-    n2_depth: i32,
-    last_level: i32,
-    metrics: &PedigreeMetrics,
-) -> String {
-    let sw = if n2_depth == last_level {
-        metrics.compact_w
-    } else {
-        metrics.card_w
-    };
-    let sh = if n2_depth == last_level {
-        metrics.compact_h
-    } else if n2_depth > 0 {
-        metrics.desc_h
-    } else {
-        metrics.card_h
-    };
-
-    let sx = n1_x + metrics.card_w / 2.0;
-    let sy = n1_y + metrics.card_top_offset;
-    let ex = n2_x + sw / 2.0;
-    let ey = n2_y + sh - metrics.card_bottom_offset;
-    let m = (sy + ey) / 2.0;
-
-    // Simple path when root has siblings that would cause crossings.
-    // Only goes to (ex, m) — the parent x at the midpoint — matching JS p[5], not all the way to (ex, ey).
-    if n1_depth == 0 && ((n1_before_sib && sx > ex) || (n1_after_sib && sx < ex)) {
-        let c1x = ctrl_x_outward(sx, ex, metrics.bezier_ctrl_offset);
-        return format!(
-            "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{ex},{m}",
-            sy - metrics.card_top_indent
-        );
-    }
-
-    let c1x = ctrl_x_outward(sx, ex, metrics.bezier_ctrl_offset);
-    let c2x = ctrl_x_toward(sx, ex, metrics.bezier_ctrl_offset);
-    format!(
-        "M{sx},{sy} L{sx},{} S{sx},{m} {c1x},{m} L{c2x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-        sy - metrics.card_top_indent,
-        ey + metrics.card_top_indent
-    )
-}
-
-/// Path from a parent node up to a root biological sibling.
-#[allow(clippy::too_many_arguments)]
-fn diagonal_sibling(
-    n1_x: f64,
-    n1_y: f64,
-    n1_depth: i32,
-    n2_x: f64,
-    n2_y: f64,
-    index: usize,
-    nb_children: usize,
-    simple: bool,
-    last_level: i32,
-    metrics: &PedigreeMetrics,
-) -> String {
-    let sw = if n1_depth == last_level {
-        metrics.compact_w
-    } else {
-        metrics.card_w
-    };
-    let sh = if n1_depth == last_level {
-        metrics.compact_h
-    } else {
-        metrics.card_h
-    };
-
-    let s_x = n1_x + sw / 2.0;
-    let s_y = n1_y + sh - metrics.card_bottom_offset;
-    let e_x = n2_x + metrics.card_w / 2.0;
-    let e_y = n2_y + metrics.card_top_offset;
-    let m = (s_y + e_y) / 2.0;
-
-    // Simple straight path for all but the last sibling; S-curve for the last one.
-    if (index != nb_children.saturating_sub(1)) || (s_x - e_x).abs() < 0.001 || simple {
-        format!("M{s_x},{s_y} L{s_x},{m} {e_x},{m} {e_x},{e_y}")
-    } else {
-        let ctrl_x = ctrl_x_toward(s_x, e_x, metrics.bezier_ctrl_offset);
-        format!(
-            "M{s_x},{s_y} L{s_x},{m} {ctrl_x},{m} S{e_x},{m} {e_x},{} L{e_x},{e_y}",
-            m + metrics.bezier_ctrl_offset
-        )
-    }
-}
-
-/// Curved path from spouse to child.
-///
-/// Threading the metrics pushed this past the argument limit, the way
-/// `diagonal_parent` and `diagonal_sibling` already were. All three lose the
-/// exception when the connectors become theme-driven and take one `LinkSpec`
-/// instead of a list of loose coordinates.
-#[allow(clippy::too_many_arguments)]
-fn diagonal_child(
-    spouse_x: f64,
-    spouse_y: f64,
-    child_x: f64,
-    child_y: f64,
-    parent_after: i32,
-    y_offset: f64,
-    is_first_or_last: bool,
-    metrics: &PedigreeMetrics,
-) -> String {
-    let sx = if parent_after == 1 {
-        spouse_x + metrics.card_w
-    } else {
-        spouse_x
-    };
-    let sy = spouse_y + y_offset;
-    let ex = child_x + metrics.card_w / 2.0;
-    let ey = child_y + metrics.card_top_offset;
-    let m = child_y + (metrics.card_h - metrics.card_bottom_offset) / 2.0 - metrics.layout_margin;
-
-    if is_first_or_last && (sx - ex).abs() > 0.5 {
-        let ctrl_x = ctrl_x_toward(sx, ex, metrics.bezier_ctrl_offset);
-        format!(
-            "M{sx},{sy} L{sx},{m} {ctrl_x},{m} S{ex},{m} {ex},{} L{ex},{ey}",
-            m + metrics.bezier_ctrl_offset
-        )
-    } else {
-        format!("M{sx},{sy} L{sx},{m} {ex},{m} {ex},{ey}")
-    }
-}
-
 // ── Link/path collection ──────────────────────────────────────────────────
 
 /// Collects the `d` attribute of every SVG connector between placed nodes.
-fn collect_links(arena: &[TreeNode], last_level: i32, metrics: &PedigreeMetrics) -> Vec<String> {
+fn collect_links(arena: &[TreeNode], last_level: i32, theme: &PedigreeTheme) -> Vec<String> {
+    let metrics = &theme.metrics;
+    let style = theme.link_style;
     let mut links = Vec::new();
     let mut stack = vec![0usize];
     let mut visited: HashSet<usize> = HashSet::new();
@@ -2249,12 +2058,13 @@ fn collect_links(arena: &[TreeNode], last_level: i32, metrics: &PedigreeMetrics)
                 };
 
                 // Spouse connector.
-                links.push(diagonal_spouse_link(
-                    node.x,
-                    node.y,
-                    arena[sib_ni].x,
-                    arena[sib_ni].y,
-                    y,
+                links.push(link_path(
+                    &LinkSpec::Spouse {
+                        from: Point::new(node.x, node.y),
+                        to: Point::new(arena[sib_ni].x, arena[sib_ni].y),
+                        y_offset: y,
+                    },
+                    style,
                     metrics,
                 ));
 
@@ -2274,14 +2084,15 @@ fn collect_links(arena: &[TreeNode], last_level: i32, metrics: &PedigreeMetrics)
 
                 for (ci, &child_ni) in children_of_sib.iter().enumerate() {
                     let is_edge = ci == 0 || ci == children_of_sib.len() - 1;
-                    links.push(diagonal_child(
-                        sib_node.x,
-                        sib_node.y,
-                        arena[child_ni].x,
-                        arena[child_ni].y,
-                        node.after,
-                        y,
-                        is_edge,
+                    links.push(link_path(
+                        &LinkSpec::Child {
+                            from: Point::new(sib_node.x, sib_node.y),
+                            to: Point::new(arena[child_ni].x, arena[child_ni].y),
+                            parent_after: node.after,
+                            y_offset: y,
+                            is_edge,
+                        },
+                        style,
                         metrics,
                     ));
                     // Push child onto stack.
@@ -2293,26 +2104,28 @@ fn collect_links(arena: &[TreeNode], last_level: i32, metrics: &PedigreeMetrics)
             for (ci, &child_ni) in node.children.iter().enumerate() {
                 if arena[child_ni].depth < 0 {
                     // Ascending: child → ancestor.
-                    links.push(diagonal_parent(
-                        node.x,
-                        node.y,
-                        node.before_sibling,
-                        node.after_sibling,
-                        arena[child_ni].x,
-                        arena[child_ni].y,
-                        node.depth,
-                        arena[child_ni].depth,
-                        last_level,
+                    links.push(link_path(
+                        &LinkSpec::Ancestor {
+                            from: Point::new(node.x, node.y),
+                            to: Point::new(arena[child_ni].x, arena[child_ni].y),
+                            from_has_prev_sibling: node.before_sibling,
+                            from_has_next_sibling: node.after_sibling,
+                            from_depth: node.depth,
+                            to_depth: arena[child_ni].depth,
+                            last_level,
+                        },
+                        style,
                         metrics,
                     ));
                 } else {
                     let is_edge = ci == 0 || ci == node.children.len() - 1;
-                    links.push(diagonal_simple_child(
-                        node.x,
-                        node.y,
-                        arena[child_ni].x,
-                        arena[child_ni].y,
-                        is_edge,
+                    links.push(link_path(
+                        &LinkSpec::SimpleChild {
+                            from: Point::new(node.x, node.y),
+                            to: Point::new(arena[child_ni].x, arena[child_ni].y),
+                            is_edge,
+                        },
+                        style,
                         metrics,
                     ));
                 }
@@ -2449,15 +2262,16 @@ fn compute_layout(
     sosa_ancestors: &HashSet<Uuid>,
     ancestor_levels: usize,
     descendant_levels: usize,
-    metrics: &PedigreeMetrics,
+    theme: &PedigreeTheme,
 ) -> PedigreeLayout {
+    let metrics = &theme.metrics;
     let last_asc_level = -(ancestor_levels as i32);
 
     // ── Ascending tree ──
     let mut asc_arena =
         build_ascending_tree(root_id, data, ancestor_levels, sosa_root_id, sosa_ancestors);
     layout_tree(&mut asc_arena, last_asc_level, metrics);
-    let mut asc_links = collect_links(&asc_arena, last_asc_level, metrics);
+    let mut asc_links = collect_links(&asc_arena, last_asc_level, theme);
 
     // ── Descending tree ──
     let mut desc_arena = build_descending_tree(
@@ -2468,7 +2282,7 @@ fn compute_layout(
         sosa_ancestors,
     );
     layout_tree(&mut desc_arena, 0, metrics);
-    let desc_links = collect_links(&desc_arena, 0, metrics);
+    let desc_links = collect_links(&desc_arena, 0, theme);
 
     // Root is always at arena index 0 in both trees.
     let asc_root_x = asc_arena[0].x;
@@ -2549,16 +2363,17 @@ fn compute_layout(
                 if let Some((fx, fy, fd)) = father_data {
                     let rev_idx = len_before - i - 1;
                     let simple = sib_x >= fx;
-                    asc_links.push(diagonal_sibling(
-                        fx,
-                        fy,
-                        fd,
-                        sib_x,
-                        sib_y,
-                        rev_idx,
-                        len_before,
-                        simple,
-                        last_asc_level,
+                    asc_links.push(link_path(
+                        &LinkSpec::RootSibling {
+                            from: Point::new(fx, fy),
+                            to: Point::new(sib_x, sib_y),
+                            from_depth: fd,
+                            index: rev_idx,
+                            count: len_before,
+                            simple,
+                            last_level: last_asc_level,
+                        },
+                        theme.link_style,
                         metrics,
                     ));
                 }
@@ -2589,16 +2404,17 @@ fn compute_layout(
                 // Link from mother (or father if no mother).
                 if let Some((px, py, pd)) = mother_data {
                     let simple = sib_x <= px;
-                    asc_links.push(diagonal_sibling(
-                        px,
-                        py,
-                        pd,
-                        sib_x,
-                        sib_y,
-                        i,
-                        len_after,
-                        simple,
-                        last_asc_level,
+                    asc_links.push(link_path(
+                        &LinkSpec::RootSibling {
+                            from: Point::new(px, py),
+                            to: Point::new(sib_x, sib_y),
+                            from_depth: pd,
+                            index: i,
+                            count: len_after,
+                            simple,
+                            last_level: last_asc_level,
+                        },
+                        theme.link_style,
                         metrics,
                     ));
                 }
@@ -2847,7 +2663,8 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
     let scale = props.scale;
     // One theme so far. Phase 4 resolves this from the viewer's preference.
-    let metrics = &PedigreeMetrics::CLASSIC;
+    let theme = &PedigreeTheme::CLASSIC;
+    let metrics = &theme.metrics;
 
     // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
     let mut offset_x = use_signal(|| 0.0f64);
@@ -2866,7 +2683,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
             &props.data.sosa_ancestors,
             props.ancestor_levels,
             props.descendant_levels,
-            metrics,
+            theme,
         )
     });
 
@@ -3533,7 +3350,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // ── Compute layout ──
     // One theme so far. Phase 4 resolves this from the viewer's preference.
-    let metrics = &PedigreeMetrics::CLASSIC;
+    let theme = &PedigreeTheme::CLASSIC;
+    let metrics = &theme.metrics;
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
             props.root_person_id,
@@ -3542,7 +3360,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             &sosa_ancestors,
             ancestor_levels(),
             descendant_levels(),
-            metrics,
+            theme,
         )
     });
 
@@ -5409,7 +5227,7 @@ mod geometry_golden_tests {
             &HashSet::new(),
             3,
             2,
-            &PedigreeMetrics::CLASSIC,
+            &PedigreeTheme::CLASSIC,
         );
         let i18n = I18n(crate::i18n::Language::En);
 
@@ -5463,6 +5281,105 @@ mod geometry_golden_tests {
         assert_golden(&out, EXPECTED_CARD_INTERIOR, "card_interior");
     }
 
+    /// A link style is a change of shape, never of position.
+    ///
+    /// This is the assertion the whole seam rests on: swapping the style must
+    /// leave every card exactly where the classic theme put it, and must
+    /// leave no curve behind. If a style ever started moving cards, the
+    /// layout and the connectors would have stopped agreeing — the failure
+    /// this design exists to prevent.
+    #[test]
+    fn the_ruled_style_reshapes_the_links_and_moves_nothing() {
+        use crate::components::pedigree_theme::LinkStyle;
+
+        let data = wide_pedigree();
+        let ruled = PedigreeTheme {
+            link_style: LinkStyle::Ruled,
+            ..PedigreeTheme::CLASSIC
+        };
+        let classic = compute_layout(
+            id(ROOT),
+            &data,
+            None,
+            &HashSet::new(),
+            3,
+            2,
+            &PedigreeTheme::CLASSIC,
+        );
+        let layout = compute_layout(id(ROOT), &data, None, &HashSet::new(), 3, 2, &ruled);
+
+        assert_eq!(
+            layout.asc_nodes.len(),
+            classic.asc_nodes.len(),
+            "the two styles disagree about how many cards there are"
+        );
+        for (r, c) in layout
+            .asc_nodes
+            .iter()
+            .chain(layout.desc_nodes.iter())
+            .zip(classic.asc_nodes.iter().chain(classic.desc_nodes.iter()))
+        {
+            assert_eq!(
+                (r.x, r.y),
+                (c.x, c.y),
+                "a card moved when the style changed"
+            );
+        }
+        assert_eq!(
+            (layout.total_w, layout.total_h),
+            (classic.total_w, classic.total_h),
+            "the canvas resized when only the style changed"
+        );
+
+        // `S` is the only curve command these paths ever use.
+        for path in layout.asc_links.iter().chain(layout.desc_links.iter()) {
+            assert!(
+                !path.contains('S'),
+                "a ruled connector kept a curve: {path}"
+            );
+        }
+        // And the classic theme must still be drawing some, or the assertion
+        // above would pass for the wrong reason.
+        assert!(
+            classic
+                .asc_links
+                .iter()
+                .chain(classic.desc_links.iter())
+                .any(|p| p.contains('S')),
+            "the classic theme drew no curve at all — the fixture stopped covering them"
+        );
+
+        let mut out = String::new();
+        for (i, p) in layout.asc_links.iter().enumerate() {
+            out.push_str(&format!("asc link[{i}] {p}\n"));
+        }
+        for (i, p) in layout.desc_links.iter().enumerate() {
+            out.push_str(&format!("desc link[{i}] {p}\n"));
+        }
+        assert_golden(&out, EXPECTED_RULED_LINKS, "ruled_links");
+    }
+
+    const EXPECTED_RULED_LINKS: &str = r#"
+asc link[0] M370,340 L370,326.5 185,326.5 185,313
+asc link[1] M370,340 L370,326.5 555,326.5
+asc link[2] M555,244 L555,230.5 462.5,230.5 462.5,217
+asc link[3] M555,244 L555,230.5 647.5,230.5 647.5,217
+asc link[4] M647.5,148 L647.5,134.5 602.5,134.5 602.5,121
+asc link[5] M647.5,148 L647.5,134.5 695,134.5 695,121
+asc link[6] M185,244 L185,230.5 92.5,230.5 92.5,217
+asc link[7] M185,244 L185,230.5 277.5,230.5 277.5,217
+asc link[8] M277.5,148 L277.5,134.5 232.5,134.5 232.5,121
+asc link[9] M277.5,148 L277.5,134.5 325,134.5 325,121
+asc link[10] M92.5,148 L92.5,134.5 47.5,134.5 47.5,121
+asc link[11] M92.5,148 L92.5,134.5 140,134.5 140,121
+asc link[12] M555,313 L555,326.5 755,326.5 755,340
+desc link[0] M262.5,38.5 L282.5,38.5
+desc link[1] M277.5,38.5 L277.5,126.5 92.5,126.5 92.5,144
+desc link[2] M277.5,38.5 L277.5,126.5 462.5,126.5 462.5,144
+desc link[3] M170,178.5 L190,178.5
+desc link[4] M185,178.5 L185,222.5 185,222.5 185,240
+"#;
+
     const EXPECTED_CARD_INTERIOR: &str = r#"
 root rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Root"@21.0000 surname="BRANCH_A"@35.0000 date="ca 1849-< 1917"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
 dated-ancestor rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Father_1"@21.0000 surname="BRANCH_A"@35.0000 date="1820-"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
@@ -5484,7 +5401,7 @@ narrow-theme-compact rect=(60.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 
             &HashSet::new(),
             3,
             2,
-            &PedigreeMetrics::CLASSIC,
+            &PedigreeTheme::CLASSIC,
         );
         assert_golden(
             &describe_layout(&layout),
