@@ -1313,7 +1313,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 rsx! {
                     div { class: "card page-header",
                         div { class: "pd-header-left",
-                            CroppedImage { class: "pd-avatar", image: avatar, alt: String::new() }
+                            CroppedImage {
+                                class: "pd-avatar",
+                                image: avatar,
+                                alt: String::new(),
+                                fallback: crate::api::CroppedSource::silhouette(person_sex),
+                            }
                             div { class: "pd-header-main",
                                 div { class: "pd-header-top",
                                     h1 {

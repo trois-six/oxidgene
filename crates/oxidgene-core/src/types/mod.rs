@@ -20,7 +20,7 @@ pub use event::{Event, EventWitness, QualifiedYear, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
 pub use media::{
     DOCUMENT_MIME, ImageCrop, ImageSource, Media, MediaLink, Portrait, Vignette, guess_mime,
-    is_image_mime, is_remote_url, normalize_mime,
+    is_image_mime, is_remote_url, may_draw_as_image, normalize_mime,
 };
 pub use note::Note;
 pub use pagination::{Connection, Edge, PageInfo};

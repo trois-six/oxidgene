@@ -1140,6 +1140,7 @@ fn render_result_item(
                     class: "sp-result-portrait",
                     image: portrait,
                     alt: String::new(),
+                    fallback: CroppedSource::silhouette(entry.sex),
                 }
             }
             div { class: "sp-result-info",

@@ -595,6 +595,10 @@ pub async fn download_media(
 ///
 /// Entry names include their position to preserve the document's reading order.
 ///
+/// A page held only as a URL contributes a `.url` Internet Shortcut rather
+/// than bytes: we never fetch a remote file, and dropping the page would make
+/// the archive disagree with the document about how many pages it has.
+///
 /// Missing page files fail the request before response headers are sent.
 ///
 /// Entries use Stored compression to avoid recompressing media files.
@@ -623,11 +627,22 @@ pub async fn download_archive(
             .large_file(true);
         let digits = pages.len().to_string().len().max(3);
         for (index, page) in pages.iter().enumerate() {
+            let position = index + 1;
+            if oxidgene_core::types::is_remote_url(&page.file_path) {
+                writer
+                    .start_file(
+                        format!("{position:0digits$}_{}.url", zip_safe(&page.file_name)),
+                        options,
+                    )
+                    .map_err(|_| OxidGeneError::Internal("archive entry creation failed".into()))?;
+                writer.write_all(internet_shortcut(&page.file_path).as_bytes())?;
+                continue;
+            }
             let key = stored_key(page, page.storage_key.as_deref())?;
             let mut stream = runtime.block_on(state.media.get_stream(key))?;
             writer
                 .start_file(
-                    format!("{:0digits$}_{}", index + 1, zip_safe(&page.file_name)),
+                    format!("{position:0digits$}_{}", zip_safe(&page.file_name)),
                     options,
                 )
                 .map_err(|_| OxidGeneError::Internal("archive entry creation failed".into()))?;
@@ -709,9 +724,29 @@ pub(crate) async fn archive_pages(
                 id: media_id,
             });
         }
-        stored_key(page, page.storage_key.as_deref())?;
+        // A page we never received has no bytes to pack, but it does have the
+        // one thing we ever held about it. It travels as a shortcut instead.
+        if !oxidgene_core::types::is_remote_url(&page.file_path) {
+            stored_key(page, page.storage_key.as_deref())?;
+        }
     }
     Ok((document, pages))
+}
+
+/// The entry a remote page contributes to an archive: an Internet Shortcut.
+///
+/// We never fetch a remote file, so there are no bytes to pack — and an
+/// archive that silently dropped the page would tell the reader a two-page
+/// document has one. `.url` is the format that answers this: a two-line INI
+/// file, opened by a double-click on Windows and plain readable text
+/// everywhere else, so the address survives the round trip through a ZIP.
+///
+/// CRLF because the format is a Windows one. Control characters are stripped:
+/// the address came from a GEDCOM or a paste box, and a newline in it would
+/// otherwise write a second key into the file.
+fn internet_shortcut(url: &str) -> String {
+    let url: String = url.trim().chars().filter(|c| !c.is_control()).collect();
+    format!("[InternetShortcut]\r\nURL={url}\r\n")
 }
 
 /// A file name that cannot escape the archive's own directory.

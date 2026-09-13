@@ -30,11 +30,29 @@ pub fn CroppedImage(
     image: CroppedSource,
     alt: String,
     #[props(default)] class: Option<String>,
+    /// Drawn instead when the browser refuses `image`. A remote portrait is an
+    /// address nobody here ever fetched, so "this is a picture" is a claim the
+    /// browser is the first to test — and a silhouette says "no portrait"
+    /// where a broken-image glyph says nothing anybody can act on.
+    #[props(default)]
+    fallback: Option<CroppedSource>,
 ) -> Element {
-    let CroppedSource { source, crop } = image;
+    let mut refused = use_signal(String::new);
+    let requested = image.source.clone();
+    let refused_now = refused() == requested;
+    let CroppedSource { source, crop } = match fallback {
+        Some(fallback) if refused_now => fallback,
+        _ => image,
+    };
     let Some(crop) = crop else {
         return rsx! {
-            img { class, src: "{source}", alt, loading: "lazy" }
+            img {
+                class,
+                src: "{source}",
+                alt,
+                loading: "lazy",
+                onerror: move |_| refused.set(requested.clone()),
+            }
         };
     };
     rsx! {
@@ -50,6 +68,7 @@ pub fn CroppedImage(
                 y: "0",
                 width: "{crop.source_width}",
                 height: "{crop.source_height}",
+                onerror: move |_| refused.set(requested.clone()),
             }
         }
     }
@@ -68,8 +87,17 @@ pub fn CroppedSvgImage(
     width: f64,
     height: f64,
     #[props(default)] class: Option<String>,
+    /// Drawn instead when the browser refuses `image`, as in [`CroppedImage`].
+    #[props(default)]
+    fallback: Option<CroppedSource>,
 ) -> Element {
-    let CroppedSource { source, crop } = image;
+    let mut refused = use_signal(String::new);
+    let requested = image.source.clone();
+    let refused_now = refused() == requested;
+    let CroppedSource { source, crop } = match fallback {
+        Some(fallback) if refused_now => fallback,
+        _ => image,
+    };
     let Some(crop) = crop else {
         return rsx! {
             image {
@@ -80,6 +108,7 @@ pub fn CroppedSvgImage(
                 width: "{width}",
                 height: "{height}",
                 "preserveAspectRatio": "xMidYMid slice",
+                onerror: move |_| refused.set(requested.clone()),
             }
         };
     };
@@ -98,6 +127,7 @@ pub fn CroppedSvgImage(
                 y: "0",
                 width: "{crop.source_width}",
                 height: "{crop.source_height}",
+                onerror: move |_| refused.set(requested.clone()),
             }
         }
     }

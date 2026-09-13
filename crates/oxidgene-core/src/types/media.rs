@@ -377,6 +377,19 @@ fn is_informative_mime(mime: &str) -> bool {
     mime.contains('/') && !mime.eq_ignore_ascii_case("application/octet-stream")
 }
 
+/// Whether a media is worth handing to an `<img>` rather than an icon.
+///
+/// A declared picture, obviously. And also one nothing declared: a remote
+/// address carrying no extension — a CDN naming its file
+/// `AF2bZy…=s64-c-mo` — leaves us no guess to make, so the browser fetching
+/// the bytes is the only reader able to identify them. Drawing a folder glyph
+/// over a photograph is the worse of the two wrong answers, and the one the
+/// reader cannot undo; a picture that fails to load can still fall back.
+#[must_use]
+pub fn may_draw_as_image(mime_type: &str) -> bool {
+    is_image_mime(mime_type) || !is_informative_mime(mime_type)
+}
+
 /// The MIME type to believe for a media, given what its producer declared and
 /// what its file is called.
 ///
@@ -579,5 +592,18 @@ mod mime_tests {
             "application/octet-stream"
         );
         assert_eq!(normalize_mime(Some(""), ""), "application/octet-stream");
+    }
+
+    #[test]
+    fn an_unidentified_file_is_offered_to_an_img_anyway() {
+        assert!(may_draw_as_image("image/png"));
+        // The case this exists for: a CDN address with no extension, which
+        // leaves the browser as the only reader able to identify the bytes.
+        assert!(may_draw_as_image("application/octet-stream"));
+        assert!(may_draw_as_image(""));
+        // A declared non-picture is not guessed at: it has said what it is.
+        assert!(!may_draw_as_image("application/pdf"));
+        assert!(!may_draw_as_image("video/mp4"));
+        assert!(!may_draw_as_image(DOCUMENT_MIME));
     }
 }

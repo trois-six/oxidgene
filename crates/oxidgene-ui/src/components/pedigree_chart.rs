@@ -3157,7 +3157,7 @@ fn render_pedigree_card(
                     rect { class: "ped-card-rect", x: "{CARD_PADDING}", y: "{CARD_PADDING}", rx: "{CARD_BORDER_RADIUS}", ry: "{CARD_BORDER_RADIUS}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:var(--pn-border);stroke-width:1" }
                     path { d: "{gl_path}", style: "stroke:{stroke};stroke-width:2;fill:none" }
                     rect { x: "{ph_x}", y: "{PHOTO_Y}", width: "{PHOTO_W}", height: "{PHOTO_H}", style: "fill:var(--white)" }
-                    CroppedSvgImage { image: portrait, x: ph_x, y: PHOTO_Y, width: PHOTO_W, height: PHOTO_H }
+                    CroppedSvgImage { image: portrait, x: ph_x, y: PHOTO_Y, width: PHOTO_W, height: PHOTO_H, fallback: CroppedSource::silhouette(node.sex) }
                     if is_self {
                         g {
                             circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{SOSA_R}", style: "fill:var(--pn-self)" }
@@ -4043,7 +4043,11 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     div { class: "evp-hd", {i18n.t("pedigree.events")} }
                     div { class: "evp-person",
                         div { class: "evp-av",
-                            CroppedImage { image: sel_portrait, alt: String::new() }
+                            CroppedImage {
+                                image: sel_portrait,
+                                alt: String::new(),
+                                fallback: CroppedSource::silhouette(props.data.sex_of(sel_pid)),
+                            }
                         }
                         div { class: "evp-name",
                             strong { "{sel_full_name}" }

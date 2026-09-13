@@ -416,32 +416,81 @@ async fn media_downloads_reject_missing_foreign_and_deleted_records() {
 #[tokio::test]
 async fn media_downloads_never_fetch_remote_pages_or_skip_unheld_pages() {
     let h = setup().await;
-    for path in ["media/missing.png", "https://example.invalid/remote.pdf"] {
-        let doc = document(&h, "Example document").await;
-        download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
-        download_access(&h, h.tree_id, &doc, false, StatusCode::NOT_FOUND).await;
-        add_page(&h, &doc, "held.png").await;
-        let (status, stub) = json_request(
-            &h.app,
-            Method::POST,
-            &format!("/api/v1/trees/{}/media", h.tree_id),
-            Some(
-                json!({"document_id": doc, "file_name": "missing", "file_path": path,
-                "mime_type": "application/octet-stream", "file_size": 0}),
-            ),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED, "{stub}");
-        download_access(
-            &h,
-            h.tree_id,
-            stub["id"].as_str().unwrap(),
-            false,
-            StatusCode::NOT_FOUND,
-        )
-        .await;
-        download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
-    }
+    let doc = document(&h, "Example document").await;
+    download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+    download_access(&h, h.tree_id, &doc, false, StatusCode::NOT_FOUND).await;
+    add_page(&h, &doc, "held.png").await;
+    let (status, stub) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(
+            json!({"document_id": doc, "file_name": "missing", "file_path": "media/missing.png",
+            "mime_type": "application/octet-stream", "file_size": 0}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{stub}");
+    // A record naming a file nobody uploaded has neither bytes nor address:
+    // there is nothing to put in the archive on its behalf.
+    download_access(
+        &h,
+        h.tree_id,
+        stub["id"].as_str().unwrap(),
+        false,
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+    download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+}
+
+#[tokio::test]
+async fn a_remote_page_travels_in_the_archive_as_a_shortcut() {
+    // We never fetch a remote file, so the archive cannot carry its bytes.
+    // Leaving the page out would make a two-page document unzip to one, so the
+    // address travels instead, as the `.url` file a double-click opens.
+    let h = setup().await;
+    let doc = document(&h, "Example document").await;
+    add_page(&h, &doc, "held.png").await;
+    let url = "https://archives.example.invalid/scan/42.jpg";
+    let (status, remote) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": doc,
+            "file_name": "42.jpg",
+            "mime_type": "",
+            "file_path": url,
+            "file_size": 0
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{remote}");
+
+    // The page alone is still not a download: there are no bytes here.
+    download_access(
+        &h,
+        h.tree_id,
+        remote["id"].as_str().unwrap(),
+        false,
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+
+    let (_, bytes) = download_access(&h, h.tree_id, &doc, true, StatusCode::OK).await;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names = archive.file_names().map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(names.len(), 2, "both pages are in the archive: {names:?}");
+    let shortcut = names
+        .iter()
+        .find(|name| name.ends_with(".url"))
+        .unwrap_or_else(|| panic!("no shortcut entry among {names:?}"))
+        .clone();
+    assert_eq!(shortcut, "002_42.jpg.url", "the reading order is preserved");
+    let mut contents = String::new();
+    std::io::Read::read_to_string(&mut archive.by_name(&shortcut).unwrap(), &mut contents).unwrap();
+    assert_eq!(contents, format!("[InternetShortcut]\r\nURL={url}\r\n"));
 }
 
 #[tokio::test]
@@ -2149,6 +2198,47 @@ async fn a_document_tile_previews_a_page_we_only_have_a_url_for() {
     assert!(
         bundle["media"][0]["source"].is_null(),
         "a document holds no bytes of its own: {bundle}"
+    );
+}
+
+#[tokio::test]
+async fn a_page_whose_url_names_no_extension_is_still_previewed() {
+    // A CDN address ending in `=s64-c-mo` gives the MIME guess nothing to work
+    // with, so the page is stored as `application/octet-stream`. Reading that
+    // as "not a picture" would hide a photograph behind a file icon; the
+    // browser fetching the bytes is the only reader that can identify them.
+    let h = setup().await;
+    let document = new_document(&h.app, h.tree_id, None).await;
+    let url = "https://images.example.invalid/ogw/AF2bZyPortrait=s64-c-mo";
+    let (status, page) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": document,
+            "file_name": "document",
+            "mime_type": "",
+            "file_path": url,
+            "file_size": 0
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+    assert_eq!(page["mime_type"], "application/octet-stream", "{page}");
+
+    let (status, bundle) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
+        Some(json!({"media_ids": [document], "vignette_ids": []})),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(
+        bundle["media"][0]["document_previews"],
+        json!([{ "kind": "remote", "url": url }]),
+        "an unidentified remote page is offered to the browser anyway: {bundle}"
     );
 }
 

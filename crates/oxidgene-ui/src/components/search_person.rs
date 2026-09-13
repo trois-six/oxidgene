@@ -248,6 +248,7 @@ pub(crate) fn render_person_search_summary(
                 class: "sp-result-portrait",
                 image: portrait,
                 alt: String::new(),
+                fallback: CroppedSource::silhouette(summary.sex),
             }
         }
         div { class: "sp-result-info",

@@ -838,6 +838,11 @@ impl QueryRoot {
         let id = Uuid::parse_str(id.as_str())?;
         let (_, pages) = crate::rest::media::archive_pages(db_from_ctx(ctx), tree_id, id).await?;
         for page in &pages {
+            // A remote page contributes a shortcut, not bytes: there is no
+            // stored file to check before promising the archive.
+            if oxidgene_core::types::is_remote_url(&page.file_path) {
+                continue;
+            }
             let key = crate::rest::media::stored_key(page, page.storage_key.as_deref())?;
             let _stream = media_from_ctx(ctx).get_stream(key).await?;
         }

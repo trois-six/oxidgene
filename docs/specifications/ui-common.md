@@ -235,6 +235,27 @@ carries the remote badge. A document is offered as a portrait exactly when it
 draws a picture; a PDF is not, and the action is withheld rather than accepted
 and then drawn as a silhouette.
 
+A remote page whose MIME type nobody could establish counts as a remote image
+everywhere a picture is drawn: the tile, the document mosaic, the page list,
+the square beside each attachment, and the viewer. Such a page has an address
+with no extension — a CDN naming its file `AF2bZy…=s64-c-mo` — and since we
+never fetch it there is no second guess to make: the browser is the only reader
+able to identify the bytes, so it is given the chance. When it refuses, the
+viewer replaces the picture with the fallback panel, saying that nothing
+declares what the file is and that the browser could not display it, and
+offering the same action the footer carries. Turning the page tries afresh: the
+refusal is remembered per page, not for the document. A portrait drawn from a
+remote address falls back to the silhouette on the same refusal, on every
+surface that draws one — pedigree card, search result, person header — rather
+than to a broken-image glyph.
+
+A remote page is offered as a link to its own address, opened in a new tab,
+never as a download button: the bytes are somebody else's, fetching them from
+here would make us a proxy for their bandwidth, and whether the transfer is
+even allowed is their CORS policy's decision rather than ours. The whole
+document still downloads as one archive, where such a page travels as a `.url`
+shortcut — see [API](api.md).
+
 Every viewer action, identification included, is available over a page held only
 as a remote URL. The server cannot cut a region out of such a page — cutting
 means re-decoding our own copy — so it sends the whole picture with the

@@ -1096,11 +1096,13 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.source_unheld", "File not held"),
         ("media.download_file", "Download file"),
         ("media.download_page", "Download page {page}"),
+        ("media.open_remote_link", "Open the original link"),
         ("media.downloading", "Downloading..."),
         ("media.download_failed", "The download failed. Please try again."),
         ("media.save_failed", "The file could not be saved. Choose another location and try again."),
         ("media.save_as", "Save as\u{2026}"),
         ("media.not_embeddable", "This format cannot be shown here. Download it to open it."),
+        ("media.preview_failed", "Nothing says what this file is, and the browser could not display it. Download it to open it."),
         ("media.no_file", "No file: this record names a document nobody has uploaded."),
         // ── Multi-page documents (Sprint F.3) ───────────────────────
         ("media.new_document", "Add a document"),

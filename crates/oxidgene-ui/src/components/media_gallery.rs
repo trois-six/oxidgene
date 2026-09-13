@@ -92,6 +92,32 @@ fn BundledThumbnail(source: Option<String>, alt: String, class: Option<String>) 
     }
 }
 
+/// The small square beside an attached person or couple.
+///
+/// A page we hold has a thumbnail we rasterised. A page we only have a URL for
+/// has none and never will, so the browser draws it from that URL — the same
+/// answer the tile, the mosaic and the viewer give.
+#[component]
+fn AttachmentThumbnail(tree_id: Uuid, media_id: Uuid, remote: Option<String>) -> Element {
+    const CLASS: &str = "media-vignette-thumbnail";
+    rsx! {
+        if let Some(remote) = remote {
+            BundledThumbnail {
+                source: Some(remote),
+                alt: String::new(),
+                class: CLASS.to_string(),
+            }
+        } else {
+            PrivateThumbnail {
+                tree_id,
+                media_id,
+                alt: String::new(),
+                class: CLASS.to_string(),
+            }
+        }
+    }
+}
+
 fn document_mosaic_class(page_count: usize) -> &'static str {
     match page_count.min(4) {
         1 => "media-document-mosaic is-1",
@@ -673,7 +699,11 @@ fn MediaTile(
     // A document holds no bytes of its own, so what the tile draws — and what
     // it may therefore say about where the file lives, or offer as somebody's
     // portrait — is decided by its pages, which is what the previews are.
-    let draws_a_picture = !document_previews.is_empty() || kind == MediaKind::Image;
+    let remote_preview = (source == MediaSource::Remote
+        && oxidgene_core::types::may_draw_as_image(&tile.media.mime_type))
+    .then(|| tile.media.file_path.clone());
+    let draws_a_picture =
+        !document_previews.is_empty() || remote_preview.is_some() || kind == MediaKind::Image;
     let draws_remote = source == MediaSource::Remote
         || document_previews
             .iter()
@@ -711,9 +741,6 @@ fn MediaTile(
         .take(5)
         .cloned()
         .collect::<Vec<_>>();
-
-    let remote_preview = (source == MediaSource::Remote && kind == MediaKind::Image)
-        .then(|| tile.media.file_path.clone());
 
     // Called from two places — the hover button and the right-click menu —
     // so it takes no ownership of anything it cannot clone.
@@ -2033,8 +2060,8 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                     // A page we never received has its own address, and the
                     // browser draws it as readily as one of ours.
                     let remote = (crate::api::media_source(page) == MediaSource::Remote
-                        && crate::api::media_kind(&page.mime_type) == MediaKind::Image)
-                        .then(|| page.file_path.trim().to_string());
+                        && oxidgene_core::types::may_draw_as_image(&page.mime_type))
+                    .then(|| page.file_path.trim().to_string());
                     let name = page.file_name.clone();
                     rsx! {
                         div { key: "{page_id}", class: "doc-page",
@@ -2517,6 +2544,10 @@ fn MediaRelations(
         .take(range.len())
         .collect::<Vec<_>>();
 
+    let remote_thumbnail = (crate::api::media_source(&source_media) == MediaSource::Remote
+        && oxidgene_core::types::may_draw_as_image(&source_media.mime_type))
+    .then(|| source_media.file_path.trim().to_string());
+
     let delete_attachment = use_callback({
         let api = api.clone();
         move |link_id: Uuid| {
@@ -2571,11 +2602,10 @@ fn MediaRelations(
                                 thumbnail_media_id,
                             } => rsx! {
                                 div { key: "person-{link_id}", class: "media-vignette-item",
-                                    PrivateThumbnail {
+                                    AttachmentThumbnail {
                                         tree_id,
                                         media_id: thumbnail_media_id,
-                                        alt: String::new(),
-                                        class: "media-vignette-thumbnail",
+                                        remote: remote_thumbnail.clone(),
                                     }
                                     Link {
                                         to: Route::PersonDetail {
@@ -2616,11 +2646,10 @@ fn MediaRelations(
                                 thumbnail_media_id,
                             } => rsx! {
                                 div { key: "family-{link_id}", class: "media-vignette-item",
-                                    PrivateThumbnail {
+                                    AttachmentThumbnail {
                                         tree_id,
                                         media_id: thumbnail_media_id,
-                                        alt: String::new(),
-                                        class: "media-vignette-thumbnail",
+                                        remote: remote_thumbnail.clone(),
                                     }
                                     span { class: "media-attachment-couple", title: "{label}", "{label}" }
                                     if document_media_id.is_some() {
@@ -3265,6 +3294,21 @@ fn MediaViewer(
     // it holds nothing — so asking the tile would answer about the shell and
     // say "file absent" over a photograph the reader is looking at.
     let content_source = crate::api::media_source(&content_media);
+    // The page the browser refused to draw, if it refused one. Held by id so
+    // turning the page tries afresh rather than inheriting a failure.
+    let mut failed_preview = use_signal(|| None::<Uuid>);
+    let preview_failed = failed_preview() == Some(content_media_id);
+    // Nothing declared what this remote page is, so the browser fetching it is
+    // the only reader able to tell. Draw it as a picture until it says no.
+    let kind = if kind == MediaKind::Other
+        && content_source == MediaSource::Remote
+        && oxidgene_core::types::may_draw_as_image(&content_media.mime_type)
+        && !preview_failed
+    {
+        MediaKind::Image
+    } else {
+        kind
+    };
     // A document's visible image changes with its page. Keep that id reactive
     // so the regions in both the facts column and the image follow it.
     let mut vignette_media_id = use_signal(|| content_media_id);
@@ -3923,6 +3967,7 @@ fn MediaViewer(
                                     draggable: "false",
                                     style: "{image_style}",
                                     onload: move |_| fit_image.call(()),
+                                    onerror: move |_| failed_preview.set(Some(content_media_id)),
                                 }
                                 for vignette in content_vignettes.iter() {
                                     div {
@@ -3964,7 +4009,20 @@ fn MediaViewer(
                         (Some(_), _) => rsx! {
                             div { class: "media-viewer-fallback",
                                 span { class: "media-glyph-large", {kind.icon()} }
-                                p { {i18n.t("media.not_embeddable")} }
+                                p {
+                                    if preview_failed {
+                                        {i18n.t("media.preview_failed")}
+                                    } else {
+                                        {i18n.t("media.not_embeddable")}
+                                    }
+                                }
+                                if let Some(download_source) = MediaDownloadSource::for_media(tree_id, &content_media) {
+                                    DownloadMediaButton {
+                                        key: "fallback-{content_media_id}",
+                                        source: download_source,
+                                        file_name: download_name(&content_media.file_name, &content_media.mime_type),
+                                    }
+                                }
                             }
                         },
                         (None, _) => rsx! {
@@ -4178,14 +4236,33 @@ fn DownloadMediaButton(
     file_name: String,
     /// What the button says. Defaults to "Download file"; the archive button
     /// passes its own, since two identical buttons side by side would leave
-    /// the reader guessing which is which.
+    /// the reader guessing which is which. Ignored for a remote page, which is
+    /// offered as a link and says so.
     label: Option<String>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let label = label.unwrap_or_else(|| i18n.t("media.download_file"));
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+
+    // Somebody else serves this page. Pulling it through here would make us a
+    // proxy for their bandwidth and put the transfer at the mercy of a CORS
+    // policy that is not ours to set, so the offer is the address itself — the
+    // only thing we ever held about the file.
+    if let MediaDownloadSource::Remote(url) = &source {
+        return rsx! {
+            a {
+                class: "btn btn-outline media-download",
+                href: "{url}",
+                target: "_blank",
+                rel: "noopener noreferrer",
+                title: "{url}",
+                {i18n.t("media.open_remote_link")}
+            }
+        };
+    }
+
+    let label = label.unwrap_or_else(|| i18n.t("media.download_file"));
     let icon = rsx! {
         svg {
             width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",

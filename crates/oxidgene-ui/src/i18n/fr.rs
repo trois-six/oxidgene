@@ -1122,11 +1122,13 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.source_unheld", "Fichier absent"),
         ("media.download_file", "T\u{00E9}l\u{00E9}charger le fichier"),
         ("media.download_page", "T\u{00E9}l\u{00E9}charger la page {page}"),
+        ("media.open_remote_link", "Ouvrir le lien d\u{2019}origine"),
         ("media.downloading", "T\u{00E9}l\u{00E9}chargement..."),
         ("media.download_failed", "Le t\u{00E9}l\u{00E9}chargement a \u{00E9}chou\u{00E9}. Veuillez r\u{00E9}essayer."),
         ("media.save_failed", "Le fichier n\u{2019}a pas pu \u{00EA}tre enregistr\u{00E9}. Choisissez un autre emplacement et r\u{00E9}essayez."),
         ("media.save_as", "Enregistrer sous\u{2026}"),
         ("media.not_embeddable", "Ce format ne peut pas \u{00EA}tre affich\u{00E9} ici. T\u{00E9}l\u{00E9}chargez-le pour l\u{2019}ouvrir."),
+        ("media.preview_failed", "Rien n\u{2019}indique ce qu\u{2019}est ce fichier, et le navigateur n\u{2019}a pas su l\u{2019}afficher. T\u{00E9}l\u{00E9}chargez-le pour l\u{2019}ouvrir."),
         ("media.no_file", "Aucun fichier : cette fiche nomme un document que personne n\u{2019}a d\u{00E9}pos\u{00E9}."),
         // ── Multi-page documents (Sprint F.3) ───────────────────────
         ("media.new_document", "Ajouter un document"),

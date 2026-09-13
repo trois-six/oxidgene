@@ -194,13 +194,10 @@ pub async fn load_gallery_bundle(
 
 /// Whether a page is a picture the browser can fetch for itself.
 ///
-/// Only an image: a remote PDF or video has no still to draw, and an `<img>`
-/// pointed at one renders the broken-image glyph rather than nothing.
+/// A remote PDF or video has no still to draw, so only a page that may be a
+/// picture goes out as a preview — which includes one whose type nobody
+/// declared, since the browser is then the only reader able to tell.
 fn is_remote_image(page: &oxidgene_core::types::Media) -> bool {
     oxidgene_core::types::is_remote_url(&page.file_path)
-        && page
-            .mime_type
-            .trim()
-            .to_ascii_lowercase()
-            .starts_with("image/")
+        && oxidgene_core::types::may_draw_as_image(&page.mime_type)
 }
