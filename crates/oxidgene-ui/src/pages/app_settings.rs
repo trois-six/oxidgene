@@ -4,8 +4,11 @@ use dioxus::prelude::*;
 
 use crate::api::ApiClient;
 use crate::components::layout::set_theme;
+use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
 use crate::i18n::{self, Language, use_i18n};
-use crate::prefs::{PedigreeDefaults, SortParticles, set_pedigree_defaults, set_sort_particles};
+use crate::prefs::{
+    PedigreeDefaults, SortParticles, set_pedigree_defaults, set_pedigree_theme, set_sort_particles,
+};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_ui_load_trace};
 
@@ -220,10 +223,85 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
 
 // ── Pedigree section ────────────────────────────────────────────────────────
 
+/// A parent card, a child card and the line between them, drawn from the
+/// theme's own values.
+///
+/// Deliberately schematic — no names, no portrait. What a reader is choosing
+/// between is the frame, the line and the ground, and those are exactly what
+/// this shows. Taking them from the theme rather than drawing a picture of
+/// each one means the swatch cannot go stale when a theme is adjusted.
+#[component]
+fn PedigreeThemeSwatch(id: PedigreeThemeId) -> Element {
+    let theme = id.theme();
+    let m = theme.metrics;
+    let (rw, rh) = m.rect(false);
+
+    // The child is set aside rather than straight below, because a connector
+    // that runs vertically is a straight line in every style — the swatch
+    // would show the frame and hide the one other thing it is meant to
+    // compare. Stepping sideways is what separates a curve from a right
+    // angle, and `is_edge` is what asks the classic style for its curve.
+    let child_dx = m.card_w * 0.5;
+    let link = link_path(
+        &LinkSpec::SimpleChild {
+            from: Point::new(0.0, 0.0),
+            to: Point::new(child_dx, m.card_h),
+            is_edge: true,
+        },
+        theme.link_style,
+        &m,
+    );
+    let vb_w = m.card_w + child_dx;
+    let vb_h = m.card_h + rh + 2.0 * m.padding;
+    let inner = match theme.card.frame {
+        CardFrame::Plain => None,
+        CardFrame::Cartouche { inner_inset } => Some((
+            m.padding + inner_inset,
+            rw - 2.0 * inner_inset,
+            rh - 2.0 * inner_inset,
+        )),
+    };
+    let frame_w = theme.card.frame_width;
+
+    rsx! {
+        svg {
+            class: "ped-theme-swatch {theme.viewport_class}",
+            "viewBox": "0 0 {vb_w} {vb_h}",
+            "preserveAspectRatio": "xMidYMid meet",
+            "aria-hidden": "true",
+            rect {
+                x: "0", y: "0", width: "{vb_w}", height: "{vb_h}",
+                style: "fill:var(--pn-swatch-bg,transparent)",
+            }
+            path { d: "{link}", class: "pedigree-connector-path" }
+            for (i, (x, y)) in [(0.0f64, 0.0f64), (child_dx, m.card_h)].into_iter().enumerate() {
+                g { key: "{i}", transform: "translate({x},{y})",
+                    rect {
+                        class: "ped-card-rect",
+                        x: "{m.padding}", y: "{m.padding}",
+                        rx: "{m.border_radius}", ry: "{m.border_radius}",
+                        width: "{rw}", height: "{rh}",
+                        style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:{frame_w}",
+                    }
+                    if let Some((inset, iw, ih)) = inner {
+                        rect {
+                            class: "ped-card-inner-rule",
+                            x: "{inset}", y: "{inset}", width: "{iw}", height: "{ih}",
+                            style: "fill:none;stroke:var(--pn-border);stroke-width:1",
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults>>) -> Element {
     let i18n = use_i18n();
     let current = (*pedigree_defaults.read()).unwrap_or_default();
+    let theme_pref = use_context::<Signal<PedigreeThemeId>>();
+    let current_theme = *theme_pref.read();
 
     rsx! {
         div { class: "settings-section",
@@ -232,6 +310,25 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
             p { class: "settings-section-subtitle", {i18n.t("app_settings.pedigree_desc")} }
 
             div { class: "app-settings-card",
+                div { class: "app-settings-option app-settings-option-stacked",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.pedigree_theme")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.pedigree_theme_hint")} }
+                    }
+                    div { class: "ped-theme-options",
+                        for id in PedigreeThemeId::ALL {
+                            button {
+                                key: "{id:?}",
+                                class: if current_theme == id { "ped-theme-option active" } else { "ped-theme-option" },
+                                aria_pressed: if current_theme == id { "true" } else { "false" },
+                                onclick: move |_| set_pedigree_theme(theme_pref, id),
+                                PedigreeThemeSwatch { id }
+                                span { class: "ped-theme-option-label", {i18n.t(id.label_key())} }
+                                span { class: "ped-theme-option-hint", {i18n.t(id.hint_key())} }
+                            }
+                        }
+                    }
+                }
                 div { class: "app-settings-option",
                     div { class: "app-settings-option-info",
                         span { class: "app-settings-option-label", {i18n.t("app_settings.ancestor_levels")} }
@@ -732,7 +829,77 @@ pub fn NamesSection(sort_particles: Signal<SortParticles>) -> Element {
     }
 }
 
-const APP_SETTINGS_STYLES: &str = r#"
+pub(crate) const APP_SETTINGS_STYLES: &str = r#"
+    /* ── Pedigree theme picker ──────────────────────────────────────
+       The label and the choices stack, because a swatch needs more
+       width than the row layout leaves beside a label. */
+    .app-settings-option-stacked {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.9rem;
+    }
+
+    .ped-theme-options {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .ped-theme-option {
+        display: grid;
+        justify-items: center;
+        gap: 0.35rem;
+        padding: 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: none;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+        text-align: center;
+        color: var(--text-primary);
+    }
+
+    .ped-theme-option:hover { border-color: var(--orange); }
+
+    .ped-theme-option.active {
+        border-color: var(--orange);
+        background: var(--sel-bg);
+    }
+
+    .ped-theme-option-label {
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+
+    .ped-theme-option-hint {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        line-height: 1.35;
+    }
+
+    /* The swatch carries the theme's own variables, so it needs a ground
+       of its own — without one the classic swatch would sit on the
+       settings panel and the medieval one on parchment, which compares
+       the two unfairly. */
+    .ped-theme-swatch {
+        width: 100%;
+        max-width: 150px;
+        height: 74px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        /* The ground is painted by the rect inside, never by a `background`
+           here: this stylesheet loads after the layout one, so a background
+           property would beat a theme's own canvas rule and every swatch
+           would come out the same colour. */
+        --pn-swatch-bg: var(--bg-deep);
+    }
+
+    /* A theme that paints its own canvas does it through its class; the rect
+       stands aside so that ground shows through. */
+    .ped-theme-swatch.ped-theme-medieval {
+        --pn-swatch-bg: transparent;
+    }
+
     .api-endpoints {
         padding: 0;
         overflow: hidden;

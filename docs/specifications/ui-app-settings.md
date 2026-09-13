@@ -146,8 +146,30 @@ Displayed in a card:
 
 ## 7. Section: Pedigree
 
-The Pedigree section controls the initial depth used when opening a tree that
-does not yet have a saved pedigree view:
+The Pedigree section controls how the pedigree is drawn and how deep it opens.
+
+### Theme
+
+A stacked option listing every pedigree theme as a card: a swatch, its name and
+a one-line description. The active theme carries an orange border and a tinted
+background, and `aria-pressed`.
+
+The swatch is drawn from the theme's own metrics, frame and link style — two
+cards and the connector between them, without names or portraits — so it cannot
+drift from what the theme actually draws. Each swatch paints its own ground,
+so a theme with its own canvas is compared against that rather than against the
+settings panel.
+
+Choosing a theme applies immediately, with no save step, to every pedigree on
+the device. It is persisted in `localStorage('oxidgene-pedigree-theme')` as the
+theme's own name, so inserting a theme never repaints an existing choice; an
+unknown name falls back to the default. See
+[Themes](ui-genealogy-tree.md#9-themes) for what each one changes.
+
+### Depth
+
+The initial depth used when opening a tree that does not yet have a saved
+pedigree view:
 
 - **Ancestor generations**: 0–10, default 4.
 - **Descendant generations**: 0–10, default 3.
@@ -180,6 +202,8 @@ the API crate without its optional `graphql` feature.
 	compact, non-wrapping row. It scrolls horizontally when necessary instead of
 	growing into a tall menu, so settings content remains in the first viewport.
 - Theme, language, and pedigree controls remain full-width cards
+- The pedigree theme swatches reflow to a single column when the content
+	area can no longer fit two 150px cards side by side
 
 ---
 

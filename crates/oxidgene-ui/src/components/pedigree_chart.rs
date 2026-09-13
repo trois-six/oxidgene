@@ -2628,7 +2628,8 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
     let scale = props.scale;
-    let theme = props.theme.unwrap_or(&PedigreeTheme::CLASSIC);
+    let preferred = crate::prefs::use_pedigree_theme();
+    let theme = props.theme.unwrap_or_else(|| preferred.theme());
 
     // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
     let mut offset_x = use_signal(|| 0.0f64);
@@ -3393,7 +3394,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         .unwrap_or_default();
 
     // ── Compute layout ──
-    let theme = props.theme.unwrap_or(&PedigreeTheme::CLASSIC);
+    let preferred = crate::prefs::use_pedigree_theme();
+    let theme = props.theme.unwrap_or_else(|| preferred.theme());
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
             props.root_person_id,
@@ -5574,6 +5576,61 @@ mod geometry_golden_tests {
             std::fs::write(&path, page).expect("preview written");
             println!("wrote {path}");
         }
+
+        // The settings swatches, on the page that shows them, so the two
+        // stylesheets fight in the order the application loads them.
+        let mut row = String::new();
+        for id in crate::components::pedigree_theme::PedigreeThemeId::ALL {
+            let theme = id.theme();
+            let m = theme.metrics;
+            let (rw, rh) = m.rect(false);
+            let link = crate::components::pedigree_theme::link_path(
+                &LinkSpec::SimpleChild {
+                    from: Point::new(0.0, 0.0),
+                    to: Point::new(m.card_w * 0.5, m.card_h),
+                    is_edge: true,
+                },
+                theme.link_style,
+                &m,
+            );
+            let child_dx = m.card_w * 0.5;
+            let vb_w = m.card_w + child_dx;
+            let vb_h = m.card_h + rh + 2.0 * m.padding;
+            let mut cards = String::new();
+            for (x, y) in [(0.0f64, 0.0f64), (child_dx, m.card_h)] {
+                let _ = write!(
+                    cards,
+                    r#"<g transform="translate({x},{y})"><rect class="ped-card-rect" x="{p}" y="{p}" rx="{r}" ry="{r}" width="{rw}" height="{rh}" style="fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:{fw}"/>"#,
+                    p = m.padding,
+                    r = m.border_radius,
+                    fw = theme.card.frame_width,
+                );
+                if let CardFrame::Cartouche { inner_inset } = theme.card.frame {
+                    let _ = write!(
+                        cards,
+                        r#"<rect class="ped-card-inner-rule" x="{0}" y="{0}" width="{1}" height="{2}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#,
+                        m.padding + inner_inset,
+                        rw - 2.0 * inner_inset,
+                        rh - 2.0 * inner_inset,
+                    );
+                }
+                let _ = write!(cards, "</g>");
+            }
+            let _ = write!(
+                row,
+                r#"<button class="ped-theme-option"><svg class="ped-theme-swatch {cls}" viewBox="0 0 {vb_w} {vb_h}" preserveAspectRatio="xMidYMid meet"><rect x="0" y="0" width="{vb_w}" height="{vb_h}" style="fill:var(--pn-swatch-bg,transparent)"/><path d="{link}" class="pedigree-connector-path"/>{cards}</svg><span class="ped-theme-option-label">{id:?}</span></button>"#,
+                cls = theme.viewport_class,
+            );
+        }
+        let page = format!(
+            "<!doctype html><meta charset=\"utf-8\"><style>{LAYOUT_STYLES}</style>\
+             <style>{}</style><body style=\"background:var(--bg-deep);padding:24px\">\
+             <div class=\"ped-theme-options\" style=\"max-width:420px\">{row}</div>",
+            crate::pages::app_settings::APP_SETTINGS_STYLES,
+        );
+        let path = format!("{out_dir}/pedigree-swatches.html");
+        std::fs::write(&path, page).expect("preview written");
+        println!("wrote {path}");
     }
 
     /// Three lines of text have to fit inside the card that holds them.

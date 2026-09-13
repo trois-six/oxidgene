@@ -16,6 +16,8 @@
 //! Hoisting it here would grow a struct every theme has to fill in with values
 //! most of them never read.
 
+use serde::{Deserialize, Serialize};
+
 /// Every dimension the pedigree's geometry is derived from.
 ///
 /// `Copy` and `PartialEq` so it can ride in a Dioxus prop without forcing a
@@ -537,6 +539,51 @@ pub struct CardStyle {
     pub slot_plus_baseline: f64,
 }
 
+/// How a theme choice is spelled where it is stored and chosen.
+///
+/// The charts take a whole [`PedigreeTheme`]; this is the name the viewer's
+/// preference keeps, so `localStorage` holds `"medieval"` rather than a
+/// snapshot of forty numbers that would go stale the moment a theme is
+/// adjusted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PedigreeThemeId {
+    #[default]
+    Classic,
+    Medieval,
+}
+
+impl PedigreeThemeId {
+    /// Every theme, in the order the selector offers them.
+    pub const ALL: [Self; 2] = [Self::Classic, Self::Medieval];
+
+    #[must_use]
+    pub const fn theme(self) -> &'static PedigreeTheme {
+        match self {
+            Self::Classic => &PedigreeTheme::CLASSIC,
+            Self::Medieval => &PedigreeTheme::MEDIEVAL,
+        }
+    }
+
+    /// Translation key for the theme's name.
+    #[must_use]
+    pub const fn label_key(self) -> &'static str {
+        match self {
+            Self::Classic => "app_settings.pedigree_theme_classic",
+            Self::Medieval => "app_settings.pedigree_theme_medieval",
+        }
+    }
+
+    /// Translation key for the one line describing it in the selector.
+    #[must_use]
+    pub const fn hint_key(self) -> &'static str {
+        match self {
+            Self::Classic => "app_settings.pedigree_theme_classic_hint",
+            Self::Medieval => "app_settings.pedigree_theme_medieval_hint",
+        }
+    }
+}
+
 /// Everything a theme decides about the shape of the chart.
 ///
 /// Colors are not here: those are CSS variables, redefined under
@@ -686,6 +733,56 @@ impl PedigreeTheme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The stored name has to survive a round trip, or a reader's choice
+    /// silently reverts on their next visit.
+    #[test]
+    fn every_theme_name_round_trips_through_storage() {
+        for id in PedigreeThemeId::ALL {
+            let stored = serde_json::to_string(&id).expect("serialised");
+            let read_back: PedigreeThemeId = serde_json::from_str(&stored).expect("parsed");
+            assert_eq!(read_back, id, "{id:?} came back as {read_back:?}");
+        }
+        // The name in storage is the theme's own, not its position in the
+        // list — inserting a theme must not repaint everyone's charts.
+        assert_eq!(
+            serde_json::to_string(&PedigreeThemeId::Medieval).unwrap(),
+            "\"medieval\""
+        );
+    }
+
+    /// A theme the selector offers has to have something to say for itself in
+    /// both languages, and its own canvas class if it repaints the ground.
+    #[test]
+    fn every_theme_is_named_in_both_languages() {
+        use crate::i18n::{I18n, Language};
+
+        for id in PedigreeThemeId::ALL {
+            for language in [Language::En, Language::Fr] {
+                let i18n = I18n(language);
+                for key in [id.label_key(), id.hint_key()] {
+                    let text = i18n.t(key);
+                    assert_ne!(text, key, "{id:?}: {key} is untranslated in {language:?}");
+                    assert!(!text.is_empty(), "{id:?}: {key} is empty in {language:?}");
+                }
+            }
+        }
+    }
+
+    /// Two themes that painted the same ground under the same class would
+    /// silently share a palette.
+    #[test]
+    fn themes_that_repaint_the_canvas_have_their_own_class() {
+        let mut seen: Vec<&str> = Vec::new();
+        for id in PedigreeThemeId::ALL {
+            let class = id.theme().viewport_class;
+            if class.is_empty() {
+                continue;
+            }
+            assert!(!seen.contains(&class), "{class} is claimed by two themes");
+            seen.push(class);
+        }
+    }
 
     /// The drawn rectangle has to fit inside the box the layout reserved, or
     /// neighbouring cards touch even though the layout believes they do not.

@@ -89,9 +89,11 @@ The goal is to **minimize the total width** of the graph:
 
 ### Dimensions
 
-- Standard size: **180x80px** (width x height)
-- Reduced size (viewport < 900px wide): **130x64px**
-- Identical for all generations, no variation by depth
+Set by the active theme — see [Themes](#9-themes). For the classic theme:
+
+- Standard size: **185x96px** (width x height), drawn rectangle 175x67px
+- Deepest ancestor row drawn compact: **95x144px**
+- First descendant row: **140px** tall
 
 ### Internal Layout
 
@@ -246,7 +248,10 @@ Clicking a union entry closes the picker and opens the couple edit modal for tha
 
 ### General Rules
 
-- Connectors use **L-shapes with 90-degree bends**, never diagonals
+- Connector shape is set by the active theme — see [Themes](#9-themes). Both
+  themes use **right-angled bends, never diagonals**; the classic theme softens
+  a bend into an S-curve where a connector has to step sideways, the medieval
+  theme rules every one of them straight
 - **Solid line only**, regardless of the type of relationship (marriage, cohabitation, other) — no visual distinction by line style
 - Color: `var(--connector)` (neutral blue-grey in dark theme, warm grey in light theme)
 - All horizontal segments within the same generation are strictly at the **same Y level**
@@ -490,3 +495,67 @@ Each event is clickable to display full details (complete location, source, note
      the canvas reclaims its full width; the shared left icon sidebar narrows from
      46px to 36px on every page where it appears
 - Left sidebar remains fixed but tooltips are replaced by visible labels below each icon
+
+---
+
+## 9. Themes
+
+The pedigree is drawn by a **theme**, chosen by the viewer under
+[App Settings > Pedigree](ui-app-settings.md) and persisted in
+`localStorage('oxidgene-pedigree-theme')` under its own name (`classic`,
+`medieval`). A name no longer shipped falls back to the default rather than
+failing. The choice applies to every pedigree on the device — the tree canvas,
+the fragments on the person profile, and the ones in search results — because
+they are all the same chart.
+
+A theme is not a palette swap. It owns three things:
+
+| What | Effect |
+|------|--------|
+| **Metrics** | Card boxes, drawn rectangles, connector attachment offsets, canvas margin and sibling spacing. These feed the layout pass, so a theme with larger cards lays the whole tree out differently |
+| **Link style** | The shape of a connector between two fixed attachment points |
+| **Card style** | Frame, portrait mat, text column and baselines, type, badge, and whether a separate sex-coded rule is drawn |
+
+Attachment points are derived from the cards and the metrics alone, so every
+theme attaches its connectors in the same places: **a theme changes how a line
+travels, never where it lands.**
+
+Colors are not part of the theme object. They are CSS variables redefined under
+the theme's own class on the pedigree viewport, which is what lets a theme with
+its own ground sit inside either application theme without the two bleeding
+into each other.
+
+### Classic
+
+The default, and what OxidGene drew before themes existed — specified to be
+pixel-for-pixel identical to it.
+
+- Card **185x96px**, drawn rectangle 175x67px, 5px corner radius
+- Deepest ancestor row drawn compact: **95x144px**
+- First descendant row **140px** tall
+- Neutral card outline, with sex shown by a short coloured rule beside the
+  portrait
+- Square portrait mat
+- Connectors are elbows, softened into an S-curve wherever one has to step
+  sideways
+- Follows the application's light or dark palette
+
+### Medieval
+
+An engraved pedigree, in the manner of a painted *Stammtafel*.
+
+- Card **210x112px**, drawn rectangle 200x82px, square corners
+- Deepest ancestor row compact: **110x164px**; first descendant row **156px**
+- Double-ruled cartouche: the outer rule carries the sex colour, an inner rule
+  sits 4px inside it
+- Circular portrait medallion
+- Connectors are ruled elbows — right angles throughout, no curve
+- Parchment ground built from repeating gradients rather than an image, so the
+  canvas costs no request and tiles at any zoom
+- Surnames in Cinzel, already loaded for headings, so the theme adds no font
+  request
+
+The card is larger in every direction because the second rule and the medallion
+ring take real room. Taking it from the text column instead would truncate names
+the classic theme shows whole, so a theme's name column may never be narrower
+than the classic one at the same card size.

@@ -7,6 +7,8 @@
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::components::pedigree_theme::PedigreeThemeId;
+
 pub const MAX_PEDIGREE_LEVELS: usize = 10;
 
 /// Default pedigree window for trees that have no saved view state.
@@ -51,6 +53,55 @@ impl Default for SortParticles {
 
 const SORT_PARTICLES_STORAGE_KEY: &str = "oxidgene-sort-particles";
 const PEDIGREE_DEFAULTS_STORAGE_KEY: &str = "oxidgene-pedigree-defaults";
+const PEDIGREE_THEME_STORAGE_KEY: &str = "oxidgene-pedigree-theme";
+
+/// Hook: initialise the pedigree theme (call once in `Layout`).
+///
+/// Unlike the depth defaults, this resolves to a usable value immediately
+/// rather than staying `None` until storage answers: the theme decides what
+/// the canvas is made of, and a chart that drew on white and then turned to
+/// parchment would flash on every page load.
+pub fn use_init_pedigree_theme() -> Signal<PedigreeThemeId> {
+    let mut pref = use_context_provider(|| Signal::new(PedigreeThemeId::default()));
+
+    use_effect(move || {
+        spawn(async move {
+            let result = document::eval(&format!(
+                "return localStorage.getItem('{PEDIGREE_THEME_STORAGE_KEY}');"
+            ));
+            if let Ok(value) = result.await
+                && let Some(stored) = value.as_str()
+                && let Ok(id) = serde_json::from_str::<PedigreeThemeId>(stored)
+            {
+                // A name we no longer ship leaves the default in place rather
+                // than failing: themes may be renamed or withdrawn, and a
+                // stale entry is not a reason to show the reader nothing.
+                pref.set(id);
+            }
+        });
+    });
+
+    pref
+}
+
+/// Read the chosen pedigree theme, falling back outside a provider.
+pub fn use_pedigree_theme() -> PedigreeThemeId {
+    try_use_context::<Signal<PedigreeThemeId>>()
+        .map(|pref| *pref.read())
+        .unwrap_or_default()
+}
+
+/// Persist the pedigree theme and update every chart on screen.
+pub fn set_pedigree_theme(mut pref: Signal<PedigreeThemeId>, id: PedigreeThemeId) {
+    pref.set(id);
+    if let Ok(stored) = serde_json::to_string(&id)
+        && let Ok(js_value) = serde_json::to_string(&stored)
+    {
+        document::eval(&format!(
+            "localStorage.setItem('{PEDIGREE_THEME_STORAGE_KEY}', {js_value});"
+        ));
+    }
+}
 
 /// Hook: initialise the surname-sorting preference (call once in `Layout`).
 pub fn use_init_sort_particles() -> Signal<SortParticles> {
