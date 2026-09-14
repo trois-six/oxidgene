@@ -619,6 +619,14 @@ pub struct CardStyle {
     /// Corner radius of the portrait mat. Half the width makes it a
     /// medallion, which is what an engraved pedigree draws.
     pub photo_round: f64,
+    /// Whether to paint a ground behind the portrait.
+    ///
+    /// A portrait keeps its aspect ratio, so it rarely fills its box exactly
+    /// and something shows through beside it. A card on a flat ground wants
+    /// that to be paper white; a card standing on parchment wants the
+    /// parchment, and painting a mat there only draws a shape around the
+    /// photograph that does not follow it.
+    pub photo_mat: bool,
 
     pub text_x_full: f64,
     pub text_x_compact: f64,
@@ -736,6 +744,7 @@ impl PedigreeTheme {
             photo_x_full: 10.0,
             photo_x_compact: 20.0,
             photo_round: 0.0,
+            photo_mat: true,
 
             text_x_full: 70.0,
             text_x_compact: 10.0,
@@ -793,7 +802,7 @@ impl PedigreeTheme {
             // close. At 0.75 the gap between two crowns up there (37px) is
             // the gap between two cartouches anywhere else (36px).
             compact_w: 145.5,
-            compact_h: 178.0,
+            compact_h: 188.0,
             compact_separation: 0.75,
             desc_h: 230.0,
 
@@ -806,7 +815,7 @@ impl PedigreeTheme {
             inner_w: 158.0,
             inner_h: 162.0,
             compact_inner_w: 108.0,
-            compact_inner_h: 150.0,
+            compact_inner_h: 160.0,
 
             // Connectors meet the crown and the foot exactly, where the
             // cartouche reaches the edge of its box.
@@ -836,13 +845,17 @@ impl PedigreeTheme {
             photo_x_full: 64.0,
             photo_x_compact: 39.0,
             photo_round: 33.0,
+            photo_mat: false,
 
             text_x_full: 97.0,
             text_x_compact: 72.0,
-            // Kept clear of the foot: below this the cartouche draws in
-            // toward its tongue and a centred line would run past the rule.
-            text_y_full: 106.0,
-            text_y_compact: 98.0,
+            // Both ranks stack their names under the same medallion, so
+            // both start at the same baseline: far enough below it that a
+            // capital clears the photograph, and high enough that the
+            // lifespan still lands above the foot, where the cartouche draws
+            // in toward its point and a centred line would run past the rule.
+            text_y_full: 110.0,
+            text_y_compact: 110.0,
             text_max_width_full: 112.0,
             text_max_width_compact: 96.0,
             text_anchor: "middle",

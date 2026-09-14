@@ -122,7 +122,8 @@ The card is drawn as SVG primitives inside one `<g>`; the HTML card and its
 `.ped-card*` classes remain for hover and theming.
 
 **Portrait**:
-- 50×50px, square in the classic theme; shape and size are set by the theme
+- 50×50px, square in the classic theme; shape, size, and whether a mat is
+  painted behind it are set by the theme
 - Displays a **default portrait silhouette** when no profile photo is available, chosen by gender: male (`portrait_male.png`), female (`portrait_female.png`), unknown (`portrait_unknown.png`) — embedded as data URIs in the binary
 - When a profile photo is available it replaces the default portrait with `object-fit: cover`
 - **SOSA badge**: a 15px disc at the portrait's **bottom-right corner**. An
@@ -591,8 +592,14 @@ An engraved pedigree, in the manner of a painted *Stammtafel*.
 - Double-ruled: the outer rule carries the sex colour, and a second rule of the
   same shape sits 7px inside it
 - Names sit **centred beneath** a circular portrait medallion, the arrangement
-  these plates use, rather than beside a portrait as in the classic card
-- Deepest ancestor row compact: **145.5x178px**; first descendant row **230px**
+  these plates use, rather than beside a portrait as in the classic card. Both
+  ranks share the baseline, which is set from the medallion: high enough that
+  the lifespan clears the foot, low enough that a capital clears the portrait
+- No ground is painted behind the portrait. A portrait keeps its aspect ratio
+  and rarely fills its box, so a mat shows beside it as a shape that does not
+  follow the photograph; the parchment shows through instead. The classic theme
+  keeps its mat, where the card stands on a flat ground
+- Deepest ancestor row compact: **145.5x188px**; first descendant row **230px**
 - Connectors are ruled elbows — right angles throughout, no curve — drawn as a
   band: an ink stroke with a parchment core running down it
 - Parchment ground built from repeating gradients rather than an image, so the

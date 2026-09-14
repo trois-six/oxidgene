@@ -2962,6 +2962,8 @@ struct CardGeometry {
     photo_h: f64,
     /// Corner radius of the portrait mat; half its width makes a medallion.
     photo_round: f64,
+    /// Whether a ground is painted behind the portrait at all.
+    photo_mat: bool,
     text_x: f64,
     sosa_cx: f64,
     sosa_cy: f64,
@@ -3114,6 +3116,7 @@ fn card_geometry(node: &LayoutNode, theme: &PedigreeTheme, i18n: &I18n) -> CardG
         photo_w: card.photo_w,
         photo_h: card.photo_h,
         photo_round: card.photo_round,
+        photo_mat: card.photo_mat,
         text_x,
         sosa_cx,
         sosa_cy: card.sosa_cy,
@@ -3175,6 +3178,7 @@ fn render_pedigree_card(
         photo_w: ph_w,
         photo_h: ph_h,
         photo_round,
+        photo_mat,
         text_x: tx,
         sosa_cx,
         sosa_cy,
@@ -3275,7 +3279,9 @@ fn render_pedigree_card(
                     if let Some(gl) = gl_path {
                         path { d: "{gl}", style: "stroke:{stroke};stroke-width:{gender_line_width};fill:none" }
                     }
-                    rect { class: "ped-card-mat", x: "{ph_x}", y: "{ph_y}", rx: "{photo_round}", ry: "{photo_round}", width: "{ph_w}", height: "{ph_h}", style: "fill:var(--pn-mat,var(--white))" }
+                    if photo_mat {
+                        rect { class: "ped-card-mat", x: "{ph_x}", y: "{ph_y}", rx: "{photo_round}", ry: "{photo_round}", width: "{ph_w}", height: "{ph_h}", style: "fill:var(--pn-mat,var(--white))" }
+                    }
                     CroppedSvgImage { image: portrait, x: ph_x, y: ph_y, width: ph_w, height: ph_h, fallback: CroppedSource::silhouette(node.sex) }
                     if is_self {
                         g {
@@ -5790,15 +5796,17 @@ mod geometry_golden_tests {
                             geo.gender_line_width,
                         );
                     }
-                    let _ = write!(
-                        svg,
-                        r#"<rect class="ped-card-mat" x="{}" y="{}" rx="{r}" ry="{r}" width="{}" height="{}" style="fill:var(--pn-mat,var(--white))"/>"#,
-                        geo.photo_x,
-                        geo.photo_y,
-                        geo.photo_w,
-                        geo.photo_h,
-                        r = geo.photo_round,
-                    );
+                    if geo.photo_mat {
+                        let _ = write!(
+                            svg,
+                            r#"<rect class="ped-card-mat" x="{}" y="{}" rx="{r}" ry="{r}" width="{}" height="{}" style="fill:var(--pn-mat,var(--white))"/>"#,
+                            geo.photo_x,
+                            geo.photo_y,
+                            geo.photo_w,
+                            geo.photo_h,
+                            r = geo.photo_round,
+                        );
+                    }
                     let _ = write!(
                         svg,
                         r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill};text-anchor:{}">{}</text>"#,
@@ -5947,6 +5955,42 @@ mod geometry_golden_tests {
         }
     }
 
+    /// The first name line starts below the portrait, not across it.
+    ///
+    /// The portrait and the baselines are separate numbers that only meet on
+    /// screen, and a theme that centres its names under the portrait has no
+    /// margin for error: the medieval compact card set its first baseline 2px
+    /// under the medallion, so every given name on the deepest ancestor row
+    /// was drawn across the bottom of the photograph.
+    #[test]
+    fn every_theme_starts_its_names_below_the_portrait() {
+        let i18n = I18n(crate::i18n::Language::En);
+        for (name, theme) in [
+            ("classic", &PedigreeTheme::CLASSIC),
+            ("medieval", &PedigreeTheme::MEDIEVAL),
+        ] {
+            for is_compact in [false, true] {
+                let node = card(is_compact, "Given_1", "Branch_A");
+                let geo = card_geometry(&node, theme, &i18n);
+                // A card that sets its names beside the portrait is free to
+                // start them level with it; only a centred column stacks.
+                if geo.text_anchor != "middle" {
+                    continue;
+                }
+                // Capitals and ascenders reach roughly the type size above
+                // the baseline, which is what has to clear the portrait.
+                let ascender_top = geo.given_y - f64::from(geo.given_font_px);
+                let photo_bottom = geo.photo_y + geo.photo_h;
+                assert!(
+                    ascender_top >= photo_bottom,
+                    "{name} compact={is_compact}: the given name reaches up to \
+                     {ascender_top} but the portrait ends at {photo_bottom}, so \
+                     the line is drawn across it"
+                );
+            }
+        }
+    }
+
     /// A card has to fit the column the layout gives it.
     ///
     /// Two numbers decide this and they live far apart: `card_w` scales the
@@ -6064,36 +6108,36 @@ mod geometry_golden_tests {
     }
 
     const EXPECTED_MEDIEVAL: &str = r#"
-asc card[0] x=412.2500 y=558.0000 compact=false
-asc card[1] x=630.5000 y=368.0000 compact=false
-asc card[2] x=727.5000 y=178.0000 compact=false
+asc card[0] x=412.2500 y=568.0000 compact=false
+asc card[1] x=630.5000 y=378.0000 compact=false
+asc card[2] x=727.5000 y=188.0000 compact=false
 asc card[3] x=824.5000 y=0.0000 compact=true
 asc card[4] x=679.0000 y=0.0000 compact=true
-asc card[5] x=533.5000 y=178.0000 compact=false
-asc card[6] x=194.0000 y=368.0000 compact=false
-asc card[7] x=339.5000 y=178.0000 compact=false
+asc card[5] x=533.5000 y=188.0000 compact=false
+asc card[6] x=194.0000 y=378.0000 compact=false
+asc card[7] x=339.5000 y=188.0000 compact=false
 asc card[8] x=436.5000 y=0.0000 compact=true
 asc card[9] x=291.0000 y=0.0000 compact=true
-asc card[10] x=48.5000 y=178.0000 compact=false
+asc card[10] x=48.5000 y=188.0000 compact=false
 asc card[11] x=145.5000 y=0.0000 compact=true
 asc card[12] x=0.0000 y=0.0000 compact=true
-asc card[13] x=806.2500 y=558.0000 compact=false
-asc link[0] M509.25,576 L509.25,558 291,558 291,540
-asc link[1] M509.25,576 L509.25,558 727.5,558
-asc link[2] M727.5,386 L727.5,368 630.5,368 630.5,350
-asc link[3] M727.5,386 L727.5,368 824.5,368 824.5,350
-asc link[4] M824.5,196 L824.5,178 751.75,178 751.75,160
-asc link[5] M824.5,196 L824.5,178 897.25,178 897.25,160
-asc link[6] M291,386 L291,368 145.5,368 145.5,350
-asc link[7] M291,386 L291,368 436.5,368 436.5,350
-asc link[8] M436.5,196 L436.5,178 363.75,178 363.75,160
-asc link[9] M436.5,196 L436.5,178 509.25,178 509.25,160
-asc link[10] M145.5,196 L145.5,178 72.75,178 72.75,160
-asc link[11] M145.5,196 L145.5,178 218.25,178 218.25,160
-asc link[12] M727.5,540 L727.5,558 903.25,558 903.25,576
-canvas total=(1140.2500,1348.0000) root=(579.2500,723.0000)
-root rect=(158.0000,162.0000) line=- photo_x=64.0000 text_x=97.0000 sosa=(120.0000,86.0000) given="Root"@106.0000 surname="BRANCH_A"@124.0000 date="ca 1849-< 1917"@142.0000 squeeze=None fab=(97.0000,196.0000) plus=(97.0000,107.0000)
-compact-named rect=(108.0000,150.0000) line=- photo_x=39.0000 text_x=72.0000 sosa=(95.0000,86.0000) given="Given_1"@98.0000 surname="BRANCH_A"@116.0000 date=""@134.0000 squeeze=None fab=(72.0000,184.0000) plus=(72.0000,101.0000)
+asc card[13] x=806.2500 y=568.0000 compact=false
+asc link[0] M509.25,586 L509.25,568 291,568 291,550
+asc link[1] M509.25,586 L509.25,568 727.5,568
+asc link[2] M727.5,396 L727.5,378 630.5,378 630.5,360
+asc link[3] M727.5,396 L727.5,378 824.5,378 824.5,360
+asc link[4] M824.5,206 L824.5,188 751.75,188 751.75,170
+asc link[5] M824.5,206 L824.5,188 897.25,188 897.25,170
+asc link[6] M291,396 L291,378 145.5,378 145.5,360
+asc link[7] M291,396 L291,378 436.5,378 436.5,360
+asc link[8] M436.5,206 L436.5,188 363.75,188 363.75,170
+asc link[9] M436.5,206 L436.5,188 509.25,188 509.25,170
+asc link[10] M145.5,206 L145.5,188 72.75,188 72.75,170
+asc link[11] M145.5,206 L145.5,188 218.25,188 218.25,170
+asc link[12] M727.5,550 L727.5,568 903.25,568 903.25,586
+canvas total=(1140.2500,1358.0000) root=(579.2500,733.0000)
+root rect=(158.0000,162.0000) line=- photo_x=64.0000 text_x=97.0000 sosa=(120.0000,86.0000) given="Root"@110.0000 surname="BRANCH_A"@128.0000 date="ca 1849-< 1917"@146.0000 squeeze=None fab=(97.0000,196.0000) plus=(97.0000,107.0000)
+compact-named rect=(108.0000,160.0000) line=- photo_x=39.0000 text_x=72.0000 sosa=(95.0000,86.0000) given="Given_1"@110.0000 surname="BRANCH_A"@128.0000 date=""@146.0000 squeeze=None fab=(72.0000,194.0000) plus=(72.0000,106.0000)
 "#;
 
     const EXPECTED_RULED_LINKS: &str = r#"
