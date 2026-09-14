@@ -1732,9 +1732,19 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Ruled connectors are drawn with a pen, so they carry the ink colour
        and a little more weight than the hairline the classic theme uses. */
     .ped-theme-medieval .pedigree-connector-path {
-        stroke: var(--ink-soft);
-        stroke-width: 1.4;
+        stroke: var(--ink);
+        stroke-width: 4;
         stroke-linejoin: miter;
+        stroke-linecap: square;
+    }
+
+    /* The lighter core that turns the band above into a double rule. */
+    .ped-theme-medieval .pedigree-connector-core {
+        stroke: var(--parchment);
+        stroke-width: 1.6;
+        stroke-linejoin: miter;
+        stroke-linecap: square;
+        fill: none;
     }
 
     /* The cartouche's second rule sits inside the frame in a lighter ink,

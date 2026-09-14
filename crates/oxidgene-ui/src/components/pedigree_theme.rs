@@ -34,6 +34,14 @@ pub struct PedigreeMetrics {
     pub compact_w: f64,
     /// Height of a deepest-ancestor card.
     pub compact_h: f64,
+    /// Width of a deepest-ancestor column, in `card_w` units.
+    ///
+    /// The deepest ancestor row is the widest row of the chart, so it is
+    /// packed tighter than the rest. The classic theme can afford half a
+    /// column because its compact card is a narrow portrait standing under
+    /// landscape cards; a theme whose cards are portrait at every rank has
+    /// no such slack and has to buy its top row more room.
+    pub compact_separation: f64,
     /// Height of the first descendant row.
     pub desc_h: f64,
 
@@ -87,6 +95,7 @@ impl PedigreeMetrics {
         card_h: 96.0,
         compact_w: 95.0,
         compact_h: 144.0,
+        compact_separation: 0.5,
         desc_h: 140.0,
 
         border_radius: 5.0,
@@ -115,6 +124,21 @@ impl PedigreeMetrics {
             (self.compact_inner_w, self.compact_inner_h)
         } else {
             (self.inner_w, self.inner_h)
+        }
+    }
+
+    /// The column one card is laid out in, at this depth.
+    ///
+    /// A card is drawn at `padding` inside its column and is `rect().0` wide,
+    /// so `padding + rect().0` must fit here or neighbours overlap. That is
+    /// the one relation between these numbers a theme cannot get wrong, and
+    /// `no_theme_lets_its_cards_eat_their_neighbours` holds every theme to it.
+    #[must_use]
+    pub const fn column(&self, is_compact: bool) -> f64 {
+        if is_compact {
+            self.card_w * self.compact_separation
+        } else {
+            self.card_w
         }
     }
 }
@@ -460,10 +484,99 @@ pub fn link_path(spec: &LinkSpec, style: LinkStyle, m: &PedigreeMetrics) -> Stri
 pub enum CardFrame {
     /// One rectangle, hairline, optionally rounded.
     Plain,
-    /// Two concentric rules, the outer one heavier — how an engraved
-    /// cartouche is drawn, and most of what separates a painted pedigree
-    /// from a diagram. The value is the inset of the inner rule.
+    /// A bombé cartouche, drawn twice: sides that swell outward, a crown
+    /// that lifts at the centre, corners rolled like a cut sheet, and a drop
+    /// at the foot. `inner_inset` is how far the second rule sits inside the
+    /// first.
+    ///
+    /// This is the shape a *Stammtafel* puts a person in, and the reason the
+    /// theme exists — a rectangle with a second rule around it is still a
+    /// diagram.
     Cartouche { inner_inset: f64 },
+}
+
+/// The outline of a card, as an SVG path.
+///
+/// `None` for [`CardFrame::Plain`]: the renderer draws that as a `<rect>`,
+/// and writing a rectangle as a path would be the same shape at more cost.
+#[must_use]
+pub fn frame_path(frame: CardFrame, x: f64, y: f64, w: f64, h: f64) -> Option<String> {
+    match frame {
+        CardFrame::Plain => None,
+        CardFrame::Cartouche { .. } => Some(cartouche_path(x, y, w, h)),
+    }
+}
+
+/// Every extreme of the cartouche touches the box it is handed, so the shape
+/// occupies exactly the rectangle the layout reserved and nothing spills into
+/// a neighbouring card.
+///
+/// The outline is asymmetric top to bottom, which is what tells it apart from
+/// a rounded rectangle: a crown that rises to a point at the centre, shoulders
+/// that fall away to corners rolled back on themselves, sides that pinch below
+/// the roll and then swell, and a foot drawn down to a tongue. Every landmark
+/// is a fraction of the box, so a compact card is the same shape as a full one
+/// rather than a squashed one.
+fn cartouche_path(x: f64, y: f64, w: f64, h: f64) -> String {
+    // Landmarks as fractions of the box, so a compact card is the same shape
+    // as a full one rather than a squashed one.
+    let fx = |f: f64| x + w * f;
+    let fy = |f: f64| y + h * f;
+    let cx = x + w * 0.5;
+    let (xw, yh) = (x + w, y + h);
+
+    // Crown: a shallow arch rising to the centre, falling to corners that
+    // flare outward. No corner scroll — a scroll drawn small enough to fit a
+    // card loops back over the crown and reads as a handle, not a curl.
+    let crown_right = format!(
+        "M{cx},{y} C{},{} {},{} {},{}",
+        fx(0.62),
+        fy(0.004),
+        fx(0.80),
+        fy(0.018),
+        fx(0.950),
+        fy(0.055)
+    );
+    let corner_right = format!(
+        " C{},{} {xw},{} {xw},{}",
+        fx(0.992),
+        fy(0.070),
+        fy(0.105),
+        fy(0.165)
+    );
+    // The flanks stay full width well past the names, so the taper never
+    // crowds a line of text.
+    let flank_right = format!(" C{xw},{} {xw},{} {xw},{}", fy(0.40), fy(0.58), fy(0.750));
+    // Foot: drawn in to a point at the centre.
+    let foot_right = format!(" C{xw},{} {},{} {cx},{yh}", fy(0.865), fx(0.800), fy(0.952));
+    let foot_left = format!(
+        " C{},{} {x},{} {x},{}",
+        fx(0.200),
+        fy(0.952),
+        fy(0.865),
+        fy(0.750)
+    );
+    let flank_left = format!(" C{x},{} {x},{} {x},{}", fy(0.58), fy(0.40), fy(0.165));
+    let corner_left = format!(
+        " C{x},{} {},{} {},{}",
+        fy(0.105),
+        fx(0.008),
+        fy(0.070),
+        fx(0.050),
+        fy(0.055)
+    );
+    let crown_left = format!(
+        " C{},{} {},{} {cx},{y} Z",
+        fx(0.20),
+        fy(0.018),
+        fx(0.38),
+        fy(0.004)
+    );
+
+    format!(
+        "{crown_right}{corner_right}{flank_right}{foot_right}\
+         {foot_left}{flank_left}{corner_left}{crown_left}"
+    )
 }
 
 /// What a card's outline is stroked with.
@@ -512,6 +625,13 @@ pub struct CardStyle {
     pub text_y_full: f64,
     pub text_y_compact: f64,
     pub text_max_width_full: f32,
+    /// Widest text a compact card's column holds. Stated rather than derived:
+    /// a centred line has whatever its narrower side allows, which is not
+    /// what subtracting a left indent from the card width measures.
+    pub text_max_width_compact: f32,
+    /// SVG `text-anchor` for the name lines. A cartouche centres them under
+    /// its medallion; a landscape card sets them beside it.
+    pub text_anchor: &'static str,
     /// Baseline step between the given name, the surname and the lifespan.
     pub name_line_step: f64,
 
@@ -622,6 +742,8 @@ impl PedigreeTheme {
             text_y_full: 21.0,
             text_y_compact: 81.0,
             text_max_width_full: 105.0,
+            text_max_width_compact: 72.0,
+            text_anchor: "start",
             name_line_step: 14.0,
 
             surname_font_px: 11.0,
@@ -660,53 +782,73 @@ impl PedigreeTheme {
     /// theme shows them whole.
     pub const MEDIEVAL: Self = Self {
         metrics: PedigreeMetrics {
-            card_w: 210.0,
-            card_h: 112.0,
-            compact_w: 110.0,
-            compact_h: 164.0,
-            desc_h: 156.0,
+            // Portrait, not landscape. A cartouche is taller than it is wide
+            // and carries its names under the portrait rather than beside
+            // it, which is the arrangement these plates actually use.
+            card_w: 194.0,
+            card_h: 190.0,
+            // Three quarters of a column rather than the classic half: an
+            // escutcheon is portrait at every rank, so halving the top row
+            // would have the shields overlap instead of merely standing
+            // close. At 0.75 the gap between two crowns up there (37px) is
+            // the gap between two cartouches anywhere else (36px).
+            compact_w: 145.5,
+            compact_h: 178.0,
+            compact_separation: 0.75,
+            desc_h: 230.0,
 
-            // Square corners: an engraver had no rounded rectangle.
+            // No corner radius: the shape is a path, and its corners are
+            // rolled by the path itself.
             border_radius: 0.0,
-            padding: 5.0,
-            inner_w: 200.0,
-            inner_h: 82.0,
-            compact_inner_w: 97.0,
-            compact_inner_h: 134.0,
+            // Wide enough that the swells of two neighbouring cartouches
+            // never meet.
+            padding: 18.0,
+            inner_w: 158.0,
+            inner_h: 162.0,
+            compact_inner_w: 108.0,
+            compact_inner_h: 150.0,
 
-            card_bottom_offset: 26.0,
-            card_top_offset: 4.0,
-            card_top_indent: 5.0,
+            // Connectors meet the crown and the foot exactly, where the
+            // cartouche reaches the edge of its box.
+            card_bottom_offset: 18.0,
+            card_top_offset: 18.0,
+            card_top_indent: 6.0,
             bezier_ctrl_offset: 8.0,
-            spouse_link_inset: 15.0,
+            spouse_link_inset: 18.0,
 
-            layout_margin: 60.0,
-            sibling_spacing: 225.0,
+            layout_margin: 70.0,
+            sibling_spacing: 200.0,
             sibling_vertical_step: 4.0,
             sibling_min_offset: 6.0,
         },
         link_style: LinkStyle::Ruled,
         viewport_class: "ped-theme-medieval",
         card: CardStyle {
-            frame: CardFrame::Cartouche { inner_inset: 4.0 },
+            frame: CardFrame::Cartouche { inner_inset: 7.0 },
             frame_stroke: FrameStroke::Gender,
-            frame_width: 2.0,
+            frame_width: 2.2,
 
-            photo_w: 56.0,
-            photo_h: 56.0,
-            photo_y: 13.0,
-            photo_x_full: 14.0,
-            photo_x_compact: 25.5,
-            photo_round: 28.0,
+            // A medallion centred under the crown, the way a portrait is set
+            // into one of these plates.
+            photo_w: 66.0,
+            photo_h: 66.0,
+            photo_y: 30.0,
+            photo_x_full: 64.0,
+            photo_x_compact: 39.0,
+            photo_round: 33.0,
 
-            text_x_full: 82.0,
-            text_x_compact: 12.0,
-            text_y_full: 30.0,
-            text_y_compact: 94.0,
-            text_max_width_full: 110.0,
-            name_line_step: 17.0,
+            text_x_full: 97.0,
+            text_x_compact: 72.0,
+            // Kept clear of the foot: below this the cartouche draws in
+            // toward its tongue and a centred line would run past the rule.
+            text_y_full: 106.0,
+            text_y_compact: 98.0,
+            text_max_width_full: 112.0,
+            text_max_width_compact: 96.0,
+            text_anchor: "middle",
+            name_line_step: 18.0,
 
-            surname_font_px: 12.0,
+            surname_font_px: 13.0,
             given_font_px: 11.0,
             date_font_px: 10.0,
             // Cinzel is already loaded for headings, so the theme costs no
@@ -718,10 +860,12 @@ impl PedigreeTheme {
             // The frame carries the sex colour instead of a separate rule.
             gender_rule: None,
 
-            sosa_cx_full: 64.0,
-            sosa_cx_compact: 75.5,
-            sosa_cy: 63.0,
-            sosa_r: 8.0,
+            // Pinned to the medallion's lower right, where a plate puts its
+            // number.
+            sosa_cx_full: 120.0,
+            sosa_cx_compact: 95.0,
+            sosa_cy: 86.0,
+            sosa_r: 9.0,
 
             edit_fab_r: 14.0,
             edit_fab_gap: 16.0,

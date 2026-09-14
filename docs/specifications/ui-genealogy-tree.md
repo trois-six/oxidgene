@@ -55,7 +55,10 @@ The passes work in abstract tree units and are converted to pixels at the end:
 horizontal position is multiplied by the theme's card width, vertical position
 comes from the generation's depth and the row heights the theme defines (see
 [Themes](#9-themes)). A theme with wider cards therefore lays the whole tree out
-differently, rather than drawing differently inside the same positions.
+differently, rather than drawing differently inside the same positions. Rows are
+one card unit apart, except the deepest ancestor row, which packs at the
+fraction of a unit its theme states (see
+[How wide the deepest ancestor row packs](#how-wide-the-deepest-ancestor-row-packs)).
 
 ### What the placement guarantees
 
@@ -560,7 +563,7 @@ The default, and what OxidGene drew before themes existed — specified to be
 pixel-for-pixel identical to it.
 
 - Card **185x96px**, drawn rectangle 175x67px, 5px corner radius
-- Deepest ancestor row drawn compact: **95x144px**
+- Deepest ancestor row drawn compact: **95x144px** in **half** a column
 - First descendant row **140px** tall
 - Neutral card outline, with sex shown by a short coloured rule beside the
   portrait
@@ -573,12 +576,18 @@ pixel-for-pixel identical to it.
 
 An engraved pedigree, in the manner of a painted *Stammtafel*.
 
-- Card **210x112px**, drawn rectangle 200x82px, square corners
-- Deepest ancestor row compact: **110x164px**; first descendant row **156px**
-- Double-ruled cartouche: the outer rule carries the sex colour, an inner rule
-  sits 4px inside it
-- Circular portrait medallion
-- Connectors are ruled elbows — right angles throughout, no curve
+- Card **194x190px** — portrait, not landscape — drawn shape 158x162px, no
+  corner radius: the outline is a path and its corners are cut by that path
+- Every person stands in a **heraldic escutcheon**: arched crown, flared
+  shoulders, straight flanks, and a foot drawn to a point. It is generated from
+  the card box, so it stretches to whatever size a card is given
+- Double-ruled: the outer rule carries the sex colour, and a second rule of the
+  same shape sits 7px inside it
+- Names sit **centred beneath** a circular portrait medallion, the arrangement
+  these plates use, rather than beside a portrait as in the classic card
+- Deepest ancestor row compact: **145.5x178px**; first descendant row **230px**
+- Connectors are ruled elbows — right angles throughout, no curve — drawn as a
+  band: an ink stroke with a parchment core running down it
 - Parchment ground built from repeating gradients rather than an image, so the
   canvas costs no request and tiles at any zoom
 - Surnames in Cinzel, already loaded for headings, so the theme adds no font
@@ -588,3 +597,17 @@ The card is larger in every direction because the second rule and the medallion
 ring take real room. Taking it from the text column instead would truncate names
 the classic theme shows whole, so a theme's name column may never be narrower
 than the classic one at the same card size.
+
+### How wide the deepest ancestor row packs
+
+The deepest ancestor row is the widest row of the chart, so it is packed tighter
+than the rest: a theme states that column as a fraction of `card_w`. The classic
+theme uses **half** a column, which it can afford because its compact card is a
+narrow portrait standing under landscape cards. A theme whose cards are portrait
+at every rank has no such slack — the medieval theme takes **three quarters** of
+a column, which leaves the same gap between two crowns up there as between two
+cartouches anywhere else.
+
+A card is drawn one `padding` inside its column, so `padding + drawn width` must
+fit the column at both ranks or neighbouring cards overlap. This is checked per
+theme, from the numbers alone, rather than per rendering.

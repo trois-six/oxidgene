@@ -19,7 +19,7 @@ use crate::api::CroppedSource;
 use crate::components::cropped_image::{CroppedImage, CroppedSvgImage};
 use crate::components::date_input::format_event_date;
 use crate::components::pedigree_theme::{
-    CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, link_path,
+    CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
 };
 use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -1335,10 +1335,14 @@ fn tree_shift(wrap: &mut [WrapNode], node: usize) {
 /// Horizontal separation, in card widths, between two nodes on the same row.
 ///
 /// Only the current node's depth decides it (matching the JS reference this
-/// is ported from): the compact deepest ancestor row packs at half a card,
-/// every other row at a full one.
-fn tree_separation(depth: i32, last_level: i32) -> f64 {
-    if depth == last_level { 0.5 } else { 1.0 }
+/// is ported from): the compact deepest ancestor row packs at the theme's
+/// compact separation, every other row at a full card.
+fn tree_separation(depth: i32, last_level: i32, compact_sep: f64) -> f64 {
+    if depth == last_level {
+        compact_sep
+    } else {
+        1.0
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1349,6 +1353,7 @@ fn apportion(
     w: Option<usize>,
     ancestor_in: usize,
     last_level: i32,
+    compact_sep: f64,
 ) -> usize {
     let mut ancestor = ancestor_in;
     let Some(w) = w else { return ancestor };
@@ -1388,7 +1393,7 @@ fn apportion(
             sibling_z += wrap[si].z;
         }
 
-        let sep = tree_separation(arena[wrap[vim_next].orig].depth, last_level);
+        let sep = tree_separation(arena[wrap[vim_next].orig].depth, last_level, compact_sep);
         let shift = wrap[vim_next].z + sim + sibling_z - wrap[vip_next].z - sip + sep;
         if shift > 0.0 {
             let anc = tree_ancestor(wrap, vim_next, v, ancestor);
@@ -1422,7 +1427,13 @@ fn apportion(
     ancestor
 }
 
-fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level: i32) {
+fn first_walk(
+    wrap: &mut [WrapNode],
+    arena: &[TreeNode],
+    root: usize,
+    last_level: i32,
+    compact_sep: f64,
+) {
     // Iterative post-order via explicit stack.
     let mut post_order: Vec<usize> = Vec::new();
     let mut stack = vec![root];
@@ -1500,9 +1511,13 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             };
             midpoint += (wrap[first_child].z + wrap[last_child].z + last_sib_z + m_adj) / 2.0;
 
-            // Special case for 2 children at deepest level.
+            // Special case for 2 children at deepest level: the midpoint above
+            // was computed as if they stood a full card apart, so give back
+            // half of whatever the compact row actually saves. A theme that
+            // packs its top row at full width saves nothing and needs no
+            // correction, which is what this expression says at 1.0.
             if effective_children.len() == 2 && arena[wrap[first_child].orig].depth == last_level {
-                midpoint -= 0.25;
+                midpoint -= (1.0 - compact_sep) / 2.0;
             }
 
             match prev_sibling {
@@ -1510,7 +1525,7 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
                     let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
                     // Consecutive siblings share the same parent, so they sit
                     // exactly one separation apart.
-                    let sep = tree_separation(arena[wrap[v].orig].depth, last_level);
+                    let sep = tree_separation(arena[wrap[v].orig].depth, last_level, compact_sep);
                     wrap[v].z = wrap[w].z + w_sib_z + sep;
                     wrap[v].m = wrap[v].z - midpoint;
                 }
@@ -1520,7 +1535,7 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             }
         } else if let Some(w) = prev_sibling {
             let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
-            let sep = tree_separation(arena[wrap[v].orig].depth, last_level);
+            let sep = tree_separation(arena[wrap[v].orig].depth, last_level, compact_sep);
             wrap[v].z = wrap[w].z + w_sib_z + sep;
         }
 
@@ -1594,6 +1609,7 @@ fn first_walk(wrap: &mut [WrapNode], arena: &[TreeNode], root: usize, last_level
             prev_sibling,
             siblings_in_parent.first().copied().unwrap_or(v),
             last_level,
+            compact_sep,
         );
     }
 }
@@ -1937,7 +1953,7 @@ fn layout_tree(
     }
 
     let mut wrap = wrap_tree(arena);
-    first_walk(&mut wrap, arena, 0, last_level);
+    first_walk(&mut wrap, arena, 0, last_level, metrics.compact_separation);
 
     // Adjust root's parent m so root starts at 0.
     if let Some(p) = wrap[0].parent {
@@ -2630,6 +2646,9 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let scale = props.scale;
     let preferred = crate::prefs::use_pedigree_theme();
     let theme = props.theme.unwrap_or_else(|| preferred.theme());
+    // A ruled line is drawn as a band with a lighter core, the way an
+    // engraver lays one down; a Bézier one stays a single hairline.
+    let double_ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
 
     // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
     let mut offset_x = use_signal(|| 0.0f64);
@@ -2727,6 +2746,9 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                         g {
                             for (si, path) in layout.asc_links.iter().enumerate() {
                                 path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                                        if double_ruled {
+                                            path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                                        }
                             }
                             for (ni, node) in layout.asc_nodes.iter().enumerate() {
                                 {render_pedigree_card(
@@ -2748,6 +2770,9 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                             transform: "translate({layout.desc_tx},{layout.desc_ty})",
                             for (si, path) in layout.desc_links.iter().enumerate() {
                                 path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                                        if double_ruled {
+                                            path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                                        }
                             }
                             for (ni, node) in layout.desc_nodes.iter().enumerate() {
                                 {render_pedigree_card(
@@ -2819,7 +2844,7 @@ pub struct PedigreeChartProps {
 /// rather than letting the names run past the frame.
 fn text_max_width(is_compact: bool, theme: &PedigreeTheme) -> f32 {
     if is_compact {
-        (theme.metrics.compact_inner_w - theme.card.text_x_compact) as f32
+        theme.card.text_max_width_compact
     } else {
         theme.card.text_max_width_full
     }
@@ -2837,6 +2862,13 @@ struct CardGeometry {
     rect_h: f64,
     /// How the outline is drawn, and the inner rule's inset when it has one.
     frame: CardFrame,
+    /// `d` of the card outline, for a theme whose frame is a shape rather
+    /// than a rectangle. `None` means draw the rectangle.
+    frame_d: Option<String>,
+    /// `d` of the second rule inside it.
+    inner_frame_d: Option<String>,
+    /// `text-anchor` for the three name lines.
+    text_anchor: &'static str,
     /// `d` of the sex-coded rule, for a theme that draws one beside the
     /// portrait rather than colouring the whole frame.
     gender_line: Option<String>,
@@ -2969,10 +3001,29 @@ fn card_geometry(node: &LayoutNode, theme: &PedigreeTheme, i18n: &I18n) -> CardG
         format!("M{x},{} L{x},{}", rule.top, rule.bottom)
     });
 
+    // The outline, and the second rule drawn inside it. Both are laid out
+    // from the same box, so the inner rule is a smaller cartouche of the
+    // same shape rather than an outline offset by a constant.
+    let inset = match card.frame {
+        CardFrame::Plain => 0.0,
+        CardFrame::Cartouche { inner_inset } => inner_inset,
+    };
+    let frame_d = frame_path(card.frame, metrics.padding, metrics.padding, rect_w, rect_h);
+    let inner_frame_d = frame_path(
+        card.frame,
+        metrics.padding + inset,
+        metrics.padding + inset,
+        rect_w - 2.0 * inset,
+        rect_h - 2.0 * inset,
+    );
+
     CardGeometry {
         rect_w,
         rect_h,
         frame: card.frame,
+        frame_d,
+        inner_frame_d,
+        text_anchor: card.text_anchor,
         gender_line,
         gender_line_width: card.gender_rule.map_or(0.0, |rule| rule.width),
         photo_x,
@@ -3031,6 +3082,9 @@ fn render_pedigree_card(
         rect_w: rw,
         rect_h: rh,
         frame,
+        frame_d,
+        inner_frame_d,
+        text_anchor,
         gender_line: gl_path,
         gender_line_width,
         photo_x: ph_x,
@@ -3125,8 +3179,14 @@ fn render_pedigree_card(
                         let coords = evt.client_coordinates();
                         on_person_click.call((pid, coords.x, coords.y));
                     },
-                    rect { class: "ped-card-rect", x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
-                    if let Some((inset, iw, ih)) = inner {
+                    if let Some(d) = &frame_d {
+                        path { class: "ped-card-rect", d: "{d}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
+                    } else {
+                        rect { class: "ped-card-rect", x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
+                    }
+                    if let Some(d) = &inner_frame_d {
+                        path { class: "ped-card-inner-rule", d: "{d}", style: "fill:none;stroke:var(--pn-border);stroke-width:1" }
+                    } else if let Some((inset, iw, ih)) = inner {
                         rect { class: "ped-card-inner-rule", x: "{inset}", y: "{inset}", width: "{iw}", height: "{ih}", style: "fill:none;stroke:var(--pn-border);stroke-width:1" }
                     }
                     if let Some(gl) = gl_path {
@@ -3154,10 +3214,10 @@ fn render_pedigree_card(
                     text {
                         class: "ped-card-name-text",
                         if has_given {
-                            tspan { x: "{tx}", y: "{given_y}", style: "font-size:{given_font_px}px;font-family:{body_font};fill:{text_fill}", "{given_disp}" }
+                            tspan { x: "{tx}", y: "{given_y}", style: "font-size:{given_font_px}px;font-family:{body_font};fill:{text_fill};text-anchor:{text_anchor}", "{given_disp}" }
                         }
                         if has_surname {
-                            tspan { x: "{tx}", y: "{surname_y}", style: "font-size:{surname_font_px}px;font-weight:{surname_weight};font-family:{surname_font};fill:{text_fill}", "{surname_disp}" }
+                            tspan { x: "{tx}", y: "{surname_y}", style: "font-size:{surname_font_px}px;font-weight:{surname_weight};font-family:{surname_font};fill:{text_fill};text-anchor:{text_anchor}", "{surname_disp}" }
                         }
                     }
                     // The lifespan is its own `text` rather than a third tspan
@@ -3170,7 +3230,7 @@ fn render_pedigree_card(
                             class: "ped-card-name-text",
                             x: "{tx}",
                             y: "{date_y}",
-                            style: "font-size:{date_font_px}px;font-family:{body_font};fill:{text_fill}",
+                            style: "font-size:{date_font_px}px;font-family:{body_font};fill:{text_fill};text-anchor:{text_anchor}",
                             "textLength": date_squeeze.map(|w| w.to_string()),
                             "lengthAdjust": date_squeeze.map(|_| "spacingAndGlyphs"),
                             dangerous_inner_html: "{date_html}",
@@ -3215,9 +3275,15 @@ fn render_pedigree_card(
                         g {
                             style: "cursor:pointer",
                             onclick: move |_| on_empty_slot.call((cid, is_father)),
-                            rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
+                            if let Some(d) = &frame_d {
+                                path { d: "{d}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
+                            } else {
+                                rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
+                            }
                             text { x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                         }
+                    } else if let Some(d) = &frame_d {
+                        path { d: "{d}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
                     } else {
                         rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
                     }
@@ -3396,6 +3462,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Compute layout ──
     let preferred = crate::prefs::use_pedigree_theme();
     let theme = props.theme.unwrap_or_else(|| preferred.theme());
+    // A ruled line is drawn as a band with a lighter core, the way an
+    // engraver lays one down; a Bézier one stays a single hairline.
+    let double_ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
             props.root_person_id,
@@ -3862,6 +3931,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                 g {
                                     for (si, path) in layout.asc_links.iter().enumerate() {
                                         path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                                        if double_ruled {
+                                            path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                                        }
                                     }
                                     for (ni, node) in layout.asc_nodes.iter().enumerate() {
                                         {render_pedigree_card(
@@ -3885,6 +3957,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                     transform: "translate({layout.desc_tx},{layout.desc_ty})",
                                     for (si, path) in layout.desc_links.iter().enumerate() {
                                         path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                                        if double_ruled {
+                                            path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                                        }
                                     }
                                     for (ni, node) in layout.desc_nodes.iter().enumerate() {
                                         {render_pedigree_card(
@@ -4925,6 +5000,7 @@ mod layout_overlap_tests {
 #[cfg(test)]
 mod geometry_golden_tests {
     use super::*;
+    use crate::components::pedigree_theme::CardStyle;
     use oxidgene_core::{Calendar, NameType};
 
     fn id(n: u128) -> Uuid {
@@ -5331,6 +5407,13 @@ mod geometry_golden_tests {
                 compact_inner_w: 60.0,
                 ..PedigreeMetrics::CLASSIC
             },
+            card: CardStyle {
+                // The text column is stated, not derived, so a theme that
+                // narrows its card has to narrow this too — and the squeeze
+                // branch below only fires because it does.
+                text_max_width_compact: 50.0,
+                ..PedigreeTheme::CLASSIC.card
+            },
             ..PedigreeTheme::CLASSIC
         };
         out.push_str(&describe_card(
@@ -5457,8 +5540,15 @@ mod geometry_golden_tests {
                 tx = layout.main_tx,
                 ty = layout.main_ty,
             );
-            for path in layout.asc_links.iter() {
+            let ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
+            let link = |svg: &mut String, path: &str| {
                 let _ = write!(svg, r#"<path class="pedigree-connector-path" d="{path}"/>"#);
+                if ruled {
+                    let _ = write!(svg, r#"<path class="pedigree-connector-core" d="{path}"/>"#);
+                }
+            };
+            for path in layout.asc_links.iter() {
+                link(&mut svg, path);
             }
             let _ = write!(
                 svg,
@@ -5466,7 +5556,7 @@ mod geometry_golden_tests {
                 layout.desc_tx, layout.desc_ty
             );
             for path in layout.desc_links.iter() {
-                let _ = write!(svg, r#"<path class="pedigree-connector-path" d="{path}"/>"#);
+                link(&mut svg, path);
             }
             let _ = write!(svg, "</g>");
 
@@ -5491,21 +5581,30 @@ mod geometry_golden_tests {
                 };
                 let _ = write!(
                     svg,
-                    r#"<g class="ped-card" transform="translate({},{})"><rect class="ped-card-rect" x="{pad}" y="{pad}" rx="{radius}" ry="{radius}" width="{}" height="{}" style="fill:{bg};stroke:{stroke};stroke-width:{}{dash}"/>"#,
+                    r#"<g class="ped-card" transform="translate({},{})">"#,
                     node.x + dx,
                     node.y + dy,
-                    geo.rect_w,
-                    geo.rect_h,
-                    theme.card.frame_width,
                 );
-                if let (CardFrame::Cartouche { inner_inset }, true) = (geo.frame, node.id.is_some())
-                {
+                match &geo.frame_d {
+                    Some(d) => {
+                        let _ = write!(
+                            svg,
+                            r#"<path class="ped-card-rect" d="{d}" style="fill:{bg};stroke:{stroke};stroke-width:{}{dash}"/>"#,
+                            theme.card.frame_width,
+                        );
+                    }
+                    None => {
+                        let _ = write!(
+                            svg,
+                            r#"<rect class="ped-card-rect" x="{pad}" y="{pad}" rx="{radius}" ry="{radius}" width="{}" height="{}" style="fill:{bg};stroke:{stroke};stroke-width:{}{dash}"/>"#,
+                            geo.rect_w, geo.rect_h, theme.card.frame_width,
+                        );
+                    }
+                }
+                if let (Some(d), true) = (&geo.inner_frame_d, node.id.is_some()) {
                     let _ = write!(
                         svg,
-                        r#"<rect class="ped-card-inner-rule" x="{0}" y="{0}" width="{1}" height="{2}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#,
-                        pad + inner_inset,
-                        geo.rect_w - 2.0 * inner_inset,
-                        geo.rect_h - 2.0 * inner_inset,
+                        r#"<path class="ped-card-inner-rule" d="{d}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#
                     );
                 }
                 if node.id.is_some() {
@@ -5528,30 +5627,33 @@ mod geometry_golden_tests {
                     );
                     let _ = write!(
                         svg,
-                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill}">{}</text>"#,
+                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill};text-anchor:{}">{}</text>"#,
                         geo.text_x,
                         geo.given_y,
                         geo.given_font_px,
                         geo.body_font,
+                        geo.text_anchor,
                         escape_xml(&geo.given),
                     );
                     let _ = write!(
                         svg,
-                        r#"<text x="{}" y="{}" style="font-size:{}px;font-weight:{};font-family:{};fill:{fill}">{}</text>"#,
+                        r#"<text x="{}" y="{}" style="font-size:{}px;font-weight:{};font-family:{};fill:{fill};text-anchor:{}">{}</text>"#,
                         geo.text_x,
                         geo.surname_y,
                         geo.surname_font_px,
                         geo.surname_weight,
                         geo.surname_font,
+                        geo.text_anchor,
                         escape_xml(&geo.surname),
                     );
                     let _ = write!(
                         svg,
-                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill}">{}</text>"#,
+                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill};text-anchor:{}">{}</text>"#,
                         geo.text_x,
                         geo.date_y,
                         geo.date_font_px,
                         geo.body_font,
+                        geo.text_anchor,
                         escape_xml(&geo.date_text),
                     );
                 }
@@ -5671,6 +5773,38 @@ mod geometry_golden_tests {
         }
     }
 
+    /// A card has to fit the column the layout gives it.
+    ///
+    /// Two numbers decide this and they live far apart: `card_w` scales the
+    /// Reingold-Tilford coordinates, while `padding` and the drawn rectangle
+    /// decide how much of the resulting column the card actually covers. A
+    /// theme can leave both looking reasonable and still have its cards eat
+    /// their neighbours — which the medieval theme did, at the deepest
+    /// ancestor row, where the column is the narrowest on the chart.
+    ///
+    /// Checked per theme rather than per render, because the overlap it
+    /// catches is a property of the numbers, not of any one pedigree.
+    #[test]
+    fn no_theme_lets_its_cards_eat_their_neighbours() {
+        for (name, theme) in [
+            ("classic", &PedigreeTheme::CLASSIC),
+            ("medieval", &PedigreeTheme::MEDIEVAL),
+        ] {
+            let m = &theme.metrics;
+            for is_compact in [false, true] {
+                let drawn = m.padding + m.rect(is_compact).0;
+                let column = m.column(is_compact);
+                assert!(
+                    drawn <= column,
+                    "{name} compact={is_compact}: a card drawn from {}px to {drawn}px \
+                     overruns its {column}px column by {:.1}px, so neighbours overlap",
+                    m.padding,
+                    drawn - column
+                );
+            }
+        }
+    }
+
     /// The medieval theme lays out and measures its own way.
     ///
     /// Beyond pinning it, this checks the property that made the card larger
@@ -5756,36 +5890,36 @@ mod geometry_golden_tests {
     }
 
     const EXPECTED_MEDIEVAL: &str = r#"
-asc card[0] x=315.0000 y=388.0000 compact=false
-asc card[1] x=525.0000 y=276.0000 compact=false
-asc card[2] x=630.0000 y=164.0000 compact=false
-asc card[3] x=735.0000 y=0.0000 compact=true
-asc card[4] x=630.0000 y=0.0000 compact=true
-asc card[5] x=420.0000 y=164.0000 compact=false
-asc card[6] x=105.0000 y=276.0000 compact=false
-asc card[7] x=210.0000 y=164.0000 compact=false
-asc card[8] x=315.0000 y=0.0000 compact=true
-asc card[9] x=210.0000 y=0.0000 compact=true
-asc card[10] x=0.0000 y=164.0000 compact=false
-asc card[11] x=105.0000 y=0.0000 compact=true
+asc card[0] x=412.2500 y=558.0000 compact=false
+asc card[1] x=630.5000 y=368.0000 compact=false
+asc card[2] x=727.5000 y=178.0000 compact=false
+asc card[3] x=824.5000 y=0.0000 compact=true
+asc card[4] x=679.0000 y=0.0000 compact=true
+asc card[5] x=533.5000 y=178.0000 compact=false
+asc card[6] x=194.0000 y=368.0000 compact=false
+asc card[7] x=339.5000 y=178.0000 compact=false
+asc card[8] x=436.5000 y=0.0000 compact=true
+asc card[9] x=291.0000 y=0.0000 compact=true
+asc card[10] x=48.5000 y=178.0000 compact=false
+asc card[11] x=145.5000 y=0.0000 compact=true
 asc card[12] x=0.0000 y=0.0000 compact=true
-asc card[13] x=750.0000 y=388.0000 compact=false
-asc link[0] M420,392 L420,377 210,377 210,362
-asc link[1] M420,392 L420,377 630,377
-asc link[2] M630,280 L630,265 525,265 525,250
-asc link[3] M630,280 L630,265 735,265 735,250
-asc link[4] M735,168 L735,153 685,153 685,138
-asc link[5] M735,168 L735,153 790,153 790,138
-asc link[6] M210,280 L210,265 105,265 105,250
-asc link[7] M210,280 L210,265 315,265 315,250
-asc link[8] M315,168 L315,153 265,153 265,138
-asc link[9] M315,168 L315,153 370,153 370,138
-asc link[10] M105,168 L105,153 55,153 55,138
-asc link[11] M105,168 L105,153 160,153 160,138
-asc link[12] M630,362 L630,377 855,377 855,392
-canvas total=(1080.0000,932.0000) root=(480.0000,504.0000)
-root rect=(200.0000,82.0000) line=- photo_x=14.0000 text_x=82.0000 sosa=(64.0000,63.0000) given="Root"@30.0000 surname="BRANCH_A"@47.0000 date="ca 1849-< 1917"@64.0000 squeeze=None fab=(105.0000,103.0000) plus=(105.0000,54.0000)
-compact-named rect=(97.0000,134.0000) line=- photo_x=25.5000 text_x=12.0000 sosa=(75.5000,63.0000) given="Given_1"@94.0000 surname="BRANCH_A"@111.0000 date=""@128.0000 squeeze=None fab=(53.5000,155.0000) plus=(53.5000,80.0000)
+asc card[13] x=806.2500 y=558.0000 compact=false
+asc link[0] M509.25,576 L509.25,558 291,558 291,540
+asc link[1] M509.25,576 L509.25,558 727.5,558
+asc link[2] M727.5,386 L727.5,368 630.5,368 630.5,350
+asc link[3] M727.5,386 L727.5,368 824.5,368 824.5,350
+asc link[4] M824.5,196 L824.5,178 751.75,178 751.75,160
+asc link[5] M824.5,196 L824.5,178 897.25,178 897.25,160
+asc link[6] M291,386 L291,368 145.5,368 145.5,350
+asc link[7] M291,386 L291,368 436.5,368 436.5,350
+asc link[8] M436.5,196 L436.5,178 363.75,178 363.75,160
+asc link[9] M436.5,196 L436.5,178 509.25,178 509.25,160
+asc link[10] M145.5,196 L145.5,178 72.75,178 72.75,160
+asc link[11] M145.5,196 L145.5,178 218.25,178 218.25,160
+asc link[12] M727.5,540 L727.5,558 903.25,558 903.25,576
+canvas total=(1140.2500,1348.0000) root=(579.2500,723.0000)
+root rect=(158.0000,162.0000) line=- photo_x=64.0000 text_x=97.0000 sosa=(120.0000,86.0000) given="Root"@106.0000 surname="BRANCH_A"@124.0000 date="ca 1849-< 1917"@142.0000 squeeze=None fab=(97.0000,196.0000) plus=(97.0000,107.0000)
+compact-named rect=(108.0000,150.0000) line=- photo_x=39.0000 text_x=72.0000 sosa=(95.0000,86.0000) given="Given_1"@98.0000 surname="BRANCH_A"@116.0000 date=""@134.0000 squeeze=None fab=(72.0000,184.0000) plus=(72.0000,101.0000)
 "#;
 
     const EXPECTED_RULED_LINKS: &str = r#"
