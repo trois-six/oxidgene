@@ -411,9 +411,16 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Click on a card | New focus + pencil icon + events sidebar updated |
 | Click on placeholder `+` | Opens add-parent form |
 | Drag on canvas | Free pan |
-| Scroll wheel / pinch | Zoom, range 0.3x-2x |
+| Scroll wheel / pinch | Zoom about the pointer, range 0.3x-2x |
+| Zoom in / out buttons | Zoom about the middle of the free canvas, same range |
 | FIT button | Reframes the entire tree in the window |
 | Depth selector | Recalculates layout, recenters on current focus |
+
+A zoom holds one point of the canvas still and moves everything else around it.
+The wheel holds the point under the pointer; the buttons have no pointer of
+their own and hold the middle of the free canvas — the same point a fit centres
+the graph on, so the two agree. "Free" means the canvas minus the events panel,
+which is why zooming does not drift sideways when the panel is open.
 
 ### Focus Change
 

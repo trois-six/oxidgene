@@ -2554,6 +2554,81 @@ const MEASURE_PEDIGREE_VIEWPORT_JS: &str = r#"
     return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft, rect.left, rect.top];
 "#;
 
+/// Where the free part of the pedigree viewport sits, as last measured.
+///
+/// Cached rather than queried per event: a wheel gesture is a stream of small
+/// updates, and an async DOM read per tick would arrive late and out of order.
+/// Refreshed by every fit — which a panel resize also triggers.
+#[derive(Clone, Copy, PartialEq)]
+struct ViewportRect {
+    /// Page coordinates of the viewport's top-left corner, which is what turns
+    /// a pointer event's client coordinates into viewport ones.
+    page_x: f64,
+    page_y: f64,
+    /// The strip left free by the events panel, in viewport coordinates.
+    left: f64,
+    width: f64,
+    height: f64,
+}
+
+impl ViewportRect {
+    /// What to assume before the first measurement lands.
+    const fn assumed() -> Self {
+        Self {
+            page_x: 0.0,
+            page_y: 0.0,
+            left: 0.0,
+            width: VIEWPORT_DEFAULT_W,
+            height: VIEWPORT_DEFAULT_H,
+        }
+    }
+
+    /// The point a zoom anchors to when it has no cursor of its own.
+    ///
+    /// The same point a fit centres the graph on, so zooming in and then
+    /// fitting again does not slide the graph sideways.
+    const fn center(self) -> (f64, f64) {
+        (self.left + self.width / 2.0, self.height / 2.0)
+    }
+}
+
+/// The scale one step away, or `None` when the zoom is already at its limit.
+fn zoom_step(current: f64, factor: f64) -> Option<f64> {
+    let next = (current * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+    ((next - current).abs() > f64::EPSILON).then_some(next)
+}
+
+/// Zooms about a fixed point, leaving whatever is there where it is.
+///
+/// Both zoom gestures are this operation; they differ only in the point they
+/// hold still. Scaling without one lets the CSS transform scale about the
+/// content's own origin, so the graph slides toward a corner as it grows —
+/// which is what the zoom buttons did.
+fn zoom_about(
+    mut scale: Signal<f64>,
+    mut offset_x: Signal<f64>,
+    mut offset_y: Signal<f64>,
+    anchor: (f64, f64),
+    new_scale: f64,
+) {
+    let old_scale = scale();
+    let (ax, ay) = anchor;
+    let x = offset_holding(ax, offset_x(), old_scale, new_scale);
+    let y = offset_holding(ay, offset_y(), old_scale, new_scale);
+    scale.set(new_scale);
+    offset_x.set(x);
+    offset_y.set(y);
+}
+
+/// The pan offset that keeps `anchor` over the same content across a rescale.
+///
+/// One axis of [`zoom_about`], split out because it is the whole of the
+/// behaviour and the signals around it are not.
+fn offset_holding(anchor: f64, offset: f64, old_scale: f64, new_scale: f64) -> f64 {
+    let content_under_anchor = (anchor - offset) / old_scale;
+    anchor - content_under_anchor * new_scale
+}
+
 /// Scales and pans the canvas so the whole graph sits inside the free area.
 ///
 /// Shared by the initial/root-change fit and by the fit-screen button, which
@@ -2563,7 +2638,7 @@ async fn fit_graph_in_viewport(
     mut scale: Signal<f64>,
     mut offset_x: Signal<f64>,
     mut offset_y: Signal<f64>,
-    mut viewport_page_pos: Signal<(f64, f64)>,
+    mut viewport_rect: Signal<ViewportRect>,
     // (center x, center y, width, height) of the graph content, in content
     // units — grouped into one tuple to keep the argument count clippy-clean.
     content: (f64, f64, f64, f64),
@@ -2583,15 +2658,23 @@ async fn fit_graph_in_viewport(
     let vx = val.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0);
     let page_x = val.get(3).and_then(|v| v.as_f64()).unwrap_or(0.0);
     let page_y = val.get(4).and_then(|v| v.as_f64()).unwrap_or(0.0);
-    viewport_page_pos.set((page_x, page_y));
+    let rect = ViewportRect {
+        page_x,
+        page_y,
+        left: vx,
+        width: vw,
+        height: vh,
+    };
+    viewport_rect.set(rect);
     let side_padding = vw * FIT_SIDE_PADDING_RATIO;
     let fit_w = (vw - 2.0 * side_padding).max(1.0);
     let fit_scale = (fit_w / content_w)
         .min(vh / content_h)
         .clamp(ZOOM_MIN, ZOOM_MAX);
+    let (center_x, center_y) = rect.center();
     scale.set(fit_scale);
-    offset_x.set(vx + vw / 2.0 - content_cx * fit_scale);
-    offset_y.set(vh / 2.0 - content_cy * fit_scale);
+    offset_x.set(center_x - content_cx * fit_scale);
+    offset_y.set(center_y - content_cy * fit_scale);
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -3332,7 +3415,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // Viewport's own page position, cached from each fit measurement so
     // wheel-zoom can convert mouse coordinates without an async round trip
     // on every tick (see `onwheel` below).
-    let viewport_page_pos = use_signal(|| (0.0f64, 0.0f64));
+    let viewport_rect = use_signal(ViewportRect::assumed);
 
     // ── Selected person (drives event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
@@ -3491,7 +3574,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 scale,
                 offset_x,
                 offset_y,
-                viewport_page_pos,
+                viewport_rect,
                 (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
             )
             .await;
@@ -3771,7 +3854,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.zoom_in\")}",
-                    onclick: move |_| scale.set((scale() * ZOOM_FACTOR).clamp(ZOOM_MIN, ZOOM_MAX)),
+                    // A button has no cursor to anchor to, so it
+                    // holds the middle of the viewport still.
+                    onclick: move |_| {
+                        if let Some(new_scale) = zoom_step(scale(), ZOOM_FACTOR) {
+                            zoom_about(
+                                scale,
+                                offset_x,
+                                offset_y,
+                                viewport_rect().center(),
+                                new_scale,
+                            );
+                        }
+                    },
                     svg {
                         width: "16",
                         height: "16",
@@ -3788,7 +3883,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.zoom_out\")}",
-                    onclick: move |_| scale.set((scale() / ZOOM_FACTOR).clamp(ZOOM_MIN, ZOOM_MAX)),
+                    // A button has no cursor to anchor to, so it
+                    // holds the middle of the viewport still.
+                    onclick: move |_| {
+                        if let Some(new_scale) = zoom_step(scale(), 1.0 / ZOOM_FACTOR) {
+                            zoom_about(
+                                scale,
+                                offset_x,
+                                offset_y,
+                                viewport_rect().center(),
+                                new_scale,
+                            );
+                        }
+                    },
                     svg {
                         width: "16",
                         height: "16",
@@ -3810,7 +3917,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             scale,
                             offset_x,
                             offset_y,
-                            viewport_page_pos,
+                            viewport_rect,
                             (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
                         ));
                     },
@@ -3886,29 +3993,23 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         WheelDelta::Pages(p) => p.y * 400.0,
                     };
                     let factor = if delta_y > 0.0 { 0.9 } else { 1.0 / 0.9 };
-                    let old_scale = scale();
-                    let new_scale = (old_scale * factor).clamp(ZOOM_MIN, ZOOM_MAX);
-                    if (new_scale - old_scale).abs() > f64::EPSILON {
-                        // Same reasoning as onpointerdown: a wheel gesture is
-                        // a stream of many small updates, each of which must
-                        // land instantly or they visibly fight the CSS
-                        // transition and the zoom feels laggy. Reading the
-                        // cached viewport position (refreshed on each fit)
-                        // instead of an async DOM query per tick keeps this
-                        // handler fully synchronous, so there is no
-                        // round-trip latency and no risk of updates applying
-                        // out of order.
-                        animating.set(false);
-                        let coords = evt.client_coordinates();
-                        let (vx, vy) = viewport_page_pos();
-                        let mouse_x = coords.x - vx;
-                        let mouse_y = coords.y - vy;
-                        let world_x = (mouse_x - offset_x()) / old_scale;
-                        let world_y = (mouse_y - offset_y()) / old_scale;
-                        scale.set(new_scale);
-                        offset_x.set(mouse_x - world_x * new_scale);
-                        offset_y.set(mouse_y - world_y * new_scale);
-                    }
+                    let Some(new_scale) = zoom_step(scale(), factor) else {
+                        return;
+                    };
+                    // Same reasoning as onpointerdown: a wheel gesture is a
+                    // stream of many small updates, each of which must land
+                    // instantly or they visibly fight the CSS transition and
+                    // the zoom feels laggy. Reading the cached viewport rect
+                    // (refreshed on each fit) instead of an async DOM query
+                    // per tick keeps this handler fully synchronous, so there
+                    // is no round-trip latency and no risk of updates
+                    // applying out of order.
+                    animating.set(false);
+                    let coords = evt.client_coordinates();
+                    let rect = viewport_rect();
+                    // The wheel holds the point under the cursor still.
+                    let anchor = (coords.x - rect.page_x, coords.y - rect.page_y);
+                    zoom_about(scale, offset_x, offset_y, anchor, new_scale);
                 },
 
                 div {
@@ -4196,6 +4297,79 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+
+    /// A zoom holds one point still — that is the whole of what it promises.
+    ///
+    /// The wheel anchors to the cursor, the buttons to the middle of the
+    /// viewport. Neither was checked, and the buttons quietly anchored to
+    /// nothing at all: they set the scale and left the pan alone, so the CSS
+    /// transform scaled about the content's own origin and the graph crept
+    /// toward a corner one click at a time.
+    #[test]
+    fn a_zoom_leaves_the_content_under_its_anchor_where_it_was() {
+        let cases = [
+            // (anchor, offset, old scale, new scale)
+            (400.0, -120.0, 1.0, ZOOM_FACTOR),
+            (400.0, -120.0, 1.0, 1.0 / ZOOM_FACTOR),
+            (0.0, 37.5, 0.8, 1.6),
+            (1280.0, -940.0, 1.75, 0.35),
+        ];
+        for (anchor, offset, old_scale, new_scale) in cases {
+            let moved = offset_holding(anchor, offset, old_scale, new_scale);
+            let before = (anchor - offset) / old_scale;
+            let after = (anchor - moved) / new_scale;
+            assert!(
+                (before - after).abs() < 1e-9,
+                "anchor {anchor} at {old_scale}x->{new_scale}x: the content under it \
+                 moved from {before} to {after}"
+            );
+        }
+    }
+
+    /// The buttons anchor where a fit centres, so the two agree.
+    ///
+    /// The free area is the viewport minus the events panel, which is why the
+    /// centre is measured from `left`/`width` rather than from the element.
+    #[test]
+    fn the_button_anchor_is_the_middle_of_the_free_area() {
+        let rect = ViewportRect {
+            page_x: 46.0,
+            page_y: 64.0,
+            left: 0.0,
+            width: 900.0,
+            height: 600.0,
+        };
+        assert_eq!(rect.center(), (450.0, 300.0));
+
+        // A fit puts the graph's centre on that point; zooming from there must
+        // leave it there, which is what a viewer means by "zoom in".
+        let content_cx = 512.0;
+        let (center_x, _) = rect.center();
+        let offset = center_x - content_cx * 1.0;
+        let zoomed = offset_holding(center_x, offset, 1.0, ZOOM_FACTOR);
+        assert!(
+            (center_x - (content_cx * ZOOM_FACTOR + zoomed)).abs() < 1e-9,
+            "the graph's centre left the middle of the viewport"
+        );
+    }
+
+    /// Nothing happens at the ends of the range, so the pan is left alone too.
+    #[test]
+    fn a_zoom_at_its_limit_is_not_a_zoom() {
+        assert_eq!(zoom_step(ZOOM_MAX, ZOOM_FACTOR), None);
+        assert_eq!(zoom_step(ZOOM_MIN, 1.0 / ZOOM_FACTOR), None);
+        assert_eq!(zoom_step(1.0, ZOOM_FACTOR), Some(ZOOM_FACTOR));
+        assert_eq!(
+            zoom_step(ZOOM_MAX / ZOOM_FACTOR * 1.5, ZOOM_FACTOR),
+            Some(ZOOM_MAX),
+            "a step past the top must land on the limit, not overshoot it"
+        );
     }
 }
 
