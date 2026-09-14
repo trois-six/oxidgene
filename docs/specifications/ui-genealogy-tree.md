@@ -36,8 +36,13 @@ requested ancestor and descendant depths. Filling the shared tree metadata
 cache during that initial load must not trigger an identical second pedigree
 request. Explicit cache invalidation after a mutation still refreshes the
 pedigree. Persisting visual state such as pan, zoom, or automatic centering does
-not reload pedigree data; only a depth change in the saved view changes the
-server query.
+not reload pedigree data or rebuild the card-and-connector layout; only its CSS
+transform and zoom readout react during direct manipulation. Only a depth change
+in the saved view changes the server query.
+
+Initial fitting waits until the saved pedigree theme and the right events
+sidebar state have been applied. Opening, closing, or resizing that sidebar
+refits the graph against the canvas space that remains visible.
 
 ---
 
@@ -216,6 +221,10 @@ narrow form overruns: dropping characters off a date would change what it says.
   outlined. Hovering any card fills it with `var(--pn-hover-bg)` and strokes it
   with `var(--pn-root-bg)`
 - **Spouse cards** use `var(--pn-spouse-bg)`, other cards `var(--pn-bg)`
+- **Additional relations**: a small blue `+` marks a person whose other
+  relationships are outside the current layout. It stays clear of connectors;
+  the medieval theme places it outside the cartouche on the left, level with
+  its bottom point rather than above the crown
 
 ### Placeholder Card (Unknown Parent)
 
@@ -548,6 +557,25 @@ failing. The choice applies to every pedigree on the device — the tree canvas,
 the fragments on the person profile, and the ones in search results — because
 they are all the same chart.
 
+When a mini-pedigree has no descendants, its root card is anchored near the
+bottom of the fragment. The anchor reserves the active theme's scaled card
+half-height plus a 20px bottom margin, so tall frames such as the medieval
+escutcheon are never clipped by the viewport.
+
+Mini-pedigrees are static fragments. They automatically reduce their scale
+below the context's preferred maximum when needed to show the selected person
+and up to two available ancestor generations without clipping, in every theme.
+Their person cards remain clickable for navigation, but the fragment itself
+does not pan or zoom. Root siblings are omitted from this focused ascending
+view, and no duplicate descending root is rendered when descendants are not
+requested.
+
+Hovering a mini-pedigree card shows its full name and lifespan in an HTML
+tooltip next to the pointer and constrained to the browser viewport. Keyboard
+focus shows the same tooltip at a stable position above the SVG. The tooltip is
+rendered at screen size and is not affected by the fragment's fitted scale, so
+medieval cards remain identifiable when three generations require a small zoom.
+
 A theme is not a palette swap. It owns three things:
 
 | What | Effect |
@@ -561,9 +589,8 @@ theme attaches its connectors in the same places: **a theme changes how a line
 travels, never where it lands.**
 
 Colors are not part of the theme object. They are CSS variables redefined under
-the theme's own class on the pedigree viewport, which is what lets a theme with
-its own ground sit inside either application theme without the two bleeding
-into each other.
+the theme's own class on the pedigree viewport. The canvas itself keeps the
+application's light or dark background in every pedigree theme.
 
 ### Classic
 
@@ -602,8 +629,8 @@ An engraved pedigree, in the manner of a painted *Stammtafel*.
 - Deepest ancestor row compact: **145.5x188px**; first descendant row **230px**
 - Connectors are ruled elbows — right angles throughout, no curve — drawn as a
   band: an ink stroke with a parchment core running down it
-- Parchment ground built from repeating gradients rather than an image, so the
-  canvas costs no request and tiles at any zoom
+- Uses the application's canvas background, without a dedicated parchment
+  ground
 - Surnames in Cinzel, already loaded for headings, so the theme adds no font
   request
 

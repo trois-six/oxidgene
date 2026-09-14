@@ -58,9 +58,8 @@ const PEDIGREE_THEME_STORAGE_KEY: &str = "oxidgene-pedigree-theme";
 /// Hook: initialise the pedigree theme (call once in `Layout`).
 ///
 /// Unlike the depth defaults, this resolves to a usable value immediately
-/// rather than staying `None` until storage answers: the theme decides what
-/// the canvas is made of, and a chart that drew on white and then turned to
-/// parchment would flash on every page load.
+/// rather than staying `None` until storage answers: the theme changes card
+/// geometry and colors, so resolving it late would visibly redraw every chart.
 pub fn use_init_pedigree_theme() -> Signal<PedigreeThemeId> {
     let mut pref = use_context_provider(|| Signal::new(PedigreeThemeId::default()));
 

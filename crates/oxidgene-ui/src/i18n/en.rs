@@ -77,7 +77,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.pedigree_theme_classic", "Classic"),
         ("app_settings.pedigree_theme_classic_hint", "Plain cards and curved connectors, following the application theme."),
         ("app_settings.pedigree_theme_medieval", "Medieval"),
-        ("app_settings.pedigree_theme_medieval_hint", "An engraved chart: parchment, framed cards and ruled lines."),
+        ("app_settings.pedigree_theme_medieval_hint", "An engraved chart: heraldic cards and ruled lines."),
         ("app_settings.ancestor_levels", "Ancestor generations"),
         ("app_settings.ancestor_levels_hint", "Generations displayed above the focus person."),
         ("app_settings.descendant_levels", "Descendant generations"),

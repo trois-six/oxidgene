@@ -622,10 +622,10 @@ pub struct CardStyle {
     /// Whether to paint a ground behind the portrait.
     ///
     /// A portrait keeps its aspect ratio, so it rarely fills its box exactly
-    /// and something shows through beside it. A card on a flat ground wants
-    /// that to be paper white; a card standing on parchment wants the
-    /// parchment, and painting a mat there only draws a shape around the
-    /// photograph that does not follow it.
+    /// and something shows through beside it. A flat card wants that to be
+    /// paper white; an engraved card wants its paper-toned fill, and painting
+    /// a mat there only draws a shape around the photograph that does not
+    /// follow it.
     pub photo_mat: bool,
 
     pub text_x_full: f64,
@@ -663,6 +663,10 @@ pub struct CardStyle {
 
     pub edit_fab_r: f64,
     pub edit_fab_gap: f64,
+    /// Baseline position of the "+" that marks relations outside the layout.
+    pub more_relations_x: f64,
+    pub more_relations_y_full: f64,
+    pub more_relations_y_compact: f64,
     /// Baseline nudge that centres the "+" glyph in an empty slot.
     pub slot_plus_baseline: f64,
 }
@@ -722,8 +726,8 @@ pub struct PedigreeTheme {
     pub link_style: LinkStyle,
     pub card: CardStyle,
     /// Class set on the pedigree viewport, under which the theme's CSS
-    /// variables and canvas ground are defined. Empty for the theme that
-    /// uses the application's own palette.
+    /// variables are defined. Empty for the theme that uses the application's
+    /// own palette.
     pub viewport_class: &'static str,
 }
 
@@ -777,6 +781,9 @@ impl PedigreeTheme {
 
             edit_fab_r: 14.0,
             edit_fab_gap: 16.0,
+            more_relations_x: 10.0,
+            more_relations_y_full: 3.0,
+            more_relations_y_compact: 3.0,
             slot_plus_baseline: 8.0,
         },
     };
@@ -882,6 +889,11 @@ impl PedigreeTheme {
 
             edit_fab_r: 14.0,
             edit_fab_gap: 16.0,
+            // Left of the cartouche, level with its bottom point and clear of
+            // the ruled connector that enters that point at the centre.
+            more_relations_x: 30.0,
+            more_relations_y_full: 180.0,
+            more_relations_y_compact: 178.0,
             slot_plus_baseline: 8.0,
         },
     };
@@ -909,7 +921,7 @@ mod tests {
     }
 
     /// A theme the selector offers has to have something to say for itself in
-    /// both languages, and its own canvas class if it repaints the ground.
+    /// both languages.
     #[test]
     fn every_theme_is_named_in_both_languages() {
         use crate::i18n::{I18n, Language};
@@ -926,10 +938,10 @@ mod tests {
         }
     }
 
-    /// Two themes that painted the same ground under the same class would
-    /// silently share a palette.
+    /// Two themes that redefine colors under the same class would silently
+    /// share a palette.
     #[test]
-    fn themes_that_repaint_the_canvas_have_their_own_class() {
+    fn themes_with_their_own_palette_have_their_own_class() {
         let mut seen: Vec<&str> = Vec::new();
         for id in PedigreeThemeId::ALL {
             let class = id.theme().viewport_class;

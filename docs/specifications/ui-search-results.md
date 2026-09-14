@@ -166,7 +166,7 @@ available content width so cards and their mini-pedigrees never extend beyond
 the viewport. Each card contains:
 
 - **Header** (clickable, same navigation target as a list row): full name (surname + first name) and birth/death years
-- **Mini-pedigree**: a small pannable pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section, at a denser fixed scale (0.5). Clicking any person card inside the fragment navigates to that person. Its cards draw the same date precision marks as the main canvas (`ca 1849-< 1917`) — same renderer, so they cannot drift apart; see [Tree View](ui-genealogy-tree.md)
+- **Mini-pedigree**: a small static pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section. Its preferred maximum scale is 0.5 and is reduced as needed so all available generations fit in the grid cell in every theme. Clicking any person card inside the fragment navigates to that person. Its cards draw the same date precision marks as the main canvas (`ca 1849-< 1917`) — same renderer, so they cannot drift apart; see [Tree View](ui-genealogy-tree.md)
 - **Sex indicator**: colored top border (blue/pink)
 
 Pedigrees are assembled lazily per card from family links and durable person

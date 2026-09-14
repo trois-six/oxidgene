@@ -77,7 +77,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.pedigree_theme_classic", "Classique"),
         ("app_settings.pedigree_theme_classic_hint", "Cartes sobres et connecteurs courbes, suivant le th\u{00E8}me de l\u{2019}application."),
         ("app_settings.pedigree_theme_medieval", "M\u{00E9}di\u{00E9}val"),
-        ("app_settings.pedigree_theme_medieval_hint", "Un trac\u{00E9} grav\u{00E9}\u{00A0}: parchemin, cartes encadr\u{00E9}es et traits \u{00E0} l\u{2019}\u{00E9}querre."),
+        ("app_settings.pedigree_theme_medieval_hint", "Un trac\u{00E9} grav\u{00E9}\u{00A0}: blasons et traits \u{00E0} l\u{2019}\u{00E9}querre."),
         ("app_settings.ancestor_levels", "G\u{00E9}n\u{00E9}rations ascendantes"),
         ("app_settings.ancestor_levels_hint", "G\u{00E9}n\u{00E9}rations affich\u{00E9}es au-dessus de la personne centrale."),
         ("app_settings.descendant_levels", "G\u{00E9}n\u{00E9}rations descendantes"),

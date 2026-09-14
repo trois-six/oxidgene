@@ -1173,8 +1173,8 @@ fn render_result_item(
 
 // ── Grid (Card) view ─────────────────────────────────────────────────────
 
-/// Mini-pedigree zoom inside a grid cell — denser than the person-detail
-/// embed (0.8) so three generations fit a card-sized viewport.
+/// Maximum mini-pedigree scale inside a grid cell. The shared component
+/// reduces it further when needed to keep all three generations visible.
 const GRID_PEDIGREE_SCALE: f64 = 0.5;
 
 /// One cell of the grid ("Card") view: a clickable header with the person's

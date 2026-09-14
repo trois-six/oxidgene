@@ -1676,13 +1676,9 @@ pub const LAYOUT_STYLES: &str = r#"
         stroke-width: 1;
     }
 
-    /* ── Medieval pedigree theme ──────────────────────────────────────
-       An engraved pedigree is drawn on paper, so this theme owns its own
-       ground rather than borrowing the application's. The variables are
-       redefined on the canvas itself, which is what lets a parchment chart
-       sit inside the dark shell without either one bleeding into the
-       other — and why these declarations must beat the `:root.dark`
-       overrides above regardless of which theme the reader is in. */
+     /* ── Medieval pedigree theme ──────────────────────────────────────
+         The cards and connectors keep their engraved palette while the
+         canvas continues to use the application's own background. */
 
     .ped-theme-medieval {
         --parchment:      #efe2c4;
@@ -1706,27 +1702,6 @@ pub const LAYOUT_STYLES: &str = r#"
         /* The mat behind a portrait: aged paper, never a white chip. */
         --pn-mat:         var(--parchment-deep);
 
-        /* Laid paper: two faint rules over a warm wash. Gradients rather
-           than an image keep the canvas free of a network request and of
-           bytes to inline, and they tile at any zoom. */
-        background-color: var(--parchment);
-        background-image:
-            repeating-linear-gradient(
-                0deg,
-                rgba(120, 94, 54, 0.045) 0 1px,
-                transparent 1px 4px
-            ),
-            repeating-linear-gradient(
-                90deg,
-                rgba(120, 94, 54, 0.03) 0 1px,
-                transparent 1px 7px
-            ),
-            radial-gradient(
-                ellipse at 50% 40%,
-                rgba(255, 250, 235, 0.55) 0%,
-                rgba(210, 186, 140, 0.28) 70%,
-                rgba(150, 122, 76, 0.34) 100%
-            );
     }
 
     /* Ruled connectors are drawn with a pen, so they carry the ink colour
@@ -1769,15 +1744,14 @@ pub const LAYOUT_STYLES: &str = r#"
         stroke: var(--gilt) !important;
     }
 
-    /* ── Mini pedigree (person detail: ancestors/descendants) ────────
-       Pannable but not zoomable — fixed scale, drag to move. ────────── */
+     /* ── Mini pedigree (person detail: ancestors/descendants) ────────
+         Static viewport with an automatically fitted scale. ───────────── */
 
     .mini-pedigree {
         position: relative;
         overflow: hidden;
         height: 280px;
         border-radius: var(--radius);
-        cursor: grab;
         background: var(--bg-deep);
         -webkit-user-select: none;
         user-select: none;
@@ -1788,6 +1762,65 @@ pub const LAYOUT_STYLES: &str = r#"
         top: 0;
         left: 0;
         transform-origin: 0 0;
+    }
+
+    .mini-pedigree-tooltip {
+        position: absolute;
+        left: 50%;
+        top: 8px;
+        z-index: 3;
+        max-width: calc(100% - 16px);
+        transform: translateX(-50%);
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-panel);
+        color: var(--text-primary);
+        box-shadow: var(--shadow);
+        pointer-events: none;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .mini-pedigree-tooltip-pointer {
+        position: fixed;
+        left: var(--mini-tooltip-x);
+        top: var(--mini-tooltip-y);
+        overflow: hidden;
+    }
+
+    .mini-pedigree-tooltip-right {
+        max-width: calc(100% - var(--mini-tooltip-x) - 18px);
+        transform: translateX(10px);
+    }
+
+    .mini-pedigree-tooltip-left {
+        max-width: calc(var(--mini-tooltip-x) - 18px);
+        transform: translateX(calc(-100% - 10px));
+    }
+
+    .mini-pedigree-tooltip-above {
+        margin-top: -10px;
+        translate: 0 -100%;
+    }
+
+    .mini-pedigree-tooltip-below {
+        margin-top: 10px;
+    }
+
+    .mini-pedigree-tooltip-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 0.86rem;
+        font-weight: 700;
+    }
+
+    .mini-pedigree-tooltip-dates {
+        margin-top: 1px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--text-secondary);
+        font-size: 0.74rem;
     }
 
     /* ── Animated transitions ──────────────────────────────────── */

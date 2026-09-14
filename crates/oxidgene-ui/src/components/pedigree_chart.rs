@@ -21,7 +21,7 @@ use crate::components::date_input::format_event_date;
 use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
 };
-use crate::components::tree_cache::{PedigreeViewState, use_view_state_cache};
+use crate::components::tree_cache::{PedigreeViewState, ViewStateCache, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
 use oxidgene_core::projection::{Pedigree, ProfileEvent};
@@ -2232,21 +2232,50 @@ fn person_has_hidden_relations(
 /// The SOSA root and its ancestor set are parameters rather than fields read
 /// off `data`: the chart resolves them from its own props, and copying the
 /// whole pedigree just to write two fields into it cost more than the layout.
+#[derive(Clone, Copy)]
+struct PedigreeLayoutOptions {
+    ancestor_levels: usize,
+    descendant_levels: usize,
+    include_root_siblings: bool,
+}
+
+impl PedigreeLayoutOptions {
+    const fn full(ancestor_levels: usize, descendant_levels: usize) -> Self {
+        Self {
+            ancestor_levels,
+            descendant_levels,
+            include_root_siblings: true,
+        }
+    }
+
+    const fn mini(ancestor_levels: usize, descendant_levels: usize) -> Self {
+        Self {
+            ancestor_levels,
+            descendant_levels,
+            include_root_siblings: false,
+        }
+    }
+}
+
 fn compute_layout(
     root_id: Uuid,
     data: &PedigreeData,
     sosa_root_id: Option<Uuid>,
     sosa_ancestors: &HashSet<Uuid>,
-    ancestor_levels: usize,
-    descendant_levels: usize,
+    options: PedigreeLayoutOptions,
     theme: &PedigreeTheme,
 ) -> PedigreeLayout {
     let metrics = &theme.metrics;
-    let last_asc_level = -(ancestor_levels as i32);
+    let last_asc_level = -(options.ancestor_levels as i32);
 
     // ── Ascending tree ──
-    let mut asc_arena =
-        build_ascending_tree(root_id, data, ancestor_levels, sosa_root_id, sosa_ancestors);
+    let mut asc_arena = build_ascending_tree(
+        root_id,
+        data,
+        options.ancestor_levels,
+        sosa_root_id,
+        sosa_ancestors,
+    );
     layout_tree(&mut asc_arena, last_asc_level, metrics);
     let mut asc_links = collect_links(&asc_arena, last_asc_level, theme);
 
@@ -2254,7 +2283,7 @@ fn compute_layout(
     let mut desc_arena = build_descending_tree(
         root_id,
         data,
-        descendant_levels,
+        options.descendant_levels,
         sosa_root_id,
         sosa_ancestors,
     );
@@ -2278,7 +2307,7 @@ fn compute_layout(
     let mut extra_asc_nodes: Vec<LayoutNode> = Vec::new();
     {
         let all_siblings = get_siblings(root_id, data);
-        if all_siblings.len() > 1 {
+        if options.include_root_siblings && all_siblings.len() > 1 {
             let root_sib_idx = all_siblings.iter().position(|&s| s == root_id).unwrap_or(0);
             let sibs_before = &all_siblings[..root_sib_idx];
             let sibs_after = &all_siblings[root_sib_idx + 1..];
@@ -2554,6 +2583,28 @@ const MEASURE_PEDIGREE_VIEWPORT_JS: &str = r#"
     return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft, rect.left, rect.top];
 "#;
 
+const WAIT_FOR_EVENT_PANEL_TRANSITION_JS: &str = r#"
+    const panel = document.querySelector('.ev-panel');
+    if (!panel) return;
+    await new Promise(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            panel.removeEventListener('transitionend', onEnd);
+            resolve();
+        };
+        const onEnd = event => {
+            if (event.target === panel && (event.propertyName === 'width' || event.propertyName === 'min-width')) {
+                finish();
+            }
+        };
+        panel.addEventListener('transitionend', onEnd);
+        setTimeout(finish, 250);
+    });
+    await new Promise(requestAnimationFrame);
+"#;
+
 /// Where the free part of the pedigree viewport sits, as last measured.
 ///
 /// Cached rather than queried per event: a wheel gesture is a stream of small
@@ -2592,6 +2643,15 @@ impl ViewportRect {
     }
 }
 
+/// Pan and zoom move as one value so one input event produces one reactive
+/// update and the renderer never observes a half-updated transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ViewportTransform {
+    x: f64,
+    y: f64,
+    scale: f64,
+}
+
 /// The scale one step away, or `None` when the zoom is already at its limit.
 fn zoom_step(current: f64, factor: f64) -> Option<f64> {
     let next = (current * factor).clamp(ZOOM_MIN, ZOOM_MAX);
@@ -2604,20 +2664,14 @@ fn zoom_step(current: f64, factor: f64) -> Option<f64> {
 /// hold still. Scaling without one lets the CSS transform scale about the
 /// content's own origin, so the graph slides toward a corner as it grows —
 /// which is what the zoom buttons did.
-fn zoom_about(
-    mut scale: Signal<f64>,
-    mut offset_x: Signal<f64>,
-    mut offset_y: Signal<f64>,
-    anchor: (f64, f64),
-    new_scale: f64,
-) {
-    let old_scale = scale();
+fn zoom_about(mut transform: Signal<ViewportTransform>, anchor: (f64, f64), new_scale: f64) {
+    let current = transform();
     let (ax, ay) = anchor;
-    let x = offset_holding(ax, offset_x(), old_scale, new_scale);
-    let y = offset_holding(ay, offset_y(), old_scale, new_scale);
-    scale.set(new_scale);
-    offset_x.set(x);
-    offset_y.set(y);
+    transform.set(ViewportTransform {
+        x: offset_holding(ax, current.x, current.scale, new_scale),
+        y: offset_holding(ay, current.y, current.scale, new_scale),
+        scale: new_scale,
+    });
 }
 
 /// The pan offset that keeps `anchor` over the same content across a rescale.
@@ -2629,15 +2683,38 @@ fn offset_holding(anchor: f64, offset: f64, old_scale: f64, new_scale: f64) -> f
     anchor - content_under_anchor * new_scale
 }
 
+/// Persist a settled view without making the chart render subscribe to the
+/// rapidly changing pan and zoom signals.
+fn save_pedigree_view_state(
+    cache: ViewStateCache,
+    tree_id: Option<Uuid>,
+    root_person_id: Uuid,
+    transform: Signal<ViewportTransform>,
+    ancestor_levels: Signal<usize>,
+    descendant_levels: Signal<usize>,
+) {
+    let Some(tree_id) = tree_id else {
+        return;
+    };
+    let transform = transform();
+    cache.save(PedigreeViewState {
+        tree_id,
+        offset_x: transform.x,
+        offset_y: transform.y,
+        scale: transform.scale,
+        ancestor_levels: ancestor_levels(),
+        descendant_levels: descendant_levels(),
+        selected_root: Some(root_person_id),
+    });
+}
+
 /// Scales and pans the canvas so the whole graph sits inside the free area.
 ///
 /// Shared by the initial/root-change fit and by the fit-screen button, which
 /// held byte-identical copies of the measurement script and the arithmetic
 /// below.
 async fn fit_graph_in_viewport(
-    mut scale: Signal<f64>,
-    mut offset_x: Signal<f64>,
-    mut offset_y: Signal<f64>,
+    mut transform: Signal<ViewportTransform>,
     mut viewport_rect: Signal<ViewportRect>,
     // (center x, center y, width, height) of the graph content, in content
     // units — grouped into one tuple to keep the argument count clippy-clean.
@@ -2672,14 +2749,16 @@ async fn fit_graph_in_viewport(
         .min(vh / content_h)
         .clamp(ZOOM_MIN, ZOOM_MAX);
     let (center_x, center_y) = rect.center();
-    scale.set(fit_scale);
-    offset_x.set(center_x - content_cx * fit_scale);
-    offset_y.set(center_y - content_cy * fit_scale);
+    transform.set(ViewportTransform {
+        x: center_x - content_cx * fit_scale,
+        y: center_y - content_cy * fit_scale,
+        scale: fit_scale,
+    });
 }
 
 // ── Component ────────────────────────────────────────────────────────────
 
-/// Fixed zoom level for [`MiniPedigree`] — not user-adjustable.
+/// Preferred maximum scale for [`MiniPedigree`] — not user-adjustable.
 const MINI_PEDIGREE_SCALE: f64 = 0.8;
 
 /// Default viewport size for [`MiniPedigree`] before the actual DOM element
@@ -2689,12 +2768,179 @@ const MINI_PEDIGREE_VIEWPORT_H: f64 = 280.0;
 
 /// Bottom padding (viewport px) kept below the root card when it's anchored
 /// near the bottom of the canvas (no descendants to show underneath it).
-const MINI_PEDIGREE_BOTTOM_MARGIN: f64 = 60.0;
+const MINI_PEDIGREE_BOTTOM_MARGIN: f64 = 20.0;
+
+/// Vertical target for a bottom-anchored root card.
+///
+/// `root_cy` is the card centre, so the theme's scaled half-height must also
+/// be reserved. Treating this margin as the centre offset clips tall themes.
+fn mini_pedigree_root_target_y(viewport_height: f64, scale: f64, theme: &PedigreeTheme) -> f64 {
+    viewport_height - theme.metrics.card_h * scale / 2.0 - MINI_PEDIGREE_BOTTOM_MARGIN
+}
+
+/// Largest scale that keeps the whole fragment inside its static viewport.
+///
+/// Width is measured around the root rather than the content centre so the
+/// selected person stays centered even when siblings make the graph uneven.
+fn mini_pedigree_fit_scale(
+    viewport_width: f64,
+    viewport_height: f64,
+    preferred_scale: f64,
+    content_cx: f64,
+    content_w: f64,
+    content_h: f64,
+    root_cx: f64,
+) -> f64 {
+    let content_left = content_cx - content_w / 2.0;
+    let content_right = content_cx + content_w / 2.0;
+    let half_width = (root_cx - content_left)
+        .max(content_right - root_cx)
+        .max(0.5);
+    let available_width = (viewport_width - 2.0 * MINI_PEDIGREE_BOTTOM_MARGIN).max(1.0);
+    let available_height = (viewport_height - 2.0 * MINI_PEDIGREE_BOTTOM_MARGIN).max(1.0);
+
+    preferred_scale
+        .min(available_width / (2.0 * half_width))
+        .min(available_height / content_h.max(1.0))
+}
+
+/// The only subtree that reacts to direct pan and zoom updates.
+///
+/// Keeping these signal reads out of [`PedigreeChart`] prevents every pointer
+/// event from rebuilding the layout, cards and events panel just to change one
+/// CSS transform.
+#[component]
+fn PedigreeTransform(
+    transform: Signal<ViewportTransform>,
+    animating: Signal<bool>,
+    children: Element,
+) -> Element {
+    let current = transform();
+    let transform = format!(
+        "translate({}px, {}px) scale({})",
+        current.x, current.y, current.scale
+    );
+    let class = if animating() {
+        "pedigree-inner pedigree-animated"
+    } else {
+        "pedigree-inner"
+    };
+
+    rsx! {
+        div {
+            class,
+            style: "transform: {transform};",
+            {children}
+        }
+    }
+}
+
+/// Zoom readout isolated from the chart's layout and card rendering.
+#[component]
+fn PedigreeZoomValue(transform: Signal<ViewportTransform>) -> Element {
+    let zoom_pct = (transform().scale * 100.0) as u32;
+    rsx! { span { class: "isb-zoom-val", "{zoom_pct}%" } }
+}
+
+/// Stable component boundary between the reactive transform and the large SVG.
+/// Its child is produced by `PedigreeChart`, which does not rerender during
+/// direct manipulation, so transform updates can stop at this component node.
+#[component]
+fn PedigreeScene(children: Element) -> Element {
+    children
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MiniPedigreeTransformValue {
+    x: f64,
+    y: f64,
+    scale: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct MiniPedigreeTooltipValue {
+    name: String,
+    lifespan: String,
+    pointer: Option<MiniPedigreeTooltipPointer>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MiniPedigreeTooltipPointer {
+    x: f64,
+    y: f64,
+    opens_right: bool,
+    opens_below: bool,
+}
+
+/// Isolates the mini-pedigree's one-time centering from its SVG scene.
+#[component]
+fn MiniPedigreeTransform(
+    transform: Signal<MiniPedigreeTransformValue>,
+    children: Element,
+) -> Element {
+    let current = transform();
+    let transform = format!(
+        "translate({}px, {}px) scale({})",
+        current.x, current.y, current.scale
+    );
+
+    rsx! {
+        div {
+            class: "mini-pedigree-inner",
+            style: "transform: {transform};",
+            {children}
+        }
+    }
+}
+
+/// Screen-sized identity text for a mini-pedigree card.
+///
+/// This component alone subscribes to hover changes, so showing the tooltip
+/// does not rebuild or diff the scaled SVG scene behind it.
+#[component]
+fn MiniPedigreeTooltip(hovered: Signal<Option<MiniPedigreeTooltipValue>>) -> Element {
+    let Some(value) = hovered() else {
+        return rsx! {};
+    };
+    let (class, style) = value.pointer.map_or_else(
+        || ("mini-pedigree-tooltip".to_string(), String::new()),
+        |pointer| {
+            let horizontal = if pointer.opens_right {
+                "mini-pedigree-tooltip-right"
+            } else {
+                "mini-pedigree-tooltip-left"
+            };
+            let vertical = if pointer.opens_below {
+                "mini-pedigree-tooltip-below"
+            } else {
+                "mini-pedigree-tooltip-above"
+            };
+            (
+                format!(
+                    "mini-pedigree-tooltip mini-pedigree-tooltip-pointer {horizontal} {vertical}"
+                ),
+                format!(
+                    "--mini-tooltip-x: {}px; --mini-tooltip-y: {}px;",
+                    pointer.x, pointer.y
+                ),
+            )
+        },
+    );
+
+    rsx! {
+        div { class, style, role: "tooltip",
+            div { class: "mini-pedigree-tooltip-name", "{value.name}" }
+            if !value.lifespan.is_empty() {
+                div { class: "mini-pedigree-tooltip-dates", "{value.lifespan}" }
+            }
+        }
+    }
+}
 
 /// Props for [`MiniPedigree`] — a small pedigree fragment, focused and
 /// centered on `root_person_id`, for embedding outside the main tree canvas
-/// (e.g. on the person detail page). Panning is enabled but the zoom level
-/// is fixed (see [`MINI_PEDIGREE_SCALE`]) — there is no zoom control.
+/// (e.g. on the person detail page). Its viewport is static and its scale is
+/// fitted up to the preferred maximum (see [`MINI_PEDIGREE_SCALE`]).
 #[derive(Props, Clone, PartialEq)]
 pub struct MiniPedigreeProps {
     pub root_person_id: Uuid,
@@ -2704,9 +2950,9 @@ pub struct MiniPedigreeProps {
     /// Called when the user clicks a person card (navigate to their page).
     /// Empty ancestor/descendant slots are not clickable.
     pub on_person_navigate: EventHandler<Uuid>,
-    /// Fixed zoom level; defaults to [`MINI_PEDIGREE_SCALE`]. Still not
-    /// user-adjustable — this only lets embedders pick a denser scale
-    /// (e.g. search-result grid cells).
+    /// Preferred maximum scale; defaults to [`MINI_PEDIGREE_SCALE`]. The
+    /// fragment reduces it as needed to fit, and embedders can request a
+    /// denser maximum (e.g. search-result grid cells).
     #[props(default = MINI_PEDIGREE_SCALE)]
     pub scale: f64,
     /// Which theme to draw with, when the caller wants to decide rather than
@@ -2716,31 +2962,29 @@ pub struct MiniPedigreeProps {
     pub theme: Option<&'static PedigreeTheme>,
 }
 
-/// A small, pannable (but not zoomable) pedigree fragment (e.g. "parents &
-/// grandparents"), always centered on `root_person_id` at a fixed zoom
-/// level. Reuses the same layout engine and card renderer as the full
-/// interactive [`PedigreeChart`].
+/// A small static pedigree fragment (e.g. "parents & grandparents"), always
+/// centered on `root_person_id` and fitted to its viewport. Reuses the same
+/// layout engine and card renderer as the full interactive [`PedigreeChart`].
 #[component]
 pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let i18n = use_i18n();
     let selected_person_id = use_signal(|| props.root_person_id);
     let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
-    let scale = props.scale;
+    let preferred_scale = props.scale;
     let preferred = crate::prefs::use_pedigree_theme();
     let theme = props.theme.unwrap_or_else(|| preferred.theme());
     // A ruled line is drawn as a band with a lighter core, the way an
     // engraver lays one down; a Bézier one stays a single hairline.
     let double_ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
 
-    // ── Pan state (no zoom signal — the scale is the fixed constant above) ──
-    let mut offset_x = use_signal(|| 0.0f64);
-    let mut offset_y = use_signal(|| 0.0f64);
-    let mut dragging = use_signal(|| false);
-    let mut drag_start_x = use_signal(|| 0.0f64);
-    let mut drag_start_y = use_signal(|| 0.0f64);
-    let mut drag_origin_x = use_signal(|| 0.0f64);
-    let mut drag_origin_y = use_signal(|| 0.0f64);
+    let mut transform = use_signal(|| MiniPedigreeTransformValue {
+        x: 0.0,
+        y: 0.0,
+        scale: preferred_scale,
+    });
+    let mut hovered_person = use_signal(|| None::<MiniPedigreeTooltipValue>);
+    let mut screen_size = use_signal(|| (MINI_PEDIGREE_VIEWPORT_W, MINI_PEDIGREE_VIEWPORT_H));
 
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
@@ -2748,8 +2992,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
             &props.data,
             props.data.sosa_root_id,
             &props.data.sosa_ancestors,
-            props.ancestor_levels,
-            props.descendant_levels,
+            PedigreeLayoutOptions::mini(props.ancestor_levels, props.descendant_levels),
             theme,
         )
     });
@@ -2765,6 +3008,9 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         needs_center.set(false);
         let root_cx = layout.root_cx;
         let root_cy = layout.root_cy;
+        let content_cx = layout.content_cx;
+        let content_w = layout.content_w;
+        let content_h = layout.content_h;
         // When there are no descendants to show below the root, anchor it
         // near the bottom of the viewport instead of the vertical middle —
         // otherwise the ancestor rows above waste half the canvas.
@@ -2775,107 +3021,116 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
             // Small delay so the DOM has rendered the viewport element.
             crate::utils::sleep_ms(30).await;
             if let Ok(val) = document::eval(
-                "var el = document.querySelector('.mini-pedigree'); return el ? [el.clientWidth, el.clientHeight] : [400, 280]"
+                "var el = document.querySelector('.mini-pedigree'); return el ? [el.clientWidth, el.clientHeight, window.innerWidth, window.innerHeight] : [400, 280, window.innerWidth, window.innerHeight]"
             ).await {
                 let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_W);
                 let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_H);
-                offset_x.set(vw / 2.0 - root_cx * scale);
+                screen_size.set((
+                    val.get(2).and_then(|v| v.as_f64()).unwrap_or(vw),
+                    val.get(3).and_then(|v| v.as_f64()).unwrap_or(vh),
+                ));
+                let scale = mini_pedigree_fit_scale(
+                    vw,
+                    vh,
+                    preferred_scale,
+                    content_cx,
+                    content_w,
+                    content_h,
+                    root_cx,
+                );
                 let target_y = if anchor_bottom {
-                    vh - MINI_PEDIGREE_BOTTOM_MARGIN
+                    mini_pedigree_root_target_y(vh, scale, theme)
                 } else {
                     vh / 2.0
                 };
-                offset_y.set(target_y - root_cy * scale);
+                transform.set(MiniPedigreeTransformValue {
+                    x: vw / 2.0 - root_cx * scale,
+                    y: target_y - root_cy * scale,
+                    scale,
+                });
             }
         });
     }
 
-    let transform = format!(
-        "translate({}px, {}px) scale({scale})",
-        offset_x(),
-        offset_y(),
-    );
-
     rsx! {
         div {
             class: "mini-pedigree {theme.viewport_class}",
-            onpointerdown: move |evt| {
-                let coords = evt.client_coordinates();
-                drag_start_x.set(coords.x);
-                drag_start_y.set(coords.y);
-                drag_origin_x.set(offset_x());
-                drag_origin_y.set(offset_y());
-                dragging.set(true);
-            },
-            onpointermove: move |evt| {
-                if dragging() {
-                    let coords = evt.client_coordinates();
-                    offset_x.set(drag_origin_x() + coords.x - drag_start_x());
-                    offset_y.set(drag_origin_y() + coords.y - drag_start_y());
+            onmousemove: move |evt: Event<MouseData>| {
+                let coordinates = evt.client_coordinates();
+                let (screen_width, _) = screen_size();
+                if let Some(value) = hovered_person.write().as_mut() {
+                    value.pointer = Some(MiniPedigreeTooltipPointer {
+                        x: coordinates.x,
+                        y: coordinates.y,
+                        opens_right: coordinates.x < screen_width / 2.0,
+                        opens_below: coordinates.y < 72.0,
+                    });
                 }
             },
-            onpointerup: move |_| dragging.set(false),
-            onpointerleave: move |_| dragging.set(false),
-
-            div {
-                class: "mini-pedigree-inner",
-                style: "transform: {transform};",
-                svg {
-                    width: "{layout.total_w}",
-                    height: "{layout.total_h}",
-                    "viewBox": "0 0 {layout.total_w} {layout.total_h}",
-                    style: "display: block; overflow: visible;",
-                    g { transform: "translate({layout.main_tx},{layout.main_ty})",
-                        g {
-                            for (si, path) in layout.asc_links.iter().enumerate() {
-                                path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                                        if double_ruled {
-                                            path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                                        }
+            MiniPedigreeTransform { transform,
+                PedigreeScene {
+                    svg {
+                        width: "{layout.total_w}",
+                        height: "{layout.total_h}",
+                        "viewBox": "0 0 {layout.total_w} {layout.total_h}",
+                        style: "display: block; overflow: visible;",
+                        g { transform: "translate({layout.main_tx},{layout.main_ty})",
+                            g {
+                                for (si, path) in layout.asc_links.iter().enumerate() {
+                                    path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                                            if double_ruled {
+                                                path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                                            }
+                                }
+                                for (ni, node) in layout.asc_nodes.iter().enumerate() {
+                                    {render_pedigree_card(
+                                        node,
+                                        ni,
+                                        "an",
+                                        props.root_person_id,
+                                        selected_person_id,
+                                        props.on_person_navigate,
+                                        noop_click,
+                                        noop_empty_slot,
+                                        false,
+                                        i18n,
+                                        theme,
+                                        Some(hovered_person),
+                                    )}
+                                }
                             }
-                            for (ni, node) in layout.asc_nodes.iter().enumerate() {
-                                {render_pedigree_card(
-                                    node,
-                                    ni,
-                                    "an",
-                                    props.root_person_id,
-                                    selected_person_id,
-                                    props.on_person_navigate,
-                                    noop_click,
-                                    noop_empty_slot,
-                                    false,
-                                    i18n,
-                                    theme,
-                                )}
-                            }
-                        }
-                        g {
-                            transform: "translate({layout.desc_tx},{layout.desc_ty})",
-                            for (si, path) in layout.desc_links.iter().enumerate() {
-                                path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                                        if double_ruled {
-                                            path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                                        }
-                            }
-                            for (ni, node) in layout.desc_nodes.iter().enumerate() {
-                                {render_pedigree_card(
-                                    node,
-                                    ni,
-                                    "dn",
-                                    props.root_person_id,
-                                    selected_person_id,
-                                    props.on_person_navigate,
-                                    noop_click,
-                                    noop_empty_slot,
-                                    false,
-                                    i18n,
-                                    theme,
-                                )}
+                            if props.descendant_levels > 0 {
+                                g {
+                                    transform: "translate({layout.desc_tx},{layout.desc_ty})",
+                                    for (si, path) in layout.desc_links.iter().enumerate() {
+                                        path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                                                if double_ruled {
+                                                    path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                                                }
+                                            }
+                                    for (ni, node) in layout.desc_nodes.iter().enumerate() {
+                                        {render_pedigree_card(
+                                            node,
+                                            ni,
+                                            "dn",
+                                            props.root_person_id,
+                                            selected_person_id,
+                                            props.on_person_navigate,
+                                            noop_click,
+                                            noop_empty_slot,
+                                            false,
+                                            i18n,
+                                            theme,
+                                            Some(hovered_person),
+                                        )}
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+            MiniPedigreeTooltip { hovered: hovered_person }
         }
     }
 }
@@ -2990,6 +3245,9 @@ struct CardGeometry {
     fab_x: f64,
     fab_y: f64,
     fab_r: f64,
+    /// Baseline position of the "+" marking relations outside the layout.
+    more_relations_x: f64,
+    more_relations_y: f64,
     /// Centre of the "+" glyph drawn in an empty slot.
     slot_plus_x: f64,
     slot_plus_y: f64,
@@ -3138,6 +3396,12 @@ fn card_geometry(node: &LayoutNode, theme: &PedigreeTheme, i18n: &I18n) -> CardG
         fab_x: metrics.padding + rect_w / 2.0,
         fab_y: metrics.padding + rect_h + card.edit_fab_gap,
         fab_r: card.edit_fab_r,
+        more_relations_x: card.more_relations_x,
+        more_relations_y: if is_compact {
+            card.more_relations_y_compact
+        } else {
+            card.more_relations_y_full
+        },
         slot_plus_x: metrics.padding + rect_w / 2.0,
         slot_plus_y: metrics.padding + rect_h / 2.0 + card.slot_plus_baseline,
     }
@@ -3162,6 +3426,7 @@ fn render_pedigree_card(
     allow_empty_click: bool,
     i18n: I18n,
     theme: &PedigreeTheme,
+    mini_tooltip: Option<Signal<Option<MiniPedigreeTooltipValue>>>,
 ) -> Element {
     let geo = card_geometry(node, theme, &i18n);
     let CardGeometry {
@@ -3200,6 +3465,8 @@ fn render_pedigree_card(
         fab_x,
         fab_y,
         fab_r,
+        more_relations_x,
+        more_relations_y,
         slot_plus_x,
         slot_plus_y,
     } = geo;
@@ -3252,12 +3519,50 @@ fn render_pedigree_card(
             } else {
                 "ped-card"
             };
+            let tooltip_name = format!("{} {}", node.label_given, node.label_surname)
+                .trim()
+                .to_string();
+            let qualified_lifespan = lifespan_tooltip(&i18n, node.birth_year, node.death_year);
+            let tooltip_value = MiniPedigreeTooltipValue {
+                name: tooltip_name.clone(),
+                lifespan: if qualified_lifespan.is_empty() {
+                    format_lifespan(node.birth_year, node.death_year)
+                } else {
+                    qualified_lifespan
+                },
+                pointer: None,
+            };
+            let enter_tooltip = tooltip_value.clone();
+            let focus_tooltip = tooltip_value.clone();
             rsx! {
                 g {
                     key: "{key}",
                     class: "{card_class}",
                     transform: "translate({nx},{ny})",
                     style: "cursor:pointer",
+                    role: mini_tooltip.map(|_| "link"),
+                    tabindex: mini_tooltip.map(|_| "0"),
+                    "aria-label": mini_tooltip.map(|_| tooltip_name.clone()),
+                    onmouseenter: move |_| {
+                        if let Some(mut hovered) = mini_tooltip {
+                            hovered.set(Some(enter_tooltip.clone()));
+                        }
+                    },
+                    onmouseleave: move |_| {
+                        if let Some(mut hovered) = mini_tooltip {
+                            hovered.set(None);
+                        }
+                    },
+                    onfocus: move |_| {
+                        if let Some(mut hovered) = mini_tooltip {
+                            hovered.set(Some(focus_tooltip.clone()));
+                        }
+                    },
+                    onblur: move |_| {
+                        if let Some(mut hovered) = mini_tooltip {
+                            hovered.set(None);
+                        }
+                    },
                     onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
                     oncontextmenu: move |evt: Event<MouseData>| {
                         evt.prevent_default();
@@ -3340,14 +3645,14 @@ fn render_pedigree_card(
                     }
                     if node.has_more_relations {
                         g {
-                            transform: "translate({padding},{padding})",
+                            transform: "translate({more_relations_x},{more_relations_y})",
                             style: "cursor:pointer",
                             onclick: move |evt: Event<MouseData>| {
                                 evt.stop_propagation();
                                 selected_person_id.set(pid);
                                 on_person_navigate.call(pid);
                             },
-                            text { x: "5", y: "-2", style: "fill:var(--blue);font-size:13px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
+                            text { x: "0", y: "0", style: "fill:var(--blue);font-size:13px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                         }
                     }
                 }
@@ -3407,17 +3712,18 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut depth_hover = use_signal(|| false);
     let mut depth_hover_gen = use_signal(|| 0u32);
 
-    // ── Pan state ──
-    let mut offset_x = use_signal(move || init_ox);
-    let mut offset_y = use_signal(move || init_oy);
+    // ── Pan and zoom state ──
+    let mut viewport_transform = use_signal(move || ViewportTransform {
+        x: init_ox,
+        y: init_oy,
+        scale: init_sc,
+    });
     let mut dragging = use_signal(|| false);
     let mut drag_start_x = use_signal(|| 0.0f64);
     let mut drag_start_y = use_signal(|| 0.0f64);
     let mut drag_origin_x = use_signal(|| 0.0f64);
     let mut drag_origin_y = use_signal(|| 0.0f64);
 
-    // ── Zoom state ──
-    let mut scale = use_signal(move || init_sc);
     // Viewport's own page position, cached from each fit measurement so
     // wheel-zoom can convert mouse coordinates without an async round trip
     // on every tick (see `onwheel` below).
@@ -3431,12 +3737,17 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Event panel collapse (persisted via localStorage) ──
     let mut panel_collapsed = use_signal(|| false);
     let mut panel_init = use_signal(|| false);
+    let mut panel_ready = use_signal(|| false);
     if !panel_init() {
         panel_init.set(true);
         spawn(async move {
             if let Ok(val) = document::eval(&format!(
                 r#"
                 localStorage.removeItem('oxidgene-ev-panel');
+                const transitionGuard = document.createElement('style');
+                transitionGuard.id = 'oxidgene-panel-restore-guard';
+                transitionGuard.textContent = '.ev-panel {{ transition: none !important; }}';
+                document.head.appendChild(transitionGuard);
                 const storedRatio = Number.parseFloat(localStorage.getItem('{EVENT_PANEL_RATIO_STORAGE_KEY}'));
                 if (Number.isFinite(storedRatio) && storedRatio > 0) {{
                     // Only a panel the reader has dragged is proportional; the
@@ -3462,6 +3773,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 last_viewport_width.set(width);
                 panel_collapsed.set(manual_collapsed || width <= EVENT_PANEL_AUTO_COLLAPSE_WIDTH);
             }
+            let _ = document::eval(
+                r#"
+                await new Promise(requestAnimationFrame);
+                await new Promise(requestAnimationFrame);
+                document.getElementById('oxidgene-panel-restore-guard')?.remove();
+                "#,
+            )
+            .await;
+            panel_ready.set(true);
         });
     }
 
@@ -3509,7 +3829,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     if prev_root() != props.root_person_id {
         prev_root.set(props.root_person_id);
         animating.set(false);
-        scale.set(1.0);
+        let mut current = *viewport_transform.peek();
+        current.scale = 1.0;
+        viewport_transform.set(current);
         selected_person_id.set(props.root_person_id);
         needs_fit.set(true);
     }
@@ -3519,7 +3841,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     if prev_center_gen() != props.center_gen {
         prev_center_gen.set(props.center_gen);
         animating.set(false);
-        scale.set(1.0);
+        let mut current = *viewport_transform.peek();
+        current.scale = 1.0;
+        viewport_transform.set(current);
         needs_fit.set(true);
     }
 
@@ -3551,6 +3875,12 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Compute layout ──
     let preferred = crate::prefs::use_pedigree_theme();
     let theme = props.theme.unwrap_or_else(|| preferred.theme());
+    let mut previous_theme = use_signal(|| *theme);
+    if *previous_theme.peek() != *theme {
+        previous_theme.set(*theme);
+        animating.set(false);
+        needs_fit.set(true);
+    }
     // A ruled line is drawn as a band with a lighter core, the way an
     // engraver lays one down; a Bézier one stays a single hairline.
     let double_ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
@@ -3560,14 +3890,13 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             &props.data,
             props.sosa_root_person_id,
             &sosa_ancestors,
-            ancestor_levels(),
-            descendant_levels(),
+            PedigreeLayoutOptions::full(ancestor_levels(), descendant_levels()),
             theme,
         )
     });
 
     // ── Fit graph in viewport when needed ──
-    if needs_fit() {
+    if needs_fit() && panel_ready() {
         let fit_content_cx = layout.content_cx;
         let fit_content_cy = layout.content_cy;
         let fit_content_w = layout.content_w;
@@ -3577,53 +3906,24 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             // Small delay so the DOM has rendered the viewport element.
             crate::utils::sleep_ms(30).await;
             fit_graph_in_viewport(
-                scale,
-                offset_x,
-                offset_y,
+                viewport_transform,
                 viewport_rect,
                 (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
             )
             .await;
+            save_pedigree_view_state(
+                view_cache,
+                tid_parsed,
+                props.root_person_id,
+                viewport_transform,
+                ancestor_levels,
+                descendant_levels,
+            );
             // Re-enable animation after fitting.
             crate::utils::sleep_ms(20).await;
             animating.set(true);
         });
     }
-
-    // ── Persist view state into global cache so it survives navigation ──
-    {
-        let ox = offset_x();
-        let oy = offset_y();
-        let sc = scale();
-        let anc = ancestor_levels();
-        let desc = descendant_levels();
-        let root = props.root_person_id;
-        if let Some(tid) = tid_parsed {
-            view_cache.save(PedigreeViewState {
-                tree_id: tid,
-                offset_x: ox,
-                offset_y: oy,
-                scale: sc,
-                ancestor_levels: anc,
-                descendant_levels: desc,
-                selected_root: Some(root),
-            });
-        }
-    }
-
-    let transform = format!(
-        "translate({}px, {}px) scale({})",
-        offset_x(),
-        offset_y(),
-        scale()
-    );
-    let zoom_pct = (scale() * 100.0) as u32;
-
-    let inner_class = if animating() {
-        "pedigree-inner pedigree-animated"
-    } else {
-        "pedigree-inner"
-    };
 
     // ── Event panel data (selected person) ──
     let sel_pid = selected_person_id();
@@ -3863,13 +4163,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     // A button has no cursor to anchor to, so it
                     // holds the middle of the viewport still.
                     onclick: move |_| {
-                        if let Some(new_scale) = zoom_step(scale(), ZOOM_FACTOR) {
+                        if let Some(new_scale) = zoom_step(viewport_transform().scale, ZOOM_FACTOR) {
                             zoom_about(
-                                scale,
-                                offset_x,
-                                offset_y,
+                                viewport_transform,
                                 viewport_rect().center(),
                                 new_scale,
+                            );
+                            save_pedigree_view_state(
+                                view_cache,
+                                tid_parsed,
+                                props.root_person_id,
+                                viewport_transform,
+                                ancestor_levels,
+                                descendant_levels,
                             );
                         }
                     },
@@ -3892,13 +4198,19 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     // A button has no cursor to anchor to, so it
                     // holds the middle of the viewport still.
                     onclick: move |_| {
-                        if let Some(new_scale) = zoom_step(scale(), 1.0 / ZOOM_FACTOR) {
+                        if let Some(new_scale) = zoom_step(viewport_transform().scale, 1.0 / ZOOM_FACTOR) {
                             zoom_about(
-                                scale,
-                                offset_x,
-                                offset_y,
+                                viewport_transform,
                                 viewport_rect().center(),
                                 new_scale,
+                            );
+                            save_pedigree_view_state(
+                                view_cache,
+                                tid_parsed,
+                                props.root_person_id,
+                                viewport_transform,
+                                ancestor_levels,
+                                descendant_levels,
                             );
                         }
                     },
@@ -3914,18 +4226,27 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         line { x1: "8", y1: "11", x2: "14", y2: "11" }
                     }
                 }
-                span { class: "isb-zoom-val", "{zoom_pct}%" }
+                PedigreeZoomValue { transform: viewport_transform }
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.fit_screen\")}",
                     onclick: move |_| {
-                        spawn(fit_graph_in_viewport(
-                            scale,
-                            offset_x,
-                            offset_y,
-                            viewport_rect,
-                            (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
-                        ));
+                        spawn(async move {
+                            fit_graph_in_viewport(
+                                viewport_transform,
+                                viewport_rect,
+                                (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
+                            )
+                            .await;
+                            save_pedigree_view_state(
+                                view_cache,
+                                tid_parsed,
+                                props.root_person_id,
+                                viewport_transform,
+                                ancestor_levels,
+                                descendant_levels,
+                            );
+                        });
                     },
                     svg {
                         width: "16",
@@ -3953,13 +4274,16 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         if let Ok(val) = document::eval("return window.innerWidth || document.documentElement.clientWidth || 1024").await {
                             let width = val.as_f64().unwrap_or(VIEWPORT_DEFAULT_W);
                             let previous_width = last_viewport_width();
-                            if previous_width > EVENT_PANEL_AUTO_COLLAPSE_WIDTH
+                            let panel_changed = previous_width > EVENT_PANEL_AUTO_COLLAPSE_WIDTH
                                 && width <= EVENT_PANEL_AUTO_COLLAPSE_WIDTH
-                                && !panel_collapsed()
-                            {
+                                && !panel_collapsed();
+                            if panel_changed {
                                 panel_collapsed.set(true);
                             }
                             last_viewport_width.set(width);
+                            if panel_changed {
+                                let _ = document::eval(WAIT_FOR_EVENT_PANEL_TRANSITION_JS).await;
+                            }
                         }
                         needs_fit.set(true);
                     });
@@ -3979,19 +4303,46 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     let coords = evt.client_coordinates();
                     drag_start_x.set(coords.x);
                     drag_start_y.set(coords.y);
-                    drag_origin_x.set(offset_x());
-                    drag_origin_y.set(offset_y());
+                    let current = viewport_transform();
+                    drag_origin_x.set(current.x);
+                    drag_origin_y.set(current.y);
                     dragging.set(true);
                 },
                 onpointermove: move |evt| {
                     if dragging() {
                         let coords = evt.client_coordinates();
-                        offset_x.set(drag_origin_x() + coords.x - drag_start_x());
-                        offset_y.set(drag_origin_y() + coords.y - drag_start_y());
+                        let current = viewport_transform();
+                        viewport_transform.set(ViewportTransform {
+                            x: drag_origin_x() + coords.x - drag_start_x(),
+                            y: drag_origin_y() + coords.y - drag_start_y(),
+                            ..current
+                        });
                     }
                 },
-                onpointerup: move |_| { dragging.set(false); },
-                onpointerleave: move |_| { dragging.set(false); },
+                onpointerup: move |_| {
+                    dragging.set(false);
+                    save_pedigree_view_state(
+                        view_cache,
+                        tid_parsed,
+                        props.root_person_id,
+                        viewport_transform,
+                        ancestor_levels,
+                        descendant_levels,
+                    );
+                },
+                onpointerleave: move |_| {
+                    if dragging() {
+                        dragging.set(false);
+                        save_pedigree_view_state(
+                            view_cache,
+                            tid_parsed,
+                            props.root_person_id,
+                            viewport_transform,
+                            ancestor_levels,
+                            descendant_levels,
+                        );
+                    }
+                },
                 onwheel: move |evt| {
                     let delta_y = match evt.delta() {
                         WheelDelta::Lines(l) => l.y * 20.0,
@@ -3999,7 +4350,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         WheelDelta::Pages(p) => p.y * 400.0,
                     };
                     let factor = if delta_y > 0.0 { 0.9 } else { 1.0 / 0.9 };
-                    let Some(new_scale) = zoom_step(scale(), factor) else {
+                    let Some(new_scale) = zoom_step(viewport_transform().scale, factor) else {
                         return;
                     };
                     // Same reasoning as onpointerdown: a wheel gesture is a
@@ -4015,24 +4366,33 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     let rect = viewport_rect();
                     // The wheel holds the point under the cursor still.
                     let anchor = (coords.x - rect.page_x, coords.y - rect.page_y);
-                    zoom_about(scale, offset_x, offset_y, anchor, new_scale);
+                    zoom_about(viewport_transform, anchor, new_scale);
+                    save_pedigree_view_state(
+                        view_cache,
+                        tid_parsed,
+                        props.root_person_id,
+                        viewport_transform,
+                        ancestor_levels,
+                        descendant_levels,
+                    );
                 },
 
-                div {
-                    class: inner_class,
-                    style: "transform: {transform};",
+                PedigreeTransform {
+                    transform: viewport_transform,
+                    animating,
 
-                    div {
-                        class: "pedigree-tree",
-                        style: "position: relative; width: {layout.total_w}px; height: {layout.total_h}px;",
+                    PedigreeScene {
+                        div {
+                            class: "pedigree-tree",
+                            style: "position: relative; width: {layout.total_w}px; height: {layout.total_h}px;",
 
-                        svg {
-                            "viewBox": "0 0 {layout.total_w} {layout.total_h}",
-                            width: "{layout.total_w}",
-                            height: "{layout.total_h}",
-                            style: "display: block; overflow: visible;",
+                            svg {
+                                "viewBox": "0 0 {layout.total_w} {layout.total_h}",
+                                width: "{layout.total_w}",
+                                height: "{layout.total_h}",
+                                style: "display: block; overflow: visible;",
 
-                            g { transform: "translate({layout.main_tx},{layout.main_ty})",
+                                g { transform: "translate({layout.main_tx},{layout.main_ty})",
 
                                 // ── Ascending tree ──
                                 g {
@@ -4055,6 +4415,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             true,
                                             i18n,
                                             theme,
+                                            None,
                                         )}
                                     }
                                 }
@@ -4081,8 +4442,10 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                             true,
                                             i18n,
                                             theme,
+                                            None,
                                         )}
                                     }
+                                }
                                 }
                             }
                         }
@@ -4199,6 +4562,10 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             "localStorage.setItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}', '{}')",
                             val,
                         ));
+                        spawn(async move {
+                            let _ = document::eval(WAIT_FOR_EVENT_PANEL_TRANSITION_JS).await;
+                            needs_fit.set(true);
+                        });
                     },
                     if panel_collapsed() { "\u{203A}" } else { "\u{2039}" }
                 }
@@ -4301,6 +4668,59 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod mini_pedigree_tests {
+    use super::*;
+
+    #[test]
+    fn bottom_anchored_root_keeps_the_same_margin_for_every_theme() {
+        for (name, theme) in [
+            ("classic", &PedigreeTheme::CLASSIC),
+            ("medieval", &PedigreeTheme::MEDIEVAL),
+        ] {
+            let target_y =
+                mini_pedigree_root_target_y(MINI_PEDIGREE_VIEWPORT_H, MINI_PEDIGREE_SCALE, theme);
+            let card_bottom = target_y + theme.metrics.card_h * MINI_PEDIGREE_SCALE / 2.0;
+            let margin = MINI_PEDIGREE_VIEWPORT_H - card_bottom;
+
+            assert_eq!(margin, MINI_PEDIGREE_BOTTOM_MARGIN, "{name}");
+        }
+    }
+
+    #[test]
+    fn three_ancestor_rows_fit_at_the_largest_available_scale() {
+        for (context, viewport_height, preferred_scale) in [
+            ("profile", MINI_PEDIGREE_VIEWPORT_H, MINI_PEDIGREE_SCALE),
+            ("grid", 210.0, 0.5),
+        ] {
+            for (theme_name, theme) in [
+                ("classic", &PedigreeTheme::CLASSIC),
+                ("medieval", &PedigreeTheme::MEDIEVAL),
+            ] {
+                let content_w = theme.metrics.card_w * 4.0;
+                let content_h = theme.metrics.card_h * 3.0;
+                let content_cx = content_w / 2.0;
+                let scale = mini_pedigree_fit_scale(
+                    1200.0,
+                    viewport_height,
+                    preferred_scale,
+                    content_cx,
+                    content_w,
+                    content_h,
+                    content_cx,
+                );
+                let available_height = viewport_height - 2.0 * MINI_PEDIGREE_BOTTOM_MARGIN;
+
+                assert!(
+                    content_h * scale <= available_height + f64::EPSILON,
+                    "{context} {theme_name}"
+                );
+                assert!(scale <= preferred_scale, "{context} {theme_name}");
             }
         }
     }
@@ -5399,6 +5819,37 @@ mod geometry_golden_tests {
         f.build()
     }
 
+    #[test]
+    fn mini_layout_keeps_the_root_row_focused_on_the_selected_person() {
+        let data = wide_pedigree();
+        let full = compute_layout(
+            id(ROOT),
+            &data,
+            None,
+            &HashSet::new(),
+            PedigreeLayoutOptions::full(2, 0),
+            &PedigreeTheme::CLASSIC,
+        );
+        let mini = compute_layout(
+            id(ROOT),
+            &data,
+            None,
+            &HashSet::new(),
+            PedigreeLayoutOptions::mini(2, 0),
+            &PedigreeTheme::CLASSIC,
+        );
+
+        assert!(full.asc_nodes.iter().any(|node| node.id == Some(id(2))));
+        assert!(!mini.asc_nodes.iter().any(|node| node.id == Some(id(2))));
+        assert_eq!(
+            mini.asc_nodes
+                .iter()
+                .filter(|node| node.y == mini.asc_nodes[0].y)
+                .count(),
+            1
+        );
+    }
+
     /// Renders a layout as a stable text block: one line per card, per
     /// connector and per canvas transform. Four decimals is past what a
     /// browser can resolve and still far inside `f64`'s exactness here, so a
@@ -5538,8 +5989,7 @@ mod geometry_golden_tests {
             &data,
             None,
             &HashSet::new(),
-            3,
-            2,
+            PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::CLASSIC,
         );
         let i18n = I18n(crate::i18n::Language::En);
@@ -5625,11 +6075,17 @@ mod geometry_golden_tests {
             &data,
             None,
             &HashSet::new(),
-            3,
-            2,
+            PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::CLASSIC,
         );
-        let layout = compute_layout(id(ROOT), &data, None, &HashSet::new(), 3, 2, &ruled);
+        let layout = compute_layout(
+            id(ROOT),
+            &data,
+            None,
+            &HashSet::new(),
+            PedigreeLayoutOptions::full(3, 2),
+            &ruled,
+        );
 
         assert_eq!(
             layout.asc_nodes.len(),
@@ -5710,7 +6166,14 @@ mod geometry_golden_tests {
             ("classic", &PedigreeTheme::CLASSIC),
             ("medieval", &PedigreeTheme::MEDIEVAL),
         ] {
-            let layout = compute_layout(id(ROOT), &data, None, &HashSet::new(), 3, 2, theme);
+            let layout = compute_layout(
+                id(ROOT),
+                &data,
+                None,
+                &HashSet::new(),
+                PedigreeLayoutOptions::full(3, 2),
+                theme,
+            );
             let mut svg = String::new();
             let _ = write!(
                 svg,
@@ -5991,6 +6454,22 @@ mod geometry_golden_tests {
         }
     }
 
+    /// The medieval badge sits outside the cartouche, left of and level with
+    /// its bottom point. Above the crown it can land on a ruled connector.
+    #[test]
+    fn medieval_more_relations_badge_stays_left_of_the_bottom_point() {
+        let i18n = I18n(crate::i18n::Language::En);
+        let theme = &PedigreeTheme::MEDIEVAL;
+
+        for is_compact in [false, true] {
+            let geo = card_geometry(&card(is_compact, "Given_1", "Branch_A"), theme, &i18n);
+            assert!(geo.more_relations_x > theme.metrics.padding);
+            assert!(geo.more_relations_x < geo.photo_x);
+            assert_eq!(geo.more_relations_y, theme.metrics.padding + geo.rect_h);
+            assert!(geo.more_relations_x < theme.metrics.padding + geo.rect_w / 2.0);
+        }
+    }
+
     /// A card has to fit the column the layout gives it.
     ///
     /// Two numbers decide this and they live far apart: `card_w` scales the
@@ -6037,8 +6516,7 @@ mod geometry_golden_tests {
             &data,
             None,
             &HashSet::new(),
-            3,
-            2,
+            PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::MEDIEVAL,
         );
         let i18n = I18n(crate::i18n::Language::En);
@@ -6180,8 +6658,7 @@ narrow-theme-compact rect=(60.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 
             &data,
             None,
             &HashSet::new(),
-            3,
-            2,
+            PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::CLASSIC,
         );
         assert_golden(

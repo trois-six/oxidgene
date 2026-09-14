@@ -542,27 +542,16 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
         line-height: 1.35;
     }
 
-    /* The swatch carries the theme's own variables, so it needs a ground
-       of its own — without one the classic swatch would sit on the
-       settings panel and the medieval one on parchment, which compares
-       the two unfairly. */
+     /* The swatch carries the theme's own variables and uses the same ground
+         as the pedigree canvas. */
     .ped-theme-swatch {
         width: 100%;
         max-width: 150px;
         height: 74px;
         border-radius: 6px;
         border: 1px solid var(--border);
-        /* The ground is painted by the rect inside, never by a `background`
-           here: this stylesheet loads after the layout one, so a background
-           property would beat a theme's own canvas rule and every swatch
-           would come out the same colour. */
+          /* The ground is painted by the rect inside. */
         --pn-swatch-bg: var(--bg-deep);
-    }
-
-    /* A theme that paints its own canvas does it through its class; the rect
-       stands aside so that ground shows through. */
-    .ped-theme-swatch.ped-theme-medieval {
-        --pn-swatch-bg: transparent;
     }
 
     .settings-layout {
