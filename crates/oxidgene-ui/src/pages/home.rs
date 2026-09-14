@@ -607,6 +607,7 @@ fn TreeCard(
     on_import: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
+    let nav = use_navigator();
     let mut open_menu = open_menu;
     let menu_position = (!importing)
         .then(|| {
@@ -657,8 +658,21 @@ fn TreeCard(
         "tree-card"
     };
 
+    // The whole card is a click target for the tree view; the Open link stays
+    // as the keyboard-reachable control for the same destination.
+    let card_route = Route::TreeDetail {
+        tree_id: tree_id.clone(),
+        person: None,
+    };
+
     rsx! {
-        div { class: "{card_class}",
+        div {
+            class: "{card_class}",
+            onclick: move |_| {
+                if !importing {
+                    nav.push(card_route.clone());
+                }
+            },
             // ── Visual header ──────────────────────────────────────
             div { class: "tree-card-visual",
                 svg {
@@ -706,7 +720,7 @@ fn TreeCard(
                                         let point = e.client_coordinates();
                                         open_menu.set(Some((
                                             toggle_id.clone(),
-                                            point.x - 168.0,
+                                            point.x,
                                             point.y + 18.0,
                                         )));
                                     }
@@ -717,6 +731,7 @@ fn TreeCard(
                             ContextMenuSurface {
                                 x,
                                 y,
+                                menu_class: "context-menu-anchor-right".to_string(),
                                 on_close: move |_| open_menu.set(None),
                                 Link {
                                     to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
@@ -786,6 +801,7 @@ fn TreeCard(
                         Link {
                             to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
                             class: "btn-open",
+                            onclick: move |e: Event<MouseData>| e.stop_propagation(),
                             {i18n.t("common.open")}
                         }
                     }

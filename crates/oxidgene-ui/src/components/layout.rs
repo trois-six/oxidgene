@@ -1590,6 +1590,11 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-secondary);
     }
 
+    /* Grow leftwards from the anchor point instead of rightwards, so a menu
+       opened from a control on the right edge stays aligned with it whatever
+       its own width is. */
+    .context-menu-anchor-right { transform: translateX(-100%); }
+
     .context-menu-events { width: 250px; }
 
     .context-menu-event-picker,

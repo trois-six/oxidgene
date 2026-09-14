@@ -35,13 +35,24 @@ pub fn ContextMenuSurface(props: ContextMenuSurfaceProps) -> Element {
     rsx! {
         div {
             class: "context-menu-backdrop",
-            onclick: move |_| props.on_close.call(()),
+            onclick: move |evt: Event<MouseData>| {
+                evt.stop_propagation();
+                props.on_close.call(());
+            },
             oncontextmenu: move |evt: Event<MouseData>| {
                 evt.prevent_default();
                 props.on_close.call(());
             },
         }
-        div { class: "{menu_class}", style: "{style}", {props.children} }
+        // The menu is a DOM child of whatever opened it, so swallow clicks
+        // here: dismissing the menu or picking an action must never also
+        // activate the element underneath.
+        div {
+            class: "{menu_class}",
+            style: "{style}",
+            onclick: move |evt: Event<MouseData>| evt.stop_propagation(),
+            {props.children}
+        }
     }
 }
 

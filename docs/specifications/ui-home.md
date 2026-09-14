@@ -100,7 +100,11 @@ Cards are displayed in a responsive grid (`minmax(280px, 1fr)`). The last card i
 | Action | Behavior |
 |---|---|
 | Click anywhere on card | Navigates to the tree view (`/trees/{id}`) |
+| Click the Open link | Same destination; it is the keyboard-reachable control for it |
 | Click three-dot menu | Opens the card menu (see below), does not propagate |
+| Click a menu entry or outside an open menu | Runs that entry, or dismisses the menu; never also opens the tree |
+
+An importing card takes no clicks at all.
 
 ### Card states
 
