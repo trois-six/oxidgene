@@ -812,6 +812,16 @@ rows — precisely what the original export could not express, and what
 > reading it from the page would find nobody, leaving every imported portrait
 > unchosen.
 
+A portrait is the **box** when the person is boxed on the view the `#image` URL
+names, and the whole picture only when they are not. Geneanet shows a
+face-position crop wherever one exists, so a portrait cut from a group
+photograph must import as `Portrait::Vignette` pointing at the `Vignette` built
+from that reference's `face.position`; importing it as `Portrait::Media` would
+silently promote the group photograph to the person's avatar. The rule is per
+view: a box drawn on some *other* page never becomes a portrait, and a portrait
+view carrying no box stays `Portrait::Media`. Identification boxes are therefore
+created before person links are written, so the portrait can name one.
+
 Exporting that tree to `.gdz` afterwards is a separate, already-supported
 operation.
 

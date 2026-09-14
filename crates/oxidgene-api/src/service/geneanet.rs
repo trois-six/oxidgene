@@ -852,7 +852,33 @@ async fn attach_media(
             }
         }
 
-        for (order, (person_id, is_portrait)) in linked_people(&people).into_iter().enumerate() {
+        // A person links to the document once, but every box remains on the
+        // exact page where Geneanet drew it. The same person may therefore
+        // have several identifications across a multi-page document.
+        //
+        // The boxes are cut before the links are written because a portrait
+        // drawn on a boxed view *is* that box: Geneanet shows the face, not the
+        // group photograph it was cut from, and the portrait has to name the
+        // vignette that only exists once it has been created.
+        let mut boxed: HashMap<(Uuid, i64), Uuid> = HashMap::new();
+        for identification in page_identifications(&people, &pages) {
+            if let Some(vignette_id) = add_vignette(
+                db,
+                identification.page_id,
+                identification.face,
+                identification.person_id,
+                summary,
+            )
+            .await
+            {
+                boxed.insert(
+                    (identification.person_id, identification.view_id),
+                    vignette_id,
+                );
+            }
+        }
+
+        for (order, (person_id, portrait_view)) in linked_people(&people).into_iter().enumerate() {
             let created = MediaLinkRepo::create(
                 db,
                 Uuid::now_v7(),
@@ -871,14 +897,16 @@ async fn attach_media(
                     // The portrait is a property of the person, so this
                     // writes the person rather than the link — one row, and
                     // "at most one portrait" needs no clearing pass.
-                    if is_portrait && let Some(person_id) = link.person_id {
-                        match PersonRepo::set_portrait(
-                            db,
-                            person_id,
-                            Portrait::Media(link.media_id),
-                        )
-                        .await
-                        {
+                    if let Some(view_id) = portrait_view
+                        && let Some(person_id) = link.person_id
+                    {
+                        // Boxed on the view the `.gw` named: the portrait is
+                        // that box. Otherwise it is the whole picture.
+                        let portrait = boxed
+                            .get(&(person_id, view_id))
+                            .copied()
+                            .map_or(Portrait::Media(link.media_id), Portrait::Vignette);
+                        match PersonRepo::set_portrait(db, person_id, portrait).await {
                             Ok(_) => summary.portraits_count += 1,
                             Err(err) => {
                                 summary.skipped.push(format!("deposit {deposit_id}: {err}"))
@@ -888,13 +916,6 @@ async fn attach_media(
                 }
                 Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
             }
-        }
-
-        // A person links to the document once, but every box remains on the
-        // exact page where Geneanet drew it. The same person may therefore
-        // have several identifications across a multi-page document.
-        for (page_id, face, person_id) in page_identifications(&people, &pages) {
-            add_vignette(db, page_id, face, person_id, summary).await;
         }
     }
 }
@@ -909,33 +930,46 @@ struct Attached {
     face: Option<oxidgene_geneanet::model::FacePosition>,
 }
 
-fn linked_people(identifications: &[Attached]) -> Vec<(Uuid, bool)> {
-    let mut people: Vec<(Uuid, bool)> = Vec::new();
+/// Each person this deposit names, once, with the view the `.gw` called their
+/// portrait — the view id rather than a flag, because a box on that exact page
+/// is what the portrait should point at.
+fn linked_people(identifications: &[Attached]) -> Vec<(Uuid, Option<i64>)> {
+    let mut people: Vec<(Uuid, Option<i64>)> = Vec::new();
     for identification in identifications {
-        if let Some((_, is_portrait)) = people
+        let portrait_view = identification.is_portrait.then_some(identification.view_id);
+        if let Some((_, view_id)) = people
             .iter_mut()
             .find(|(person_id, _)| *person_id == identification.person_id)
         {
-            *is_portrait |= identification.is_portrait;
+            *view_id = view_id.or(portrait_view);
         } else {
-            people.push((identification.person_id, identification.is_portrait));
+            people.push((identification.person_id, portrait_view));
         }
     }
     people
 }
 
+/// One face box, resolved to the page it was actually drawn on.
+struct PageIdentification<'a> {
+    page_id: Uuid,
+    view_id: i64,
+    person_id: Uuid,
+    face: &'a oxidgene_geneanet::model::FacePosition,
+}
+
 fn page_identifications<'a>(
     identifications: &'a [Attached],
     pages: &HashMap<i64, Uuid>,
-) -> Vec<(Uuid, &'a oxidgene_geneanet::model::FacePosition, Uuid)> {
+) -> Vec<PageIdentification<'a>> {
     identifications
         .iter()
         .filter_map(|identification| {
-            Some((
-                *pages.get(&identification.view_id)?,
-                identification.face.as_ref()?,
-                identification.person_id,
-            ))
+            Some(PageIdentification {
+                page_id: *pages.get(&identification.view_id)?,
+                view_id: identification.view_id,
+                person_id: identification.person_id,
+                face: identification.face.as_ref()?,
+            })
         })
         .collect()
 }
@@ -1133,16 +1167,12 @@ async fn add_vignette(
     face: &oxidgene_geneanet::model::FacePosition,
     person_id: Uuid,
     summary: &mut GeneanetImportSummary,
-) {
-    let Ok(media) = MediaRepo::get(db, media_id).await else {
-        return;
-    };
+) -> Option<Uuid> {
+    let media = MediaRepo::get(db, media_id).await.ok()?;
     let (Some(width), Some(height)) = (media.width, media.height) else {
-        return;
+        return None;
     };
-    let Some((x, y, w, h)) = face.to_pixels(width, height) else {
-        return;
-    };
+    let (x, y, w, h) = face.to_pixels(width, height)?;
 
     let input = VignetteInput {
         media_id,
@@ -1155,8 +1185,14 @@ async fn add_vignette(
     };
 
     match VignetteRepo::create(db, Uuid::now_v7(), input).await {
-        Ok(_) => summary.vignettes_count += 1,
-        Err(err) => summary.skipped.push(format!("identification box: {err}")),
+        Ok(vignette) => {
+            summary.vignettes_count += 1;
+            Some(vignette.id)
+        }
+        Err(err) => {
+            summary.skipped.push(format!("identification box: {err}"));
+            None
+        }
     }
 }
 
@@ -2553,13 +2589,39 @@ mod tests {
         ];
         let pages = HashMap::from([(222, first_page_id), (223, second_page_id)]);
 
-        assert_eq!(linked_people(&identifications), vec![(person_id, true)]);
+        assert_eq!(
+            linked_people(&identifications),
+            vec![(person_id, Some(223))]
+        );
         let targets = page_identifications(&identifications, &pages);
         assert_eq!(targets.len(), 2);
-        assert_eq!(targets[0].0, first_page_id);
-        assert_eq!(targets[0].2, person_id);
-        assert_eq!(targets[1].0, second_page_id);
-        assert_eq!(targets[1].2, person_id);
+        assert_eq!(targets[0].page_id, first_page_id);
+        assert_eq!(targets[0].person_id, person_id);
+        assert_eq!(targets[1].page_id, second_page_id);
+        assert_eq!(targets[1].person_id, person_id);
+        // The portrait names the page it was drawn on, so the box cut there —
+        // and not the other page's box, nor the whole document — becomes it.
+        assert_eq!(targets[1].view_id, 223);
+    }
+
+    #[test]
+    fn a_person_boxed_on_a_page_that_is_not_their_portrait_keeps_no_portrait_view() {
+        // A face on somebody else's photograph must not promote that
+        // photograph to the boxed person's portrait.
+        let person_id = Uuid::now_v7();
+        let identifications = vec![Attached {
+            person_id,
+            is_portrait: false,
+            view_id: 222,
+            face: Some(oxidgene_geneanet::model::FacePosition {
+                x1: 10.0,
+                y1: 20.0,
+                x2: 30.0,
+                y2: 40.0,
+            }),
+        }];
+
+        assert_eq!(linked_people(&identifications), vec![(person_id, None)]);
     }
 
     #[tokio::test]
