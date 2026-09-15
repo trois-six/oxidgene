@@ -85,18 +85,22 @@ pub struct I18n(pub Language);
 impl I18n {
     /// Look up a translation key. Falls back to English, then to the key itself.
     pub fn t(&self, key: &str) -> String {
-        self.0
-            .translations()
-            .get(key)
-            .cloned()
-            .or_else(|| {
-                if self.0 != Language::En {
-                    Language::En.translations().get(key).cloned()
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| key.to_string())
+        self.try_t(key).unwrap_or_else(|| key.to_string())
+    }
+
+    /// Look a key up, reporting a miss instead of echoing the key back.
+    ///
+    /// For callers that have a better fallback than the key itself — a theme
+    /// named after a place or a product, say, which has no translation and
+    /// should be shown as its author wrote it.
+    pub fn try_t(&self, key: &str) -> Option<String> {
+        self.0.translations().get(key).cloned().or_else(|| {
+            if self.0 == Language::En {
+                None
+            } else {
+                Language::En.translations().get(key).cloned()
+            }
+        })
     }
 
     /// Look up a translation key with interpolation.

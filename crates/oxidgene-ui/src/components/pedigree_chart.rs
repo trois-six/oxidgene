@@ -6158,6 +6158,13 @@ mod geometry_golden_tests {
         use crate::components::layout::LAYOUT_STYLES;
         use std::fmt::Write as _;
 
+        // Colours live in the theme now, not in LAYOUT_STYLES, so the preview
+        // has to carry a palette of its own or every var() resolves to
+        // nothing and the page renders unstyled.
+        let palette = crate::theme::builtin_theme(crate::theme::DEFAULT_THEME_ID)
+            .expect("default theme")
+            .css();
+
         let data = wide_pedigree();
         let i18n = I18n(crate::i18n::Language::En);
         let out_dir = std::env::var("OXIDGENE_PREVIEW_DIR").unwrap_or_else(|_| ".".to_string());
@@ -6314,7 +6321,8 @@ mod geometry_golden_tests {
             let _ = write!(svg, "</g></svg>");
 
             let page = format!(
-                "<!doctype html><meta charset=\"utf-8\"><style>{LAYOUT_STYLES}\n\
+                "<!doctype html><meta charset=\"utf-8\"><style>{palette}</style>\
+                 <style>{LAYOUT_STYLES}\n\
                  body{{margin:0}} .preview{{position:relative;overflow:visible}}</style>\
                  <div class=\"pedigree-viewport preview {}\" style=\"width:{}px;height:{}px\">{svg}</div>",
                 theme.viewport_class, layout.total_w, layout.total_h,
@@ -6365,14 +6373,15 @@ mod geometry_golden_tests {
             }
             let _ = write!(
                 row,
-                r#"<button class="ped-theme-option"><svg class="ped-theme-swatch {cls}" viewBox="0 0 {vb_w} {vb_h}" preserveAspectRatio="xMidYMid meet"><rect x="0" y="0" width="{vb_w}" height="{vb_h}" style="fill:var(--pn-swatch-bg,transparent)"/><path d="{link}" class="pedigree-connector-path"/>{cards}</svg><span class="ped-theme-option-label">{id:?}</span></button>"#,
+                r#"<button class="theme-picker-option"><svg class="ped-theme-swatch {cls}" viewBox="0 0 {vb_w} {vb_h}" preserveAspectRatio="xMidYMid meet"><rect x="0" y="0" width="{vb_w}" height="{vb_h}" style="fill:var(--pn-swatch-bg,transparent)"/><path d="{link}" class="pedigree-connector-path"/>{cards}</svg><span class="theme-picker-label">{id:?}</span></button>"#,
                 cls = theme.viewport_class,
             );
         }
         let page = format!(
-            "<!doctype html><meta charset=\"utf-8\"><style>{LAYOUT_STYLES}</style>\
+            "<!doctype html><meta charset=\"utf-8\"><style>{palette}</style>\
+             <style>{LAYOUT_STYLES}</style>\
              <style>{}</style><body style=\"background:var(--bg-deep);padding:24px\">\
-             <div class=\"ped-theme-options\" style=\"max-width:420px\">{row}</div>",
+             <div class=\"theme-picker\" style=\"max-width:560px\">{row}</div>",
             crate::pages::app_settings::SHARED_SETTINGS_STYLES,
         );
         let path = format!("{out_dir}/pedigree-swatches.html");

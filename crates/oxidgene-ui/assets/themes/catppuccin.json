@@ -1,0 +1,57 @@
+{
+  "id": "catppuccin",
+  "name": "Catppuccin",
+  "base": "dark",
+  "colors": {
+    "bg-deep": "#181825",
+    "bg-panel": "#11111b",
+    "bg-card": "#1e1e2e",
+    "bg-card-hover": "#313244",
+    "nav-surface": "#11111b",
+    "sel-bg": "#313244",
+    "border": "#313244",
+    "border-glow": "#cba6f7",
+
+    "text-primary": "#cdd6f4",
+    "text-secondary": "#a6adc8",
+    "text-muted": "#6c7086",
+    "on-accent": "#11111b",
+
+    "orange": "#cba6f7",
+    "orange-light": "#f5c2e7",
+    "green": "#a6e3a1",
+    "green-light": "#b9e6b4",
+    "green-accent": "#a6e3a1",
+    "blue": "#89b4fa",
+    "pink": "#f5c2e7",
+    "red": "#f38ba8",
+    "danger": "#f38ba8",
+    "danger-text": "#eba0ac",
+
+    "connector": "#585b70",
+    "tree-visual-bg": "#1e1e2e",
+    "tree-visual-branch": "#585b70",
+
+    "page-glow-warm": "#cba6f70a",
+    "page-glow-cool": "#89b4fa08",
+
+    "media-bg": "#11111b",
+    "media-panel": "#0b0b12",
+    "media-frame": "#cdd6f4",
+    "media-caption": "#bac2de",
+    "media-tint": "#1e1e2e",
+
+    "pn-bg": "#1e1e2e",
+    "pn-root-bg": "#45475a",
+    "pn-spouse-bg": "#313244",
+    "pn-border": "#585b70",
+    "pn-male-line": "#89b4fa",
+    "pn-female-line": "#f5c2e7",
+    "pn-sosa": "#a6e3a1",
+    "pn-sosa-root": "#94e2d5",
+    "pn-self": "#cba6f7",
+    "pn-text": "#cdd6f4",
+    "pn-text-muted": "#a6adc8",
+    "pn-hover-bg": "#313244"
+  }
+}

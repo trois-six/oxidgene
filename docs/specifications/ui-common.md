@@ -25,7 +25,8 @@ reference these rules instead of redefining them.
   i18n key with English and French parity.
 - Documentation, screenshots, tests, fixtures, and examples use fictitious,
   anonymized people, trees, accounts, places, and archive references.
-- CSS custom properties are defined in
+- Colors are defined only by the active theme (§3.1), never as literals in a
+  stylesheet. Dimensions, typography, and derived tokens are defined in
   `crates/oxidgene-ui/src/components/layout.rs` (`LAYOUT_STYLES`). Pages do not
   duplicate literal colors, spacing, shadows, or typography.
 - Removing a component or state also removes its CSS selectors, translations,
@@ -80,46 +81,151 @@ the family-name field when focus is not already in an editable control.
 
 ## 3. Design tokens
 
-The light theme is the CSS default. On first use, the web app stays in light
-mode; the desktop app follows `prefers-color-scheme`. `:root.dark` overrides
-tokens for dark mode. An explicit choice is stored as `oxidgene-theme` and
-changes at runtime from app settings.
+### 3.1 Themes
 
-### 3.1 Colors
+A theme is a set of colours and nothing else. Fonts, spacing, radii and
+component geometry are the same under every theme: switching theme repaints
+the application, it never relayouts it.
+
+Themes are JSON documents. The shipped set is whatever
+`crates/oxidgene-ui/assets/themes/` holds, listed in the order
+`BUILTIN_SOURCES` declares; `light` comes first and is the only complete one,
+and every other theme resolves from an earlier entry. Adding or removing one
+is a matter of a file and a line, and is not tracked here.
+
+A theme whose name is an ordinary interface word — `Light`, `Dark` — is
+translated through `app_settings.theme_<id>`. Any other name, shipped or
+written by a user, is shown verbatim in every language: a theme named after a
+place, a product or a site has no translation.
+
+Users may add their own themes, which appear in the app-settings picker
+alongside the shipped ones. The
+selected theme is emitted as a `:root { … }` block ahead of the stylesheet, so
+every `var(--token)` in the CSS resolves against it. There is no `:root.dark`
+selector and no `prefers-color-scheme` branch: `light` is the default and the
+only way to change it is to choose another theme.
+
+The choice is stored as the theme's id in `localStorage('oxidgene-theme')`.
+An id that no longer resolves falls back to `light` for rendering while the
+stored value is kept.
+
+#### File format
+
+```json
+{
+  "id": "sepia",
+  "name": "Sepia",
+  "base": "light",
+  "colors": { "orange": "#8a5a2b", "bg-deep": "#f6f0e4" }
+}
+```
+
+| Field | Rule |
+|---|---|
+| `id` | Lowercase letters, digits and `-`. Must not be a built-in id. |
+| `name` | Shown in the picker, verbatim unless a translation key exists. |
+| `base` | Optional. Id of a built-in theme to inherit from. |
+| `colors` | Token name (without `--`) to colour. Unknown names are rejected. |
+
+Without `base`, every token in §3.2 must be given. With it, only the
+differences need listing — which is how `dark` is written, and what keeps an
+existing theme working when a token is added.
+
+Values are hexadecimal only: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`. A
+theme file is user input that ends up inside a `<style>` element, so CSS
+functions, named colours and anything else are refused rather than passed
+through.
+
+Custom themes live in `<data directory>/themes/*.json` and are read by the
+desktop application; see
+[App Settings](ui-app-settings.md#custom-themes). A file that fails to load is
+reported in settings by name with the reason.
+
+#### Deriving rather than adding a token
+
+Tints of a token — a hover wash, a focus halo, a shadow — belong in the
+stylesheet as `color-mix(in srgb, var(--token) N%, transparent)`, not in the
+theme. A theme that had to enumerate every alpha of every accent would be
+unwritable by hand, and a custom theme that set only `--orange` would still
+show the stock orange everywhere else.
+
+### 3.2 Colors
+
+`light` and `dark` are the reference palettes below. Every other shipped theme
+overrides these same tokens from one of them; their values live in their own
+files rather than being repeated here.
 
 | Token | Light | Dark | Purpose |
 |---|---|---|---|
-| `--bg-deep` | `#f4f2ee` | `#0d0f14` | Page background |
+| `--bg-deep` | `#ffffff` | `#0d0f14` | Page background |
 | `--bg-panel` | `#ede9e2` | `#111318` | Panels and topbars |
 | `--bg-card` | `#ffffff` | `#16191f` | Cards and inputs |
 | `--bg-card-hover` | `#f5f3ef` | `#1c2030` | Hovered cards |
+| `--nav-surface` | `#f4f2ee` | `#0a0b0d` | Opaque colour behind the navbar |
+| `--sel-bg` | `#e8e0d4` | `#192038` | Selection |
 | `--border` | `#d4ccc0` | `#252d3d` | Borders and dividers |
 | `--border-glow` | `#e07820` | `#e07820` | Focus border |
-| `--sel-bg` | `#e8e0d4` | `#192038` | Selection |
-| `--connector` | `#a0937f` | `#2e4a6a` | Pedigree connectors |
-| `--nav-bg` | `rgba(244,242,238,0.92)` | `rgba(10,11,13,0.92)` | Navbar |
 | `--text-primary` | `#1e1a14` | `#ddd8cc` | Primary text |
 | `--text-secondary` | `#5c5447` | `#7a8da8` | Secondary text |
 | `--text-muted` | `#9e9488` | `#404f65` | Placeholder and disabled text |
-| `--color-danger-text` | `#dc2626` | `#f87171` | Destructive text |
+| `--on-accent` | `#ffffff` | `#ffffff` | Text drawn on an accent fill |
+| `--orange` | `#e07820` | `#e07820` | Primary actions and focus |
+| `--orange-light` | `#f5a03a` | `#f5a03a` | Primary hover |
+| `--green` | `#4ea832` | `#4ea832` | Birth and success |
+| `--green-light` | `#7ec45f` | `#7ec45f` | Text on a green wash |
+| `--green-accent` | `#5aab3c` | `#5aab3c` | Green fills and washes |
+| `--blue` | `#4a90d9` | `#4a90d9` | Death and information |
+| `--pink` | `#c4587a` | `#c4587a` | Female indicator |
+| `--red` | `#e05555` | `#e05555` | Destructive hover and emphasis |
+| `--danger` | `#e05252` | `#e05252` | Destructive fills |
+| `--danger-text` | `#dc2626` | `#f87171` | Destructive text |
+| `--connector` | `#a0937f` | `#2e4a6a` | Pedigree connectors |
+| `--tree-visual-bg` | `#e8e0d4` | `#0d1018` | Home card tree background |
+| `--tree-visual-branch` | `#b0a898` | `#3a4458` | Home card tree branches |
+| `--shadow` | `#000000` | `#000000` | Base shadow colour |
+| `--shadow-weak` | `#00000014` | `#00000059` | Resting elevation |
+| `--shadow-strong` | `#0000001f` | `#0000008c` | Raised elevation |
+| `--scrim` | `#000000` | `#000000` | Backdrops and overlays |
+| `--page-glow-warm` | `#00000000` | `#e078200a` | Warm light leak on the page |
+| `--page-glow-cool` | `#00000000` | `#5aab3c08` | Cool light leak on the page |
+| `--media-bg` | `#0a0b0d` | `#0a0b0d` | Media viewer backdrop |
+| `--media-panel` | `#060709` | `#060709` | Media viewer toolbars |
+| `--media-frame` | `#e8dfc8` | `#e8dfc8` | Vignette frames and glyphs |
+| `--media-caption` | `#e8e3d8` | `#e8e3d8` | Labels drawn over media |
+| `--media-tint` | `#12161f` | `#12161f` | Wash inside a vignette frame |
+| `--pn-bg` | `#efefef` | `#1e2330` | Pedigree card background |
+| `--pn-root-bg` | `#006ac4` | `#006ac4` | Root card background |
+| `--pn-spouse-bg` | `#ffffff` | `#252d3d` | Spouse card background |
+| `--pn-border` | `#888888` | `#888888` | Pedigree card outline |
+| `--pn-male-line` | `#00a6c0` | `#00a6c0` | Male gender rule |
+| `--pn-female-line` | `#ff6699` | `#ff6699` | Female gender rule |
+| `--pn-sosa` | `#95c417` | `#95c417` | Sosa badge |
+| `--pn-sosa-root` | `#6da118` | `#6da118` | Sosa badge on the root card |
+| `--pn-self` | `#006ac4` | `#006ac4` | Selected-person marker |
+| `--pn-text` | `#111111` | `#e8dfc8` | Pedigree card text |
+| `--pn-text-muted` | `#555555` | `#7a8da8` | Pedigree card dates |
+| `--pn-hover-bg` | `#cfe3fa` | `#2b4364` | Hovered pedigree card |
 
-Theme-independent accents:
+The pedigree chart themes ([Genealogy Tree](ui-genealogy-tree.md#9-themes))
+are a separate choice that overrides `--pn-*` on the chart itself; they are
+not part of the application theme.
 
-| Token | Value | Purpose |
-|---|---|---|
-| `--orange` | `#e07820` | Primary actions and focus |
-| `--orange-light` | `#f5a03a` | Primary hover |
-| `--green` | `#4ea832` | Birth and success |
-| `--blue` | `#4a90d9` | Death and information |
-| `--pink` | `#c4587a` | Female indicator |
-| `--color-danger` | `#e05252` | Destructive actions |
+Tokens derived in the stylesheet rather than set by a theme:
+
+| Token | Derivation |
+|---|---|
+| `--nav-bg` | `--nav-surface` at 92% |
+| `--shadow-sm` | `0 1px 3px var(--shadow-weak)` |
+| `--shadow-md` | `0 4px 16px var(--shadow-strong)` |
+| `--select-arrow` | Data URI of the select chevron, in `--text-secondary` |
 
 Semantic aliases map generic component names to these core tokens:
 `--color-bg`, `--color-surface`, `--color-primary`,
-`--color-primary-hover`, `--color-text`, `--color-text-muted`, and
-`--color-border`.
+`--color-primary-hover`, `--color-text`, `--color-text-muted`,
+`--color-border`, `--color-danger`, `--color-danger-text`, `--white`, and
+`--shadow-black`.
 
-### 3.2 Typography and sizing
+### 3.3 Typography and sizing
 
 | Token | Value | Usage |
 |---|---|---|
@@ -133,7 +239,7 @@ Reference type scale: page title `1.3rem`, section heading `1.05rem`, card
 title `0.95rem`, body `0.85rem`, metadata `0.78rem`, small text `0.72rem`, and
 badge text `0.65rem`. Spacing follows 4, 8, 12/16, 20/24, and 32px steps.
 
-### 3.3 Elevation and interaction
+### 3.4 Elevation and interaction
 
 - `--shadow-sm`: cards and dropdowns.
 - `--shadow-md`: modals, popovers, and the navbar.
@@ -362,6 +468,18 @@ reuse the empty state.
 One shared context menu implementation serves tree cards, person cards, media,
 and vignettes. It supports keyboard navigation, focus restoration, viewport
 collision handling, disabled actions, separators, and destructive styling.
+
+### 4.9 Theme picker
+
+A grid of tiles used wherever a theme is chosen: the application palette and
+the pedigree chart style both use it, and any later one must. Each tile holds a
+swatch, a name, and optionally a hint line or a tag; the active tile carries an
+orange border, the selection background and `aria-pressed`.
+
+Only the swatch differs between uses — a painted miniature for a palette, an
+SVG card pair for a chart style — and both occupy the same box so the pickers
+line up. Tracks use `auto-fill`, so tile size does not depend on how many
+themes happen to exist.
 
 ## 5. Accessibility
 

@@ -13,45 +13,6 @@ use crate::router::Route;
 pub const LOGO_PNG_B64: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/logo_64.b64"));
 
-/// Initialise the theme signal as a Dioxus context.
-///
-/// Reads persisted preference from `localStorage` (key `oxidgene-theme`). On
-/// first use, the host decides whether to follow `prefers-color-scheme` or use
-/// the light theme.
-/// Returns the shared signal so the Layout can consume it if needed.
-pub fn use_init_theme() -> Signal<bool> {
-    let mut is_dark = use_context_provider(|| Signal::new(false));
-    let follow_system_theme = try_use_context::<crate::ThemeFallback>()
-        .unwrap_or(crate::ThemeFallback::System)
-        == crate::ThemeFallback::System;
-
-    use_effect(move || {
-        spawn(async move {
-            let script = format!(
-                r#"
-                let stored = null;
-                try {{ stored = localStorage.getItem('oxidgene-theme'); }} catch (e) {{}}
-                let dark = stored === 'dark';
-                if ({follow_system_theme} && stored !== 'dark' && stored !== 'light') {{
-                    try {{
-                        dark = !!(window.matchMedia
-                            && window.matchMedia('(prefers-color-scheme: dark)').matches);
-                    }} catch (e) {{ dark = false; }}
-                }}
-                document.documentElement.classList.toggle('dark', dark);
-                return dark;
-                "#,
-            );
-            let result = document::eval(&script);
-            if let Ok(val) = result.await {
-                is_dark.set(val.as_bool().unwrap_or(false));
-            }
-        });
-    });
-
-    is_dark
-}
-
 /// Stop a resized `<textarea>` from stranding its own text.
 ///
 /// A textarea keeps the scroll offset it had while the user drags its grip
@@ -87,20 +48,6 @@ pub fn use_init_textarea_resize_clamp() {
     });
 }
 
-/// Persist and apply a theme change.
-pub fn set_theme(mut is_dark: Signal<bool>, dark: bool) {
-    is_dark.set(dark);
-    if dark {
-        document::eval(
-            "document.documentElement.classList.add('dark'); localStorage.setItem('oxidgene-theme','dark');",
-        );
-    } else {
-        document::eval(
-            "document.documentElement.classList.remove('dark'); localStorage.setItem('oxidgene-theme','light');",
-        );
-    }
-}
-
 /// Shared layout rendered around every page.
 ///
 /// Contains a navigation bar (shown only on Home / AppSettings) and an
@@ -111,7 +58,7 @@ pub fn Layout() -> Element {
     let _sort_particles = crate::prefs::use_init_sort_particles();
     let _pedigree_defaults = crate::prefs::use_init_pedigree_defaults();
     let _pedigree_theme = crate::prefs::use_init_pedigree_theme();
-    let _theme_signal = use_init_theme();
+    let theme = crate::theme::use_init_theme();
     use_init_textarea_resize_clamp();
     let _tree_cache = tree_cache::use_init_tree_cache();
     let _view_cache = tree_cache::use_init_view_state_cache();
@@ -119,7 +66,13 @@ pub fn Layout() -> Element {
     let route = use_route::<Route>();
     let show_nav = matches!(route, Route::Home {} | Route::AppSettings {});
 
+    // The palette is a block of custom properties, so it can be recomputed
+    // and swapped on its own: the stylesheet below never changes, and
+    // switching theme repaints without reparsing five thousand rules.
+    let palette = use_memo(move || theme.read().active().css());
+
     rsx! {
+        style { {palette()} }
         style { {LAYOUT_STYLES} }
 
         if show_nav {
@@ -144,34 +97,11 @@ pub fn Layout() -> Element {
 pub const LAYOUT_STYLES: &str = r#"
     @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap');
 
+    /* Every colour lives in the theme, which `Layout` emits as its own
+       `:root` block ahead of this stylesheet — see `crate::theme`. What
+       follows is what a theme may *not* change: dimensions, typography, and
+       the names other rules reach for. */
     :root {
-        /* ── Light palette (default) ─────────────────────────────── */
-        --bg-deep:        #ffffff;
-        --bg-panel:       #ede9e2;
-        --bg-card:        #ffffff;
-        --bg-card-hover:  #f5f3ef;
-        --border:         #d4ccc0;
-        --border-glow:    #e07820;
-        --orange:         #e07820;
-        --orange-light:   #f5a03a;
-        --green:          #4ea832;
-        --green-light:    #7ec45f;
-        --green-accent:   #5aab3c;
-        --blue:           #4a90d9;
-        --pink:           #c4587a;
-        --sel-bg:         #e8e0d4;
-        --text-primary:   #1e1a14;
-        --text-secondary: #5c5447;
-        --text-muted:     #9e9488;
-        --connector:      #a0937f;
-        --nav-bg:         rgba(244,242,238,0.92);
-        --tree-visual-bg:     #e8e0d4;
-        --tree-visual-branch: #b0a898;
-        --color-danger-text:  #dc2626;
-        --white:          #ffffff;
-        --red:            #e05555;
-        --shadow-black:   #000000;
-
         /* ── Component dimensions ──────────────────────────────────── */
         --sb:   46px;   /* icon sidebar width */
         --evw:  275px;  /* event panel width */
@@ -184,52 +114,20 @@ pub const LAYOUT_STYLES: &str = r#"
         --color-text:         var(--text-primary);
         --color-text-muted:   var(--text-secondary);
         --color-border:       var(--border);
-        --color-danger:       #e05252;
-        --shadow-sm:  0 1px 3px rgba(0,0,0,0.08);
-        --shadow-md:  0 4px 16px rgba(0,0,0,0.12);
+        --color-danger:       var(--danger);
+        --color-danger-text:  var(--danger-text);
+        --white:              var(--on-accent);
+        --shadow-black:       var(--shadow);
+        --nav-bg:     color-mix(in srgb, var(--nav-surface) 92%, transparent);
+
+        /* Elevation is geometry the theme does not set; only the colour it
+           is drawn in comes from the palette, alpha included. */
+        --shadow-sm:  0 1px 3px var(--shadow-weak);
+        --shadow-md:  0 4px 16px var(--shadow-strong);
+
         --radius: 8px;
         --font-sans:    'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         --font-heading: 'Cinzel', Georgia, serif;
-
-        /* ── Person node (pedigree card) variables ─────────────────── */
-        --pn-bg:          #efefef;
-        --pn-root-bg:     #006AC4;
-        --pn-spouse-bg:   #ffffff;
-        --pn-border:      #888888;
-        --pn-male-line:   #00A6C0;
-        --pn-female-line: #FF6699;
-        --pn-sosa:        #95C417;
-        --pn-sosa-root:   #6da118;
-        --pn-self:        #006AC4;
-        --pn-text:        #111111;
-        --pn-text-muted:  #555555;
-        --pn-hover-bg:    #cfe3fa;
-    }
-
-    :root.dark {
-        /* ── Dark pedigree node overrides ───────────────────────────── */
-        --pn-bg:         #1e2330;
-        --pn-spouse-bg:  #252d3d;
-        --pn-text:       #e8dfc8;
-        --pn-text-muted: #7a8da8;
-        --pn-hover-bg:   #2b4364;
-        /* ── Dark palette ─────────────────────────────────────────── */
-        --bg-deep:        #0d0f14;
-        --bg-panel:       #111318;
-        --bg-card:        #16191f;
-        --bg-card-hover:  #1c2030;
-        --border:         #252d3d;
-        --sel-bg:         #192038;
-        --text-primary:   #ddd8cc;
-        --text-secondary: #7a8da8;
-        --text-muted:     #404f65;
-        --connector:      #2e4a6a;
-        --nav-bg:         rgba(10,11,13,0.92);
-        --tree-visual-bg:     #0d1018;
-        --tree-visual-branch: #3a4458;
-        --color-danger-text:  #f87171;
-        --shadow-sm:  0 1px 3px rgba(0,0,0,0.35);
-        --shadow-md:  0 4px 16px rgba(0,0,0,0.55);
     }
 
     html { height: 100%; }
@@ -251,14 +149,17 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow-x: hidden;
     }
 
-    /* Subtle radial light leaks on the page background (dark only) */
-    :root.dark body::before {
+    /* Subtle radial light leaks on the page background. The rule is
+       unconditional and the two colours carry their own alpha, so a theme
+       that wants no leaks — as the light one does — sets them fully
+       transparent rather than needing a selector of its own. */
+    body::before {
         content: '';
         position: fixed;
         inset: 0;
         background:
-            radial-gradient(ellipse at 20% 50%, rgba(224,120,32,0.04) 0%, transparent 60%),
-            radial-gradient(ellipse at 80% 20%, rgba(90,171,60,0.03) 0%, transparent 50%);
+            radial-gradient(ellipse at 20% 50%, var(--page-glow-warm) 0%, transparent 60%),
+            radial-gradient(ellipse at 80% 20%, var(--page-glow-cool) 0%, transparent 50%);
         pointer-events: none;
         z-index: 0;
     }
@@ -378,18 +279,18 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .btn-primary {
         background: linear-gradient(135deg, var(--orange), var(--orange-light));
-        color: #fff;
-        box-shadow: 0 2px 8px rgba(224,120,32,0.3);
+        color: var(--on-accent);
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--orange) 30%, transparent);
     }
 
     .btn-primary:hover {
         opacity: 0.9;
-        box-shadow: 0 4px 16px rgba(224,120,32,0.4);
+        box-shadow: 0 4px 16px color-mix(in srgb, var(--orange) 40%, transparent);
     }
 
     .btn-danger {
         background: var(--color-danger);
-        color: #fff;
+        color: var(--on-accent);
     }
 
     .btn-danger:hover {
@@ -478,14 +379,14 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .badge.pd-sosa-badge {
         background: var(--green);
-        color: #fff;
+        color: var(--on-accent);
         border-color: var(--green);
         font-size: 0.8rem;
     }
 
     .badge.pd-self-badge {
         background: var(--pn-self);
-        color: #fff;
+        color: var(--on-accent);
         border-color: var(--pn-self);
         cursor: pointer;
         font-size: 0.8rem;
@@ -517,8 +418,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .error-msg {
-        background: rgba(220, 82, 82, 0.12);
-        border: 1px solid rgba(220, 82, 82, 0.4);
+        background: color-mix(in srgb, var(--danger) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
         color: var(--color-danger-text);
         padding: 12px 16px;
         border-radius: var(--radius);
@@ -526,8 +427,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .success-msg {
-        background: rgba(90, 171, 60, 0.1);
-        border: 1px solid rgba(90, 171, 60, 0.35);
+        background: color-mix(in srgb, var(--green-accent) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--green-accent) 35%, transparent);
         color: var(--green-light);
         padding: 12px 16px;
         border-radius: var(--radius);
@@ -535,8 +436,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .warning-msg {
-        background: rgba(224, 120, 32, 0.10);
-        border: 1px solid rgba(224, 120, 32, 0.35);
+        background: color-mix(in srgb, var(--orange) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--orange) 35%, transparent);
         color: var(--orange-light);
         padding: 12px 16px;
         border-radius: var(--radius);
@@ -579,7 +480,7 @@ pub const LAYOUT_STYLES: &str = r#"
     input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:focus {
         outline: none;
         border-color: var(--orange);
-        box-shadow: 0 0 0 3px rgba(224, 120, 32, 0.15);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--orange) 15%, transparent);
     }
 
     select option {
@@ -616,7 +517,7 @@ pub const LAYOUT_STYLES: &str = r#"
         display: block;
         margin-top: 4px;
         font-size: 0.8rem;
-        color: var(--text-secondary, #9a9384);
+        color: var(--text-secondary);
     }
 
     /* Surname particle: the detected split plus the affordance to correct it.
@@ -637,12 +538,12 @@ pub const LAYOUT_STYLES: &str = r#"
     /* A particle that could not be applied: informational, not an error —
        nothing was lost, the cut simply did not happen. */
     .field-hint-warn {
-        color: var(--orange, #e07820);
+        color: var(--orange);
     }
 
     .particle-label {
         font-size: 0.8rem;
-        color: var(--text-secondary, #9a9384);
+        color: var(--text-secondary);
     }
 
     .particle-input {
@@ -656,7 +557,7 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 2px 8px;
         font-size: 0.78rem;
         line-height: 1.6;
-        color: var(--orange, #e07820);
+        color: var(--orange);
         background: none;
         border: 1px solid currentColor;
         border-radius: var(--radius, 6px);
@@ -664,7 +565,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .particle-btn:hover {
-        background: color-mix(in srgb, var(--orange, #e07820) 12%, transparent);
+        background: color-mix(in srgb, var(--orange) 12%, transparent);
     }
 
     /* ── Note bodies ──────────────────────────────────────────────
@@ -984,7 +885,7 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Events directly on the individual or their conjugal family stand out
        from narrative-context events (children, parents, siblings). */
     .pd-timeline li.pd-ev-direct {
-        background: rgba(224, 120, 32, 0.08);
+        background: color-mix(in srgb, var(--orange) 8%, transparent);
         margin: 0 -14px;
         padding-left: 14px;
         padding-right: 14px;
@@ -1024,7 +925,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .modal-backdrop {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.65);
+        background: color-mix(in srgb, var(--scrim) 65%, transparent);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1233,7 +1134,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .isb-btn:hover { background: var(--bg-card-hover); color: var(--orange); }
-    .isb-btn:active { background: rgba(224,120,32,0.12); }
+    .isb-btn:active { background: color-mix(in srgb, var(--orange) 12%, transparent); }
     .isb-btn:disabled {
         color: var(--text-muted);
         cursor: default;
@@ -1495,8 +1396,8 @@ pub const LAYOUT_STYLES: &str = r#"
 
     /* Events directly on the selected person or their conjugal family stand
        out from narrative-context events (children, parents, siblings). */
-    .ev-item.ev-item-direct { background: rgba(224, 120, 32, 0.08); }
-    .ev-item.ev-item-direct:hover { background: rgba(224, 120, 32, 0.14); }
+    .ev-item.ev-item-direct { background: color-mix(in srgb, var(--orange) 8%, transparent); }
+    .ev-item.ev-item-direct:hover { background: color-mix(in srgb, var(--orange) 14%, transparent); }
 
     .ev-ic {
         width: 24px;
@@ -1510,9 +1411,9 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 1px;
     }
 
-    .ev-ic-birth { background: rgba(78,168,50,0.18);  color: var(--green);  }
-    .ev-ic-death { background: rgba(74,144,217,0.15); color: var(--blue);   }
-    .ev-ic-marry { background: rgba(224,120,32,0.15); color: var(--orange); }
+    .ev-ic-birth { background: color-mix(in srgb, var(--green) 18%, transparent);  color: var(--green);  }
+    .ev-ic-death { background: color-mix(in srgb, var(--blue) 15%, transparent); color: var(--blue);   }
+    .ev-ic-marry { background: color-mix(in srgb, var(--orange) 15%, transparent); color: var(--orange); }
     .ev-ic-other { background: var(--bg-card-hover); color: var(--text-secondary); }
 
     .ev-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
@@ -1576,7 +1477,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .context-menu-item.context-menu-danger:hover {
-        background: rgba(220, 82, 82, 0.1);
+        background: color-mix(in srgb, var(--danger) 10%, transparent);
     }
 
     .context-menu-divider {
@@ -1833,7 +1734,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .isb-btn-active {
         color: var(--orange) !important;
-        background: rgba(224,120,32,0.12);
+        background: color-mix(in srgb, var(--orange) 12%, transparent);
     }
 
     .isb-depth-wrap {
@@ -1985,8 +1886,8 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-secondary);
         margin-top: 1px;
     }
-    .sp-birth { color: var(--green, #5aab3c); }
-    .sp-death { color: var(--blue, #4a90d9); }
+    .sp-birth { color: var(--green); }
+    .sp-death { color: var(--blue); }
 
     .sp-result-meta {
         font-size: 0.73rem;
@@ -1994,8 +1895,8 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 1px;
     }
 
-    .search-person-result.male { border-left: 3px solid rgba(74,144,217,0.4); }
-    .search-person-result.female { border-left: 3px solid rgba(196,88,122,0.4); }
+    .search-person-result.male { border-left: 3px solid color-mix(in srgb, var(--blue) 40%, transparent); }
+    .search-person-result.female { border-left: 3px solid color-mix(in srgb, var(--pink) 40%, transparent); }
 
     /* ── Edit modals (person, couple) ──────────────────────────────────
        Both are the same object — a panel that fills its own height, a fixed
@@ -2208,19 +2109,13 @@ pub const LAYOUT_STYLES: &str = r#"
         -webkit-appearance: none;
         padding-right: 30px;
         background-color: var(--bg-card);
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235c5447' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+        /* The arrow is baked into a data URI, which cannot read a custom
+           property, so the theme emits the whole URL with its own secondary
+           text colour already substituted in. */
+        background-image: var(--select-arrow);
         background-repeat: no-repeat;
         background-position: right 11px center;
         background-size: 10px 6px;
-    }
-
-    /* The arrow is baked into a data URI, so it cannot read a CSS variable —
-       the dark palette needs its own copy. */
-    :root.dark .person-form-modal select,
-    :root.dark .union-form-modal select,
-    :root.dark .pf-embedded select,
-    :root.dark .document-form-modal select {
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%237a8da8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     }
 
     .person-form-item.editing {
@@ -2409,14 +2304,14 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-add-btn:hover {
         color: var(--orange);
         border-color: var(--orange);
-        background: rgba(224,120,32,0.07);
+        background: color-mix(in srgb, var(--orange) 7%, transparent);
     }
 
     .pf-confirm-btn {
         padding: 6px 14px;
         border-radius: 6px;
         border: 1px solid var(--orange);
-        background: rgba(224,120,32,0.10);
+        background: color-mix(in srgb, var(--orange) 10%, transparent);
         color: var(--orange);
         font-size: 0.82rem;
         font-weight: 600;
@@ -2425,7 +2320,7 @@ pub const LAYOUT_STYLES: &str = r#"
         transition: background 0.15s;
     }
 
-    .pf-confirm-btn:hover { background: rgba(224,120,32,0.20); }
+    .pf-confirm-btn:hover { background: color-mix(in srgb, var(--orange) 20%, transparent); }
     .pf-confirm-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* Row actions stay legible when idle (muted label, no border) rather
@@ -2458,7 +2353,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-row-btn.is-danger:hover {
         color: var(--color-danger-text);
         border-color: var(--color-danger-text);
-        background: rgba(224,80,80,0.08);
+        background: color-mix(in srgb, var(--red) 8%, transparent);
     }
 
     /* An open sub-form ("add a profession", "add a note", ...) sat on
@@ -2477,7 +2372,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-subform { margin-bottom: 12px; }
 
     .badge-primary {
-        background: rgba(224,120,32,0.12);
+        background: color-mix(in srgb, var(--orange) 12%, transparent);
         border-color: var(--orange);
         color: var(--orange);
     }
@@ -2508,7 +2403,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-gender-btn.active {
         border-color: var(--orange);
         color: var(--orange);
-        background: rgba(224,120,32,0.10);
+        background: color-mix(in srgb, var(--orange) 10%, transparent);
     }
 
     /* ── Date qualifier row ────────────────────────────────────────── */
@@ -2615,7 +2510,7 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1.6;
         transition: border-color 0.15s, color 0.15s;
     }
-    .pf-witness-remove:hover { border-color: #e05050; color: #e05050; }
+    .pf-witness-remove:hover { border-color: var(--red); color: var(--red); }
 
 
     /* ── Delete person section ─────────────────────────────────────── */
@@ -2627,9 +2522,9 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-delete-person-btn {
         margin-top: 12px;
         background: none;
-        border: 1px solid rgba(224, 80, 80, 0.35);
+        border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
         border-radius: 4px;
-        color: #e05050;
+        color: var(--red);
         cursor: pointer;
         font-size: 0.85rem;
         padding: 6px 14px;
@@ -2637,11 +2532,11 @@ pub const LAYOUT_STYLES: &str = r#"
         width: 100%;
         text-align: center;
     }
-    .pf-delete-person-btn:hover { border-color: #e05050; background: rgba(224, 80, 80, 0.08); }
+    .pf-delete-person-btn:hover { border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
     .pf-delete-confirm,
     .uf-child-detach-confirm {
-        background: rgba(224, 80, 80, 0.07);
-        border: 1px solid rgba(224, 80, 80, 0.3);
+        background: color-mix(in srgb, var(--red) 7%, transparent);
+        border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
     }
 
     .pf-delete-confirm {
@@ -2993,7 +2888,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .sr-view-btn.active {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-accent);
         border-color: var(--orange);
     }
 
@@ -3025,7 +2920,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .sr-page-btn.active {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-accent);
         border-color: var(--orange);
     }
 
@@ -3085,8 +2980,8 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         flex-direction: column;
     }
-    .sr-grid-card.male   { border-top: 3px solid rgba(74,144,217,0.4); }
-    .sr-grid-card.female { border-top: 3px solid rgba(196,88,122,0.4); }
+    .sr-grid-card.male   { border-top: 3px solid color-mix(in srgb, var(--blue) 40%, transparent); }
+    .sr-grid-card.female { border-top: 3px solid color-mix(in srgb, var(--pink) 40%, transparent); }
 
     a.sr-grid-card-hd {
         display: flex;
@@ -3189,7 +3084,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .dict-letter-btn.active {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-accent);
         border-color: var(--orange);
     }
 
@@ -3284,7 +3179,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .dict-warning {
-        background: rgba(224, 120, 32, 0.12);
+        background: color-mix(in srgb, var(--orange) 12%, transparent);
         border: 1px solid var(--orange);
         color: var(--orange);
         border-radius: 6px;
@@ -3479,7 +3374,7 @@ pub const LAYOUT_STYLES: &str = r#"
         position: fixed;
         inset: 0;
         z-index: 9999;
-        background: rgba(0, 0, 0, 0.75);
+        background: color-mix(in srgb, var(--scrim) 75%, transparent);
         backdrop-filter: blur(6px);
         display: flex;
         flex-direction: column;
@@ -3569,7 +3464,7 @@ pub const LAYOUT_STYLES: &str = r#"
         position: absolute;
         left: 4px;
         bottom: 4px;
-        background: rgba(0, 0, 0, 0.55);
+        background: color-mix(in srgb, var(--scrim) 55%, transparent);
         border-radius: 3px;
         color: var(--text-primary);
         font-size: 0.7rem;
@@ -3649,7 +3544,7 @@ pub const LAYOUT_STYLES: &str = r#"
         right: 5px;
         color: var(--orange);
         font-size: 0.95rem;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+        text-shadow: 0 1px 3px color-mix(in srgb, var(--scrim) 60%, transparent);
         pointer-events: none;
     }
 
@@ -3659,8 +3554,8 @@ pub const LAYOUT_STYLES: &str = r#"
         left: 4px;
         font-size: 0.65rem;
         letter-spacing: 0.03em;
-        background: rgba(0,0,0,0.62);
-        color: #fff;
+        background: color-mix(in srgb, var(--scrim) 62%, transparent);
+        color: var(--on-accent);
         border-radius: 3px;
         padding: 1px 5px;
         pointer-events: none;
@@ -3676,7 +3571,7 @@ pub const LAYOUT_STYLES: &str = r#"
         justify-content: center;
         gap: 2px;
         padding: 4px;
-        background: linear-gradient(transparent, rgba(0,0,0,0.72));
+        background: linear-gradient(transparent, color-mix(in srgb, var(--scrim) 72%, transparent));
         opacity: 0;
         transition: opacity 0.15s ease;
     }
@@ -3687,7 +3582,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-act {
         background: none;
         border: none;
-        color: #e8e3d8;
+        color: var(--media-caption);
         font-size: 0.82rem;
         line-height: 1;
         padding: 4px 5px;
@@ -3696,9 +3591,9 @@ pub const LAYOUT_STYLES: &str = r#"
         text-decoration: none;
     }
 
-    .media-act:hover { background: rgba(255,255,255,0.16); }
+    .media-act:hover { background: color-mix(in srgb, var(--on-accent) 16%, transparent); }
     .media-act.is-on { color: var(--orange); }
-    .media-act.is-danger:hover { background: var(--red, #b8342a); color: #fff; }
+    .media-act.is-danger:hover { background: var(--red); color: var(--on-accent); }
     .media-act:disabled { opacity: 0.45; cursor: default; }
 
     .media-confirm {
@@ -3712,7 +3607,7 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 8px;
         text-align: center;
         font-size: 0.72rem;
-        background: rgba(10,11,13,0.9);
+        background: color-mix(in srgb, var(--media-bg) 90%, transparent);
         color: var(--text-primary);
     }
 
@@ -3799,7 +3694,7 @@ pub const LAYOUT_STYLES: &str = r#"
         border-color: var(--orange);
         border-style: solid;
         color: var(--orange);
-        background: rgba(224,120,32,0.08);
+        background: color-mix(in srgb, var(--orange) 8%, transparent);
     }
 
     .media-drop-btn:disabled { cursor: default; }
@@ -3923,7 +3818,7 @@ pub const LAYOUT_STYLES: &str = r#"
         align-items: center;
         justify-content: center;
         padding: 24px;
-        background: rgba(6,7,9,0.78);
+        background: color-mix(in srgb, var(--media-panel) 78%, transparent);
     }
 
     .cropper-panel {
@@ -4007,7 +3902,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .cropper-selection {
         position: absolute;
         border: 2px solid var(--orange);
-        background: rgba(224,120,32,0.14);
+        background: color-mix(in srgb, var(--orange) 14%, transparent);
         pointer-events: none;
     }
 
@@ -4016,8 +3911,8 @@ pub const LAYOUT_STYLES: &str = r#"
        the thing the eye goes to. */
     .cropper-existing {
         position: absolute;
-        border: 1px dashed rgba(232,223,200,0.65);
-        background: rgba(232,223,200,0.06);
+        border: 1px dashed color-mix(in srgb, var(--media-frame) 65%, transparent);
+        background: color-mix(in srgb, var(--media-frame) 6%, transparent);
         pointer-events: none;
     }
 
@@ -4074,7 +3969,7 @@ pub const LAYOUT_STYLES: &str = r#"
         left: 5px;
         font-size: 0.7rem;
         opacity: 0.85;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+        text-shadow: 0 1px 3px color-mix(in srgb, var(--scrim) 60%, transparent);
         pointer-events: none;
     }
 
@@ -4517,9 +4412,9 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-viewer-vignette {
         position: absolute;
         box-sizing: border-box;
-        border: 2px solid rgba(232,223,200,0.95);
-        background: rgba(18,22,31,0.10);
-        box-shadow: 0 0 0 1px rgba(0,0,0,0.45);
+        border: 2px solid color-mix(in srgb, var(--media-frame) 95%, transparent);
+        background: color-mix(in srgb, var(--media-tint) 10%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--scrim) 45%, transparent);
         opacity: 0;
         pointer-events: auto;
     }
@@ -4534,8 +4429,8 @@ pub const LAYOUT_STYLES: &str = r#"
         max-width: 180px;
         overflow: hidden;
         padding: 2px 5px;
-        background: rgba(0,0,0,0.72);
-        color: #fff;
+        background: color-mix(in srgb, var(--scrim) 72%, transparent);
+        color: var(--on-accent);
         font-family: var(--font-sans);
         font-size: 0.68rem;
         line-height: 1.2;
@@ -4637,8 +4532,8 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.64rem;
         padding: 0 5px;
         border-radius: 3px;
-        background: rgba(0,0,0,0.66);
-        color: #fff;
+        background: color-mix(in srgb, var(--scrim) 66%, transparent);
+        color: var(--on-accent);
     }
 
     .doc-page-actions { display: flex; justify-content: center; gap: 2px; }
@@ -4740,7 +4635,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-pager-num.is-current {
         color: var(--orange);
         border-color: var(--orange);
-        background: rgba(224,120,32,0.12);
+        background: color-mix(in srgb, var(--orange) 12%, transparent);
     }
 
     .media-pager-count { font-size: 0.74rem; color: var(--text-muted); }
@@ -4774,12 +4669,26 @@ pub const LAYOUT_STYLES: &str = r#"
         display: none;
     }
 
-    /* ── Scrollbar ────────────────────────────────────────────────── */
+    /* ── Scrollbar ──────────────────────────────────────────────────
+       Drawn from the text colours, not from --border. A 6px thumb in the
+       border colour on the page background is a pale line on a pale field:
+       on the light palette it was invisible, and a scrollbar nobody can see
+       reads as a page that does not scroll. Wide enough to grab, and given
+       a track so the trough itself shows there is somewhere to go. */
 
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg-deep); }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--bg-panel); }
+    ::-webkit-scrollbar-thumb {
+        background: var(--text-muted);
+        border-radius: 5px;
+        border: 2px solid var(--bg-panel);
+        background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+    ::-webkit-scrollbar-corner { background: var(--bg-panel); }
+
+    /* The standard properties, for engines that ignore the prefixed ones. */
+    * { scrollbar-width: thin; scrollbar-color: var(--text-muted) var(--bg-panel); }
 
     /* ── Responsive ───────────────────────────────────────────────── */
 
@@ -5027,7 +4936,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .import-drop:hover,
     .import-drop.is-dragging {
         border-color: var(--orange);
-        background: rgba(224, 120, 32, 0.06);
+        background: color-mix(in srgb, var(--orange) 6%, transparent);
     }
 
     .import-drop-icon { font-size: 1.9rem; line-height: 1; margin-bottom: 10px; }
@@ -5157,7 +5066,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .gn-step-mark.is-done {
         background: var(--green-accent);
         border-color: var(--green-accent);
-        color: #fff;
+        color: var(--on-accent);
     }
 
     .gn-step-title {
@@ -5274,7 +5183,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .gn-choice-opt.is-on {
         border-color: var(--orange);
-        background: rgba(224, 120, 32, 0.08);
+        background: color-mix(in srgb, var(--orange) 8%, transparent);
     }
 
     /* Level with the first line of the option's name, not with the top of the
@@ -5302,7 +5211,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .gn-warn-box {
-        background: rgba(224, 120, 32, 0.08);
+        background: color-mix(in srgb, var(--orange) 8%, transparent);
         border-left: 3px solid var(--orange);
         border-radius: 4px;
         padding: 10px 14px;
@@ -5469,8 +5378,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .gn-mismatch {
-        background: rgba(224, 120, 32, 0.10);
-        border: 1px solid rgba(224, 120, 32, 0.35);
+        background: color-mix(in srgb, var(--orange) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--orange) 35%, transparent);
         border-radius: var(--radius);
         padding: 14px 16px;
         margin-top: 14px;

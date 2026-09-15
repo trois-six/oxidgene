@@ -1,0 +1,57 @@
+{
+  "id": "ayu",
+  "name": "Ayu",
+  "base": "dark",
+  "colors": {
+    "bg-deep": "#0b0e14",
+    "bg-panel": "#0d1017",
+    "bg-card": "#0f131a",
+    "bg-card-hover": "#131721",
+    "nav-surface": "#0b0e14",
+    "sel-bg": "#1c2733",
+    "border": "#1b2029",
+    "border-glow": "#e6b450",
+
+    "text-primary": "#bfbdb6",
+    "text-secondary": "#909baa",
+    "text-muted": "#565b66",
+    "on-accent": "#0b0e14",
+
+    "orange": "#e6b450",
+    "orange-light": "#ffb454",
+    "green": "#aad94c",
+    "green-light": "#bfe371",
+    "green-accent": "#7fd962",
+    "blue": "#59c2ff",
+    "pink": "#d2a6ff",
+    "red": "#f26d78",
+    "danger": "#d95757",
+    "danger-text": "#f26d78",
+
+    "connector": "#39424f",
+    "tree-visual-bg": "#0f131a",
+    "tree-visual-branch": "#39424f",
+
+    "page-glow-warm": "#e6b4500a",
+    "page-glow-cool": "#59c2ff08",
+
+    "media-bg": "#0b0e14",
+    "media-panel": "#06080d",
+    "media-frame": "#bfbdb6",
+    "media-caption": "#909baa",
+    "media-tint": "#0f131a",
+
+    "pn-bg": "#0f131a",
+    "pn-root-bg": "#2b6a94",
+    "pn-spouse-bg": "#131721",
+    "pn-border": "#39424f",
+    "pn-male-line": "#59c2ff",
+    "pn-female-line": "#d2a6ff",
+    "pn-sosa": "#aad94c",
+    "pn-sosa-root": "#e6b450",
+    "pn-self": "#e6b450",
+    "pn-text": "#bfbdb6",
+    "pn-text-muted": "#909baa",
+    "pn-hover-bg": "#1c2733"
+  }
+}

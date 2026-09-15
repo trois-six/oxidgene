@@ -5071,7 +5071,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "tokio",
  "unicode-normalization",
  "zip",
  "zune-core",

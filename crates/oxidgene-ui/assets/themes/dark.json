@@ -1,0 +1,35 @@
+{
+  "id": "dark",
+  "name": "Dark",
+  "base": "light",
+  "colors": {
+    "bg-deep": "#0d0f14",
+    "bg-panel": "#111318",
+    "bg-card": "#16191f",
+    "bg-card-hover": "#1c2030",
+    "nav-surface": "#0a0b0d",
+    "sel-bg": "#192038",
+    "border": "#252d3d",
+
+    "text-primary": "#ddd8cc",
+    "text-secondary": "#7a8da8",
+    "text-muted": "#404f65",
+
+    "danger-text": "#f87171",
+
+    "connector": "#2e4a6a",
+    "tree-visual-bg": "#0d1018",
+    "tree-visual-branch": "#3a4458",
+
+    "shadow-weak": "#00000059",
+    "shadow-strong": "#0000008c",
+    "page-glow-warm": "#e078200a",
+    "page-glow-cool": "#5aab3c08",
+
+    "pn-bg": "#1e2330",
+    "pn-spouse-bg": "#252d3d",
+    "pn-text": "#e8dfc8",
+    "pn-text-muted": "#7a8da8",
+    "pn-hover-bg": "#2b4364"
+  }
+}

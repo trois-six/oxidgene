@@ -45,10 +45,21 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.appearance_title", "Appearance"),
         ("app_settings.appearance_desc", "Customise the look and feel of the application."),
         ("app_settings.theme", "Theme"),
+        (
+            "app_settings.theme_hint",
+            "The colours the whole application is drawn in.",
+        ),
         ("app_settings.theme_light", "Light"),
         ("app_settings.theme_dark", "Dark"),
-        ("app_settings.theme_light_active", "Light theme is active"),
-        ("app_settings.theme_dark_active", "Dark theme is active"),
+        ("app_settings.theme_custom_tag", "Custom"),
+        (
+            "app_settings.theme_custom_hint",
+            "Themes are JSON files. Drop one into this folder and open this page again to see it here.",
+        ),
+        (
+            "app_settings.theme_custom_desktop_only",
+            "Custom themes are read from a folder on disk and are available in the desktop application.",
+        ),
         ("app_settings.names", "Names"),
         ("app_settings.names_title", "Name display"),
         (

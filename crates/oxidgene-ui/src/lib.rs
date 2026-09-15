@@ -5,6 +5,7 @@
 //! - [`router::Route`] — compile-time-checked routing
 //! - [`components`] — shared layout and reusable UI widgets
 //! - [`pages`] — one component per route
+//! - [`theme`] — the colour palette, built in or supplied by the user
 //! - [`App`] — top-level application component
 
 pub mod api;
@@ -15,16 +16,11 @@ pub mod image_host;
 pub mod pages;
 pub mod prefs;
 pub mod router;
+pub mod theme;
 pub mod ui_observability;
 pub mod utils;
 
 use dioxus::prelude::*;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ThemeFallback {
-    Light,
-    System,
-}
 
 /// Top-level application component.
 ///

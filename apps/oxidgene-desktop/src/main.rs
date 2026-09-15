@@ -39,6 +39,7 @@
 
 mod geneanet;
 mod media_assets;
+mod themes;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -53,6 +54,7 @@ use oxidgene_db::repo::{connect, run_migrations};
 #[cfg(feature = "telemetry")]
 use oxidgene_observability::{init, make_http_span, on_http_response};
 use oxidgene_ui::api::ApiClient;
+use oxidgene_ui::theme::CustomThemeLoader;
 use tokio::net::TcpListener;
 #[cfg(feature = "telemetry")]
 use tower_http::trace::TraceLayer;
@@ -400,6 +402,7 @@ fn main() {
     // geneanet.org, which only the event loop can create — so the bridge the
     // UI talks to and the handler that services it are installed together.
     let (geneanet_bridge, mut geneanet_handler) = geneanet::install();
+    let theme_loader = CustomThemeLoader::new(themes::DesktopThemeSource::install(&data_dir));
     let mut cfg = Config::new()
         .with_data_directory(data_dir.join("webview"))
         .with_menu(None::<dioxus::desktop::muda::Menu>)
@@ -427,6 +430,7 @@ fn main() {
     dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_context(geneanet_bridge)
+        .with_context(theme_loader)
         .with_cfg(cfg.with_custom_event_handler(move |event, target| {
             geneanet_handler(event, target);
 

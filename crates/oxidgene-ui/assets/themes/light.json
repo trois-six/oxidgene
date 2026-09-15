@@ -1,0 +1,60 @@
+{
+  "id": "light",
+  "name": "Light",
+  "colors": {
+    "bg-deep": "#ffffff",
+    "bg-panel": "#ede9e2",
+    "bg-card": "#ffffff",
+    "bg-card-hover": "#f5f3ef",
+    "nav-surface": "#f4f2ee",
+    "sel-bg": "#e8e0d4",
+    "border": "#d4ccc0",
+    "border-glow": "#e07820",
+
+    "text-primary": "#1e1a14",
+    "text-secondary": "#5c5447",
+    "text-muted": "#9e9488",
+    "on-accent": "#ffffff",
+
+    "orange": "#e07820",
+    "orange-light": "#f5a03a",
+    "green": "#4ea832",
+    "green-light": "#7ec45f",
+    "green-accent": "#5aab3c",
+    "blue": "#4a90d9",
+    "pink": "#c4587a",
+    "red": "#e05555",
+    "danger": "#e05252",
+    "danger-text": "#dc2626",
+
+    "connector": "#a0937f",
+    "tree-visual-bg": "#e8e0d4",
+    "tree-visual-branch": "#b0a898",
+
+    "shadow": "#000000",
+    "shadow-weak": "#00000014",
+    "shadow-strong": "#0000001f",
+    "scrim": "#000000",
+    "page-glow-warm": "#00000000",
+    "page-glow-cool": "#00000000",
+
+    "media-bg": "#0a0b0d",
+    "media-panel": "#060709",
+    "media-frame": "#e8dfc8",
+    "media-caption": "#e8e3d8",
+    "media-tint": "#12161f",
+
+    "pn-bg": "#efefef",
+    "pn-root-bg": "#006ac4",
+    "pn-spouse-bg": "#ffffff",
+    "pn-border": "#888888",
+    "pn-male-line": "#00a6c0",
+    "pn-female-line": "#ff6699",
+    "pn-sosa": "#95c417",
+    "pn-sosa-root": "#6da118",
+    "pn-self": "#006ac4",
+    "pn-text": "#111111",
+    "pn-text-muted": "#555555",
+    "pn-hover-bg": "#cfe3fa"
+  }
+}

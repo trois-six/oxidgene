@@ -3,13 +3,13 @@
 use dioxus::prelude::*;
 
 use crate::api::ApiClient;
-use crate::components::layout::set_theme;
 use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
 use crate::i18n::{self, Language, use_i18n};
 use crate::prefs::{
     PedigreeDefaults, SortParticles, set_pedigree_defaults, set_pedigree_theme, set_sort_particles,
 };
 use crate::router::Route;
+use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
 use crate::ui_observability::{UiPage, use_ui_load_trace};
 
 /// Sidebar sections.
@@ -26,7 +26,7 @@ enum Section {
 pub fn AppSettings() -> Element {
     let _load_trace = use_ui_load_trace(UiPage::AppSettings);
     let i18n = use_i18n();
-    let is_dark = use_context::<Signal<bool>>();
+    let theme_state = use_context::<Signal<ThemeState>>();
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
@@ -92,7 +92,7 @@ pub fn AppSettings() -> Element {
                 div { class: "settings-content",
                     match *active_section.read() {
                         Section::Appearance => rsx! {
-                            AppearanceSection { is_dark }
+                            AppearanceSection { theme_state }
                         },
                         Section::Language => rsx! {
                             LanguageSection { lang_signal }
@@ -116,10 +116,73 @@ pub fn AppSettings() -> Element {
 
 // ── Appearance section ──────────────────────────────────────────────────────
 
+/// A miniature of the theme, painted in that theme's own colours.
+///
+/// The swatch takes its values from the theme rather than from `var(--…)`,
+/// because every swatch on the page shows a *different* theme from the one
+/// currently applied — reading the cascade would paint them all alike. It
+/// also means a theme the user wrote previews correctly without this page
+/// knowing anything about it.
 #[component]
-pub fn AppearanceSection(is_dark: Signal<bool>) -> Element {
+fn ThemeSwatch(theme: ReadSignal<Theme>) -> Element {
+    let theme = theme.read();
+    let colors = &theme.colors;
+
+    rsx! {
+        div {
+            class: "app-theme-swatch",
+            style: "background: {colors.bg_deep}; border-color: {colors.border};",
+            div {
+                class: "app-theme-swatch-bar",
+                style: "background: {colors.nav_surface}; border-color: {colors.border};",
+                span {
+                    class: "app-theme-swatch-dot",
+                    style: "background: {colors.orange};",
+                }
+            }
+            div {
+                class: "app-theme-swatch-card",
+                style: "background: {colors.bg_card}; border-color: {colors.border};",
+                span {
+                    class: "app-theme-swatch-line",
+                    style: "background: {colors.text_primary};",
+                }
+                span {
+                    class: "app-theme-swatch-line is-short",
+                    style: "background: {colors.text_secondary};",
+                }
+                span {
+                    class: "app-theme-swatch-accent",
+                    style: "background: {colors.green_accent};",
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn AppearanceSection(theme_state: Signal<ThemeState>) -> Element {
     let i18n = use_i18n();
-    let dark = *is_dark.read();
+    let loader = try_use_context::<CustomThemeLoader>();
+
+    // Re-read the folder on arrival. This section is mounted only while it is
+    // the one on screen, and someone opening it has usually just finished
+    // editing a theme file — so the list is refreshed when it is about to be
+    // looked at, and there is nothing to press.
+    use_effect({
+        let loader = loader.clone();
+        move || {
+            if let Some(loader) = &loader {
+                reload_custom_themes(theme_state, loader);
+            }
+        }
+    });
+
+    let state = theme_state.read();
+    let selected = state.selected_id().to_owned();
+    let themes: Vec<Theme> = state.themes().cloned().collect();
+    let errors = state.errors().to_vec();
+    drop(state);
 
     rsx! {
         div { class: "settings-section",
@@ -128,53 +191,66 @@ pub fn AppearanceSection(is_dark: Signal<bool>) -> Element {
             p { class: "settings-section-subtitle", {i18n.t("app_settings.appearance_desc")} }
 
             div { class: "app-settings-card",
-                div { class: "app-settings-option",
+                div { class: "app-settings-option app-settings-option-stacked",
                     div { class: "app-settings-option-info",
                         span { class: "app-settings-option-label", {i18n.t("app_settings.theme")} }
-                        span { class: "app-settings-option-hint",
-                            {i18n.t(if dark { "app_settings.theme_dark_active" } else { "app_settings.theme_light_active" })}
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.theme_hint")} }
+                    }
+
+                    div { class: "theme-picker",
+                        for theme in themes {
+                            {
+                                let id = theme.id.clone();
+                                let active = id == selected;
+                                rsx! {
+                                    button {
+                                        key: "{theme.id}",
+                                        class: if active { "theme-picker-option active" } else { "theme-picker-option" },
+                                        aria_pressed: if active { "true" } else { "false" },
+                                        onclick: move |_| set_theme(theme_state, &id),
+                                        ThemeSwatch { theme: theme.clone() }
+                                        span { class: "theme-picker-label",
+                                            {theme.display_name(&i18n)}
+                                        }
+                                        if !theme.builtin {
+                                            span { class: "theme-picker-tag",
+                                                {i18n.t("app_settings.theme_custom_tag")}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    div { class: "theme-toggle-group",
-                        button {
-                            class: if !dark { "theme-toggle-btn active" } else { "theme-toggle-btn" },
-                            onclick: move |_| set_theme(is_dark, false),
-                            title: "{i18n.t(\"app_settings.theme_light\")}",
-                            // Sun icon
-                            svg {
-                                width: "18",
-                                height: "18",
-                                fill: "none",
-                                "viewBox": "0 0 24 24",
-                                stroke: "currentColor",
-                                "strokeWidth": "2",
-                                circle { cx: "12", cy: "12", r: "5" }
-                                line { x1: "12", y1: "1", x2: "12", y2: "3" }
-                                line { x1: "12", y1: "21", x2: "12", y2: "23" }
-                                line { x1: "4.22", y1: "4.22", x2: "5.64", y2: "5.64" }
-                                line { x1: "18.36", y1: "18.36", x2: "19.78", y2: "19.78" }
-                                line { x1: "1", y1: "12", x2: "3", y2: "12" }
-                                line { x1: "21", y1: "12", x2: "23", y2: "12" }
-                                line { x1: "4.22", y1: "19.78", x2: "5.64", y2: "18.36" }
-                                line { x1: "18.36", y1: "5.64", x2: "19.78", y2: "4.22" }
+
+                    // Where custom themes come from. On the web there is no
+                    // folder to point at, so the note says so rather than
+                    // offering a path that cannot exist.
+                    match loader {
+                        Some(loader) => rsx! {
+                            div { class: "app-theme-source",
+                                p { class: "app-settings-option-hint",
+                                    {i18n.t("app_settings.theme_custom_hint")}
+                                }
+                                code { class: "app-theme-folder", {loader.location()} }
                             }
-                            span { {i18n.t("app_settings.theme_light")} }
-                        }
-                        button {
-                            class: if dark { "theme-toggle-btn active" } else { "theme-toggle-btn" },
-                            onclick: move |_| set_theme(is_dark, true),
-                            title: "{i18n.t(\"app_settings.theme_dark\")}",
-                            // Moon icon
-                            svg {
-                                width: "18",
-                                height: "18",
-                                fill: "none",
-                                "viewBox": "0 0 24 24",
-                                stroke: "currentColor",
-                                "strokeWidth": "2",
-                                path { d: "M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" }
+                        },
+                        None => rsx! {
+                            p { class: "app-settings-option-hint app-theme-source",
+                                {i18n.t("app_settings.theme_custom_desktop_only")}
                             }
-                            span { {i18n.t("app_settings.theme_dark")} }
+                        },
+                    }
+
+                    if !errors.is_empty() {
+                        ul { class: "app-theme-errors",
+                            for error in errors {
+                                li { key: "{error.file}",
+                                    strong { "{error.file}" }
+                                    " — "
+                                    "{error.message}"
+                                }
+                            }
                         }
                     }
                 }
@@ -315,16 +391,16 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
                         span { class: "app-settings-option-label", {i18n.t("app_settings.pedigree_theme")} }
                         span { class: "app-settings-option-hint", {i18n.t("app_settings.pedigree_theme_hint")} }
                     }
-                    div { class: "ped-theme-options",
+                    div { class: "theme-picker",
                         for id in PedigreeThemeId::ALL {
                             button {
                                 key: "{id:?}",
-                                class: if current_theme == id { "ped-theme-option active" } else { "ped-theme-option" },
+                                class: if current_theme == id { "theme-picker-option active" } else { "theme-picker-option" },
                                 aria_pressed: if current_theme == id { "true" } else { "false" },
                                 onclick: move |_| set_pedigree_theme(theme_pref, id),
                                 PedigreeThemeSwatch { id }
-                                span { class: "ped-theme-option-label", {i18n.t(id.label_key())} }
-                                span { class: "ped-theme-option-hint", {i18n.t(id.hint_key())} }
+                                span { class: "theme-picker-label", {i18n.t(id.label_key())} }
+                                span { class: "theme-picker-hint", {i18n.t(id.hint_key())} }
                             }
                         }
                     }
@@ -495,26 +571,28 @@ fn ApiSection() -> Element {
 /// own "Global preferences" nav group and uses this layout as the canonical
 /// visual treatment for both settings surfaces.
 pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
-    /* ── Pedigree theme picker ──────────────────────────────────────
-       The label and the choices stack, because a swatch needs more
-       width than the row layout leaves beside a label. */
-    .app-settings-option-stacked {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.9rem;
-    }
-
-    .ped-theme-options {
+    /* ── Theme pickers ──────────────────────────────────────────────
+       One grid for both the application palette and the pedigree chart
+       style: they are the same control over different things, and a
+       reader moving between the two sections should not have to work
+       out that they are. Only the swatch inside differs — a painted
+       miniature for a palette, an SVG card for a chart style. */
+    /* `auto-fill`, not `auto-fit`: fit collapses the empty tracks and lets the
+       few items that exist stretch across the row, which would give the two
+       pedigree styles tiles three times the width of the five palettes. Fill
+       keeps the tracks, so a tile is the same size in both pickers. */
+    .theme-picker {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
         gap: 0.75rem;
     }
 
-    .ped-theme-option {
+    .theme-picker-option {
         display: grid;
         justify-items: center;
-        gap: 0.35rem;
-        padding: 0.85rem;
+        align-content: start;
+        gap: 0.4rem;
+        padding: 0.7rem;
         border: 1px solid var(--border);
         border-radius: 8px;
         background: none;
@@ -522,35 +600,126 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
         transition: border-color 0.15s, background 0.15s;
         text-align: center;
         color: var(--text-primary);
+        font-family: var(--font-sans);
     }
 
-    .ped-theme-option:hover { border-color: var(--orange); }
+    .theme-picker-option:hover { border-color: var(--orange); }
 
-    .ped-theme-option.active {
+    .theme-picker-option.active {
         border-color: var(--orange);
         background: var(--sel-bg);
     }
 
-    .ped-theme-option-label {
-        font-size: 0.95rem;
+    .theme-picker-label {
+        font-size: 0.9rem;
         font-weight: 600;
     }
 
-    .ped-theme-option-hint {
-        font-size: 0.8rem;
+    .theme-picker-hint {
+        font-size: 0.78rem;
         color: var(--text-secondary);
         line-height: 1.35;
     }
 
-     /* The swatch carries the theme's own variables and uses the same ground
-         as the pedigree canvas. */
+    .theme-picker-tag {
+        font-size: 0.68rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+    }
+
+    /* Both swatches occupy the same box, so the two pickers line up. */
+    .app-theme-swatch,
     .ped-theme-swatch {
         width: 100%;
-        max-width: 150px;
-        height: 74px;
-        border-radius: 6px;
+        height: 68px;
+    }
+
+    /* The miniature is painted from inline values, so it carries no colour
+       of its own: everything here is layout. */
+    .app-theme-swatch {
+        border: 1px solid;
+        border-radius: 5px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .app-theme-swatch-bar {
+        height: 13px;
+        border-bottom: 1px solid;
+        display: flex;
+        align-items: center;
+        padding: 0 4px;
+        flex: none;
+    }
+
+    .app-theme-swatch-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+    }
+
+    .app-theme-swatch-card {
+        margin: 6px;
+        padding: 5px;
+        border: 1px solid;
+        border-radius: 3px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+    }
+
+    .app-theme-swatch-line {
+        height: 3px;
+        border-radius: 2px;
+        width: 100%;
+        opacity: 0.85;
+    }
+
+    .app-theme-swatch-line.is-short { width: 60%; }
+
+    .app-theme-swatch-accent {
+        height: 5px;
+        width: 34%;
+        border-radius: 2px;
+    }
+
+    .app-theme-source {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+    }
+
+    .app-theme-folder {
+        font-size: 0.78rem;
+        padding: 3px 7px;
         border: 1px solid var(--border);
-          /* The ground is painted by the rect inside. */
+        border-radius: 4px;
+        background: var(--bg-deep);
+        color: var(--text-secondary);
+        word-break: break-all;
+    }
+
+    /* A theme file that failed to load is named here rather than only in the
+       log: the person who wrote it is the one who can fix it. */
+    .app-theme-errors {
+        margin: 0;
+        padding-left: 1.1rem;
+        font-size: 0.8rem;
+        line-height: 1.45;
+        color: var(--danger-text);
+    }
+
+    /* The swatch carries the theme's own variables and uses the same ground
+       as the pedigree canvas. */
+    .ped-theme-swatch {
+        border-radius: 5px;
+        border: 1px solid var(--border);
+        /* The ground is painted by the rect inside. */
         --pn-swatch-bg: var(--bg-deep);
     }
 
@@ -646,6 +815,15 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
         align-items: center;
         justify-content: space-between;
         gap: 1rem;
+    }
+
+    /* Must stay after the rule above: both are single-class selectors, so the
+       later one wins the tie. Declared first, `align-items: center` took it
+       back and every picker grid collapsed to one centred column. */
+    .app-settings-option-stacked {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.9rem;
     }
 
     .app-settings-option-info {

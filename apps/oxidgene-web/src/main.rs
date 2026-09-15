@@ -36,6 +36,7 @@ fn runtime_otlp_endpoint() -> Option<String> {
 #[component]
 fn WebApp() -> Element {
     use_context_provider(|| ApiClient::new(API_URL));
-    use_context_provider(|| oxidgene_ui::ThemeFallback::Light);
+    // No `CustomThemeSource` is provided: the browser build has no folder to
+    // read themes from, so only the built-in ones are offered.
     rsx! { oxidgene_ui::App {} }
 }

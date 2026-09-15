@@ -65,7 +65,7 @@ pub fn Settings(tree_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
-    let is_dark = use_context::<Signal<bool>>();
+    let theme_state = use_context::<Signal<crate::theme::ThemeState>>();
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
@@ -432,7 +432,7 @@ pub fn Settings(tree_id: String) -> Element {
                             merge_names: export_merge_names,
                         }
                     } else if sec == "appearance" {
-                        AppearanceSection { is_dark }
+                        AppearanceSection { theme_state }
                     } else if sec == "language" {
                         LanguageSection { lang_signal }
                     } else if sec == "pedigree" {

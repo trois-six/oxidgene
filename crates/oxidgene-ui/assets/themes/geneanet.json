@@ -1,0 +1,48 @@
+{
+  "id": "geneanet",
+  "name": "Geneanet",
+  "base": "light",
+  "colors": {
+    "bg-deep": "#ffffff",
+    "bg-panel": "#efefef",
+    "bg-card": "#ffffff",
+    "bg-card-hover": "#f3f3f3",
+    "nav-surface": "#ffffff",
+    "sel-bg": "#c0d9f1",
+    "border": "#cdcdcd",
+    "border-glow": "#006ac4",
+
+    "text-primary": "#222222",
+    "text-secondary": "#666666",
+    "text-muted": "#988c90",
+    "on-accent": "#ffffff",
+
+    "orange": "#006ac4",
+    "orange-light": "#408fd3",
+    "green": "#447a0e",
+    "green-light": "#559911",
+    "green-accent": "#95c417",
+    "blue": "#00a6c0",
+    "pink": "#ff6699",
+    "red": "#cb2d25",
+    "danger": "#bd1515",
+    "danger-text": "#a2241e",
+
+    "connector": "#988c90",
+    "tree-visual-bg": "#c0d9f1",
+    "tree-visual-branch": "#006ac4",
+
+    "pn-bg": "#efefef",
+    "pn-root-bg": "#006ac4",
+    "pn-spouse-bg": "#ffffff",
+    "pn-border": "#988c90",
+    "pn-male-line": "#00a6c0",
+    "pn-female-line": "#ff6699",
+    "pn-sosa": "#95c417",
+    "pn-sosa-root": "#6da118",
+    "pn-self": "#005dab",
+    "pn-text": "#222222",
+    "pn-text-muted": "#666666",
+    "pn-hover-bg": "#c0d9f1"
+  }
+}

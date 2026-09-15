@@ -128,7 +128,9 @@ access control.
 ### 3.5 Themes / UX
 
 - Switch between multiple UX themes inspired by major genealogy platforms from the settings.
-- → see [Settings](ui-settings.md)
+- Themes are JSON files: several ship with the application, and users may add
+  their own.
+- → see [App Settings](ui-app-settings.md) · [Common UI](ui-common.md#31-themes)
 
 ### 3.6 Interface Language
 

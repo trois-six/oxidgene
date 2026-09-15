@@ -1,0 +1,57 @@
+{
+  "id": "omarchy",
+  "name": "Omarchy",
+  "base": "dark",
+  "colors": {
+    "bg-deep": "#1a1b26",
+    "bg-panel": "#16161e",
+    "bg-card": "#1f2335",
+    "bg-card-hover": "#292e42",
+    "nav-surface": "#16161e",
+    "sel-bg": "#283457",
+    "border": "#2f3549",
+    "border-glow": "#7aa2f7",
+
+    "text-primary": "#c0caf5",
+    "text-secondary": "#a9b1d6",
+    "text-muted": "#565f89",
+    "on-accent": "#1a1b26",
+
+    "orange": "#ff9e64",
+    "orange-light": "#e0af68",
+    "green": "#9ece6a",
+    "green-light": "#b9e08c",
+    "green-accent": "#9ece6a",
+    "blue": "#7aa2f7",
+    "pink": "#bb9af7",
+    "red": "#f7768e",
+    "danger": "#f7768e",
+    "danger-text": "#f7768e",
+
+    "connector": "#414868",
+    "tree-visual-bg": "#1f2335",
+    "tree-visual-branch": "#414868",
+
+    "page-glow-warm": "#ff9e640a",
+    "page-glow-cool": "#7dcfff08",
+
+    "media-bg": "#16161e",
+    "media-panel": "#101014",
+    "media-frame": "#c0caf5",
+    "media-caption": "#a9b1d6",
+    "media-tint": "#1f2335",
+
+    "pn-bg": "#1f2335",
+    "pn-root-bg": "#3d59a1",
+    "pn-spouse-bg": "#292e42",
+    "pn-border": "#414868",
+    "pn-male-line": "#7dcfff",
+    "pn-female-line": "#bb9af7",
+    "pn-sosa": "#9ece6a",
+    "pn-sosa-root": "#7fae52",
+    "pn-self": "#7aa2f7",
+    "pn-text": "#c0caf5",
+    "pn-text-muted": "#a9b1d6",
+    "pn-hover-bg": "#283457"
+  }
+}
