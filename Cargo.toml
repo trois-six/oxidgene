@@ -134,9 +134,9 @@ image = { version = "0.25", default-features = false, features = [
     "tiff",
     "webp",
 ] }
-# Experimental Geneanet pHash paths. `jpeg-decoder` exposes reduced-IDCT
-# decoding; zune is already used transitively by `image` and exposes direct
-# luminance output.
+# Geneanet pHash decoding. `jpeg-decoder` powers the production coarse tier
+# through reduced IDCT; zune exposes direct luminance output for the opt-in
+# decoder comparison harness.
 jpeg-decoder = { version = "0.3", default-features = false }
 zune-core = "0.5"
 zune-jpeg = "0.5"
