@@ -1012,6 +1012,15 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
             flex-direction: column;
             align-items: flex-start;
         }
+        .app-settings-option-stacked {
+            align-items: stretch;
+        }
+    }
+
+    @media (min-width: 300px) and (max-width: 640px) {
+        .theme-picker {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
     }
 "#;
 

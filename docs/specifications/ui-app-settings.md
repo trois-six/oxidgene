@@ -250,8 +250,9 @@ the API crate without its optional `graphql` feature.
 	compact, non-wrapping row. It scrolls horizontally when necessary instead of
 	growing into a tall menu, so settings content remains in the first viewport.
 - Theme, language, and pedigree controls remain full-width cards
-- The pedigree theme swatches reflow to a single column when the content
-	area can no longer fit two 150px cards side by side
+- Theme swatches use two equal, compact columns down to a 320px viewport and
+  remain centred by filling the available card width. Below 300px, they may
+  reflow to a single column.
 
 ---
 

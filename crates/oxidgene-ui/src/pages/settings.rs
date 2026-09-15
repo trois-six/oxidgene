@@ -1058,7 +1058,7 @@ fn ExportSection(
             }
 
             div { class: "card", style: "margin-top: 16px;",
-                div { style: "display: flex; align-items: center; gap: 16px;",
+                div { class: "settings-export-row",
                     div { style: "flex: 1;",
                         h3 { style: "font-size: 0.95rem; margin-bottom: 4px; color: var(--text-primary);",
                             "{format_title}"
@@ -1068,7 +1068,7 @@ fn ExportSection(
                         }
                     }
                     select {
-                        style: "width: auto; flex-shrink: 0;",
+                        class: "settings-export-format",
                         value: "{format}",
                         oninput: move |e: Event<FormData>| format.set(e.value()),
                         option { value: "gedcom", {i18n.t("settings.export_format_gedcom")} }
@@ -1205,6 +1205,15 @@ const SETTINGS_STYLES: &str = r#"
     .settings-tree-name-save svg {
         display: block;
     }
+    .settings-export-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+    .settings-export-format {
+        width: auto;
+        flex-shrink: 0;
+    }
 
     /* SOSA root person display */
     .sosa-root-display {
@@ -1247,6 +1256,13 @@ const SETTINGS_STYLES: &str = r#"
     }
 
     @media (max-width: 768px) {
+        .settings-export-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .settings-export-format {
+            width: 100%;
+        }
         .sosa-root-display {
             flex-direction: column;
             align-items: stretch;

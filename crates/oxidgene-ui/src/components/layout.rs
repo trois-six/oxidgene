@@ -4731,7 +4731,7 @@ pub const LAYOUT_STYLES: &str = r#"
         .td-topbar { padding: 10px 12px; }
         .td-bc { gap: 4px; }
         .td-bc-link { max-width: clamp(36px, 22vw, 140px); }
-        .td-bc-current { max-width: clamp(32px, 16vw, 96px); }
+        .td-bc-current { max-width: clamp(76px, 24vw, 96px); }
         .td-search-input { width: clamp(72px, 22vw, 110px); }
         .page-header {
             padding: 14px;
