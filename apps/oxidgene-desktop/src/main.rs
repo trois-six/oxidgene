@@ -37,6 +37,8 @@
 //!   `with_data_store_identifier` (macOS >= 14) is the closest available
 //!   knob, though it's an opaque store ID rather than a directory.
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod geneanet;
 mod media_assets;
 mod themes;
@@ -216,6 +218,11 @@ impl Cli {
 }
 
 fn main() {
+    #[cfg(all(windows, not(debug_assertions)))]
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(u32::MAX);
+    }
+
     // WebKitGTK's WebsiteDataManager derives some default paths (e.g. HSTS
     // storage) from GLib's prgname rather than our configured data
     // directory. GTK would otherwise set it to the binary name

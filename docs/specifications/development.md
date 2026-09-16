@@ -25,6 +25,7 @@ timestamp: 2026-08-26T00:00:00Z
 - [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) 0.7.10.
 - `cargo-nextest` for the workspace test recipes.
 - `cargo-watch` for backend hot reload; optional unless using `just dev-web-watch`.
+- `cargo-xwin` for cross-compiling the desktop application to Windows X64.
 
 ```bash
 just setup
@@ -108,6 +109,7 @@ client spans and trace headers disabled.
 | `just desktop-telemetry [log_level]` | Start the local collector and run the desktop with OTLP enabled; the optional filter defaults to `info`. |
 | `just desktop-openobserve [log_level]` | Run the desktop with direct OTLP/gRPC export to a local OpenObserve instance. |
 | `just build-desktop-release` | Build an optimized desktop release retaining runtime-optional OTLP telemetry support. |
+| `just build-desktop-win64-release` | Cross-compile an optimized Windows X64 desktop release with the WebView2 loader linked into the executable. |
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` when running the desktop binary to export native
 desktop logs, spans, and metrics over OTLP/gRPC. The export covers the embedded
@@ -139,6 +141,16 @@ Production desktop releases built with `just build-desktop-release` retain the
 OpenTelemetry dependency, HTTP trace layer, and tracing callsites. Export
 remains disabled at runtime until a non-empty `OTEL_EXPORTER_OTLP_ENDPOINT` is
 set, at which point logs, spans, and metrics are sent to that collector.
+
+`just build-desktop-win64-release` uses the MSVC target through `cargo-xwin`.
+This target statically links Microsoft's WebView2 loader, so
+`WebView2Loader.dll` does not need to be distributed beside the executable.
+The WebView2 Evergreen Runtime itself remains a system prerequisite; it is
+normally already installed on supported Windows 10 and Windows 11 systems.
+The release executable uses the Windows GUI subsystem, so opening it from
+Explorer does not create a console window. When started from an existing
+terminal, it attaches to that parent console and writes its normal logs there.
+Debug builds retain the console subsystem.
 
 ### 2.5 Observability configuration by process
 

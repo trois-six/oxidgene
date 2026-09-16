@@ -2,6 +2,7 @@
 "cargo:cargo-audit" = "0.22.2"
 "cargo:cargo-fuzz" = "0.13.2"
 "cargo:cargo-watch" = "8.5.3"
+"cargo:cargo-xwin" = "0.23.1"
 "cargo:dioxus-cli" = "0.7.10"
 "github:nextest-rs/nextest" = "cargo-nextest-0.9.143"
 helm = "4.3.0"

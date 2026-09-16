@@ -14,7 +14,10 @@ telemetry = ["dep:oxidgene-observability", "dep:tower-http", "oxidgene-api/telem
 # Embed the .ico as a Windows resource (IDI_APPLICATION / 32512) so that
 # Explorer shows the OxidGene icon and Dioxus's default_icon() picks it up.
 [target.'cfg(windows)'.build-dependencies]
-winres = "0.1"
+embed-resource = "3.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 # WebKitGTK derives a few of its own default paths (notably HSTS storage)
 # from GLib's program name instead of the WebView data directory we pass to

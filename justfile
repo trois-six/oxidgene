@@ -11,6 +11,7 @@ setup:
     @command -v rustup >/dev/null 2>&1 || { echo "rustup is required: https://rustup.rs" >&2; exit 1; }
     mise install
     rustup target add wasm32-unknown-unknown
+    rustup target add x86_64-pc-windows-msvc
 
 # Build all workspace crates
 build:
@@ -111,6 +112,10 @@ desktop-openobserve log_level="info":
 # Build an optimized desktop release with runtime-optional OTLP telemetry
 build-desktop-release:
     cargo build --release --package oxidgene-desktop
+
+# Build an optimized desktop release for Windows X64 with runtime-optional OTLP telemetry
+build-desktop-win64-release:
+    cargo xwin build --target x86_64-pc-windows-msvc --release --package oxidgene-desktop
 
 # Generate documentation
 doc:
