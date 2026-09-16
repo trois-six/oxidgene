@@ -302,8 +302,9 @@ its description belong to the viewer, which the read-only gallery opens.
 
 A tile opens the media viewer. The viewer fills the available viewport inside
 its backdrop (edge-to-edge on narrow screens), and a fitted image may use the
-full height of its media stage. Once the image loads, the viewer initializes
-its fitted dimensions and enables **Zoom in** and **Zoom out** immediately;
+full height of its media stage. While the viewer is open, the underlying page
+does not scroll or expose its scrollbar. Once the image loads, the viewer
+initializes its fitted dimensions and enables **Zoom in** and **Zoom out** immediately;
 the user does not have to activate **Fit** first. While zooming, the image stays
 centered on each axis until it actually overflows on that axis; only then does
 the stage expose scrolling without making either edge unreachable. Its facts

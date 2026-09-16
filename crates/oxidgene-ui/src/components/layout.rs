@@ -234,6 +234,9 @@ pub const LAYOUT_STYLES: &str = r#"
         margin: 0 auto;
     }
 
+    /* Native scrollbars are composited above fixed descendants in WebViews. */
+    .sub-page-content:has(.cropper-backdrop) { overflow: hidden; }
+
     /* Tree-detail page: fills app-main, stacks header + pedigree vertically */
     .tree-detail-page {
         flex: 1;
