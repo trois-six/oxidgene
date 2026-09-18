@@ -34,6 +34,10 @@ pub(crate) struct PersonSearchSummary {
 }
 
 impl PersonSearchSummary {
+    pub(crate) fn person_id(&self) -> Uuid {
+        self.person_id
+    }
+
     pub(crate) fn placeholder(person_id: Uuid, label: String) -> Self {
         Self {
             person_id,

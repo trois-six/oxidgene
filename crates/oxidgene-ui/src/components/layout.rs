@@ -1092,6 +1092,60 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-muted);
     }
 
+    /* ── Topbar search suggestions ─────────────────────────────────
+       A fixed overlay rather than a panel inside `.td-search-group`:
+       `.td-topbar` clips its overflow, so anything positioned within it would
+       be cut off. The surface chrome (background, shadow, border, radius,
+       z-index) comes from `.context-menu`; only the sizing is here. */
+
+    .td-suggest {
+        width: min(340px, calc(100vw - 32px));
+        max-height: 60vh;
+        overflow-y: auto;
+        padding: 0;
+    }
+
+    .td-suggest-row {
+        border-radius: 0;
+    }
+
+    /* Keyboard and pointer converge on one highlight, so arrowing through the
+       list looks the same as hovering it. */
+    .td-suggest-row.is-active {
+        background: var(--bg-card-hover);
+    }
+
+    .td-suggest-sosa {
+        flex-shrink: 0;
+        align-self: center;
+        padding: 1px 6px;
+        border-radius: 10px;
+        background: var(--green);
+        color: var(--bg-deep);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+    }
+
+    .td-suggest-more {
+        display: block;
+        width: 100%;
+        padding: 7px 10px;
+        border: none;
+        border-top: 1px solid var(--border);
+        background: none;
+        color: var(--orange);
+        font-family: var(--font-sans);
+        font-size: 0.78rem;
+        text-align: center;
+        cursor: pointer;
+        transition: background 0.1s;
+    }
+
+    .td-suggest-more:hover {
+        background: var(--bg-card-hover);
+    }
+
     /* ── Pedigree outer container ────────────────────────────────── */
 
     .pedigree-outer {

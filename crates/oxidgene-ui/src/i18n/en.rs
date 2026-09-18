@@ -553,6 +553,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("search.no_match", "No matching persons found."),
         // ── Search results page ───────────────────────────────────────
         ("search.title", "Search"),
+        ("search.see_all_results", "See all {count} results"),
+        ("search.sosa_badge", "SOSA {number}"),
         ("search.relation_spouse", "married to {names}"),
         ("search.relation_spouse_male", "married to {names}"),
         ("search.relation_spouse_female", "married to {names}"),

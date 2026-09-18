@@ -15,6 +15,7 @@ use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort}
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
+use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
@@ -257,74 +258,17 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
         }
     });
 
-    // Search action: combine last + first into a query string.
-    //
-    // Mirrors `TopbarSearch::do_search` — a family-name-only, numeric query
-    // is tried as a SOSA-Stradonitz number first, jumping straight to the
-    // matching person, and only falls back to a normal name search if no
-    // person exists at that number (or the tree has no SOSA root).
-    let api_search_action = api.clone();
-    let origin = props.origin.clone();
-    let tree_id_str = props.tree_id.clone();
-    let mut do_search = move || {
-        let last = search_last();
-        let first = search_first();
-        let last_trim = last.trim();
-        let first_trim = first.trim();
-        if last_trim.is_empty() && first_trim.is_empty() {
+    // Submitting from the topbar searches in place rather than navigating:
+    // this *is* the results page. `TopbarSearch` owns the SOSA shortcut, so
+    // reaching a person by number still jumps straight there.
+    let commit_search = use_callback(move |(last, first): (String, String)| {
+        if last.trim().is_empty() && first.trim().is_empty() {
             return;
         }
-
-        if first_trim.is_empty()
-            && let Ok(number) = last_trim.parse::<u64>()
-            && let Some(tid) = tree_id
-        {
-            let api = api_search_action.clone();
-            let origin = origin.clone();
-            let tree_id_str = tree_id_str.clone();
-            spawn(async move {
-                match api.get_person_by_sosa(tid, number).await {
-                    Ok(person) => {
-                        let person_id = person.id.to_string();
-                        if origin == "person" {
-                            nav.push(Route::PersonDetail {
-                                tree_id: tree_id_str,
-                                person_id,
-                            });
-                        } else {
-                            nav.push(Route::TreeDetail {
-                                tree_id: tree_id_str,
-                                person: Some(person_id),
-                            });
-                        }
-                    }
-                    Err(_) => {
-                        committed_last.set(last);
-                        committed_first.set(String::new());
-                        current_page.set(1);
-                    }
-                }
-            });
-            return;
-        }
-
         committed_last.set(last);
         committed_first.set(first);
         current_page.set(1);
-    };
-
-    let mut do_search2 = do_search.clone();
-    let mut do_search3 = do_search.clone();
-    let on_search_enter = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter {
-            do_search();
-        }
-    };
-    let on_search_enter2 = move |e: Event<KeyboardData>| {
-        if e.key() == Key::Enter {
-            do_search2();
-        }
-    };
+    });
 
     // ── Server-filtered, sorted, and paginated result ──
     //
@@ -450,38 +394,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     }
                     span { class: "td-bc-current", {i18n.t("search.title")} }
                 }
-                div { class: "td-search-group",
-                    input {
-                        r#type: "text",
-                        class: "td-search-input",
-                        placeholder: "{i18n.t(\"tree.search_last\")}",
-                        value: "{search_last}",
-                        oninput: move |e: Event<FormData>| search_last.set(e.value()),
-                        onkeydown: on_search_enter,
-                    }
-                    input {
-                        r#type: "text",
-                        class: "td-search-input",
-                        placeholder: "{i18n.t(\"tree.search_first\")}",
-                        value: "{search_first}",
-                        oninput: move |e: Event<FormData>| search_first.set(e.value()),
-                        onkeydown: on_search_enter2,
-                    }
-                    button {
-                        class: "td-search-btn",
-                        title: "{i18n.t(\"tree.search\")}",
-                        onclick: move |_| do_search3(),
-                        svg {
-                            width: "14",
-                            height: "14",
-                            fill: "none",
-                            "viewBox": "0 0 24 24",
-                            stroke: "currentColor",
-                            "strokeWidth": "2.5",
-                            circle { cx: "11", cy: "11", r: "8" }
-                            line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
-                        }
-                    }
+                TopbarSearch {
+                    tree_id: props.tree_id.clone(),
+                    from_person: props.origin == "person",
+                    last: search_last,
+                    first: search_first,
+                    on_submit: move |query| commit_search.call(query),
                 }
             }
 
