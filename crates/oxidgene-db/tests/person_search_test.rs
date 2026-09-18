@@ -39,6 +39,18 @@ fn entry(
         given_names_display: given_names.to_owned(),
         birth_place: None,
         date_sort: None,
+        birth_qualifier: "exact".into(),
+        death_qualifier: "exact".into(),
+        spouse_names: String::new(),
+        spouse_surnames: String::new(),
+        spouse_given_names: String::new(),
+        father_name: None,
+        father_surname: None,
+        father_given_names: None,
+        mother_name: None,
+        mother_surname: None,
+        mother_given_names: None,
+        children_count: 0,
     }
 }
 

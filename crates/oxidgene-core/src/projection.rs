@@ -31,7 +31,7 @@ use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole
 ///
 /// A bump costs one lazy rebuild per tree on first read. Not bumping costs a
 /// silent wrong answer, so when in doubt, bump.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 2;
+pub const PROJECTION_SCHEMA_VERSION: i32 = 3;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
@@ -163,6 +163,12 @@ pub struct ProfileFamilyLink {
     pub role: SpouseRole,
     pub spouse_id: Option<Uuid>,
     pub spouse_display_name: Option<String>,
+    /// The spouse's primary surname and given names, kept split so search rows
+    /// can filter on one or the other without re-parsing `display_name`.
+    #[serde(default)]
+    pub spouse_surname: Option<String>,
+    #[serde(default)]
+    pub spouse_given_names: Option<String>,
     pub spouse_sex: Option<Sex>,
     pub marriage: Option<ProfileEvent>,
     /// All family events (marriage, divorce, annulment, etc.)
@@ -179,8 +185,17 @@ pub struct ProfileChildLink {
     pub child_type: ChildType,
     pub father_id: Option<Uuid>,
     pub father_display_name: Option<String>,
+    /// Split primary name, for the same reason as [`ProfileFamilyLink`].
+    #[serde(default)]
+    pub father_surname: Option<String>,
+    #[serde(default)]
+    pub father_given_names: Option<String>,
     pub mother_id: Option<Uuid>,
     pub mother_display_name: Option<String>,
+    #[serde(default)]
+    pub mother_surname: Option<String>,
+    #[serde(default)]
+    pub mother_given_names: Option<String>,
 }
 
 /// A reference to a media item (portrait / primary photo).
@@ -322,10 +337,27 @@ pub struct SearchEntry {
     pub surname: String,
     pub given_names: String,
     pub display_name: String,
-    // Key dates for result display
+    // Key dates for result display. The year stays bare and the precision
+    // rides beside it, as it does on a `ProfileEvent`: a year shown alone must
+    // keep its precision, and only the UI knows how to say "ca" in the
+    // reader's language.
     pub birth_year: Option<String>,
+    #[serde(default)]
+    pub birth_qualifier: DateQualifier,
     pub birth_place: Option<String>,
     pub death_year: Option<String>,
+    #[serde(default)]
+    pub death_qualifier: DateQualifier,
+    // Close relatives, so a result reads as a person rather than as a name:
+    // "married to X", or "child of X and Y" when there is no spouse.
+    #[serde(default)]
+    pub spouse_names: Vec<String>,
+    #[serde(default)]
+    pub father_name: Option<String>,
+    #[serde(default)]
+    pub mother_name: Option<String>,
+    #[serde(default)]
+    pub children_count: u32,
     // For sorting / filtering
     pub date_sort: Option<NaiveDate>,
 }

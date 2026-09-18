@@ -12,6 +12,7 @@ use oxidgene_core::types::{
     Citation, Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place,
     Vignette,
 };
+use oxidgene_db::repo::RELATIVE_SEP;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -67,6 +68,10 @@ struct IndexedData {
     note_count_by_person: HashMap<Uuid, u32>,
     /// Primary name display string by person_id (for cross-references)
     display_names: HashMap<Uuid, String>,
+    /// Primary name as `(surname, given_names)` by person_id, so a relative's
+    /// name can be projected already split instead of re-parsed from
+    /// `display_names`.
+    split_names: HashMap<Uuid, (Option<String>, Option<String>)>,
     /// Person sex by person_id
     sex_by_person: HashMap<Uuid, Sex>,
 }
@@ -76,6 +81,7 @@ impl IndexedData {
         // Index names by person
         let mut names_by_person: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
         let mut display_names: HashMap<Uuid, String> = HashMap::new();
+        let mut split_names: HashMap<Uuid, (Option<String>, Option<String>)> = HashMap::new();
         for name in &data.names {
             names_by_person
                 .entry(name.person_id)
@@ -83,6 +89,10 @@ impl IndexedData {
                 .push(name.clone());
             if name.is_primary {
                 display_names.insert(name.person_id, name.display_name());
+                split_names.insert(
+                    name.person_id,
+                    (name.surname.clone(), name.given_names.clone()),
+                );
             }
         }
 
@@ -186,8 +196,19 @@ impl IndexedData {
             citation_count_by_person,
             note_count_by_person,
             display_names,
+            split_names,
             sex_by_person,
         }
+    }
+
+    /// The primary surname of `person_id`, if one is recorded.
+    fn surname_of(&self, person_id: Uuid) -> Option<String> {
+        self.split_names.get(&person_id).and_then(|n| n.0.clone())
+    }
+
+    /// The primary given names of `person_id`, if any are recorded.
+    fn given_names_of(&self, person_id: Uuid) -> Option<String> {
+        self.split_names.get(&person_id).and_then(|n| n.1.clone())
     }
 }
 
@@ -348,6 +369,8 @@ fn build_one_person(
             let spouse_id = other_spouse.map(|s| s.person_id);
             let spouse_display_name =
                 spouse_id.and_then(|sid| idx.display_names.get(&sid).cloned());
+            let spouse_surname = spouse_id.and_then(|sid| idx.surname_of(sid));
+            let spouse_given_names = spouse_id.and_then(|sid| idx.given_names_of(sid));
             let spouse_sex = spouse_id.and_then(|sid| idx.sex_by_person.get(&sid).copied());
 
             // Collect all family events (marriage, divorce, annulment, etc.)
@@ -382,6 +405,8 @@ fn build_one_person(
                 role: fs.role,
                 spouse_id,
                 spouse_display_name,
+                spouse_surname,
+                spouse_given_names,
                 spouse_sex,
                 marriage,
                 events: all_family_events,
@@ -405,30 +430,23 @@ fn build_one_person(
                 .unwrap_or_default();
 
             let mut father_id: Option<Uuid> = None;
-            let mut father_display_name: Option<String> = None;
             let mut mother_id: Option<Uuid> = None;
-            let mut mother_display_name: Option<String> = None;
 
             for parent in &parents {
                 let sex = idx.sex_by_person.get(&parent.person_id).copied();
-                let name = idx.display_names.get(&parent.person_id).cloned();
                 match (parent.role, sex) {
                     (SpouseRole::Husband, _) | (SpouseRole::Partner, Some(Sex::Male)) => {
                         father_id = Some(parent.person_id);
-                        father_display_name = name;
                     }
                     (SpouseRole::Wife, _) | (SpouseRole::Partner, Some(Sex::Female)) => {
                         mother_id = Some(parent.person_id);
-                        mother_display_name = name;
                     }
                     _ => {
                         // For unknown sex partner, assign to first empty slot
                         if father_id.is_none() {
                             father_id = Some(parent.person_id);
-                            father_display_name = name;
                         } else if mother_id.is_none() {
                             mother_id = Some(parent.person_id);
-                            mother_display_name = name;
                         }
                     }
                 }
@@ -438,9 +456,13 @@ fn build_one_person(
                 family_id,
                 child_type: fc.child_type,
                 father_id,
-                father_display_name,
+                father_display_name: father_id.and_then(|id| idx.display_names.get(&id).cloned()),
+                father_surname: father_id.and_then(|id| idx.surname_of(id)),
+                father_given_names: father_id.and_then(|id| idx.given_names_of(id)),
                 mother_id,
-                mother_display_name,
+                mother_display_name: mother_id.and_then(|id| idx.display_names.get(&id).cloned()),
+                mother_surname: mother_id.and_then(|id| idx.surname_of(id)),
+                mother_given_names: mother_id.and_then(|id| idx.given_names_of(id)),
             }
         });
 
@@ -555,6 +577,23 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
         .find(|n| n.name_type == NameType::Maiden)
         .and_then(|n| n.surname.clone());
 
+    // A birth recorded without a date is common — the register entry is the
+    // baptism — so date the entry the way a pedigree card does, falling back to
+    // the baptism and the burial rather than showing a blank year.
+    let birth = person.birth_or_baptism();
+    let death = person.death_or_burial();
+
+    let spouse_names: Vec<String> = person
+        .families_as_spouse
+        .iter()
+        .filter_map(|f| f.spouse_display_name.clone())
+        .collect();
+    let children_count = person
+        .families_as_spouse
+        .iter()
+        .map(|f| f.children_count)
+        .sum();
+
     SearchEntry {
         person_id: person.person_id,
         sex: person.sex,
@@ -564,10 +603,22 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
         surname,
         given_names,
         display_name,
-        birth_year: person.birth.as_ref().and_then(extract_year),
-        birth_place: person.birth.as_ref().and_then(|e| e.place_name.clone()),
-        death_year: person.death.as_ref().and_then(extract_year),
-        date_sort: person.birth.as_ref().and_then(|e| e.date_sort),
+        birth_year: birth.and_then(extract_year),
+        birth_qualifier: extract_qualifier(birth),
+        birth_place: birth.and_then(|e| e.place_name.clone()),
+        death_year: death.and_then(extract_year),
+        death_qualifier: extract_qualifier(death),
+        spouse_names,
+        father_name: person
+            .family_as_child
+            .as_ref()
+            .and_then(|c| c.father_display_name.clone()),
+        mother_name: person
+            .family_as_child
+            .as_ref()
+            .and_then(|c| c.mother_display_name.clone()),
+        children_count,
+        date_sort: birth.and_then(|e| e.date_sort),
     }
 }
 
@@ -577,6 +628,21 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
 /// in-memory search index.
 pub fn build_db_search_entry(person: &PersonProfile) -> oxidgene_db::repo::PersonSearchEntry {
     let entry = build_search_entry(person);
+    let child_link = person.family_as_child.as_ref();
+
+    // One column per relative role, with several spouses joined by a control
+    // character no name can contain — so a `LIKE '%…%'` filter cannot match
+    // across the boundary between two spouses.
+    let join_spouses = |field: fn(&ProfileFamilyLink) -> Option<&String>| -> String {
+        person
+            .families_as_spouse
+            .iter()
+            .filter_map(field)
+            .map(|v| normalize_for_search(v))
+            .collect::<Vec<_>>()
+            .join(&RELATIVE_SEP.to_string())
+    };
+
     oxidgene_db::repo::PersonSearchEntry {
         person_id: entry.person_id,
         tree_id: person.tree_id,
@@ -585,12 +651,32 @@ pub fn build_db_search_entry(person: &PersonProfile) -> oxidgene_db::repo::Perso
         maiden_name: entry.maiden_name_normalized,
         birth_year: entry.birth_year,
         death_year: entry.death_year,
+        birth_qualifier: entry.birth_qualifier.to_string(),
+        death_qualifier: entry.death_qualifier.to_string(),
         sex: entry.sex.to_string(),
         display_name: entry.display_name,
         surname_display: entry.surname,
         given_names_display: entry.given_names,
         birth_place: entry.birth_place,
         date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
+        spouse_names: entry.spouse_names.join(&RELATIVE_SEP.to_string()),
+        spouse_surnames: join_spouses(|f| f.spouse_surname.as_ref()),
+        spouse_given_names: join_spouses(|f| f.spouse_given_names.as_ref()),
+        father_name: entry.father_name,
+        father_surname: child_link
+            .and_then(|c| c.father_surname.as_deref())
+            .map(normalize_for_search),
+        father_given_names: child_link
+            .and_then(|c| c.father_given_names.as_deref())
+            .map(normalize_for_search),
+        mother_name: entry.mother_name,
+        mother_surname: child_link
+            .and_then(|c| c.mother_surname.as_deref())
+            .map(normalize_for_search),
+        mother_given_names: child_link
+            .and_then(|c| c.mother_given_names.as_deref())
+            .map(normalize_for_search),
+        children_count: entry.children_count,
     }
 }
 
@@ -611,11 +697,46 @@ pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> Search
         given_names: row.given_names_display,
         display_name: row.display_name,
         birth_year: row.birth_year,
+        birth_qualifier: parse_qualifier(&row.birth_qualifier),
         birth_place: row.birth_place,
         death_year: row.death_year,
+        death_qualifier: parse_qualifier(&row.death_qualifier),
+        spouse_names: split_relatives(&row.spouse_names),
+        father_name: row.father_name,
+        mother_name: row.mother_name,
+        children_count: row.children_count,
         date_sort: row
             .date_sort
             .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+    }
+}
+
+/// Split a joined relatives column back into one entry per relative.
+///
+/// An empty column means "no relatives", not one nameless relative.
+fn split_relatives(joined: &str) -> Vec<String> {
+    if joined.is_empty() {
+        return Vec::new();
+    }
+    joined.split(RELATIVE_SEP).map(str::to_owned).collect()
+}
+
+/// Read back a qualifier written by [`DateQualifier::to_string`].
+///
+/// An unreadable value falls back to `Exact`, which is what a row written
+/// before the column existed would have meant.
+fn parse_qualifier(raw: &str) -> DateQualifier {
+    match raw {
+        "about" => DateQualifier::About,
+        "calculated" => DateQualifier::Calculated,
+        "estimated" => DateQualifier::Estimated,
+        "perhaps" => DateQualifier::Perhaps,
+        "before" => DateQualifier::Before,
+        "after" => DateQualifier::After,
+        "or" => DateQualifier::Or,
+        "between" => DateQualifier::Between,
+        "from_age" => DateQualifier::FromAge,
+        _ => DateQualifier::Exact,
     }
 }
 
@@ -701,8 +822,14 @@ mod tests {
             given_names: "Jane".to_string(),
             display_name: "Jane Smith".to_string(),
             birth_year: Some("1850".to_string()),
+            birth_qualifier: DateQualifier::About,
             birth_place: Some("Berlin".to_string()),
             death_year: None,
+            death_qualifier: DateQualifier::Exact,
+            spouse_names: vec!["Spouse A".to_string(), "Spouse B".to_string()],
+            father_name: Some("Father One".to_string()),
+            mother_name: Some("Mother One".to_string()),
+            children_count: 3,
             date_sort: chrono::NaiveDate::from_ymd_opt(1850, 6, 1),
         };
         let tree_id = Uuid::now_v7();
@@ -715,12 +842,24 @@ mod tests {
             maiden_name: entry.maiden_name_normalized.clone(),
             birth_year: entry.birth_year.clone(),
             death_year: entry.death_year.clone(),
+            birth_qualifier: entry.birth_qualifier.to_string(),
+            death_qualifier: entry.death_qualifier.to_string(),
             sex: entry.sex.to_string(),
             display_name: entry.display_name.clone(),
             surname_display: entry.surname.clone(),
             given_names_display: entry.given_names.clone(),
             birth_place: entry.birth_place.clone(),
             date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
+            spouse_names: entry.spouse_names.join(&RELATIVE_SEP.to_string()),
+            spouse_surnames: "a\u{1f}b".to_string(),
+            spouse_given_names: "spouse\u{1f}spouse".to_string(),
+            father_name: entry.father_name.clone(),
+            father_surname: Some("one".to_string()),
+            father_given_names: Some("father".to_string()),
+            mother_name: entry.mother_name.clone(),
+            mother_surname: Some("one".to_string()),
+            mother_given_names: Some("mother".to_string()),
+            children_count: entry.children_count,
         };
 
         let back = search_entry_from_db(db_row);
@@ -732,5 +871,35 @@ mod tests {
         assert_eq!(back.display_name, "Jane Smith");
         assert_eq!(back.surname, "Smith");
         assert_eq!(back.given_names, "Jane");
+        // The qualifier has to survive the round trip, or every search result
+        // silently claims a precision the source never had.
+        assert_eq!(back.birth_qualifier, DateQualifier::About);
+        assert_eq!(back.death_qualifier, DateQualifier::Exact);
+        assert_eq!(back.spouse_names, entry.spouse_names);
+        assert_eq!(back.father_name.as_deref(), Some("Father One"));
+        assert_eq!(back.mother_name.as_deref(), Some("Mother One"));
+        assert_eq!(back.children_count, 3);
+    }
+
+    #[test]
+    fn empty_relatives_column_reads_as_no_relatives() {
+        // The joined column is a plain string, so "" has to mean an empty list
+        // rather than one nameless spouse — otherwise every single person in
+        // the tree reads as married.
+        assert!(split_relatives("").is_empty());
+        assert_eq!(split_relatives("Only One"), vec!["Only One".to_string()]);
+        assert_eq!(
+            split_relatives("First\u{1f}Second"),
+            vec!["First".to_string(), "Second".to_string()]
+        );
+    }
+
+    #[test]
+    fn unknown_qualifier_reads_as_exact() {
+        // Rows written before the column existed come back empty; treating
+        // that as `Exact` is what "nothing was claimed here" means.
+        assert_eq!(parse_qualifier(""), DateQualifier::Exact);
+        assert_eq!(parse_qualifier("about"), DateQualifier::About);
+        assert_eq!(parse_qualifier("from_age"), DateQualifier::FromAge);
     }
 }

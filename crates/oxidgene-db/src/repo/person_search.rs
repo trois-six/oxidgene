@@ -31,6 +31,11 @@ pub struct PersonSearchEntry {
     pub maiden_name: Option<String>,
     pub birth_year: Option<String>,
     pub death_year: Option<String>,
+    /// Precision of `birth_year` / `death_year` as the lowercase string form of
+    /// `DateQualifier` (`exact`, `about`, `before`, …). Kept beside the year
+    /// rather than folded into it so the UI can word it in its own language.
+    pub birth_qualifier: String,
+    pub death_qualifier: String,
     /// Sex as its lowercase string form (`male` / `female` / `unknown`).
     pub sex: String,
     /// Display name with original casing, for rendering results.
@@ -42,7 +47,38 @@ pub struct PersonSearchEntry {
     pub birth_place: Option<String>,
     /// ISO date (`YYYY-MM-DD`) used for sorting, if known.
     pub date_sort: Option<String>,
+    // ── Close relatives ──
+    //
+    // Denormalized onto the row so a result can name a spouse or the parents
+    // without a second round trip. The `_display` columns are rendered as-is;
+    // the normalized ones back the `spouse_*` / `father_*` / `mother_*`
+    // filters, which are accent-folded exactly like the subject's own name.
+    //
+    // A person can have several spouses, so those columns hold every spouse
+    // joined by [`RELATIVE_SEP`] — a separator no name contains, which also
+    // stops a `LIKE '%…%'` from matching across two of them.
+    /// Spouse display names, joined by [`RELATIVE_SEP`].
+    pub spouse_names: String,
+    /// Normalized spouse surnames, joined by [`RELATIVE_SEP`].
+    pub spouse_surnames: String,
+    /// Normalized spouse given names, joined by [`RELATIVE_SEP`].
+    pub spouse_given_names: String,
+    pub father_name: Option<String>,
+    pub father_surname: Option<String>,
+    pub father_given_names: Option<String>,
+    pub mother_name: Option<String>,
+    pub mother_surname: Option<String>,
+    pub mother_given_names: Option<String>,
+    /// Total children across every family where this person is a spouse.
+    pub children_count: u32,
 }
+
+/// Joins several relatives into one column.
+///
+/// U+001F (unit separator) is a control character, so no name contains it and
+/// no user can type it into a filter — a substring match therefore cannot span
+/// two relatives.
+pub const RELATIVE_SEP: char = '\u{1f}';
 
 /// Paginated search hits plus the total match count.
 #[derive(Debug, Clone)]
@@ -88,11 +124,37 @@ pub enum PersonSearchSort {
 
 const COLUMNS: &str = "person_id, tree_id, surname, given_names, maiden_name, \
                        birth_year, death_year, sex, display_name, surname_display, \
-                       given_names_display, birth_place, date_sort";
+                       given_names_display, birth_place, date_sort, \
+                       birth_qualifier, death_qualifier, \
+                       spouse_names, spouse_surnames, spouse_given_names, \
+                       father_name, father_surname, father_given_names, \
+                       mother_name, mother_surname, mother_given_names, \
+                       children_count";
 
-/// Maximum rows per INSERT batch (13 bind values per row, well under the
-/// SQLite / PostgreSQL parameter limits).
-const INSERT_CHUNK: usize = 500;
+/// Bind values per inserted row — one per column in [`COLUMNS`].
+///
+/// Derived rather than written out, so adding a column cannot leave the
+/// placeholder list behind.
+const COLUMN_COUNT: usize = 25;
+
+// Keeps [`COLUMN_COUNT`] honest: counting the separators in [`COLUMNS`] must
+// give the same answer, or the crate does not compile.
+const _: () = {
+    let bytes = COLUMNS.as_bytes();
+    let mut i = 0;
+    let mut columns = 1;
+    while i < bytes.len() {
+        if bytes[i] == b',' {
+            columns += 1;
+        }
+        i += 1;
+    }
+    assert!(columns == COLUMN_COUNT);
+};
+
+/// Maximum rows per INSERT batch, kept well under the SQLite / PostgreSQL
+/// parameter limits: 250 × [`COLUMN_COUNT`] bind values.
+const INSERT_CHUNK: usize = 250;
 
 /// Repository for the DB-native person search table.
 pub struct PersonSearchRepo;
@@ -501,30 +563,18 @@ impl PersonSearchRepo {
         let backend = db.get_database_backend();
 
         for chunk in entries.chunks(INSERT_CHUNK) {
-            let mut values: Vec<Value> = Vec::with_capacity(chunk.len() * 13);
+            let mut values: Vec<Value> = Vec::with_capacity(chunk.len() * COLUMN_COUNT);
             let mut rows = Vec::with_capacity(chunk.len());
             for entry in chunk {
                 let base = values.len();
-                let row = match backend {
-                    DbBackend::Sqlite => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)".to_owned(),
-                    _ => format!(
-                        "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
-                        base + 1,
-                        base + 2,
-                        base + 3,
-                        base + 4,
-                        base + 5,
-                        base + 6,
-                        base + 7,
-                        base + 8,
-                        base + 9,
-                        base + 10,
-                        base + 11,
-                        base + 12,
-                        base + 13
-                    ),
-                };
-                rows.push(row);
+                let placeholders = (0..COLUMN_COUNT)
+                    .map(|i| match backend {
+                        DbBackend::Sqlite => "?".to_owned(),
+                        _ => format!("${}", base + i + 1),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                rows.push(format!("({placeholders})"));
                 values.extend([
                     Value::from(entry.person_id.to_string()),
                     Value::from(entry.tree_id.to_string()),
@@ -539,6 +589,18 @@ impl PersonSearchRepo {
                     Value::from(entry.given_names_display.clone()),
                     Value::from(entry.birth_place.clone()),
                     Value::from(entry.date_sort.clone()),
+                    Value::from(entry.birth_qualifier.clone()),
+                    Value::from(entry.death_qualifier.clone()),
+                    Value::from(entry.spouse_names.clone()),
+                    Value::from(entry.spouse_surnames.clone()),
+                    Value::from(entry.spouse_given_names.clone()),
+                    Value::from(entry.father_name.clone()),
+                    Value::from(entry.father_surname.clone()),
+                    Value::from(entry.father_given_names.clone()),
+                    Value::from(entry.mother_name.clone()),
+                    Value::from(entry.mother_surname.clone()),
+                    Value::from(entry.mother_given_names.clone()),
+                    Value::from(entry.children_count.to_string()),
                 ]);
             }
             let sql = format!(
@@ -579,6 +641,20 @@ impl PersonSearchRepo {
             given_names_display: get_string("given_names_display")?,
             birth_place: get_opt("birth_place")?,
             date_sort: get_opt("date_sort")?,
+            birth_qualifier: get_string("birth_qualifier")?,
+            death_qualifier: get_string("death_qualifier")?,
+            spouse_names: get_string("spouse_names")?,
+            spouse_surnames: get_string("spouse_surnames")?,
+            spouse_given_names: get_string("spouse_given_names")?,
+            father_name: get_opt("father_name")?,
+            father_surname: get_opt("father_surname")?,
+            father_given_names: get_opt("father_given_names")?,
+            mother_name: get_opt("mother_name")?,
+            mother_surname: get_opt("mother_surname")?,
+            mother_given_names: get_opt("mother_given_names")?,
+            children_count: get_opt("children_count")?
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0),
         })
     }
 }

@@ -56,6 +56,7 @@ pub use person_denorm::PersonDenormRepo;
 pub use person_name::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};
 pub use person_search::{
     PersonSearchEntry, PersonSearchFilters, PersonSearchPage, PersonSearchRepo, PersonSearchSort,
+    RELATIVE_SEP,
 };
 pub use place::PlaceRepo;
 pub use source::SourceRepo;

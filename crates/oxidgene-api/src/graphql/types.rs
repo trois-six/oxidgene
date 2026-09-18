@@ -2239,6 +2239,8 @@ pub struct GqlProfileFamilyLink {
     pub role: GqlSpouseRole,
     pub spouse_id: Option<ID>,
     pub spouse_display_name: Option<String>,
+    pub spouse_surname: Option<String>,
+    pub spouse_given_names: Option<String>,
     pub spouse_sex: Option<GqlSex>,
     pub marriage: Option<GqlProfileEvent>,
     pub children_ids: Vec<ID>,
@@ -2252,8 +2254,12 @@ pub struct GqlProfileChildLink {
     pub child_type: GqlChildType,
     pub father_id: Option<ID>,
     pub father_display_name: Option<String>,
+    pub father_surname: Option<String>,
+    pub father_given_names: Option<String>,
     pub mother_id: Option<ID>,
     pub mother_display_name: Option<String>,
+    pub mother_surname: Option<String>,
+    pub mother_given_names: Option<String>,
 }
 
 /// A media reference (portrait / primary photo).
@@ -2274,8 +2280,15 @@ pub struct GqlSearchEntry {
     pub surname: String,
     pub given_names: String,
     pub birth_year: Option<String>,
+    pub birth_qualifier: GqlDateQualifier,
     pub birth_place: Option<String>,
     pub death_year: Option<String>,
+    pub death_qualifier: GqlDateQualifier,
+    /// Display names of every spouse, in family order.
+    pub spouse_names: Vec<String>,
+    pub father_name: Option<String>,
+    pub mother_name: Option<String>,
+    pub children_count: i32,
 }
 
 /// Paginated search results.
@@ -2806,6 +2819,8 @@ impl From<oxidgene_core::projection::ProfileFamilyLink> for GqlProfileFamilyLink
             role: f.role.into(),
             spouse_id: f.spouse_id.map(|id| ID(id.to_string())),
             spouse_display_name: f.spouse_display_name,
+            spouse_surname: f.spouse_surname,
+            spouse_given_names: f.spouse_given_names,
             spouse_sex: f.spouse_sex.map(Into::into),
             marriage: f.marriage.map(Into::into),
             children_ids: f
@@ -2825,8 +2840,12 @@ impl From<oxidgene_core::projection::ProfileChildLink> for GqlProfileChildLink {
             child_type: c.child_type.into(),
             father_id: c.father_id.map(|id| ID(id.to_string())),
             father_display_name: c.father_display_name,
+            father_surname: c.father_surname,
+            father_given_names: c.father_given_names,
             mother_id: c.mother_id.map(|id| ID(id.to_string())),
             mother_display_name: c.mother_display_name,
+            mother_surname: c.mother_surname,
+            mother_given_names: c.mother_given_names,
         }
     }
 }
@@ -2851,8 +2870,14 @@ impl From<oxidgene_core::projection::SearchEntry> for GqlSearchEntry {
             surname: e.surname,
             given_names: e.given_names,
             birth_year: e.birth_year,
+            birth_qualifier: e.birth_qualifier.into(),
             birth_place: e.birth_place,
             death_year: e.death_year,
+            death_qualifier: e.death_qualifier.into(),
+            spouse_names: e.spouse_names,
+            father_name: e.father_name,
+            mother_name: e.mother_name,
+            children_count: e.children_count as i32,
         }
     }
 }

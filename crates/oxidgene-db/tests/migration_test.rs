@@ -57,16 +57,14 @@ async fn test_migrate_up_and_down_postgres() {
 }
 
 async fn assert_migration_lifecycle(db: &DatabaseConnection) {
-    assert_eq!(Migrator::migrations().len(), 1);
     let manager = SchemaManager::new(db);
     for table in TABLES {
         assert!(!manager.has_table(*table).await.unwrap(), "{table} exists");
     }
 
-    // One migration must create the complete current schema, without follow-ups.
-    Migrator::up(db, Some(1))
-        .await
-        .expect("Migration up failed");
+    // The initial migration creates the bulk of the schema and each later one
+    // amends it; running them in order must land on the current schema.
+    run_migrations(db).await.expect("Migration up failed");
     assert_current_schema(db).await;
     run_migrations(db).await.expect("Repeated migration failed");
     assert_current_schema(db).await;
@@ -94,8 +92,14 @@ async fn assert_current_schema(db: &DatabaseConnection) {
     let backend = db.get_database_backend();
     let manager = SchemaManager::new(db);
     let applied = Migrator::get_applied_migrations(db).await.unwrap();
-    assert_eq!(applied.len(), 1);
-    assert_eq!(applied[0].name(), "m20250101_000001_initial");
+    let applied: Vec<&str> = applied.iter().map(|m| m.name()).collect();
+    assert_eq!(
+        applied,
+        vec![
+            "m20250101_000001_initial",
+            "m20260918_000001_search_relatives",
+        ]
+    );
 
     for table in TABLES {
         assert!(manager.has_table(*table).await.unwrap(), "missing {table}");
@@ -132,7 +136,7 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         ),
         (
             "person_search_fts",
-            "person_id, tree_id, surname, given_names, maiden_name, birth_year, death_year, sex, display_name, surname_display, given_names_display, birth_place, date_sort",
+            "person_id, tree_id, surname, given_names, maiden_name, birth_year, death_year, birth_qualifier, death_qualifier, sex, display_name, surname_display, given_names_display, birth_place, date_sort, spouse_names, spouse_surnames, spouse_given_names, father_name, father_surname, father_given_names, mother_name, mother_surname, mother_given_names, children_count",
         ),
     ] {
         db.query_all_raw(Statement::from_string(

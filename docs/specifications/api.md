@@ -570,9 +570,17 @@ Person search uses `GET /trees/{tree_id}/persons/search` and returns a paginated
 | Media and ordering | `has_media`, `sort` (`relevance`, `name_asc`, `name_desc`, `birth_asc`, `birth_desc`) |
 
 All supplied filters are combined with AND. Name and free-text matching is
-case- and accent-insensitive. An empty or missing `q` is valid: structured
-filters can be used alone, and no filters at all select browse mode. The
-response's `total_count` is computed before `limit` and `offset` are applied.
+case- and accent-insensitive, including the `Relations` filters. An empty or
+missing `q` is valid: structured filters can be used alone, and no filters at
+all select browse mode. The response's `total_count` is computed before `limit`
+and `offset` are applied.
+
+Each `SearchEntry` names the person's close relatives — every spouse, the
+father and mother, and the number of children — so a result can be rendered
+without a follow-up request. Birth and death years fall back to the baptism and
+the burial when the primary event carries no date, and each year is accompanied
+by its own qualifier; a client must render the two together rather than
+displaying a bare year.
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
 
@@ -1130,6 +1138,8 @@ type GqlProfileFamilyLink {
   role: SpouseRole!
   spouseId: ID
   spouseDisplayName: String
+  spouseSurname: String
+  spouseGivenNames: String
   spouseSex: Sex
   marriage: GqlProfileEvent
   childrenIds: [ID!]!
@@ -1141,8 +1151,12 @@ type GqlProfileChildLink {
   childType: ChildType!
   fatherId: ID
   fatherDisplayName: String
+  fatherSurname: String
+  fatherGivenNames: String
   motherId: ID
   motherDisplayName: String
+  motherSurname: String
+  motherGivenNames: String
 }
 
 type GqlProfileMediaRef {
@@ -1204,8 +1218,14 @@ type SearchEntry {
   surname: String!
   givenNames: String!
   birthYear: String
+  birthQualifier: DateQualifier!
   birthPlace: String
   deathYear: String
+  deathQualifier: DateQualifier!
+  spouseNames: [String!]!
+  fatherName: String
+  motherName: String
+  childrenCount: Int!
 }
 
 enum PedigreeDirection {

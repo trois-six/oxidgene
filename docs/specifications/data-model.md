@@ -439,8 +439,9 @@ SOSA badge computation ([Person Profile](ui-person-profile.md),
 DB-native person search index; not a domain entity (no UUID PK, maintained by
 `PersonSearchRepo`). SQLite uses an FTS5 virtual table and PostgreSQL uses a
 plain indexed table. Columns include normalized `surname`, `given_names`,
-`maiden_name`, `birth_year`, and `death_year`, plus unindexed display fields.
-See §4.3 for maintenance and query behavior.
+`maiden_name`, `birth_year`, and `death_year`, plus unindexed display fields
+and the close relatives a result is rendered with. See §4.3 for maintenance and
+query behavior.
 
 ---
 
@@ -699,6 +700,31 @@ name by splitting `display_name`.
 SQLite uses FTS5 for token matching. PostgreSQL uses the same logical columns
 behind ordinary indexes. Empty queries provide browse mode. Search ordering,
 filters, and API pagination are documented in [API](api.md).
+
+A row also carries the person's close relatives, so a result can name who
+someone married or descends from without a second request: the spouse display
+names, the father's and mother's display names, and the total number of
+children. Each of those has a normalized counterpart that backs the
+`spouse_*`, `father_*`, and `mother_*` filters, which are therefore
+accent-folded exactly like the subject's own name. Several spouses are joined
+into one column by U+001F, a control character no name contains and no filter
+can carry, so a substring match cannot span two of them. All relative columns
+are unindexed for full-text purposes: searching a name must return that person,
+not everyone related to someone of that name.
+
+Birth and death years are dated the way a pedigree card dates them — falling
+back to the baptism and the burial when the primary event carries no date — and
+each year is stored beside its own `DateQualifier`. The qualifier stays a
+separate column rather than being folded into the year string, because only the
+UI knows how to word it in the reader's language.
+
+The table has no `schema_version` of its own. It is repopulated by way of
+`PROJECTION_SCHEMA_VERSION`: a bump makes `person_denorm` read as empty, which
+makes `ensure_materialized` rebuild the tree, which replaces every search row.
+Changing the set of columns therefore needs both a migration and a version
+bump. Because SQLite FTS5 virtual tables reject `ALTER TABLE … ADD COLUMN`,
+such a migration drops and recreates the table on both backends; no data is
+lost, as every row is derived.
 
 ### 4.4 Refresh and consistency
 
