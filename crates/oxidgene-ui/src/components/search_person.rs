@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource};
 use crate::components::cropped_image::CroppedImage;
-use crate::i18n::use_i18n;
+use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 
 #[derive(Clone)]
@@ -26,6 +26,11 @@ pub(crate) struct PersonSearchSummary {
     birth_year: Option<String>,
     birth_place: Option<String>,
     death_year: Option<String>,
+    /// Close relatives, so two people of the same name can be told apart.
+    spouse_names: Vec<String>,
+    father_name: Option<String>,
+    mother_name: Option<String>,
+    children_count: u32,
 }
 
 impl PersonSearchSummary {
@@ -38,6 +43,10 @@ impl PersonSearchSummary {
             birth_year: None,
             birth_place: None,
             death_year: None,
+            spouse_names: Vec::new(),
+            father_name: None,
+            mother_name: None,
+            children_count: 0,
         }
     }
 }
@@ -52,6 +61,10 @@ impl From<&SearchEntry> for PersonSearchSummary {
             birth_year: entry.birth_year.clone(),
             birth_place: entry.birth_place.clone(),
             death_year: entry.death_year.clone(),
+            spouse_names: entry.spouse_names.clone(),
+            father_name: entry.father_name.clone(),
+            mother_name: entry.mother_name.clone(),
+            children_count: entry.children_count,
         }
     }
 }
@@ -59,6 +72,7 @@ impl From<&SearchEntry> for PersonSearchSummary {
 impl From<PersonProfile> for PersonSearchSummary {
     fn from(profile: PersonProfile) -> Self {
         let primary_name = profile.primary_name.as_ref();
+        let child_link = profile.family_as_child.as_ref();
         Self {
             person_id: profile.person_id,
             sex: profile.sex,
@@ -74,8 +88,64 @@ impl From<PersonProfile> for PersonSearchSummary {
                 .as_ref()
                 .and_then(|event| event.place_name.clone()),
             death_year: profile.death.as_ref().and_then(profile_event_year),
+            spouse_names: profile
+                .families_as_spouse
+                .iter()
+                .filter_map(|family| family.spouse_display_name.clone())
+                .collect(),
+            father_name: child_link.and_then(|link| link.father_display_name.clone()),
+            mother_name: child_link.and_then(|link| link.mother_display_name.clone()),
+            children_count: profile
+                .families_as_spouse
+                .iter()
+                .map(|family| family.children_count)
+                .sum(),
         }
     }
+}
+
+/// How a result names the person's place among their relatives.
+///
+/// A spouse identifies someone best, so it wins when there is one; parents are
+/// the fallback, which is what distinguishes the children of a large family.
+/// Returns `None` when neither is recorded, so the row simply omits the line
+/// rather than reserving blank space for it.
+fn relation_label(summary: &PersonSearchSummary, i18n: &I18n) -> Option<String> {
+    let mut label = if !summary.spouse_names.is_empty() {
+        let key = match summary.sex {
+            Sex::Male => "search.relation_spouse_male",
+            Sex::Female => "search.relation_spouse_female",
+            Sex::Unknown => "search.relation_spouse",
+        };
+        i18n.t_args(key, &[("names", &summary.spouse_names.join(", "))])
+    } else if summary.father_name.is_some() || summary.mother_name.is_some() {
+        let key = match summary.sex {
+            Sex::Male => "search.relation_child_male",
+            Sex::Female => "search.relation_child_female",
+            Sex::Unknown => "search.relation_child",
+        };
+        // Only one parent may be recorded; naming the known one beats
+        // printing "child of X and —".
+        match (&summary.father_name, &summary.mother_name) {
+            (Some(father), Some(mother)) => i18n.t_args(
+                key,
+                &[(
+                    "parents",
+                    &format!("{father} {} {mother}", i18n.t("common.and")),
+                )],
+            ),
+            (Some(parent), None) | (None, Some(parent)) => i18n.t_args(key, &[("parents", parent)]),
+            (None, None) => unreachable!("guarded by the branch condition"),
+        }
+    } else {
+        return None;
+    };
+
+    if summary.children_count > 0 {
+        label.push_str(" – ");
+        label.push_str(&i18n.t_plural("search.relation_children", summary.children_count as usize));
+    }
+    Some(label)
 }
 
 fn profile_event_year(event: &oxidgene_core::projection::ProfileEvent) -> Option<String> {
@@ -203,6 +273,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
                             entry,
                             props.on_select,
                             portraits.get(&entry.person_id).cloned(),
+                            &i18n,
                         )}
                     }
                 }
@@ -216,6 +287,7 @@ fn render_search_entry(
     entry: &SearchEntry,
     on_select: EventHandler<Uuid>,
     portrait: Option<CroppedSource>,
+    i18n: &I18n,
 ) -> Element {
     let summary = PersonSearchSummary::from(entry);
     let rid = summary.person_id;
@@ -229,7 +301,7 @@ fn render_search_entry(
         button {
             class: "search-person-result {sex_class}",
             onclick: move |_| on_select.call(rid),
-            {render_person_search_summary(&summary, portrait)}
+            {render_person_search_summary(&summary, portrait, i18n)}
         }
     }
 }
@@ -237,9 +309,11 @@ fn render_search_entry(
 pub(crate) fn render_person_search_summary(
     summary: &PersonSearchSummary,
     portrait: Option<CroppedSource>,
+    i18n: &I18n,
 ) -> Element {
     let given = &summary.given_names;
     let surname = &summary.surname;
+    let relation = relation_label(summary, i18n);
     let portrait = portrait.unwrap_or_else(|| CroppedSource::silhouette(summary.sex));
 
     rsx! {
@@ -269,11 +343,126 @@ pub(crate) fn render_person_search_summary(
                     span { class: "sp-death", "\u{271D} {death_year}" }
                 }
             }
+            if let Some(relation) = relation {
+                div { class: "sp-result-rel", "{relation}" }
+            }
             if let Some(ref birth_place) = summary.birth_place {
                 div { class: "sp-result-meta",
                     span { class: "sp-place", "{birth_place}" }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod relation_tests {
+    use super::*;
+    use crate::i18n::Language;
+
+    fn summary(sex: Sex) -> PersonSearchSummary {
+        PersonSearchSummary {
+            person_id: Uuid::now_v7(),
+            sex,
+            surname: "Branch A".into(),
+            given_names: "Child One".into(),
+            birth_year: None,
+            birth_place: None,
+            death_year: None,
+            spouse_names: Vec::new(),
+            father_name: None,
+            mother_name: None,
+            children_count: 0,
+        }
+    }
+
+    #[test]
+    fn a_spouse_identifies_someone_better_than_their_parents() {
+        let en = I18n(Language::En);
+        let mut s = summary(Sex::Male);
+        s.father_name = Some("Parent One".into());
+        s.mother_name = Some("Parent Two".into());
+        assert_eq!(
+            relation_label(&s, &en).as_deref(),
+            Some("son of Parent One and Parent Two")
+        );
+
+        s.spouse_names = vec!["Spouse One".into()];
+        assert_eq!(
+            relation_label(&s, &en).as_deref(),
+            Some("married to Spouse One"),
+            "a spouse takes precedence over the parents"
+        );
+    }
+
+    #[test]
+    fn a_single_known_parent_is_named_alone() {
+        // "son of Parent One and —" would be worse than naming the one parent
+        // the record actually has.
+        let en = I18n(Language::En);
+        let mut s = summary(Sex::Female);
+        s.mother_name = Some("Parent Two".into());
+        assert_eq!(
+            relation_label(&s, &en).as_deref(),
+            Some("daughter of Parent Two")
+        );
+    }
+
+    #[test]
+    fn sex_picks_the_wording_and_unknown_stays_neutral() {
+        let fr = I18n(Language::Fr);
+        let mut s = summary(Sex::Unknown);
+        s.father_name = Some("Parent One".into());
+        assert_eq!(
+            relation_label(&s, &fr).as_deref(),
+            Some("enfant de Parent One")
+        );
+
+        s.sex = Sex::Female;
+        assert_eq!(
+            relation_label(&s, &fr).as_deref(),
+            Some("fille de Parent One")
+        );
+    }
+
+    #[test]
+    fn several_spouses_are_all_named() {
+        let en = I18n(Language::En);
+        let mut s = summary(Sex::Male);
+        s.spouse_names = vec!["Spouse One".into(), "Spouse Two".into()];
+        assert_eq!(
+            relation_label(&s, &en).as_deref(),
+            Some("married to Spouse One, Spouse Two")
+        );
+    }
+
+    #[test]
+    fn the_children_count_is_pluralised_and_omitted_at_zero() {
+        let en = I18n(Language::En);
+        let mut s = summary(Sex::Male);
+        s.spouse_names = vec!["Spouse One".into()];
+        assert_eq!(
+            relation_label(&s, &en).as_deref(),
+            Some("married to Spouse One")
+        );
+
+        s.children_count = 1;
+        assert_eq!(
+            relation_label(&s, &en).as_deref(),
+            Some("married to Spouse One – 1 child")
+        );
+
+        s.children_count = 3;
+        assert_eq!(
+            relation_label(&s, &en).as_deref(),
+            Some("married to Spouse One – 3 children")
+        );
+    }
+
+    #[test]
+    fn nothing_recorded_draws_no_line() {
+        // `None` rather than an empty string: the row omits the element
+        // instead of reserving a blank line for it.
+        assert!(relation_label(&summary(Sex::Male), &I18n(Language::En)).is_none());
     }
 }

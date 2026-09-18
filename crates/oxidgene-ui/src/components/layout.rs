@@ -1892,6 +1892,18 @@ pub const LAYOUT_STYLES: &str = r#"
     .sp-birth { color: var(--green); }
     .sp-death { color: var(--blue); }
 
+    /* Who the person is, not just what they are called: the spouse, or the
+       parents when there is no spouse. One line, truncated — it identifies a
+       result, it is not the result. */
+    .sp-result-rel {
+        font-size: 0.74rem;
+        color: var(--text-secondary);
+        margin-top: 1px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     .sp-result-meta {
         font-size: 0.73rem;
         color: var(--text-muted);

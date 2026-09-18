@@ -12,12 +12,12 @@ use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort};
-use crate::components::cropped_image::CroppedImage;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
+use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
-use crate::i18n::use_i18n;
+use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
@@ -29,6 +29,8 @@ const GRID_RESULTS_PER_PAGE: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SortOrder {
+    /// Server-side ranking: a name starting with what was typed comes first.
+    Relevance,
     NameAZ,
     NameZA,
     BirthAsc,
@@ -175,16 +177,24 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let mut event_to = use_signal(String::new);
     let mut has_media = use_signal(|| false);
 
-    // Sync props into signals when navigation changes the query parameters.
-    let prop_last = props.last.clone();
-    let prop_first = props.first.clone();
-    use_effect(move || {
-        search_last.set(prop_last.clone());
-        search_first.set(prop_first.clone());
-        committed_last.set(prop_last.clone());
-        committed_first.set(prop_first.clone());
+    // Navigation can change the query parameters while this component stays
+    // mounted, so the URL has to be able to overwrite the fields.
+    //
+    // Comparing against the last value seen is what makes that dependency
+    // explicit. An effect cannot express it: `use_effect` re-runs on the
+    // signals its body *reads*, and this body only writes, so it would keep
+    // re-applying the props it was first built with and reset the page number
+    // on every unrelated re-render.
+    let mut last_synced_query = use_signal(|| (props.last.clone(), props.first.clone()));
+    let incoming_query = (props.last.clone(), props.first.clone());
+    if last_synced_query() != incoming_query {
+        last_synced_query.set(incoming_query.clone());
+        search_last.set(incoming_query.0.clone());
+        search_first.set(incoming_query.1.clone());
+        committed_last.set(incoming_query.0);
+        committed_first.set(incoming_query.1);
         current_page.set(1);
-    });
+    }
 
     // ── Server-side search ──
     let api_search = api.clone();
@@ -224,6 +234,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             event_to: parse_filter_year(&event_to()),
             has_media: has_media(),
             sort: match sort_order() {
+                SortOrder::Relevance => PersonSearchSort::Relevance,
                 SortOrder::NameAZ => PersonSearchSort::NameAsc,
                 SortOrder::NameZA => PersonSearchSort::NameDesc,
                 SortOrder::BirthAsc => PersonSearchSort::BirthAsc,
@@ -972,6 +983,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                             value: "{sort_order():?}",
                             onchange: move |e: Event<FormData>| {
                                 sort_order.set(match e.value().as_str() {
+                                    "Relevance" => SortOrder::Relevance,
                                     "NameAZ" => SortOrder::NameAZ,
                                     "NameZA" => SortOrder::NameZA,
                                     "BirthAsc" => SortOrder::BirthAsc,
@@ -979,6 +991,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                     _ => SortOrder::NameAZ,
                                 });
                             },
+                            option { value: "Relevance", {i18n.t("search.sort_relevance")} }
                             option { value: "NameAZ", {i18n.t("search.sort_name_az")} }
                             option { value: "NameZA", {i18n.t("search.sort_name_za")} }
                             option { value: "BirthAsc", {i18n.t("search.sort_birth_asc")} }
@@ -1052,6 +1065,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                                 &props.tree_id,
                                 &props.origin,
                                 portraits.as_ref().and_then(|map| map.get(&entry.person_id)),
+                                &i18n,
                             )}
                         }
                     }
@@ -1097,11 +1111,17 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 // SearchPerson typeahead component (used in SOSA root selector, etc.)
 // so that person rows look identical everywhere.
 
+/// One result row.
+///
+/// The row body is [`render_person_search_summary`], the same one the typeahead
+/// picker draws, so the two cannot drift; only the wrapper differs — a `Link`
+/// here, a `button` there.
 fn render_result_item(
     entry: &SearchEntry,
     tree_id: &str,
     origin: &str,
     portrait: Option<&CroppedSource>,
+    i18n: &I18n,
 ) -> Element {
     let sex_class = match entry.sex {
         Sex::Male => "male",
@@ -1109,13 +1129,7 @@ fn render_result_item(
         Sex::Unknown => "",
     };
 
-    let given = entry.given_names.clone();
-    let surname = entry.surname.clone();
-
-    let portrait = portrait
-        .cloned()
-        .unwrap_or_else(|| CroppedSource::silhouette(entry.sex));
-
+    let summary = PersonSearchSummary::from(entry);
     let tree_id_str = tree_id.to_string();
     let person_id_str = entry.person_id.to_string();
 
@@ -1135,38 +1149,7 @@ fn render_result_item(
         Link {
             to: target,
             class: "search-person-result {sex_class}",
-            div { class: "sp-result-photo",
-                CroppedImage {
-                    class: "sp-result-portrait",
-                    image: portrait,
-                    alt: String::new(),
-                    fallback: CroppedSource::silhouette(entry.sex),
-                }
-            }
-            div { class: "sp-result-info",
-                div { class: "sp-result-name",
-                    if !surname.is_empty() {
-                        span { class: "sp-surname", "{surname}" }
-                    }
-                    span { class: "sp-given", " {given}" }
-                    if surname.is_empty() && given.is_empty() {
-                        span { class: "sp-given", "?" }
-                    }
-                }
-                div { class: "sp-result-dates",
-                    if let Some(ref by) = entry.birth_year {
-                        span { class: "sp-birth", "\u{2726} {by}" }
-                    }
-                    if let Some(ref dy) = entry.death_year {
-                        span { class: "sp-death", "\u{271D} {dy}" }
-                    }
-                }
-                if let Some(ref bp) = entry.birth_place {
-                    div { class: "sp-result-meta",
-                        span { class: "sp-place", "{bp}" }
-                    }
-                }
-            }
+            {render_person_search_summary(&summary, portrait.cloned(), i18n)}
         }
     }
 }

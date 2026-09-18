@@ -38,10 +38,10 @@ This page uses the standard tree `sub-page` layout pattern (see [General](genera
 |    |  Sort: [Name A -> Z v]                          [list] [grid]    |
 |    |  +-------------------------------------------------------------+  |
 |    |  | [avatar] <person A>             * 1842  + 1918              |  |
-|    |  |          Spouse: <person B> - 3 children                    |  |
+|    |  |          married to <person B> - 3 children                 |  |
 |    |  +-------------------------------------------------------------+  |
 |    |  | [avatar] <person C>             * 1790  + 1855              |  |
-|    |  |          Spouse: <person D> - 2 children                    |  |
+|    |  |          son of <person D> and <person E>                   |  |
 |    |  +-------------------------------------------------------------+  |
 |    |  ...                                                              |
 +----+-------------------------------------------------------------------+
@@ -123,6 +123,7 @@ A sort selector in the toolbar row above the results:
 
 | Option | Description |
 |---|---|
+| Relevance | Server-side ranking: a surname beginning with what was typed first, then a matching given name, then a match found further in. See [API](api.md). |
 | Name A -> Z (default) | Alphabetical by surname, then first name |
 | Name Z -> A | Reverse alphabetical |
 | Birth date (oldest first) | Oldest first |
@@ -141,7 +142,7 @@ Each result is a horizontal row:
 ```
 +--------------------------------------------------------------+
 | [avatar]  <person A>              * 12/03/1842    + 07/11/1918|
-|           Spouse: <person B> - 3 child(ren)                    |
+|           married to <person B> - 3 children                   |
 +--------------------------------------------------------------+
 ```
 
@@ -149,8 +150,19 @@ Each row shows:
 - **Portrait** (circular, ~40px) — profile photo when available, otherwise the same sex-specific placeholder used by the pedigree
 - **Full name** (surname uppercase + given names)
 - **Birth / death years** with green/blue symbols
+- **Relation line** — who the person is, not just what they are called
 - **Birth place** when known
 - **Sex indicator**: colored left border (blue/pink/grey)
+
+The relation line names the spouses when there are any, otherwise the parents,
+and appends the number of children when that is not zero. A spouse identifies
+someone better than their parents do, which is why it wins; the parents are
+what tell the children of one family apart. Wording follows the person's sex
+(*son of* / *daughter of*, with a neutral form when the sex is unknown), and a
+person with only one parent recorded is described by that parent alone rather
+than by a blank second slot. Nothing recorded means the line is absent, not
+empty. The relatives arrive on the search result itself, so drawing this line
+costs no additional request.
 
 The typeahead person picker and selected-person rows reuse this same summary
 renderer so these fields and their fallback behavior remain identical.

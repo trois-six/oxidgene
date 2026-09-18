@@ -842,7 +842,7 @@ fn TreeRootsSection(
                     // Show current root person
                     div { class: "sosa-root-display",
                         div { class: "sosa-root-person",
-                            {render_person_search_summary(summary, root_person_portrait.clone())}
+                            {render_person_search_summary(summary, root_person_portrait.clone(), &i18n)}
                         }
                         div { class: "sosa-root-actions",
                             button {
@@ -898,7 +898,7 @@ fn TreeRootsSection(
                 } else if let Some(summary) = &self_person_summary {
                     div { class: "sosa-root-display",
                         div { class: "sosa-root-person",
-                            {render_person_search_summary(summary, self_person_portrait.clone())}
+                            {render_person_search_summary(summary, self_person_portrait.clone(), &i18n)}
                         }
                         div { class: "sosa-root-actions",
                             button {
