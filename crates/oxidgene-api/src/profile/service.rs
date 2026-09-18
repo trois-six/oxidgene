@@ -553,6 +553,13 @@ impl ProfileService {
             .collect();
         family_ids.sort();
         family_ids.dedup();
+        // Deleting a family is a soft delete and leaves its membership rows
+        // behind, so reaching families through them would resurrect one. The
+        // whole-tree path gets this for free from `FamilyRepo::list_all`;
+        // without this the two paths disagree, and a targeted rebuild would
+        // keep naming parents the user has just removed.
+        let mut family_ids = FamilyRepo::live_ids(conn, &family_ids).await?;
+        family_ids.sort();
 
         // 2. All members of those families, plus attached entities.
         let (spouses, children, person_events, family_events, media_links, citations, notes) = tokio::try_join!(

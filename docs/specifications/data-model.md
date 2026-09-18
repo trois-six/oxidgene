@@ -740,6 +740,16 @@ depends on that change. The algorithm lives in
 SeaORM `ConnectionTrait` so they work on a transaction as well as a pooled
 connection.
 
+How far the set reaches depends on what changed. A family *event* alters no
+name and no count, so rebuilding the two spouses is enough. Deleting a family
+also removes its children's parent link, so the set covers every member. Either
+way the set stays one hop wide, which is exactly as far as a projection reaches.
+
+Because deletion is soft, a family's `family_spouse` and `family_child` rows
+outlive it. Anything that reaches a family *through* a membership row must
+therefore exclude deleted families explicitly, or a targeted rebuild would
+restore a family a whole-tree rebuild correctly omits.
+
 Whole-tree imports and explicit maintenance rebuilds perform idempotent bulk
 work. On startup or first read, `ensure_materialized` compares the count of
 current-version projections with active people and rebuilds when necessary.

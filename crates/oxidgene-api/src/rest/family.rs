@@ -87,8 +87,8 @@ pub async fn delete_family(
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
         .await
         .map_err(ApiError)?;
-    // Compute affected BEFORE delete.
-    let affected = invalidation::affected_persons_for_family(&txn, family_id)
+    // Compute affected BEFORE delete, while the links still exist.
+    let affected = invalidation::affected_persons_for_family_delete(&txn, family_id)
         .await
         .map_err(ApiError)?;
     FamilyRepo::delete(&txn, family_id)

@@ -575,6 +575,19 @@ missing `q` is valid: structured filters can be used alone, and no filters at
 all select browse mode. The response's `total_count` is computed before `limit`
 and `offset` are applied.
 
+`q` is matched as a **prefix**, per word, on both backends: every word must
+match the start of one of the indexed fields, in any order and in any field.
+The named filters (`surname`, `given_names`, and the `Relations` group) match a
+substring instead, so a filter finds a name recorded with a particle or a
+compound where a prefix would not.
+
+`sort=relevance` ranks a hit whose surname starts with the search term above one
+whose given names do, and both above a match found further in; ties fall back to
+ascending name order. The term is the first word of `q`, or the `surname` /
+`given_names` filter when `q` is empty, so relevance is meaningful for a search
+made only of structured filters. With nothing to rank by it is exactly
+`name_asc`.
+
 Each `SearchEntry` names the person's close relatives — every spouse, the
 father and mother, and the number of children — so a result can be rendered
 without a follow-up request. Birth and death years fall back to the baptism and

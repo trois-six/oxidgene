@@ -40,6 +40,28 @@ impl FamilyRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// Narrow a set of family IDs to the ones that still exist.
+    ///
+    /// Deleting a family is a soft delete, and the `family_spouse` /
+    /// `family_child` rows survive it. Anything that reaches families *through*
+    /// those memberships must therefore check here, or it will keep reporting
+    /// a family the user has deleted.
+    pub async fn live_ids(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let models = Entity::find()
+            .filter(Column::Id.is_in(ids.iter().copied()))
+            .filter(Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(|m| m.id).collect())
+    }
+
     /// Get a single family by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Family, OxidGeneError> {
         Entity::find_by_id(id)

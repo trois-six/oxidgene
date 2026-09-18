@@ -4,7 +4,10 @@
 //! SQLite is compiled with FTS5 support (the migration would fail otherwise).
 
 use oxidgene_core::search::normalize_for_search;
-use oxidgene_db::repo::{PersonSearchEntry, PersonSearchRepo, connect, run_migrations};
+use oxidgene_db::repo::{
+    PersonSearchEntry, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, connect,
+    run_migrations,
+};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -131,6 +134,143 @@ async fn search_prefix_and_accent_folding() {
         .await
         .unwrap();
     assert_eq!(page.total_count, 1);
+}
+
+/// Total hits for a `spouse_surname` filter alone.
+async fn count_by_spouse_surname(db: &DatabaseConnection, tree_id: Uuid, surname: &str) -> u64 {
+    let filters = PersonSearchFilters {
+        spouse_surname: Some(surname.to_owned()),
+        ..Default::default()
+    };
+    PersonSearchRepo::search_filtered(db, tree_id, "", &filters, PersonSearchSort::NameAsc, 10, 0)
+        .await
+        .unwrap()
+        .total_count
+}
+
+/// `entry` plus a spouse, for the filters that match on a relative's name.
+fn entry_with_spouse(
+    tree_id: Uuid,
+    surname: &str,
+    given_names: &str,
+    spouse_surname: &str,
+    spouse_given_names: &str,
+) -> PersonSearchEntry {
+    PersonSearchEntry {
+        spouse_names: format!("{spouse_given_names} {spouse_surname}"),
+        spouse_surnames: normalize_for_search(spouse_surname),
+        spouse_given_names: normalize_for_search(spouse_given_names),
+        ..entry(tree_id, surname, given_names, None, None)
+    }
+}
+
+#[tokio::test]
+async fn relative_filters_are_accent_folded() {
+    // The subject's own name filters have always folded accents; the spouse
+    // and parent ones matched raw `person_name` rows and did not, so someone
+    // searching "lebatard" found nobody married to a "Lebâtard".
+    let db = setup_db().await;
+    let tree_id = Uuid::now_v7();
+
+    PersonSearchRepo::replace_tree(
+        &db,
+        tree_id,
+        &[
+            entry_with_spouse(tree_id, "Branch A", "Child One", "Lebâtard", "Perrine"),
+            entry_with_spouse(tree_id, "Branch B", "Child Two", "Moreau", "Anne"),
+        ],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "lebatard").await, 1);
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "Lebâtard").await, 1);
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "LEBATARD").await, 1);
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "moreau").await, 1);
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "nobody").await, 0);
+}
+
+#[tokio::test]
+async fn a_filter_cannot_match_across_two_spouses() {
+    // Several spouses share one column. Joined with a plain space, a substring
+    // filter could match the end of one name and the start of the next; the
+    // U+001F separator is what stops that.
+    let db = setup_db().await;
+    let tree_id = Uuid::now_v7();
+
+    let mut subject = entry(tree_id, "Branch A", "Child One", None, None);
+    subject.spouse_surnames = format!(
+        "{}\u{1f}{}",
+        normalize_for_search("Dupont"),
+        normalize_for_search("Martin")
+    );
+    PersonSearchRepo::replace_tree(&db, tree_id, &[subject])
+        .await
+        .unwrap();
+
+    // Each spouse is still found on its own.
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "dupont").await, 1);
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "martin").await, 1);
+    // But a span across the boundary is not a spouse anyone has.
+    assert_eq!(count_by_spouse_surname(&db, tree_id, "tmar").await, 0);
+    assert_eq!(
+        count_by_spouse_surname(&db, tree_id, "dupontmartin").await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn relevance_ranks_a_prefix_above_a_later_match() {
+    // `relevance` used to be an alias for name-ascending, so it ranked
+    // nothing. It now puts what the searcher typed, matched as a prefix, first
+    // — and it has to do so for a structured filter too, because that is what
+    // the search page sends.
+    let db = setup_db().await;
+    let tree_id = Uuid::now_v7();
+
+    PersonSearchRepo::replace_tree(
+        &db,
+        tree_id,
+        &[
+            // Sorts first by name, so name order alone would put it on top.
+            entry(tree_id, "Abbott", "Martin", None, None),
+            entry(tree_id, "Martin", "Zoe", None, None),
+        ],
+    )
+    .await
+    .unwrap();
+
+    let filters = PersonSearchFilters::default();
+    let page = PersonSearchRepo::search_filtered(
+        &db,
+        tree_id,
+        "martin",
+        &filters,
+        PersonSearchSort::Relevance,
+        10,
+        0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(page.total_count, 2);
+    assert_eq!(
+        page.entries[0].surname, "martin",
+        "a surname beginning with the term outranks a given name"
+    );
+
+    // Name ordering stays available and unranked.
+    let page = PersonSearchRepo::search_filtered(
+        &db,
+        tree_id,
+        "martin",
+        &filters,
+        PersonSearchSort::NameAsc,
+        10,
+        0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(page.entries[0].surname, "abbott");
 }
 
 #[tokio::test]

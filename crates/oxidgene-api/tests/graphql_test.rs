@@ -1094,7 +1094,7 @@ async fn test_search_persons_filters_by_spouse() {
     }
 
     let response = graphql(
-        app,
+        app.clone(),
         &format!(
             r#"{{ searchPersons(treeId: "{tree_id}", query: "", surname: "subject", spouseSurname: "relative") {{ totalCount entries {{ displayName }} }} }}"#
         ),
@@ -1104,6 +1104,34 @@ async fn test_search_persons_filters_by_spouse() {
     let result = &data(&response)["searchPersons"];
     assert_eq!(result["totalCount"], 1);
     assert_eq!(result["entries"][0]["displayName"], "SearchSubject Subject");
+
+    // An accent in the filter must not change the answer: the relative names
+    // on the search row are accent-folded, like the subject's own.
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ searchPersons(treeId: "{tree_id}", query: "", spouseSurname: "relativemátch") {{ totalCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&response)["searchPersons"]["totalCount"], 1);
+
+    // The relatives ride on the result, so a caller needs no second request.
+    let response = graphql(
+        app,
+        &format!(
+            r#"{{ searchPersons(treeId: "{tree_id}", query: "", surname: "subject") {{ entries {{ spouseNames fatherName motherName childrenCount birthQualifier }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let entry = &data(&response)["searchPersons"]["entries"][0];
+    assert_eq!(entry["spouseNames"][0], "RelatedPerson RelativeMatch");
+    assert!(entry["fatherName"].is_null());
+    assert!(entry["motherName"].is_null());
+    assert_eq!(entry["childrenCount"], 0);
+    assert_eq!(entry["birthQualifier"], "EXACT");
 }
 
 #[tokio::test]

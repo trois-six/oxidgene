@@ -96,6 +96,30 @@ pub async fn affected_persons_for_family(
     Ok(affected)
 }
 
+/// Compute the affected set for deleting a family.
+///
+/// Wider than [`affected_persons_for_family`], which is right for a family
+/// *event*: changing a marriage date alters nothing anyone else's projection
+/// records. Removing the family does. Its children lose their
+/// [`oxidgene_core::projection::ProfileChildLink`], which carries their
+/// parents' names, and its spouses lose each other — so every member has to be
+/// rebuilt, not just the two spouses.
+///
+/// Callers must compute this *before* the delete, while the links still exist.
+pub async fn affected_persons_for_family_delete(
+    db: &impl ConnectionTrait,
+    family_id: Uuid,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    let mut affected = affected_persons_for_family(db, family_id).await?;
+    let children = FamilyChildRepo::list_by_families(db, &[family_id]).await?;
+    affected.extend(children.iter().map(|child| child.person_id));
+
+    affected.sort();
+    affected.dedup();
+
+    Ok(affected)
+}
+
 /// Compute the persons whose individual or family events reference a place.
 pub async fn affected_persons_for_place(
     db: &impl ConnectionTrait,

@@ -389,8 +389,8 @@ impl MutationRoot {
         let uuid = Uuid::parse_str(id.as_str())?;
         let txn = begin_tx(db).await?;
         require_tree_resource(&txn, tid, TreeResource::Family, uuid).await?;
-        // Compute affected BEFORE delete.
-        let affected = invalidation::affected_persons_for_family(&txn, uuid).await?;
+        // Compute affected BEFORE delete, while the links still exist.
+        let affected = invalidation::affected_persons_for_family_delete(&txn, uuid).await?;
         FamilyRepo::delete(&txn, uuid).await?;
         if !affected.is_empty() {
             profiles

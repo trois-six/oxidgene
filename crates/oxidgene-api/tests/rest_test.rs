@@ -924,7 +924,7 @@ async fn test_person_search_combines_relations_and_pagination() {
     }
 
     let (status, body) = send_request(
-        app,
+        app.clone(),
         Method::GET,
         &format!(
             "/api/v1/trees/{tree_id}/persons/search?surname=subject&spouse_surname=relative&sort=name_asc&limit=1&offset=1"
@@ -936,6 +936,35 @@ async fn test_person_search_combines_relations_and_pagination() {
     assert_eq!(body["total_count"], 2);
     assert_eq!(body["entries"].as_array().unwrap().len(), 1);
     assert_eq!(body["entries"][0]["display_name"], "Two Subject");
+
+    // An accent in the filter must not change the answer: the relative names
+    // on the search row are accent-folded, like the subject's own.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?spouse_surname=relativem%C3%A1tch"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "accented spouse filter: {body}");
+    assert_eq!(body["total_count"], 2);
+
+    // The relatives ride on the result, so a caller needs no second request.
+    let (status, body) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?surname=subject&sort=name_asc"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "search failed: {body}");
+    let entry = &body["entries"][0];
+    assert_eq!(entry["display_name"], "One Subject");
+    assert_eq!(entry["spouse_names"][0], "Alpha RelativeMatch");
+    assert!(entry["father_name"].is_null());
+    assert!(entry["mother_name"].is_null());
+    assert_eq!(entry["children_count"], 0);
+    assert_eq!(entry["birth_qualifier"], "exact");
 }
 
 // ───────────────────────── Family tests ─────────────────────────

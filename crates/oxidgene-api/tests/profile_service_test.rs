@@ -14,7 +14,8 @@ use oxidgene_core::enums::{
 };
 use oxidgene_db::repo::{
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PersonDenormRepo, PersonNamePieces,
-    PersonNameRepo, PersonRepo, PersonSearchRepo, TreeRepo, connect, run_migrations,
+    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PersonSearchRepo, TreeRepo, connect,
+    run_migrations,
 };
 use oxidgene_db::sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -381,6 +382,121 @@ async fn person_delete_removes_projection_and_search_row() {
             .unwrap()
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn search_rows_name_the_close_relatives() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (_father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
+
+    service.rebuild_tree_full(&db, tree_id).await.unwrap();
+
+    let hit = service
+        .search(tree_id, "pierre", 10, 0)
+        .await
+        .unwrap()
+        .entries
+        .remove(0);
+    assert_eq!(hit.person_id, child);
+    // A result has to say who someone is, not just what they are called —
+    // two people of the same name are told apart by their parents.
+    assert_eq!(hit.father_name.as_deref(), Some("Jean Dupont"));
+    assert_eq!(hit.mother_name.as_deref(), Some("Jane Smith"));
+    assert!(hit.spouse_names.is_empty());
+    assert_eq!(hit.children_count, 0);
+
+    let father_hit = service
+        .search(tree_id, "jean dupont", 10, 0)
+        .await
+        .unwrap()
+        .entries
+        .remove(0);
+    assert_eq!(father_hit.spouse_names, vec!["Jane Smith".to_string()]);
+    assert_eq!(father_hit.children_count, 1);
+    assert!(father_hit.father_name.is_none());
+}
+
+#[tokio::test]
+async fn renaming_a_spouse_refreshes_the_other_search_row() {
+    // The spouse's name now lives on the subject's own search row, so a rename
+    // has to reach one hop out or the result keeps naming someone who no
+    // longer exists under that name.
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (father, mother, _child, _family) = create_family_trio(&db, tree_id).await;
+
+    service.rebuild_tree_full(&db, tree_id).await.unwrap();
+
+    let names = PersonNameRepo::list_by_person(&db, mother).await.unwrap();
+    let primary = names.iter().find(|n| n.is_primary).expect("primary name");
+    PersonNameRepo::update(
+        &db,
+        primary.id,
+        None,
+        PersonNamePiecesPatch {
+            surname: Some(Some("Moreau".into())),
+            ..Default::default()
+        },
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let affected = oxidgene_api::profile::invalidation::affected_persons(&db, mother)
+        .await
+        .unwrap();
+    service
+        .invalidate_for_mutation(&db, tree_id, &affected)
+        .await
+        .unwrap();
+
+    let father_hit = service
+        .search(tree_id, "jean dupont", 10, 0)
+        .await
+        .unwrap()
+        .entries
+        .remove(0);
+    assert_eq!(father_hit.person_id, father);
+    assert_eq!(father_hit.spouse_names, vec!["Jane Moreau".to_string()]);
+}
+
+#[tokio::test]
+async fn deleting_a_family_clears_the_children_parent_names() {
+    // `affected_persons_for_family` returns only the spouses, which is right
+    // for a marriage-date edit but not for a delete: the children lose their
+    // parents, and nothing else would rebuild them.
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (_father, _mother, child, family) = create_family_trio(&db, tree_id).await;
+
+    service.rebuild_tree_full(&db, tree_id).await.unwrap();
+
+    let affected =
+        oxidgene_api::profile::invalidation::affected_persons_for_family_delete(&db, family)
+            .await
+            .unwrap();
+    assert!(
+        affected.contains(&child),
+        "a family delete must rebuild its children, not only its spouses"
+    );
+
+    FamilyRepo::delete(&db, family).await.unwrap();
+    service
+        .invalidate_for_mutation(&db, tree_id, &affected)
+        .await
+        .unwrap();
+
+    let hit = service
+        .search(tree_id, "pierre", 10, 0)
+        .await
+        .unwrap()
+        .entries
+        .remove(0);
+    assert_eq!(hit.person_id, child);
+    assert!(hit.father_name.is_none());
+    assert!(hit.mother_name.is_none());
 }
 
 #[tokio::test]

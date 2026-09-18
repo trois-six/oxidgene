@@ -2,12 +2,17 @@
 //!
 //! On SQLite the table is an FTS5 virtual table and matching uses `MATCH`
 //! with per-word prefix queries (`"jean"* "dup"*`). On PostgreSQL the table
-//! is a plain table and matching falls back to per-word `LIKE` conditions.
+//! is a plain table and matching falls back to per-word `LIKE 'word%'`
+//! conditions — prefix on both, so the same query gives the same answer
+//! whichever backend is behind it.
 //!
-//! All searchable columns (`surname`, `given_names`, `maiden_name`) are
-//! pre-normalized (lowercase + accent-folded) by the caller via
-//! [`oxidgene_core::search::normalize_for_search`]; queries are normalized
-//! here, so both backends match identically.
+//! The named filters are substrings rather than prefixes, which is what lets
+//! `surname=cruz` find "de la Cruz".
+//!
+//! All searchable columns (`surname`, `given_names`, `maiden_name`, and the
+//! relatives' names) are pre-normalized (lowercase + accent-folded) by the
+//! caller via [`oxidgene_core::search::normalize_for_search`]; queries are
+//! normalized here, so both backends match identically.
 
 use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
@@ -337,8 +342,12 @@ impl PersonSearchRepo {
                     push_value(&mut values, backend, match_expr.into())
                 ));
             } else {
+                // Prefix, not substring: FTS5 above matches `"word"*`, and the
+                // two backends have to answer the same question. Prefix is
+                // also the indexable half of the choice, and the one a
+                // typeahead wants.
                 for word in words {
-                    let param = push_value(&mut values, backend, format!("%{word}%").into());
+                    let param = push_value(&mut values, backend, format!("{word}%").into());
                     conditions.push(format!(
                         "(surname LIKE {param} OR given_names LIKE {param} OR \
                          COALESCE(maiden_name, '') LIKE {param} OR \
@@ -445,55 +454,27 @@ impl PersonSearchRepo {
             ));
         }
 
-        if has_name_filter(&filters.spouse_surname, &filters.spouse_given_names) {
-            let person_relation = format!(
-                "{} = person_search_fts.person_id",
-                uuid_as_text(backend, "self_fs.person_id")
-            );
-            conditions.push(related_name_condition(
-                &mut values,
-                backend,
-                "family_spouse self_fs JOIN family_spouse related_fs \
-                 ON related_fs.family_id = self_fs.family_id AND related_fs.person_id <> self_fs.person_id \
-                 JOIN person_name related_name ON related_name.person_id = related_fs.person_id",
-                &person_relation,
-                filters.spouse_surname.as_deref(),
-                filters.spouse_given_names.as_deref(),
-            ));
-        }
-        if has_name_filter(&filters.father_surname, &filters.father_given_names) {
-            let person_relation = format!(
-                "{} = person_search_fts.person_id AND parent.sex = 'male'",
-                uuid_as_text(backend, "child_link.person_id")
-            );
-            conditions.push(related_name_condition(
-                &mut values,
-                backend,
-                "family_child child_link JOIN family_spouse parent_link \
-                 ON parent_link.family_id = child_link.family_id \
-                 JOIN person parent ON parent.id = parent_link.person_id \
-                 JOIN person_name related_name ON related_name.person_id = parent.id",
-                &person_relation,
-                filters.father_surname.as_deref(),
-                filters.father_given_names.as_deref(),
-            ));
-        }
-        if has_name_filter(&filters.mother_surname, &filters.mother_given_names) {
-            let person_relation = format!(
-                "{} = person_search_fts.person_id AND parent.sex = 'female'",
-                uuid_as_text(backend, "child_link.person_id")
-            );
-            conditions.push(related_name_condition(
-                &mut values,
-                backend,
-                "family_child child_link JOIN family_spouse parent_link \
-                 ON parent_link.family_id = child_link.family_id \
-                 JOIN person parent ON parent.id = parent_link.person_id \
-                 JOIN person_name related_name ON related_name.person_id = parent.id",
-                &person_relation,
-                filters.mother_surname.as_deref(),
-                filters.mother_given_names.as_deref(),
-            ));
+        // Relatives are matched on this row's own denormalized columns rather
+        // than by joining back to `person_name`. That is what makes these
+        // filters accent-folded like the subject's own name — SQL cannot fold
+        // accents portably, so the folding has to happen where the row is
+        // written — and it drops three correlated EXISTS subqueries.
+        for (column, value) in [
+            ("spouse_surnames", filters.spouse_surname.as_deref()),
+            ("spouse_given_names", filters.spouse_given_names.as_deref()),
+            ("father_surname", filters.father_surname.as_deref()),
+            ("father_given_names", filters.father_given_names.as_deref()),
+            ("mother_surname", filters.mother_surname.as_deref()),
+            ("mother_given_names", filters.mother_given_names.as_deref()),
+        ] {
+            if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+                let param = push_value(
+                    &mut values,
+                    backend,
+                    format!("%{}%", normalize_for_search(value.trim())).into(),
+                );
+                conditions.push(format!("COALESCE({column}, '') LIKE {param}"));
+            }
         }
 
         if filters.has_media {
@@ -506,11 +487,14 @@ impl PersonSearchRepo {
         }
 
         let order = match sort {
-            PersonSearchSort::Relevance | PersonSearchSort::NameAsc => "surname, given_names",
-            PersonSearchSort::NameDesc => "surname DESC, given_names DESC",
-            PersonSearchSort::BirthAsc => "date_sort IS NULL, date_sort, surname, given_names",
+            PersonSearchSort::Relevance => relevance_order(&mut values, backend, words, filters),
+            PersonSearchSort::NameAsc => "surname, given_names".to_string(),
+            PersonSearchSort::NameDesc => "surname DESC, given_names DESC".to_string(),
+            PersonSearchSort::BirthAsc => {
+                "date_sort IS NULL, date_sort, surname, given_names".to_string()
+            }
             PersonSearchSort::BirthDesc => {
-                "date_sort IS NULL, date_sort DESC, surname, given_names"
+                "date_sort IS NULL, date_sort DESC, surname, given_names".to_string()
             }
         };
         let limit_param = push_value(&mut values, backend, (limit as i64).into());
@@ -667,40 +651,45 @@ fn push_value(values: &mut Vec<Value>, backend: DbBackend, value: Value) -> Stri
     }
 }
 
-fn has_name_filter(surname: &Option<String>, given_names: &Option<String>) -> bool {
-    [surname, given_names]
-        .into_iter()
-        .flatten()
-        .any(|value| !value.trim().is_empty())
-}
-
-fn related_name_condition(
+/// Ordering for [`PersonSearchSort::Relevance`]: what the searcher typed,
+/// matched as a prefix, ranks above the same text found further in.
+///
+/// Deliberately not FTS5's `bm25()`. That only exists on SQLite and only when
+/// the query carries a `MATCH`, so it would mean two rankings to keep in step
+/// and no ranking at all for a search made of structured filters — which is
+/// exactly what the search page sends. This expression is one code path, works
+/// on both backends, and degrades to plain name order when there is nothing to
+/// rank by.
+fn relevance_order(
     values: &mut Vec<Value>,
     backend: DbBackend,
-    joins: &str,
-    relation: &str,
-    surname: Option<&str>,
-    given_names: Option<&str>,
+    words: &[String],
+    filters: &PersonSearchFilters,
 ) -> String {
-    let mut conditions = vec![
-        relation.to_string(),
-        "related_name.is_primary = TRUE".to_string(),
-    ];
-    for (column, value) in [("surname", surname), ("given_names", given_names)] {
-        if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
-            let param = push_value(
-                values,
-                backend,
-                format!("%{}%", value.trim().to_lowercase()).into(),
-            );
-            conditions.push(format!(
-                "LOWER(COALESCE(related_name.{column}, '')) LIKE {param}"
-            ));
-        }
-    }
+    let term = words.first().cloned().or_else(|| {
+        [filters.surname.as_deref(), filters.given_names.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .find(|value| !value.is_empty())
+            .map(normalize_for_search)
+    });
+
+    let Some(term) = term.filter(|term| !term.is_empty()) else {
+        return "surname, given_names".to_string();
+    };
+
+    // Bound once per occurrence, not once per value: SQLite's `?` is
+    // positional, so reusing one placeholder string in two spots would consume
+    // two bind slots and shift every parameter after it.
+    let prefix: Value = format!("{term}%").into();
+    let surname_param = push_value(values, backend, prefix.clone());
+    let given_names_param = push_value(values, backend, prefix);
     format!(
-        "EXISTS (SELECT 1 FROM {joins} WHERE {})",
-        conditions.join(" AND ")
+        "CASE WHEN surname LIKE {surname_param} THEN 0 \
+              WHEN given_names LIKE {given_names_param} THEN 1 \
+              ELSE 2 END, \
+         surname, given_names"
     )
 }
 
