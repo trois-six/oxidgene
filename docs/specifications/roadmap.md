@@ -29,7 +29,7 @@ timestamp: 2026-08-26T00:00:00Z
 | B | GEDCOM, GEDZIP, and GeneWeb | Complete | [API](api.md), [Import](ui-import.md) |
 | C | Tree browsing and editing | Complete | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Person Edit](ui-person-edit-modal.md) |
 | D | Shared UX, themes, languages, runtime settings | Complete | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md) |
-| E | Read projections, search, dictionary | Complete except dictionary descent | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
+| E | Read projections, search, dictionary | Complete except dictionary descent; search results now name each person's close relatives, the topbar suggests matches as you type, and `relevance` ranks | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Post-MVP | [Architecture](architecture.md), [API](api.md) |

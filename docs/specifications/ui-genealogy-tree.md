@@ -365,11 +365,35 @@ Fixed height, spans the full width above the canvas. Uses the shared `td-topbar`
 
 Two independent fields in the topbar, aligned to the right: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined. The **Last name(s)** field can be used to search a name or a SOSA number, if the element searched is a number it is a SOSA number. A magnifying glass button triggers the search.
 
-**On Enter** (or click magnifying glass):
+**While typing**, a suggestion panel opens beneath the fields:
+
+- At most six matching persons, ranked by relevance, each drawn with the
+  shared result row from [Search Results](ui-search-results.md) §7 — portrait,
+  name, years, and the relation line that tells two people of the same name
+  apart
+- A footer leading to the full results page, shown only when more matches
+  exist than the panel lists
+- When the **Last name(s)** field holds a bare number, the panel resolves it as
+  a SOSA number and previews that one person, so it shows where Enter would go
+- Requests are debounced, and input shorter than two characters across both
+  fields queries nothing
+- **Down** / **Up** move the highlight, wrapping at either end; **Enter** opens
+  the highlighted person; **Escape** or a click outside closes the panel
+
+The panel is a fixed overlay, because the topbar clips its overflow. It reuses
+the shared contextual-surface component, whose backdrop also handles dismissal
+— a blur handler would close the panel before a click on a row could register.
+
+**On Enter with nothing highlighted** (or click magnifying glass):
 - Navigation to a dedicated **results page** (`/trees/{id}/search`)
 - All matching persons displayed as a list
 - Additional filters available (dates, location, gender...)
 - Each result is clickable and returns to the tree centered on that person
+
+The same component serves the person profile and the results page itself. On
+the results page it searches in place rather than navigating, and shares its
+field state with the duplicate surname and given-name inputs in the filter
+panel, so typing in either updates both.
 
 ### Left Sidebar (ISB)
 
