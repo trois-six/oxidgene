@@ -21,6 +21,12 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
   specifications.
 - Update `docs/specifications/index.md` whenever a specification is added,
   removed, renamed, or superseded.
+- Keep `docs/specifications/` a conformant
+  [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)
+  bundle: every specification needs YAML frontmatter with a `type`, and
+  `generated.at` must be updated on every substantive edit. Read the full rules
+  in `cross-cutting.md` §9 before adding a specification or changing
+  frontmatter or `index.md`.
 
 ### Language and internationalization
 
@@ -110,7 +116,7 @@ All specifications live in `docs/specifications/`. Start with
 | REST and GraphQL contracts | `api.md` |
 | Delivery status and planned work | `roadmap.md` |
 | Data, projections, and search | `data-model.md` |
-| i18n, errors, logs, and privacy | `cross-cutting.md` |
+| i18n, errors, logs, privacy, and spec format | `cross-cutting.md` |
 | Shared UI behavior and styling | `ui-common.md` |
 | Pages and major workflows | `ui-*.md` |
 

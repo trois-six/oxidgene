@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
-description: "UI behavior and interaction specification for Visual & Functional Specifications — Tree Settings Page."
+description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-08T00:00:00Z }
 ---
 
 

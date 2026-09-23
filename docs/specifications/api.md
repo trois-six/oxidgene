@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-18T00:00:00Z }
 ---
 
 

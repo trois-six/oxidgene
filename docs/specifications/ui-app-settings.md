@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
-description: "UI behavior and interaction specification for Visual & Functional Specifications — App Settings."
+description: "Application-level preferences page for appearance (theme) and interface language."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-15T00:00:00Z }
 ---
 
 

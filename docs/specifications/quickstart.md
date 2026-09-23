@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-timestamp: 2026-08-29T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-01T00:00:00Z }
 ---
 
 # OxidGene Quickstart

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-08-18T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-04T00:00:00Z }
 ---
 
 

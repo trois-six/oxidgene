@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-timestamp: 2026-07-16T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-18T00:00:00Z }
 ---
 
 

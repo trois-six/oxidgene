@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-timestamp: 2026-08-26T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-23T00:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones

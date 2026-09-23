@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-08T00:00:00Z }
 ---
 
 

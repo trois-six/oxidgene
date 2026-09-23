@@ -2,8 +2,8 @@
 type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
-tags: [oxidgene, specification, i18n, errors, logging, privacy]
-timestamp: 2026-08-26T00:00:00Z
+tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-23T00:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -434,3 +434,50 @@ workflow syntax check.
   in the normal suite when they provide useful regression coverage.
 - Document prerequisites, expected duration, resource requirements, and the
   invocation command next to each optional suite.
+
+## 9. Specification format
+
+`docs/specifications/` is a conformant
+[Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)
+bundle. Every change to it keeps it conformant.
+
+### 9.1 Organization
+
+- Each routed page has exactly one UI specification. Shared UI behavior lives
+  only in [Common UI](ui-common.md); a modal or workflow has one canonical
+  specification and no versioned or per-tab companion file.
+- Specifications link to each other with standard relative markdown links.
+
+### 9.2 Frontmatter
+
+Every specification except `index.md` starts with a YAML frontmatter block:
+
+| Key | Content |
+|-----|---------|
+| `type` | Required. A descriptive kind, such as `UI Specification` or `API Reference`; reuse an existing value when one fits. |
+| `title` | The document's H1 heading. |
+| `description` | One sentence summarizing the document. |
+| `tags` | A YAML list starting with `oxidgene`. |
+| `generated` | `{ by: <actor>, at: <ISO 8601 UTC datetime> }` for the last meaningful content change; updated whenever the body changes in substance. |
+
+- Actors follow OKF §7: `human:maintainer` for human-written content and
+  `<tool>/<model>` for agent-written content, for example
+  `claude-code/claude-opus-5-5`. An actor never contains a personal or account
+  name.
+- The retired v0.1 forms are not used: no `timestamp` key and no body
+  `# Citations` list.
+- A specification derived from external material, such as a reverse-engineered
+  API or a third-party format, records it in `sources` entries with an `id`,
+  and attributes individual claims with markdown footnotes keyed by that `id`.
+- The optional `verified`, `status`, and `stale_after` keys are used only as
+  OKF §5 defines them. A `verified` entry is never added for a review that did
+  not happen.
+
+### 9.3 Reserved files
+
+- `index.md` and `log.md` are reserved and never hold a specification.
+- `index.md` carries only `okf_version: "0.2"` as frontmatter. Its body
+  contains only `#` section headings followed by
+  `* [Title](file.md) - description` entries. Each entry's description matches
+  the linked document's frontmatter `description` word for word, and every
+  specification is listed exactly once.

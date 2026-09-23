@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
-description: "UI behavior and interaction specification for Visual & Functional Specifications — Person Profile."
+description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-16T00:00:00Z }
 ---
 
 

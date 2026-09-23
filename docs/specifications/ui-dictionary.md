@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
-description: "UI behavior and interaction specification for Visual & Functional Specifications — Dictionary."
+description: "Read-only index of family names, sources, places, and occupations with usage counts."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-07-22T00:00:00Z
+generated: { by: human:maintainer, at: 2026-08-29T00:00:00Z }
 ---
 
 

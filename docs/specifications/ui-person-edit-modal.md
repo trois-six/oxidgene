@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
-description: "UI behavior and interaction specification for Visual & Functional Specifications — Person Edit Modal."
+description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-12T00:00:00Z }
 ---
 
 

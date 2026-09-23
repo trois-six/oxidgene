@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-15T00:00:00Z }
 ---
 
 

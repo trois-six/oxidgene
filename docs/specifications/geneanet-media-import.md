@@ -1,5 +1,9 @@
 ---
-okf_version: "0.1"
+type: "Integration Specification"
+title: "Geneanet Media Import — recovering the person↔photo links"
+description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
+tags: [oxidgene, specification, geneanet, media, import]
+generated: { by: human:maintainer, at: 2026-09-14T00:00:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links

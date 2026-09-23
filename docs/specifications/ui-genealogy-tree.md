@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
-description: "UI behavior and interaction specification for Visual & Functional Specifications — Genealogy Tree."
+description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-09-23T00:00:00Z }
 ---
 
 

@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
-description: "UI behavior and interaction specification for Visual & Functional Specifications — Person Merge."
+description: "Three-step wizard to select a duplicate person, compare both records side by side, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-timestamp: 2026-06-17T00:00:00Z
+generated: { by: human:maintainer, at: 2026-08-26T00:00:00Z }
 ---
 
 

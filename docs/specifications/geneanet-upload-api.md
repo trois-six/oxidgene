@@ -1,5 +1,9 @@
 ---
-okf_version: "0.1"
+type: "API Reference"
+title: "Geneanet Upload — API Specification"
+description: "Reverse-engineered reference for the Geneanet Upload app's api.geneanet.org surface, Cloudflare behavior per HTTP client, originals versus renditions, and login."
+tags: [oxidgene, reference, geneanet, api]
+generated: { by: human:maintainer, at: 2026-08-30T00:00:00Z }
 ---
 
 # Geneanet Upload — API Specification
