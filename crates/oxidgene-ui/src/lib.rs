@@ -9,6 +9,7 @@
 //! - [`App`] — top-level application component
 
 pub mod api;
+pub mod assistant;
 pub mod components;
 pub mod geneanet;
 pub mod i18n;

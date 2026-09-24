@@ -35,6 +35,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("common.or_divider", "\u{2014} or \u{2014}"),
         ("common.invalid_ids", "Invalid identifiers."),
         ("common.invalid_tree_id", "Invalid tree identifier."),
+        ("common.copy", "Copy"),
+        ("common.copied", "Copied"),
         ("person.self_badge", "Me"),
         ("person.self_badge_settings", "Change the person representing you"),
         // ── Navigation ──────────────────────────────────────────────
@@ -106,6 +108,17 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.graphql_label", "GraphQL endpoint"),
         ("app_settings.graphql_hint", "Open GraphiQL with GET or send GraphQL operations with POST."),
         ("app_settings.graphql_open", "Open GraphiQL"),
+        ("app_settings.assistant_title", "AI assistant (MCP)"),
+        (
+            "app_settings.assistant_warning",
+            "An assistant configured with this command can read every tree in this application, living people, notes and sources included, and sends what it reads to the model provider it uses.",
+        ),
+        ("app_settings.assistant_command_label", "Command"),
+        ("app_settings.assistant_config_label", "Client configuration (JSON)"),
+        (
+            "app_settings.assistant_desktop_only",
+            "The AI assistant connection is available in the desktop application.",
+        ),
         // ── Home page ───────────────────────────────────────────────
         ("home.title_prefix", "My "),
         ("home.title_accent", "Genealogy Trees"),

@@ -245,7 +245,7 @@ the API crate without its optional `graphql` feature.
 
 ### AI assistant (MCP)
 
-Planned; delivery is tracked in [Roadmap §6](roadmap.md). Shows how to let an
+Shows how to let an
 MCP client, such as Claude Desktop or Claude Code, read the application's
 trees. The server and its contract are specified in
 [Assistant Access](mcp.md).

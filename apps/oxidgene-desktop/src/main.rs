@@ -57,6 +57,7 @@ use oxidgene_db::repo::{connect, run_migrations};
 #[cfg(feature = "telemetry")]
 use oxidgene_observability::{init, init_to_stderr, make_http_span, on_http_response};
 use oxidgene_ui::api::ApiClient;
+use oxidgene_ui::assistant::AssistantLauncher;
 use oxidgene_ui::theme::CustomThemeLoader;
 use tokio::net::TcpListener;
 #[cfg(feature = "telemetry")]
@@ -459,10 +460,20 @@ fn main() {
     if let Some(icon) = window_icon {
         cfg = cfg.with_icon(icon);
     }
-    dioxus::LaunchBuilder::new()
+    let mut launch = dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_context(geneanet_bridge)
-        .with_context(theme_loader)
+        .with_context(theme_loader);
+    // App Settings shows MCP clients the command that runs this very binary
+    // with `mcp`. Without a resolvable path the page falls back to its note
+    // rather than printing a command that would not run.
+    if let Some(executable) = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.into_os_string().into_string().ok())
+    {
+        launch = launch.with_context(AssistantLauncher { executable });
+    }
+    launch
         .with_cfg(cfg.with_custom_event_handler(move |event, target| {
             geneanet_handler(event, target);
 

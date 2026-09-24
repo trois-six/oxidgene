@@ -35,6 +35,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("common.or_divider", "\u{2014} ou \u{2014}"),
         ("common.invalid_ids", "Identifiants invalides."),
         ("common.invalid_tree_id", "Identifiant d\u{2019}arbre invalide."),
+        ("common.copy", "Copier"),
+        ("common.copied", "Copi\u{00E9}"),
         ("person.self_badge", "Moi"),
         ("person.self_badge_settings", "Modifier la personne qui vous repr\u{00E9}sente"),
         // ── Navigation ──────────────────────────────────────────────
@@ -106,6 +108,17 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.graphql_label", "Endpoint GraphQL"),
         ("app_settings.graphql_hint", "Ouvrez GraphiQL avec GET ou envoyez des op\u{00E9}rations GraphQL avec POST."),
         ("app_settings.graphql_open", "Ouvrir GraphiQL"),
+        ("app_settings.assistant_title", "Assistant IA (MCP)"),
+        (
+            "app_settings.assistant_warning",
+            "Un assistant configur\u{00E9} avec cette commande peut lire tous les arbres de cette application, personnes vivantes, notes et sources comprises, et envoie ce qu\u{2019}il lit au fournisseur du mod\u{00E8}le qu\u{2019}il utilise.",
+        ),
+        ("app_settings.assistant_command_label", "Commande"),
+        ("app_settings.assistant_config_label", "Configuration client (JSON)"),
+        (
+            "app_settings.assistant_desktop_only",
+            "La connexion de l\u{2019}assistant IA est disponible dans l\u{2019}application de bureau.",
+        ),
         // ── Home page ───────────────────────────────────────────────
         ("home.title_prefix", "Mes "),
         ("home.title_accent", "Arbres G\u{00E9}n\u{00E9}alogiques"),

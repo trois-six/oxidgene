@@ -3,6 +3,7 @@
 use dioxus::prelude::*;
 
 use crate::api::ApiClient;
+use crate::assistant::{AssistantLauncher, use_assistant_launcher};
 use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
 use crate::i18n::{self, Language, use_i18n};
 use crate::prefs::{
@@ -11,6 +12,7 @@ use crate::prefs::{
 use crate::router::Route;
 use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
 use crate::ui_observability::{UiPage, use_ui_load_trace};
+use crate::utils::sleep_ms;
 
 /// Sidebar sections.
 #[derive(Clone, Copy, PartialEq)]
@@ -559,8 +561,151 @@ fn ApiSection() -> Element {
                     }
                 }
             }
+
+            AssistantCard {}
         }
     }
+}
+
+// ── AI assistant (MCP) ──────────────────────────────────────────────────────
+
+/// The "AI assistant (MCP)" card, following the API endpoints card in the
+/// same section (`docs/specifications/ui-app-settings.md` §8).
+///
+/// Desktop-only: an MCP client needs the absolute path of the running
+/// executable, which only exists once there is a running executable to
+/// report. The desktop binary injects it as an [`AssistantLauncher`]; the web
+/// build provides none and this shows a note instead of a command that could
+/// not run.
+#[component]
+fn AssistantCard() -> Element {
+    let i18n = use_i18n();
+    let launcher = use_assistant_launcher();
+
+    rsx! {
+        div { class: "app-settings-card assistant-card",
+            span { class: "app-settings-option-label", {i18n.t("app_settings.assistant_title")} }
+
+            match launcher {
+                Some(launcher) => rsx! {
+                    AssistantLauncherPanel { launcher }
+                },
+                None => rsx! {
+                    p { class: "app-settings-option-hint",
+                        {i18n.t("app_settings.assistant_desktop_only")}
+                    }
+                },
+            }
+        }
+    }
+}
+
+/// The warning, the command, and the JSON client configuration, once an
+/// [`AssistantLauncher`] is available.
+///
+/// The warning is always visible above the command, not behind a disclosure:
+/// configuring the client is the consent, so the cost of that consent has to
+/// be read before the command that grants it, not discovered after.
+#[component]
+fn AssistantLauncherPanel(launcher: AssistantLauncher) -> Element {
+    let i18n = use_i18n();
+
+    rsx! {
+        div { class: "warning-msg", {i18n.t("app_settings.assistant_warning")} }
+
+        AssistantField {
+            label: i18n.t("app_settings.assistant_command_label"),
+            value: launcher.command_line(),
+            multiline: false,
+        }
+        AssistantField {
+            label: i18n.t("app_settings.assistant_config_label"),
+            value: launcher.client_config_json(),
+            multiline: true,
+        }
+    }
+}
+
+/// A read-only field with a copy button: the command line and the JSON
+/// configuration are the same interaction, one line versus several.
+///
+/// Nothing here is saved anywhere — copying changes no setting, so the field
+/// carries no `oninput` and no state beyond the brief "Copied" feedback.
+#[component]
+fn AssistantField(label: String, value: String, multiline: bool) -> Element {
+    let i18n = use_i18n();
+    let mut copied = use_signal(|| false);
+    let copy_value = value.clone();
+
+    let onclick = move |_| {
+        let value = copy_value.clone();
+        spawn(async move {
+            if copy_to_clipboard(&value).await {
+                copied.set(true);
+                sleep_ms(1500).await;
+                copied.set(false);
+            }
+        });
+    };
+
+    rsx! {
+        div { class: "assistant-field",
+            span { class: "app-settings-option-label", "{label}" }
+            div { class: "assistant-field-row",
+                if multiline {
+                    textarea {
+                        class: "assistant-field-value",
+                        readonly: true,
+                        rows: "10",
+                        "aria-label": "{label}",
+                        value: "{value}",
+                    }
+                } else {
+                    input {
+                        class: "assistant-field-value",
+                        r#type: "text",
+                        readonly: true,
+                        "aria-label": "{label}",
+                        value: "{value}",
+                    }
+                }
+                button {
+                    class: "btn btn-outline btn-sm assistant-copy-btn",
+                    r#type: "button",
+                    onclick,
+                    {if *copied.read() { i18n.t("common.copied") } else { i18n.t("common.copy") }}
+                }
+            }
+        }
+    }
+}
+
+/// Writes `text` to the system clipboard through `navigator.clipboard`, the
+/// one clipboard API available in both the browser build and the desktop
+/// WebView.
+///
+/// Returns whether the write reported success, so the caller shows "Copied"
+/// only when it actually happened rather than after a write an insecure
+/// context or a denied permission silently dropped.
+async fn copy_to_clipboard(text: &str) -> bool {
+    let Ok(js_text) = serde_json::to_string(text) else {
+        return false;
+    };
+    let script = format!(
+        r#"
+        try {{
+            await navigator.clipboard.writeText({js_text});
+            return true;
+        }} catch (e) {{
+            return false;
+        }}
+        "#
+    );
+    document::eval(&script)
+        .await
+        .ok()
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -1124,6 +1269,58 @@ const APP_SETTINGS_STYLES: &str = r#"
         .api-endpoint {
             align-items: flex-start;
             flex-direction: column;
+        }
+    }
+
+    /* ── AI assistant (MCP) ─────────────────────────────────────────
+       A second card below the endpoint list rather than a row inside
+       it: the endpoints are one link each, the assistant entry is a
+       warning plus two whole fields, and folding it into the same
+       list would make the shortest row in the page the tallest one. */
+    .assistant-card {
+        margin-top: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+    }
+
+    .assistant-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .assistant-field-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+    }
+
+    .assistant-field-value {
+        flex: 1;
+        min-width: 0;
+        font-family: monospace;
+        font-size: 0.8rem;
+        resize: none;
+        background: var(--bg-deep);
+        color: var(--text-secondary);
+    }
+
+    textarea.assistant-field-value {
+        line-height: 1.4;
+    }
+
+    .assistant-copy-btn {
+        flex: none;
+        /* Lines up with the first row of a multi-line field instead of
+           stretching or centering across its full height. */
+        align-self: flex-start;
+    }
+
+    @media (max-width: 640px) {
+        .assistant-field-row {
+            flex-direction: column;
+            align-items: stretch;
         }
     }
 "#;
