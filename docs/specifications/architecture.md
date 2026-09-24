@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-09-08T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 ---
 
 
@@ -344,6 +344,9 @@ but authenticated session storage is not implemented yet.
 - Single binary per platform (Windows, Linux, macOS).
 - Built via `cargo build --release` with appropriate target.
 - No external runtime dependencies (SQLite embedded, WebView from system).
+- The same binary will serve MCP clients over stdio through its planned
+    `mcp --tree <id>` subcommand, headless and without a network listener. See
+    [Assistant Access](mcp.md).
 - Offline place databases, when installed, live in the application data
     directory and are managed from [Settings](ui-settings.md). See
     [Common UI §4.4](ui-common.md).

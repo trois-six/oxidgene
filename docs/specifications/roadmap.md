@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-09-23T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -33,6 +33,7 @@ generated: { by: human:maintainer, at: 2026-09-23T00:00:00Z }
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Post-MVP | [Architecture](architecture.md), [API](api.md) |
+| I | Assistant access through MCP | Planned | [Assistant Access](mcp.md), [Tree Settings](ui-settings.md) |
 
 ## 3. Active: media completion
 
@@ -88,7 +89,34 @@ generated: { by: human:maintainer, at: 2026-09-23T00:00:00Z }
 Privacy fields currently record intent but do not hide data. The UI must state
 this clearly until authorization is enforced.
 
-## 6. Post-MVP: asynchronous processing
+## 6. Planned: assistant access (MCP)
+
+First delivery: read-only, stdio, desktop, one tree per session.
+
+- [ ] Add the optional `mcp` feature to `oxidgene-api`, with `rmcp` limited to
+  `server`, `macros`, and `transport-io`, and justify its transitive
+  dependency cost measured with `cargo tree`.
+- [ ] Derive tool input and output schemas from the types REST already
+  deserializes and serializes, behind that feature.
+- [ ] Add the `oxidgene-desktop mcp --tree <id>` subcommand, which starts no
+  listener, WebView, job worker, purge worker, or job recovery, and writes only
+  protocol messages to standard output.
+- [ ] Implement the read-only tools of [Assistant Access §5](mcp.md), bound to
+  the session's tree.
+- [ ] Add the AI Assistant section to Tree Settings: warning, command, JSON
+  configuration, desktop capability injection, and English/French keys.
+- [ ] Test every tool over an in-process transport, including cross-tree IDs,
+  a tree deleted mid-session, and output-stream cleanliness.
+
+Later phases, in order:
+
+- [ ] Mutating tools with `destructiveHint`, the same transactions, and
+  projection refresh; deletions last.
+- [ ] Streamable HTTP on `/mcp` with MCP authorization mapped to per-tree
+  access, after EPIC G.
+- [ ] Bounded thumbnail image content.
+
+## 7. Post-MVP: asynchronous processing
 
 - [ ] Define queue and worker architecture without a second source of truth.
 - [ ] Add chunked and resumable media uploads.
@@ -96,7 +124,7 @@ this clearly until authorization is enforced.
 - [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
 
-## 7. Definition of done
+## 8. Definition of done
 
 An item is complete only when implementation and specifications agree; i18n
 keys have English/French parity; examples and artifacts are anonymized; REST

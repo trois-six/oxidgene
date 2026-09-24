@@ -10,6 +10,7 @@ okf_version: "0.2"
 * [Development](development.md) - Local development, secure coding practices, verification workflows, and just command reference for OxidGene.
 * [Data Model](data-model.md) - Canonical domain entities, enums, and relationship model used by OxidGene services and UI.
 * [API Contract](api.md) - REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions.
+* [Assistant Access (MCP)](mcp.md) - Model Context Protocol server built into the desktop binary: one tree per session, read-only tools, stdio transport, launch, consent, and its relation to REST and GraphQL.
 * [Roadmap](roadmap.md) - Current delivery status, active priorities, and future milestones for OxidGene.
 * [Geneanet Media Import](geneanet-media-import.md) - Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching.
 * [Geneanet Upload API](geneanet-upload-api.md) - Reverse-engineered reference for the Geneanet Upload app's api.geneanet.org surface, Cloudflare behavior per HTTP client, originals versus renditions, and login.
@@ -26,7 +27,7 @@ okf_version: "0.2"
 * [Person Profile](ui-person-profile.md) - Full person detail view with identity, timeline, family connections, media, and notes.
 * [Search Results](ui-search-results.md) - Filterable person search results page.
 * [Dictionary](ui-dictionary.md) - Read-only index of family names, sources, places, and occupations with usage counts.
-* [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, date display, entry options, tools, and export.
+* [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, date display, entry options, tools, export, and AI assistant access.
 * [App Settings](ui-app-settings.md) - Application-level preferences page for appearance (theme) and interface language.
 
 # UI Modals and Flows

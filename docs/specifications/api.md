@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-09-18T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 ---
 
 
@@ -29,6 +29,11 @@ REST-only and GraphQL-only product operations are not part of the accepted
 contract. A temporary implementation gap is a defect to close, not an API
 exception to document. Changes to an operation update both mappings, their
 tests, and this specification in the same change.
+
+The planned [Assistant Access (MCP)](mcp.md) server is an adapter over a
+curated subset of these operations, not a third mirror. It never offers an
+operation that REST and GraphQL lack, and it reuses their validation, errors,
+and REST JSON representation.
 
 Transport-specific representation differences are allowed where the protocol
 requires them. Binary file uploads and downloads use streaming HTTP endpoints;
