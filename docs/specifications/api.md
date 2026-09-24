@@ -30,7 +30,7 @@ contract. A temporary implementation gap is a defect to close, not an API
 exception to document. Changes to an operation update both mappings, their
 tests, and this specification in the same change.
 
-The planned [Assistant Access (MCP)](mcp.md) server is an adapter over a
+The [Assistant Access (MCP)](mcp.md) server is an adapter over a
 curated subset of these operations, not a third mirror. It never offers an
 operation that REST and GraphQL lack, and it reuses their validation, errors,
 and REST JSON representation.
@@ -176,7 +176,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Moda
 |---|---|---|
 | `GET` | `/trees/{tree_id}/families` | List families (cursor-paginated) |
 | `POST` | `/trees/{tree_id}/families` | Create a family |
-| `GET` | `/trees/{tree_id}/families/{family_id}` | Get a family (with spouses, children, events) |
+| `GET` | `/trees/{tree_id}/families/{family_id}` | Get a family record; its spouses and children come from the member endpoints below |
 | `PUT` | `/trees/{tree_id}/families/{family_id}` | Update a family |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}` | Soft-delete a family |
 

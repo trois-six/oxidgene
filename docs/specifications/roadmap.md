@@ -33,7 +33,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Post-MVP | [Architecture](architecture.md), [API](api.md) |
-| I | Assistant access through MCP | Planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
+| I | Assistant access through MCP | First delivery complete; later phases planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
 
 ## 3. Active: media completion
 
@@ -94,20 +94,20 @@ this clearly until authorization is enforced.
 First delivery: read-only, stdio, desktop, with a required `tree_id` on every
 tool but `list_trees`.
 
-- [ ] Add the optional `mcp` feature to `oxidgene-api`, with `rmcp` limited to
+- [x] Add the optional `mcp` feature to `oxidgene-api`, with `rmcp` limited to
   `server`, `macros`, and `transport-io`, and justify its transitive
   dependency cost measured with `cargo tree`.
-- [ ] Derive tool input and output schemas from the types REST already
-  deserializes and serializes, behind that feature.
-- [ ] Add the `oxidgene-desktop mcp` subcommand, which starts no
+- [x] Derive tool input schemas from the types REST already deserializes,
+  behind that feature.
+- [x] Add the `oxidgene-desktop mcp` subcommand, which starts no
   listener, WebView, job worker, purge worker, or job recovery, and writes only
   protocol messages to standard output.
-- [ ] Implement `list_trees` and the tree-scoped read-only tools of
+- [x] Implement `list_trees` and the tree-scoped read-only tools of
   [Assistant Access §5](mcp.md).
-- [ ] Add the AI assistant entry to the App Settings API section: warning,
+- [x] Add the AI assistant entry to the App Settings API section: warning,
   command, JSON configuration, desktop capability injection, and
   English/French keys.
-- [ ] Test every tool over an in-process transport, including a missing
+- [x] Test every tool over an in-process transport, including a missing
   `tree_id`, cross-tree IDs, a tree deleted mid-session, and output-stream
   cleanliness.
 
@@ -118,6 +118,7 @@ Later phases, in order:
 - [ ] Streamable HTTP on `/mcp` with MCP authorization mapped to per-tree
   access, after EPIC G.
 - [ ] Bounded thumbnail image content.
+- [ ] Output schemas, once the result types carry JSON Schema derives.
 
 ## 7. Post-MVP: asynchronous processing
 

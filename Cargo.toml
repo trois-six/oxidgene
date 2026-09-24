@@ -168,6 +168,19 @@ reqwest = { version = "0.13", default-features = false, features = [
 # Platform directories
 dirs = "7"
 
+# Model Context Protocol server (assistant access, desktop only). Defaults are
+# off: they add base64 and nothing we call. `server` is the handler and tool
+# router, `macros` the `#[tool]` attributes, `transport-io` stdio — no HTTP,
+# client or OAuth code is compiled.
+rmcp = { version = "3.4", default-features = false, features = [
+    "server",
+    "macros",
+    "transport-io",
+] }
+# JSON Schema for MCP tool inputs, derived on the same types REST deserializes.
+# rmcp already depends on it; `uuid1` lets IDs be described as UUID strings.
+schemars = { version = "1", default-features = false, features = ["derive", "std", "uuid1"] }
+
 # Native file dialogs
 rfd = "0.17"
 

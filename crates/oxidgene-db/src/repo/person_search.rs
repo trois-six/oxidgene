@@ -100,31 +100,51 @@ pub struct PersonSearchPage {
 /// them straight into this one type instead of restating the field list. An
 /// absent field is no constraint.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct PersonSearchFilters {
     pub sex: Option<Sex>,
+    /// Substring of the primary surname, case- and accent-insensitive.
     pub surname: Option<String>,
+    /// Substring of the primary given names, case- and accent-insensitive.
     pub given_names: Option<String>,
+    /// Substring of an occupation label.
     pub occupation: Option<String>,
+    /// Substring of any spouse's surname.
     pub spouse_surname: Option<String>,
+    /// Substring of any spouse's given names.
     pub spouse_given_names: Option<String>,
+    /// Substring of the father's surname.
     pub father_surname: Option<String>,
+    /// Substring of the father's given names.
     pub father_given_names: Option<String>,
+    /// Substring of the mother's surname.
     pub mother_surname: Option<String>,
+    /// Substring of the mother's given names.
     pub mother_given_names: Option<String>,
+    /// Earliest birth year, inclusive; a birth may fall back to the baptism.
     pub birth_from: Option<i32>,
+    /// Latest birth year, inclusive.
     pub birth_to: Option<i32>,
+    /// Earliest death year, inclusive; a death may fall back to the burial.
     pub death_from: Option<i32>,
+    /// Latest death year, inclusive.
     pub death_to: Option<i32>,
+    /// Substring of the name of a place where the person has an event.
     pub place: Option<String>,
+    /// Only persons with an event of this type.
     pub event_type: Option<EventType>,
+    /// Earliest year of that event, inclusive.
     pub event_from: Option<i32>,
+    /// Latest year of that event, inclusive.
     pub event_to: Option<i32>,
+    /// Only persons with at least one attached media.
     pub has_media: bool,
 }
 
 /// Stable server-side ordering for person search.
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PersonSearchSort {
     #[default]

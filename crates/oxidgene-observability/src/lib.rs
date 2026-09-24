@@ -25,6 +25,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer as _;
 use tracing_subscriber::filter::{FilterExt as _, LevelFilter, filter_fn};
+use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -119,17 +120,46 @@ impl TelemetryGuard {
 
 /// Install structured logging and optional OTLP trace and metric exporters.
 ///
-/// OTLP export is enabled only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+/// Logs are written to standard output. OTLP export is enabled only when
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 pub fn init(
     service_name: &'static str,
     service_version: &'static str,
     log_filter: &str,
 ) -> Result<TelemetryGuard, Box<dyn Error + Send + Sync>> {
+    install(service_name, service_version, log_filter, std::io::stdout)
+}
+
+/// [`init`], with logs written to standard error.
+///
+/// For a process whose standard output is a protocol stream, such as an MCP
+/// server over stdio, where a single log line would corrupt the session.
+pub fn init_to_stderr(
+    service_name: &'static str,
+    service_version: &'static str,
+    log_filter: &str,
+) -> Result<TelemetryGuard, Box<dyn Error + Send + Sync>> {
+    install(service_name, service_version, log_filter, std::io::stderr)
+}
+
+fn install<W>(
+    service_name: &'static str,
+    service_version: &'static str,
+    log_filter: &str,
+    writer: W,
+) -> Result<TelemetryGuard, Box<dyn Error + Send + Sync>>
+where
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+{
     let Some(endpoint) = env::var_os(OTLP_ENDPOINT_ENV).filter(|value| !value.is_empty()) else {
         tracing_subscriber::registry()
-            .with(tracing_subscriber::fmt::layer().with_filter(
-                runtime_filter(log_filter)?.and(filter_fn(|metadata| metadata.is_event())),
-            ))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(writer)
+                    .with_filter(
+                        runtime_filter(log_filter)?.and(filter_fn(|metadata| metadata.is_event())),
+                    ),
+            )
             .try_init()?;
         return Ok(TelemetryGuard {
             logger_provider: None,
@@ -193,9 +223,13 @@ pub fn init(
     let log_layer = OpenTelemetryTracingBridge::new(&logger_provider);
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(
-            runtime_filter(log_filter)?.and(filter_fn(|metadata| metadata.is_event())),
-        ))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_filter(
+                    runtime_filter(log_filter)?.and(filter_fn(|metadata| metadata.is_event())),
+                ),
+        )
         .with(
             OpenTelemetryLayer::new(tracer)
                 .with_filter(filter_fn(export_span).and(LevelFilter::INFO)),

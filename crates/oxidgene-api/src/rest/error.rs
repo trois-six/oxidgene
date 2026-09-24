@@ -27,23 +27,30 @@ impl From<OxidGeneError> for ApiError {
     }
 }
 
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let contract = classify(&self.0);
-        let status = status(&self.0);
-
+impl ErrorBody {
+    /// The public envelope for a domain error: its stable code and safe
+    /// message, plus a logged request ID when the failure was unexpected.
+    ///
+    /// Shared by every surface that reports errors as JSON, so they cannot
+    /// disagree on what a failure discloses.
+    pub(crate) fn from_error(error: &OxidGeneError) -> Self {
+        let contract = classify(error);
         let request_id = contract.unexpected.then(Uuid::now_v7);
         if let Some(request_id) = request_id {
             error!(%request_id, error = contract.code, "request failed");
         }
-
-        let body = ErrorBody {
+        Self {
             error: contract.code.to_string(),
             message: contract.message.to_string(),
             request_id,
-        };
+        }
+    }
+}
 
-        (status, axum::Json(body)).into_response()
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let body = ErrorBody::from_error(&self.0);
+        (status(&self.0), axum::Json(body)).into_response()
     }
 }
 

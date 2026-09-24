@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Biological sex of a person.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Sex {
     Male,
@@ -535,6 +536,7 @@ impl DocumentCategory {
 
 /// Type of genealogical event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     // Individual events

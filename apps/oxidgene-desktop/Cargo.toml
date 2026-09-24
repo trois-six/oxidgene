@@ -30,7 +30,7 @@ glib = { version = "0.18", default-features = false }
 gtk = { version = "0.18", default-features = false }
 
 [dependencies]
-oxidgene-api = { workspace = true }
+oxidgene-api = { workspace = true, features = ["mcp"] }
 oxidgene-db = { workspace = true }
 oxidgene-observability = { workspace = true, optional = true }
 oxidgene-ui = { workspace = true }

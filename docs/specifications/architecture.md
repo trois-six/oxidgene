@@ -344,8 +344,8 @@ but authenticated session storage is not implemented yet.
 - Single binary per platform (Windows, Linux, macOS).
 - Built via `cargo build --release` with appropriate target.
 - No external runtime dependencies (SQLite embedded, WebView from system).
-- The same binary will serve MCP clients over stdio through its planned
-    `mcp` subcommand, headless and without a network listener. See
+- The same binary serves MCP clients over stdio through its `mcp`
+    subcommand, headless and without a network listener. See
     [Assistant Access](mcp.md).
 - Offline place databases, when installed, live in the application data
     directory and are managed from [Settings](ui-settings.md). See

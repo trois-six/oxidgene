@@ -21,10 +21,13 @@ postgres = [
     "sea-orm-migration/runtime-tokio-rustls",
 ]
 telemetry-context = ["dep:oxidgene-observability"]
+# JSON Schema derives for the search filters an MCP tool accepts as input.
+schema = ["dep:schemars", "oxidgene-core/schema"]
 
 [dependencies]
 oxidgene-core = { workspace = true }
 oxidgene-observability = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
 uuid = { workspace = true }

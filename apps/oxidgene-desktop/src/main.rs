@@ -40,6 +40,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod geneanet;
+mod mcp;
 mod media_assets;
 mod themes;
 
@@ -54,7 +55,7 @@ use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
 #[cfg(feature = "telemetry")]
-use oxidgene_observability::{init, make_http_span, on_http_response};
+use oxidgene_observability::{init, init_to_stderr, make_http_span, on_http_response};
 use oxidgene_ui::api::ApiClient;
 use oxidgene_ui::theme::CustomThemeLoader;
 use tokio::net::TcpListener;
@@ -118,7 +119,7 @@ fn suppress_duplicate_configure_events(
     });
 }
 
-/// The whole command line: one flag, read by hand.
+/// The whole command line: a subcommand and two flags, read by hand.
 ///
 /// A derive-based parser links its entire help-rendering and error-reporting
 /// machinery into a binary that opens a window; for a single boolean it was
@@ -126,6 +127,9 @@ fn suppress_duplicate_configure_events(
 /// answered here rather than dropped, because a binary on a `$PATH` that
 /// ignores it is rude.
 struct Cli {
+    /// `mcp` as the first argument: serve MCP over stdio instead of opening
+    /// the window.
+    mcp: bool,
     /// Enable developer-oriented logs for OxidGene crates.
     #[cfg(feature = "telemetry")]
     debug: bool,
@@ -140,7 +144,8 @@ impl Cli {
         let mut debug = false;
         #[cfg(feature = "telemetry")]
         let mut log_level = None;
-        let mut args = std::env::args_os().skip(1);
+        let mut args = std::env::args_os().skip(1).peekable();
+        let mcp = args.next_if(|arg| arg == "mcp").is_some();
         // A build without telemetry accepts no flags at all, so every arm below
         // ends the process and the loop provably runs at most once — which is
         // what both lints report. The loop is still what the telemetry build
@@ -174,7 +179,10 @@ impl Cli {
                     println!(
                         "oxidgene-desktop — OxidGene desktop genealogy app\n\
                          \n\
-                         Usage: oxidgene-desktop [--debug] [--log-level FILTER]\n\
+                         Usage: oxidgene-desktop [mcp] [--debug] [--log-level FILTER]\n\
+                         \n\
+                         Commands:\n    \
+                             mcp          Serve the trees to an MCP client over stdio\n\
                          \n\
                          Options:\n    \
                              --debug      Enable debug logs for OxidGene crates\n    \
@@ -186,7 +194,10 @@ impl Cli {
                     println!(
                         "oxidgene-desktop — OxidGene desktop genealogy app\n\
                          \n\
-                         Usage: oxidgene-desktop\n\
+                         Usage: oxidgene-desktop [mcp]\n\
+                         \n\
+                         Commands:\n    \
+                             mcp          Serve the trees to an MCP client over stdio\n\
                          \n\
                          Options:\n    \
                              -h, --help   Show this message\n    \
@@ -209,6 +220,7 @@ impl Cli {
             }
         }
         Self {
+            mcp,
             #[cfg(feature = "telemetry")]
             debug,
             #[cfg(feature = "telemetry")]
@@ -237,10 +249,7 @@ fn main() {
     ))]
     glib::set_prgname(Some("oxidgene"));
 
-    #[cfg(feature = "telemetry")]
     let cli = Cli::parse();
-    #[cfg(not(feature = "telemetry"))]
-    Cli::parse();
 
     // ── Initialize observability ─────────────────────────────────────
     #[cfg(feature = "telemetry")]
@@ -254,9 +263,16 @@ fn main() {
                 "info".to_string()
             }
         });
+    // An MCP session owns standard output for its protocol, so its logs go to
+    // standard error.
     #[cfg(feature = "telemetry")]
     let telemetry = Arc::new(Mutex::new(Some(
-        init("oxidgene-desktop", env!("CARGO_PKG_VERSION"), &filter).unwrap_or_else(|_| {
+        if cli.mcp { init_to_stderr } else { init }(
+            "oxidgene-desktop",
+            env!("CARGO_PKG_VERSION"),
+            &filter,
+        )
+        .unwrap_or_else(|_| {
             eprintln!("Failed to initialize observability");
             std::process::exit(1);
         }),
@@ -266,6 +282,15 @@ fn main() {
     let data_dir = dirs::data_dir()
         .expect("could not determine platform data directory")
         .join("oxidgene");
+
+    if cli.mcp {
+        let status = mcp::run(&data_dir.join("oxidgene.db"));
+        #[cfg(feature = "telemetry")]
+        if let Some(telemetry) = telemetry.lock().unwrap().take() {
+            telemetry.shutdown();
+        }
+        std::process::exit(status);
+    }
 
     std::fs::create_dir_all(&data_dir).unwrap_or_else(|_| {
         error!(error = "data_directory", "Failed to create data directory");

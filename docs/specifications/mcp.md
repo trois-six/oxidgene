@@ -12,8 +12,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 > See also: [API Contract](api.md) · [Architecture](architecture.md) ·
 > [App Settings](ui-app-settings.md) · [Cross-cutting Rules](cross-cutting.md)
 >
-> **Status: planned.** This document is the contract the first delivery
-> implements. Delivery is tracked in [Roadmap §6](roadmap.md).
+> The first delivery is implemented; later phases are tracked in
+> [Roadmap §6](roadmap.md).
 
 ---
 
@@ -95,9 +95,9 @@ subcommand is part of it, not a separate binary.
 1. Resolve the platform data directory, as the desktop application does, and
    open `oxidgene.db` read-write **without creating it**. A missing database
    is a startup error.
-2. Apply the same migrations as desktop startup. With the single consolidated
-   migration ([Architecture §9.2](architecture.md)), this does nothing on a
-   database the desktop has already opened.
+2. Apply the same migrations as desktop startup. Applied migrations are
+   recorded, so this does nothing on a database the desktop has already
+   opened.
 3. Build a `ProfileService` over the connection and serve.
 
 A startup error is reported on standard error with a generic message (no
@@ -142,19 +142,19 @@ within that tree.
 
 | Tool | Parameters | Product operation | Result |
 |---|---|---|---|
-| `list_trees` | `first`, `after` | `GET /trees` | Tree connection of the active trees, as REST returns it; the IDs are what every other tool takes as `tree_id` |
+| `list_trees` | `first`, `after` | `GET /trees` | Tree connection of the active trees, without the REST list's transient import-job fields; the IDs are what every other tool takes as `tree_id` |
 | `get_tree` | `tree_id` | `GET /trees/{tree_id}` | The tree's name, description, SOSA root, and the person the user identified as themself |
 | `search_persons` | `tree_id`, `q`, every `PersonSearchFilters` field, `sort`, `limit`, `offset` | `GET /trees/{tree_id}/persons/search` | `SearchResult` |
 | `get_person_profile` | `tree_id`, `person_id` | `GET /trees/{tree_id}/profiles/{person_id}` | `PersonProfile` |
 | `get_person_by_sosa` | `tree_id`, `number` | `GET /trees/{tree_id}/persons/sosa/{number}` | Person with `sosa_number` |
 | `get_pedigree` | `tree_id`, `root_person_id`, `ancestor_depth`, `descendant_depth` | `GET /trees/{tree_id}/pedigree/{root_person_id}` | `Pedigree` |
-| `get_family` | `tree_id`, `family_id` | `GET /trees/{tree_id}/families/{family_id}` | Family with spouses, children, and events |
+| `get_relation_labels` | `tree_id`, `person_ids`, `family_ids` | `POST /trees/{tree_id}/relation-labels` | Names of the persons, and the spouses of the families with their names; at most 1,024 IDs |
 | `list_events` | `tree_id`, `person_id`, `family_id`, `event_type`, `first`, `after` | `GET /trees/{tree_id}/events` | Event connection |
 | `get_place` | `tree_id`, `place_id` | `GET /trees/{tree_id}/places/{place_id}` | Place |
 | `get_source` | `tree_id`, `source_id` | `GET /trees/{tree_id}/sources/{source_id}` | Source |
 | `list_citations` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/citations` | Citation connection |
 | `list_notes` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/notes` | Note connection |
-| `list_dictionary` | `tree_id`, `kind` (`family_names`, `occupations`, `places`, `sources`) | `GET /trees/{tree_id}/dictionary/{kind}` | Values or records with usage counts |
+| `list_dictionary` | `tree_id`, `kind` (`family_names`, `occupations`, `places`, `sources`), `prefix` (`sources` only) | `GET /trees/{tree_id}/dictionary/{kind}` | Values or records with usage counts |
 | `dictionary_usage` | `tree_id`, `kind`, then `value` (`family_names`, `occupations`) or `id` (`places`, `sources`) | The matching `…/usage` endpoint | `PersonUsageEntry` list |
 
 Bounds:
@@ -172,18 +172,24 @@ The first delivery offers no MCP resources and no prompts.
 
 ## 6. Results and errors
 
-- `structuredContent` is the REST JSON body of the mapped operation, and each
-  tool publishes an `outputSchema`. The text content carries the same JSON
-  serialized, for clients that ignore structured content. There is no
-  MCP-specific representation.
+- `structuredContent` is the REST JSON body of the mapped operation. MCP
+  requires an object there, so a body that is a list is wrapped as
+  `{ "items": [...] }`. The text content carries the same JSON serialized,
+  for clients that ignore structured content. There is no other MCP-specific
+  representation.
+- The first delivery publishes no `outputSchema`. Output schemas would need
+  JSON Schema derives on every domain and projection type the results
+  contain; they are deferred to a later phase (§10).
 - User and imported content (names, notes, source text) is returned verbatim
   and never translated, as on the other surfaces.
 - A domain error is a tool result with `isError: true` whose content is the
   shared error envelope: its stable `code` and safe message
   ([Cross-cutting Rules §4–5](cross-cutting.md)). It carries no SQL, path,
   stack trace, or genealogy.
-- Protocol errors, such as an unknown tool or parameters that fail the input
-  schema, are JSON-RPC errors.
+- Arguments that fail to deserialize against the input schema, such as a
+  missing `tree_id`, are rejected by the SDK before the tool runs, as a tool
+  result with `isError: true` and a text message. An unknown tool is a
+  JSON-RPC error.
 
 The server's `initialize` result carries `instructions` for the model, in
 English. They say that every tool except `list_trees` needs a `tree_id`
@@ -272,14 +278,19 @@ Clients that use an `mcpServers` JSON file:
 - The server uses [`rmcp`](https://github.com/modelcontextprotocol/rust-sdk),
   the official Rust SDK, behind an optional `mcp` feature of `oxidgene-api`,
   with `default-features = false` and only `server`, `macros`, and
-  `transport-io`. The `schemars` derives it needs for input and output
-  schemas sit behind optional features of the crates that declare those types
-  (`oxidgene-core`, `oxidgene-db`), which `mcp` enables.
+  `transport-io`. The `schemars` derives its input schemas need sit behind the
+  optional `schema` features of the crates that declare those types
+  (`Sex` and `EventType` in `oxidgene-core`, `PersonSearchFilters` and
+  `PersonSearchSort` in `oxidgene-db`), which `mcp` enables. Together they add
+  twelve crates to the desktop build, eight of them compile-time only.
 - Only `oxidgene-desktop` enables the feature. The standalone server, the
   worker, and the WASM frontend do not compile it, just as the desktop does
   not compile `graphql`.
 - The MCP handlers live in `oxidgene-api/src/mcp/` and call the existing
   services and repositories. They contain no business logic.
+- Logs go to standard error through `oxidgene_observability::init_to_stderr`,
+  the variant of the shared initializer for processes whose standard output is
+  a protocol stream.
 
 ---
 
@@ -298,6 +309,8 @@ Clients that use an `mcpServers` JSON file:
   validation, and the same required `tree_id` as §3. `list_trees` then returns
 only the trees the user may read.
 - **Media.** Thumbnails as image content, bounded in size and count.
+- **Output schemas.** An `outputSchema` per tool, once the result types carry
+  JSON Schema derives.
 
 ---
 

@@ -7,7 +7,13 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# JSON Schema derives for the enums an MCP tool accepts as input.
+schema = ["dep:schemars"]
+
 [dependencies]
+schemars = { workspace = true, optional = true }
 serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
