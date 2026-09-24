@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::profile::invalidation;
+use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -10,7 +11,7 @@ use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PaginationParams, PersonRepo,
-    TreeRepo,
+    PersonSearchFilters, TreeRepo,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -237,34 +238,18 @@ pub async fn search_persons(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PersonSearchQuery>,
+    Query(filters): Query<PersonSearchFilters>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let q = query.q.unwrap_or_default();
-    let limit = query.limit.unwrap_or(25).min(100);
-    let offset = query.offset.unwrap_or(0);
-    let filters = oxidgene_db::repo::PersonSearchFilters {
-        sex: query.sex,
-        surname: query.surname,
-        given_names: query.given_names,
-        occupation: query.occupation,
-        spouse_surname: query.spouse_surname,
-        spouse_given_names: query.spouse_given_names,
-        father_surname: query.father_surname,
-        father_given_names: query.father_given_names,
-        mother_surname: query.mother_surname,
-        mother_given_names: query.mother_given_names,
-        birth_from: query.birth_from,
-        birth_to: query.birth_to,
-        death_from: query.death_from,
-        death_to: query.death_to,
-        place: query.place,
-        event_type: query.event_type,
-        event_from: query.event_from,
-        event_to: query.event_to,
-        has_media: query.has_media,
-    };
     let results = state
         .profiles
-        .search_filtered(tree_id, &q, &filters, query.sort.into(), limit, offset)
+        .search_filtered(
+            tree_id,
+            query.q.as_deref().unwrap_or_default(),
+            &filters,
+            query.sort,
+            query.limit.unwrap_or(SEARCH_DEFAULT_LIMIT),
+            query.offset.unwrap_or(0),
+        )
         .await
         .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(results).unwrap()))

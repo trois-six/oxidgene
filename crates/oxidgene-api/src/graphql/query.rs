@@ -11,8 +11,7 @@ use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, CitationFilter,
     CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, MediaLinkRepo,
     MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
-    PersonSearchFilters, PersonSearchSort, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo,
-    VignetteRepo,
+    PersonSearchFilters, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
 };
 
 use super::inputs::{GeneanetPreviewInput, ImageSourceInput, geneanet_deposit_sizes};
@@ -1331,7 +1330,7 @@ impl QueryRoot {
         ctx: &Context<'_>,
         tree_id: ID,
         query: String,
-        #[graphql(default = 25)] limit: usize,
+        #[graphql(default_with = "crate::profile::service::SEARCH_DEFAULT_LIMIT")] limit: usize,
         #[graphql(default = 0)] offset: usize,
         sex: Option<super::types::GqlSex>,
         surname: Option<String>,
@@ -1382,8 +1381,8 @@ impl QueryRoot {
                 tid,
                 &query,
                 &filters,
-                sort.map(Into::into).unwrap_or(PersonSearchSort::Relevance),
-                limit.min(100),
+                sort.map(Into::into).unwrap_or_default(),
+                limit,
                 offset,
             )
             .await?;

@@ -18,6 +18,7 @@ use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::normalize_for_search;
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value};
+use serde::Deserialize;
 use uuid::Uuid;
 
 /// A row of the `person_search_fts` table.
@@ -93,7 +94,13 @@ pub struct PersonSearchPage {
 }
 
 /// Structured filters applied before search pagination.
-#[derive(Debug, Clone, Default)]
+///
+/// Deserializable so that every API surface that receives the filters as
+/// named fields — REST query strings, and anything else speaking JSON — reads
+/// them straight into this one type instead of restating the field list. An
+/// absent field is no constraint.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
 pub struct PersonSearchFilters {
     pub sex: Option<Sex>,
     pub surname: Option<String>,
@@ -117,7 +124,8 @@ pub struct PersonSearchFilters {
 }
 
 /// Stable server-side ordering for person search.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PersonSearchSort {
     #[default]
     Relevance,

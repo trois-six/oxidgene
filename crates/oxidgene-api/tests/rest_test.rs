@@ -967,6 +967,42 @@ async fn test_person_search_combines_relations_and_pagination() {
     assert_eq!(entry["birth_qualifier"], "exact");
 }
 
+/// The filters are read by their own extractor, beside the one for text and
+/// paging: typed values (an enum, a boolean, a year) must still parse from the
+/// shared query string, and an oversized page is capped rather than refused.
+#[tokio::test]
+async fn test_person_search_reads_typed_filters_beside_paging() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    for (sex, given_names) in [("male", "Alpha"), ("female", "Beta"), ("female", "Gamma")] {
+        create_named_person_via_api(&app, &tree_id, sex, given_names, "Sample").await;
+    }
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{tree_id}/persons/search?q=sample&sex=female&has_media=false&sort=name_desc&limit=500"
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "typed filters failed: {body}");
+    assert_eq!(body["total_count"], 2);
+    assert_eq!(body["entries"][0]["display_name"], "Gamma Sample");
+    assert_eq!(body["entries"][1]["display_name"], "Beta Sample");
+
+    let (status, body) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?surname=sample&has_media=true"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "media filter failed: {body}");
+    assert_eq!(body["total_count"], 0);
+}
+
 // ───────────────────────── Family tests ─────────────────────────
 
 #[tokio::test]

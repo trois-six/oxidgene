@@ -1021,6 +1021,74 @@ async fn person_from_another_tree_is_not_exposed_by_graphql() {
     assert!(response.get("errors").is_some());
 }
 
+/// Mirrors the REST typed-filter test: an enum, a boolean and an ordering
+/// select the same persons, and an oversized page is capped rather than
+/// refused.
+#[tokio::test]
+async fn test_search_persons_reads_typed_filters() {
+    let app = setup_app().await;
+    let tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Search tree" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for (sex, given_names) in [("MALE", "Alpha"), ("FEMALE", "Beta"), ("FEMALE", "Gamma")] {
+        let person_id = data(
+            &graphql(
+                app.clone(),
+                &format!(
+                    r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: {sex} }}) {{ id }} }}"#
+                ),
+                None,
+            )
+            .await,
+        )["createPerson"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        data(
+            &graphql(
+                app.clone(),
+                &format!(
+                    r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "{given_names}", surname: "Sample", isPrimary: true }}) {{ id }} }}"#
+                ),
+                None,
+            )
+            .await,
+        );
+    }
+
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ searchPersons(treeId: "{tree_id}", query: "sample", sex: FEMALE, hasMedia: false, sort: NAME_DESC, limit: 500) {{ totalCount entries {{ displayName }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = &data(&response)["searchPersons"];
+    assert_eq!(result["totalCount"], 2);
+    assert_eq!(result["entries"][0]["displayName"], "Gamma Sample");
+    assert_eq!(result["entries"][1]["displayName"], "Beta Sample");
+
+    let response = graphql(
+        app,
+        &format!(
+            r#"{{ searchPersons(treeId: "{tree_id}", query: "", surname: "sample", hasMedia: true) {{ totalCount }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&response)["searchPersons"]["totalCount"], 0);
+}
+
 // ── Family with spouses and children ─────────────────────────────────
 
 #[tokio::test]

@@ -40,6 +40,15 @@ use super::invalidation;
 /// where one wide read beats N narrow ones.
 const FULL_FETCH_THRESHOLD: usize = 50;
 
+/// Page size of a person search when the caller names none.
+pub const SEARCH_DEFAULT_LIMIT: usize = 25;
+
+/// Largest page a person search returns, whatever the caller asks for.
+///
+/// Enforced in [`ProfileService::search_filtered`] rather than by each API
+/// surface, so no transport can forget it.
+pub const SEARCH_MAX_LIMIT: usize = 100;
+
 /// Orchestrates the denormalized person projections and pedigree assembly.
 ///
 /// Stored in the API's `AppState` as an `Arc<ProfileService>`; all methods
@@ -323,7 +332,8 @@ impl ProfileService {
     }
 
     /// Search persons with all filters, ordering, and pagination applied by
-    /// the database before rows are returned.
+    /// the database before rows are returned. `limit` is capped at
+    /// [`SEARCH_MAX_LIMIT`].
     #[allow(clippy::too_many_arguments)]
     pub async fn search_filtered(
         &self,
@@ -342,7 +352,7 @@ impl ProfileService {
             query,
             filters,
             sort,
-            limit as u64,
+            limit.min(SEARCH_MAX_LIMIT) as u64,
             offset as u64,
         )
         .await?;
