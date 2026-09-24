@@ -684,11 +684,19 @@ impl QueryRoot {
     async fn source_usage(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         source_id: ID,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
         let db = db_from_ctx(ctx);
-        let ids = DictionaryRepo::source_usage_person_ids(db, Uuid::parse_str(source_id.as_str())?)
-            .await?;
+        let source_id = Uuid::parse_str(source_id.as_str())?;
+        require_tree_resource(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            TreeResource::Source,
+            source_id,
+        )
+        .await?;
+        let ids = DictionaryRepo::source_usage_person_ids(db, source_id).await?;
         Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
             .await?
             .into_iter()
@@ -700,11 +708,19 @@ impl QueryRoot {
     async fn place_usage(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         place_id: ID,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
         let db = db_from_ctx(ctx);
-        let ids =
-            DictionaryRepo::place_usage_person_ids(db, Uuid::parse_str(place_id.as_str())?).await?;
+        let place_id = Uuid::parse_str(place_id.as_str())?;
+        require_tree_resource(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            TreeResource::Place,
+            place_id,
+        )
+        .await?;
+        let ids = DictionaryRepo::place_usage_person_ids(db, place_id).await?;
         Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
             .await?
             .into_iter()

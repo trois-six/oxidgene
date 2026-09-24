@@ -12,7 +12,7 @@ use super::dto::{
     SourceGroupDto, SourcePrefixQuery,
 };
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/dictionary/family-names
 pub async fn family_names(
@@ -113,8 +113,11 @@ pub async fn places(
 /// GET /api/v1/trees/:tree_id/dictionary/sources/:source_id/usage
 pub async fn source_usage(
     State(state): State<AppState>,
-    Path((_tree_id, source_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id)
+        .await
+        .map_err(ApiError)?;
     let ids = DictionaryRepo::source_usage_person_ids(&state.db, source_id)
         .await
         .map_err(ApiError::from)?;
@@ -124,8 +127,11 @@ pub async fn source_usage(
 /// GET /api/v1/trees/:tree_id/dictionary/places/:place_id/usage
 pub async fn place_usage(
     State(state): State<AppState>,
-    Path((_tree_id, place_id)): Path<(Uuid, Uuid)>,
+    Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Place, place_id)
+        .await
+        .map_err(ApiError)?;
     let ids = DictionaryRepo::place_usage_person_ids(&state.db, place_id)
         .await
         .map_err(ApiError::from)?;

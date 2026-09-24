@@ -578,6 +578,65 @@ async fn create_named_person_via_api(
     person_id
 }
 
+/// Reads keyed by a record ID must not answer for a record of another tree,
+/// even when the handler goes through a projection or an aggregate rather than
+/// the record's own table.
+#[tokio::test]
+async fn projection_and_usage_reads_are_tree_scoped() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let other_tree_id = create_tree_via_api(&app).await;
+    let other_person_id =
+        create_named_person_via_api(&app, &other_tree_id, "female", "Sam", "Sample").await;
+    let (status, source) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{other_tree_id}/sources"),
+        Some(serde_json::json!({ "title": "Sample register" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let source_id = source["id"].as_str().unwrap().to_string();
+    let (status, place) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{other_tree_id}/places"),
+        Some(serde_json::json!({ "name": "Sampleville" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let place_id = place["id"].as_str().unwrap().to_string();
+
+    for path in [
+        format!("/api/v1/trees/{tree_id}/profiles/{other_person_id}"),
+        format!(
+            "/api/v1/trees/{tree_id}/pedigree/{other_person_id}?ancestor_depth=1&descendant_depth=1"
+        ),
+        format!("/api/v1/trees/{tree_id}/dictionary/sources/{source_id}/usage"),
+        format!("/api/v1/trees/{tree_id}/dictionary/places/{place_id}/usage"),
+    ] {
+        let (status, body) = send_request(app.clone(), Method::GET, &path, None).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "{path} answered across trees: {body}"
+        );
+    }
+
+    // The same reads answer in the record's own tree.
+    for path in [
+        format!("/api/v1/trees/{other_tree_id}/profiles/{other_person_id}"),
+        format!(
+            "/api/v1/trees/{other_tree_id}/pedigree/{other_person_id}?ancestor_depth=1&descendant_depth=1"
+        ),
+        format!("/api/v1/trees/{other_tree_id}/dictionary/sources/{source_id}/usage"),
+        format!("/api/v1/trees/{other_tree_id}/dictionary/places/{place_id}/usage"),
+    ] {
+        let (status, body) = send_request(app.clone(), Method::GET, &path, None).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+    }
+}
+
 #[tokio::test]
 async fn relation_labels_are_tree_scoped_and_bounded() {
     let app = setup_app().await;

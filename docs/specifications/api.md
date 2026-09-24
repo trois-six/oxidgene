@@ -731,8 +731,8 @@ type Query {
   dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
-  sourceUsage(sourceId: ID!): [PersonUsageEntry!]!
-  placeUsage(placeId: ID!): [PersonUsageEntry!]!
+  sourceUsage(treeId: ID!, sourceId: ID!): [PersonUsageEntry!]!
+  placeUsage(treeId: ID!, placeId: ID!): [PersonUsageEntry!]!
   occupationReference(language: String!, term: String!): OccupationReference
   occupationReferences(language: String!, terms: [String!]!): [OccupationReferenceMatch!]!
   givenNameReference(language: String!, term: String!): GivenNameReference

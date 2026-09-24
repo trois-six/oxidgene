@@ -1543,8 +1543,8 @@ async fn test_dictionary_and_reference_over_graphql() {
                 dictionaryPlaces(treeId: "{tree_id}") {{ place {{ id name }} count }}
                 familyNameUsage(treeId: "{tree_id}", value: "Durand") {{ personId }}
                 occupationUsage(treeId: "{tree_id}", value: "Agriculteur") {{ personId }}
-                sourceUsage(sourceId: "{source_id}") {{ personId }}
-                placeUsage(placeId: "{place_id}") {{ personId }}
+                sourceUsage(treeId: "{tree_id}", sourceId: "{source_id}") {{ personId }}
+                placeUsage(treeId: "{tree_id}", placeId: "{place_id}") {{ personId }}
                 occupationReference(language: "fr", term: "Agriculteur") {{ label }}
                 givenNameReference(language: "fr", term: "Marie") {{ label }}
             }}"#
@@ -2154,6 +2154,75 @@ async fn test_query_not_found_returns_null() {
     .await;
     // Should return null, not an error
     assert!(data(&resp)["tree"].is_null());
+}
+
+/// Mirrors the REST cross-tree test: a projection, a pedigree or a usage read
+/// naming a record of another tree is not found, and the record's own tree
+/// still answers.
+#[tokio::test]
+async fn projection_and_usage_queries_are_tree_scoped() {
+    let app = setup_app().await;
+    let mut tree_ids = Vec::new();
+    for name in ["Scope tree", "Other tree"] {
+        tree_ids.push(
+            data(
+                &graphql(
+                    app.clone(),
+                    &format!(r#"mutation {{ createTree(input: {{ name: "{name}" }}) {{ id }} }}"#),
+                    None,
+                )
+                .await,
+            )["createTree"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    let (tree_id, other_tree_id) = (&tree_ids[0], &tree_ids[1]);
+    let created = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{
+                    createPerson(treeId: "{other_tree_id}", input: {{ sex: FEMALE }}) {{ id }}
+                    createSource(treeId: "{other_tree_id}", input: {{ title: "Sample register" }}) {{ id }}
+                    createPlace(treeId: "{other_tree_id}", input: {{ name: "Sampleville" }}) {{ id }}
+                }}"#
+            ),
+            None,
+        )
+        .await,
+    )
+    .clone();
+    let person_id = created["createPerson"]["id"].as_str().unwrap();
+    let source_id = created["createSource"]["id"].as_str().unwrap();
+    let place_id = created["createPlace"]["id"].as_str().unwrap();
+
+    let queries = |tree: &str| {
+        [
+            format!(
+                r#"{{ personProfile(treeId: "{tree}", personId: "{person_id}") {{ personId }} }}"#
+            ),
+            format!(
+                r#"{{ pedigree(treeId: "{tree}", rootPersonId: "{person_id}", ancestorDepth: 1, descendantDepth: 1) {{ rootPersonId }} }}"#
+            ),
+            format!(
+                r#"{{ sourceUsage(treeId: "{tree}", sourceId: "{source_id}") {{ personId }} }}"#
+            ),
+            format!(r#"{{ placeUsage(treeId: "{tree}", placeId: "{place_id}") {{ personId }} }}"#),
+        ]
+    };
+    for query in queries(tree_id) {
+        let response = graphql(app.clone(), &query, None).await;
+        assert_eq!(
+            response["errors"][0]["extensions"]["code"], "NOT_FOUND",
+            "{query} answered across trees: {response}"
+        );
+    }
+    for query in queries(other_tree_id) {
+        let response = graphql(app.clone(), &query, None).await;
+        assert!(response.get("errors").is_none(), "{query}: {response}");
+    }
 }
 
 // ── Error handling: invalid UUID ─────────────────────────────────────

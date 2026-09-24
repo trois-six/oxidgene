@@ -269,7 +269,13 @@ pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<PersonProfile> {
 /// `ProfileService::fetch_person_data`. Returns `None` if the person is not in
 /// `data.persons`.
 pub fn build_person(tree_id: Uuid, person_id: Uuid, data: &TreeData) -> Option<PersonProfile> {
-    let person = data.persons.iter().find(|p| p.id == person_id)?;
+    // A targeted fetch reaches the person by ID alone, so the tree is checked
+    // here: a person of another tree would otherwise be projected — and stored,
+    // and indexed for search — under this one.
+    let person = data
+        .persons
+        .iter()
+        .find(|p| p.id == person_id && p.tree_id == tree_id)?;
     let idx = IndexedData::new(data);
     Some(build_one_person(person, tree_id, &idx, Utc::now()))
 }
