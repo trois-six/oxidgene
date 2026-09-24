@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
-description: "Application-level preferences page for appearance (theme) and interface language."
+description: "Application-level preferences page for appearance, language, pedigree, names, API access, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-15T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 ---
 
 
@@ -80,7 +80,7 @@ Items:
 | Language | Language selection |
 | Pedigree | Initial ancestor and descendant depths |
 | Names | Surname-particle sorting |
-| API | REST OpenAPI access; GraphQL access in the web build |
+| API | REST OpenAPI access; GraphQL access in the web build; AI assistant (MCP) connection in the desktop build |
 
 Active item: primary text, bold weight, and the neutral selection background
 (`var(--sel-bg)`), matching Tree Settings.
@@ -242,6 +242,45 @@ URL as the frontend client:
 
 The desktop build displays only the REST/OpenAPI entry and continues to compile
 the API crate without its optional `graphql` feature.
+
+### AI assistant (MCP)
+
+Planned; delivery is tracked in [Roadmap §6](roadmap.md). Shows how to let an
+MCP client, such as Claude Desktop or Claude Code, read the application's
+trees. The server and its contract are specified in
+[Assistant Access](mcp.md).
+
+```
++-----------------------------------------------------+
+|  AI assistant (MCP)                                 |
+|                                                     |
+|  (!) An assistant configured with this command can  |
+|      read every tree in this application, living    |
+|      people, notes and sources included, and sends  |
+|      what it reads to the model provider it uses.   |
+|                                                     |
+|  Command                                            |
+|  [ /…/oxidgene-desktop mcp               ] [Copy]   |
+|                                                     |
+|  Client configuration (JSON)                        |
+|  [ { "mcpServers": { … } }               ] [Copy]   |
++-----------------------------------------------------+
+```
+
+- The warning is always visible above the command, not behind a disclosure.
+- The command contains the absolute path of the running executable. The JSON
+  block is the same command in `mcpServers` form. Both are read-only fields
+  with a copy button.
+- Access is read-only, and each request names the tree it reads. Privacy
+  values are not applied, as [Assistant Access §7](mcp.md) explains.
+- The desktop binary injects the executable path through a UI capability,
+  following the Geneanet collector pattern
+  ([Architecture §9.2](architecture.md)). The browser build finds none and
+  shows a note that the assistant is available in the desktop application.
+- Nothing is saved: copying the command changes no setting. Configuring the
+  client is the consent; removing the entry from the client revokes it.
+- Every label, the warning, the note, and the copy feedback go through i18n,
+  in English and French. The command and the JSON are not translated.
 
 ## 9. Responsive
 

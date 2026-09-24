@@ -33,7 +33,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Post-MVP | [Architecture](architecture.md), [API](api.md) |
-| I | Assistant access through MCP | Planned | [Assistant Access](mcp.md), [Tree Settings](ui-settings.md) |
+| I | Assistant access through MCP | Planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
 
 ## 3. Active: media completion
 
@@ -91,22 +91,25 @@ this clearly until authorization is enforced.
 
 ## 6. Planned: assistant access (MCP)
 
-First delivery: read-only, stdio, desktop, one tree per session.
+First delivery: read-only, stdio, desktop, with a required `tree_id` on every
+tool but `list_trees`.
 
 - [ ] Add the optional `mcp` feature to `oxidgene-api`, with `rmcp` limited to
   `server`, `macros`, and `transport-io`, and justify its transitive
   dependency cost measured with `cargo tree`.
 - [ ] Derive tool input and output schemas from the types REST already
   deserializes and serializes, behind that feature.
-- [ ] Add the `oxidgene-desktop mcp --tree <id>` subcommand, which starts no
+- [ ] Add the `oxidgene-desktop mcp` subcommand, which starts no
   listener, WebView, job worker, purge worker, or job recovery, and writes only
   protocol messages to standard output.
-- [ ] Implement the read-only tools of [Assistant Access §5](mcp.md), bound to
-  the session's tree.
-- [ ] Add the AI Assistant section to Tree Settings: warning, command, JSON
-  configuration, desktop capability injection, and English/French keys.
-- [ ] Test every tool over an in-process transport, including cross-tree IDs,
-  a tree deleted mid-session, and output-stream cleanliness.
+- [ ] Implement `list_trees` and the tree-scoped read-only tools of
+  [Assistant Access §5](mcp.md).
+- [ ] Add the AI assistant entry to the App Settings API section: warning,
+  command, JSON configuration, desktop capability injection, and
+  English/French keys.
+- [ ] Test every tool over an in-process transport, including a missing
+  `tree_id`, cross-tree IDs, a tree deleted mid-session, and output-stream
+  cleanliness.
 
 Later phases, in order:
 

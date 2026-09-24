@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
-description: "Tree settings page for roots, privacy, date display, entry options, tools, export, and AI assistant access."
+description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
+generated: { by: human:maintainer, at: 2026-09-08T00:00:00Z }
 ---
 
 
@@ -105,7 +105,6 @@ Each group has an uppercase orange label. Each item is a text button. The active
 | Item | Section ID |
 |---|---|
 | Export tree | `export` |
-| AI assistant | `assistant` |
 
 ### Group 4 — Global Preferences
 | Item | Section ID |
@@ -400,48 +399,6 @@ An interactive converter between calendar systems.
 **Input:** text field for a date in the source calendar + a calendar selector (Republican / Gregorian / Julian / Hebrew).
 
 **Output:** four read-only result tiles, one per calendar system, updating live as the user types.
-
----
-
-## 17. Section: AI Assistant
-
-Shows how to let an MCP client, such as Claude Desktop or Claude Code, read
-this tree. The server and its contract are specified in
-[Assistant Access](mcp.md). The section is planned; delivery is tracked in
-[Roadmap §6](roadmap.md).
-
-```
-+-----------------------------------------------------+
-|  AI assistant                                       |
-|                                                     |
-|  (!) An assistant configured with this command can  |
-|      read everything in this tree, living people,   |
-|      notes and sources included, and sends it to    |
-|      the model provider it uses.                    |
-|                                                     |
-|  Command                                            |
-|  [ /…/oxidgene-desktop mcp --tree 0190…  ] [Copy]   |
-|                                                     |
-|  Client configuration (JSON)                        |
-|  [ { "mcpServers": { … } }               ] [Copy]   |
-+-----------------------------------------------------+
-```
-
-- The warning is always visible above the command, not behind a disclosure.
-- The command contains the absolute path of the running executable and this
-  tree's ID. The JSON block is the same command in `mcpServers` form. Both are
-  read-only fields with a copy button.
-- Access is read-only. Privacy values are not applied, as
-  [Assistant Access §7](mcp.md) explains.
-- The desktop binary injects the executable path through a UI capability,
-  following the Geneanet collector pattern
-  ([Architecture §9.2](architecture.md)). The browser build finds none and
-  shows a note that the assistant is available in the desktop application.
-- Nothing is saved: copying the command changes no setting, and the tree has
-  no assistant flag. Configuring the client is the consent; removing the
-  entry from the client revokes it.
-- Every label, the warning, the note, and the copy feedback go through i18n,
-  in English and French. The command and the JSON are not translated.
 
 ---
 

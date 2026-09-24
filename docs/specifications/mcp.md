@@ -1,7 +1,7 @@
 ---
 type: "API Specification"
 title: "Assistant Access (MCP)"
-description: "Model Context Protocol server built into the desktop binary: one tree per session, read-only tools, stdio transport, launch, consent, and its relation to REST and GraphQL."
+description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 ---
@@ -10,7 +10,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 
 > Part of the [OxidGene Specifications](index.md).
 > See also: [API Contract](api.md) · [Architecture](architecture.md) ·
-> [Tree Settings](ui-settings.md) · [Cross-cutting Rules](cross-cutting.md)
+> [App Settings](ui-app-settings.md) · [Cross-cutting Rules](cross-cutting.md)
 >
 > **Status: planned.** This document is the contract the first delivery
 > implements. Delivery is tracked in [Roadmap §6](roadmap.md).
@@ -20,17 +20,17 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 ## 1. Purpose and scope
 
 An AI assistant (Claude Desktop, Claude Code, or any other
-[Model Context Protocol](https://modelcontextprotocol.io) client) can read a
-genealogy tree through a set of tools the desktop binary serves. Typical uses
-include answering questions about the tree, drafting a biography from a
-profile, and finding inconsistencies.
+[Model Context Protocol](https://modelcontextprotocol.io) client) can read the
+application's genealogy trees through a set of tools the desktop binary
+serves. Typical uses include answering questions about a tree, drafting a
+biography from a profile, and finding inconsistencies.
 
 The first delivery is:
 
 - **read-only**: no tool changes stored data;
 - **desktop-only**: served over stdio by `oxidgene-desktop`, with no network
   listener;
-- **scoped to one tree** per session (§3).
+- **explicitly tree-scoped**: every tool call names the tree it reads (§3).
 
 Mutating tools and a network transport are later phases (§10).
 
@@ -62,18 +62,18 @@ defines. It is not a third mirror of that contract.
 
 ## 3. Tree scope
 
-One MCP session serves exactly one tree. The tree is fixed when the process
-starts (§4) and cannot be changed during the session.
+A session can read every active tree in the database. It never picks one
+implicitly: each tool call names its tree.
 
-- No tool takes a `tree_id` parameter, and no tool lists, names, or reaches
-  another tree. The bound tree's ID is applied to every operation.
-- An ID that belongs to another tree returns `not_found`, exactly as REST and
-  GraphQL do for cross-tree IDs, so the session cannot reveal that another
-  tree exists.
-- The tree is resolved on every call, not only at startup. If the tree is
-  soft-deleted while a session runs, every later tool call returns
+- `list_trees` is the only tool without a tree. Every other tool requires a
+  `tree_id` parameter, which its input schema marks as required. There is no
+  default tree, and no state carries a tree from one call to the next.
+- `tree_id` scopes the whole operation, exactly as the `{tree_id}` path
+  segment does in REST. An ID that belongs to another tree returns
+  `not_found`, like REST and GraphQL do, so an answer never mixes two trees.
+- The tree is resolved on every call. A tree soft-deleted during a session
+  disappears from `list_trees`, and later calls that name it return
   `not_found`.
-- A client that needs several trees configures one server entry per tree.
 
 ---
 
@@ -82,7 +82,7 @@ starts (§4) and cannot be changed during the session.
 ### 4.1 Launch
 
 ```text
-oxidgene-desktop mcp --tree <tree-uuid>
+oxidgene-desktop mcp
 ```
 
 The `mcp` subcommand runs a headless MCP server on standard input and output
@@ -98,9 +98,7 @@ subcommand is part of it, not a separate binary.
 2. Apply the same migrations as desktop startup. With the single consolidated
    migration ([Architecture §9.2](architecture.md)), this does nothing on a
    database the desktop has already opened.
-3. Check that `--tree` names an active tree. A malformed ID or a missing or
-   soft-deleted tree is a startup error.
-4. Build a `ProfileService` over the connection and serve.
+3. Build a `ProfileService` over the connection and serve.
 
 A startup error is reported on standard error with a generic message (no
 path, ID, or genealogy) and a non-zero exit code.
@@ -138,23 +136,26 @@ never makes the desktop's caches stale.
 ## 5. Tools
 
 Every tool in the first delivery is annotated `readOnlyHint: true`,
-`idempotentHint: true`, and `openWorldHint: false`.
+`idempotentHint: true`, and `openWorldHint: false`. Every tool except
+`list_trees` requires `tree_id` (§3), and every ID parameter is resolved
+within that tree.
 
 | Tool | Parameters | Product operation | Result |
 |---|---|---|---|
-| `get_tree` | — | `GET /trees/{tree_id}` | The bound tree: name, description, SOSA root, and the person the user identified as themself |
-| `search_persons` | `q`, every `PersonSearchFilters` field, `sort`, `limit`, `offset` | `GET /trees/{tree_id}/persons/search` | `SearchResult` |
-| `get_person_profile` | `person_id` | `GET /trees/{tree_id}/profiles/{person_id}` | `PersonProfile` |
-| `get_person_by_sosa` | `number` | `GET /trees/{tree_id}/persons/sosa/{number}` | Person with `sosa_number` |
-| `get_pedigree` | `root_person_id`, `ancestor_depth`, `descendant_depth` | `GET /trees/{tree_id}/pedigree/{root_person_id}` | `Pedigree` |
-| `get_family` | `family_id` | `GET /trees/{tree_id}/families/{family_id}` | Family with spouses, children, and events |
-| `list_events` | `person_id`, `family_id`, `event_type`, `first`, `after` | `GET /trees/{tree_id}/events` | Event connection |
-| `get_place` | `place_id` | `GET /trees/{tree_id}/places/{place_id}` | Place |
-| `get_source` | `source_id` | `GET /trees/{tree_id}/sources/{source_id}` | Source |
-| `list_citations` | `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/citations` | Citation connection |
-| `list_notes` | `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/notes` | Note connection |
-| `list_dictionary` | `kind` (`family_names`, `occupations`, `places`, `sources`) | `GET /trees/{tree_id}/dictionary/{kind}` | Values or records with usage counts |
-| `dictionary_usage` | `kind`, then `value` (`family_names`, `occupations`) or `id` (`places`, `sources`) | The matching `…/usage` endpoint | `PersonUsageEntry` list |
+| `list_trees` | `first`, `after` | `GET /trees` | Tree connection of the active trees, as REST returns it; the IDs are what every other tool takes as `tree_id` |
+| `get_tree` | `tree_id` | `GET /trees/{tree_id}` | The tree's name, description, SOSA root, and the person the user identified as themself |
+| `search_persons` | `tree_id`, `q`, every `PersonSearchFilters` field, `sort`, `limit`, `offset` | `GET /trees/{tree_id}/persons/search` | `SearchResult` |
+| `get_person_profile` | `tree_id`, `person_id` | `GET /trees/{tree_id}/profiles/{person_id}` | `PersonProfile` |
+| `get_person_by_sosa` | `tree_id`, `number` | `GET /trees/{tree_id}/persons/sosa/{number}` | Person with `sosa_number` |
+| `get_pedigree` | `tree_id`, `root_person_id`, `ancestor_depth`, `descendant_depth` | `GET /trees/{tree_id}/pedigree/{root_person_id}` | `Pedigree` |
+| `get_family` | `tree_id`, `family_id` | `GET /trees/{tree_id}/families/{family_id}` | Family with spouses, children, and events |
+| `list_events` | `tree_id`, `person_id`, `family_id`, `event_type`, `first`, `after` | `GET /trees/{tree_id}/events` | Event connection |
+| `get_place` | `tree_id`, `place_id` | `GET /trees/{tree_id}/places/{place_id}` | Place |
+| `get_source` | `tree_id`, `source_id` | `GET /trees/{tree_id}/sources/{source_id}` | Source |
+| `list_citations` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/citations` | Citation connection |
+| `list_notes` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/notes` | Note connection |
+| `list_dictionary` | `tree_id`, `kind` (`family_names`, `occupations`, `places`, `sources`) | `GET /trees/{tree_id}/dictionary/{kind}` | Values or records with usage counts |
+| `dictionary_usage` | `tree_id`, `kind`, then `value` (`family_names`, `occupations`) or `id` (`places`, `sources`) | The matching `…/usage` endpoint | `PersonUsageEntry` list |
 
 Bounds:
 
@@ -185,8 +186,9 @@ The first delivery offers no MCP resources and no prompts.
   schema, are JSON-RPC errors.
 
 The server's `initialize` result carries `instructions` for the model, in
-English. They say that the session covers one tree, and they describe how to
-read dates: a year always comes with its qualifier (`ca 1849`, `< 1917`); a
+English. They say that every tool except `list_trees` needs a `tree_id`
+obtained from `list_trees`, that IDs are never shared between trees, and they
+describe how to read dates: a year always comes with its qualifier (`ca 1849`, `< 1917`); a
 birth may fall back to the baptism and a death to the burial when the primary
 event has no date; and SOSA numbers are relative to the tree's root.
 
@@ -201,14 +203,14 @@ not go through i18n.
 ### 7.1 Consent
 
 Nothing is exposed until the user configures an MCP client with the launch
-command for a tree. The command is displayed in
-[Tree Settings §17](ui-settings.md) together with a warning. Configuring it is
-the act of consent, and removing it from the client revokes that consent.
+command. The command is displayed in [App Settings §8](ui-app-settings.md)
+together with a warning. Configuring it is the act of consent, and removing it
+from the client revokes that consent.
 
-The warning states that everything in the tree becomes readable by the
-assistant, including living people, notes, and sources, and is sent to the
-model provider the client uses. OxidGene does not control what that provider
-retains.
+The warning states that every tree in the application becomes readable by the
+assistant, including living people, notes, and sources, and that what the
+assistant reads is sent to the model provider the client uses. OxidGene does
+not control what that provider retains.
 
 ### 7.2 Privacy values are not applied
 
@@ -219,7 +221,7 @@ withhold presumed living people:
   local stdio session acts for the owner of the database, like the desktop
   UI, not for a viewer.
 - A tree's default privacy is `private`. Resolving it would hide every
-  unclassified record and leave the session empty.
+  unclassified record and leave every tree empty.
 - Withholding living people would break the features an assistant is used
   for: relatives, siblings, and date consistency.
 
@@ -243,11 +245,11 @@ parameters or results, because they contain names, places, and dates.
 
 ## 8. Client configuration
 
-Tree Settings shows the command with the absolute path of the running
-executable and the tree's ID filled in. For example, for Claude Code:
+App Settings shows the command with the absolute path of the running
+executable filled in. For example, for Claude Code:
 
 ```bash
-claude mcp add oxidgene-sample -- /opt/oxidgene/oxidgene-desktop mcp --tree 01900000-0000-7000-8000-000000000000
+claude mcp add oxidgene -- /opt/oxidgene/oxidgene-desktop mcp
 ```
 
 Clients that use an `mcpServers` JSON file:
@@ -255,9 +257,9 @@ Clients that use an `mcpServers` JSON file:
 ```json
 {
   "mcpServers": {
-    "oxidgene-sample": {
+    "oxidgene": {
       "command": "/opt/oxidgene/oxidgene-desktop",
-      "args": ["mcp", "--tree", "01900000-0000-7000-8000-000000000000"]
+      "args": ["mcp"]
     }
   }
 }
@@ -293,7 +295,8 @@ Clients that use an `mcpServers` JSON file:
   authentication
   ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
   It requires MCP authorization mapped to the user's per-tree access, `Origin`
-  validation, and the same tree scope as §3.
+  validation, and the same required `tree_id` as §3. `list_trees` then returns
+only the trees the user may read.
 - **Media.** Thumbnails as image content, bounded in size and count.
 
 ---
@@ -303,8 +306,10 @@ Clients that use an `mcpServers` JSON file:
 - Integration tests run the server over an in-process duplex transport
   against in-memory SQLite, using fictitious data only. They require no
   external client.
-- Every tool is tested, including a cross-tree ID returning `not_found` and a
-  call made after the bound tree was soft-deleted.
+- Every tool is tested, including a call without `tree_id` failing its input
+  schema, an ID from another tree returning `not_found`, and a tree
+  soft-deleted mid-session disappearing from `list_trees` and returning
+  `not_found` afterwards.
 - A test asserts that a session writes nothing but protocol messages to its
   output stream.
 - A tool whose operation's behavior changes is re-tested with the REST and
