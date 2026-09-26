@@ -98,6 +98,7 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         vec![
             "m20250101_000001_initial",
             "m20260918_000001_search_relatives",
+            "m20260926_000001_drop_redundant_indexes",
         ]
     );
 
@@ -151,7 +152,6 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         ("background_job", "idx_background_job_active_tree"),
         ("background_job", "idx_background_job_claim"),
         ("person_denorm", "idx_person_denorm_tree_schema_version"),
-        ("person_denorm", "idx_person_denorm_tree_id"),
         ("media", "idx_media_tree_sha256"),
         ("media", "idx_media_parent_page"),
         ("person", "idx_person_portrait_media_id"),
@@ -163,6 +163,17 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         assert!(
             manager.has_index(table, index).await.unwrap(),
             "missing {index}"
+        );
+    }
+    // Covered by the composite indexes above, which lead with `tree_id`.
+    for (table, index) in [
+        ("person_denorm", "idx_person_denorm_tree_id"),
+        ("media", "idx_media_tree_id"),
+        ("event", "idx_event_tree_id"),
+    ] {
+        assert!(
+            !manager.has_index(table, index).await.unwrap(),
+            "redundant {index}"
         );
     }
 

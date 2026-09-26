@@ -1,5 +1,6 @@
 //! Database connection and migration utilities.
 
+use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
 use sea_orm::{
     ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, DbErr,
     Statement,
@@ -16,42 +17,33 @@ use crate::Migrator;
 /// - `sqlite://path/to/db.sqlite` — file-based SQLite
 /// - `postgres://user:pass@host/db` — PostgreSQL
 ///
-/// Note that sqlx rejects any unknown query parameter in the URL, so SQLite
-/// pragmas cannot be passed that way — [`enable_wal`] sets them afterwards.
-pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
-    let mut opts = ConnectOptions::new(database_url);
-    opts.sqlx_logging(false);
-    // SeaORM records the parameterized statement; bound values remain separate.
-    opts.record_stmt_in_spans(true);
-    let db = Database::connect(opts).await?;
-    enable_wal(&db).await;
-    info!("Connected to database");
-    Ok(db)
-}
-
-/// Switch a SQLite database to write-ahead logging.
+/// SQLite connections open in write-ahead-log mode with `synchronous=NORMAL`.
 ///
 /// In the default `journal_mode=delete`, a write transaction takes an
 /// EXCLUSIVE lock on the whole file, so a long delete blocks *readers* too and
 /// the entire app goes unresponsive — not just the mutation. WAL lets readers
 /// proceed against the last committed snapshot while a writer works.
 ///
-/// `journal_mode` is stored in the database header, so this one statement
-/// applies to every later connection in the pool. It is a no-op on
-/// PostgreSQL and on in-memory SQLite (which does not support WAL).
-async fn enable_wal(db: &DatabaseConnection) {
-    if db.get_database_backend() != DatabaseBackend::Sqlite {
-        return;
-    }
-    let stmt = Statement::from_string(DatabaseBackend::Sqlite, "PRAGMA journal_mode=WAL");
-    match db.query_one_raw(stmt).await {
-        // In-memory databases silently stay in `memory` journal mode.
-        Ok(_) => info!("SQLite journal_mode set to WAL"),
-        Err(_) => warn!(
-            error = "sqlite_wal",
-            "could not enable WAL; writes will block readers"
-        ),
-    }
+/// `synchronous=FULL`, the default, flushes the log to disk on every commit,
+/// and every mutation here commits: an import or a projection refresh pays one
+/// `fsync` per transaction. Under WAL, `NORMAL` syncs at checkpoints instead.
+/// The database stays consistent through any crash; what a power loss can cost
+/// is the last few commits, never the file. Both pragmas are set per
+/// connection, so every connection in the pool gets them. In-memory databases
+/// have no log and silently keep their `memory` journal.
+pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
+    let mut opts = ConnectOptions::new(database_url);
+    opts.sqlx_logging(false);
+    // SeaORM records the parameterized statement; bound values remain separate.
+    opts.record_stmt_in_spans(true);
+    opts.map_sqlx_sqlite_opts(|sqlite| {
+        sqlite
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+    });
+    let db = Database::connect(opts).await?;
+    info!("Connected to database");
+    Ok(db)
 }
 
 /// Run all pending migrations on the given database connection.
