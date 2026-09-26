@@ -339,7 +339,11 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let pedigrees_resource =
         use_traced_resource(load_trace.clone(), "result_pedigrees", move || {
             let api = api_pedigrees.clone();
-            let wanted = view_mode() == ViewMode::Card;
+            // Switching to the card view re-runs the search at the card view's
+            // page size; the rows still on screen belong to the list. Asking
+            // for their pedigrees fetched a batch nobody would see.
+            let searching = *search_for_portraits.state().read() == UseResourceState::Pending;
+            let wanted = view_mode() == ViewMode::Card && !searching;
             let person_ids = search_for_portraits
                 .read()
                 .as_ref()
