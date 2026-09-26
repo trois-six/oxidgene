@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-18T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 
@@ -86,7 +86,7 @@ selector, and switches between list and pedigree-grid views.
 
 ## 5. Filters
 
-A collapsible filter panel below the page header, toggled by a "Filters" button with a dropdown arrow. Filters refine the result set in real time (200ms debounce after each change).
+A collapsible filter panel below the page header, toggled by a "Filters" button with a dropdown arrow. Filters refine the result set in real time. Typed filters wait 200 ms after the last keystroke; opening the page, changing page or sort, and every choice or checkbox search at once.
 
 The expanded panel reuses the person form's visual and interaction patterns:
 

@@ -128,12 +128,16 @@ pub fn TopbarSearch(
         }
     });
 
+    // Only for an open panel. On the results page the fields arrive filled
+    // from the URL, and looking them up unasked sent the page's own search a
+    // second time on every load, for suggestions nobody was shown.
     let api_suggest = api.clone();
     let suggestions = use_ui_resource("topbar_search_suggest", move || {
         let api = api_suggest.clone();
         let (last, first) = debounced();
+        let wanted = open();
         async move {
-            let tid = tid?;
+            let tid = tid.filter(|_| wanted)?;
             match classify(&last, &first) {
                 Intent::Idle => None,
                 // Resolving the number is the same lookup Enter already
@@ -290,7 +294,13 @@ pub fn TopbarSearch(
             open.set(false);
             highlight.set(None);
         }
-        Key::ArrowDown if row_count > 0 => {
+        // A closed panel has nothing loaded yet: the first press opens it,
+        // which fetches the suggestions, and the next ones move through them.
+        Key::ArrowDown if row_count == 0 => {
+            e.prevent_default();
+            open.set(true);
+        }
+        Key::ArrowDown => {
             e.prevent_default();
             open.set(true);
             highlight.set(Some(match highlight() {

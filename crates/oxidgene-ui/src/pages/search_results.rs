@@ -198,9 +198,37 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     }
 
     // ── Server-side search ──
+    //
+    // The free-text filters re-run the search on every keystroke, so those
+    // wait a moment for the typing to stop. Nothing else does: opening the
+    // page, turning a page, sorting or ticking a box searches at once — a
+    // blanket delay put 200 ms in front of every one of them.
+    let typed_filters = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(None)));
     let api_search = api.clone();
     let search_resource = use_traced_resource(load_trace.clone(), "person_search", move || {
         let api = api_search.clone();
+        let typed = [
+            born_from(),
+            born_to(),
+            died_from(),
+            died_to(),
+            occupation_filter(),
+            spouse_surname(),
+            spouse_given_names(),
+            father_surname(),
+            father_given_names(),
+            mother_surname(),
+            mother_given_names(),
+            place_filter(),
+            event_from(),
+            event_to(),
+        ];
+        let still_typing = {
+            let mut previous = typed_filters.borrow_mut();
+            let changed = previous.as_ref().is_some_and(|previous| *previous != typed);
+            *previous = Some(typed);
+            changed
+        };
         let page = current_page();
         let per_page = match view_mode() {
             ViewMode::List => RESULTS_PER_PAGE,
@@ -253,7 +281,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     body: "Invalid tree ID".into(),
                 });
             };
-            crate::utils::sleep_ms(200).await;
+            if still_typing {
+                crate::utils::sleep_ms(200).await;
+            }
             api.search_persons_filtered(tid, &params).await.map(Some)
         }
     });
