@@ -47,6 +47,17 @@ already loaded redraws immediately. The layout is recomputed only when the
 pedigree, focus, SOSA data, drawn depth or theme changes — never for the depth
 popover, the events sidebar or a selection.
 
+Only the cards and connectors near the viewport are in the DOM: everything
+within one viewport of the visible area on each side. Panning or zooming
+redraws that set once the view comes within three quarters of a viewport of
+its edge, adding only the strip of cards uncovered, so drawn content always
+extends well past what can be seen. An animated move (zoom buttons, fit,
+re-centering) keeps the view it starts from as well as the one it ends on,
+since every frame of the transition lies between the two. Before the viewport
+has been measured a 3840 × 2160 screen is assumed. The layout itself is
+unchanged: sizes, fit, zoom limits and the exported SVG still cover the whole
+tree.
+
 Initial fitting waits until the saved pedigree theme and the right events
 sidebar state have been applied. Opening, closing, or resizing that sidebar
 refits the graph against the canvas space that remains visible.

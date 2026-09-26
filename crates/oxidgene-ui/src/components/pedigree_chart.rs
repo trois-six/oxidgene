@@ -8,7 +8,7 @@
 //! Cards are positioned using the Reingold-Tilford (Buchheim variant) algorithm,
 //! connectors are drawn via SVG overlay with Bézier curves.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -3766,6 +3766,270 @@ fn render_pedigree_card(
     }
 }
 
+// ── Drawing only what can be seen ──────────────────────────────────────
+
+/// Room around a card for what it draws past its frame: the edit button under
+/// the focus card, badges on its corners, a stroke's width.
+const CARD_OVERHANG: f64 = 64.0;
+
+/// Room around a connector's points for its stroke — the ruled style draws
+/// a band, not a hairline.
+const LINK_OVERHANG: f64 = 8.0;
+
+/// Viewport size to assume before the real one has been measured — as large
+/// as a screen gets, so an early render never leaves part of the window
+/// empty. A too-large guess only draws a few more cards for a moment.
+const UNMEASURED_VIEWPORT: (f64, f64) = (3840.0, 2160.0);
+
+/// An axis-aligned rectangle in the canvas's content coordinates — those of
+/// `.pedigree-tree`, before the pan-and-zoom transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Area {
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+}
+
+impl Area {
+    fn intersects(&self, other: &Area) -> bool {
+        self.x0 <= other.x1 && other.x0 <= self.x1 && self.y0 <= other.y1 && other.y0 <= self.y1
+    }
+
+    fn contains(&self, other: &Area) -> bool {
+        self.x0 <= other.x0 && other.x1 <= self.x1 && self.y0 <= other.y0 && other.y1 <= self.y1
+    }
+
+    /// Grown by `factor` of its own width and height on every side.
+    fn grown(&self, factor: f64) -> Area {
+        let dx = (self.x1 - self.x0) * factor;
+        let dy = (self.y1 - self.y0) * factor;
+        Area {
+            x0: self.x0 - dx,
+            y0: self.y0 - dy,
+            x1: self.x1 + dx,
+            y1: self.y1 + dy,
+        }
+    }
+
+    /// Grown by `margin` on every side.
+    fn padded(&self, margin: f64) -> Area {
+        Area {
+            x0: self.x0 - margin,
+            y0: self.y0 - margin,
+            x1: self.x1 + margin,
+            y1: self.y1 + margin,
+        }
+    }
+
+    fn union(&self, other: &Area) -> Area {
+        Area {
+            x0: self.x0.min(other.x0),
+            y0: self.y0.min(other.y0),
+            x1: self.x1.max(other.x1),
+            y1: self.y1.max(other.y1),
+        }
+    }
+
+    fn translated(&self, dx: f64, dy: f64) -> Area {
+        Area {
+            x0: self.x0 + dx,
+            y0: self.y0 + dy,
+            x1: self.x1 + dx,
+            y1: self.y1 + dy,
+        }
+    }
+}
+
+/// The part of the canvas the viewport shows, in content coordinates.
+///
+/// The transform is `translate(x, y) scale(s)` about the top-left corner, so a
+/// viewport point `p` shows content point `(p - offset) / s`.
+fn visible_area(transform: ViewportTransform, viewport: ViewportRect) -> Area {
+    let (width, height) = if viewport == ViewportRect::assumed() {
+        UNMEASURED_VIEWPORT
+    } else {
+        (viewport.left + viewport.width, viewport.height)
+    };
+    let scale = transform.scale.max(f64::EPSILON);
+    Area {
+        x0: -transform.x / scale,
+        y0: -transform.y / scale,
+        x1: (width - transform.x) / scale,
+        y1: (height - transform.y) / scale,
+    }
+}
+
+/// What the canvas currently draws, and what the viewport showed when it
+/// was last asked.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Culling {
+    region: Area,
+    visible: Area,
+}
+
+/// Decide what to draw for the view now showing.
+///
+/// The drawn region runs a full viewport past the visible area on every
+/// side, and is kept for as long as it still covers three quarters of a
+/// viewport past it. A pan therefore redraws once per quarter screen, never
+/// per frame, and each redraw only adds the thin strip of cards that quarter
+/// uncovered — a few dozen, not the hundreds a larger step would bring in at
+/// once, which is what keeps the redraw inside a frame or two. And it lands
+/// while three quarters of a screen of drawn content still separate the edge
+/// of the view from anything missing: nothing that should be visible is ever
+/// absent.
+///
+/// A transform applied through the CSS transition (`animating`) jumps to its
+/// end value while the screen still travels there. Every frame of that
+/// travel shows a rectangle whose edges move monotonically between the start
+/// and end views, so the region also keeps the view it started from.
+fn cull(previous: Option<Culling>, visible: Area, animating: bool) -> Culling {
+    let needed = visible.grown(0.75);
+    match previous {
+        Some(previous) if previous.region.contains(&needed) => Culling {
+            region: previous.region,
+            visible,
+        },
+        _ => {
+            let mut region = visible.grown(1.0);
+            if animating && let Some(previous) = previous {
+                region = region.union(&previous.visible);
+            }
+            Culling { region, visible }
+        }
+    }
+}
+
+/// The extent of an SVG path, from every coordinate pair in it.
+///
+/// Connectors are written as absolute `x,y` pairs (`M`, `L`, `C`, `S`), and a
+/// Bézier curve never leaves the hull of its control points, so the pairs
+/// bound the line.
+fn path_extent(d: &str) -> Option<Area> {
+    let mut extent: Option<Area> = None;
+    for token in d.split_whitespace() {
+        let token = token.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+        let Some((x, y)) = token.split_once(',') else {
+            continue;
+        };
+        let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>()) else {
+            continue;
+        };
+        let point = Area {
+            x0: x,
+            y0: y,
+            x1: x,
+            y1: y,
+        };
+        extent = Some(extent.map_or(point, |e| e.union(&point)));
+    }
+    extent
+}
+
+/// Where each card and connector of a layout lies, in content coordinates.
+struct SceneExtents {
+    asc_cards: Vec<Area>,
+    desc_cards: Vec<Area>,
+    asc_links: Vec<Option<Area>>,
+    desc_links: Vec<Option<Area>>,
+}
+
+impl SceneExtents {
+    fn of(layout: &PedigreeLayout, theme: &PedigreeTheme) -> Self {
+        let metrics = &theme.metrics;
+        let card_w = metrics.card_w.max(metrics.compact_w) + 2.0 * metrics.padding;
+        let card_h = metrics.card_h.max(metrics.compact_h) + 2.0 * metrics.padding;
+        let card = |node: &LayoutNode, dx: f64, dy: f64| Area {
+            x0: node.x + dx - CARD_OVERHANG,
+            y0: node.y + dy - CARD_OVERHANG,
+            x1: node.x + dx + card_w + CARD_OVERHANG,
+            y1: node.y + dy + card_h + CARD_OVERHANG,
+        };
+        let (asc_dx, asc_dy) = (layout.main_tx, layout.main_ty);
+        let (desc_dx, desc_dy) = (
+            layout.main_tx + layout.desc_tx,
+            layout.main_ty + layout.desc_ty,
+        );
+        let link = |d: &String, dx: f64, dy: f64| {
+            path_extent(d).map(|area| area.padded(LINK_OVERHANG).translated(dx, dy))
+        };
+        Self {
+            asc_cards: layout
+                .asc_nodes
+                .iter()
+                .map(|n| card(n, asc_dx, asc_dy))
+                .collect(),
+            desc_cards: layout
+                .desc_nodes
+                .iter()
+                .map(|n| card(n, desc_dx, desc_dy))
+                .collect(),
+            asc_links: layout
+                .asc_links
+                .iter()
+                .map(|d| link(d, asc_dx, asc_dy))
+                .collect(),
+            desc_links: layout
+                .desc_links
+                .iter()
+                .map(|d| link(d, desc_dx, desc_dy))
+                .collect(),
+        }
+    }
+}
+
+/// Whether something with this extent has to be drawn. A path whose extent
+/// could not be read is always drawn: culling must never hide anything.
+fn in_region(region: &Area, extent: Option<&Area>) -> bool {
+    extent.is_none_or(|extent| region.intersects(extent))
+}
+
+/// Which half of a layout a card belongs to.
+#[derive(Clone, Copy, PartialEq)]
+enum CardSide {
+    Ascending,
+    Descending,
+}
+
+/// One card of a [`PedigreeCanvas`].
+///
+/// A component so that a card that stays in view is skipped, not rebuilt,
+/// when the canvas redraws for the cards a pan brings in: its props are the
+/// layout handle and a position in it, equal for as long as the layout is.
+#[component]
+fn PedigreeCard(
+    layout: SharedLayout,
+    side: CardSide,
+    index: usize,
+    root_person_id: Uuid,
+    selected_person_id: Signal<Uuid>,
+    on_person_navigate: EventHandler<Uuid>,
+    on_person_click: EventHandler<(Uuid, f64, f64)>,
+    on_empty_slot: EventHandler<(Uuid, bool)>,
+    theme: &'static PedigreeTheme,
+) -> Element {
+    let i18n = use_i18n();
+    let (nodes, prefix) = match side {
+        CardSide::Ascending => (&layout.asc_nodes, "an"),
+        CardSide::Descending => (&layout.desc_nodes, "dn"),
+    };
+    render_pedigree_card(
+        &nodes[index],
+        index,
+        prefix,
+        root_person_id,
+        selected_person_id,
+        on_person_navigate,
+        on_person_click,
+        on_empty_slot,
+        true,
+        i18n,
+        theme,
+        None,
+    )
+}
+
 /// The cards and connectors of a laid-out pedigree.
 ///
 /// A component of its own so that it redraws only when the layout does. The
@@ -3782,8 +4046,10 @@ fn PedigreeCanvas(
     on_empty_slot: EventHandler<(Uuid, bool)>,
     on_add_spouse_slot: EventHandler<Uuid>,
     theme: &'static PedigreeTheme,
+    transform: Signal<ViewportTransform>,
+    viewport: Signal<ViewportRect>,
+    animating: Signal<bool>,
 ) -> Element {
-    let i18n = use_i18n();
     // A ruled line is drawn as a band with a lighter core, the way an
     // engraver lays one down; a Bézier one stays a single hairline.
     let double_ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
@@ -3791,7 +4057,35 @@ fn PedigreeCanvas(
     // dedicated add-spouse callback — the `bool` (father/mother) from
     // `on_empty_slot` doesn't apply here, only the person needing a spouse.
     let desc_empty_slot_adapter =
-        EventHandler::new(move |(pid, _): (Uuid, bool)| on_add_spouse_slot.call(pid));
+        use_callback(move |(pid, _): (Uuid, bool)| on_add_spouse_slot.call(pid));
+
+    // Only what the viewport can reach is in the DOM. The memo re-runs on
+    // every pan and zoom but changes — and so redraws this component — only
+    // when the view nears the edge of what is drawn; see `cull`.
+    let culling = use_hook(|| Rc::new(Cell::new(None::<Culling>)));
+    let region = use_memo(move || {
+        let next = cull(
+            culling.get(),
+            visible_area(transform(), viewport()),
+            animating(),
+        );
+        culling.set(Some(next));
+        next.region
+    });
+    let region = region();
+    let extents_cache =
+        use_hook(|| Rc::new(RefCell::new(None::<(SharedLayout, Rc<SceneExtents>)>)));
+    let extents = {
+        let mut cache = extents_cache.borrow_mut();
+        match &*cache {
+            Some((cached, extents)) if *cached == layout => extents.clone(),
+            _ => {
+                let extents = Rc::new(SceneExtents::of(&layout, theme));
+                *cache = Some((layout.clone(), extents.clone()));
+                extents
+            }
+        }
+    };
 
     rsx! {
         div {
@@ -3808,54 +4102,50 @@ fn PedigreeCanvas(
 
                 // ── Ascending tree ──
                 g {
-                    for (si, path) in layout.asc_links.iter().enumerate() {
+                    for (si, path) in layout.asc_links.iter().enumerate().filter(|(si, _)| in_region(&region, extents.asc_links[*si].as_ref())) {
                         path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
                         if double_ruled {
                             path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
                         }
                     }
-                    for (ni, node) in layout.asc_nodes.iter().enumerate() {
-                        {render_pedigree_card(
-                            node,
-                            ni,
-                            "an",
+                    for ni in (0..layout.asc_nodes.len()).filter(|ni| region.intersects(&extents.asc_cards[*ni])) {
+                        PedigreeCard {
+                            key: "an-{ni}",
+                            layout: layout.clone(),
+                            side: CardSide::Ascending,
+                            index: ni,
                             root_person_id,
                             selected_person_id,
                             on_person_navigate,
                             on_person_click,
-                            on_empty_slot,
-                            true,
-                            i18n,
+                            on_empty_slot: on_empty_slot,
                             theme,
-                            None,
-                        )}
+                        }
                     }
                 }
 
                 // ── Descending tree ──
                 g {
                     transform: "translate({layout.desc_tx},{layout.desc_ty})",
-                    for (si, path) in layout.desc_links.iter().enumerate() {
+                    for (si, path) in layout.desc_links.iter().enumerate().filter(|(si, _)| in_region(&region, extents.desc_links[*si].as_ref())) {
                         path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
                         if double_ruled {
                             path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
                         }
                     }
-                    for (ni, node) in layout.desc_nodes.iter().enumerate() {
-                        {render_pedigree_card(
-                            node,
-                            ni,
-                            "dn",
+                    for ni in (0..layout.desc_nodes.len()).filter(|ni| region.intersects(&extents.desc_cards[*ni])) {
+                        PedigreeCard {
+                            key: "dn-{ni}",
+                            layout: layout.clone(),
+                            side: CardSide::Descending,
+                            index: ni,
                             root_person_id,
                             selected_person_id,
                             on_person_navigate,
                             on_person_click,
-                            desc_empty_slot_adapter,
-                            true,
-                            i18n,
+                            on_empty_slot: desc_empty_slot_adapter,
                             theme,
-                            None,
-                        )}
+                        }
                     }
                 }
                 }
@@ -4617,6 +4907,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             on_empty_slot: props.on_empty_slot,
                             on_add_spouse_slot: props.on_add_spouse_slot,
                             theme,
+                            transform: viewport_transform,
+                            viewport: viewport_rect,
+                            animating,
                         }
                     }
                 }
@@ -4891,6 +5184,168 @@ mod mini_pedigree_tests {
                 );
                 assert!(scale <= preferred_scale, "{context} {theme_name}");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod culling_tests {
+    use super::*;
+
+    fn area(x0: f64, y0: f64, x1: f64, y1: f64) -> Area {
+        Area { x0, y0, x1, y1 }
+    }
+
+    fn viewport(width: f64, height: f64) -> ViewportRect {
+        ViewportRect {
+            page_x: 10.0,
+            page_y: 10.0,
+            left: 0.0,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn a_connector_is_bounded_by_every_point_it_names() {
+        assert_eq!(
+            path_extent("M10,20 L10,40 30,40 S50,40 50,60 C1.5,-2 3,4 90,5"),
+            Some(area(1.5, -2.0, 90.0, 60.0))
+        );
+        assert_eq!(path_extent("M5,5 L5,5"), Some(area(5.0, 5.0, 5.0, 5.0)));
+        assert_eq!(path_extent(""), None);
+    }
+
+    #[test]
+    fn a_connector_that_cannot_be_read_is_always_drawn() {
+        assert!(in_region(&area(0.0, 0.0, 1.0, 1.0), None));
+    }
+
+    #[test]
+    fn the_visible_area_undoes_the_pan_and_zoom() {
+        let visible = visible_area(
+            ViewportTransform {
+                x: -200.0,
+                y: 100.0,
+                scale: 0.5,
+            },
+            viewport(1000.0, 600.0),
+        );
+        assert_eq!(visible, area(400.0, -200.0, 2400.0, 1000.0));
+    }
+
+    #[test]
+    fn before_the_viewport_is_measured_a_whole_screen_is_assumed() {
+        let visible = visible_area(
+            ViewportTransform {
+                x: 0.0,
+                y: 0.0,
+                scale: 1.0,
+            },
+            ViewportRect::assumed(),
+        );
+        assert_eq!(
+            visible,
+            area(0.0, 0.0, UNMEASURED_VIEWPORT.0, UNMEASURED_VIEWPORT.1)
+        );
+    }
+
+    /// The promise that makes culling invisible: whatever the gesture, the
+    /// drawn region covers the view — with most of a screen to spare — after
+    /// every step, even steps of a third of a screen at a time.
+    #[test]
+    fn panning_and_zooming_never_reach_undrawn_content() {
+        let vp = viewport(1400.0, 800.0);
+        let mut transform = ViewportTransform {
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+        };
+        let mut state: Option<Culling> = None;
+        let mut redraws = 0;
+        // A deterministic walk: drags of up to a third of the screen, wheel
+        // zooms in and out, across the zoom range.
+        let mut seed: u64 = 0x5eed;
+        for _ in 0..5_000 {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let r = (seed >> 33) as f64 / f64::from(u32::MAX >> 1);
+            match seed % 3 {
+                0 => transform.x += (r - 0.5) * 2.0 * vp.width / 3.0,
+                1 => transform.y += (r - 0.5) * 2.0 * vp.height / 3.0,
+                _ => {
+                    let factor = if r < 0.5 {
+                        ZOOM_FACTOR
+                    } else {
+                        1.0 / ZOOM_FACTOR
+                    };
+                    if let Some(scale) = zoom_step(transform.scale, factor) {
+                        transform.scale = scale;
+                    }
+                }
+            }
+            let visible = visible_area(transform, vp);
+            let next = cull(state, visible, false);
+            if state.map(|s| s.region) != Some(next.region) {
+                redraws += 1;
+            }
+            assert!(next.region.contains(&visible.grown(0.75)));
+            state = Some(next);
+        }
+        assert!(redraws < 5_000, "{redraws} redraws for 5000 steps");
+    }
+
+    /// A drag moves a few pixels per pointer event; the cards are redrawn
+    /// once per quarter screen, not on every one of them.
+    #[test]
+    fn a_drag_redraws_once_per_quarter_screen() {
+        let vp = viewport(1400.0, 800.0);
+        let mut transform = ViewportTransform {
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+        };
+        let mut state: Option<Culling> = None;
+        let mut redraws = 0;
+        // Ten screens to the left, 20 px at a time.
+        for _ in 0..700 {
+            transform.x -= 20.0;
+            let next = cull(state, visible_area(transform, vp), false);
+            if state.map(|s| s.region) != Some(next.region) {
+                redraws += 1;
+            }
+            state = Some(next);
+        }
+        // 14 000 px in steps of 20: one redraw per 360 px, plus the first draw.
+        assert!((38..=41).contains(&redraws), "{redraws}");
+    }
+
+    /// A transition shows every view between its two ends; each of them has
+    /// to be drawn before it is shown.
+    #[test]
+    fn an_animated_jump_keeps_both_ends_and_everything_between() {
+        let vp = viewport(1400.0, 800.0);
+        let from = ViewportTransform {
+            x: -5_000.0,
+            y: -300.0,
+            scale: 1.6,
+        };
+        let to = ViewportTransform {
+            x: 200.0,
+            y: 50.0,
+            scale: 0.3,
+        };
+        let start = cull(None, visible_area(from, vp), false);
+        let end = cull(Some(start), visible_area(to, vp), true);
+        for step in 0..=20 {
+            let k = f64::from(step) / 20.0;
+            let frame = ViewportTransform {
+                x: from.x + (to.x - from.x) * k,
+                y: from.y + (to.y - from.y) * k,
+                scale: from.scale + (to.scale - from.scale) * k,
+            };
+            let shown = visible_area(frame, vp);
+            // Allow for floating-point noise at the ends.
+            assert!(end.region.padded(1e-6).contains(&shown), "frame {step}");
         }
     }
 }
@@ -5988,6 +6443,62 @@ mod geometry_golden_tests {
         f.family(104, &[9, 11], &[12]);
 
         f.build()
+    }
+
+    /// Culling draws a subset of the cards and connectors; this checks it is
+    /// never too small a one. Every card's real drawing — frame, edit button
+    /// and all — and every connector must lie inside the extent culling tests,
+    /// so anything touching the view is in the DOM.
+    #[test]
+    fn culling_extents_contain_everything_a_card_or_connector_draws() {
+        let data = wide_pedigree();
+        let i18n = I18n(crate::i18n::Language::En);
+        for theme in [&PedigreeTheme::CLASSIC, &PedigreeTheme::MEDIEVAL] {
+            let layout = compute_layout(
+                id(ROOT),
+                &data,
+                None,
+                &HashSet::new(),
+                PedigreeLayoutOptions::full(3, 2),
+                theme,
+            );
+            let extents = SceneExtents::of(&layout, theme);
+            let sides = [
+                (
+                    &layout.asc_nodes,
+                    &extents.asc_cards,
+                    layout.main_tx,
+                    layout.main_ty,
+                ),
+                (
+                    &layout.desc_nodes,
+                    &extents.desc_cards,
+                    layout.main_tx + layout.desc_tx,
+                    layout.main_ty + layout.desc_ty,
+                ),
+            ];
+            for (nodes, cards, dx, dy) in sides {
+                for (node, extent) in nodes.iter().zip(cards) {
+                    let geo = card_geometry(node, theme, &i18n);
+                    let x = node.x + dx;
+                    let y = node.y + dy;
+                    let drawn = Area {
+                        x0: x,
+                        y0: y,
+                        x1: x + 2.0 * theme.metrics.padding + geo.rect_w,
+                        y1: y + geo.fab_y + 2.0 * theme.card.edit_fab_gap,
+                    };
+                    assert!(extent.contains(&drawn), "{:?} outside {extent:?}", node.id);
+                }
+            }
+            for (links, extents) in [
+                (&layout.asc_links, &extents.asc_links),
+                (&layout.desc_links, &extents.desc_links),
+            ] {
+                assert!(extents.iter().all(Option::is_some));
+                assert_eq!(links.len(), extents.len());
+            }
+        }
     }
 
     #[test]
