@@ -720,6 +720,62 @@ pub const LAYOUT_STYLES: &str = r#"
     .pd-section { margin-bottom: 24px; }
     .pd-section:last-child { margin-bottom: 0; }
 
+    /* ── Couple page ─────────────────────────────────────────────── */
+
+    .sub-page-content.cp-content { max-width: 1600px; }
+
+    .cp-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+    .cp-select { flex: 1; min-width: 0; }
+    .cp-ring {
+        flex: none;
+        color: var(--orange);
+        font-size: 1.2rem;
+    }
+    .cp-bar-actions {
+        display: flex;
+        flex: none;
+        gap: 8px;
+    }
+
+    /* Two spouse columns. A section shared by the couple spans both; each
+       row pairs the same section of the two spouses, so their cards line
+       up and stretch to the taller one. */
+    .cp-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 24px;
+    }
+    .cp-span { grid-column: 1 / -1; }
+    .cp-cell {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .cp-cell > .card,
+    .cp-span > .card { margin-bottom: 0; }
+    .cp-cell > .card { flex: 1; }
+    .cp-cell:empty { display: none; }
+
+    /* A header shares its column with its spouse's: actions go below the
+       identity, as on a narrow screen. */
+    .cp-grid .page-header { flex-direction: column; gap: 14px; }
+    .cp-grid .pd-header-actions {
+        width: 100%;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .cp-grid .pd-header-sosa { min-height: 0; justify-content: flex-start; }
+    .cp-unknown {
+        align-items: center;
+        justify-content: center;
+    }
+
     .pd-media-header {
         display: flex;
         align-items: center;
@@ -4725,6 +4781,10 @@ pub const LAYOUT_STYLES: &str = r#"
 
     /* ── Responsive ───────────────────────────────────────────────── */
 
+    @media (max-width: 1080px) {
+        .cp-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
     @media (max-width: 900px) {
         .page-header {
             flex-direction: column;
@@ -4809,6 +4869,9 @@ pub const LAYOUT_STYLES: &str = r#"
             border-top: 1px solid var(--border);
         }
         .pd-family-card { padding: 14px; }
+        .cp-bar { flex-wrap: wrap; }
+        .cp-select { flex-basis: 100%; }
+        .cp-ring { display: none; }
         .pd-family-prose,
         .pd-union-line,
         .pd-sib-group-head {

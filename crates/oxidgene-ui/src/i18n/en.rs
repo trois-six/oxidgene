@@ -201,6 +201,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("pedigree.breadcrumb", "Tree"),
         ("pedigree.tree_view", "Tree view"),
         ("pedigree.profile_view", "Profile view"),
+        ("pedigree.couple_view", "Couple view"),
         ("pedigree.add_person", "Add person"),
         // ── Person detail page ──────────────────────────────────────
         ("person.loading", "Loading person..."),
@@ -271,6 +272,18 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person.sources_section", "Sources"),
         ("person.ancestors", "Ancestors"),
         ("person.loading_ancestry", "Loading ancestry..."),
+        // ── Couple view ─────────────────────────────────────────────
+        ("couple.title", "{left} & {right}"),
+        ("couple.unknown_spouse", "Unknown spouse"),
+        ("couple.spouses_of", "Spouses of {name}"),
+        ("couple.edit", "Edit couple"),
+        ("couple.open_profile", "Profile"),
+        ("couple.union_section", "Union"),
+        ("couple.notes_section", "Couple notes"),
+        ("couple.media_section", "Couple media"),
+        ("couple.events_section", "Couple events"),
+        ("couple.loading", "Loading couple..."),
+        ("couple.load_error", "Failed to load couple: {error}"),
         // ── Person form (modal) ─────────────────────────────────────
         ("person_form.subtitle_edit", "Edit individual"),
         ("person_form.tab_civil", "Civil Status"),

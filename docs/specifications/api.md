@@ -158,7 +158,9 @@ all records in the tree.
 Each profile media tile carries `family_id` (`familyId` in GraphQL): the
 conjugal family the media reaches the profile through, or `null` when it is
 attached to the person directly. A media attached both ways appears once, as
-the person's own.
+the person's own. The [Couple Profile](ui-couple-profile.md) relies on it to
+show a spouse's own media in their column and the couple's media once, across
+both.
 
 Relation-label requests accept at most 1,024 combined person and family IDs.
 Clients split larger logical sets into consecutive requests. Results are

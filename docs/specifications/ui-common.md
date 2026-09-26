@@ -561,8 +561,8 @@ defines its safe offsets and margins.
 ### 6.3 Shared left icon sidebar
 
 `TreeIconSidebar` has one responsive implementation shared by every page that
-renders it, including the pedigree, person profile, search results, dictionary,
-and settings pages. Pages must not override these dimensions independently.
+renders it, including the pedigree, person profile, couple profile, search
+results, dictionary, and settings pages. Pages must not override these dimensions independently.
 
 | Viewport | Sidebar width | Icon buttons | Separators | Padding / gap |
 |---|---:|---:|---:|---:|

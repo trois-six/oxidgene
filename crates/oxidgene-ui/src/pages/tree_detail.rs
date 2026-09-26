@@ -929,6 +929,15 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                             });
                         }
                     },
+                    on_couple_view: {
+                        let tree_id = tree_id.clone();
+                        move |family_id: Uuid| {
+                            nav.push(Route::CoupleDetail {
+                                tree_id: tree_id.clone(),
+                                family_id: family_id.to_string(),
+                            });
+                        }
+                    },
                     on_settings: {
                         let tree_id = tree_id.clone();
                         move |_| {

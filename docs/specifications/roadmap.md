@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -27,7 +27,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 |---|---|---|---|
 | A | Foundation, persistence, APIs, server, desktop | Complete | [Architecture](architecture.md), [Data](data-model.md), [API](api.md) |
 | B | GEDCOM, GEDZIP, and GeneWeb | Complete | [API](api.md), [Import](ui-import.md) |
-| C | Tree browsing and editing | Complete | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Person Edit](ui-person-edit-modal.md) |
+| C | Tree browsing and editing | Complete | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Person Edit](ui-person-edit-modal.md) |
 | D | Shared UX, themes, languages, runtime settings | Complete | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md) |
 | E | Read projections, search, dictionary | Complete except dictionary descent; search results now name each person's close relatives, the topbar suggests matches as you type, and `relevance` ranks | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |

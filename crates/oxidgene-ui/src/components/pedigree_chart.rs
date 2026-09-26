@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use chrono::NaiveDate;
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use uuid::Uuid;
@@ -23,6 +24,7 @@ use crate::components::date_input::format_event_date;
 use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
 };
+use crate::components::person_profile::{sort_unions_chronologically, union_sort_date};
 use crate::components::tree_cache::{PedigreeViewState, ViewStateCache, use_view_state_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
@@ -3277,6 +3279,9 @@ pub struct PedigreeChartProps {
     pub on_add_person: EventHandler<()>,
     #[props(default)]
     pub on_profile_view: EventHandler<Uuid>,
+    /// Opens the couple view on a family.
+    #[props(default)]
+    pub on_couple_view: EventHandler<Uuid>,
     #[props(default)]
     pub on_settings: EventHandler<()>,
     #[props(default)]
@@ -4610,6 +4615,32 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Fit-to-content zoom calculation ──
     let fit_target = FitTarget::of(&layout);
 
+    // The couple view opens on the selected person's earliest couple; a
+    // person with no known spouse has none, and no couple button.
+    let couple_family_id = {
+        let sel = selected_person_id();
+        let mut couples: Vec<(Uuid, Option<NaiveDate>)> = props
+            .data
+            .families_as_spouse
+            .get(&sel)
+            .into_iter()
+            .flatten()
+            .filter(|fid| {
+                props
+                    .data
+                    .spouses_by_family
+                    .get(fid)
+                    .is_some_and(|spouses| spouses.iter().any(|s| s.person_id != sel))
+            })
+            .map(|fid| {
+                let events = props.data.events_by_family.get(fid).into_iter().flatten();
+                (*fid, union_sort_date(events))
+            })
+            .collect();
+        sort_unions_chronologically(&mut couples, |couple| couple.1);
+        couples.first().map(|couple| couple.0)
+    };
+
     rsx! {
         div { class: "pedigree-outer",
 
@@ -4619,6 +4650,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             TreeIconSidebar {
                 active_view: TreeSidebarView::Pedigree,
                 selected_person_id: Some(selected_person_id()),
+                couple_family_id,
+                on_couple_view: props.on_couple_view,
                 on_profile_view: move |pid| {
                     if let Some(pid) = pid {
                         props.on_profile_view.call(pid);

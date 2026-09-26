@@ -9,6 +9,7 @@ use crate::i18n::use_i18n;
 pub enum TreeSidebarView {
     None,
     Profile,
+    Couple,
     Pedigree,
 }
 
@@ -16,7 +17,12 @@ pub enum TreeSidebarView {
 pub fn TreeIconSidebar(
     active_view: TreeSidebarView,
     selected_person_id: Option<Uuid>,
+    /// The couple the couple view opens on for the selected person. Without
+    /// one — a person with no known spouse — the couple button is not shown.
+    #[props(default)]
+    couple_family_id: Option<Uuid>,
     on_profile_view: EventHandler<Option<Uuid>>,
+    #[props(default)] on_couple_view: EventHandler<Uuid>,
     on_pedigree_view: EventHandler<Option<Uuid>>,
     on_add_person: EventHandler<()>,
     on_dictionary: EventHandler<()>,
@@ -30,6 +36,11 @@ pub fn TreeIconSidebar(
     let i18n = use_i18n();
 
     let profile_class = if active_view == TreeSidebarView::Profile {
+        "isb-btn isb-btn-active"
+    } else {
+        "isb-btn"
+    };
+    let couple_class = if active_view == TreeSidebarView::Couple {
         "isb-btn isb-btn-active"
     } else {
         "isb-btn"
@@ -56,6 +67,26 @@ pub fn TreeIconSidebar(
                     "strokeWidth": "2",
                     circle { cx: "12", cy: "8", r: "4" }
                     path { d: "M4 21v-1a6 6 0 0 1 12 0v1" }
+                }
+            }
+
+            if let Some(family_id) = couple_family_id {
+                button {
+                    class: "{couple_class}",
+                    title: "{i18n.t(\"pedigree.couple_view\")}",
+                    onclick: move |_| on_couple_view.call(family_id),
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        circle { cx: "8", cy: "8", r: "3.5" }
+                        path { d: "M1.5 21v-1a6.5 6.5 0 0 1 13 0v1" }
+                        circle { cx: "17", cy: "8.5", r: "3" }
+                        path { d: "M16.5 13.5a6 6 0 0 1 6 6V21" }
+                    }
                 }
             }
 

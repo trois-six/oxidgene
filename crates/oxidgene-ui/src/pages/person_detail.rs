@@ -220,6 +220,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // ── Render ────────────────────────────────────────────────────────
 
     let sosa_ancestors = sosa_ancestors_resource.read().clone().unwrap_or_default();
+    let couple_family_id = profile
+        .as_ref()
+        .and_then(|profile| profile.default_couple_id());
     let ctx = tree_id_parsed().map(|tree_id| SectionContext {
         i18n,
         tree_id,
@@ -256,7 +259,17 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         TreeIconSidebar {
             active_view: TreeSidebarView::Profile,
             selected_person_id: person_id_parsed(),
+            couple_family_id,
             on_profile_view: move |_| {},
+            on_couple_view: {
+                let tree_id = tree_id.clone();
+                move |family_id: Uuid| {
+                    nav.push(Route::CoupleDetail {
+                        tree_id: tree_id.clone(),
+                        family_id: family_id.to_string(),
+                    });
+                }
+            },
             on_pedigree_view: {
                 let tree_id = tree_id.clone();
                 let person_id = person_id.clone();

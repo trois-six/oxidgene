@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-16T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 
@@ -31,7 +31,9 @@ gallery use their entity-filtered endpoints.
 
 ## 2. Layout
 
-Uses the standard `sub-page` layout pattern (see [General](general.md) section 8). There is **no left sidebar (ISB)** on this page — the content fills the full width within the `sub-page-content` container.
+Uses the standard `sub-page` layout pattern (see [General](general.md) section 8), with the shared left icon sidebar (see [Common UI](ui-common.md)). The sidebar's couple button opens the [Couple Profile](ui-couple-profile.md) on this person's earliest couple, and is absent when the person has no known spouse.
+
+The sections below are shared with the [Couple Profile](ui-couple-profile.md), which lays out two people's sections side by side.
 
 ```
 +----------------------------------------------------------------------+
@@ -152,7 +154,7 @@ Each parent is clickable — navigates to that person's profile. If a parent is 
 
 ### Spouses & Children
 
-One sub-section per union, ordered chronologically by marriage date (if known).
+One sub-section per union, ordered by the union's earliest dated event, usually the marriage. Undated unions follow in their recorded order.
 
 ```
 +--------------------------------------+

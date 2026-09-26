@@ -25,6 +25,7 @@ okf_version: "0.2"
 * [Homepage](ui-home.md) - Tree dashboard with tree cards, search and sort, and the create and delete modals.
 * [Genealogy Tree](ui-genealogy-tree.md) - Pedigree canvas with person cards, connectors, navigation, and the events sidebar.
 * [Person Profile](ui-person-profile.md) - Full person detail view with identity, timeline, family connections, media, and notes.
+* [Couple Profile](ui-couple-profile.md) - Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two.
 * [Search Results](ui-search-results.md) - Filterable person search results page.
 * [Dictionary](ui-dictionary.md) - Read-only index of family names, sources, places, and occupations with usage counts.
 * [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, date display, entry options, tools, and export.

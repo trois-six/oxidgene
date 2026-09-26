@@ -67,6 +67,8 @@ pub(crate) struct EnrichedEvent {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct UnionGroup {
     pub family_id: Uuid,
+    /// The union's earliest dated event, which orders the unions.
+    pub sort_date: Option<NaiveDate>,
     pub partner_ids: Vec<Uuid>,
     pub role: SpouseRole,
     pub marriage_date: Option<String>,
@@ -162,6 +164,66 @@ impl Profile {
 
     pub fn union_family_ids(&self) -> Vec<Uuid> {
         self.family.unions.iter().map(|u| u.family_id).collect()
+    }
+
+    /// The person's couples: their unions with a known partner, earliest
+    /// first. A union recorded without a partner is not a couple.
+    pub fn couples(&self) -> impl Iterator<Item = &UnionGroup> {
+        self.family
+            .unions
+            .iter()
+            .filter(|union| !union.partner_ids.is_empty())
+    }
+
+    /// The couple the couple view opens on for this person, if they have one.
+    pub fn default_couple_id(&self) -> Option<Uuid> {
+        self.couples().next().map(|union| union.family_id)
+    }
+}
+
+/// A union's earliest dated event — its marriage, usually.
+pub(crate) fn union_sort_date<'a>(
+    events: impl IntoIterator<Item = &'a DomainEvent>,
+) -> Option<NaiveDate> {
+    events.into_iter().filter_map(|event| event.date_sort).min()
+}
+
+/// Orders unions by their earliest dated event. Undated unions follow, in
+/// the order they were recorded.
+pub(crate) fn sort_unions_chronologically<T>(
+    unions: &mut [T],
+    sort_date: impl Fn(&T) -> Option<NaiveDate>,
+) {
+    unions.sort_by_key(|union| {
+        let date = sort_date(union);
+        (date.is_none(), date)
+    });
+}
+
+/// Which spouse of a couple the couple view draws on the left and which on
+/// the right: the husband always on the left, the wife on the right. A
+/// partner is placed by sex, and two spouses the rule cannot tell apart keep
+/// their recorded order. A lone spouse keeps their side, the other one empty.
+pub(crate) fn couple_sides(
+    spouses: &[oxidgene_core::types::FamilySpouse],
+    sex_of: impl Fn(Uuid) -> Sex,
+) -> (Option<Uuid>, Option<Uuid>) {
+    let side = |spouse: &oxidgene_core::types::FamilySpouse| match spouse.role {
+        SpouseRole::Husband => 0,
+        SpouseRole::Wife => 2,
+        SpouseRole::Partner => match sex_of(spouse.person_id) {
+            Sex::Male => 0,
+            Sex::Unknown => 1,
+            Sex::Female => 2,
+        },
+    };
+    let mut ordered: Vec<_> = spouses.iter().collect();
+    ordered.sort_by_key(|spouse| (side(spouse), spouse.sort_order));
+    match ordered.as_slice() {
+        [] => (None, None),
+        [only] if side(only) == 2 => (None, Some(only.person_id)),
+        [only] => (Some(only.person_id), None),
+        [left, right, ..] => (Some(left.person_id), Some(right.person_id)),
     }
 }
 
@@ -320,7 +382,7 @@ pub(crate) fn build_profile(
         .collect();
 
     // ── Family narrative ──
-    let unions: Vec<UnionGroup> = spouse_family_ids
+    let mut unions: Vec<UnionGroup> = spouse_family_ids
         .iter()
         .map(|fid| {
             let role = detail
@@ -345,6 +407,9 @@ pub(crate) fn build_profile(
                 union_marriage_divorce(events_by_family.get(fid), &places, i18n);
             UnionGroup {
                 family_id: *fid,
+                sort_date: union_sort_date(
+                    events_by_family.get(fid).into_iter().flatten().copied(),
+                ),
                 partner_ids,
                 role,
                 marriage_date,
@@ -354,6 +419,7 @@ pub(crate) fn build_profile(
             }
         })
         .collect();
+    sort_unions_chronologically(&mut unions, |union| union.sort_date);
 
     let mut parent_ids: Vec<Uuid> = Vec::new();
     let mut full_sibling_ids: Vec<Uuid> = Vec::new();
@@ -1166,10 +1232,12 @@ pub(crate) fn ProfileMediaCard(
     tree_id: Uuid,
     owner: MediaOwner,
     title: String,
-    // Couples whose media this gallery also shows.
-    #[props(default)] related_family_ids: Vec<Uuid>,
-    // Events a media may be linked to, from the tile's menu and the upload.
-    #[props(default)] event_links: Vec<MediaEventLinkOption>,
+    /// Couples whose media this gallery also shows.
+    #[props(default)]
+    related_family_ids: Vec<Uuid>,
+    /// Events a media may be linked to, from the tile's menu and the upload.
+    #[props(default)]
+    event_links: Vec<MediaEventLinkOption>,
     #[props(default)] preloaded_tiles: Option<Vec<MediaWithLink>>,
     #[props(default)] preloaded_bundle: Option<Arc<GalleryBundle>>,
     #[props(default)] preloaded_portrait: Option<(Option<Uuid>, Option<Uuid>)>,
@@ -1586,6 +1654,81 @@ pub(crate) fn ancestors_section(
 mod tests {
     use super::*;
     use crate::i18n::Language;
+    use oxidgene_core::types::FamilySpouse;
+
+    fn spouse(person_id: Uuid, role: SpouseRole, sort_order: i32) -> FamilySpouse {
+        FamilySpouse {
+            id: Uuid::now_v7(),
+            family_id: Uuid::nil(),
+            person_id,
+            role,
+            sort_order,
+        }
+    }
+
+    #[test]
+    fn the_husband_is_always_on_the_left() {
+        let (husband, wife) = (Uuid::now_v7(), Uuid::now_v7());
+        let spouses = [
+            spouse(wife, SpouseRole::Wife, 0),
+            spouse(husband, SpouseRole::Husband, 1),
+        ];
+
+        assert_eq!(
+            couple_sides(&spouses, |_| Sex::Unknown),
+            (Some(husband), Some(wife))
+        );
+    }
+
+    #[test]
+    fn partners_are_placed_by_sex_then_recorded_order() {
+        let (man, woman) = (Uuid::now_v7(), Uuid::now_v7());
+        let sex_of = |id: Uuid| if id == man { Sex::Male } else { Sex::Female };
+        let partners = [
+            spouse(woman, SpouseRole::Partner, 0),
+            spouse(man, SpouseRole::Partner, 1),
+        ];
+        assert_eq!(couple_sides(&partners, sex_of), (Some(man), Some(woman)));
+
+        let (first, second) = (Uuid::now_v7(), Uuid::now_v7());
+        let alike = [
+            spouse(second, SpouseRole::Partner, 1),
+            spouse(first, SpouseRole::Partner, 0),
+        ];
+        assert_eq!(
+            couple_sides(&alike, |_| Sex::Female),
+            (Some(first), Some(second))
+        );
+    }
+
+    #[test]
+    fn a_lone_spouse_keeps_their_side() {
+        let wife = Uuid::now_v7();
+        assert_eq!(
+            couple_sides(&[spouse(wife, SpouseRole::Wife, 0)], |_| Sex::Female),
+            (None, Some(wife))
+        );
+        let husband = Uuid::now_v7();
+        assert_eq!(
+            couple_sides(&[spouse(husband, SpouseRole::Husband, 0)], |_| Sex::Male),
+            (Some(husband), None)
+        );
+    }
+
+    #[test]
+    fn unions_run_from_the_earliest_and_undated_ones_follow_in_order() {
+        let date = |y| NaiveDate::from_ymd_opt(y, 1, 1);
+        let mut unions = vec![
+            ("undated_a", None),
+            ("later", date(1880)),
+            ("undated_b", None),
+            ("earlier", date(1865)),
+        ];
+        sort_unions_chronologically(&mut unions, |union| union.1);
+
+        let order: Vec<_> = unions.iter().map(|union| union.0).collect();
+        assert_eq!(order, ["earlier", "later", "undated_a", "undated_b"]);
+    }
 
     #[test]
     fn fallback_events_keep_their_own_gendered_label() {
