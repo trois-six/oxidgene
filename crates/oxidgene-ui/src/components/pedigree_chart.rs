@@ -8,7 +8,9 @@
 //! Cards are positioned using the Reingold-Tilford (Buchheim variant) algorithm,
 //! connectors are drawn via SVG overlay with Bézier curves.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::html::geometry::WheelDelta;
@@ -319,6 +321,11 @@ pub struct PedigreeData {
     pub sosa_root_id: Option<Uuid>,
     /// The person this tree identifies as the current user.
     pub self_person_id: Option<Uuid>,
+    /// How many generations each way the data was fetched for, when it came
+    /// from a pedigree. The chart never lays out deeper than this: a deeper
+    /// view is waiting on a fetch, and has nothing more to draw until then.
+    pub ancestor_depth_loaded: Option<usize>,
+    pub descendant_depth_loaded: Option<usize>,
 }
 
 /// A [`PedigreeData`] shared between the page that assembled it, the handlers
@@ -611,6 +618,8 @@ impl PedigreeData {
             sosa_ancestors: HashSet::new(),
             sosa_root_id: None,
             self_person_id: None,
+            ancestor_depth_loaded: Some(pedigree.ancestor_depth_loaded as usize),
+            descendant_depth_loaded: Some(pedigree.descendant_depth_loaded as usize),
         }
     }
 
@@ -2222,6 +2231,73 @@ fn person_has_hidden_relations(
     false
 }
 
+/// A computed layout, shared with the canvas that draws it.
+///
+/// Equality is identity: the canvas redraws when the layout is recomputed and
+/// is skipped when the chart re-renders around an unchanged one.
+#[derive(Clone)]
+struct SharedLayout(Rc<PedigreeLayout>);
+
+impl PartialEq for SharedLayout {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl std::ops::Deref for SharedLayout {
+    type Target = PedigreeLayout;
+
+    fn deref(&self) -> &PedigreeLayout {
+        &self.0
+    }
+}
+
+/// What a [`PedigreeLayout`] was computed from.
+struct LayoutKey {
+    root: Uuid,
+    data: SharedPedigree,
+    sosa_root: Option<Uuid>,
+    sosa_ids: Option<HashSet<Uuid>>,
+    ancestor_levels: usize,
+    descendant_levels: usize,
+    theme: &'static PedigreeTheme,
+}
+
+impl LayoutKey {
+    fn of(
+        props: &PedigreeChartProps,
+        ancestor_levels: usize,
+        descendant_levels: usize,
+        theme: &'static PedigreeTheme,
+    ) -> Self {
+        Self {
+            root: props.root_person_id,
+            data: props.data.clone(),
+            sosa_root: props.sosa_root_person_id,
+            sosa_ids: props.sosa_ancestor_ids.clone(),
+            ancestor_levels,
+            descendant_levels,
+            theme,
+        }
+    }
+
+    fn matches(
+        &self,
+        props: &PedigreeChartProps,
+        ancestor_levels: usize,
+        descendant_levels: usize,
+        theme: &'static PedigreeTheme,
+    ) -> bool {
+        self.root == props.root_person_id
+            && self.data == props.data
+            && self.sosa_root == props.sosa_root_person_id
+            && self.ancestor_levels == ancestor_levels
+            && self.descendant_levels == descendant_levels
+            && std::ptr::eq(self.theme, theme)
+            && self.sosa_ids == props.sosa_ancestor_ids
+    }
+}
+
 /// Compute the RT layout for both ascending and descending trees.
 ///
 /// Uses two independent `LayoutTreeService`-equivalent passes (one per tree) and
@@ -3690,6 +3766,104 @@ fn render_pedigree_card(
     }
 }
 
+/// The cards and connectors of a laid-out pedigree.
+///
+/// A component of its own so that it redraws only when the layout does. The
+/// chart around it re-renders for its toolbar, depth popover, event panel and
+/// selection; with the cards drawn inline, each of those rebuilt and diffed
+/// every card — around a hundred milliseconds at a thousand of them.
+#[component]
+fn PedigreeCanvas(
+    layout: SharedLayout,
+    root_person_id: Uuid,
+    selected_person_id: Signal<Uuid>,
+    on_person_navigate: EventHandler<Uuid>,
+    on_person_click: EventHandler<(Uuid, f64, f64)>,
+    on_empty_slot: EventHandler<(Uuid, bool)>,
+    on_add_spouse_slot: EventHandler<Uuid>,
+    theme: &'static PedigreeTheme,
+) -> Element {
+    let i18n = use_i18n();
+    // A ruled line is drawn as a band with a lighter core, the way an
+    // engraver lays one down; a Bézier one stays a single hairline.
+    let double_ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
+    // Adapt the descending side's empty "+" slot (missing spouse) onto the
+    // dedicated add-spouse callback — the `bool` (father/mother) from
+    // `on_empty_slot` doesn't apply here, only the person needing a spouse.
+    let desc_empty_slot_adapter =
+        EventHandler::new(move |(pid, _): (Uuid, bool)| on_add_spouse_slot.call(pid));
+
+    rsx! {
+        div {
+            class: "pedigree-tree",
+            style: "position: relative; width: {layout.total_w}px; height: {layout.total_h}px;",
+
+            svg {
+                "viewBox": "0 0 {layout.total_w} {layout.total_h}",
+                width: "{layout.total_w}",
+                height: "{layout.total_h}",
+                style: "display: block; overflow: visible;",
+
+                g { transform: "translate({layout.main_tx},{layout.main_ty})",
+
+                // ── Ascending tree ──
+                g {
+                    for (si, path) in layout.asc_links.iter().enumerate() {
+                        path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                        if double_ruled {
+                            path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                        }
+                    }
+                    for (ni, node) in layout.asc_nodes.iter().enumerate() {
+                        {render_pedigree_card(
+                            node,
+                            ni,
+                            "an",
+                            root_person_id,
+                            selected_person_id,
+                            on_person_navigate,
+                            on_person_click,
+                            on_empty_slot,
+                            true,
+                            i18n,
+                            theme,
+                            None,
+                        )}
+                    }
+                }
+
+                // ── Descending tree ──
+                g {
+                    transform: "translate({layout.desc_tx},{layout.desc_ty})",
+                    for (si, path) in layout.desc_links.iter().enumerate() {
+                        path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+                        if double_ruled {
+                            path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+                        }
+                    }
+                    for (ni, node) in layout.desc_nodes.iter().enumerate() {
+                        {render_pedigree_card(
+                            node,
+                            ni,
+                            "dn",
+                            root_person_id,
+                            selected_person_id,
+                            on_person_navigate,
+                            on_person_click,
+                            desc_empty_slot_adapter,
+                            true,
+                            i18n,
+                            theme,
+                            None,
+                        )}
+                    }
+                }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let i18n = use_i18n();
@@ -3850,9 +4024,47 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         needs_fit.set(true);
     }
 
-    // ── Force re-centering when depth levels change ──
-    let anc_now = ancestor_levels();
-    let desc_now = descendant_levels();
+    // ── Levels actually drawn ──
+    //
+    // The requested depth runs ahead of the data: raising it fetches a deeper
+    // pedigree, and until that arrives there is nothing more to draw. Laying
+    // the old data out at the new depth drew placeholder slots for a
+    // generation about to load, redrew every card to do it, and held the
+    // request back behind that render.
+    let anc_now = props
+        .data
+        .ancestor_depth_loaded
+        .map_or(ancestor_levels(), |loaded| ancestor_levels().min(loaded));
+    let desc_now = props
+        .data
+        .descendant_depth_loaded
+        .map_or(descendant_levels(), |loaded| {
+            descendant_levels().min(loaded)
+        });
+
+    // ── Fetch as soon as the requested depth changes ──
+    //
+    // Recording the new depth is what makes the page ask for the deeper (or
+    // shallower) pedigree; it no longer waits for a re-fit, which only runs
+    // once there is something new to fit.
+    let requested = (ancestor_levels(), descendant_levels());
+    let mut prev_requested = use_signal(|| requested);
+    if *prev_requested.peek() != requested {
+        prev_requested.set(requested);
+        let root = props.root_person_id;
+        spawn(async move {
+            save_pedigree_view_state(
+                view_cache,
+                tid_parsed,
+                root,
+                viewport_transform,
+                ancestor_levels,
+                descendant_levels,
+            );
+        });
+    }
+
+    // ── Force re-centering when the drawn depth changes ──
     let mut prev_anc = use_signal(|| anc_now);
     let mut prev_desc = use_signal(|| desc_now);
     if prev_anc() != anc_now || prev_desc() != desc_now {
@@ -3862,20 +4074,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         needs_fit.set(true);
     }
 
-    // ── Compute SOSA ancestor set (persons who are ancestors of the SOSA root) ──
-    // Use the server-provided SOSA ancestor set when available,
-    // falling back to local graph traversal (which only works within the pedigree window).
-    let sosa_ancestors: HashSet<Uuid> = props
-        .sosa_ancestor_ids
-        .clone()
-        .or_else(|| {
-            props
-                .sosa_root_person_id
-                .map(|sosa_id| props.data.ancestor_set(sosa_id))
-        })
-        .unwrap_or_default();
-
-    // ── Compute layout ──
+    // ── Theme ──
     let preferred = crate::prefs::use_pedigree_theme();
     let theme = props.theme.unwrap_or_else(|| preferred.theme());
     let mut previous_theme = use_signal(|| *theme);
@@ -3884,19 +4083,50 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         animating.set(false);
         needs_fit.set(true);
     }
-    // A ruled line is drawn as a band with a lighter core, the way an
-    // engraver lays one down; a Bézier one stays a single hairline.
-    let double_ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
-    let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
-        compute_layout(
-            props.root_person_id,
-            &props.data,
-            props.sosa_root_person_id,
-            &sosa_ancestors,
-            PedigreeLayoutOptions::full(ancestor_levels(), descendant_levels()),
-            theme,
-        )
-    });
+
+    // ── Compute layout ──
+    //
+    // Only when something it depends on changes. The chart re-renders for
+    // plenty of other reasons — the event panel, the depth popover, the
+    // selection — and each of those used to recompute the whole layout.
+    let layout_cache = use_hook(|| Rc::new(RefCell::new(None::<(LayoutKey, SharedLayout)>)));
+    let layout = {
+        let mut cache = layout_cache.borrow_mut();
+        match &*cache {
+            Some((key, layout)) if key.matches(&props, anc_now, desc_now, theme) => layout.clone(),
+            _ => {
+                // Server-provided SOSA ancestor set when available, falling
+                // back to a traversal that only sees the pedigree window.
+                let sosa_ancestors: HashSet<Uuid> = props
+                    .sosa_ancestor_ids
+                    .clone()
+                    .or_else(|| {
+                        props
+                            .sosa_root_person_id
+                            .map(|sosa_id| props.data.ancestor_set(sosa_id))
+                    })
+                    .unwrap_or_default();
+                let layout = SharedLayout(Rc::new(crate::ui_observability::measure_ui(
+                    "pedigree_layout",
+                    || {
+                        compute_layout(
+                            props.root_person_id,
+                            &props.data,
+                            props.sosa_root_person_id,
+                            &sosa_ancestors,
+                            PedigreeLayoutOptions::full(anc_now, desc_now),
+                            theme,
+                        )
+                    },
+                )));
+                *cache = Some((
+                    LayoutKey::of(&props, anc_now, desc_now, theme),
+                    layout.clone(),
+                ));
+                layout
+            }
+        }
+    };
 
     // ── Fit graph in viewport when needed ──
     if needs_fit() && panel_ready() {
@@ -4063,13 +4293,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let fit_content_cy = layout.content_cy;
     let fit_content_w = layout.content_w;
     let fit_content_h = layout.content_h;
-
-    // Adapt the descending side's empty "+" slot (missing spouse) onto the
-    // dedicated add-spouse callback — the `bool` (father/mother) from
-    // `on_empty_slot` doesn't apply here, only the person needing a spouse.
-    let on_add_spouse_slot = props.on_add_spouse_slot;
-    let desc_empty_slot_adapter =
-        EventHandler::new(move |(pid, _): (Uuid, bool)| on_add_spouse_slot.call(pid));
 
     rsx! {
         div { class: "pedigree-outer",
@@ -4385,72 +4608,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     animating,
 
                     PedigreeScene {
-                        div {
-                            class: "pedigree-tree",
-                            style: "position: relative; width: {layout.total_w}px; height: {layout.total_h}px;",
-
-                            svg {
-                                "viewBox": "0 0 {layout.total_w} {layout.total_h}",
-                                width: "{layout.total_w}",
-                                height: "{layout.total_h}",
-                                style: "display: block; overflow: visible;",
-
-                                g { transform: "translate({layout.main_tx},{layout.main_ty})",
-
-                                // ── Ascending tree ──
-                                g {
-                                    for (si, path) in layout.asc_links.iter().enumerate() {
-                                        path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                                        if double_ruled {
-                                            path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                                        }
-                                    }
-                                    for (ni, node) in layout.asc_nodes.iter().enumerate() {
-                                        {render_pedigree_card(
-                                            node,
-                                            ni,
-                                            "an",
-                                            props.root_person_id,
-                                            selected_person_id,
-                                            props.on_person_navigate,
-                                            props.on_person_click,
-                                            props.on_empty_slot,
-                                            true,
-                                            i18n,
-                                            theme,
-                                            None,
-                                        )}
-                                    }
-                                }
-
-                                // ── Descending tree ──
-                                g {
-                                    transform: "translate({layout.desc_tx},{layout.desc_ty})",
-                                    for (si, path) in layout.desc_links.iter().enumerate() {
-                                        path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                                        if double_ruled {
-                                            path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                                        }
-                                    }
-                                    for (ni, node) in layout.desc_nodes.iter().enumerate() {
-                                        {render_pedigree_card(
-                                            node,
-                                            ni,
-                                            "dn",
-                                            props.root_person_id,
-                                            selected_person_id,
-                                            props.on_person_navigate,
-                                            props.on_person_click,
-                                            desc_empty_slot_adapter,
-                                            true,
-                                            i18n,
-                                            theme,
-                                            None,
-                                        )}
-                                    }
-                                }
-                                }
-                            }
+                        PedigreeCanvas {
+                            layout: layout.clone(),
+                            root_person_id: props.root_person_id,
+                            selected_person_id,
+                            on_person_navigate: props.on_person_navigate,
+                            on_person_click: props.on_person_click,
+                            on_empty_slot: props.on_empty_slot,
+                            on_add_spouse_slot: props.on_add_spouse_slot,
+                            theme,
                         }
                     }
                 }
@@ -5765,6 +5931,8 @@ mod geometry_golden_tests {
                 sosa_ancestors: HashSet::new(),
                 sosa_root_id: None,
                 self_person_id: None,
+                ancestor_depth_loaded: None,
+                descendant_depth_loaded: None,
             }
         }
     }

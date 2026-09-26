@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-23T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 
@@ -39,6 +39,13 @@ pedigree. Persisting visual state such as pan, zoom, or automatic centering does
 not reload pedigree data or rebuild the card-and-connector layout; only its CSS
 transform and zoom readout react during direct manipulation. Only a depth change
 in the saved view changes the server query.
+
+A depth change sends that query at once. The chart draws no deeper than the
+pedigree it holds, so raising the depth leaves the cards as they are until the
+deeper pedigree arrives, then lays it out and refits; lowering it within what is
+already loaded redraws immediately. The layout is recomputed only when the
+pedigree, focus, SOSA data, drawn depth or theme changes — never for the depth
+popover, the events sidebar or a selection.
 
 Initial fitting waits until the saved pedigree theme and the right events
 sidebar state have been applied. Opening, closing, or resizing that sidebar
@@ -376,7 +383,8 @@ Two independent fields in the topbar, aligned to the right: **Last name(s)** and
 - When the **Last name(s)** field holds a bare number, the panel resolves it as
   a SOSA number and previews that one person, so it shows where Enter would go
 - Requests are debounced, and input shorter than two characters across both
-  fields queries nothing
+  fields queries nothing. Fields filled in by the page rather than typed — the
+  results page pre-fills them — query nothing until the panel opens
 - **Down** / **Up** move the highlight, wrapping at either end; **Enter** opens
   the highlighted person; **Escape** or a click outside closes the panel
 
