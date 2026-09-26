@@ -19,4 +19,3 @@ pub mod topbar_search;
 pub mod tree_cache;
 pub mod tree_icon_sidebar;
 pub mod union_form;
-pub mod vignette_linker;

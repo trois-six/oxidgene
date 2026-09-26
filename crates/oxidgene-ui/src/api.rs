@@ -510,24 +510,6 @@ pub struct UpdateNoteBody {
 
 // ── MediaLink DTOs ───────────────────────────────────────────────────
 
-/// A row from the bulk media-links endpoint.
-///
-/// Carries what a small preview needs — the MIME type and whether a thumbnail
-/// exists — so a timeline of forty events draws its evidence from the one call
-/// the pedigree canvas already makes.
-#[derive(Debug, Clone, Deserialize)]
-pub struct MediaLinkRow {
-    pub link_id: uuid::Uuid,
-    pub entity_id: uuid::Uuid,
-    /// `person` or `event`.
-    pub entity_type: String,
-    pub media_id: uuid::Uuid,
-    pub file_path: String,
-    pub file_name: String,
-    pub mime_type: String,
-    pub has_thumbnail: bool,
-}
-
 /// Whether a `file_path` is an address rather than a path.
 ///
 /// The column holds whatever produced the record wrote there: a Windows path
@@ -770,15 +752,6 @@ impl MediaKind {
             Self::Document => "\u{1F4C3}",
             Self::Other => "\u{1F4C1}",
         }
-    }
-
-    /// Whether the browser can render this inline, given a URL.
-    ///
-    /// Images, video and audio each have an element that takes a URL and
-    /// plays it. Everything else — a PDF, a Word document, an archive — is a
-    /// download, and pretending otherwise gives the reader an empty box.
-    pub fn is_embeddable(self) -> bool {
-        matches!(self, Self::Image | Self::Video | Self::Audio)
     }
 }
 
@@ -3387,15 +3360,6 @@ impl ApiClient {
 
     // ── MediaLinks ──────────────────────────────────────────────────
 
-    /// Fetch all media links for persons in a tree (for photo display).
-    pub async fn list_media_links_for_tree(
-        &self,
-        tree_id: Uuid,
-    ) -> Result<Vec<MediaLinkRow>, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/media-links"))
-            .await
-    }
-
     /// Load gallery thumbnails, mosaics, crops and event links in bounded batches.
     pub async fn gallery_bundle(
         &self,
@@ -3509,18 +3473,6 @@ impl ApiClient {
     ) -> Result<Vec<Vignette>, ApiError> {
         self.get(&format!(
             "/api/v1/trees/{tree_id}/vignettes?person_id={person_id}"
-        ))
-        .await
-    }
-
-    /// Crops standing as evidence for an event.
-    pub async fn list_event_vignettes(
-        &self,
-        tree_id: Uuid,
-        event_id: Uuid,
-    ) -> Result<Vec<Vignette>, ApiError> {
-        self.get(&format!(
-            "/api/v1/trees/{tree_id}/vignettes?event_id={event_id}"
         ))
         .await
     }

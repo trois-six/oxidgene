@@ -17,8 +17,6 @@
 
 use std::sync::Arc;
 
-use dioxus::prelude::*;
-
 // An implementor lives outside this crate (the desktop shell) and needs both
 // types to write the trait's signature, so the trait's module exposes them.
 pub use oxidgene_core::Sex;
@@ -112,11 +110,6 @@ impl std::fmt::Debug for ImageHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ImageHost")
     }
-}
-
-/// The host, if this build has one. `None` on the web target.
-pub fn use_image_host() -> Option<ImageHost> {
-    try_use_context::<ImageHost>()
 }
 
 /// The API path that serves one held picture.

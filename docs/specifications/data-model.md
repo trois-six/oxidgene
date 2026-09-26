@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-09-18T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 
@@ -579,7 +579,7 @@ enum Confidence {
 }
 ```
 
-`EventType::is_individual()` / `is_family()` partition the variants; `Adoption` is individual, never family.
+`Adoption` is an individual event, never a family one: GEDCOM `ADOP` may name the adoptive family through a nested `FAMC`.
 
 ---
 

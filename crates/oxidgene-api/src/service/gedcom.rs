@@ -277,22 +277,6 @@ pub async fn import_gedzip_and_persist(
     persist_import_result(db, result).await
 }
 
-/// Import a GEDZIP from a seekable temporary file without holding the archive
-/// or all of its decompressed media in memory.
-#[tracing::instrument(name = "import.gedzip", skip_all)]
-pub async fn import_gedzip_file_and_persist(
-    db: &DatabaseConnection,
-    store: &dyn crate::media::MediaStore,
-    tree_id: Uuid,
-    archive_path: &Path,
-    progress: &FileImportProgress,
-) -> Result<ImportSummary, OxidGeneError> {
-    let _tree = TreeRepo::get(db, tree_id).await?;
-    let result = prepare_gedzip_file(store, tree_id, archive_path, progress).await?;
-    progress.enter(FileImportPhase::Database);
-    persist_import_result(db, result).await
-}
-
 /// Parse and ingest a seekable GEDZIP source without writing database rows.
 #[tracing::instrument(name = "import.gedzip.prepare", skip_all)]
 pub(crate) async fn prepare_gedzip_file(

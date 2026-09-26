@@ -218,14 +218,6 @@ pub struct AncestryQuery {
     pub max_depth: Option<i32>,
 }
 
-// ── Generic ID response ──────────────────────────────────────────────
-
-/// Minimal response for delete operations.
-#[derive(Debug, Serialize)]
-pub struct DeleteResponse {
-    pub deleted: bool,
-}
-
 // ── Event DTOs ───────────────────────────────────────────────────────
 
 /// Query parameters for listing events (includes filters + pagination).

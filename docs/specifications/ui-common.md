@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-09-15T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -220,8 +220,6 @@ Tokens derived in the stylesheet rather than set by a theme:
 | `--select-arrow` | Data URI of the select chevron, in `--text-secondary` |
 
 Semantic aliases map generic component names to these core tokens:
-`--color-bg`, `--color-surface`, `--color-primary`,
-`--color-primary-hover`, `--color-text`, `--color-text-muted`,
 `--color-border`, `--color-danger`, `--color-danger-text`, `--white`, and
 `--shadow-black`.
 

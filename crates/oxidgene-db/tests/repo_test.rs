@@ -255,10 +255,10 @@ async fn background_jobs_are_exclusive_and_expired_leases_are_reclaimed() {
             .expect("current completion")
     );
     assert!(
-        BackgroundJobRepo::active_for_tree(&db, tree_id)
+        BackgroundJobRepo::active_imports(&db)
             .await
             .expect("active lookup")
-            .is_none()
+            .is_empty()
     );
 }
 

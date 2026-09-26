@@ -326,7 +326,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     });
 
     // This person's portrait photo, derived from `photos_map_resource`
-    // rather than issuing a second `list_media_links_for_tree` call.
+    // rather than issuing a second request.
     let photo = use_memo(move || {
         let pid = person_id_parsed()?;
         photos_map_resource.read().as_ref()?.get(&pid).cloned()

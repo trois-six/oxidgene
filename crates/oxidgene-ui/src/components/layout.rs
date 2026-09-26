@@ -107,12 +107,6 @@ pub const LAYOUT_STYLES: &str = r#"
         --evw:  275px;  /* event panel width */
 
         /* ── Semantic aliases (used by shared components) ─────────── */
-        --color-bg:           var(--bg-deep);
-        --color-surface:      var(--bg-card);
-        --color-primary:      var(--orange);
-        --color-primary-hover:var(--orange-light);
-        --color-text:         var(--text-primary);
-        --color-text-muted:   var(--text-secondary);
         --color-border:       var(--border);
         --color-danger:       var(--danger);
         --color-danger-text:  var(--danger-text);
@@ -3843,39 +3837,6 @@ pub const LAYOUT_STYLES: &str = r#"
         flex: 1 1 0;
         min-width: 0;
     }
-
-    /* ── Vignette list ────────────────────────────────────────────── */
-
-    .vg-list { display: flex; flex-direction: column; gap: 8px; }
-    .vg-empty { font-size: 0.75rem; color: var(--text-muted); }
-
-    .vg-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 6px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-    }
-
-    .vg-thumb {
-        width: 56px;
-        height: 42px;
-        object-fit: cover;
-        border-radius: 3px;
-        flex: 0 0 auto;
-        background: var(--bg-deep);
-    }
-
-    .vg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-    .vg-name {
-        font-size: 0.78rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .vg-select { font-size: 0.72rem; padding: 3px 6px; }
-    .vg-actions { display: flex; gap: 4px; flex: 0 0 auto; }
 
     /* ── Image cropper ────────────────────────────────────────────── */
 

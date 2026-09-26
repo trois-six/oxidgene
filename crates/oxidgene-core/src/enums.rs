@@ -675,65 +675,6 @@ pub enum EventType {
     Other,
 }
 
-impl EventType {
-    /// Returns `true` if this event type applies to an individual person.
-    pub fn is_individual(&self) -> bool {
-        matches!(
-            self,
-            Self::Birth
-                | Self::Death
-                | Self::Baptism
-                | Self::Confirmation
-                | Self::FirstCommunion
-                | Self::BarBatMitzvah
-                | Self::MilitaryService
-                | Self::Burial
-                | Self::Cremation
-                | Self::Graduation
-                | Self::Immigration
-                | Self::Emigration
-                | Self::Naturalization
-                | Self::Census
-                | Self::Occupation
-                | Self::Residence
-                | Self::Retirement
-                | Self::Will
-                | Self::Probate
-                | Self::Adoption
-                | Self::CasteName
-                | Self::PhysicalDescription
-                | Self::Education
-                | Self::NationalId
-                | Self::NationalOrigin
-                | Self::ChildrenCount
-                | Self::MarriagesCount
-                | Self::Property
-                | Self::Religion
-                | Self::SocialSecurityNumber
-                | Self::NobilityTitle
-                | Self::Fact
-        )
-    }
-
-    /// Returns `true` if this event type applies to a family.
-    pub fn is_family(&self) -> bool {
-        matches!(
-            self,
-            Self::Marriage
-                | Self::Divorce
-                | Self::Annulment
-                | Self::Engagement
-                | Self::MarriageBann
-                | Self::MarriageContract
-                | Self::MarriageLicense
-                | Self::MarriageSettlement
-                | Self::CivilUnion
-                | Self::Separation
-                | Self::DivorceFiled
-        )
-    }
-}
-
 impl std::fmt::Display for EventType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -870,30 +811,6 @@ mod tests {
         ] {
             assert_eq!(q.short_prefix(), "ca ", "{q} should read as about");
         }
-    }
-
-    #[test]
-    fn test_event_type_individual() {
-        assert!(EventType::Birth.is_individual());
-        assert!(EventType::Death.is_individual());
-        assert!(!EventType::Marriage.is_individual());
-        assert!(!EventType::Other.is_individual());
-    }
-
-    #[test]
-    fn test_event_type_family() {
-        assert!(EventType::Marriage.is_family());
-        assert!(EventType::Divorce.is_family());
-        assert!(!EventType::Birth.is_family());
-        assert!(!EventType::Other.is_family());
-    }
-
-    #[test]
-    fn test_adoption_is_individual_not_family() {
-        // GEDCOM 5.5.1 `ADOP` is an individual-level event that may
-        // reference the adoptive family via a nested `FAMC`.
-        assert!(EventType::Adoption.is_individual());
-        assert!(!EventType::Adoption.is_family());
     }
 
     #[test]

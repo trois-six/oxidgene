@@ -134,17 +134,6 @@ impl BackgroundJobRepo {
             })
     }
 
-    pub async fn active_for_tree(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-    ) -> Result<Option<BackgroundJob>, OxidGeneError> {
-        Entity::find()
-            .filter(Column::ActiveTreeId.eq(tree_id))
-            .one(db)
-            .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))
-    }
-
     pub async fn active_imports(
         db: &impl ConnectionTrait,
     ) -> Result<Vec<ActiveImport>, OxidGeneError> {
