@@ -1267,10 +1267,12 @@ pub struct PersonDetailBundle {
     pub children: Vec<oxidgene_core::types::FamilyChild>,
     pub citations: Vec<oxidgene_core::types::Citation>,
     pub sources: Vec<oxidgene_core::types::Source>,
-    pub profile_media: Vec<MediaWithLink>,
+    pub profile_media: Vec<ProfileMediaTile>,
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
-    pub gallery: GalleryBundle,
+    /// Shared rather than owned: it carries every thumbnail as a base64 data
+    /// URI, and every gallery on the page reads the same one.
+    pub gallery: std::sync::Arc<GalleryBundle>,
 }
 
 /// The same bundle as the API sends it: its gallery carries addresses.
@@ -1285,10 +1287,21 @@ struct WirePersonDetailBundle {
     children: Vec<oxidgene_core::types::FamilyChild>,
     citations: Vec<oxidgene_core::types::Citation>,
     sources: Vec<oxidgene_core::types::Source>,
-    profile_media: Vec<MediaWithLink>,
+    profile_media: Vec<ProfileMediaTile>,
     profile_vignettes: Vec<Vignette>,
     event_media: Vec<EventMediaTile>,
     gallery: WireGalleryBundle,
+}
+
+/// A media a person's profile shows, and the couple it reaches it through.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ProfileMediaTile {
+    /// The conjugal family the media is attached to, or `None` when it is
+    /// attached to the person directly.
+    #[serde(default)]
+    pub family_id: Option<Uuid>,
+    #[serde(flatten)]
+    pub tile: MediaWithLink,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -1918,7 +1931,7 @@ impl ApiClient {
             ))
             .await?;
         Ok(PersonDetailBundle {
-            gallery: self.resolve_gallery(tree_id, wire.gallery).await,
+            gallery: std::sync::Arc::new(self.resolve_gallery(tree_id, wire.gallery).await),
             sosa_number: wire.sosa_number,
             persons: wire.persons,
             names: wire.names,

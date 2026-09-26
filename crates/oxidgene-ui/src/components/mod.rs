@@ -13,6 +13,7 @@ pub mod media_input;
 pub mod pedigree_chart;
 pub mod pedigree_theme;
 pub mod person_form;
+pub mod person_profile;
 pub mod reference_tooltip;
 pub mod search_person;
 pub mod topbar_search;

@@ -717,6 +717,9 @@ pub const LAYOUT_STYLES: &str = r#"
         margin: 0 auto;
     }
 
+    .pd-section { margin-bottom: 24px; }
+    .pd-section:last-child { margin-bottom: 0; }
+
     .pd-media-header {
         display: flex;
         align-items: center;
