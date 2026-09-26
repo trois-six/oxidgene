@@ -28,6 +28,25 @@ async fn setup() -> (DatabaseConnection, ProfileService) {
     (db, service)
 }
 
+/// Projection rows of a tree written under the current schema version.
+async fn current_rows(db: &DatabaseConnection, tree_id: Uuid) -> i64 {
+    use oxidgene_db::sea_orm::{ConnectionTrait, Statement};
+
+    db.query_one_raw(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "SELECT COUNT(*) AS n FROM person_denorm WHERE tree_id = $1 AND schema_version = $2",
+        [
+            tree_id.into(),
+            oxidgene_core::projection::PROJECTION_SCHEMA_VERSION.into(),
+        ],
+    ))
+    .await
+    .unwrap()
+    .unwrap()
+    .try_get("", "n")
+    .unwrap()
+}
+
 async fn create_tree(db: &DatabaseConnection) -> Uuid {
     let id = Uuid::now_v7();
     TreeRepo::create(db, id, "Projection Tree".into(), None)
@@ -939,10 +958,7 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
     let (_father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
 
     service.rebuild_tree_full(&db, tree_id).await.unwrap();
-    assert_eq!(
-        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
-        3
-    );
+    assert_eq!(current_rows(&db, tree_id).await, 3);
 
     // Age the rows the way a binary upgrade does: the payloads stay byte for
     // byte what they were, only the version they were written under moves.
@@ -964,10 +980,7 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
 
     // Physically still there; usable, no.
     assert_eq!(PersonDenormRepo::count_tree(&db, tree_id).await.unwrap(), 3);
-    assert_eq!(
-        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
-        0
-    );
+    assert_eq!(current_rows(&db, tree_id).await, 0);
     assert!(
         PersonDenormRepo::get(&db, tree_id, child)
             .await
@@ -987,22 +1000,19 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
         "the doctored payload must not have been served"
     );
     assert_eq!(
-        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
+        current_rows(&db, tree_id).await,
         1,
         "and the rebuilt row is stamped with the current version"
     );
 
     // A pedigree heals the whole tree through `ensure_materialized`, which is
-    // why it asks `count_current` rather than `count_tree`.
+    // why it asks for a *current* row rather than any row.
     let pedigree = service
         .get_or_build_pedigree(tree_id, child, 2, 1)
         .await
         .unwrap();
     assert_eq!(pedigree.persons[&child].display_name, "Pierre Dupont");
-    assert_eq!(
-        PersonDenormRepo::count_current(&db, tree_id).await.unwrap(),
-        3
-    );
+    assert_eq!(current_rows(&db, tree_id).await, 3);
 }
 
 #[tokio::test]

@@ -129,16 +129,13 @@ impl ProfileService {
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
         // Only projections matching the current schema version are usable.
-        let denorm_rows = PersonDenormRepo::count_current(conn, tree_id).await?;
-        let search_rows = PersonSearchRepo::count_tree(conn, tree_id).await?;
-        if denorm_rows > 0 && search_rows > 0 {
+        let denorm = PersonDenormRepo::has_current(conn, tree_id).await?;
+        let search = PersonSearchRepo::has_tree(conn, tree_id).await?;
+        if denorm && search {
             return Ok(());
         }
 
-        debug!(
-            denorm_rows,
-            search_rows, "Tree projections are not materialized"
-        );
+        debug!(denorm, search, "Tree projections are not materialized");
         self.rebuild_tree_full(conn, tree_id).await?;
         Ok(())
     }

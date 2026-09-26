@@ -12,7 +12,9 @@
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::projection::{PROJECTION_SCHEMA_VERSION, PersonProfile};
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Set,
+};
 use uuid::Uuid;
 
 use crate::entities::person_denorm::{ActiveModel, Column, Entity, Model};
@@ -28,7 +30,7 @@ const INSERT_CHUNK: usize = 500;
 /// payload deserializes cleanly and comes back looking complete — nothing can
 /// tell it apart from a person who genuinely has nothing recorded. Checking the
 /// version in SQL instead makes a stale row simply not match: `get` returns
-/// `None`, `get_many` omits it, `count_current` does not count it, and the
+/// `None`, `get_many` omits it, `has_current` does not see it, and the
 /// callers that already rebuild a projection they could not find rebuild these
 /// too. No second code path, and no way to forget one.
 fn is_current() -> sea_orm::sea_query::SimpleExpr {
@@ -86,8 +88,8 @@ impl PersonDenormRepo {
     /// Deliberately *not* filtered by version, unlike [`Self::get`] and
     /// [`Self::get_many`]: this returns a whole tree's worth of people, and
     /// silently dropping the stale ones would answer "who is in this tree" with
-    /// a short list. Its one caller checks [`Self::count_current`] first and
-    /// rebuilds the tree when it comes back zero, so by the time this runs
+    /// a short list. Its one caller checks [`Self::has_current`] first and
+    /// rebuilds the tree when it answers no, so by the time this runs
     /// there is nothing stale left to filter.
     pub async fn list_tree(
         db: &impl ConnectionTrait,
@@ -173,28 +175,35 @@ impl PersonDenormRepo {
         Ok(())
     }
 
-    /// Count the *usable* projections of a tree — rows this build can read.
+    /// Whether a tree has any *usable* projection — a row this build can read.
     ///
     /// This is what "has the tree been materialized" means, and it answers no
     /// both for a tree nobody has built and for one whose rows an older build
-    /// wrote. Callers rebuild on zero, so a schema bump heals a tree on its
-    /// first read rather than serving defaults until somebody re-imports.
-    pub async fn count_current(
+    /// wrote. Callers rebuild on no, so a schema bump heals a tree on its first
+    /// read rather than serving defaults until somebody re-imports.
+    ///
+    /// Every tree read asks this, so it stops at the first row instead of
+    /// counting the tree.
+    pub async fn has_current(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-    ) -> Result<u64, OxidGeneError> {
+    ) -> Result<bool, OxidGeneError> {
         Entity::find()
+            .select_only()
+            .column(Column::PersonId)
             .filter(Column::TreeId.eq(tree_id))
             .filter(is_current())
-            .count(db)
+            .into_tuple::<Uuid>()
+            .one(db)
             .await
+            .map(|row| row.is_some())
             .map_err(|e| OxidGeneError::Database(e.to_string()))
     }
 
     /// Count every projection row of a tree, current or stale.
     ///
     /// Only for reporting on what is physically stored; use
-    /// [`Self::count_current`] to decide whether a tree needs building.
+    /// [`Self::has_current`] to decide whether a tree needs building.
     pub async fn count_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

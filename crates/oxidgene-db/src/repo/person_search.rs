@@ -246,7 +246,29 @@ impl PersonSearchRepo {
         Ok(())
     }
 
-    /// Count the search rows for a tree (used to detect a cold index).
+    /// Whether a tree has any search row (a cold index has none).
+    ///
+    /// `tree_id` is not an FTS5 index column, so a count reads every row; this
+    /// stops at the first match, and every tree read asks it.
+    pub async fn has_tree(db: &impl ConnectionTrait, tree_id: Uuid) -> Result<bool, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let sql = match backend {
+            DbBackend::Sqlite => {
+                "SELECT 1 AS present FROM person_search_fts WHERE tree_id = ? LIMIT 1"
+            }
+            _ => "SELECT 1 AS present FROM person_search_fts WHERE tree_id = $1 LIMIT 1",
+        };
+        db.query_one_raw(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [Value::from(tree_id.to_string())],
+        ))
+        .await
+        .map(|row| row.is_some())
+        .map_err(|e| OxidGeneError::Database(e.to_string()))
+    }
+
+    /// Count the search rows for a tree.
     pub async fn count_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
