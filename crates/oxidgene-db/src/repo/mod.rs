@@ -36,7 +36,7 @@ pub use background_job::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
 };
 pub use citation::{CitationFilter, CitationRepo};
-pub use connection::{connect, rollback_migrations, run_migrations};
+pub use connection::{connect, refresh_statistics, rollback_migrations, run_migrations};
 pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, PersonUsageEntry,
     SOURCE_DRILL_THRESHOLD,

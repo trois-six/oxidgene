@@ -85,6 +85,9 @@ impl ProfileService {
 
         let search_entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
         PersonSearchRepo::replace_tree(conn, tree_id, &search_entries).await?;
+        // Every import and duplicate ends here, having just written a tree's
+        // worth of rows the planner has no statistics for.
+        oxidgene_db::repo::refresh_statistics(conn).await;
 
         info!(count = persons.len(), "Completed full projection rebuild");
         Ok(persons.len())
@@ -112,6 +115,7 @@ impl ProfileService {
         txn.commit()
             .await
             .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+        oxidgene_db::repo::refresh_statistics(conn).await;
 
         info!(
             count = persons.len(),

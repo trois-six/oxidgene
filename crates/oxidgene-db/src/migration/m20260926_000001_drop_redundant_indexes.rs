@@ -7,8 +7,15 @@
 //! the narrow index served no read the wide one could not — while every insert
 //! still paid to maintain it. An import writes all three tables row by row, and
 //! each mutation rewrites projections in `person_denorm`.
+//!
+//! On SQLite it then gathers planner statistics, which no installed database
+//! had: without them the remaining composites looked as selective as a primary
+//! key, and `tree_id = ? AND person_id IN (…)` read the whole tree instead of
+//! one row per id. Imports refresh them from then on
+//! (`repo::refresh_statistics`).
 
 use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend};
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -27,6 +34,10 @@ impl MigrationTrait for Migration {
             manager
                 .drop_index(Index::drop().name(name).table(Alias::new(table)).to_owned())
                 .await?;
+        }
+        let db = manager.get_connection();
+        if db.get_database_backend() == DbBackend::Sqlite {
+            db.execute_unprepared("ANALYZE").await?;
         }
         Ok(())
     }

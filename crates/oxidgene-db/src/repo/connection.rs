@@ -54,6 +54,32 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
     Ok(())
 }
 
+/// Refresh SQLite's query-planner statistics after a bulk load.
+///
+/// Without statistics SQLite cannot tell a selective index from an
+/// unselective one, and it gets the most common query shape here wrong:
+/// `tree_id = ? AND person_id IN (…)` is answered from the tree index —
+/// reading every row of the tree — instead of one primary-key lookup per id.
+/// On a 41 000-person tree that made each 500-person projection read take
+/// 70 ms instead of 1, and a nine-generation pedigree most of a second.
+///
+/// A full `ANALYZE`: a sampled one caps the rows it counts per key, which is
+/// exactly the estimate that has to be right, and on a 170 000-event database
+/// the full pass takes about a tenth of a second — nothing beside the import
+/// that calls it. PostgreSQL keeps its own statistics through autovacuum.
+/// Best effort: a failure leaves the previous statistics in place.
+pub async fn refresh_statistics(db: &impl ConnectionTrait) {
+    if db.get_database_backend() != DatabaseBackend::Sqlite {
+        return;
+    }
+    if db.execute_unprepared("ANALYZE").await.is_err() {
+        warn!(
+            error = "sqlite_analyze",
+            "could not refresh query planner statistics"
+        );
+    }
+}
+
 /// Number of free 4 KiB pages past which a SQLite file is worth rewriting.
 /// 5,000 pages is about 20 MB, above the churn of ordinary use.
 const VACUUM_THRESHOLD_PAGES: i64 = 5_000;

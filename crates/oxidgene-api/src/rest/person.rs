@@ -1,13 +1,11 @@
 //! REST handlers for Person CRUD operations.
 
-use std::collections::HashMap;
-
 use crate::profile::invalidation;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_core::enums::SpouseRole;
+use oxidgene_core::enums::{ChildType, SpouseRole};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PaginationParams, PersonRepo,
@@ -23,8 +21,6 @@ use super::dto::{
 use super::error::ApiError;
 use super::state::{AppState, begin_tx, commit_tx};
 
-/// BFS from `sosa_root` through the ancestry graph to find the SOSA-Stradonitz
-/// number of `person_id`. Loads all family data for the tree in two queries.
 /// Walks down from the tree's SOSA root to find the person at SOSA number
 /// `number` (root = 1, father = 2n, mother = 2n+1). Returns `Ok(None)` if
 /// the tree has no SOSA root configured, `number` is 0, or the chain breaks
@@ -45,40 +41,38 @@ pub(crate) async fn resolve_sosa_number(
         return PersonRepo::get(db, root).await.map(Some);
     }
 
-    let families = FamilyRepo::list_all(db, tree_id).await?;
-    if families.is_empty() {
-        return Ok(None);
-    }
-    let family_ids: Vec<Uuid> = families.iter().map(|f| f.id).collect();
-    let spouses = FamilySpouseRepo::list_by_families(db, &family_ids).await?;
-    let children = FamilyChildRepo::list_by_families(db, &family_ids).await?;
-
-    let child_to_family: HashMap<Uuid, Uuid> = children
-        .iter()
-        .map(|c| (c.person_id, c.family_id))
-        .collect();
-    let mut family_parents: HashMap<Uuid, (Option<Uuid>, Option<Uuid>)> = HashMap::new();
-    for s in &spouses {
-        let e = family_parents.entry(s.family_id).or_default();
-        match s.role {
-            SpouseRole::Husband => e.0 = Some(s.person_id),
-            SpouseRole::Wife => e.1 = Some(s.person_id),
-            SpouseRole::Partner => {}
-        }
-    }
-
     // Bits of `number` after the leading 1, MSB-first: each one selects the
     // father (0) or mother (1) edge for the next step down from `root`.
+    //
+    // One step is two small reads — the families the current person is a
+    // child of, and that family's spouses — so a lookup costs a few dozen
+    // indexed queries at most instead of loading the tree's whole family
+    // structure (half a second on a 40 000-person tree).
     let msb = 63 - number.leading_zeros();
     let mut current = root;
     for i in (0..msb).rev() {
         let bit = (number >> i) & 1;
-        let Some(&family_id) = child_to_family.get(&current) else {
+        let memberships = FamilyChildRepo::list_by_person(db, current).await?;
+        let candidates: Vec<Uuid> = memberships.iter().map(|c| c.family_id).collect();
+        let live = FamilyRepo::live_ids(db, &candidates).await?;
+        // The birth family when the person has several (an adoptive one
+        // beside it); otherwise whichever family they belong to.
+        let Some(family_id) = memberships
+            .iter()
+            .filter(|c| live.contains(&c.family_id))
+            .min_by_key(|c| c.child_type != ChildType::Biological)
+            .map(|c| c.family_id)
+        else {
             return Ok(None);
         };
-        let Some(&(father, mother)) = family_parents.get(&family_id) else {
-            return Ok(None);
-        };
+        let (mut father, mut mother) = (None, None);
+        for spouse in FamilySpouseRepo::list_by_families(db, &[family_id]).await? {
+            match spouse.role {
+                SpouseRole::Husband => father = Some(spouse.person_id),
+                SpouseRole::Wife => mother = Some(spouse.person_id),
+                SpouseRole::Partner => {}
+            }
+        }
         current = match (bit, father, mother) {
             (0, Some(f), _) => f,
             (1, _, Some(m)) => m,
