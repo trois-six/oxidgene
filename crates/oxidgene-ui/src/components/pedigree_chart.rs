@@ -3498,10 +3498,13 @@ fn render_pedigree_card(
         Some(pid) => {
             let is_focus = pid == root_person_id;
             let bg = card_bg(is_focus, node.is_sibling);
-            let text_fill = if is_focus {
-                "var(--white)"
+            // The lifespan is secondary to the name, and every theme gives it a
+            // colour of its own for that; on the root card both sit on the
+            // accent and share its contrast colour.
+            let (text_fill, date_fill) = if is_focus {
+                ("var(--white)", "var(--white)")
             } else {
-                "var(--pn-text)"
+                ("var(--pn-text)", "var(--pn-text-muted)")
             };
             let stroke = gender_stroke(node.sex);
             let has_surname = !surname_disp.is_empty();
@@ -3624,7 +3627,7 @@ fn render_pedigree_card(
                             class: "ped-card-name-text",
                             x: "{tx}",
                             y: "{date_y}",
-                            style: "font-size:{date_font_px}px;font-family:{body_font};fill:{text_fill};text-anchor:{text_anchor}",
+                            style: "font-size:{date_font_px}px;font-family:{body_font};fill:{date_fill};text-anchor:{text_anchor}",
                             "textLength": date_squeeze.map(|w| w.to_string()),
                             "lengthAdjust": date_squeeze.map(|_| "spacingAndGlyphs"),
                             dangerous_inner_html: "{date_html}",
