@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::entities::person::{self, ActiveModel, Column, Entity};
 use crate::entities::person_name;
 use crate::entities::sea_enums;
+use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for person CRUD operations.
@@ -111,16 +112,16 @@ impl PersonRepo {
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Person>, OxidGeneError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::Id.is_in(ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Get a single person by ID (excludes soft-deleted).
@@ -254,10 +255,10 @@ impl PersonRepo {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<PortraitRow>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        Self::list_portraits_matching(db, tree_id, Some(person_ids)).await
+        in_chunks(person_ids, |chunk| async move {
+            Self::list_portraits_matching(db, tree_id, Some(&chunk)).await
+        })
+        .await
     }
 
     async fn list_portraits_matching(

@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::entities::citation::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 use crate::entities::source;
+use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Optional entity filters for listing citations.
@@ -80,15 +81,15 @@ impl CitationRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(person_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::PersonId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Citations directly attached to a person or one of the supplied events.
@@ -131,15 +132,15 @@ impl CitationRepo {
         db: &impl ConnectionTrait,
         source_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
-        if source_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::SourceId.is_in(source_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(source_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::SourceId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Get a single citation by ID.

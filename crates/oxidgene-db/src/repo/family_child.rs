@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::entities::family_child::{self, Column, Entity};
 use crate::entities::sea_enums;
+use crate::repo::batch::in_chunks;
 
 /// Repository for family–child membership.
 pub struct FamilyChildRepo;
@@ -32,15 +33,15 @@ impl FamilyChildRepo {
         db: &impl ConnectionTrait,
         family_ids: &[Uuid],
     ) -> Result<Vec<FamilyChild>, OxidGeneError> {
-        if family_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::FamilyId.is_in(family_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(family_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::FamilyId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// List all family memberships where this person is a child.
@@ -61,15 +62,15 @@ impl FamilyChildRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<FamilyChild>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(person_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::PersonId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Create a family–child link.

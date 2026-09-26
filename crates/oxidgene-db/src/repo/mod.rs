@@ -7,6 +7,7 @@
 
 mod ancestry;
 mod background_job;
+mod batch;
 mod citation;
 mod connection;
 mod dictionary;

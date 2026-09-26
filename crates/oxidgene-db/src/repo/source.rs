@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::entities::source::{self, ActiveModel, Column, Entity};
 use crate::entities::{citation, media_link, note};
+use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for source CRUD operations.
@@ -61,17 +62,17 @@ impl SourceRepo {
         tree_id: Uuid,
         ids: &[Uuid],
     ) -> Result<Vec<Source>, OxidGeneError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::Id.is_in(ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::TreeId.eq(tree_id))
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Create a new source.

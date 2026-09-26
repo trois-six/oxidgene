@@ -8,6 +8,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, S
 use uuid::Uuid;
 
 use crate::entities::family::{self, ActiveModel, Column, Entity};
+use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for family CRUD operations.
@@ -50,16 +51,16 @@ impl FamilyRepo {
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Uuid>, OxidGeneError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::Id.is_in(ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(|m| m.id).collect())
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(|m| m.id).collect())
+        })
+        .await
     }
 
     /// Get a single family by ID (excludes soft-deleted).

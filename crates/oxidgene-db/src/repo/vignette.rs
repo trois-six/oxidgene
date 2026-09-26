@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::entities::person;
 use crate::entities::vignette::{self, ActiveModel, Column, Entity};
+use crate::repo::batch::in_chunks;
 use crate::repo::{EventRepo, MediaRepo, PersonRepo};
 
 /// The rectangle and attribution a vignette records.
@@ -47,17 +48,17 @@ impl VignetteRepo {
         db: &impl ConnectionTrait,
         media_ids: &[Uuid],
     ) -> Result<Vec<Vignette>, OxidGeneError> {
-        if media_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::MediaId.is_in(media_ids.to_vec()))
-            .order_by_asc(Column::MediaId)
-            .order_by_asc(Column::Id)
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(media_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::MediaId.is_in(chunk))
+                .order_by_asc(Column::MediaId)
+                .order_by_asc(Column::Id)
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Every vignette on a media file, oldest first.
@@ -110,15 +111,15 @@ impl VignetteRepo {
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Vignette>, OxidGeneError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::Id.is_in(ids.to_vec()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Get a vignette by ID.

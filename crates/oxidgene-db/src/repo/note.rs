@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::entities::note::{self, ActiveModel, Column, Entity};
 use crate::html::sanitize_note_html;
+use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Optional entity filters for listing notes.
@@ -133,17 +134,17 @@ impl NoteRepo {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
-            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(person_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::TreeId.eq(tree_id))
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::PersonId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Create a new note.

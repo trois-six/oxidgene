@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::entities::event::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
+use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Optional filters for listing events.
@@ -67,16 +68,16 @@ impl EventRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<Event>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(person_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::PersonId.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// List all events attached to any of the given families (excludes soft-deleted).
@@ -84,16 +85,16 @@ impl EventRepo {
         db: &impl ConnectionTrait,
         family_ids: &[Uuid],
     ) -> Result<Vec<Event>, OxidGeneError> {
-        if family_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::FamilyId.is_in(family_ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(family_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::FamilyId.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Get a single event by ID (excludes soft-deleted).

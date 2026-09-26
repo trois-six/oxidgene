@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::entities::media::{self, ActiveModel, Column, Entity};
 use crate::entities::{media_link, media_tag, note, person, vignette};
+use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::{MediaTagRepo, PlaceRepo, VignetteRepo};
 
@@ -137,15 +138,15 @@ impl MediaRepo {
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Media>, OxidGeneError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::Id.is_in(ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let models = in_chunks(ids, |chunk| async move {
+            Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))
+        })
+        .await?;
         let mut media: Vec<Media> = models.into_iter().map(into_domain).collect();
         hydrate_tags(db, &mut media).await?;
         Ok(media)
@@ -408,19 +409,19 @@ impl MediaRepo {
         db: &impl ConnectionTrait,
         document_ids: &[Uuid],
     ) -> Result<Vec<Media>, OxidGeneError> {
-        if document_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::ParentMediaId.is_in(document_ids.iter().copied()))
-            .filter(Column::DeletedAt.is_null())
-            .order_by_asc(Column::ParentMediaId)
-            .order_by_asc(Column::PageIndex)
-            .order_by_asc(Column::Id)
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(document_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::ParentMediaId.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .order_by_asc(Column::ParentMediaId)
+                .order_by_asc(Column::PageIndex)
+                .order_by_asc(Column::Id)
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Set the order of a document's pages, by id.

@@ -8,6 +8,7 @@ use sea_orm::{ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::media_tag::{self, Column, Entity};
+use crate::repo::batch::in_chunks;
 
 /// Repository for tags belonging to a media row.
 pub struct MediaTagRepo;
@@ -18,15 +19,15 @@ impl MediaTagRepo {
         db: &impl ConnectionTrait,
         media_ids: &[Uuid],
     ) -> Result<Vec<media_tag::Model>, OxidGeneError> {
-        if media_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        Entity::find()
-            .filter(Column::MediaId.is_in(media_ids.iter().copied()))
-            .order_by_asc(Column::CreatedAt)
-            .all(db)
-            .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))
+        in_chunks(media_ids, |chunk| async move {
+            Entity::find()
+                .filter(Column::MediaId.is_in(chunk))
+                .order_by_asc(Column::CreatedAt)
+                .all(db)
+                .await
+                .map_err(|error| OxidGeneError::Database(error.to_string()))
+        })
+        .await
     }
 
     /// Add one tag. The compound primary key makes another editor adding the

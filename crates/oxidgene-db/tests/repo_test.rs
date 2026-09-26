@@ -2580,3 +2580,42 @@ async fn dictionary_places_with_usage_counts_events() {
         .unwrap();
     assert_eq!(usage, vec![person_id]);
 }
+
+/// More ids than SQLite binds in one statement (32 766): a whole-tree read
+/// passes one per person, so a large tree used to fail with "too many SQL
+/// variables" on import, rebuild and the dictionary.
+#[tokio::test]
+async fn batch_reads_take_more_ids_than_one_statement_binds() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let ids: Vec<Uuid> = (0..33_000).map(|_| Uuid::now_v7()).collect();
+
+    assert!(
+        PersonNameRepo::list_by_persons(&db, &ids)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(PersonRepo::get_many(&db, &ids).await.unwrap().is_empty());
+    assert!(
+        FamilySpouseRepo::list_by_families(&db, &ids)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(MediaRepo::get_many(&db, &ids).await.unwrap().is_empty());
+    assert!(
+        PersonRepo::list_portraits_for(&db, tree_id, &ids)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // One entry per requested person, known or not.
+    assert_eq!(
+        DictionaryRepo::resolve_person_usage_entries(&db, &ids)
+            .await
+            .unwrap()
+            .len(),
+        ids.len()
+    );
+}

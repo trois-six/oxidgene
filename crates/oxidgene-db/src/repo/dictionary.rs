@@ -21,11 +21,12 @@ use oxidgene_core::{
 use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue::Set, Condition, Unchanged};
+use sea_orm::{ActiveValue::Set, Condition, JoinType, QuerySelect, Unchanged};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::entities::{citation, event, media, person, person_name, place, sea_enums, source};
+use crate::repo::batch::in_chunks;
 
 /// A distinct free-text value (surname, occupation label) plus the number of
 /// persons carrying it.
@@ -85,6 +86,22 @@ pub const SOURCE_DRILL_THRESHOLD: i64 = 250;
 
 pub struct DictionaryRepo;
 
+/// Every name of every live person in a tree, read through the tree itself
+/// rather than a list of its person ids — a list that long cannot be bound
+/// into one query once a tree passes about 32 000 persons.
+async fn tree_names(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+) -> Result<Vec<person_name::Model>, OxidGeneError> {
+    person_name::Entity::find()
+        .join(JoinType::InnerJoin, person_name::Relation::Person.def())
+        .filter(person::Column::TreeId.eq(tree_id))
+        .filter(person::Column::DeletedAt.is_null())
+        .all(db)
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))
+}
+
 impl DictionaryRepo {
     /// Distinct surnames across all persons in a tree, with the number of
     /// persons carrying each (as entered — no accent-folding/normalization).
@@ -92,22 +109,18 @@ impl DictionaryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
-        let person_ids: Vec<Uuid> = person::Entity::find()
+        // Only the three columns the count needs: this reads one row per name
+        // in the tree.
+        let names: Vec<(Uuid, Option<String>, Option<String>)> = person_name::Entity::find()
+            .select_only()
+            .column(person_name::Column::PersonId)
+            .column(person_name::Column::Surname)
+            .column(person_name::Column::SurnamePrefix)
+            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
             .filter(person::Column::TreeId.eq(tree_id))
             .filter(person::Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .into_iter()
-            .map(|p| p.id)
-            .collect();
-
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let names = person_name::Entity::find()
-            .filter(person_name::Column::PersonId.is_in(person_ids))
+            .filter(person_name::Column::Surname.is_not_null())
+            .into_tuple()
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -121,13 +134,13 @@ impl DictionaryRepo {
         // `sort_key` carries.
         let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
         let mut roots: HashMap<String, String> = HashMap::new();
-        for n in names {
-            let Some(root) = trimmed(n.surname.as_deref()) else {
+        for (person_id, surname, surname_prefix) in names {
+            let Some(root) = trimmed(surname.as_deref()) else {
                 continue;
             };
-            let full = join_surname_particle(n.surname_prefix.as_deref(), &root);
+            let full = join_surname_particle(surname_prefix.as_deref(), &root);
             roots.insert(full.clone(), root.to_lowercase());
-            per_value.entry(full).or_default().insert(n.person_id);
+            per_value.entry(full).or_default().insert(person_id);
         }
         Ok(sorted_entries_with(per_value, |value| {
             roots
@@ -143,11 +156,15 @@ impl DictionaryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
-        let events = event::Entity::find()
+        let labels: Vec<(Option<String>, Option<Uuid>)> = event::Entity::find()
+            .select_only()
+            .column(event::Column::Description)
+            .column(event::Column::PersonId)
             .filter(event::Column::TreeId.eq(tree_id))
             .filter(event::Column::DeletedAt.is_null())
             .filter(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Occupation)))
             .filter(event::Column::PersonId.is_not_null())
+            .into_tuple()
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -155,8 +172,8 @@ impl DictionaryRepo {
         // Group by person: the same label recorded on two occupation events
         // for one person (e.g. at different life stages) must count once.
         let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
-        for e in events {
-            if let (Some(label), Some(pid)) = (trimmed(e.description.as_deref()), e.person_id) {
+        for (description, person_id) in labels {
+            if let (Some(label), Some(pid)) = (trimmed(description.as_deref()), person_id) {
                 per_value.entry(label).or_default().insert(pid);
             }
         }
@@ -175,16 +192,20 @@ impl DictionaryRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
-        let source_ids: Vec<Uuid> = sources.iter().map(|s| s.id).collect();
         let mut counts: HashMap<Uuid, i64> = HashMap::new();
-        if !source_ids.is_empty() {
-            let citations = citation::Entity::find()
-                .filter(citation::Column::SourceId.is_in(source_ids))
+        if !sources.is_empty() {
+            let cited: Vec<Uuid> = citation::Entity::find()
+                .select_only()
+                .column(citation::Column::SourceId)
+                .join(JoinType::InnerJoin, citation::Relation::Source.def())
+                .filter(source::Column::TreeId.eq(tree_id))
+                .filter(source::Column::DeletedAt.is_null())
+                .into_tuple()
                 .all(db)
                 .await
                 .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            for c in citations {
-                *counts.entry(c.source_id).or_insert(0) += 1;
+            for source_id in cited {
+                *counts.entry(source_id).or_insert(0) += 1;
             }
         }
 
@@ -322,31 +343,32 @@ impl DictionaryRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
-        let place_ids: Vec<Uuid> = places.iter().map(|p| p.id).collect();
+        // Places belong to one tree, so the tree's own events and media are
+        // every use there can be; only the place column is read.
         let mut counts: HashMap<Uuid, i64> = HashMap::new();
-        if !place_ids.is_empty() {
-            let events = event::Entity::find()
-                .filter(event::Column::PlaceId.is_in(place_ids.clone()))
+        if !places.is_empty() {
+            let event_places: Vec<Option<Uuid>> = event::Entity::find()
+                .select_only()
+                .column(event::Column::PlaceId)
+                .filter(event::Column::TreeId.eq(tree_id))
+                .filter(event::Column::PlaceId.is_not_null())
                 .filter(event::Column::DeletedAt.is_null())
+                .into_tuple()
                 .all(db)
                 .await
                 .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            for e in events {
-                if let Some(pid) = e.place_id {
-                    *counts.entry(pid).or_insert(0) += 1;
-                }
-            }
-
-            let medias = media::Entity::find()
-                .filter(media::Column::PlaceId.is_in(place_ids))
+            let media_places: Vec<Option<Uuid>> = media::Entity::find()
+                .select_only()
+                .column(media::Column::PlaceId)
+                .filter(media::Column::TreeId.eq(tree_id))
+                .filter(media::Column::PlaceId.is_not_null())
                 .filter(media::Column::DeletedAt.is_null())
+                .into_tuple()
                 .all(db)
                 .await
                 .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            for m in medias {
-                if let Some(pid) = m.place_id {
-                    *counts.entry(pid).or_insert(0) += 1;
-                }
+            for pid in event_places.into_iter().chain(media_places).flatten() {
+                *counts.entry(pid).or_insert(0) += 1;
             }
         }
 
@@ -383,14 +405,15 @@ impl DictionaryRepo {
             }
         }
 
-        if !event_ids.is_empty() {
-            let events = event::Entity::find()
-                .filter(event::Column::Id.is_in(event_ids))
+        let events = in_chunks(&event_ids, |chunk| async move {
+            event::Entity::find()
+                .filter(event::Column::Id.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            person_ids.extend(events.into_iter().filter_map(|e| e.person_id));
-        }
+                .map_err(|e| OxidGeneError::Database(e.to_string()))
+        })
+        .await?;
+        person_ids.extend(events.into_iter().filter_map(|e| e.person_id));
 
         Ok(dedup(person_ids))
     }
@@ -438,20 +461,6 @@ impl DictionaryRepo {
         tree_id: Uuid,
         value: &str,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
-        let person_ids: Vec<Uuid> = person::Entity::find()
-            .filter(person::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .into_iter()
-            .map(|p| p.id)
-            .collect();
-
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
         // `value` comes from `family_names`, which reports full surnames, so
         // it may carry a particle while the column holds only the root. Match
         // on the root and re-check the particle in memory, so that "Cruz" and
@@ -459,7 +468,9 @@ impl DictionaryRepo {
         let (particle, root) = split_surname_particle(value);
 
         let names = person_name::Entity::find()
-            .filter(person_name::Column::PersonId.is_in(person_ids))
+            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
+            .filter(person::Column::TreeId.eq(tree_id))
+            .filter(person::Column::DeletedAt.is_null())
             .filter(person_name::Column::Surname.eq(root.as_str()))
             .all(db)
             .await
@@ -518,52 +529,34 @@ impl DictionaryRepo {
             )));
         };
 
-        let person_ids: Vec<Uuid> = person::Entity::find()
-            .filter(person::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
-            .into_iter()
-            .map(|p| p.id)
-            .collect();
-
         let mut updated_persons: HashSet<Uuid> = HashSet::new();
         let mut names_updated = 0usize;
 
-        if !person_ids.is_empty() {
-            let names = person_name::Entity::find()
-                .filter(person_name::Column::PersonId.is_in(person_ids))
-                .all(db)
-                .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-            for n in names {
-                let Some(root) = trimmed(n.surname.as_deref()) else {
-                    continue;
-                };
-                if join_surname_particle(n.surname_prefix.as_deref(), &root) != value {
-                    continue;
-                }
-                if trimmed(n.surname_prefix.as_deref()) == new_prefix && root == new_surname {
-                    continue;
-                }
-
-                let person_id = n.person_id;
-                person_name::ActiveModel {
-                    id: Unchanged(n.id),
-                    surname: Set(Some(new_surname.clone())),
-                    surname_prefix: Set(new_prefix.clone()),
-                    updated_at: Set(Utc::now()),
-                    ..Default::default()
-                }
-                .update(db)
-                .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-                updated_persons.insert(person_id);
-                names_updated += 1;
+        for n in tree_names(db, tree_id).await? {
+            let Some(root) = trimmed(n.surname.as_deref()) else {
+                continue;
+            };
+            if join_surname_particle(n.surname_prefix.as_deref(), &root) != value {
+                continue;
             }
+            if trimmed(n.surname_prefix.as_deref()) == new_prefix && root == new_surname {
+                continue;
+            }
+
+            let person_id = n.person_id;
+            person_name::ActiveModel {
+                id: Unchanged(n.id),
+                surname: Set(Some(new_surname.clone())),
+                surname_prefix: Set(new_prefix.clone()),
+                updated_at: Set(Utc::now()),
+                ..Default::default()
+            }
+            .update(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+            updated_persons.insert(person_id);
+            names_updated += 1;
         }
 
         Ok(FamilyNameParticleUpdate {
@@ -587,11 +580,14 @@ impl DictionaryRepo {
             return Ok(Vec::new());
         }
 
-        let names = person_name::Entity::find()
-            .filter(person_name::Column::PersonId.is_in(person_ids.to_vec()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let names = in_chunks(person_ids, |chunk| async move {
+            person_name::Entity::find()
+                .filter(person_name::Column::PersonId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))
+        })
+        .await?;
         let mut name_by_person: HashMap<Uuid, person_name::Model> = HashMap::new();
         for n in names {
             let is_better = match name_by_person.get(&n.person_id) {
@@ -603,17 +599,26 @@ impl DictionaryRepo {
             }
         }
 
-        let events = event::Entity::find()
-            .filter(event::Column::PersonId.is_in(person_ids.to_vec()))
-            .filter(event::Column::DeletedAt.is_null())
-            .filter(
-                Condition::any()
-                    .add(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Birth)))
-                    .add(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Death))),
-            )
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let events = in_chunks(person_ids, |chunk| async move {
+            event::Entity::find()
+                .filter(event::Column::PersonId.is_in(chunk))
+                .filter(event::Column::DeletedAt.is_null())
+                .filter(
+                    Condition::any()
+                        .add(
+                            event::Column::EventType
+                                .eq(sea_enums::EventType::from(EventType::Birth)),
+                        )
+                        .add(
+                            event::Column::EventType
+                                .eq(sea_enums::EventType::from(EventType::Death)),
+                        ),
+                )
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))
+        })
+        .await?;
         let mut birth_by_person: HashMap<Uuid, (i32, DateQualifier)> = HashMap::new();
         let mut death_by_person: HashMap<Uuid, (i32, DateQualifier)> = HashMap::new();
         for e in events {

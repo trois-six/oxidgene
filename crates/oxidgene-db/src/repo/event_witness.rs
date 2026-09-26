@@ -7,6 +7,7 @@ use sea_orm::{ConnectionTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::event_witness::{self, Column, Entity};
+use crate::repo::batch::in_chunks;
 
 /// Repository for event–witness links.
 pub struct EventWitnessRepo;
@@ -31,16 +32,16 @@ impl EventWitnessRepo {
         db: &impl ConnectionTrait,
         event_ids: &[Uuid],
     ) -> Result<Vec<EventWitness>, OxidGeneError> {
-        if event_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::EventId.is_in(event_ids.iter().copied()))
-            .order_by_asc(Column::SortOrder)
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(event_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::EventId.is_in(chunk))
+                .order_by_asc(Column::SortOrder)
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Create an event–witness link.

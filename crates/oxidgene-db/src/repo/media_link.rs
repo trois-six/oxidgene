@@ -7,6 +7,7 @@ use sea_orm::{Condition, ConnectionTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::media_link::{self, Column, Entity};
+use crate::repo::batch::in_chunks;
 
 /// Which of a media link's four nullable targets to match on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,15 +159,15 @@ impl MediaLinkRepo {
         db: &impl ConnectionTrait,
         media_ids: &[Uuid],
     ) -> Result<Vec<MediaLink>, OxidGeneError> {
-        if media_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::MediaId.is_in(media_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(media_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::MediaId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// List all media links attached to any of the given persons.
@@ -174,15 +175,15 @@ impl MediaLinkRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<MediaLink>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(person_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::PersonId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Every media attached to one entity, with the media itself.

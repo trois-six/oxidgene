@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::entities::person;
 use crate::entities::person_name::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
+use crate::repo::batch::in_chunks;
 
 /// The writable pieces of a name, as a group.
 ///
@@ -76,18 +77,18 @@ impl PersonNameRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonName>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
-            .order_by_desc(Column::IsPrimary)
-            .order_by_asc(Column::SortOrder)
-            .order_by_asc(Column::Id)
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(person_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::PersonId.is_in(chunk))
+                .order_by_desc(Column::IsPrimary)
+                .order_by_asc(Column::SortOrder)
+                .order_by_asc(Column::Id)
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// List names for a bounded set of active persons in one tree.
@@ -96,21 +97,21 @@ impl PersonNameRepo {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonName>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let models = Entity::find()
-            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
-            .filter(person::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
-            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
-            .order_by_desc(Column::IsPrimary)
-            .order_by_asc(Column::SortOrder)
-            .order_by_asc(Column::Id)
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
+        in_chunks(person_ids, |chunk| async move {
+            let models = Entity::find()
+                .join(JoinType::InnerJoin, person_name::Relation::Person.def())
+                .filter(person::Column::TreeId.eq(tree_id))
+                .filter(person::Column::DeletedAt.is_null())
+                .filter(Column::PersonId.is_in(chunk))
+                .order_by_desc(Column::IsPrimary)
+                .order_by_asc(Column::SortOrder)
+                .order_by_asc(Column::Id)
+                .all(db)
+                .await
+                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Get a single person name by ID.
