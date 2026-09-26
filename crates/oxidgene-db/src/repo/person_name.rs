@@ -76,6 +76,9 @@ impl PersonNameRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonName>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .filter(Column::PersonId.is_in(person_ids.iter().copied()))
             .order_by_desc(Column::IsPrimary)
@@ -93,6 +96,9 @@ impl PersonNameRepo {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonName>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .join(JoinType::InnerJoin, person_name::Relation::Person.def())
             .filter(person::Column::TreeId.eq(tree_id))

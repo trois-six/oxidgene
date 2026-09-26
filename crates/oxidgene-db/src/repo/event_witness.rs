@@ -31,6 +31,9 @@ impl EventWitnessRepo {
         db: &impl ConnectionTrait,
         event_ids: &[Uuid],
     ) -> Result<Vec<EventWitness>, OxidGeneError> {
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .filter(Column::EventId.is_in(event_ids.iter().copied()))
             .order_by_asc(Column::SortOrder)

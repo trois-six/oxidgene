@@ -62,20 +62,6 @@ impl EventRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
-    /// List all events attached to a person (excludes soft-deleted).
-    pub async fn list_by_person(
-        db: &impl ConnectionTrait,
-        person_id: Uuid,
-    ) -> Result<Vec<Event>, OxidGeneError> {
-        let models = Entity::find()
-            .filter(Column::PersonId.eq(person_id))
-            .filter(Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        Ok(models.into_iter().map(into_domain).collect())
-    }
-
     /// List all events attached to any of the given persons.
     pub async fn list_by_persons(
         db: &impl ConnectionTrait,
@@ -98,6 +84,9 @@ impl EventRepo {
         db: &impl ConnectionTrait,
         family_ids: &[Uuid],
     ) -> Result<Vec<Event>, OxidGeneError> {
+        if family_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .filter(Column::FamilyId.is_in(family_ids.iter().copied()))
             .filter(Column::DeletedAt.is_null())

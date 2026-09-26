@@ -20,56 +20,31 @@ use uuid::Uuid;
 /// 1. The person itself.
 /// 2. All co-spouses and children in families where this person is a spouse
 ///    (their [`ProfileFamilyLink`] references this person's display name).
-/// 3. All spouses (parents) in the family where this person is a child
-///    (their [`ProfileFamilyLink::children_ids`] references this person).
+/// 3. All spouses (parents) of every family where this person is a child —
+///    biological and adoptive alike — since their
+///    [`ProfileFamilyLink::children_ids`] references this person.
 ///
 /// The result is de-duplicated but not otherwise ordered.
 pub async fn affected_persons(
     db: &impl ConnectionTrait,
     person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
+    let (as_spouse, as_child) = tokio::try_join!(
+        FamilySpouseRepo::list_by_person(db, person_id),
+        FamilyChildRepo::list_by_person(db, person_id),
+    )?;
+    let spouse_families: Vec<Uuid> = as_spouse.iter().map(|s| s.family_id).collect();
+    let mut families = spouse_families.clone();
+    families.extend(as_child.iter().map(|c| c.family_id));
+
+    let (spouses, children) = tokio::try_join!(
+        FamilySpouseRepo::list_by_families(db, &families),
+        FamilyChildRepo::list_by_families(db, &spouse_families),
+    )?;
+
     let mut affected = vec![person_id];
-
-    // 1. Find all families where this person is a spouse.
-    //    We need to query FamilySpouseRepo to find family_ids first, then get
-    //    all spouses and children in those families.
-    //
-    //    There is no `list_by_person` on FamilySpouseRepo, so we use a
-    //    two-step approach: fetch all spouses for families we discover.
-    //    However, we need to discover those families first.
-    //
-    //    Strategy: we query all families where the person appears as spouse
-    //    by looking at the family_spouse table directly.
-    let spouse_families = families_as_spouse(db, person_id).await?;
-
-    if !spouse_families.is_empty() {
-        // Get all spouses in these families (includes the person itself).
-        let all_spouses = FamilySpouseRepo::list_by_families(db, &spouse_families).await?;
-        for spouse in &all_spouses {
-            if spouse.person_id != person_id {
-                affected.push(spouse.person_id);
-            }
-        }
-
-        // Get all children in these families.
-        let all_children = FamilyChildRepo::list_by_families(db, &spouse_families).await?;
-        for child in &all_children {
-            affected.push(child.person_id);
-        }
-    }
-
-    // 2. Find the family where this person is a child, and get its spouses
-    //    (the parents).
-    let child_family = family_as_child(db, person_id).await?;
-
-    if let Some(family_id) = child_family {
-        let parents = FamilySpouseRepo::list_by_families(db, &[family_id]).await?;
-        for parent in &parents {
-            affected.push(parent.person_id);
-        }
-    }
-
-    // De-duplicate.
+    affected.extend(spouses.iter().map(|s| s.person_id));
+    affected.extend(children.iter().map(|c| c.person_id));
     affected.sort();
     affected.dedup();
 
@@ -202,55 +177,4 @@ pub async fn affected_persons_for_family_child_change(
     affected.dedup();
 
     Ok(affected)
-}
-
-// ── Private helpers ──────────────────────────────────────────────────────────
-
-/// Find all family IDs where `person_id` is a spouse.
-///
-/// Uses `FamilySpouseRepo` indirectly: since there is no `list_by_person`
-/// method, we query the `family_spouse` entity table directly.
-async fn families_as_spouse(
-    db: &impl ConnectionTrait,
-    person_id: Uuid,
-) -> Result<Vec<Uuid>, OxidGeneError> {
-    use oxidgene_db::entities::family_spouse;
-    use oxidgene_db::sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-
-    let rows = family_spouse::Entity::find()
-        .filter(family_spouse::Column::PersonId.eq(person_id))
-        .all(db)
-        .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-    Ok(rows.into_iter().map(|r| r.family_id).collect())
-}
-
-/// Find the family where `person_id` is a child, if any.
-///
-/// A person can be a child in at most one family in our data model.
-async fn family_as_child(
-    db: &impl ConnectionTrait,
-    person_id: Uuid,
-) -> Result<Option<Uuid>, OxidGeneError> {
-    use oxidgene_db::entities::family_child;
-    use oxidgene_db::sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-
-    let row = family_child::Entity::find()
-        .filter(family_child::Column::PersonId.eq(person_id))
-        .one(db)
-        .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-    Ok(row.map(|r| r.family_id))
-}
-
-#[cfg(test)]
-mod tests {
-    // Integration tests for invalidation require a database connection.
-    // They will be added in a later sprint when we have test fixtures.
-    //
-    // Unit-level logic is minimal here — the functions are thin wrappers
-    // around DB queries + set union. The correctness of the set computation
-    // is best verified with integration tests.
 }

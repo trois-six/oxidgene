@@ -32,6 +32,9 @@ impl FamilyChildRepo {
         db: &impl ConnectionTrait,
         family_ids: &[Uuid],
     ) -> Result<Vec<FamilyChild>, OxidGeneError> {
+        if family_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .filter(Column::FamilyId.is_in(family_ids.iter().copied()))
             .all(db)

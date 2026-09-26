@@ -1,7 +1,7 @@
 //! Projection builder — assembles denormalized read models from raw entities.
 //!
 //! Takes the normalized rows a caller has already fetched (see
-//! `ProfileService::fetch_tree_data` / `fetch_person_data`) and folds them into
+//! `ProfileService::fetch_tree_data` / `fetch_persons_data`) and folds them into
 //! the shapes stored in `person_denorm` and `person_search_fts`.
 
 use chrono::Utc;
@@ -262,22 +262,37 @@ pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<PersonProfile> {
         .collect()
 }
 
-/// Build a single `PersonProfile` from (possibly targeted) tree data.
+/// Build the `PersonProfile` of each of `person_ids` from targeted tree data.
 ///
-/// `data` only needs to contain the person, their relatives (spouses, parents,
-/// children) and the entities attached to them — see
-/// `ProfileService::fetch_person_data`. Returns `None` if the person is not in
-/// `data.persons`.
-pub fn build_person(tree_id: Uuid, person_id: Uuid, data: &TreeData) -> Option<PersonProfile> {
-    // A targeted fetch reaches the person by ID alone, so the tree is checked
+/// `data` only needs to contain the persons, their relatives (spouses,
+/// parents, children) and the entities attached to them — see
+/// `ProfileService::fetch_persons_data`. Fails with the first id that is not
+/// a person of this tree in `data.persons`.
+pub fn build_persons(
+    tree_id: Uuid,
+    person_ids: &[Uuid],
+    data: &TreeData,
+) -> Result<Vec<PersonProfile>, Uuid> {
+    // A targeted fetch reaches the persons by ID alone, so the tree is checked
     // here: a person of another tree would otherwise be projected — and stored,
     // and indexed for search — under this one.
-    let person = data
+    let persons: HashMap<Uuid, &Person> = data
         .persons
         .iter()
-        .find(|p| p.id == person_id && p.tree_id == tree_id)?;
+        .filter(|p| p.tree_id == tree_id)
+        .map(|p| (p.id, p))
+        .collect();
     let idx = IndexedData::new(data);
-    Some(build_one_person(person, tree_id, &idx, Utc::now()))
+    let now = Utc::now();
+    person_ids
+        .iter()
+        .map(|id| {
+            persons
+                .get(id)
+                .map(|person| build_one_person(person, tree_id, &idx, now))
+                .ok_or(*id)
+        })
+        .collect()
 }
 
 /// The row that actually holds pixels for a media somebody picked.

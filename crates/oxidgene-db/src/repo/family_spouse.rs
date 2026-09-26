@@ -33,6 +33,9 @@ impl FamilySpouseRepo {
         db: &impl ConnectionTrait,
         family_ids: &[Uuid],
     ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
+        if family_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .filter(Column::FamilyId.is_in(family_ids.iter().copied()))
             .all(db)
@@ -47,6 +50,9 @@ impl FamilySpouseRepo {
         tree_id: Uuid,
         family_ids: &[Uuid],
     ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
+        if family_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .join(JoinType::InnerJoin, family_spouse::Relation::Family.def())
             .filter(family::Column::TreeId.eq(tree_id))

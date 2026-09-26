@@ -169,7 +169,14 @@ impl ProfileService {
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<PersonProfile, OxidGeneError> {
-        let built = self.build_single_person(conn, tree_id, person_id).await?;
+        let built = self
+            .build_targeted(conn, tree_id, &[person_id])
+            .await?
+            .pop()
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Person",
+                id: person_id,
+            })?;
         PersonDenormRepo::upsert(conn, std::slice::from_ref(&built)).await?;
         PersonSearchRepo::upsert(conn, &[build_db_search_entry(&built)]).await?;
         Ok(built)
@@ -198,11 +205,7 @@ impl ProfileService {
                 .filter(|p| wanted.contains(&p.person_id))
                 .collect()
         } else {
-            let mut out = Vec::with_capacity(person_ids.len());
-            for &pid in person_ids {
-                out.push(self.build_single_person(conn, tree_id, pid).await?);
-            }
-            out
+            self.build_targeted(conn, tree_id, person_ids).await?
         };
 
         PersonDenormRepo::upsert(conn, &built).await?;
@@ -364,87 +367,6 @@ impl ProfileService {
 
     // ── Invalidation ─────────────────────────────────────────────────────
 
-    /// Refresh projections after a person mutation (edit person, edit name,
-    /// add/edit/delete an event on a person).
-    ///
-    /// This is the primary entry point: it computes the affected set — the
-    /// person plus everyone whose projection embeds their name — and rewrites
-    /// those rows.
-    #[instrument(skip_all)]
-    pub async fn invalidate_for_person(
-        &self,
-        conn: &impl ConnectionTrait,
-        tree_id: Uuid,
-        person_id: Uuid,
-    ) -> Result<(), OxidGeneError> {
-        let affected = invalidation::affected_persons(conn, person_id).await?;
-        debug!(
-            count = affected.len(),
-            "Refreshing projections after person mutation"
-        );
-        self.rebuild_affected(conn, tree_id, &affected).await
-    }
-
-    /// Refresh projections after a family event mutation (marriage, divorce…).
-    #[instrument(skip_all)]
-    pub async fn invalidate_for_family_event(
-        &self,
-        conn: &impl ConnectionTrait,
-        tree_id: Uuid,
-        family_id: Uuid,
-    ) -> Result<(), OxidGeneError> {
-        let affected = invalidation::affected_persons_for_family(conn, family_id).await?;
-        debug!(
-            count = affected.len(),
-            "Refreshing projections after family event mutation"
-        );
-        self.rebuild_affected(conn, tree_id, &affected).await
-    }
-
-    /// Refresh projections after a spouse is added to or removed from a family.
-    #[instrument(skip_all)]
-    pub async fn invalidate_for_family_spouse_change(
-        &self,
-        conn: &impl ConnectionTrait,
-        tree_id: Uuid,
-        family_id: Uuid,
-        changed_person_id: Uuid,
-    ) -> Result<(), OxidGeneError> {
-        let affected = invalidation::affected_persons_for_family_spouse_change(
-            conn,
-            family_id,
-            changed_person_id,
-        )
-        .await?;
-        debug!(
-            count = affected.len(),
-            "Refreshing projections after spouse mutation"
-        );
-        self.rebuild_affected(conn, tree_id, &affected).await
-    }
-
-    /// Refresh projections after a child is added to or removed from a family.
-    #[instrument(skip_all)]
-    pub async fn invalidate_for_family_child_change(
-        &self,
-        conn: &impl ConnectionTrait,
-        tree_id: Uuid,
-        family_id: Uuid,
-        child_person_id: Uuid,
-    ) -> Result<(), OxidGeneError> {
-        let affected = invalidation::affected_persons_for_family_child_change(
-            conn,
-            family_id,
-            child_person_id,
-        )
-        .await?;
-        debug!(
-            count = affected.len(),
-            "Refreshing projections after child mutation"
-        );
-        self.rebuild_affected(conn, tree_id, &affected).await
-    }
-
     /// Drop a deleted person's projection and refresh everyone who referenced
     /// them.
     ///
@@ -526,35 +448,39 @@ impl ProfileService {
         Ok(())
     }
 
-    /// Build one person's projection with targeted queries — the person,
-    /// their families, their relatives' names, and the entities attached to
-    /// them. No full-tree fetch.
-    async fn build_single_person(
+    /// Build the projections of a bounded set of persons with targeted
+    /// queries — the persons, their families, their relatives' names, and the
+    /// entities attached to them. No full-tree fetch.
+    ///
+    /// One fetch covers the whole set, so the query count does not grow with
+    /// it: an edit that touches a person with a dozen relatives costs the same
+    /// dozen statements as one that touches a single person.
+    async fn build_targeted(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
-        person_id: Uuid,
-    ) -> Result<PersonProfile, OxidGeneError> {
-        let data = self.fetch_person_data(conn, tree_id, person_id).await?;
-        builder::build_person(tree_id, person_id, &data).ok_or(OxidGeneError::NotFound {
+        person_ids: &[Uuid],
+    ) -> Result<Vec<PersonProfile>, OxidGeneError> {
+        let data = self.fetch_persons_data(conn, tree_id, person_ids).await?;
+        builder::build_persons(tree_id, person_ids, &data).map_err(|id| OxidGeneError::NotFound {
             entity: "Person",
-            id: person_id,
+            id,
         })
     }
 
-    /// Fetch only what one projection needs: the person, their family
+    /// Fetch only what the given projections need: the persons, their family
     /// memberships, all members of those families (for spouse / parent /
     /// child denormalization), their events + places, media and notes.
-    async fn fetch_person_data(
+    async fn fetch_persons_data(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
-        person_id: Uuid,
+        targets: &[Uuid],
     ) -> Result<TreeData, OxidGeneError> {
-        // 1. Family memberships of the person.
+        // 1. Family memberships of the persons.
         let (as_spouse, as_child) = tokio::try_join!(
-            FamilySpouseRepo::list_by_person(conn, person_id),
-            FamilyChildRepo::list_by_person(conn, person_id),
+            FamilySpouseRepo::list_by_persons(conn, targets),
+            FamilyChildRepo::list_by_persons(conn, targets),
         )?;
         let mut family_ids: Vec<Uuid> = as_spouse
             .iter()
@@ -575,15 +501,15 @@ impl ProfileService {
         let (spouses, children, person_events, family_events, media_links, citations, notes) = tokio::try_join!(
             FamilySpouseRepo::list_by_families(conn, &family_ids),
             FamilyChildRepo::list_by_families(conn, &family_ids),
-            EventRepo::list_by_person(conn, person_id),
+            EventRepo::list_by_persons(conn, targets),
             EventRepo::list_by_families(conn, &family_ids),
-            MediaLinkRepo::list_by_person(conn, person_id),
-            CitationRepo::list_by_person(conn, person_id),
-            NoteRepo::list_by_entity(conn, tree_id, Some(person_id), None, None, None, None),
+            MediaLinkRepo::list_by_persons(conn, targets),
+            CitationRepo::list_by_persons(conn, targets),
+            NoteRepo::list_by_persons(conn, tree_id, targets),
         )?;
 
         // 3. Related person rows + names, places, media.
-        let mut person_ids: Vec<Uuid> = vec![person_id];
+        let mut person_ids: Vec<Uuid> = targets.to_vec();
         person_ids.extend(spouses.iter().map(|s| s.person_id));
         person_ids.extend(children.iter().map(|c| c.person_id));
         person_ids.sort();
@@ -614,23 +540,25 @@ impl ProfileService {
             .collect();
         media.extend(MediaRepo::list_pages_for(conn, &document_ids).await?);
 
-        // The portrait crop, and the scan it sits on. Fetched after the
-        // person rather than alongside, because which crop to fetch is
+        // The portrait crops, and the scans they sit on. Fetched after the
+        // persons rather than alongside, because which crop to fetch is
         // written on the person; and appended to `media` because the
-        // containing scan need not be one of this person's own links — a face
+        // containing scan need not be one of the person's own links — a face
         // in somebody else's group photograph is still their portrait.
-        let mut portrait_vignettes = Vec::new();
-        if let Some(vignette_id) = persons
+        let vignette_ids: Vec<Uuid> = persons
             .iter()
-            .find(|p| p.id == person_id)
-            .and_then(|p| p.portrait_vignette_id)
-            && let Ok(vignette) = VignetteRepo::get(conn, vignette_id).await
-        {
-            if !media.iter().any(|m| m.id == vignette.media_id) {
-                media.extend(MediaRepo::get_many(conn, &[vignette.media_id]).await?);
-            }
-            portrait_vignettes.push(vignette);
-        }
+            .filter(|p| targets.contains(&p.id))
+            .filter_map(|p| p.portrait_vignette_id)
+            .collect();
+        let portrait_vignettes = VignetteRepo::get_many(conn, &vignette_ids).await?;
+        let mut scan_ids: Vec<Uuid> = portrait_vignettes
+            .iter()
+            .map(|v| v.media_id)
+            .filter(|id| !media.iter().any(|m| m.id == *id))
+            .collect();
+        scan_ids.sort();
+        scan_ids.dedup();
+        media.extend(MediaRepo::get_many(conn, &scan_ids).await?);
 
         Ok(TreeData {
             persons,

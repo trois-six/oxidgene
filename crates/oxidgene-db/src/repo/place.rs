@@ -48,6 +48,9 @@ impl PlaceRepo {
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Place>, OxidGeneError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .filter(Column::Id.is_in(ids.iter().copied()))
             .all(db)

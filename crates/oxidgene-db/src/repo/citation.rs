@@ -75,13 +75,16 @@ impl CitationRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
-    /// List citations directly linked to one person.
-    pub async fn list_by_person(
+    /// List citations directly linked to any of the given persons.
+    pub async fn list_by_persons(
         db: &impl ConnectionTrait,
-        person_id: Uuid,
+        person_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
-            .filter(Column::PersonId.eq(person_id))
+            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -128,6 +131,9 @@ impl CitationRepo {
         db: &impl ConnectionTrait,
         source_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
+        if source_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let models = Entity::find()
             .filter(Column::SourceId.is_in(source_ids.iter().copied()))
             .all(db)

@@ -127,6 +127,25 @@ impl NoteRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// List the live notes attached to any of the given persons in a tree.
+    pub async fn list_by_persons(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let models = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::PersonId.is_in(person_ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Create a new note.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(

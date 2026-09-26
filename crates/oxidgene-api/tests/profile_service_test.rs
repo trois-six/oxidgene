@@ -9,6 +9,7 @@
 use std::time::Instant;
 
 use oxidgene_api::profile::ProfileService;
+use oxidgene_api::profile::invalidation::affected_persons;
 use oxidgene_core::enums::{
     Calendar, ChildType, DateQualifier, EventType, NameType, Sex, SpouseRole,
 };
@@ -274,6 +275,45 @@ async fn projections_survive_a_new_service_instance() {
 }
 
 #[tokio::test]
+async fn every_family_a_person_is_a_child_of_is_affected() {
+    let (db, _service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (father, mother, child, _family) = create_family_trio(&db, tree_id).await;
+
+    // An adoptive family alongside the biological one: its parents list the
+    // child too, so they must be refreshed when the child changes.
+    let adoptive = create_named_person(&db, tree_id, Sex::Female, "Anne", "Martin", None).await;
+    let adoptive_family = Uuid::now_v7();
+    FamilyRepo::create(&db, adoptive_family, tree_id)
+        .await
+        .unwrap();
+    FamilySpouseRepo::create(
+        &db,
+        Uuid::now_v7(),
+        adoptive_family,
+        adoptive,
+        SpouseRole::Wife,
+        0,
+    )
+    .await
+    .unwrap();
+    FamilyChildRepo::create(
+        &db,
+        Uuid::now_v7(),
+        adoptive_family,
+        child,
+        ChildType::Adopted,
+        0,
+    )
+    .await
+    .unwrap();
+
+    let mut expected = vec![father, mother, child, adoptive];
+    expected.sort();
+    assert_eq!(affected_persons(&db, child).await.unwrap(), expected);
+}
+
+#[tokio::test]
 async fn name_mutation_refreshes_stored_projections() {
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;
@@ -310,7 +350,7 @@ async fn name_mutation_refreshes_stored_projections() {
 
     // Same entry point the REST / GraphQL handlers use.
     service
-        .invalidate_for_person(&db, tree_id, father)
+        .invalidate_for_mutation(&db, tree_id, &affected_persons(&db, father).await.unwrap())
         .await
         .unwrap();
 
@@ -995,7 +1035,7 @@ async fn pedigree_reflects_a_mutation_immediately() {
     .await
     .unwrap();
     service
-        .invalidate_for_person(&db, tree_id, father)
+        .invalidate_for_mutation(&db, tree_id, &affected_persons(&db, father).await.unwrap())
         .await
         .unwrap();
 
@@ -1209,7 +1249,11 @@ async fn a_rolled_back_mutation_leaves_no_projection_behind() {
     .await
     .unwrap();
     service
-        .invalidate_for_person(&txn, tree_id, father)
+        .invalidate_for_mutation(
+            &txn,
+            tree_id,
+            &affected_persons(&txn, father).await.unwrap(),
+        )
         .await
         .unwrap();
 
@@ -1299,7 +1343,11 @@ async fn a_committed_mutation_applies_data_and_projection_together() {
     .await
     .unwrap();
     service
-        .invalidate_for_person(&txn, tree_id, father)
+        .invalidate_for_mutation(
+            &txn,
+            tree_id,
+            &affected_persons(&txn, father).await.unwrap(),
+        )
         .await
         .unwrap();
     txn.commit().await.unwrap();
