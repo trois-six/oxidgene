@@ -1396,6 +1396,9 @@ pub struct ApiClient {
     /// this build has one. Absent on the web, where pictures are fetched here
     /// and handed to the markup as `data:` URLs instead.
     image_host: Option<crate::image_host::ImageHost>,
+    /// The `Authorization` value the desktop's embedded backend requires.
+    /// Sent to that backend only — never to a remote address a download names.
+    auth: Option<reqwest::header::HeaderValue>,
 }
 
 /// Errors returned by the API client.
@@ -1519,7 +1522,48 @@ impl ApiClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             cache: ResponseCache::default(),
             image_host: None,
+            auth: None,
         }
+    }
+
+    /// Present `token` as a bearer credential on every request to the backend.
+    ///
+    /// # Panics
+    ///
+    /// If `token` cannot appear in an HTTP header.
+    #[must_use]
+    pub fn with_auth_token(mut self, token: &str) -> Self {
+        let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            .expect("the access token is a valid header value");
+        value.set_sensitive(true);
+        self.auth = Some(value);
+        self
+    }
+
+    /// Whether a request goes to this client's backend, as opposed to a remote
+    /// address that a download names. Only the backend gets the credential and
+    /// the trace context; a third-party host is owed neither.
+    fn targets_backend(&self, request: &reqwest::Request) -> bool {
+        request
+            .url()
+            .as_str()
+            .strip_prefix(&self.base_url)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?']))
+    }
+
+    /// Build `request`, adding the credential when it is bound for the backend.
+    fn prepare(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<(reqwest::Request, bool), reqwest::Error> {
+        let mut request = request.build()?;
+        let backend = self.targets_backend(&request);
+        if backend && let Some(auth) = &self.auth {
+            request
+                .headers_mut()
+                .insert(reqwest::header::AUTHORIZATION, auth.clone());
+        }
+        Ok((request, backend))
     }
 
     /// Serve backend-held pictures through `host` rather than encoding them.
@@ -1555,10 +1599,13 @@ impl ApiClient {
             http.response.status_code = tracing::field::Empty,
             otel.status_code = tracing::field::Empty,
         );
-        let mut request = request.build()?;
-        global::get_text_map_propagator(|propagator| {
-            propagator.inject_context(&span.context(), &mut HeaderInjector(request.headers_mut()));
-        });
+        let (mut request, backend) = self.prepare(request)?;
+        if backend {
+            global::get_text_map_propagator(|propagator| {
+                propagator
+                    .inject_context(&span.context(), &mut HeaderInjector(request.headers_mut()));
+            });
+        }
 
         let response = self.client.execute(request).instrument(span.clone()).await;
         match &response {
@@ -1582,7 +1629,8 @@ impl ApiClient {
         _method: &'static str,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, reqwest::Error> {
-        request.send().await
+        let (request, _) = self.prepare(request)?;
+        self.client.execute(request).await
     }
 
     /// Invalidate all cached responses for a given tree.
@@ -4087,6 +4135,50 @@ mod tests {
         let (result, ()) = tokio::join!(api.delete_media_page(tree, document, page), server);
         result.unwrap();
         assert!(api.cache.get(&cache_key).is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn the_access_token_goes_to_the_backend_and_nowhere_else() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        async fn accept_one(listener: &tokio::net::TcpListener) -> String {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = String::new();
+            let mut reader = tokio::io::BufReader::new(&mut socket);
+            while !request.ends_with("\r\n\r\n") {
+                assert!(reader.read_line(&mut request).await.unwrap() > 0);
+            }
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            request.to_ascii_lowercase()
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let backend = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let remote = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = ApiClient::new(&format!("http://{}", backend.local_addr().unwrap()))
+            .with_auth_token("s3cret");
+
+        let local = directory.path().join("a");
+        let (result, request) = tokio::join!(
+            api.download_to_file("/api/v1/x", &local),
+            accept_one(&backend)
+        );
+        result.unwrap();
+        assert!(request.contains("authorization: bearer s3cret"));
+
+        let remote_url = format!("http://{}/scan.jpg", remote.local_addr().unwrap());
+        let fetched = directory.path().join("b");
+        let (result, request) = tokio::join!(
+            api.download_to_file(&remote_url, &fetched),
+            accept_one(&remote)
+        );
+        result.unwrap();
+        assert!(!request.contains("authorization"));
+        assert!(!request.contains("s3cret"));
     }
 
     #[cfg(not(target_arch = "wasm32"))]

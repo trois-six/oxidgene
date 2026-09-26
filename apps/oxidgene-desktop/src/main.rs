@@ -2,7 +2,8 @@
 //!
 //! Embeds an Axum server on `127.0.0.1` (random port) backed by SQLite,
 //! then opens a Dioxus desktop WebView with the shared `oxidgene-ui`
-//! frontend.
+//! frontend. The server answers only requests carrying a token generated at
+//! launch and known to this process alone.
 //!
 //! The SQLite database is stored in the platform data directory:
 //! - Linux:   `~/.local/share/oxidgene/oxidgene.db`
@@ -52,6 +53,7 @@ use axum::routing::get;
 use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
+use oxidgene_api::access::{LocalToken, require_local_token};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
 #[cfg(feature = "telemetry")]
@@ -303,6 +305,9 @@ fn main() {
     info!("Using local SQLite database");
 
     // ── Start embedded Axum server in a background tokio runtime ─────
+    // Only this process may call the embedded server: see `oxidgene_api::access`.
+    let token = LocalToken::generate();
+    let server_token = token.clone();
     let (tx, rx) = std::sync::mpsc::channel::<u16>();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -353,7 +358,7 @@ fn main() {
                 "desktop",
             );
             tokio::spawn(worker.run());
-            let api_router = build_router(state);
+            let api_router = require_local_token(build_router(state), server_token);
 
             if reference_warmup.await.is_err() {
                 error!(
@@ -418,7 +423,9 @@ fn main() {
     // Create the API client that will be shared with the UI
     // Pictures are served from the window's own origin rather than encoded
     // into every payload — see `media_assets`.
-    let api_client = ApiClient::new(&api_url).with_image_host(media_assets::host());
+    let api_client = ApiClient::new(&api_url)
+        .with_auth_token(token.as_str())
+        .with_image_host(media_assets::host());
 
     // ── Launch Dioxus desktop window ─────────────────────────────────
     // Dioxus `launch()` returns `-> !` (never returns), so we use a custom

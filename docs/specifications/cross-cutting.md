@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-23T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -120,8 +120,8 @@ values, never stack traces, SQL, filesystem paths, secrets, or genealogy.
 |---|---|---|
 | 400 | `validation_error` | Invalid field, format, or business input. |
 | 400 | `gedcom_error` | Invalid or unsupported genealogy input. |
-| 401 | `unauthenticated` | Authentication is required, once security ships. |
-| 403 | `forbidden` | The viewer lacks access, once security ships. |
+| 401 | `unauthenticated` | The desktop's embedded server received a request without its launch token (§7.1); later, any missing authentication. |
+| 403 | `forbidden` | A browser page on another origin attempted a write (§7.1); later, a viewer lacking access. |
 | 404 | `not_found` | Missing or soft-deleted resource. |
 | 409 | `conflict` | State conflicts with an invariant or concurrent change. |
 | 413 | `payload_too_large` | Request exceeds the documented endpoint limit. |
@@ -386,7 +386,21 @@ must never be exposed directly to an untrusted network:
 - host-published container ports bind to loopback; a container may listen on
   its private network only when a trusted same-origin gateway is its sole
   ingress;
-- CORS uses an explicit trusted frontend origin and never `*`;
+- CORS uses an explicit trusted frontend origin and never `*`, and the
+  standalone server refuses any state-changing request whose `Origin` is
+  present and different (`403 forbidden`) — CORS withholds responses from
+  other origins but lets their form and multipart posts through unasked;
+- the desktop's embedded server answers only requests that carry a bearer
+  token generated at each launch and handed to the application's own client
+  (`401 unauthenticated`). A loopback port is reachable by every local account,
+  process and browser page — including a page that rebinds its DNS name to
+  `127.0.0.1` to read responses as its own. Only the API description
+  (`/api/v1/openapi.json`) is exempt. The client sends the token, and its trace
+  context, to the backend alone, never to a remote address a download names;
+- stored files are served with `X-Content-Type-Options: nosniff` and, except
+  for PDFs, `Content-Security-Policy: sandbox`, so a file cannot run as a page
+  of the origin that serves it; the type of a held file is the one sniffed from
+  its bytes and cannot be relabelled;
 - UI markup never places a backend URL in `href`, `src`, `action`, redirects,
   new-window navigation, or other user-visible navigation targets;
 - media, thumbnails, crops, archives, and exports are fetched through the

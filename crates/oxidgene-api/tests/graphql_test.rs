@@ -338,6 +338,37 @@ async fn test_tree_update_and_delete() {
 }
 
 #[tokio::test]
+async fn a_stored_file_keeps_its_sniffed_type_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
+    let media_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "scan.png", contentBase64: "{}" }}) {{ id }} }}"#,
+                png_base64(4, 4)
+            ),
+            None,
+        )
+        .await,
+    )["uploadMediaFile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = graphql(
+        app,
+        &format!(
+            r#"mutation {{ updateMedia(treeId: "{tree_id}", id: "{media_id}", input: {{ mimeType: "text/html" }}) {{ mimeType }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR");
+}
+
+#[tokio::test]
 async fn graphql_errors_use_safe_messages_and_stable_codes() {
     let app = setup_app().await;
 

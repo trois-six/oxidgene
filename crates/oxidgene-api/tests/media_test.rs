@@ -298,6 +298,12 @@ async fn single_media_downloads_are_attachments_while_files_remain_inline() {
                 .unwrap()
                 .starts_with("inline;")
         );
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        // Browsers' PDF viewers refuse a sandbox; everything else gets one.
+        assert_eq!(
+            headers.get("content-security-policy").is_some(),
+            content_type != "application/pdf"
+        );
         let etag = headers[header::ETAG].to_str().unwrap();
         let (status, _, bytes) = raw(&h.app, &file_url, &[(header::IF_NONE_MATCH, etag)]).await;
         assert_eq!(status, StatusCode::NOT_MODIFIED);
@@ -315,6 +321,30 @@ async fn single_media_downloads_are_attachments_while_files_remain_inline() {
         );
         assert_eq!(bytes, content);
     }
+}
+
+#[tokio::test]
+async fn a_stored_file_keeps_the_type_its_bytes_were_sniffed_as() {
+    let h = setup().await;
+    let (_, media) = upload(&h.app, h.tree_id, &[("file", Some("scan.png"), &png(4, 4))]).await;
+    let id = media["id"].as_str().unwrap();
+    let url = format!("/api/v1/trees/{}/media/{id}", h.tree_id);
+
+    // Relabelled, a crafted image would be served — and rendered — as a page.
+    let (status, _) = json_request(
+        &h.app,
+        Method::PUT,
+        &url,
+        Some(serde_json::json!({ "mime_type": "text/html" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, headers, _) = raw(&h.app, &format!("{url}/file"), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/png");
+    assert_eq!(headers["content-security-policy"], "sandbox");
+    assert_eq!(headers["x-content-type-options"], "nosniff");
 }
 
 #[tokio::test]

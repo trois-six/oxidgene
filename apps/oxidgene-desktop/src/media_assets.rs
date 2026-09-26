@@ -100,6 +100,10 @@ async fn fetch(api: &ApiClient, path: &str) -> Option<Response<Vec<u8>>> {
     Response::builder()
         .status(200)
         .header("Content-Type", content_type)
+        // The file's type is whatever its upload declared, and this origin is
+        // the application's own: an HTML or SVG file must never run here.
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Content-Security-Policy", "sandbox")
         // Same window, same process, same lifetime as the store it came from:
         // the WebView may keep it for as long as it is open.
         .header("Cache-Control", "private, max-age=3600")

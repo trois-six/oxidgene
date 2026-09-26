@@ -214,6 +214,14 @@ pub(crate) fn media_patch(
     } else if let Some(requested) = body.mime_type {
         let requested = requested.trim().to_string();
         if !requested.is_empty() {
+            // Our own copy was typed by sniffing its bytes, and that type is
+            // what it is served as. Letting a caller relabel a PNG `text/html`
+            // would turn a crafted image into a page.
+            if stored.storage_key.is_some() {
+                return Err(ApiError(OxidGeneError::Validation(
+                    "the type of a file stored here is read from its bytes".into(),
+                )));
+            }
             mime_type = Some(requested);
         }
     }
@@ -952,8 +960,25 @@ async fn serve(
     if let Some(name) = download_name {
         headers.insert(CONTENT_DISPOSITION, header_value(&disposition(name)));
     }
+    confine(&mut headers, mime_type);
 
     Ok((headers, Body::from(bytes)).into_response())
+}
+
+/// Keep a stored file from acting as a page of the application.
+///
+/// Its MIME type is whatever an upload or an import declared, so an HTML or
+/// SVG file served inline on the API's origin — the frontend's own origin
+/// behind a same-origin gateway — would run its scripts with the reader's
+/// access to every tree. `nosniff` stops a browser from promoting a file past
+/// its declared type, and the sandbox gives whatever renders an opaque origin
+/// with no scripts. PDFs are spared the sandbox, which browsers' built-in
+/// viewers refuse to render into; they execute nothing of the page's.
+pub(crate) fn confine(headers: &mut HeaderMap, mime_type: &str) {
+    headers.insert("x-content-type-options", header_value("nosniff"));
+    if !mime_type.eq_ignore_ascii_case("application/pdf") {
+        headers.insert("content-security-policy", header_value("sandbox"));
+    }
 }
 
 /// A `Content-Disposition` value that survives a non-ASCII file name.
@@ -1008,7 +1033,7 @@ pub async fn download_attachment(
         CONTENT_DISPOSITION,
         header_value(&attachment_disposition(&media.file_name)),
     );
-    headers.insert("x-content-type-options", header_value("nosniff"));
+    confine(&mut headers, &media.mime_type);
     Ok((headers, Body::from_stream(stream)).into_response())
 }
 

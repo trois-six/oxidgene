@@ -4,7 +4,7 @@
 //! - REST API under `/api/v1/trees`
 //! - GraphQL at `/graphql` (POST) and GraphiQL playground (GET)
 //! - Health check at `/healthz`
-//! - CORS middleware
+//! - CORS middleware, and refusal of writes from any other browser origin
 //! - Structured tracing
 //! - Graceful shutdown on SIGINT/SIGTERM
 
@@ -14,6 +14,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::http::{HeaderValue, Method};
 use axum::routing::get;
+use oxidgene_api::access::same_origin_writes;
 use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{BackgroundJobRepo, connect, run_migrations};
@@ -121,7 +122,7 @@ async fn main() {
         std::process::exit(1);
     });
     let cors = CorsLayer::new()
-        .allow_origin(cors_origin)
+        .allow_origin(cors_origin.clone())
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -133,7 +134,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/healthz", get(healthz))
-        .merge(api_router)
+        .merge(same_origin_writes(api_router, cors_origin.clone()))
         .layer(cors)
         .layer(
             TraceLayer::new_for_http()

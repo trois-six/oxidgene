@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 ---
 
 
@@ -79,7 +79,9 @@ API endpoints are documented in [API Contract](api.md).
 - Communicates with the backend via REST/GraphQL.
 - In the browser, `oxidgene-web` compiles the shared UI to WebAssembly and
     injects the separately deployed Axum API URL.
-- On desktop: points to `http://127.0.0.1:<port>` served by the embedded Axum server.
+- On desktop: points to `http://127.0.0.1:<port>` served by the embedded Axum server,
+    which answers only requests carrying the token generated at launch
+    ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 - The embedded and standalone servers bind to loopback by default. Before
     authentication and authorization ship, no deployment exposes Axum directly
     to an untrusted network; a container that listens on its private network is

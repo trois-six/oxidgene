@@ -35,7 +35,8 @@ base64 = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-uuid = { workspace = true }
+# `v4` draws the desktop's per-launch access token (see `access`).
+uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util"] }
 tracing = { workspace = true }
