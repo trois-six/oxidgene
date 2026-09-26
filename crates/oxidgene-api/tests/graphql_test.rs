@@ -251,6 +251,95 @@ async fn person_detail_bundle_query_excludes_unrelated_person_citations() {
 }
 
 #[tokio::test]
+async fn person_detail_bundle_query_names_the_couple_a_profile_media_comes_from() {
+    let app = setup_app().await;
+    let tree_id = tree_id_for(&app).await;
+    let mut spouse_ids = Vec::new();
+    for sex in ["MALE", "FEMALE"] {
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: {sex} }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        spouse_ids.push(
+            data(&response)["createPerson"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    let response = graphql(
+        app.clone(),
+        &format!(r#"mutation {{ createFamily(treeId: "{tree_id}") {{ id }} }}"#),
+        None,
+    )
+    .await;
+    let family_id = data(&response)["createFamily"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (spouse_id, role) in [(&spouse_ids[0], "HUSBAND"), (&spouse_ids[1], "WIFE")] {
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ addSpouse(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{spouse_id}", role: {role} }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        assert!(data(&response)["addSpouse"]["id"].is_string());
+    }
+
+    let own_document = document_id_for(&app, &tree_id).await;
+    let couple_document = document_id_for(&app, &tree_id).await;
+    for owner in [
+        format!(r#"personId: "{}""#, spouse_ids[0]),
+        format!(r#"familyId: "{family_id}""#),
+    ] {
+        let media_id = if owner.starts_with("person") {
+            &own_document
+        } else {
+            &couple_document
+        };
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createMediaLink(treeId: "{tree_id}", input: {{ mediaId: "{media_id}", {owner} }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        assert!(data(&response)["createMediaLink"]["id"].is_string());
+    }
+
+    let response = graphql(
+        app,
+        &format!(
+            r#"query {{ personDetailBundle(treeId: "{tree_id}", personId: "{}") {{ profileMedia {{ familyId media {{ id }} }} }} }}"#,
+            spouse_ids[0]
+        ),
+        None,
+    )
+    .await;
+    let tiles = data(&response)["personDetailBundle"]["profileMedia"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(tiles.len(), 2);
+    for tile in tiles {
+        let expected = if tile["media"]["id"] == own_document.as_str() {
+            serde_json::Value::Null
+        } else {
+            serde_json::json!(family_id)
+        };
+        assert_eq!(tile["familyId"], expected, "{tile}");
+    }
+}
+
+#[tokio::test]
 async fn graphql_geneanet_local_paths_are_refused_by_default() {
     let response = graphql(
         setup_app().await,

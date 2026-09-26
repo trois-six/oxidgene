@@ -39,6 +39,10 @@ pub struct PersonDetailBundle {
 pub struct ProfileMediaTile {
     pub link_id: Uuid,
     pub sort_order: i32,
+    /// The conjugal family this media reaches the profile through, or `None`
+    /// when it is attached to the person directly. A media attached both ways
+    /// counts as the person's own.
+    pub family_id: Option<Uuid>,
     #[serde(flatten)]
     pub media: Media,
 }
@@ -165,6 +169,7 @@ pub async fn load_person_detail_bundle(
                 .then_some(ProfileMediaTile {
                     link_id: link.id,
                     sort_order: link.sort_order,
+                    family_id: link.family_id.filter(|_| link.person_id != Some(person_id)),
                     media,
                 })
         })
@@ -245,6 +250,7 @@ mod tests {
     use oxidgene_db::repo::{
         FamilyRepo, MediaRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, connect, run_migrations,
     };
+    use std::collections::HashMap;
 
     async fn create_person(db: &DatabaseConnection, tree_id: Uuid, sex: Sex) -> Uuid {
         let id = Uuid::now_v7();
@@ -534,6 +540,13 @@ mod tests {
             profile_media_ids,
             HashSet::from([direct_media, family_media])
         );
+        let inherited_from = bundle
+            .profile_media
+            .iter()
+            .map(|item| (item.media.id, item.family_id))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(inherited_from[&direct_media], None);
+        assert_eq!(inherited_from[&family_media], Some(own_family));
         let gallery_media_ids = bundle
             .gallery
             .media

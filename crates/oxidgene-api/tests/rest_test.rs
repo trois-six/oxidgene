@@ -1716,6 +1716,69 @@ async fn person_detail_bundle_excludes_unrelated_person_citations() {
     assert_eq!(body["profile_vignettes"], serde_json::json!([]));
 }
 
+#[tokio::test]
+async fn person_detail_bundle_names_the_couple_a_profile_media_comes_from() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+    let partner_id = create_person_via_api(&app, &tree_id).await;
+
+    let (status, family) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/families"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let family_id = family["id"].as_str().unwrap().to_string();
+    for (spouse_id, role) in [(&person_id, "husband"), (&partner_id, "wife")] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
+            Some(serde_json::json!({ "person_id": spouse_id, "role": role })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let own_document = create_document_via_api(&app, &tree_id).await;
+    let couple_document = create_document_via_api(&app, &tree_id).await;
+    for link in [
+        serde_json::json!({ "media_id": own_document, "person_id": person_id }),
+        serde_json::json!({ "media_id": couple_document, "family_id": family_id }),
+    ] {
+        let (status, body) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/media-links"),
+            Some(link),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
+
+    let (status, body) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let tiles = body["profile_media"].as_array().unwrap();
+    assert_eq!(tiles.len(), 2, "{body}");
+    for tile in tiles {
+        let expected = if tile["id"] == own_document {
+            serde_json::Value::Null
+        } else {
+            serde_json::json!(family_id)
+        };
+        assert_eq!(tile["family_id"], expected, "{tile}");
+    }
+}
+
 // ───────────────────────── Media tests ─────────────────────────
 
 async fn create_document_via_api(app: &axum::Router, tree_id: &str) -> String {

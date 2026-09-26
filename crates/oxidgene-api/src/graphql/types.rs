@@ -2683,6 +2683,9 @@ pub struct GqlEventMediaTile {
 pub struct GqlProfileMediaTile {
     pub link_id: ID,
     pub sort_order: i32,
+    /// The conjugal family this media reaches the profile through; null when
+    /// it is attached to the person directly.
+    pub family_id: Option<ID>,
     pub media: GqlMedia,
 }
 
@@ -2704,6 +2707,7 @@ impl From<crate::service::person_detail::PersonDetailBundle> for GqlPersonDetail
                 .map(|item| GqlProfileMediaTile {
                     link_id: ID(item.link_id.to_string()),
                     sort_order: item.sort_order,
+                    family_id: item.family_id.map(|id| ID(id.to_string())),
                     media: item.media.into(),
                 })
                 .collect(),
