@@ -15,9 +15,10 @@ use opentelemetry_sdk::trace::{SdkTracerProvider, SpanData, SpanProcessor};
 use prost::Message as _;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::Layer as _;
-use tracing_subscriber::filter::{FilterExt as _, filter_fn};
+use tracing_subscriber::filter::{FilterExt as _, LevelFilter, filter_fn};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+use wasm_bindgen::JsCast as _;
 
 pub fn init(log_level: &str, endpoint: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let log_filter = tracing_subscriber::EnvFilter::try_new(log_level)?;
@@ -46,11 +47,27 @@ pub fn init(log_level: &str, endpoint: Option<&str>) -> Result<(), Box<dyn std::
 
     tracing_subscriber::registry()
         .with(console)
-        .with(OpenTelemetryLayer::new(tracer).with_filter(filter_fn(|metadata| metadata.is_span())))
+        // The application's own spans only, as the native builds export.
+        // Unfiltered, every span of every dependency went out — each Dioxus
+        // scope render, diff and task poll — which was most of the traffic and
+        // a large share of the main thread while telemetry was on.
+        .with(
+            OpenTelemetryLayer::new(tracer).with_filter(filter_fn(|metadata| {
+                metadata.is_span()
+                    && LevelFilter::INFO >= *metadata.level()
+                    && metadata.target().starts_with("oxidgene_")
+            })),
+        )
         .try_init()?;
     std::mem::forget(provider);
     Ok(())
 }
+
+/// How long ended spans gather before one export request carries them.
+const EXPORT_DELAY_MS: i32 = 1_000;
+
+/// Most spans in one export request.
+const EXPORT_BATCH: usize = 512;
 
 struct BrowserSpanProcessor {
     sender: UnboundedSender<SpanData>,
@@ -62,11 +79,22 @@ impl BrowserSpanProcessor {
         let endpoint = format!("{}/v1/traces", endpoint.trim_end_matches('/'));
         let resource = ResourceAttributesWithSchema::from(resource);
         wasm_bindgen_futures::spawn_local(async move {
-            while let Some(span) = receiver.next().await {
+            // One request per burst, not per span: a page load ends dozens of
+            // spans within a few frames, and each request is a fetch plus a
+            // protobuf encoding on the only thread the page has.
+            let client = reqwest::Client::new();
+            while let Some(first) = receiver.next().await {
+                pause(EXPORT_DELAY_MS).await;
+                let mut batch = vec![first];
+                while batch.len() < EXPORT_BATCH
+                    && let Ok(span) = receiver.try_recv()
+                {
+                    batch.push(span);
+                }
                 let request = ExportTraceServiceRequest {
-                    resource_spans: group_spans_by_resource_and_scope(vec![span], &resource),
+                    resource_spans: group_spans_by_resource_and_scope(batch, &resource),
                 };
-                let _ = reqwest::Client::new()
+                let _ = client
                     .post(&endpoint)
                     .header(reqwest::header::CONTENT_TYPE, "application/x-protobuf")
                     .body(request.encode_to_vec())
@@ -104,4 +132,22 @@ impl SpanProcessor for BrowserSpanProcessor {
         self.sender.close_channel();
         Ok(())
     }
+}
+
+/// Resolve after `ms` milliseconds, through the page's own timer.
+async fn pause(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        let set_timeout = js_sys::Reflect::get(&js_sys::global(), &"setTimeout".into())
+            .ok()
+            .and_then(|function| function.dyn_into::<js_sys::Function>().ok());
+        match set_timeout {
+            Some(set_timeout) => {
+                let _ = set_timeout.call2(&wasm_bindgen::JsValue::NULL, &resolve, &ms.into());
+            }
+            None => {
+                let _ = resolve.call0(&wasm_bindgen::JsValue::NULL);
+            }
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }

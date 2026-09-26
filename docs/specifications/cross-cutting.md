@@ -233,7 +233,11 @@ rejected value.
   Context so calls remain connected across trusted gateways and services.
 - A browser bundle built with a non-empty `OTEL_EXPORTER_OTLP_ENDPOINT` exports
   client spans over OTLP/HTTP and injects W3C Trace Context into every request
-  sent by the typed API client. The API request span parents SeaORM spans and
+  the typed API client sends to the backend (never into a remote download).
+  Like the native runtimes, it exports only the application's own spans
+  (`oxidgene_*` targets, `INFO` and above), never those of its dependencies,
+  and sends the spans that end within a second of each other in one request.
+  The API request span parents SeaORM spans and
   persists its context with a queued background job; the worker restores that
   context before executing the job, so durable work remains in the originating
   trace after process and time boundaries.
