@@ -56,7 +56,9 @@ const EVENT_PANEL_MAX_RATIO: f64 = 0.45;
 const EVENT_PANEL_KEYBOARD_STEP: f64 = 16.0;
 const ZOOM_FACTOR: f64 = 1.2;
 const ZOOM_MIN: f64 = 0.3;
-const ZOOM_MAX: f64 = 2.0;
+/// Four steps past the 200 % the chart used to stop at: close enough to read
+/// the smallest line of a compact card on a large screen.
+const ZOOM_MAX: f64 = 4.0;
 // ── Year extraction ──────────────────────────────────────────────────────
 
 const YEAR_MIN: u32 = 1000;
@@ -2784,7 +2786,55 @@ fn save_pedigree_view_state(
     });
 }
 
-/// Scales and pans the canvas so the whole graph sits inside the free area.
+/// What a fit frames: the graph's extent, and the root card it keeps in view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FitTarget {
+    content_cx: f64,
+    content_cy: f64,
+    content_w: f64,
+    content_h: f64,
+    root_cx: f64,
+    root_cy: f64,
+}
+
+impl FitTarget {
+    fn of(layout: &PedigreeLayout) -> Self {
+        Self {
+            content_cx: layout.content_cx,
+            content_cy: layout.content_cy,
+            content_w: layout.content_w,
+            content_h: layout.content_h,
+            root_cx: layout.root_cx,
+            root_cy: layout.root_cy,
+        }
+    }
+}
+
+/// The transform that fits `target` into the free part of `rect`.
+///
+/// A graph that fits is framed whole. One that does not — a deep pedigree
+/// already at the smallest scale — is centred on the root card instead: that
+/// person is who the user asked to see, and centring the graph's middle could
+/// leave them off screen entirely.
+fn fit_transform(rect: ViewportRect, target: FitTarget) -> ViewportTransform {
+    let side_padding = rect.width * FIT_SIDE_PADDING_RATIO;
+    let fit_w = (rect.width - 2.0 * side_padding).max(1.0);
+    let whole = (fit_w / target.content_w).min(rect.height / target.content_h);
+    let scale = whole.clamp(ZOOM_MIN, ZOOM_MAX);
+    let (focus_x, focus_y) = if whole < ZOOM_MIN {
+        (target.root_cx, target.root_cy)
+    } else {
+        (target.content_cx, target.content_cy)
+    };
+    let (center_x, center_y) = rect.center();
+    ViewportTransform {
+        x: center_x - focus_x * scale,
+        y: center_y - focus_y * scale,
+        scale,
+    }
+}
+
+/// Scales and pans the canvas so the graph sits inside the free area.
 ///
 /// Shared by the initial/root-change fit and by the fit-screen button, which
 /// held byte-identical copies of the measurement script and the arithmetic
@@ -2792,11 +2842,8 @@ fn save_pedigree_view_state(
 async fn fit_graph_in_viewport(
     mut transform: Signal<ViewportTransform>,
     mut viewport_rect: Signal<ViewportRect>,
-    // (center x, center y, width, height) of the graph content, in content
-    // units — grouped into one tuple to keep the argument count clippy-clean.
-    content: (f64, f64, f64, f64),
+    target: FitTarget,
 ) {
-    let (content_cx, content_cy, content_w, content_h) = content;
     let Ok(val) = document::eval(MEASURE_PEDIGREE_VIEWPORT_JS).await else {
         return;
     };
@@ -2819,17 +2866,7 @@ async fn fit_graph_in_viewport(
         height: vh,
     };
     viewport_rect.set(rect);
-    let side_padding = vw * FIT_SIDE_PADDING_RATIO;
-    let fit_w = (vw - 2.0 * side_padding).max(1.0);
-    let fit_scale = (fit_w / content_w)
-        .min(vh / content_h)
-        .clamp(ZOOM_MIN, ZOOM_MAX);
-    let (center_x, center_y) = rect.center();
-    transform.set(ViewportTransform {
-        x: center_x - content_cx * fit_scale,
-        y: center_y - content_cy * fit_scale,
-        scale: fit_scale,
-    });
+    transform.set(fit_transform(rect, target));
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -4420,20 +4457,12 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // ── Fit graph in viewport when needed ──
     if needs_fit() && panel_ready() {
-        let fit_content_cx = layout.content_cx;
-        let fit_content_cy = layout.content_cy;
-        let fit_content_w = layout.content_w;
-        let fit_content_h = layout.content_h;
+        let fit_target = FitTarget::of(&layout);
         needs_fit.set(false);
         spawn(async move {
             // Small delay so the DOM has rendered the viewport element.
             crate::utils::sleep_ms(30).await;
-            fit_graph_in_viewport(
-                viewport_transform,
-                viewport_rect,
-                (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
-            )
-            .await;
+            fit_graph_in_viewport(viewport_transform, viewport_rect, fit_target).await;
             save_pedigree_view_state(
                 view_cache,
                 tid_parsed,
@@ -4579,10 +4608,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     }
 
     // ── Fit-to-content zoom calculation ──
-    let fit_content_cx = layout.content_cx;
-    let fit_content_cy = layout.content_cy;
-    let fit_content_w = layout.content_w;
-    let fit_content_h = layout.content_h;
+    let fit_target = FitTarget::of(&layout);
 
     rsx! {
         div { class: "pedigree-outer",
@@ -4751,7 +4777,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                             fit_graph_in_viewport(
                                 viewport_transform,
                                 viewport_rect,
-                                (fit_content_cx, fit_content_cy, fit_content_w, fit_content_h),
+                                fit_target,
                             )
                             .await;
                             save_pedigree_view_state(
@@ -5353,6 +5379,52 @@ mod culling_tests {
 #[cfg(test)]
 mod zoom_tests {
     use super::*;
+
+    fn fit_rect() -> ViewportRect {
+        ViewportRect {
+            page_x: 0.0,
+            page_y: 0.0,
+            left: 0.0,
+            width: 1600.0,
+            height: 900.0,
+        }
+    }
+
+    #[test]
+    fn a_graph_that_fits_is_framed_whole() {
+        let target = FitTarget {
+            content_cx: 500.0,
+            content_cy: 300.0,
+            content_w: 1000.0,
+            content_h: 600.0,
+            root_cx: 900.0,
+            root_cy: 550.0,
+        };
+        let fit = fit_transform(fit_rect(), target);
+        let (cx, cy) = fit_rect().center();
+        assert!((fit.x + target.content_cx * fit.scale - cx).abs() < 1e-9);
+        assert!((fit.y + target.content_cy * fit.scale - cy).abs() < 1e-9);
+    }
+
+    /// A deep pedigree cannot be framed whole at the smallest scale; the
+    /// person it is centred on — the one just searched for — must then be in
+    /// the middle, not wherever the middle of the graph happens to fall.
+    #[test]
+    fn a_graph_too_wide_to_fit_is_centred_on_its_root() {
+        let target = FitTarget {
+            content_cx: 40_000.0,
+            content_cy: 700.0,
+            content_w: 80_000.0,
+            content_h: 1_400.0,
+            root_cx: 61_234.0,
+            root_cy: 1_100.0,
+        };
+        let fit = fit_transform(fit_rect(), target);
+        assert_eq!(fit.scale, ZOOM_MIN);
+        let (cx, cy) = fit_rect().center();
+        assert!((fit.x + target.root_cx * fit.scale - cx).abs() < 1e-9);
+        assert!((fit.y + target.root_cy * fit.scale - cy).abs() < 1e-9);
+    }
 
     /// A zoom holds one point still — that is the whole of what it promises.
     ///

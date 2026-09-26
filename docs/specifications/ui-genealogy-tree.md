@@ -464,9 +464,9 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Click on a card | New focus + pencil icon + events sidebar updated |
 | Click on placeholder `+` | Opens add-parent form |
 | Drag on canvas | Free pan |
-| Scroll wheel / pinch | Zoom about the pointer, range 0.3x-2x |
+| Scroll wheel / pinch | Zoom about the pointer, range 0.3x-4x |
 | Zoom in / out buttons | Zoom about the middle of the free canvas, same range |
-| FIT button | Reframes the entire tree in the window |
+| FIT button | Reframes the entire tree in the window; a tree too large to fit at 0.3x is centred on the focus person |
 | Depth selector | Recalculates layout, recenters on current focus |
 
 A zoom holds one point of the canvas still and moves everything else around it.
