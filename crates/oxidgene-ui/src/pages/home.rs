@@ -823,6 +823,9 @@ fn TreeCard(
 const HOME_STYLES: &str = r#"
     /* ── Gear background decorations ────────────────────────────── */
 
+    /* Static on purpose. The gears used to turn — three infinite
+       rotations — and a WebView repaints the whole layer on every frame for
+       that: the idle home page held a CPU core at about 90% on desktop. */
     .gear-bg {
         position: fixed;
         border-radius: 50%;
@@ -839,7 +842,6 @@ const HOME_STYLES: &str = r#"
         border-radius: 50%;
         border: 2px dashed var(--text-muted);
         opacity: 0.5;
-        animation: gear-spin 60s linear infinite;
     }
 
     .gear-1 {
@@ -847,7 +849,6 @@ const HOME_STYLES: &str = r#"
         height: 320px;
         top: -80px;
         right: -80px;
-        animation: gear-spin 90s linear infinite;
     }
 
     .gear-2 {
@@ -855,11 +856,6 @@ const HOME_STYLES: &str = r#"
         height: 200px;
         bottom: 80px;
         left: -60px;
-        animation: gear-spin 70s linear infinite reverse;
-    }
-
-    @keyframes gear-spin {
-        to { transform: rotate(360deg); }
     }
 
     /* ── Home page wrapper ───────────────────────────────────────── */
