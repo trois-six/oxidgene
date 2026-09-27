@@ -5,6 +5,8 @@
 //! from [`oxidgene_core`] directly, since those types already derive
 //! `Serialize` / `Deserialize`.
 
+mod history;
+
 use base64::Engine as _;
 #[cfg(feature = "telemetry-client")]
 use opentelemetry::global;

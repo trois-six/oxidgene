@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -492,6 +492,41 @@ Only the swatch differs between uses — a painted miniature for a palette, an
 SVG card pair for a chart style — and both occupy the same box so the pickers
 line up. Tracks use `auto-fill`, so tile size does not depend on how many
 themes happen to exist.
+
+### 4.10 VersionDiff
+
+The one comparison of two versions of a record, used by the
+[Person History](ui-person-history.md) page and the audit log of
+[Settings §11](ui-settings.md#11-section-history). It takes the version shown
+and the one it is compared with — absent for a record's first version — and
+lays them out as one table per section, the older version on the left and the
+newer on the right.
+
+- **Sections** follow the record: for a person Identity, Names, Events, Notes,
+  Sources, Parents and Unions; a place, a source, or the tree's settings is one
+  section of its fields. Sections with nothing to show are omitted.
+- **Groups** are the items of a section — one name, one event, one union and
+  each of its events — paired across the two versions by identity, never by
+  position, so a removed item keeps its place in the list. A group is badged
+  *Added*, *Removed*, *Changed* or *Unchanged*.
+- **Rows** are fields, each value worded as the rest of the UI words it:
+  enumerations translated, dates through `format_date`, witnesses, notes and
+  citations joined into one cell. A reference — a place, a source, a relative —
+  reads through the labels its own version recorded, so each side shows the
+  name as it was then. Whether such a row changed is decided on the records it
+  names, not on their labels: a place or relative renamed in between is not a
+  change of this record.
+- A changed row tints the old value with the danger colour and the new one with
+  green; a removed group strikes its old values through. Colour never carries
+  the change alone: the badge and the two values say it too.
+- **Changes only**, on by default, hides unchanged sections, groups and rows.
+  With nothing left to show, the table reads *No difference between these two
+  versions*.
+- A version recording a deletion opens with a banner saying so; it shows the
+  last state the record had.
+
+Below `768px` the label column narrows and cells tighten; values wrap rather
+than scroll.
 
 ## 5. Accessibility
 

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
 ---
 
 
@@ -518,6 +518,8 @@ created_at, entry, snapshot, labels }`. `snapshot` is tagged by `type` and
 holds the record's state; `labels` is a list of `{ id, label }` naming, as they
 read at the time, the places, sources, persons and families the snapshot refers
 to by ID.
+
+Used by: [Person History](ui-person-history.md) · [Settings §11](ui-settings.md#11-section-history) (audit log)
 
 ### Import / export
 

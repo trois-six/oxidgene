@@ -8,7 +8,8 @@ use dioxus::prelude::*;
 use crate::pages::{
     app_settings::AppSettings, couple_detail::CoupleDetail, dictionary::Dictionary, home::Home,
     kinship::Kinship, not_found::NotFound, person_detail::PersonDetail,
-    search_results::SearchResults, settings::Settings, tree_detail::TreeDetail,
+    person_history::PersonHistory, search_results::SearchResults, settings::Settings,
+    tree_detail::TreeDetail,
 };
 
 /// All application routes.
@@ -49,6 +50,10 @@ pub enum Route {
     /// Detail view for a person within a tree.
     #[route("/trees/:tree_id/persons/:person_id")]
     PersonDetail { tree_id: String, person_id: String },
+
+    /// Every recorded version of a person, compared side by side.
+    #[route("/trees/:tree_id/persons/:person_id/history")]
+    PersonHistory { tree_id: String, person_id: String },
 
     /// Couple view: both spouses of a family side by side, and what they
     /// share across the two.

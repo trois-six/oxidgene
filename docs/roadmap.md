@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -34,6 +34,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Post-MVP | [Architecture](architecture.md), [API](api.md) |
 | I | Assistant access through MCP | First delivery complete; later phases planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
+| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; entries record no author until EPIC G | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#11-section-history) |
 
 ## 3. Active: media completion
 
@@ -95,7 +96,8 @@ is generated. Remaining:
 - [ ] Implement authentication and session management.
 - [ ] Implement per-tree guest, read-only, and editor authorization.
 - [ ] Enforce person, family, and media privacy according to viewer access.
-- [ ] Add audit logging with anonymized operational output.
+- [ ] Record the author of every audit entry ([Data Model §5](data-model.md#5-change-history))
+  and add access audit logging with anonymized operational output.
 - [ ] Mirror security behavior and errors across REST and GraphQL.
 - [x] Build and publish versioned desktop binaries for Linux, Windows, and
   macOS from repository tags, with SHA-256 checksums.

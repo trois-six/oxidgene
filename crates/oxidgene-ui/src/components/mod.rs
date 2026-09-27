@@ -1,10 +1,12 @@
 //! Shared UI components.
 
+pub mod audit_log;
 pub mod confirm_dialog;
 pub mod context_menu;
 pub mod cropped_image;
 pub mod date_input;
 pub mod document_form;
+pub mod history_diff;
 pub mod homonym_picker;
 pub mod image_cropper;
 pub mod import_modal;

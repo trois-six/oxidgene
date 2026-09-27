@@ -391,6 +391,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                 delete_error.set(None);
                             },
                             move || show_edit_person.set(true),
+                            {
+                                let tree_id = tree_id.clone();
+                                let person_id = person_id.clone();
+                                move || {
+                                    nav.push(Route::PersonHistory {
+                                        tree_id: tree_id.clone(),
+                                        person_id: person_id.clone(),
+                                    });
+                                }
+                            },
                             move || refresh += 1,
                         ),
                     )}
@@ -434,11 +444,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     }
 }
 
-/// The person header's Delete, Edit and (on the web) Refresh buttons.
+/// The person header's Delete, Edit, History and (on the web) Refresh buttons.
 fn header_actions(
     i18n: &crate::i18n::I18n,
     mut on_delete: impl FnMut() + 'static,
     mut on_edit: impl FnMut() + 'static,
+    mut on_history: impl FnMut() + 'static,
     on_refresh: impl FnMut() + 'static,
 ) -> Element {
     rsx! {
@@ -470,6 +481,21 @@ fn header_actions(
                 path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
             }
             span { class: "pd-header-action-label", {i18n.t("common.edit")} }
+        }
+        button {
+            class: "btn btn-outline pd-header-action-btn",
+            title: i18n.t("history.button"),
+            aria_label: i18n.t("history.button"),
+            onclick: move |_| on_history(),
+            svg {
+                class: "pd-header-action-icon",
+                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                stroke: "currentColor", "strokeWidth": "2",
+                path { d: "M3 12a9 9 0 1 0 3-6.7L3 8" }
+                path { d: "M3 3v5h5" }
+                path { d: "M12 7v5l3 3" }
+            }
+            span { class: "pd-header-action-label", {i18n.t("history.button")} }
         }
         if SHOW_MANUAL_REFRESH {
             {refresh_button(i18n, on_refresh)}

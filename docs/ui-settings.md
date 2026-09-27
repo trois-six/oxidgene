@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
 ---
 
 
@@ -298,14 +298,40 @@ access. There is nothing to manage here.
 
 ## 11. Section: History
 
-A chronological log of all changes made to the tree, newest first.
+The tree's audit log: every write to the tree, newest first — data, settings,
+media, imports and exports. What is recorded, and what each entry carries, is
+defined in [Data Model §5.1](data-model.md#51-audit-log-audit_entry).
 
-Each entry shows:
-- Relative timestamp (e.g. "2 hours ago", "Yesterday 14:32")
-- Action description
-- Author (user who made the change)
+**Filters.** A row of toggle buttons above the list — *All*, *Data*,
+*Settings*, *Media*, *Imports*, *Exports*, *Restores* — keeps one category.
+*All* is selected on arrival; the selected button carries the orange border and
+`aria-pressed`.
 
-Read-only.
+**Entries.** One card per write, loaded 100 at a time with **Load more**:
+
+- when it happened, in the reader's language and local time;
+- a category badge;
+- what it did: *Changed — event (Birth)*, *Added — name*, *Import*, *Export*;
+- its subject's label as it read at the time. A person's links to their
+  [history](ui-person-history.md) and a union's to its
+  [couple view](ui-couple-profile.md); other subjects are plain text;
+- its details when it has any: format, file name and person count of an import
+  or export, *version 3 restored*, *merged with <name>*.
+
+There is no author until authentication exists.
+
+**Changes.** An entry that produced versions offers **Show the change** (or
+*Show the N changes*). Opening it lists each version the write produced, titled
+by record kind and name — *Person — <name>*, *Place — <name>* — each compared
+with the version it replaced through [VersionDiff](ui-common.md#410-versiondiff),
+changes only. An import or a baseline, which version a whole tree, loads its
+changes 100 at a time.
+
+Each change whose previous version is not a deletion offers **Restore the
+previous version**, confirmed through a `ConfirmDialog`: the record is put back
+as that version had it, which undoes this write for that record. A person's
+change also links to their full history. After a restore the log reloads, the
+restore at its top.
 
 ---
 

@@ -8,6 +8,7 @@ use oxidgene_core::enums::TreeDefaultPrivacy;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, UpdateTreeBody};
+use crate::components::audit_log::AuditLogSection;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
@@ -439,6 +440,8 @@ pub fn Settings(tree_id: String) -> Element {
                         PedigreeDefaultsSection { pedigree_defaults }
                     } else if sec == "names" {
                         NamesSection { sort_particles }
+                    } else if let (true, Ok(tid)) = (sec == "history", tree_id.parse::<Uuid>()) {
+                        AuditLogSection { tree_id: tid }
                     } else {
                         PlaceholderSection { section_name: sec.clone() }
                     }
@@ -1157,7 +1160,6 @@ fn PlaceholderSection(section_name: String) -> Element {
         "privacy" => i18n.t("settings.privacy"),
         "date-display" => i18n.t("settings.date_display"),
         "entry-options" => i18n.t("settings.entry_options"),
-        "history" => i18n.t("settings.history"),
         "anomalies" => i18n.t("settings.anomalies"),
         "duplicates" => i18n.t("settings.duplicates"),
         _ => section_name.clone(),
@@ -1165,7 +1167,7 @@ fn PlaceholderSection(section_name: String) -> Element {
 
     let group = match section_name.as_str() {
         "privacy" | "date-display" | "entry-options" => i18n.t("settings.breadcrumb"),
-        "history" | "anomalies" | "duplicates" => i18n.t("settings.tools"),
+        "anomalies" | "duplicates" => i18n.t("settings.tools"),
         _ => i18n.t("settings.breadcrumb"),
     };
 
