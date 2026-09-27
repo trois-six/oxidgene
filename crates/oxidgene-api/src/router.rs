@@ -127,6 +127,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/persons/{person_id}/descendants",
             get(person::get_descendants),
+        )
+        .route(
+            "/{tree_id}/persons/{person_id}/kinship/{other_person_id}",
+            get(person::get_kinship),
         );
 
     let person_name_routes = Router::new()

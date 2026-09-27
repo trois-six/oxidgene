@@ -6,6 +6,7 @@
 mod citation;
 mod event;
 mod family;
+mod kinship;
 mod media;
 mod note;
 mod pagination;
@@ -18,6 +19,7 @@ mod tree;
 pub use citation::Citation;
 pub use event::{Event, EventWitness, QualifiedYear, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
+pub use kinship::{Kinship, KinshipPath, KinshipSegment};
 pub use media::{
     DOCUMENT_MIME, ImageCrop, ImageSource, Media, MediaLink, Portrait, Vignette, guess_mime,
     is_image_mime, is_remote_url, may_draw_as_image, normalize_mime,

@@ -3203,6 +3203,104 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
+    /* ── Kinship page ──────────────────────────────────────────────
+       Each path is a grid: a narrow generation column, then the first
+       person's line and the other's side by side under the ancestors they
+       share. Persons are the shared search row. */
+    .kin-content { max-width: 1000px; }
+    .kin-ends {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+    .kin-end-slot { flex: 1; min-width: 0; }
+    .kin-end-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 28px;
+        margin-bottom: 6px;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+    }
+    .kin-swap { align-self: center; margin-top: 20px; font-size: 1rem; }
+    .kin-person {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-card);
+    }
+    .kin-person.kin-end { border-color: var(--orange); }
+    .kin-status { margin: 0 0 12px; }
+    .kin-path { margin-bottom: 16px; }
+    .kin-path-hd {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+    .kin-path-num {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--orange);
+    }
+    .kin-path-title {
+        margin: 0;
+        font-family: var(--font-heading);
+        font-size: 1.05rem;
+    }
+    .kin-path-note, .kin-chain-hint {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+    }
+    .kin-chain { margin: 0 0 2px; font-weight: 600; }
+    .kin-chain-hint { margin: 0 0 12px; }
+    .kin-seg {
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr);
+        gap: 14px 16px;
+        align-items: center;
+    }
+    .kin-seg-single { grid-template-columns: 36px minmax(0, 1fr); }
+    .kin-gen {
+        font-size: 0.75rem;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        color: var(--text-muted);
+    }
+    .kin-top {
+        grid-column: 2 / -1;
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+    }
+    .kin-top > .kin-person { flex: 0 1 280px; min-width: 0; }
+    /* The line down from the generation above. */
+    .kin-cell { position: relative; }
+    .kin-cell:not(:empty)::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: -14px;
+        height: 14px;
+        border-left: 2px solid var(--border);
+    }
+    .kin-union {
+        margin: 14px 0 14px 52px;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    @media (max-width: 640px) {
+        .kin-ends { flex-direction: column; align-items: stretch; }
+        .kin-swap { align-self: center; margin-top: 0; }
+        .kin-seg { grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); gap: 12px 8px; }
+        .kin-seg-single { grid-template-columns: 28px minmax(0, 1fr); }
+        .kin-union { margin-left: 36px; }
+    }
+
     /* Grid (card) view: one mini-pedigree per result */
     .sr-grid {
         display: grid;

@@ -7,8 +7,8 @@ use dioxus::prelude::*;
 
 use crate::pages::{
     app_settings::AppSettings, couple_detail::CoupleDetail, dictionary::Dictionary, home::Home,
-    not_found::NotFound, person_detail::PersonDetail, search_results::SearchResults,
-    settings::Settings, tree_detail::TreeDetail,
+    kinship::Kinship, not_found::NotFound, person_detail::PersonDetail,
+    search_results::SearchResults, settings::Settings, tree_detail::TreeDetail,
 };
 
 /// All application routes.
@@ -54,6 +54,15 @@ pub enum Route {
     /// share across the two.
     #[route("/trees/:tree_id/couples/:family_id")]
     CoupleDetail { tree_id: String, family_id: String },
+
+    /// How two persons of a tree are related, generation by generation.
+    /// `to` is empty until a second person is chosen.
+    #[route("/trees/:tree_id/kinship?:from&:to")]
+    Kinship {
+        tree_id: String,
+        from: String,
+        to: String,
+    },
 
     /// Dictionary page for a tree: family names, sources, places, occupations
     /// with usage counts.

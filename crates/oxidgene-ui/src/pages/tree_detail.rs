@@ -311,6 +311,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // Context menu action handler.
     let pedigree_data_ctx = pedigree_data.clone();
+    let tree_id_ctx = tree_id.clone();
     let on_context_action = move |action: PersonAction| {
         let Some((pid, _, _)) = context_menu_person() else {
             return;
@@ -347,6 +348,13 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             }
             PersonAction::EditSpecificUnion(fid) => {
                 editing_union_id.set(Some(fid));
+            }
+            PersonAction::Kinship => {
+                nav.push(Route::Kinship {
+                    tree_id: tree_id_ctx.clone(),
+                    from: pid.to_string(),
+                    to: String::new(),
+                });
             }
             PersonAction::Delete => {
                 confirm_delete_person_id.set(Some(pid));

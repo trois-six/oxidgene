@@ -1,7 +1,8 @@
 //! Floating context menu for person nodes in pedigree charts.
 //!
 //! Shows actions like Edit, Merge, Edit Union, Add Spouse, Add Child,
-//! Add Sibling, Delete when the user interacts with a person box.
+//! Add Sibling, Relationship, Delete when the user interacts with a person
+//! box.
 
 use dioxus::prelude::*;
 use uuid::Uuid;
@@ -67,6 +68,8 @@ pub enum PersonAction {
     AddSibling,
     EditUnion,
     EditSpecificUnion(Uuid),
+    /// Trace how the person is related to somebody else.
+    Kinship,
     Delete,
 }
 
@@ -166,6 +169,12 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::AddSibling),
                     {i18n.t("context.add_sibling")}
+                }
+                hr { class: "context-menu-divider" }
+                button {
+                    class: "context-menu-item",
+                    onclick: move |_| props.on_action.call(PersonAction::Kinship),
+                    {i18n.t("context.kinship")}
                 }
                 hr { class: "context-menu-divider" }
                 button {

@@ -28,6 +28,7 @@ okf_version: "0.2"
 * [Person Profile](ui-person-profile.md) - Full person detail view with identity, timeline, family connections, media, and notes.
 * [Couple Profile](ui-couple-profile.md) - Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two.
 * [Search Results](ui-search-results.md) - Filterable person search results page.
+* [Kinship](ui-kinship.md) - Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none.
 * [Dictionary](ui-dictionary.md) - Read-only index of family names, sources, places, and occupations with usage counts.
 * [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, date display, entry options, tools, and export.
 * [App Settings](ui-app-settings.md) - Application-level preferences page for appearance, language, pedigree, names, API access, and the AI assistant connection.

@@ -33,7 +33,7 @@ mod source;
 mod tree;
 mod vignette;
 
-pub use ancestry::AncestryRepo;
+pub use ancestry::{AncestryRepo, FamilyLink};
 pub use background_job::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
 };

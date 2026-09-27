@@ -4,6 +4,7 @@ pub mod app_settings;
 pub mod couple_detail;
 pub mod dictionary;
 pub mod home;
+pub mod kinship;
 pub mod not_found;
 pub mod person_detail;
 pub mod search_results;

@@ -390,6 +390,27 @@ impl ProfileService {
             .collect())
     }
 
+    /// Search rows for a bounded set of persons, in the order asked for.
+    ///
+    /// Read from the projections, which are keyed by person, rather than
+    /// from the search table, which a lookup by ID would have to scan.
+    pub async fn search_entries(
+        &self,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<Vec<SearchEntry>, OxidGeneError> {
+        let conn = &self.db;
+        let profiles = self.projections_for(conn, tree_id, person_ids).await?;
+        let mut by_id: HashMap<Uuid, SearchEntry> = profiles
+            .iter()
+            .map(|profile| (profile.person_id, builder::build_search_entry(profile)))
+            .collect();
+        Ok(person_ids
+            .iter()
+            .filter_map(|id| by_id.remove(id))
+            .collect())
+    }
+
     // ── Invalidation ─────────────────────────────────────────────────────
 
     /// Drop a deleted person's projection and refresh everyone who referenced

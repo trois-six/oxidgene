@@ -7,6 +7,7 @@
 //! parent relation is read straight from the family links:
 //! a person's parents are the spouses of the family in which they are a child.
 
+use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::AncestryLink;
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value};
@@ -25,6 +26,17 @@ const MAX_SOSA_GENERATIONS: i32 = 62;
 
 /// Ancestor and descendant traversal over the family links.
 pub struct AncestryRepo;
+
+/// One membership of a person in a family, as [`AncestryRepo::family_links`]
+/// reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FamilyLink {
+    pub family_id: Uuid,
+    pub person_id: Uuid,
+    /// `Some` for a spouse, `None` for a child.
+    pub spouse_role: Option<SpouseRole>,
+    pub sort_order: i32,
+}
 
 impl AncestryRepo {
     /// Return one deterministic SOSA-Stradonitz number for `person_id`
@@ -131,6 +143,63 @@ impl AncestryRepo {
             "fc.person_id",
         )
         .await
+    }
+
+    /// Every spouse and child membership of a tree's active families, less
+    /// the persons that were deleted.
+    ///
+    /// Soft-deleting a person keeps their family rows, so the join on
+    /// `person` is what stops a deleted person from still linking two others.
+    #[tracing::instrument(name = "pedigree.family_links", skip_all)]
+    pub async fn family_links(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<FamilyLink>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let tree = match backend {
+            DbBackend::Sqlite => "?1",
+            _ => "$1",
+        };
+        let sql = format!(
+            "SELECT fs.family_id, fs.person_id, fs.role, fs.sort_order \
+             FROM family_spouse fs \
+             JOIN family f ON f.id = fs.family_id \
+             JOIN person p ON p.id = fs.person_id \
+             WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL \
+             UNION ALL \
+             SELECT fc.family_id, fc.person_id, NULL, fc.sort_order \
+             FROM family_child fc \
+             JOIN family f ON f.id = fc.family_id \
+             JOIN person p ON p.id = fc.person_id \
+             WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL"
+        );
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                backend,
+                &sql,
+                [Value::from(tree_id)],
+            ))
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        let database = |e: sea_orm::DbErr| OxidGeneError::Database(e.to_string());
+        rows.iter()
+            .map(|row| {
+                let role = row
+                    .try_get::<Option<String>>("", "role")
+                    .map_err(database)?;
+                Ok(FamilyLink {
+                    family_id: row.try_get("", "family_id").map_err(database)?,
+                    person_id: row.try_get("", "person_id").map_err(database)?,
+                    spouse_role: role.map(|role| match role.as_str() {
+                        "husband" => SpouseRole::Husband,
+                        "wife" => SpouseRole::Wife,
+                        _ => SpouseRole::Partner,
+                    }),
+                    sort_order: row.try_get("", "sort_order").map_err(database)?,
+                })
+            })
+            .collect()
     }
 
     /// Shared recursive walk; the two directions differ only in how one step

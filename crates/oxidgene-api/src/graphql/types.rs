@@ -2319,6 +2319,43 @@ pub struct GqlSearchResult {
     pub total_count: i32,
 }
 
+/// Every way found to go from one person of a tree to another.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlKinship {
+    pub from_person_id: ID,
+    pub to_person_id: ID,
+    /// Closest relationship first.
+    pub paths: Vec<GqlKinshipPath>,
+    /// More paths exist than were enumerated.
+    pub truncated: bool,
+    /// A search row for every person the paths name.
+    pub persons: Vec<GqlSearchEntry>,
+}
+
+/// One way to go from the first person to the second: one segment for a
+/// blood relationship, one more per union crossed.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlKinshipPath {
+    pub segments: Vec<GqlKinshipSegment>,
+}
+
+/// A stretch of a path that climbs to its highest generation and comes back
+/// down without passing through a union.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlKinshipSegment {
+    /// One person, or both spouses of the family the two lines descend from.
+    pub ancestor_ids: Vec<ID>,
+    pub family_id: Option<ID>,
+    /// From below the ancestors down to the segment's first person.
+    pub from_line: Vec<ID>,
+    /// From below the ancestors down to the segment's last person.
+    pub to_line: Vec<ID>,
+    pub half: bool,
+    /// The union joining the previous segment's last person to this one's
+    /// first.
+    pub union_family_id: Option<ID>,
+}
+
 /// Server-side ordering for person search results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlPersonSearchSort {
@@ -2970,6 +3007,38 @@ impl From<oxidgene_core::projection::SearchEntry> for GqlSearchEntry {
             father_name: e.father_name,
             mother_name: e.mother_name,
             children_count: e.children_count as i32,
+        }
+    }
+}
+
+impl From<oxidgene_core::types::Kinship> for GqlKinship {
+    fn from(k: oxidgene_core::types::Kinship) -> Self {
+        Self {
+            from_person_id: ID(k.from_person_id.to_string()),
+            to_person_id: ID(k.to_person_id.to_string()),
+            paths: k
+                .paths
+                .into_iter()
+                .map(|path| GqlKinshipPath {
+                    segments: path.segments.into_iter().map(Into::into).collect(),
+                })
+                .collect(),
+            truncated: k.truncated,
+            persons: k.persons.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<oxidgene_core::types::KinshipSegment> for GqlKinshipSegment {
+    fn from(s: oxidgene_core::types::KinshipSegment) -> Self {
+        let ids = |ids: Vec<Uuid>| ids.into_iter().map(|id| ID(id.to_string())).collect();
+        Self {
+            ancestor_ids: ids(s.ancestor_ids),
+            family_id: s.family_id.map(|id| ID(id.to_string())),
+            from_line: ids(s.from_line),
+            to_line: ids(s.to_line),
+            half: s.half,
+            union_family_id: s.union_family_id.map(|id| ID(id.to_string())),
         }
     }
 }

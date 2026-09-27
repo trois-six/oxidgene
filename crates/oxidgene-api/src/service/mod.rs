@@ -8,6 +8,7 @@ pub mod gedcom;
 pub mod geneanet;
 pub mod geneweb;
 pub mod image_bytes;
+pub mod kinship;
 pub mod media;
 pub mod pedigrees;
 pub mod person_detail;

@@ -146,6 +146,7 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 | `POST` | `/trees/{tree_id}/persons/{person_id}/merge` | Merge `{duplicate_id}` into the path's person, which is kept; returns the kept `Person` |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/ancestors` | Get ancestors (depth param) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/descendants` | Get descendants (depth param) |
+| `GET` | `/trees/{tree_id}/persons/{person_id}/kinship/{other_person_id}` | Every way found to go from the person to the other: blood relationships, or the shortest paths through unions (see below) |
 | `POST` | `/trees/{tree_id}/relation-labels` | Load names and spouse links for bounded `person_ids` and `family_ids` sets |
 
 The detail bundle contains the person, their direct parental and conjugal
@@ -182,11 +183,31 @@ they are spouses of the same family, or when one is an ancestor of the other.
 The projections of both persons' relatives are rebuilt in the same transaction,
 and the duplicate's projection and search row are removed.
 
+**Kinship.** `GET …/{person_id}/kinship/{other_person_id}` returns a
+`Kinship`: `from_person_id`, `to_person_id`, `paths`, `truncated`, and
+`persons` — a `SearchEntry` for every person the paths name, the two ends
+first. Each path is a list of `segments`, and each segment climbs to its
+`ancestor_ids` and comes back down: `from_line` and `to_line` list the persons
+from the generation just below the ancestors down to the segment's first and
+last person, and an empty line means that end is the ancestor itself.
+`ancestor_ids` holds one person, or both spouses of the `family_id` both lines
+descend from; `half` marks two lines descending from one ancestor through
+different unions; `union_family_id` names the union joining a segment's first
+person to the previous segment's last (`null` on the first).
+
+Blood relationships are listed when there is at least one, as a single
+segment each: pairs of lines from a common ancestor that share nobody but that
+ancestor, closest first, so pedigree implex yields one path per distinct pair.
+Only when the persons share no ancestor are the shortest paths through unions
+listed, fewest unions first. At most 32 paths are returned, with `truncated`
+set when more exist. Deleted persons and families link nobody. Both persons
+must belong to the tree (`not_found`) and differ (`validation_error`).
+
 Relation-label requests accept at most 1,024 combined person and family IDs.
 Clients split larger logical sets into consecutive requests. Results are
 strictly scoped to active people and families in the requested tree.
 
-Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Modal](ui-person-edit-modal.md) (edit/delete)
+Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Modal](ui-person-edit-modal.md) (edit/delete) · [Kinship](ui-kinship.md)
 
 ### Person Names
 
@@ -780,6 +801,7 @@ type Query {
   personHomonyms(treeId: ID!, personId: ID!): [SearchEntry!]!
   ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   descendants(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
+  kinship(treeId: ID!, personId: ID!, otherPersonId: ID!): Kinship!
   portraits(treeId: ID!): [Portrait!]!
   portraitImages(treeId: ID!, personIds: [ID!]!): [PortraitImage!]!
 

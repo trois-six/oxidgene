@@ -3,6 +3,7 @@
 use crate::profile::invalidation;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use crate::service::duplicates;
+use crate::service::kinship;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -276,6 +277,27 @@ pub async fn get_descendants(
         .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::to_value(descendants).unwrap()))
+}
+
+/// GET /api/v1/trees/:tree_id/persons/:person_id/kinship/:other_person_id
+///
+/// Every way found to go from the person to the other one: their blood
+/// relationships, or the shortest paths through unions when they share no
+/// ancestor.
+pub async fn get_kinship(
+    State(state): State<AppState>,
+    Path((tree_id, person_id, other_person_id)): Path<(Uuid, Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let kinship = kinship::find_kinship(
+        &state.db,
+        &state.profiles,
+        tree_id,
+        person_id,
+        other_person_id,
+    )
+    .await
+    .map_err(ApiError)?;
+    Ok(Json(serde_json::to_value(kinship).unwrap()))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/search?q=...&limit=...&offset=...

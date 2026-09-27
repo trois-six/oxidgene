@@ -20,15 +20,16 @@ use super::types::{
     GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection, GqlGalleryBundle,
     GqlGeneanetArchiveIndex, GqlGeneanetImportResult, GqlGeneanetIndexedArchive,
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
-    GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlMedia, GqlMediaConnection,
-    GqlMediaDownload, GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference,
-    GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
-    GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
-    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion,
-    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchEntry, GqlSearchResult, GqlSource,
-    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlVignette,
-    db_from_ctx, media_from_ctx, profiles_from_ctx, require_local_file_access,
+    GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlKinship, GqlMedia,
+    GqlMediaConnection, GqlMediaDownload, GqlMediaLink, GqlMediaWithLink, GqlNoteConnection,
+    GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson,
+    GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort,
+    GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry,
+    GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchEntry,
+    GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
+    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
+    GqlTreeMediaLink, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
+    require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -1450,6 +1451,29 @@ impl QueryRoot {
         PersonRepo::get_in_tree(db, tid, pid).await?;
         let homonyms = profiles.homonyms(tid, pid).await?;
         Ok(homonyms.into_iter().map(Into::into).collect())
+    }
+
+    /// Every way found to go from a person to another: their blood
+    /// relationships, or the shortest paths through unions when they share
+    /// no ancestor.
+    async fn kinship(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
+        other_person_id: ID,
+    ) -> Result<GqlKinship> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let kinship = crate::service::kinship::find_kinship(
+            db,
+            profiles,
+            Uuid::parse_str(tree_id.as_str())?,
+            Uuid::parse_str(person_id.as_str())?,
+            Uuid::parse_str(other_person_id.as_str())?,
+        )
+        .await?;
+        Ok(kinship.into())
     }
 
     /// Get a windowed pedigree for a root person.

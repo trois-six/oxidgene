@@ -3,14 +3,14 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
 # Visual & Functional Specifications — Genealogy Tree
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Dictionary](ui-dictionary.md) · [Import](ui-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
+> See also: [Person Edit Modal](ui-person-edit-modal.md) · [Person Merge](ui-merge.md) · [Person Profile](ui-person-profile.md) · [Search Results](ui-search-results.md) · [Kinship](ui-kinship.md) · [Dictionary](ui-dictionary.md) · [Import](ui-import.md) · [Homepage](ui-home.md) · [Settings](ui-settings.md) · [Data Model](data-model.md) · [API Contract](api.md)
 
 ---
 
@@ -275,6 +275,7 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | **Add spouse** | Opens a new person form pre-linked as spouse |
 | **Add child** | Opens a new person form pre-linked as child |
 | **Add sibling** | Opens a new person form pre-linked as sibling |
+| **Relationship with…** | Opens the [Kinship](ui-kinship.md) page from this person |
 
 The picker is a compact overlay anchored just below the pencil icon, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.
 
@@ -463,6 +464,7 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Action | Behavior |
 |---|---|
 | Click on a card | New focus + pencil icon + events sidebar updated |
+| Right-click on a card | Opens the same action picker at the pointer |
 | Click on placeholder `+` | Opens add-parent form |
 | Drag on canvas | Free pan |
 | Scroll wheel / pinch | Zoom about the pointer, range 0.3x-4x |

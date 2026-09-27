@@ -15,8 +15,8 @@ use oxidgene_core::projection::{
 };
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
-    FamilySpouse, ImageCrop, ImageSource, Media, Note, Person, PersonName, Place, QualifiedYear,
-    Source, Tree, Vignette,
+    FamilySpouse, ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place,
+    QualifiedYear, Source, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -2217,6 +2217,19 @@ impl ApiClient {
             &format!("/api/v1/trees/{tree_id}/persons/{person_id}/ancestors"),
             &params,
         )
+        .await
+    }
+
+    /// Every way found to go from `person_id` to `other_person_id`.
+    pub async fn get_kinship(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+        other_person_id: Uuid,
+    ) -> Result<Kinship, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/persons/{person_id}/kinship/{other_person_id}"
+        ))
         .await
     }
 
