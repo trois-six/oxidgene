@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -55,6 +55,53 @@ Displayed in: [Homepage](ui-home.md) (tree cards) · [Settings](ui-settings.md) 
 | `deleted_at` | DateTime? | Soft delete |
 
 Displayed in: [Tree View](ui-genealogy-tree.md) (person cards) · [Person Edit Modal](ui-person-edit-modal.md) (edit form)
+
+### PersonDistinct
+
+Two same-named persons the user has confirmed to be different people. Without
+it, a father and a son bearing one name would be offered to each other as
+homonyms after every edit of either.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | FK → Tree (cascade) |
+| `person_id` | UUID v7 | FK → Person (cascade) — the lower ID of the pair |
+| `other_person_id` | UUID v7 | FK → Person (cascade) — the higher ID of the pair |
+| `created_at` | DateTime | Auto |
+
+One row per unordered pair, stored lower ID first, unique on
+`(person_id, other_person_id)`. The confirmation is tree data rather than
+genealogy: it is not exported to GEDCOM, so a duplicated tree starts without
+it.
+
+Homonyms are the persons whose primary surname and primary given names fold
+(lowercase, accents removed) to the same values — the normalized columns of
+`person_search_fts` (§4.3) — less the pairs recorded here. A person missing
+either half of that name has none.
+
+### Person merge
+
+Merging keeps one person and soft-deletes the other, the duplicate, after
+moving everything it carried onto the kept person:
+
+| Data | Rule |
+|---|---|
+| Sex | The kept person's, unless it is `Unknown` and the duplicate's is not |
+| Portrait | The kept person's, unless they have none |
+| Privacy | The kept person's |
+| Names | The kept person's primary name stays primary; the duplicate's names become secondary names after theirs, except a name identical in every piece to one the kept person bears, which is dropped. When the kept person has no name at all, the duplicate's primary stays primary |
+| Events, notes, citations, identification boxes | Re-pointed; nothing is deduplicated, so two births recorded twice stay two events to reconcile by hand |
+| Family links | Re-pointed; a link to a family the kept person is already a spouse (or a child) of is dropped instead of doubled |
+| Witness links | Re-pointed; dropped when the kept person already witnesses that event or the event is now their own |
+| Media links | Re-pointed; dropped when the kept person is already linked to that media |
+| Tree SOSA root and "self" person | Follow the duplicate onto the kept person |
+| Distinct confirmations | The duplicate's move to the kept person — whoever differs from one differs from the other — and the pair joining the two is dropped |
+
+A merge is refused when both are the same person, when they are spouses of the
+same family, or when one is an ancestor of the other: each would leave somebody
+married to, or descended from, themselves. It runs in one transaction with the
+projection refresh of both persons' relatives.
 
 ### PersonName
 
@@ -604,6 +651,7 @@ erDiagram
     Person ||--o{ Citation : "cited by"
     Person ||--o{ MediaLink : "linked media"
     Person ||--o{ Note : "has notes"
+    Person ||--o{ PersonDistinct : "confirmed distinct from"
 
     Family ||--o{ FamilySpouse : "has spouses"
     Family ||--o{ FamilyChild : "has children"

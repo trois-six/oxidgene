@@ -137,6 +137,20 @@ pub struct UpdatePersonRequest {
     pub privacy: Option<Privacy>,
 }
 
+/// Request body for recording that a person differs from their homonyms.
+#[derive(Debug, Deserialize)]
+pub struct MarkPersonsDistinctRequest {
+    /// The persons the path's person is confirmed not to be.
+    pub person_ids: Vec<uuid::Uuid>,
+}
+
+/// Request body for merging a duplicate into the path's person.
+#[derive(Debug, Deserialize)]
+pub struct MergePersonRequest {
+    /// The record absorbed and soft-deleted; the path's person is kept.
+    pub duplicate_id: uuid::Uuid,
+}
+
 // ── PersonName DTOs ──────────────────────────────────────────────────
 
 /// Request body for creating a person name.

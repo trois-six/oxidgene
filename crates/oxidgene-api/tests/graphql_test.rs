@@ -1454,6 +1454,287 @@ async fn test_family_with_members() {
     assert_eq!(data(&resp)["removeSpouse"], true);
 }
 
+// ── Homonyms and merging ─────────────────────────────────────────────
+
+async fn gql_tree(app: &axum::Router) -> String {
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Homonyms" }) { id } }"#,
+        None,
+    )
+    .await;
+    data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Create a person with a primary birth name; returns their ID.
+async fn gql_named_person(
+    app: &axum::Router,
+    tree_id: &str,
+    sex: &str,
+    given_names: &str,
+    surname: &str,
+) -> String {
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: {sex} }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let person_id = data(&resp)["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $person: ID!, $given: String!, $surname: String!) {
+            addPersonName(treeId: $tree, personId: $person, input: {
+                nameType: BIRTH, givenNames: $given, surname: $surname, isPrimary: true
+            }) { id }
+        }"#,
+        Some(json!({
+            "tree": tree_id, "person": person_id, "given": given_names, "surname": surname
+        })),
+    )
+    .await;
+    data(&resp);
+    person_id
+}
+
+/// Create a family and link its members; returns the family ID.
+async fn gql_family(
+    app: &axum::Router,
+    tree_id: &str,
+    spouses: &[(&str, &str)],
+    children: &[&str],
+) -> String {
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"mutation {{ createFamily(treeId: "{tree_id}") {{ id }} }}"#),
+        None,
+    )
+    .await;
+    let family_id = data(&resp)["createFamily"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (person_id, role) in spouses {
+        let resp = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ addSpouse(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{person_id}", role: {role} }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        data(&resp);
+    }
+    for person_id in children {
+        let resp = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ addChild(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{person_id}", childType: BIOLOGICAL }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        data(&resp);
+    }
+    family_id
+}
+
+async fn gql_homonym_ids(app: &axum::Router, tree_id: &str, person_id: &str) -> Vec<String> {
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personHomonyms(treeId: "{tree_id}", personId: "{person_id}") {{ personId surname givenNames }} }}"#
+        ),
+        None,
+    )
+    .await;
+    data(&resp)["personHomonyms"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["personId"].as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn gql_mark_distinct(
+    app: &axum::Router,
+    tree_id: &str,
+    person_id: &str,
+    others: &[&str],
+) -> Value {
+    graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $person: ID!, $others: [ID!]!) {
+            markPersonsDistinct(treeId: $tree, personId: $person, otherPersonIds: $others)
+        }"#,
+        Some(json!({ "tree": tree_id, "person": person_id, "others": others })),
+    )
+    .await
+}
+
+async fn gql_merge(app: &axum::Router, tree_id: &str, kept: &str, duplicate: &str) -> Value {
+    graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $kept: ID!, $duplicate: ID!) {
+            mergePersons(treeId: $tree, personId: $kept, duplicateId: $duplicate) { id sex }
+        }"#,
+        Some(json!({ "tree": tree_id, "kept": kept, "duplicate": duplicate })),
+    )
+    .await
+}
+
+fn error_code(resp: &Value) -> &Value {
+    &resp["errors"][0]["extensions"]["code"]
+}
+
+#[tokio::test]
+async fn graphql_homonyms_are_listed_until_confirmed_distinct() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let first = gql_named_person(&app, &tree_id, "FEMALE", "Élise", "Sample").await;
+    let second = gql_named_person(&app, &tree_id, "FEMALE", "elise", "SAMPLE").await;
+    gql_named_person(&app, &tree_id, "FEMALE", "Élise", "Other").await;
+
+    assert_eq!(
+        gql_homonym_ids(&app, &tree_id, &first).await,
+        vec![second.clone()]
+    );
+    assert_eq!(
+        gql_homonym_ids(&app, &tree_id, &second).await,
+        vec![first.clone()]
+    );
+
+    for _ in 0..2 {
+        let resp = gql_mark_distinct(&app, &tree_id, &first, &[&second]).await;
+        assert_eq!(data(&resp)["markPersonsDistinct"], true);
+    }
+    assert!(gql_homonym_ids(&app, &tree_id, &first).await.is_empty());
+    assert!(gql_homonym_ids(&app, &tree_id, &second).await.is_empty());
+
+    let resp = gql_mark_distinct(&app, &tree_id, &first, &[&first]).await;
+    assert_eq!(error_code(&resp), "VALIDATION_ERROR");
+
+    let other_tree_id = gql_tree(&app).await;
+    let stranger = gql_named_person(&app, &other_tree_id, "FEMALE", "Élise", "Sample").await;
+    let resp = gql_mark_distinct(&app, &tree_id, &first, &[&stranger]).await;
+    assert_eq!(error_code(&resp), "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn graphql_merge_moves_the_duplicate_onto_the_kept_person() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let kept = gql_named_person(&app, &tree_id, "FEMALE", "Élise", "Sample").await;
+    let duplicate = gql_named_person(&app, &tree_id, "UNKNOWN", "Élise", "Sample").await;
+    let parent = gql_named_person(&app, &tree_id, "MALE", "Parent", "Sample").await;
+    let partner = gql_named_person(&app, &tree_id, "MALE", "Partner", "Spouse").await;
+    let parents = gql_family(
+        &app,
+        &tree_id,
+        &[(&parent, "HUSBAND")],
+        &[&kept, &duplicate],
+    )
+    .await;
+    let union = gql_family(
+        &app,
+        &tree_id,
+        &[(&partner, "HUSBAND"), (&duplicate, "WIFE")],
+        &[],
+    )
+    .await;
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: OCCUPATION, personId: "{duplicate}", description: "Weaver" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    data(&resp);
+
+    let resp = gql_merge(&app, &tree_id, &kept, &duplicate).await;
+    let merged = &data(&resp)["mergePersons"];
+    assert_eq!(merged["id"], kept.as_str());
+    assert_eq!(merged["sex"], "FEMALE");
+
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"{{ person(treeId: "{tree_id}", id: "{duplicate}") {{ id }} }}"#),
+        None,
+    )
+    .await;
+    assert!(data(&resp)["person"].is_null());
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{kept}") {{
+                otherNames {{ surname }}
+                occupation
+                familyAsChild {{ familyId }}
+                familiesAsSpouse {{ familyId spouseId }}
+            }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let profile = &data(&resp)["personProfile"];
+    assert!(profile["otherNames"].as_array().unwrap().is_empty());
+    assert_eq!(profile["occupation"], "Weaver");
+    assert_eq!(profile["familyAsChild"]["familyId"], parents.as_str());
+    assert_eq!(profile["familiesAsSpouse"][0]["familyId"], union.as_str());
+    assert_eq!(profile["familiesAsSpouse"][0]["spouseId"], partner.as_str());
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ personProfile(treeId: "{tree_id}", personId: "{parent}") {{ familiesAsSpouse {{ childrenIds }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(
+        data(&resp)["personProfile"]["familiesAsSpouse"][0]["childrenIds"],
+        json!([kept])
+    );
+    assert!(gql_homonym_ids(&app, &tree_id, &kept).await.is_empty());
+}
+
+#[tokio::test]
+async fn graphql_merge_refuses_spouses_ancestors_and_the_same_person() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let husband = gql_named_person(&app, &tree_id, "MALE", "Sam", "Sample").await;
+    let wife = gql_named_person(&app, &tree_id, "FEMALE", "Sam", "Sample").await;
+    let child = gql_named_person(&app, &tree_id, "MALE", "Sam", "Sample").await;
+    gql_family(
+        &app,
+        &tree_id,
+        &[(&husband, "HUSBAND"), (&wife, "WIFE")],
+        &[&child],
+    )
+    .await;
+
+    for (kept, duplicate) in [
+        (&husband, &wife),
+        (&husband, &child),
+        (&child, &wife),
+        (&husband, &husband),
+    ] {
+        let resp = gql_merge(&app, &tree_id, kept, duplicate).await;
+        assert_eq!(error_code(&resp), "VALIDATION_ERROR", "{resp}");
+    }
+    assert_eq!(gql_homonym_ids(&app, &tree_id, &husband).await.len(), 2);
+}
+
 // ── Event with place resolution ──────────────────────────────────────
 
 #[tokio::test]

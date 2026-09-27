@@ -109,6 +109,18 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(person::delete_person),
         )
         .route(
+            "/{tree_id}/persons/{person_id}/homonyms",
+            get(person::list_homonyms),
+        )
+        .route(
+            "/{tree_id}/persons/{person_id}/distinct",
+            post(person::mark_persons_distinct),
+        )
+        .route(
+            "/{tree_id}/persons/{person_id}/merge",
+            post(person::merge_persons),
+        )
+        .route(
             "/{tree_id}/persons/{person_id}/ancestors",
             get(person::get_ancestors),
         )

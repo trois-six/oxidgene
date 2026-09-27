@@ -1220,6 +1220,307 @@ async fn test_family_child_add_remove() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
 
+// ───────────────────────── Homonym tests ─────────────────────────
+
+/// Helper: create a family and link its members; returns the family ID.
+async fn create_family_via_api(
+    app: &axum::Router,
+    tree_id: &str,
+    spouses: &[(&str, &str)],
+    children: &[&str],
+) -> String {
+    let (_, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/families"),
+        None,
+    )
+    .await;
+    let family_id = body["id"].as_str().unwrap().to_string();
+    for (person_id, role) in spouses {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
+            Some(serde_json::json!({ "person_id": person_id, "role": role, "sort_order": 0 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    for person_id in children {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/families/{family_id}/children"),
+            Some(serde_json::json!({
+                "person_id": person_id,
+                "child_type": "biological",
+                "sort_order": 0
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    family_id
+}
+
+async fn homonym_ids(app: &axum::Router, tree_id: &str, person_id: &str) -> Vec<String> {
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/homonyms"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "homonyms: {body}");
+    body.as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["person_id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Case and accents do not make two names different; a different surname
+/// does. Confirming two persons distinct takes each off the other's list.
+#[tokio::test]
+async fn homonyms_are_listed_until_confirmed_distinct() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let first = create_named_person_via_api(&app, &tree_id, "female", "Élise", "Sample").await;
+    let second = create_named_person_via_api(&app, &tree_id, "female", "elise", "SAMPLE").await;
+    create_named_person_via_api(&app, &tree_id, "female", "Élise", "Other").await;
+
+    assert_eq!(
+        homonym_ids(&app, &tree_id, &first).await,
+        vec![second.clone()]
+    );
+    assert_eq!(
+        homonym_ids(&app, &tree_id, &second).await,
+        vec![first.clone()]
+    );
+
+    for _ in 0..2 {
+        // Answering twice records one pair and changes nothing.
+        let (status, body) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
+            Some(serde_json::json!({ "person_ids": [second] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "distinct: {body}");
+    }
+    assert!(homonym_ids(&app, &tree_id, &first).await.is_empty());
+    assert!(homonym_ids(&app, &tree_id, &second).await.is_empty());
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
+        Some(serde_json::json!({ "person_ids": [first] })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "nobody differs from themselves"
+    );
+
+    let other_tree_id = create_tree_via_api(&app).await;
+    let stranger =
+        create_named_person_via_api(&app, &other_tree_id, "female", "Élise", "Sample").await;
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
+        Some(serde_json::json!({ "person_ids": [stranger] })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "another tree's person is not found"
+    );
+}
+
+/// Everything the duplicate carried lands on the kept person, links that
+/// would double are not doubled, and the relatives' projections follow.
+#[tokio::test]
+async fn merging_moves_the_duplicate_onto_the_kept_person() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let kept = create_named_person_via_api(&app, &tree_id, "female", "Élise", "Sample").await;
+    let (_, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        Some(serde_json::json!({ "sex": "unknown" })),
+    )
+    .await;
+    let duplicate = body["id"].as_str().unwrap().to_string();
+    for (name_type, surname, primary) in [("birth", "Sample", true), ("married", "Spouse", false)] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/persons/{duplicate}/names"),
+            Some(serde_json::json!({
+                "name_type": name_type,
+                "given_names": "Élise",
+                "surname": surname,
+                "is_primary": primary
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    let parent = create_named_person_via_api(&app, &tree_id, "male", "Parent", "Sample").await;
+    let partner = create_named_person_via_api(&app, &tree_id, "male", "Partner", "Spouse").await;
+    let child = create_named_person_via_api(&app, &tree_id, "male", "Child", "Spouse").await;
+    // Both records are the parent's child: after the merge, once.
+    let parents = create_family_via_api(
+        &app,
+        &tree_id,
+        &[(&parent, "husband")],
+        &[&kept, &duplicate],
+    )
+    .await;
+    let union = create_family_via_api(
+        &app,
+        &tree_id,
+        &[(&partner, "husband"), (&duplicate, "wife")],
+        &[&child],
+    )
+    .await;
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({
+            "event_type": "occupation",
+            "person_id": duplicate,
+            "description": "Weaver"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(serde_json::json!({ "text": "A note", "person_id": duplicate })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        homonym_ids(&app, &tree_id, &kept).await,
+        vec![duplicate.clone()]
+    );
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
+        Some(serde_json::json!({ "duplicate_id": duplicate })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "merge: {body}");
+    assert_eq!(body["id"], kept.as_str());
+    assert_eq!(body["sex"], "female", "the kept person's sex wins");
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{duplicate}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (_, profile) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{kept}"),
+        None,
+    )
+    .await;
+    assert_eq!(profile["primary_name"]["surname"], "Sample");
+    let other_names = profile["other_names"].as_array().unwrap();
+    assert_eq!(
+        other_names.len(),
+        1,
+        "the identical birth name is not doubled"
+    );
+    assert_eq!(other_names[0]["surname"], "Spouse");
+    assert_eq!(profile["occupation"], "Weaver");
+    assert_eq!(profile["note_count"], 1);
+    assert_eq!(profile["family_as_child"]["family_id"], parents.as_str());
+    let unions = profile["families_as_spouse"].as_array().unwrap();
+    assert_eq!(unions.len(), 1);
+    assert_eq!(unions[0]["family_id"], union.as_str());
+    assert_eq!(unions[0]["spouse_id"], partner.as_str());
+    assert_eq!(unions[0]["children_ids"], serde_json::json!([child]));
+
+    let (_, parent_profile) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{parent}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        parent_profile["families_as_spouse"][0]["children_ids"],
+        serde_json::json!([kept]),
+        "the parent's projection no longer counts the duplicate"
+    );
+    let (_, partner_profile) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{partner}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        partner_profile["families_as_spouse"][0]["spouse_id"],
+        kept.as_str()
+    );
+    assert!(homonym_ids(&app, &tree_id, &kept).await.is_empty());
+}
+
+/// A merge that would marry somebody to themselves or make them their own
+/// ancestor is refused, and so is merging a person with themselves.
+#[tokio::test]
+async fn merging_refuses_spouses_ancestors_and_the_same_person() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let husband = create_named_person_via_api(&app, &tree_id, "male", "Sam", "Sample").await;
+    let wife = create_named_person_via_api(&app, &tree_id, "female", "Sam", "Sample").await;
+    let child = create_named_person_via_api(&app, &tree_id, "male", "Sam", "Sample").await;
+    create_family_via_api(
+        &app,
+        &tree_id,
+        &[(&husband, "husband"), (&wife, "wife")],
+        &[&child],
+    )
+    .await;
+
+    for (kept, duplicate) in [
+        (&husband, &wife),
+        (&husband, &child),
+        (&child, &wife),
+        (&husband, &husband),
+    ] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
+            Some(serde_json::json!({ "duplicate_id": duplicate })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(homonym_ids(&app, &tree_id, &husband).await.len(), 2);
+}
+
 // ───────────────────────── Ancestry tests ─────────────────────────
 
 #[tokio::test]

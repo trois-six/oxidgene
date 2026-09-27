@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
 description: "Three-step wizard to select a duplicate person, compare both records side by side, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-08-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -196,13 +196,21 @@ A preview of the merged result, shown as a read-only person profile card.
 
 On confirmation:
 
-1. **Person A** (source) is updated with the chosen field values
-2. All kept events, media, notes, and citations from Person B are re-linked to Person A
-3. All family links from Person B are transferred to Person A (FamilySpouse, FamilyChild)
-4. **Person B** is soft-deleted
-5. Ancestor/descendant traversal needs no maintenance — it reads the family links directly
-6. The modal closes
-7. The tree view refreshes, centered on the merged person (Person A)
+1. Values chosen from Person B are written onto **Person A** (source) with the
+   ordinary person, name, and event operations, and discarded items are
+   deleted.
+2. The merge operation — `POST /trees/{tree_id}/persons/{A}/merge` with
+   `{duplicate_id: B}`, or `mergePersons` ([API Contract](api.md)) — moves
+   everything else Person B carried onto Person A and soft-deletes Person B,
+   following [Data Model — Person merge](data-model.md#person-merge): names,
+   events, family links, witness and media links, notes, citations,
+   identification boxes, the tree roots, and the distinct-person
+   confirmations.
+3. Ancestor/descendant traversal needs no maintenance — it reads the family
+   links directly — and the projections of both persons' relatives are
+   rebuilt in the same transaction.
+4. The modal closes.
+5. The tree view refreshes, centered on the merged person (Person A).
 
 ---
 
@@ -210,10 +218,10 @@ On confirmation:
 
 | Case | Behavior |
 |---|---|
-| Both persons are in the same family | The merge proceeds; duplicate family links are deduplicated automatically |
+| Both persons are children of the same family | The merge proceeds; the family keeps one child link |
 | Person B is the current tree root (SOSA 1) | Warning: "This person is the tree root. After merge, Person A will become the new root." |
 | Person B has unions that Person A doesn't | All unions are transferred to Person A |
-| Merging would create an invalid relationship (e.g. person becomes their own parent) | The merge is blocked with an error message explaining the conflict |
+| The two persons are spouses of the same family, or one is the other's ancestor | The merge is refused: it would leave a person married to, or descended from, themselves |
 
 ---
 

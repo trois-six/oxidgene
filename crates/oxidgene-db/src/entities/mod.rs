@@ -13,6 +13,7 @@ pub mod media_tag;
 pub mod note;
 pub mod person;
 pub mod person_denorm;
+pub mod person_distinct;
 pub mod person_name;
 pub mod place;
 pub mod sea_enums;

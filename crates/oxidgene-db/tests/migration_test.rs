@@ -25,6 +25,7 @@ const TABLES: &[&str] = &[
     "background_job",
     "person_search_fts",
     "person_denorm",
+    "person_distinct",
 ];
 
 #[tokio::test]
@@ -100,6 +101,7 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "m20260918_000001_search_relatives",
             "m20260926_000001_drop_redundant_indexes",
             "m20260927_000001_file_couple_media",
+            "m20260927_000002_person_distinct",
         ]
     );
 
@@ -137,6 +139,10 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "person_id, tree_id, payload, schema_version, updated_at",
         ),
         (
+            "person_distinct",
+            "id, tree_id, person_id, other_person_id, created_at",
+        ),
+        (
             "person_search_fts",
             "person_id, tree_id, surname, given_names, maiden_name, birth_year, death_year, birth_qualifier, death_qualifier, sex, display_name, surname_display, given_names_display, birth_place, date_sort, spouse_names, spouse_surnames, spouse_given_names, father_name, father_surname, father_given_names, mother_name, mother_surname, mother_given_names, children_count",
         ),
@@ -160,6 +166,8 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         ("note", "idx_note_media_id"),
         ("family_child", "idx_family_child_person_id"),
         ("family_spouse", "idx_family_spouse_person_id"),
+        ("person_distinct", "idx_person_distinct_pair"),
+        ("person_distinct", "idx_person_distinct_other_person_id"),
     ] {
         assert!(
             manager.has_index(table, index).await.unwrap(),

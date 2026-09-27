@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -141,6 +141,9 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 | `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}` | Update a person |
 | `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Soft-delete a person |
+| `GET` | `/trees/{tree_id}/persons/{person_id}/homonyms` | List the other persons bearing the same name, as `SearchEntry` rows (see below) |
+| `POST` | `/trees/{tree_id}/persons/{person_id}/distinct` | Record that the person differs from `{person_ids}`; `204` |
+| `POST` | `/trees/{tree_id}/persons/{person_id}/merge` | Merge `{duplicate_id}` into the path's person, which is kept; returns the kept `Person` |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/ancestors` | Get ancestors (depth param) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/descendants` | Get descendants (depth param) |
 | `POST` | `/trees/{tree_id}/relation-labels` | Load names and spouse links for bounded `person_ids` and `family_ids` sets |
@@ -161,6 +164,23 @@ attached to the person directly. A media attached both ways appears once, as
 the person's own. The [Couple Profile](ui-couple-profile.md) relies on it to
 show a spouse's own media in their column and the couple's media once, across
 both.
+
+**Homonyms.** Two persons are homonyms when their primary surnames and their
+primary given names are equal once folded (lowercase, accents removed) — the
+normalized columns of the search projection. A person missing either half has
+none. The list is ordered by birth date, then display name, holds at most 100
+rows, and leaves out every person already confirmed distinct. Confirmations
+are symmetric pairs, recording one twice is a no-op, and a request naming the
+person themselves, no one, more than 100 persons, or a person of another tree
+is rejected (`validation_error`, `not_found`).
+
+**Merge.** `POST …/{person_id}/merge` keeps `person_id` and soft-deletes
+`duplicate_id` after moving everything the duplicate carried onto the kept
+person, following the rules of [Data Model §1 Person merge](data-model.md#person-merge).
+It is refused with `validation_error` when both IDs are the same person, when
+they are spouses of the same family, or when one is an ancestor of the other.
+The projections of both persons' relatives are rebuilt in the same transaction,
+and the duplicate's projection and search row are removed.
 
 Relation-label requests accept at most 1,024 combined person and family IDs.
 Clients split larger logical sets into consecutive requests. Results are
@@ -725,6 +745,7 @@ type Query {
   personDetailBundle(treeId: ID!, personId: ID!): PersonDetailBundle!
   relationLabels(treeId: ID!, personIds: [ID!]!, familyIds: [ID!]!): RelationLabels!
   personBySosa(treeId: ID!, number: Int!): Person
+  personHomonyms(treeId: ID!, personId: ID!): [SearchEntry!]!
   ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   descendants(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   portraits(treeId: ID!): [Portrait!]!
@@ -862,6 +883,8 @@ type Mutation {
   createPerson(treeId: ID!, input: CreatePersonInput!): Person!
   updatePerson(treeId: ID!, id: ID!, input: UpdatePersonInput!): Person!
   deletePerson(treeId: ID!, id: ID!): Boolean!
+  markPersonsDistinct(treeId: ID!, personId: ID!, otherPersonIds: [ID!]!): Boolean!
+  mergePersons(treeId: ID!, personId: ID!, duplicateId: ID!): Person!
 
   # Person Names
   addPersonName(treeId: ID!, personId: ID!, input: PersonNameInput!): PersonName!

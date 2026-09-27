@@ -2,7 +2,7 @@
 
 use crate::profile::invalidation;
 use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
-use crate::service::event_date;
+use crate::service::{duplicates, event_date};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use uuid::Uuid;
@@ -242,6 +242,48 @@ impl MutationRoot {
             .await?;
         commit_tx(txn).await?;
         Ok(true)
+    }
+
+    /// Record that a person differs from each of `otherPersonIds`, so those
+    /// pairs stop being offered as homonyms.
+    async fn mark_persons_distinct(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
+        other_person_ids: Vec<ID>,
+    ) -> Result<bool> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let pid = Uuid::parse_str(person_id.as_str())?;
+        let others = other_person_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id.as_str()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let txn = begin_tx(db).await?;
+        duplicates::mark_distinct(&txn, tid, pid, &others).await?;
+        commit_tx(txn).await?;
+        Ok(true)
+    }
+
+    /// Merge `duplicateId` into `personId`, which is kept; the duplicate is
+    /// soft-deleted. Returns the kept person.
+    async fn merge_persons(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
+        duplicate_id: ID,
+    ) -> Result<GqlPerson> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let kept = Uuid::parse_str(person_id.as_str())?;
+        let duplicate = Uuid::parse_str(duplicate_id.as_str())?;
+        let txn = begin_tx(db).await?;
+        let person = duplicates::merge_persons(&txn, profiles, tid, kept, duplicate).await?;
+        commit_tx(txn).await?;
+        Ok(person.into())
     }
 
     // ── PersonName Mutations ─────────────────────────────────────────

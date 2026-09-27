@@ -25,10 +25,10 @@ use super::types::{
     GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
     GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
     GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
-    GqlPortraitImage, GqlRelationLabels, GqlSearchResult, GqlSource, GqlSourceConnection,
-    GqlSourceDictionaryDrill, GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree,
-    GqlTreeConnection, GqlTreeMediaLink, GqlVignette, db_from_ctx, media_from_ctx,
-    profiles_from_ctx, require_local_file_access,
+    GqlPortraitImage, GqlRelationLabels, GqlSearchEntry, GqlSearchResult, GqlSource,
+    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
+    GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlVignette,
+    db_from_ctx, media_from_ctx, profiles_from_ctx, require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -1403,6 +1403,23 @@ impl QueryRoot {
             )
             .await?;
         Ok(result.into())
+    }
+
+    /// The other persons of the tree bearing the same folded primary surname
+    /// and given names, less those already confirmed to be somebody else.
+    async fn person_homonyms(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        person_id: ID,
+    ) -> Result<Vec<GqlSearchEntry>> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let pid = Uuid::parse_str(person_id.as_str())?;
+        PersonRepo::get_in_tree(db, tid, pid).await?;
+        let homonyms = profiles.homonyms(tid, pid).await?;
+        Ok(homonyms.into_iter().map(Into::into).collect())
     }
 
     /// Get a windowed pedigree for a root person.

@@ -2,6 +2,7 @@
 
 use crate::profile::invalidation;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
+use crate::service::duplicates;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -15,8 +16,9 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use super::dto::{
-    AncestryQuery, CreatePersonRequest, PaginationQuery, PersonDetailResponse, PersonSearchQuery,
-    PortraitImagesRequest, UpdatePersonRequest,
+    AncestryQuery, CreatePersonRequest, MarkPersonsDistinctRequest, MergePersonRequest,
+    PaginationQuery, PersonDetailResponse, PersonSearchQuery, PortraitImagesRequest,
+    UpdatePersonRequest,
 };
 use super::error::ApiError;
 use super::state::{AppState, begin_tx, commit_tx};
@@ -189,6 +191,61 @@ pub async fn delete_person(
         .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// GET /api/v1/trees/:tree_id/persons/:person_id/homonyms
+///
+/// The other persons of the tree bearing the same folded primary surname and
+/// given names, as search entries, less those already confirmed to be
+/// somebody else.
+pub async fn list_homonyms(
+    State(state): State<AppState>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    PersonRepo::get_in_tree(&state.db, tree_id, person_id)
+        .await
+        .map_err(ApiError::from)?;
+    let homonyms = state
+        .profiles
+        .homonyms(tree_id, person_id)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(serde_json::to_value(homonyms).unwrap()))
+}
+
+/// POST /api/v1/trees/:tree_id/persons/:person_id/distinct
+///
+/// Record that the person differs from each of `person_ids`, so those pairs
+/// stop being offered as homonyms.
+pub async fn mark_persons_distinct(
+    State(state): State<AppState>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<MarkPersonsDistinctRequest>,
+) -> Result<StatusCode, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    duplicates::mark_distinct(&txn, tree_id, person_id, &body.person_ids)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// POST /api/v1/trees/:tree_id/persons/:person_id/merge
+///
+/// Merge `duplicate_id` into the path's person, which is kept; the duplicate
+/// is soft-deleted. Returns the kept person.
+pub async fn merge_persons(
+    State(state): State<AppState>,
+    Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<MergePersonRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let person =
+        duplicates::merge_persons(&txn, &state.profiles, tree_id, person_id, body.duplicate_id)
+            .await
+            .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
+    Ok(Json(serde_json::to_value(person).unwrap()))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/:person_id/ancestors

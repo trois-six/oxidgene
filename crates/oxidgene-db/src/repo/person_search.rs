@@ -360,6 +360,91 @@ impl PersonSearchRepo {
         })
     }
 
+    /// Other persons of the tree bearing the same name as `person_id`.
+    ///
+    /// Same name means the same primary surname *and* the same primary given
+    /// names once folded (lowercase, accents removed) — what the search row
+    /// already stores. A person missing either half has no homonym: half a
+    /// name says too little to ask whether two records are one individual.
+    /// Ordered by birth, then name, so the likeliest candidates of a long list
+    /// come first.
+    pub async fn homonyms(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_id: Uuid,
+        limit: u64,
+    ) -> Result<Vec<PersonSearchEntry>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let mut values = Vec::new();
+        let subject = format!(
+            "SELECT surname, given_names FROM person_search_fts WHERE person_id = {}",
+            push_value(&mut values, backend, person_id.to_string().into())
+        );
+        let Some(row) = db
+            .query_one_raw(Statement::from_sql_and_values(backend, subject, values))
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+        else {
+            return Ok(Vec::new());
+        };
+        let surname: String = row
+            .try_get("", "surname")
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let given_names: String = row
+            .try_get("", "given_names")
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        if surname.trim().is_empty() || given_names.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut values = Vec::new();
+        let mut conditions = vec![
+            format!(
+                "tree_id = {}",
+                push_value(&mut values, backend, tree_id.to_string().into())
+            ),
+            format!(
+                "person_id <> {}",
+                push_value(&mut values, backend, person_id.to_string().into())
+            ),
+            format!(
+                "surname = {}",
+                push_value(&mut values, backend, surname.clone().into())
+            ),
+            format!(
+                "given_names = {}",
+                push_value(&mut values, backend, given_names.clone().into())
+            ),
+        ];
+        // The equalities decide; on SQLite a `MATCH` on the same words lets
+        // the full-text index find the candidates instead of a table scan.
+        if backend == DbBackend::Sqlite {
+            let match_expr = surname
+                .split_whitespace()
+                .chain(given_names.split_whitespace())
+                .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(" ");
+            conditions.push(format!(
+                "person_search_fts MATCH {}",
+                push_value(&mut values, backend, match_expr.into())
+            ));
+        }
+        let limit_param = push_value(&mut values, backend, (limit as i64).into());
+        let sql = format!(
+            "SELECT {COLUMNS} FROM person_search_fts WHERE {} \
+             ORDER BY date_sort IS NULL, date_sort, display_name LIMIT {limit_param}",
+            conditions.join(" AND ")
+        );
+
+        db.query_all_raw(Statement::from_sql_and_values(backend, sql, values))
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .iter()
+            .map(Self::row_to_entry)
+            .collect()
+    }
+
     // ── Statement builders ──────────────────────────────────────────────
 
     #[allow(clippy::too_many_arguments)]

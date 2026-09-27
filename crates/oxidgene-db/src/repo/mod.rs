@@ -24,6 +24,8 @@ mod pagination;
 mod person;
 
 mod person_denorm;
+mod person_distinct;
+mod person_merge;
 mod person_name;
 mod person_search;
 mod place;
@@ -54,6 +56,8 @@ pub use pagination::PaginationParams;
 pub use person::{PersonRepo, PortraitRow};
 
 pub use person_denorm::PersonDenormRepo;
+pub use person_distinct::PersonDistinctRepo;
+pub use person_merge::PersonMergeRepo;
 pub use person_name::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};
 pub use person_search::{
     PersonSearchEntry, PersonSearchFilters, PersonSearchPage, PersonSearchRepo, PersonSearchSort,

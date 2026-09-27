@@ -15,12 +15,12 @@ use std::collections::{HashMap, HashSet};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::projection::{
     Pedigree, PedigreeDelta, PedigreeDirection, PedigreeEdge, PedigreeFamily, PedigreeFamilyMember,
-    PedigreeNode, PersonProfile, SearchResult,
+    PedigreeNode, PersonProfile, SearchEntry, SearchResult,
 };
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonNameRepo, PersonRepo,
-    PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo, VignetteRepo,
+    MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo, PersonNameRepo,
+    PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo, VignetteRepo,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use tracing::{debug, info, instrument};
@@ -364,6 +364,30 @@ impl ProfileService {
             entries: page.entries.into_iter().map(search_entry_from_db).collect(),
             total_count: page.total_count as usize,
         })
+    }
+
+    /// Other persons of the tree bearing the same name as `person_id`, less
+    /// those already confirmed to be somebody else.
+    ///
+    /// "The same name" is the folded primary surname and given names, see
+    /// [`PersonSearchRepo::homonyms`]. At most [`SEARCH_MAX_LIMIT`] are read,
+    /// before the confirmed ones are set aside.
+    #[instrument(skip_all)]
+    pub async fn homonyms(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<Vec<SearchEntry>, OxidGeneError> {
+        let conn = &self.db;
+        self.ensure_materialized(conn, tree_id).await?;
+        let distinct = PersonDistinctRepo::distinct_from(conn, person_id).await?;
+        let rows =
+            PersonSearchRepo::homonyms(conn, tree_id, person_id, SEARCH_MAX_LIMIT as u64).await?;
+        Ok(rows
+            .into_iter()
+            .filter(|row| !distinct.contains(&row.person_id))
+            .map(search_entry_from_db)
+            .collect())
     }
 
     // ── Invalidation ─────────────────────────────────────────────────────

@@ -10,9 +10,9 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventFilter,
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo,
-    NewBackgroundJob, NoteRepo, PaginationParams, PersonNamePieces, PersonNamePiecesPatch,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia,
-    UploadedMediaMetadata, connect, run_migrations,
+    NewBackgroundJob, NoteRepo, PaginationParams, PersonDistinctRepo, PersonMergeRepo,
+    PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
+    TreeRepo, UploadedMedia, UploadedMediaMetadata, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
 use std::sync::{Arc, Mutex};
@@ -1064,6 +1064,158 @@ async fn create_document_with_page(
         .await
         .unwrap();
     (document_id, page_id)
+}
+
+async fn create_event(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    event_type: EventType,
+    person_id: Uuid,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    EventRepo::create(
+        db,
+        id,
+        tree_id,
+        event_type,
+        None,
+        None,
+        None,
+        Some(person_id),
+        None,
+        None,
+        DateQualifier::Exact,
+        None,
+        Calendar::Gregorian,
+        None,
+    )
+    .await
+    .unwrap();
+    id
+}
+
+/// What the endpoint tests cannot see: shared media and witness rows are not
+/// doubled, a portrait and a known sex fill the gaps of the kept person, the
+/// tree's roots follow, and so does whoever the duplicate was known to differ
+/// from.
+#[tokio::test]
+async fn merging_re_points_what_the_duplicate_carried() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let kept = Uuid::now_v7();
+    PersonRepo::create(&db, kept, tree_id, Sex::Unknown)
+        .await
+        .unwrap();
+    let duplicate = Uuid::now_v7();
+    PersonRepo::create(&db, duplicate, tree_id, Sex::Female)
+        .await
+        .unwrap();
+    let neighbour = create_person(&db, tree_id).await;
+    let stranger = create_person(&db, tree_id).await;
+
+    // One photograph both records are linked to, one only the duplicate is,
+    // and the latter is the duplicate's portrait.
+    let (shared, _) = create_document_with_page(&db, tree_id, "shared.jpg", None).await;
+    let (own, _) = create_document_with_page(&db, tree_id, "own.jpg", None).await;
+    for (media_id, person_id) in [(shared, kept), (shared, duplicate), (own, duplicate)] {
+        MediaLinkRepo::create(
+            &db,
+            Uuid::now_v7(),
+            media_id,
+            Some(person_id),
+            None,
+            None,
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+    }
+    PersonRepo::set_portrait(&db, duplicate, oxidgene_core::types::Portrait::Media(own))
+        .await
+        .unwrap();
+
+    // The neighbour's christening is witnessed by both records; the kept
+    // person's birth by the duplicate, which the merge would make a witness
+    // of their own birth.
+    let christening = create_event(&db, tree_id, EventType::Christening, neighbour).await;
+    let birth = create_event(&db, tree_id, EventType::Birth, kept).await;
+    for (event_id, person_id) in [
+        (christening, kept),
+        (christening, duplicate),
+        (birth, duplicate),
+    ] {
+        oxidgene_db::repo::EventWitnessRepo::create(
+            &db,
+            Uuid::now_v7(),
+            event_id,
+            person_id,
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+    }
+
+    TreeRepo::update(
+        &db,
+        tree_id,
+        None,
+        None,
+        Some(Some(duplicate)),
+        Some(Some(duplicate)),
+        None,
+    )
+    .await
+    .unwrap();
+    PersonDistinctRepo::mark(&db, tree_id, duplicate, &[stranger, kept])
+        .await
+        .unwrap();
+
+    PersonMergeRepo::absorb(&db, tree_id, kept, duplicate)
+        .await
+        .unwrap();
+
+    let person = PersonRepo::get(&db, kept).await.unwrap();
+    assert_eq!(person.sex, Sex::Female, "a known sex fills an unknown one");
+    assert_eq!(person.portrait_media_id, Some(own));
+    assert_eq!(person.portrait_vignette_id, None);
+
+    let links = MediaLinkRepo::list_by_persons(&db, &[kept, duplicate])
+        .await
+        .unwrap();
+    assert_eq!(links.len(), 2, "the shared photograph is linked once");
+    assert!(links.iter().all(|link| link.person_id == Some(kept)));
+
+    let witnesses = oxidgene_db::repo::EventWitnessRepo::list_by_event(&db, christening)
+        .await
+        .unwrap();
+    assert_eq!(witnesses.len(), 1);
+    assert_eq!(witnesses[0].person_id, kept);
+    assert!(
+        oxidgene_db::repo::EventWitnessRepo::list_by_event(&db, birth)
+            .await
+            .unwrap()
+            .is_empty(),
+        "nobody witnesses their own birth"
+    );
+
+    let tree = TreeRepo::get(&db, tree_id).await.unwrap();
+    assert_eq!(tree.sosa_root_person_id, Some(kept));
+    assert_eq!(tree.self_person_id, Some(kept));
+
+    let distinct = PersonDistinctRepo::distinct_from(&db, kept).await.unwrap();
+    assert_eq!(
+        distinct,
+        [stranger].into(),
+        "the pair joining the two is dropped"
+    );
+    assert!(
+        PersonDistinctRepo::distinct_from(&db, duplicate)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
