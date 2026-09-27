@@ -55,10 +55,18 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         })
         .unwrap_or_default();
     // Live municipalities by name and Land, to recognise one whose code
-    // changed with its Kreis.
-    let live_by_name: HashMap<(&str, &str), &Municipality> = live
-        .values()
-        .map(|(name, m)| ((*name, m.land.as_str()), *m))
+    // changed with its Kreis. A name several municipalities of the Land bear
+    // says nothing, and is left out.
+    let mut named: HashMap<(&str, &str), Vec<&Municipality>> = HashMap::new();
+    for (name, m) in live.values() {
+        named.entry((*name, m.land.as_str())).or_default().push(m);
+    }
+    let live_by_name: HashMap<(&str, &str), &Municipality> = named
+        .into_iter()
+        .filter_map(|(key, found)| match found.as_slice() {
+            [only] => Some((key, *only)),
+            _ => None,
+        })
         .collect();
     let next_edition = |date: &str| {
         editions

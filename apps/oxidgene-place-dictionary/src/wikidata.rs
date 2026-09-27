@@ -147,6 +147,11 @@ pub async fn former_municipalities(
         push_unique(&mut former.codes, &row[parent]);
     }
     let mut former: Vec<Former> = by_item.into_values().collect();
-    former.sort_by(|a, b| (&a.name, &a.end).cmp(&(&b.name, &b.end)));
+    // A total order, so that homonyms dissolved the same day come out the
+    // same way on every run.
+    former.sort_by(|a, b| {
+        (&a.name, &a.end, &a.start, &a.code, &a.codes)
+            .cmp(&(&b.name, &b.end, &b.start, &b.code, &b.codes))
+    });
     Ok(former)
 }

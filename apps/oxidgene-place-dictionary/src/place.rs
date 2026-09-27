@@ -227,6 +227,14 @@ pub fn render(places: &mut [Place]) -> (String, usize) {
             p.kind,
             // Of two rows that read the same, the current one is kept.
             !p.current,
+            // The rest only makes the order total, so that two runs over the
+            // same sources write the same file whatever order the sources
+            // listed their rows in.
+            p.valid_from.clone(),
+            p.valid_until.clone(),
+            p.successor.clone(),
+            p.coordinates
+                .map(|c| (c.latitude.to_bits(), c.longitude.to_bits())),
         )
     });
     let mut seen = HashSet::new();

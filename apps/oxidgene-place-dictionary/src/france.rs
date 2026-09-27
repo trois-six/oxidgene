@@ -624,7 +624,17 @@ impl FormerCommunes {
             }
         }
         let mut communes: Vec<_> = communes.into_values().collect();
-        communes.sort_by(|a, b| (&a.name, &a.end).cmp(&(&b.name, &b.end)));
+        // A total order: homonyms dissolved the same day come out the same
+        // way on every run.
+        communes.sort_by(|a, b| {
+            (&a.name, &a.end, &a.start, &a.codes, &a.departments).cmp(&(
+                &b.name,
+                &b.end,
+                &b.start,
+                &b.codes,
+                &b.departments,
+            ))
+        });
         Ok(Self(communes))
     }
 
