@@ -37,6 +37,8 @@ enum LinkingMode {
     Sibling(Uuid),
     /// Merging person with another (search target).
     Merge(Uuid),
+    /// Choosing whom to trace the given person's relationship to.
+    Kinship(Uuid),
 }
 
 /// Page rendered at `/trees/:tree_id?person=...`.
@@ -311,7 +313,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // Context menu action handler.
     let pedigree_data_ctx = pedigree_data.clone();
-    let tree_id_ctx = tree_id.clone();
     let on_context_action = move |action: PersonAction| {
         let Some((pid, _, _)) = context_menu_person() else {
             return;
@@ -350,11 +351,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 editing_union_id.set(Some(fid));
             }
             PersonAction::Kinship => {
-                nav.push(Route::Kinship {
-                    tree_id: tree_id_ctx.clone(),
-                    from: pid.to_string(),
-                    to: String::new(),
-                });
+                linking_mode.set(Some(LinkingMode::Kinship(pid)));
             }
             PersonAction::Delete => {
                 confirm_delete_person_id.set(Some(pid));
@@ -754,6 +751,40 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         linking_mode.set(None);
     };
 
+    // Kinship: open the relationship page between the two persons.
+    let tree_id_kinship = tree_id.clone();
+    let on_pick_kinship = move |other: Uuid| {
+        let Some(LinkingMode::Kinship(from)) = linking_mode() else {
+            return;
+        };
+        linking_mode.set(None);
+        if other != from {
+            nav.push(Route::Kinship {
+                tree_id: tree_id_kinship.clone(),
+                from: from.to_string(),
+                to: other.to_string(),
+            });
+        }
+    };
+    // The persons most often asked about, offered before any search: the
+    // user themself and the tree's SOSA root.
+    let kinship_shortcuts: Vec<(Uuid, String)> = match (linking_mode(), &*tree_resource.read()) {
+        (Some(LinkingMode::Kinship(from)), Some(Ok(tree))) => [
+            (tree.self_person_id, "kinship.pick_self"),
+            (tree.sosa_root_person_id, "kinship.pick_sosa_root"),
+        ]
+        .into_iter()
+        .filter_map(|(id, key)| Some((id?, key)))
+        .filter(|&(id, _)| id != from)
+        .fold(Vec::new(), |mut picks, (id, key)| {
+            if !picks.iter().any(|&(seen, _)| seen == id) {
+                picks.push((id, i18n.t(key)));
+            }
+            picks
+        }),
+        _ => Vec::new(),
+    };
+
     // Linking mode label for the panel header.
     let linking_label: Option<String> = linking_mode().map(|mode| match &mode {
         LinkingMode::Spouse(_) => i18n.t("linking.add_spouse"),
@@ -761,6 +792,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         LinkingMode::Child(_) => i18n.t("linking.add_child"),
         LinkingMode::Sibling(_) => i18n.t("linking.add_sibling"),
         LinkingMode::Merge(_) => i18n.t("linking.merge"),
+        LinkingMode::Kinship(_) => i18n.t("context.kinship"),
     });
 
     // ── Render ──
@@ -1110,6 +1142,30 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                                     tree_id: tid,
                                     placeholder: i18n.t("linking.search_merge"),
                                     on_select: on_link_merge,
+                                    on_cancel: move |_| linking_mode.set(None),
+                                }
+                            },
+                            Some(LinkingMode::Kinship(_)) => rsx! {
+                                if !kinship_shortcuts.is_empty() {
+                                    div { class: "linking-shortcuts",
+                                        for (id, label) in kinship_shortcuts.iter().cloned() {
+                                            {
+                                                let mut pick = on_pick_kinship.clone();
+                                                rsx! {
+                                                    button {
+                                                        class: "btn btn-outline btn-sm",
+                                                        onclick: move |_| pick(id),
+                                                        "{label}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                SearchPerson {
+                                    tree_id: tid,
+                                    placeholder: i18n.t("kinship.choose"),
+                                    on_select: on_pick_kinship,
                                     on_cancel: move |_| linking_mode.set(None),
                                 }
                             },

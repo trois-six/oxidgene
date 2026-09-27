@@ -21,13 +21,18 @@ routed page, `/trees/{tree_id}/kinship?from={person_id}&to={person_id}`, so a
 result can be bookmarked, shared, and left with the browser's back button.
 
 It is opened from the pedigree: right-clicking a card, or its pencil action
-picker, offers **Relationship with…**, which opens the page with that person
-as `from` and no `to` ([Genealogy Tree §3](ui-genealogy-tree.md#pencil-icon--action-picker)).
+picker, offers **Relationship with…**. The second person is chosen right there,
+in the pedigree's person panel, before the page opens:
 
-With no `to`, the page picks the person the tree identifies as the user, or
-failing that the tree's SOSA root, so the most common question — "how is this
-person related to me?" — needs no further step. When neither exists, or it is
-the `from` person, the page asks for a second person.
+- shortcuts for **Myself** — the person the tree identifies as the user — and
+  the tree's **SOSA root**, each shown only when set and different from the
+  clicked person;
+- the shared person search for anyone else.
+
+Picking one opens the page with the clicked person as `from` and the chosen
+one as `to`. Cancelling closes the panel and stays on the pedigree. Opened
+without a `to`, as from a hand-edited URL, the page asks for the second person
+itself.
 
 ## 2. Layout
 
@@ -61,6 +66,10 @@ link to their profiles.
 
 The URL is replaced rather than pushed on either change, so the back button
 returns to the pedigree.
+
+On screens narrower than 640px the two ends stack, and the grid keeps its two
+lines side by side with only each person's name and years: the portrait and
+the relatives line are dropped from the rows so each still fits half a phone.
 
 ### 2.2 Paths
 

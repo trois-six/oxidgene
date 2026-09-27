@@ -275,7 +275,7 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | **Add spouse** | Opens a new person form pre-linked as spouse |
 | **Add child** | Opens a new person form pre-linked as child |
 | **Add sibling** | Opens a new person form pre-linked as sibling |
-| **Relationship with…** | Opens the [Kinship](ui-kinship.md) page from this person |
+| **Relationship with…** | Asks for a second person — with shortcuts for the user and the SOSA root — then opens the [Kinship](ui-kinship.md) page between the two |
 
 The picker is a compact overlay anchored just below the pencil icon, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.
 

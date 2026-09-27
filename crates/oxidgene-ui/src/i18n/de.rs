@@ -1239,6 +1239,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("kinship.from", "Von"),
         ("kinship.to", "Zu"),
         ("kinship.choose", "Person suchen…"),
+        ("kinship.pick_self", "Ich selbst"),
+        ("kinship.pick_sosa_root", "SOSA-Wurzel"),
         ("kinship.change", "Ändern"),
         ("kinship.swap", "Die beiden Personen tauschen"),
         ("kinship.loading", "Verwandtschaft wird gesucht…"),

@@ -2816,6 +2816,12 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 12px;
     }
 
+    .linking-shortcuts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
     .linking-panel-or {
         text-align: center;
         color: var(--text-secondary);
@@ -3299,6 +3305,13 @@ pub const LAYOUT_STYLES: &str = r#"
         .kin-seg { grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); gap: 12px 8px; }
         .kin-seg-single { grid-template-columns: 28px minmax(0, 1fr); }
         .kin-union { margin-left: 36px; }
+        /* Two rows side by side leave ~150px each on a phone: keep the name
+           and the years, which is what places a person in the chain. */
+        .kin-seg .sp-result-photo,
+        .kin-seg .sp-result-rel,
+        .kin-seg .sp-result-meta { display: none; }
+        .kin-seg .sp-result-dates { flex-wrap: wrap; gap: 0 6px; }
+        .kin-seg .search-person-result { padding: 4px 6px; }
     }
 
     /* Grid (card) view: one mini-pedigree per result */

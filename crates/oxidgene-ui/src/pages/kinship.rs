@@ -58,33 +58,6 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
         }
     });
 
-    // With nobody chosen yet, the question is most often "how is this person
-    // related to me": start from the person the tree names as the user, or
-    // failing that its SOSA root.
-    use_effect(move || {
-        if to_parsed().is_some() {
-            return;
-        }
-        let (Some(tid), Some(from)) = (tree_id_parsed(), from_parsed()) else {
-            return;
-        };
-        let Some(Some(tree)) = &*tree_resource.read() else {
-            return;
-        };
-        let default = tree
-            .self_person_id
-            .into_iter()
-            .chain(tree.sosa_root_person_id)
-            .find(|&id| id != from);
-        if let Some(default) = default {
-            nav.replace(Route::Kinship {
-                tree_id: tid.to_string(),
-                from: from.to_string(),
-                to: default.to_string(),
-            });
-        }
-    });
-
     // The two ends, shown before and while the paths load.
     let api_ends = api.clone();
     let ends_resource = use_traced_resource(load_trace.clone(), "kinship_ends", move || {
