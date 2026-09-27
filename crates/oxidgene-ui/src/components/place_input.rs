@@ -120,9 +120,10 @@ pub fn PlaceInput(
             })
             .collect()
     };
-    let tree_count = choices.len();
     if let Some(found) = &*dictionary.read() {
-        // A dictionary place the tree already holds is offered as the tree's.
+        // One list: the tree's places first, then the dictionary's, a
+        // dictionary label the tree already holds being offered once, as the
+        // tree's place.
         choices.extend(
             found
                 .iter()
@@ -209,17 +210,23 @@ pub fn PlaceInput(
                     class: "place-input-list",
                     role: "listbox",
                     onmousedown: move |e: Event<MouseData>| e.prevent_default(),
-                    if tree_count > 0 {
-                        div { class: "context-menu-header", {i18n.t("place_input.tree_places")} }
-                    }
-                    for (index, choice) in choices.iter().enumerate().take(tree_count) {
-                        {render_option(index, choice, highlight, choose, &i18n)}
-                    }
-                    if choices.len() > tree_count {
-                        div { class: "context-menu-header", {i18n.t("place_input.dictionary")} }
-                    }
-                    for (index, choice) in choices.iter().enumerate().skip(tree_count) {
-                        {render_option(index, choice, highlight, choose, &i18n)}
+                    for (index, choice) in choices.iter().enumerate() {
+                        button {
+                            key: "{index}",
+                            r#type: "button",
+                            role: "option",
+                            class: if highlight() == Some(index) {
+                                "context-menu-item td-suggest-row is-active"
+                            } else {
+                                "context-menu-item td-suggest-row"
+                            },
+                            onmouseenter: move |_| highlight.set(Some(index)),
+                            onclick: {
+                                let choice = choice.clone();
+                                move |_| choose(&choice)
+                            },
+                            {render_choice(choice, &i18n)}
+                        }
                     }
                 }
             }
@@ -227,54 +234,35 @@ pub fn PlaceInput(
     }
 }
 
-fn render_option(
-    index: usize,
-    choice: &Choice,
-    mut highlight: Signal<Option<usize>>,
-    mut choose: impl FnMut(&Choice) + 'static,
-    i18n: &I18n,
-) -> Element {
-    let picked = choice.clone();
-    rsx! {
-        button {
-            key: "{index}",
-            r#type: "button",
-            role: "option",
-            class: if highlight() == Some(index) {
-                "context-menu-item td-suggest-row is-active"
-            } else {
-                "context-menu-item td-suggest-row"
-            },
-            onmouseenter: move |_| highlight.set(Some(index)),
-            onclick: move |_| choose(&picked),
-            {render_choice(choice, i18n)}
-        }
-    }
-}
-
+/// Tree places and dictionary places read alike: the place's own name,
+/// then the rest of its label.
 fn render_choice(choice: &Choice, i18n: &I18n) -> Element {
-    match choice {
-        Choice::Tree { name, .. } => rsx! { span { "{name}" } },
-        Choice::Dictionary(place) => {
-            let detail = place
+    let (name, detail, until) = match choice {
+        Choice::Tree { name, .. } => match name.split_once(", ") {
+            Some((head, rest)) => (head.to_string(), rest.to_string(), None),
+            None => (name.clone(), String::new(), None),
+        },
+        Choice::Dictionary(place) => (
+            place.name.clone(),
+            place
                 .label
                 .strip_prefix(&place.name)
                 .map(|rest| rest.trim_start_matches(", ").to_string())
-                .unwrap_or_default();
-            let until = place
+                .unwrap_or_default(),
+            place
                 .valid_until
                 .as_deref()
                 .and_then(|date| date.get(..4))
-                .map(|year| i18n.t_args("place_input.until", &[("year", year)]));
-            rsx! {
-                span { class: "place-input-name", "{place.name}" }
-                if !detail.is_empty() {
-                    span { class: "place-input-detail", " {detail}" }
-                }
-                if let Some(until) = until {
-                    span { class: "place-input-detail", " · {until}" }
-                }
-            }
+                .map(|year| i18n.t_args("place_input.until", &[("year", year)])),
+        ),
+    };
+    rsx! {
+        span { class: "place-input-name", "{name}" }
+        if !detail.is_empty() {
+            span { class: "place-input-detail", " {detail}" }
+        }
+        if let Some(until) = until {
+            span { class: "place-input-detail", " · {until}" }
         }
     }
 }

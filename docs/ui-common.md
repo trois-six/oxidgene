@@ -301,14 +301,16 @@ Every place field is the one shared `PlaceInput` (`components/place_input.rs`):
 event places in the person and couple forms, and document and media places.
 Autocomplete is helpful, never restrictive: free text is always accepted.
 
-- **Suggestions.** As the user types, the tree's places with a word starting
-  with the text are listed first, under "In this tree". From three
+- **Suggestions.** One list, with no groups: as the user types, the tree's
+  places with a word starting with the text come first; from three
   characters and after a 300 ms pause, the built-in
-  [place dictionary](place-dictionary.md) follows, best match first, with
-  each place's département or county, region and country, and the year a
-  former commune or name ended. A dictionary place the tree already holds
-  under the same label is offered as the tree's. Matching ignores case,
-  accents and punctuation.
+  [place dictionary](place-dictionary.md) follows, best match first. Every
+  row reads alike: the place's name, then the rest of its label (code,
+  département or county, region, country), and for the dictionary the year
+  a former commune or name ended. Every filing of a place is offered, today's
+  and former ones (a region before 2016, a former département name); a
+  dictionary label the tree already holds is offered once, as the tree's
+  place. Matching ignores case, accents and punctuation.
 - **Picking.** Picking a tree place links the field to it; picking a
   dictionary place fills in its label. Editing the text afterwards drops a
   link. Arrow keys move through the list, Enter picks, Escape closes it.

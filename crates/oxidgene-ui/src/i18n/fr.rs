@@ -326,8 +326,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person_form.date", "Date"),
         ("person_form.place", "Lieu"),
         ("place_input.placeholder", "Commune, village, paroisse…"),
-        ("place_input.tree_places", "Dans cet arbre"),
-        ("place_input.dictionary", "Dictionnaire des lieux"),
         ("place_input.until", "jusqu'en {year}"),
         ("person_form.type", "Type"),
         ("person_form.note_required", "Le texte de la note est obligatoire"),
