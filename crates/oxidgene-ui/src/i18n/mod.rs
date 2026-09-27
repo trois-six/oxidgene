@@ -1,10 +1,18 @@
 //! Internationalization (i18n) module.
 //!
-//! Provides runtime language switching with English and French translations.
-//! Uses a Dioxus context signal for reactive updates across all components.
+//! Provides runtime language switching between the languages of the
+//! countries the place dictionary covers: English, French, German, Spanish,
+//! Italian, Dutch, Polish and Portuguese. Uses a Dioxus context signal for
+//! reactive updates across all components.
 
+mod de;
 mod en;
+mod es;
 mod fr;
+mod it;
+mod nl;
+mod pl;
+mod pt;
 
 use std::collections::HashMap;
 
@@ -15,14 +23,38 @@ use dioxus::prelude::*;
 pub enum Language {
     En,
     Fr,
+    De,
+    Es,
+    It,
+    Nl,
+    Pl,
+    Pt,
 }
 
 impl Language {
+    /// Every language, in the order the settings page offers them.
+    pub const ALL: [Self; 8] = [
+        Self::En,
+        Self::Fr,
+        Self::De,
+        Self::Es,
+        Self::It,
+        Self::Nl,
+        Self::Pl,
+        Self::Pt,
+    ];
+
     /// BCP-47 language code.
     pub fn code(self) -> &'static str {
         match self {
             Self::En => "en",
             Self::Fr => "fr",
+            Self::De => "de",
+            Self::Es => "es",
+            Self::It => "it",
+            Self::Nl => "nl",
+            Self::Pl => "pl",
+            Self::Pt => "pt",
         }
     }
 
@@ -31,6 +63,56 @@ impl Language {
         match self {
             Self::En => "EN",
             Self::Fr => "FR",
+            Self::De => "DE",
+            Self::Es => "ES",
+            Self::It => "IT",
+            Self::Nl => "NL",
+            Self::Pl => "PL",
+            Self::Pt => "PT",
+        }
+    }
+
+    /// The language's own name for itself.
+    pub fn native_name(self) -> &'static str {
+        match self {
+            Self::En => "English",
+            Self::Fr => "Français",
+            Self::De => "Deutsch",
+            Self::Es => "Español",
+            Self::It => "Italiano",
+            Self::Nl => "Nederlands",
+            Self::Pl => "Polski",
+            Self::Pt => "Português",
+        }
+    }
+
+    /// The flag shown beside the language in the settings.
+    pub fn flag(self) -> &'static str {
+        match self {
+            Self::En => "\u{1F1EC}\u{1F1E7}",
+            Self::Fr => "\u{1F1EB}\u{1F1F7}",
+            Self::De => "\u{1F1E9}\u{1F1EA}",
+            Self::Es => "\u{1F1EA}\u{1F1F8}",
+            Self::It => "\u{1F1EE}\u{1F1F9}",
+            Self::Nl => "\u{1F1F3}\u{1F1F1}",
+            Self::Pl => "\u{1F1F5}\u{1F1F1}",
+            Self::Pt => "\u{1F1F5}\u{1F1F9}",
+        }
+    }
+
+    /// The suffix of the plural form for `count`: `_one` or `_other`, and in
+    /// Polish `_one`, `_few` or `_many`.
+    pub fn plural_suffix(self, count: usize) -> &'static str {
+        match self {
+            // French treats zero as singular: "0 personne".
+            Self::Fr if count <= 1 => "_one",
+            Self::Pl if count == 1 => "_one",
+            Self::Pl if (2..=4).contains(&(count % 10)) && !(12..=14).contains(&(count % 100)) => {
+                "_few"
+            }
+            Self::Pl => "_many",
+            _ if count == 1 => "_one",
+            _ => "_other",
         }
     }
 
@@ -42,11 +124,9 @@ impl Language {
     pub fn try_from_code(s: &str) -> Option<Self> {
         // Only the primary subtag matters: "fr", "fr-FR", "fr_CA" all map to Fr.
         let primary = s.split(['-', '_']).next().unwrap_or_default();
-        match primary.to_ascii_lowercase().as_str() {
-            "en" => Some(Self::En),
-            "fr" => Some(Self::Fr),
-            _ => None,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|language| language.code() == primary.to_ascii_lowercase())
     }
 
     /// Pick the best supported language from an ordered preference list.
@@ -70,6 +150,12 @@ impl Language {
         match self {
             Self::En => en::translations(),
             Self::Fr => fr::translations(),
+            Self::De => de::translations(),
+            Self::Es => es::translations(),
+            Self::It => it::translations(),
+            Self::Nl => nl::translations(),
+            Self::Pl => pl::translations(),
+            Self::Pt => pt::translations(),
         }
     }
 }
@@ -116,27 +202,19 @@ impl I18n {
 
     /// Look up a pluralised key.
     ///
-    /// Appends `_one` (count ≤ 1) or `_other` (count > 1) to the key.
+    /// Appends the language's plural suffix for `count` (see
+    /// [`Language::plural_suffix`]) to the key.
     pub fn t_plural(&self, key: &str, count: usize) -> String {
-        let suffix = match self.0 {
-            // French: 0 and 1 are singular
-            Language::Fr => {
-                if count <= 1 {
-                    "_one"
-                } else {
-                    "_other"
-                }
-            }
-            // English: only 1 is singular
-            Language::En => {
-                if count == 1 {
-                    "_one"
-                } else {
-                    "_other"
-                }
-            }
-        };
-        self.t_args(&format!("{key}{suffix}"), &[("count", &count.to_string())])
+        self.t_args(
+            &self.plural_key(key, count),
+            &[("count", &count.to_string())],
+        )
+    }
+
+    /// The key of the plural form of `key` for `count`, for a caller that
+    /// interpolates more than the count.
+    pub fn plural_key(&self, key: &str, count: usize) -> String {
+        format!("{key}{}", self.0.plural_suffix(count))
     }
 }
 
@@ -218,7 +296,7 @@ mod language_detection_tests {
 
     #[test]
     fn reports_untranslated_languages_as_unsupported() {
-        assert_eq!(Language::try_from_code("de"), None);
+        assert_eq!(Language::try_from_code("sv"), None);
         assert_eq!(Language::try_from_code("frr"), None); // North Frisian, not French
         assert_eq!(Language::try_from_code(""), None);
     }
@@ -226,14 +304,15 @@ mod language_detection_tests {
     #[test]
     fn picks_the_first_translated_entry_not_the_first_entry() {
         assert_eq!(
-            Language::from_preferences(["de-DE", "fr-FR", "en"]),
+            Language::from_preferences(["sv-SE", "fr-FR", "en"]),
             Language::Fr
         );
+        assert_eq!(Language::from_preferences(["pl-PL", "en"]), Language::Pl);
     }
 
     #[test]
     fn falls_back_to_english_without_a_usable_preference() {
-        assert_eq!(Language::from_preferences(["de", "es"]), Language::En);
+        assert_eq!(Language::from_preferences(["sv", "ja"]), Language::En);
         assert_eq!(Language::from_preferences([]), Language::En);
     }
 
@@ -249,31 +328,55 @@ mod language_detection_tests {
 mod parity_tests {
     use super::*;
 
-    /// Every key must exist in both tables.
+    /// Polish plurals have three forms: each `_one`/`_other` pair of the
+    /// other languages also has a `_few` and a `_many` form there. A lone
+    /// `_one` key is chosen by the code, not by a count.
+    fn polish_plural_forms() -> std::collections::HashSet<String> {
+        let en = en::translations();
+        en.keys()
+            .filter_map(|key| key.strip_suffix("_one"))
+            .filter(|stem| en.contains_key(&format!("{stem}_other")))
+            .flat_map(|stem| [format!("{stem}_few"), format!("{stem}_many")])
+            .collect()
+    }
+
+    /// Every key must exist in every table.
     ///
     /// A missing key does not fail to compile and does not fail to render — it
     /// renders as the key itself, in the middle of a sentence, only for users
     /// of the other language. Adding a screenful of strings to one file and
-    /// forgetting the other is exactly how that happens.
+    /// forgetting the others is exactly how that happens.
     #[test]
-    fn the_two_tables_carry_the_same_keys() {
+    fn every_table_carries_the_same_keys() {
         let en = en::translations();
-        let fr = fr::translations();
-
-        let missing_from_fr: Vec<_> = en.keys().filter(|key| !fr.contains_key(*key)).collect();
-        let missing_from_en: Vec<_> = fr.keys().filter(|key| !en.contains_key(*key)).collect();
-
-        assert!(
-            missing_from_fr.is_empty(),
-            "keys present in English but not French: {missing_from_fr:?}"
-        );
-        assert!(
-            missing_from_en.is_empty(),
-            "keys present in French but not English: {missing_from_en:?}"
-        );
+        let polish = polish_plural_forms();
+        for language in Language::ALL {
+            let table = language.translations();
+            let missing: Vec<_> = en.keys().filter(|key| !table.contains_key(*key)).collect();
+            let extra: Vec<_> = table
+                .keys()
+                .filter(|key| !en.contains_key(*key))
+                .filter(|key| !(language == Language::Pl && polish.contains(*key)))
+                .collect();
+            assert!(missing.is_empty(), "{language:?} lacks {missing:?}");
+            assert!(
+                extra.is_empty(),
+                "{language:?} has keys English lacks: {extra:?}"
+            );
+            if language == Language::Pl {
+                let absent: Vec<_> = polish
+                    .iter()
+                    .filter(|key| !table.contains_key(*key))
+                    .collect();
+                assert!(
+                    absent.is_empty(),
+                    "Polish lacks the plural forms {absent:?}"
+                );
+            }
+        }
     }
 
-    /// A `{placeholder}` in one language must exist in the other.
+    /// A `{placeholder}` in one language must exist in every other.
     ///
     /// `t_args` substitutes by name and leaves anything it was not given
     /// alone, so a translation that renamed `{count}` to `{nombre}` shows the
@@ -281,17 +384,41 @@ mod parity_tests {
     #[test]
     fn matching_keys_interpolate_the_same_names() {
         let en = en::translations();
-        let fr = fr::translations();
-
-        for (key, english) in en {
-            let Some(french) = fr.get(key) else { continue };
-            let (english, french) = (placeholders(english), placeholders(french));
-            let mismatched: Vec<_> = english.symmetric_difference(&french).collect();
-            assert!(
-                mismatched.is_empty(),
-                "{key} interpolates different names in each language: {mismatched:?}"
-            );
+        for language in Language::ALL {
+            for (key, text) in language.translations() {
+                // Polish `_few`/`_many` forms follow their `_other` sibling.
+                let reference = en.get(key).or_else(|| {
+                    let stem = key
+                        .strip_suffix("_few")
+                        .or_else(|| key.strip_suffix("_many"))?;
+                    en.get(&format!("{stem}_other"))
+                });
+                let Some(english) = reference else { continue };
+                let (english, translated) = (placeholders(english), placeholders(text));
+                let mismatched: Vec<_> = english.symmetric_difference(&translated).collect();
+                assert!(
+                    mismatched.is_empty(),
+                    "{language:?} {key} interpolates different names: {mismatched:?}"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn polish_counts_take_their_three_forms() {
+        let forms: Vec<_> = [1, 2, 4, 5, 12, 14, 21, 22, 25, 112]
+            .into_iter()
+            .map(|n| Language::Pl.plural_suffix(n))
+            .collect();
+        assert_eq!(
+            forms,
+            [
+                "_one", "_few", "_few", "_many", "_many", "_many", "_many", "_few", "_many",
+                "_many"
+            ]
+        );
+        assert_eq!(Language::Fr.plural_suffix(0), "_one");
+        assert_eq!(Language::En.plural_suffix(0), "_other");
     }
 
     fn placeholders(text: &str) -> std::collections::BTreeSet<String> {

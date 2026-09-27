@@ -736,7 +736,7 @@ impl QueryRoot {
         term: String,
     ) -> Result<Option<GqlOccupationReference>> {
         let language = crate::reference::ReferenceLang::from_code(&language)
-            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+            .ok_or_else(|| async_graphql::Error::new(crate::reference::UNSUPPORTED_LANGUAGE))?;
         Ok(crate::reference::lookup_occupation(language, &term).map(Into::into))
     }
 
@@ -748,7 +748,7 @@ impl QueryRoot {
         terms: Vec<String>,
     ) -> Result<Vec<GqlOccupationReferenceMatch>> {
         let language = crate::reference::ReferenceLang::from_code(&language)
-            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+            .ok_or_else(|| async_graphql::Error::new(crate::reference::UNSUPPORTED_LANGUAGE))?;
         if terms.len() > crate::reference::MAX_REFERENCE_TERMS {
             return Err(async_graphql::Error::new("at most 128 terms are allowed"));
         }
@@ -766,7 +766,7 @@ impl QueryRoot {
         term: String,
     ) -> Result<Option<GqlGivenNameReference>> {
         let language = crate::reference::ReferenceLang::from_code(&language)
-            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+            .ok_or_else(|| async_graphql::Error::new(crate::reference::UNSUPPORTED_LANGUAGE))?;
         Ok(crate::reference::lookup_given_name(language, &term).map(Into::into))
     }
 
@@ -778,7 +778,7 @@ impl QueryRoot {
         terms: Vec<String>,
     ) -> Result<Vec<GqlGivenNameReferenceMatch>> {
         let language = crate::reference::ReferenceLang::from_code(&language)
-            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+            .ok_or_else(|| async_graphql::Error::new(crate::reference::UNSUPPORTED_LANGUAGE))?;
         if terms.len() > crate::reference::MAX_REFERENCE_TERMS {
             return Err(async_graphql::Error::new("at most 128 terms are allowed"));
         }
@@ -799,7 +799,7 @@ impl QueryRoot {
         limit: Option<usize>,
     ) -> Result<Vec<GqlPlaceSuggestion>> {
         let language = crate::reference::ReferenceLang::from_code(&language)
-            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+            .ok_or_else(|| async_graphql::Error::new(crate::reference::UNSUPPORTED_LANGUAGE))?;
         let limit = limit.unwrap_or(crate::reference::DEFAULT_PLACE_SUGGESTIONS);
         if !(1..=crate::reference::MAX_PLACE_SUGGESTIONS).contains(&limit) {
             return Err(async_graphql::Error::new("limit must be between 1 and 50"));

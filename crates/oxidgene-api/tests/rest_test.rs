@@ -149,6 +149,19 @@ async fn place_suggestions_come_from_the_place_dictionary() {
     let (status, body) = send_request(
         app.clone(),
         Method::GET,
+        "/api/v1/reference/de/places?q=paris&limit=1",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body[0]["label"],
+        "Paris, 75056, Paris, Île-de-France, Frankreich"
+    );
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
         "/api/v1/reference/fr/places?q=%20",
         None,
     )

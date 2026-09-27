@@ -516,7 +516,7 @@ mod event_type_label_tests {
 
         for et in types {
             let key = event_type_label_key(et);
-            for lang in [Language::En, Language::Fr] {
+            for lang in Language::ALL {
                 let translated = lang.translations().get(key).cloned();
                 assert!(
                     translated.is_some_and(|t| !t.is_empty()),

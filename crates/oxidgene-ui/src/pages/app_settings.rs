@@ -276,18 +276,13 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
 
             div { class: "app-settings-card",
                 div { class: "lang-options",
-                    for lang in [Language::En, Language::Fr] {
+                    for lang in Language::ALL {
                         button {
                             key: "{lang.code()}",
                             class: if current == lang { "lang-option active" } else { "lang-option" },
                             onclick: move |_| i18n::set_language(lang_signal, lang),
-                            span { class: "lang-option-flag",
-                                {match lang {
-                                    Language::En => "\u{1F1EC}\u{1F1E7}",
-                                    Language::Fr => "\u{1F1EB}\u{1F1F7}",
-                                }}
-                            }
-                            span { class: "lang-option-label", {lang.label()} }
+                            span { class: "lang-option-flag", {lang.flag()} }
+                            span { class: "lang-option-label", {lang.native_name()} }
                             if current == lang {
                                 span { class: "lang-option-check", "\u{2713}" }
                             }

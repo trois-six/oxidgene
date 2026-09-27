@@ -36,8 +36,9 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
   includes labels, tooltips, placeholders, validation messages, errors, empty
   states, accessibility text, and text produced by backend workflows for the
   UI.
-- Keep English and French translation tables at exact key parity. Add or update
-  both languages in the same change.
+- Keep every translation table (English, French, German, Spanish, Italian,
+  Dutch, Polish, Portuguese) at exact key parity. Add or update every
+  language in the same change.
 - Do not translate user-provided genealogical content, imported source data, or
   standard protocol values.
 

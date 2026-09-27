@@ -45,7 +45,9 @@ are never translated.
 
 ### 3.2 Locale selection
 
-- English and French are supported at runtime.
+- English, French, German, Spanish, Italian, Dutch, Polish and Portuguese are
+  supported at runtime: the languages of the countries the
+  [place dictionary](place-dictionary.md) covers.
 - An explicit stored choice wins.
 - On first use, the client walks `navigator.languages` in preference order and
   chooses the first supported primary language subtag.
@@ -56,12 +58,14 @@ are never translated.
 ### 3.3 Translation structure
 
 Translation maps live under `crates/oxidgene-ui/src/i18n/`. Keys use a stable,
-hierarchical `surface.section.element` form. English and French tables must
+hierarchical `surface.section.element` form. Every language's table must
 contain exactly the same keys and interpolation placeholders; tests enforce
 both properties.
 
 Dynamic values use named placeholders. Plural forms use `_one` and `_other`
-keys. Missing keys may fall back to English at runtime, but a parity test must
+keys; `_one` covers 1, and 0 as well in French. Polish, whose plurals have
+three forms, adds a `_few` (2–4, 22–24…, not 12–14) and a `_many` form to
+every such pair, and keeps `_other` for parity. Missing keys may fall back to English at runtime, but a parity test must
 prevent shipping a known omission.
 
 French labels for a field that can contain one or several given names use

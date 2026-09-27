@@ -94,24 +94,150 @@ fn dictionary() -> &'static Dictionary {
     })
 }
 
-/// Names written in French in the file that the English interface names
-/// otherwise.
-fn english(french: &str) -> Option<&'static str> {
-    Some(match french {
-        "Allemagne" => "Germany",
-        "Espagne" => "Spain",
-        "Etats-Unis d'Amérique" => "United States",
-        "Italie" => "Italy",
-        "Pologne" => "Poland",
-        "Suisse" => "Switzerland",
-        "Royaume-Uni" => "United Kingdom",
-        "Angleterre" => "England",
-        "Écosse" => "Scotland",
-        "Pays de Galles" => "Wales",
-        "Irlande du Nord" => "Northern Ireland",
-        _ => return None,
-    })
-}
+/// The country and British nation names, written in French in the file, in
+/// each interface language, in the order of [`ReferenceLang::ALL`] (the French
+/// first). Subdivisions and regions keep their local official names.
+const NAMES: &[[&str; 8]] = &[
+    [
+        "France",
+        "France",
+        "Frankreich",
+        "Francia",
+        "Francia",
+        "Frankrijk",
+        "Francja",
+        "França",
+    ],
+    [
+        "Royaume-Uni",
+        "United Kingdom",
+        "Vereinigtes Königreich",
+        "Reino Unido",
+        "Regno Unito",
+        "Verenigd Koninkrijk",
+        "Wielka Brytania",
+        "Reino Unido",
+    ],
+    [
+        "Angleterre",
+        "England",
+        "England",
+        "Inglaterra",
+        "Inghilterra",
+        "Engeland",
+        "Anglia",
+        "Inglaterra",
+    ],
+    [
+        "Écosse",
+        "Scotland",
+        "Schottland",
+        "Escocia",
+        "Scozia",
+        "Schotland",
+        "Szkocja",
+        "Escócia",
+    ],
+    [
+        "Pays de Galles",
+        "Wales",
+        "Wales",
+        "Gales",
+        "Galles",
+        "Wales",
+        "Walia",
+        "País de Gales",
+    ],
+    [
+        "Irlande du Nord",
+        "Northern Ireland",
+        "Nordirland",
+        "Irlanda del Norte",
+        "Irlanda del Nord",
+        "Noord-Ierland",
+        "Irlandia Północna",
+        "Irlanda do Norte",
+    ],
+    [
+        "Allemagne",
+        "Germany",
+        "Deutschland",
+        "Alemania",
+        "Germania",
+        "Duitsland",
+        "Niemcy",
+        "Alemanha",
+    ],
+    [
+        "Italie", "Italy", "Italien", "Italia", "Italia", "Italië", "Włochy", "Itália",
+    ],
+    [
+        "Espagne",
+        "Spain",
+        "Spanien",
+        "España",
+        "Spagna",
+        "Spanje",
+        "Hiszpania",
+        "Espanha",
+    ],
+    [
+        "Suisse",
+        "Switzerland",
+        "Schweiz",
+        "Suiza",
+        "Svizzera",
+        "Zwitserland",
+        "Szwajcaria",
+        "Suíça",
+    ],
+    [
+        "Pologne", "Poland", "Polen", "Polonia", "Polonia", "Polen", "Polska", "Polónia",
+    ],
+    [
+        "Etats-Unis d'Amérique",
+        "United States",
+        "Vereinigte Staaten",
+        "Estados Unidos",
+        "Stati Uniti",
+        "Verenigde Staten",
+        "Stany Zjednoczone",
+        "Estados Unidos",
+    ],
+    [
+        "Portugal",
+        "Portugal",
+        "Portugal",
+        "Portugal",
+        "Portogallo",
+        "Portugal",
+        "Portugalia",
+        "Portugal",
+    ],
+    [
+        "Belgique", "Belgium", "Belgien", "Bélgica", "Belgio", "België", "Belgia", "Bélgica",
+    ],
+    [
+        "Luxembourg",
+        "Luxembourg",
+        "Luxemburg",
+        "Luxemburgo",
+        "Lussemburgo",
+        "Luxemburg",
+        "Luksemburg",
+        "Luxemburgo",
+    ],
+    [
+        "Pays-Bas",
+        "Netherlands",
+        "Niederlande",
+        "Países Bajos",
+        "Paesi Bassi",
+        "Nederland",
+        "Holandia",
+        "Países Baixos",
+    ],
+];
 
 /// A string stored in `Dictionary::text`.
 #[derive(Clone, Copy)]
@@ -144,25 +270,26 @@ struct Entry {
 /// A subdivision, region or country name. There are a few hundred, shared by
 /// every row.
 struct Part {
-    text: [Box<str>; 2],
-    folded: [String; 2],
+    text: [Box<str>; 8],
+    folded: [String; 8],
 }
 
 impl Part {
     fn new(french: &str) -> Self {
-        let english = english(french).unwrap_or(french);
+        let names = NAMES.iter().find(|names| names[0] == french);
+        let name = |slot: usize| names.map_or(french, |names| names[slot]);
         Self {
-            text: [french.into(), english.into()],
-            folded: [normalize_key(french), normalize_key(english)],
+            text: std::array::from_fn(|slot| name(slot).into()),
+            folded: std::array::from_fn(|slot| normalize_key(name(slot))),
         }
     }
 }
 
 fn slot(lang: ReferenceLang) -> usize {
-    match lang {
-        ReferenceLang::Fr => 0,
-        ReferenceLang::En => 1,
-    }
+    ReferenceLang::ALL
+        .iter()
+        .position(|l| *l == lang)
+        .expect("every language has a slot")
 }
 
 /// `YYYY-MM-DD` as `YYYYMMDD`, 0 when empty.
@@ -446,6 +573,18 @@ mod tests {
         assert_eq!(names(&found), [("Bourg-A", "Ancien Département A")]);
         let found = dictionary.search(ReferenceLang::Fr, "bourg, 99003", 10);
         assert_eq!(names(&found), [("Le Bourg-A", "Département B")]);
+    }
+
+    #[test]
+    fn the_interface_names_countries_in_its_language() {
+        let dictionary = Dictionary::parse(ROWS);
+        let found = dictionary.search(ReferenceLang::De, "hamlet, england", 10);
+        assert_eq!(
+            found[0].label,
+            "Hamlet A, Shire A, England, Vereinigtes Königreich"
+        );
+        let found = dictionary.search(ReferenceLang::Pl, "bourg a", 1);
+        assert_eq!(found[0].country, "Francja");
     }
 
     #[test]

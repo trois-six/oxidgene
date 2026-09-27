@@ -250,13 +250,9 @@ pub fn HomonymDialog(
     on_decided: EventHandler<HomonymDecision>,
 ) -> Element {
     let i18n = use_i18n();
-    let key = if homonyms.len() == 1 {
-        "homonym.message_one"
-    } else {
-        "homonym.message_other"
-    };
+    let key = i18n.plural_key("homonym.message", homonyms.len());
     let message = i18n.t_args(
-        key,
+        &key,
         &[
             ("name", &person_name),
             ("count", &homonyms.len().to_string()),

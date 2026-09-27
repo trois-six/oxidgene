@@ -15,7 +15,8 @@ use std::collections::HashSet;
 use serde::Serialize;
 
 pub use loader::{
-    GivenNameEntry, OccupationEntry, ReferenceLang, lookup_given_name, lookup_occupation, preheat,
+    GivenNameEntry, OccupationEntry, ReferenceLang, UNSUPPORTED_LANGUAGE, lookup_given_name,
+    lookup_occupation, preheat,
 };
 pub use places::{
     DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceSuggestion, search_places,

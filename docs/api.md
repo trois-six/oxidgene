@@ -646,7 +646,7 @@ warmed at server and desktop startup so no request pays for it.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/reference/{lang}/occupations?term=...` | Occupation fiche (label, summary, text) for `lang` (`fr`/`en`); 404 if none |
+| `GET` | `/reference/{lang}/occupations?term=...` | Occupation fiche (label, summary, text) for `lang` (`fr`, `en`, `de`, `es`, `it`, `nl`, `pl`, `pt`); 404 if none |
 | `POST` | `/reference/{lang}/occupations/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
 | `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
 | `POST` | `/reference/{lang}/given-names/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
@@ -677,9 +677,12 @@ current places before former ones, then shorter names. A blank name returns
 
 `label` is what a place field stores. `kind` is `commune`,
 `municipal_arrondissement`, `former_name`, `former_commune`, `settlement` or
-`parish`; `successor` is the INSEE code of the commune holding a former
-commune's territory today. In English the country and the British nations
-are named in English. The dictionary is decompressed and indexed on the first
+`parish`; `successor` is the official code of the municipality holding a
+former one's territory today. `lang` is any interface language (`fr`, `en`,
+`de`, `es`, `it`, `nl`, `pl`, `pt`): the countries and British nations are
+named in it, while subdivisions and regions keep their local names. The
+sheets of occupations and given names exist in French and English, the other
+languages reading the English ones. The dictionary is decompressed and indexed on the first
 search, off the request workers. A physical batch accepts at most 128
 terms. Clients split larger logical operations into consecutive batches and
 merge every response; they never truncate terms at the limit.

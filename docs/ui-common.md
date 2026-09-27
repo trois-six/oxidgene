@@ -22,7 +22,7 @@ reference these rules instead of redefining them.
 - Shared interactions have one canonical component and one style definition.
 - Every user-visible string, including tooltips, placeholders, validation,
   empty states, accessibility labels, and backend-originated messages, is an
-  i18n key with English and French parity.
+  i18n key present in every language's table.
 - Documentation, screenshots, tests, fixtures, and examples use fictitious,
   anonymized people, trees, accounts, places, and archive references.
 - Colors are defined only by the active theme (§3.1), never as literals in a

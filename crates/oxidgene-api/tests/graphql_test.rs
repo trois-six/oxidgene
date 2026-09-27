@@ -109,6 +109,14 @@ async fn place_suggestions_match_rest() {
     assert_eq!(places[0]["kind"], "COMMUNE");
     assert_eq!(places[0]["current"], true);
 
+    let response = graphql(
+        app.clone(),
+        r#"{ placeSuggestions(language: "pl", query: "paris", limit: 1) { country } }"#,
+        None,
+    )
+    .await;
+    assert_eq!(data(&response)["placeSuggestions"][0]["country"], "Francja");
+
     for query in [
         r#"{ placeSuggestions(language: "fr", query: "paris", limit: 51) { label } }"#,
         r#"{ placeSuggestions(language: "fr", query: "paris", limit: 0) { label } }"#,

@@ -17,18 +17,48 @@ use crate::embedded;
 pub enum ReferenceLang {
     Fr,
     En,
+    De,
+    Es,
+    It,
+    Nl,
+    Pl,
+    Pt,
 }
 
 impl ReferenceLang {
-    /// Parse a BCP-47-ish path segment (`"fr"` / `"en"`).
+    pub const ALL: [Self; 8] = [
+        Self::Fr,
+        Self::En,
+        Self::De,
+        Self::Es,
+        Self::It,
+        Self::Nl,
+        Self::Pl,
+        Self::Pt,
+    ];
+
+    /// Parse a BCP-47-ish path segment (`"fr"`, `"en"`, `"de"`…).
     pub fn from_code(s: &str) -> Option<Self> {
-        match s {
-            "fr" => Some(Self::Fr),
-            "en" => Some(Self::En),
-            _ => None,
+        Self::ALL.into_iter().find(|lang| lang.code() == s)
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Fr => "fr",
+            Self::En => "en",
+            Self::De => "de",
+            Self::Es => "es",
+            Self::It => "it",
+            Self::Nl => "nl",
+            Self::Pl => "pl",
+            Self::Pt => "pt",
         }
     }
 }
+
+/// The error a caller gets for a language code it cannot use.
+pub const UNSUPPORTED_LANGUAGE: &str =
+    "language must be one of `fr`, `en`, `de`, `es`, `it`, `nl`, `pl`, `pt`";
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct OccupationEntry {
@@ -112,9 +142,11 @@ static GIVEN_NAMES_EN_TABLE: OnceLock<HashMap<String, GivenNameEntry>> = OnceLoc
 
 fn occupations_table(lang: ReferenceLang) -> &'static HashMap<String, OccupationEntry> {
     match lang {
+        // Sheets written in French and English only, for now: the other
+        // languages read the English ones.
         ReferenceLang::Fr => OCCUPATIONS_FR_TABLE
             .get_or_init(|| build_table(OCCUPATIONS_FR, |e: &OccupationEntry| &e.aliases)),
-        ReferenceLang::En => OCCUPATIONS_EN_TABLE
+        _ => OCCUPATIONS_EN_TABLE
             .get_or_init(|| build_table(OCCUPATIONS_EN, |e: &OccupationEntry| &e.aliases)),
     }
 }
@@ -123,7 +155,7 @@ fn given_names_table(lang: ReferenceLang) -> &'static HashMap<String, GivenNameE
     match lang {
         ReferenceLang::Fr => GIVEN_NAMES_FR_TABLE
             .get_or_init(|| build_table(GIVEN_NAMES_FR, |e: &GivenNameEntry| &e.aliases)),
-        ReferenceLang::En => GIVEN_NAMES_EN_TABLE
+        _ => GIVEN_NAMES_EN_TABLE
             .get_or_init(|| build_table(GIVEN_NAMES_EN, |e: &GivenNameEntry| &e.aliases)),
     }
 }

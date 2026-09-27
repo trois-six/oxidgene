@@ -15,7 +15,7 @@ use crate::api::{
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
-use crate::i18n::{I18n, Language, use_i18n};
+use crate::i18n::{I18n, use_i18n};
 use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
@@ -1141,31 +1141,8 @@ fn render_value_tab(
 // <= `SOURCES_DRILL_THRESHOLD` sources, at which point the full matching
 // list is displayed at once (no pagination). See ui-dictionary.md §8.
 
-/// Selects the French/English plural suffix for a count, matching the rule
-/// `I18n::t_plural` uses internally — duplicated locally because the
-/// Sources tab needs to combine pluralisation with a second `{prefix}`
-/// placeholder, which `t_plural` (count-only) doesn't support.
-fn plural_suffix(i18n: &I18n, count: usize) -> &'static str {
-    match i18n.0 {
-        Language::Fr => {
-            if count <= 1 {
-                "_one"
-            } else {
-                "_other"
-            }
-        }
-        Language::En => {
-            if count == 1 {
-                "_one"
-            } else {
-                "_other"
-            }
-        }
-    }
-}
-
 fn sources_total_label(i18n: &I18n, count: usize, prefix: &str) -> String {
-    let suffix = plural_suffix(i18n, count);
+    let suffix = i18n.0.plural_suffix(count);
     if prefix.is_empty() {
         i18n.t_args(
             &format!("dictionary.sources_total{suffix}"),

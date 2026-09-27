@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API access, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -180,11 +180,17 @@ Displayed in a card:
 ```
 +-----------------------------------------------------------+
 |  [flag] English                                    [check] |
-|  [flag] Francais                                          |
+|  [flag] Français                                          |
+|  [flag] Deutsch                                           |
+|  [flag] Español                                           |
+|  [flag] Italiano                                          |
+|  [flag] Nederlands                                        |
+|  [flag] Polski                                            |
+|  [flag] Português                                         |
 +-----------------------------------------------------------+
 ```
 
-- Each language is a full-width button with: flag emoji, language name, optional checkmark for active
+- Each language is a full-width button with: flag emoji, the language's own name, optional checkmark for active
 - Active language: orange border, subtle orange tint background
 - Clicking a language immediately switches the UI language (no save step)
 - The preference is persisted in `localStorage('oxidgene-lang')`
@@ -280,7 +286,7 @@ trees. The server and its contract are specified in
 - Nothing is saved: copying the command changes no setting. Configuring the
   client is the consent; removing the entry from the client revokes it.
 - Every label, the warning, the note, and the copy feedback go through i18n,
-  in English and French. The command and the JSON are not translated.
+  in every interface language. The command and the JSON are not translated.
 
 ## 9. Responsive
 
