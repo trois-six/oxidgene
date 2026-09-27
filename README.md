@@ -44,6 +44,16 @@ OxidGene is a multiplatform genealogy application featuring:
 	from the same Dioxus codebase
 - **Keep working offline**: The desktop application embeds SQLite and stores
 	your genealogy and media locally, with no server required
+- **Type places the way the records name them**: Every place field suggests
+	from a built-in place dictionary of France and the United Kingdom, with the
+	communes merged away since the Revolution, their former names, and the
+	départements, regions and counties they were filed under at the time, while
+	still accepting any free text
+- **Understand what the records say**: Explanatory sheets for more than 2,600
+	historical occupations and meanings of given names, in English and French,
+	shown right beside the person
+- **Ask your AI assistant about your tree**: The desktop application serves
+	your trees read-only to Claude and any other Model Context Protocol client
 - **Make the workspace your own**: Switch themes and change between English
 	and French without restarting the application
 - **Integrate without compromise**: Build on REST and GraphQL APIs with full
@@ -64,6 +74,10 @@ Full specifications are available in
 	crate layout, build, and deployment.
 - [Data Model](docs/data-model.md) - entities, enums, and ERD.
 - [API Contract](docs/api.md) - REST and GraphQL endpoints.
+- [Assistant Access (MCP)](docs/mcp.md) - the read-only Model Context
+	Protocol server of the desktop application.
+- [Place Dictionary](docs/place-dictionary.md) - the built-in places, their
+	sources and how they are generated.
 - [Roadmap](docs/roadmap.md) - delivery status and milestones.
 - UI specifications: [Homepage](docs/ui-home.md),
 	[Tree View](docs/ui-genealogy-tree.md),
