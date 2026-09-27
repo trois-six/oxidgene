@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Instrument as _;
 use uuid::Uuid;
 
-use super::{gedcom, geneanet};
+use super::{gedcom, geneanet, history};
 use crate::media::MediaStore;
 use crate::media::store::{job_blob_key, job_input_blob_key};
 use crate::profile::ProfileService;
@@ -394,6 +394,14 @@ impl BackgroundJobWorker {
             .rebuild_tree_full_transactional(&self.db, job.tree_id)
             .instrument(tracing::info_span!("import.projections"))
             .await?;
+        history::record_import(
+            &self.db,
+            job.tree_id,
+            &job.format,
+            job.original_filename.clone(),
+            summary.persons_count,
+        )
+        .await?;
         let result = serde_json::to_string(&summary)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         if !BackgroundJobRepo::complete(&self.db, job.id, &self.worker_id, None, Some(result))
@@ -436,6 +444,14 @@ impl BackgroundJobWorker {
             .rebuild_tree_full_transactional(&self.db, job.tree_id)
             .instrument(tracing::info_span!("import.projections"))
             .await?;
+        history::record_import(
+            &self.db,
+            job.tree_id,
+            &job.format,
+            job.original_filename.clone(),
+            summary.persons_count,
+        )
+        .await?;
         let result = serde_json::to_string(&summary)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         if !BackgroundJobRepo::complete(&self.db, job.id, &self.worker_id, None, Some(result))
@@ -537,6 +553,7 @@ impl BackgroundJobWorker {
             export.format = "gedzip"
         ))
         .await?;
+        history::record_export(&self.db, job.tree_id, &job.format, None).await?;
         let result = serde_json::to_string(&ExportJobResult {
             warnings: data.warnings,
         })

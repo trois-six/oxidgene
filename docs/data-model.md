@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:00:00Z }
 ---
 
 
@@ -834,3 +834,122 @@ depend on the database or API implementation crates.
 - Refresh latency is part of mutation latency and must remain bounded to the
     affected set; whole-tree rebuilds are reserved for imports, maintenance, or
     schema-version changes.
+
+---
+
+## 5. Change History
+
+Every write to a tree is recorded, and the successive states of the tree's
+genealogical records are kept so that two can be compared field by field and an
+earlier one restored. Source of truth in code: `oxidgene-core/src/history.rs`
+(types), `oxidgene-db/src/repo/history.rs` (storage),
+`oxidgene-db/src/repo/snapshot.rs` (building and restoring snapshots), and
+`oxidgene-api/src/service/history.rs` (recording, baseline, restore).
+
+### 5.1 Audit log: `audit_entry`
+
+One row per write, in the write's own transaction: a write that rolls back
+leaves no entry, and no entry describes a write that did not happen.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK — its time order is the log's order |
+| `tree_id` | UUID v7 | FK → Tree (cascade) |
+| `occurred_at` | DateTime | |
+| `category` | String | `data`, `settings`, `media`, `import`, `export`, `history` |
+| `action` | String | `create`, `update`, `delete`, `merge`, `import`, `export`, `revert`, `baseline` |
+| `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `media_tag`, `vignette`, `portrait`, `family_name`, … |
+| `entity_id` | UUID? | The row written, when there is a single one |
+| `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `media`, `tree` |
+| `subject_id` | UUID? | That record |
+| `label` | String? | The subject's display name at the time — it outlives a later rename or deletion |
+| `details` | JSON? | `AuditDetails`: `format`, `file_name`, `count`, `event_type`, `version`, `other_label` — only what applies |
+
+What is recorded:
+
+| Category | Writes |
+|---|---|
+| `data` | Persons, names, distinct-person confirmations, merges, families, spouse and child links, events, witnesses, places, sources, citations, notes, surname particle re-cuts |
+| `settings` | Creating, updating and deleting the tree itself |
+| `media` | Documents, pages, uploads, metadata, tags, page order, vignettes, media links, portraits, and notes about a media |
+| `import` | Completed GEDCOM, GEDZIP, GeneWeb and Geneanet imports, and the tree a duplication creates (`format: duplicate`) |
+| `export` | Completed GEDCOM and GEDZIP exports, and the tree a duplication copies |
+| `history` | Restores, and the baseline of data written before history existed |
+
+Projection maintenance (rebuilding or dropping `person_denorm`) derives data and
+changes none, so it is not recorded. Authentication is not part of the current
+MVP, so an entry records no author.
+
+An event write names the event's owner as its subject and its type in
+`details.event_type`; a write on a note or citation names what the note or
+citation hangs off. Imports and exports run in transactions of their own and
+record their entry once they complete.
+
+### 5.2 Versions: `record_version`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | FK → Tree (cascade) |
+| `audit_entry_id` | UUID v7 | FK → `audit_entry` (cascade) — the write that produced the version |
+| `record_type` | String | `person`, `place`, `source`, `tree` |
+| `record_id` | UUID v7 | The record; the tree's own ID for `tree` |
+| `version` | i32 | 1 for the first state recorded, then one more per change; unique with `(record_type, record_id)` |
+| `deleted` | bool | The record no longer existed after the write |
+| `created_at` | DateTime | |
+| `snapshot` | JSON | `RecordSnapshot`, tagged by `type` |
+| `labels` | JSON | `[{ id, label }]` for everything the snapshot names by ID |
+
+Neither table references the records it describes: a history must outlive them.
+
+**What a snapshot holds.** A person's snapshot is everything their profile shows
+except media: sex, privacy, every name, their own events with each event's
+witnesses, notes and citations, their own notes and citations, the families
+they are a child of, and the families they are a spouse in — each with its
+privacy, all its spouses and children, and its events, notes and citations.
+Portraits, media links and notes about a media are left out: media are audited,
+never versioned. A place's snapshot is its name and coordinates; a source's,
+its fields and notes; the tree's, its name, description, default privacy, SOSA
+root and "self" person.
+
+**References are IDs.** A snapshot names places, sources, witnesses, spouses,
+children and parent families by ID only, and their display labels travel beside
+it in `labels`. Renaming a place or a relative therefore versions nobody else,
+while a version still reads as it did when it was taken.
+
+**When a version is written.** A write names what it touched — a person, a
+family (its spouses), an event (its owner), a place, a source, the settings —
+and each of those records is snapshotted after the write. A snapshot equal to
+the record's latest version, deleted flag included, is dropped. Adding a child
+to a family changes both spouses' unions and the child's parents, so all three
+get a version; renaming the father changes only his. A record a write names that
+no longer exists at all gets a `deleted` version repeating its last state.
+
+**Baseline.** At startup, before serving requests, the server and the desktop
+application give every tree that holds data but no audit entry one `baseline`
+entry versioning all its persons, places, sources and settings, so a first edit
+has a state to compare against. A tree that already has an entry is skipped,
+and the unique version number keeps two instances starting together from
+writing the same baseline twice.
+
+### 5.3 Restoring a version
+
+A restore writes a version's snapshot back over the live rows, keeping every
+ID, in one transaction with the projection refresh of everyone it reaches. It
+is a write of its own: it records a `revert` entry naming the restored version,
+and the state it restores becomes the record's newest version, so a restore can
+itself be undone.
+
+| Record | What a restore does |
+|---|---|
+| Person | Undeletes the person and sets sex and privacy. Names are replaced by the snapshot's. Own events, notes and citations absent from the snapshot are removed — soft-deleted where the table allows it — and the snapshot's come back, undeleted or re-inserted, with their witnesses, notes and citations. Parent links to families that still exist are restored and others dropped. For each union, the family is undeleted or re-created with its privacy, spouses, children, events, notes and citations; the person leaves the families the snapshot does not list |
+| Place | Updates the place, or re-creates it with its ID if it was deleted |
+| Source | Undeletes and updates the source, and restores its notes |
+| Tree | Restores the settings; a SOSA root or "self" person who no longer exists is cleared |
+
+References to persons that no longer exist — a witness, a spouse, a child — are
+dropped rather than resurrected: restoring one person never brings back
+another. A deleted place an event needs is re-created from its latest version,
+or from the label recorded with the snapshot; a deleted source a citation needs
+is undeleted. A version recording a deletion cannot itself be restored: the one
+before it is the state to go back to.

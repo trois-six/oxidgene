@@ -8,8 +8,10 @@ use uuid::Uuid;
 
 use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
 use super::error::ApiError;
-use super::state::AppState;
+use super::state::{AppState, begin_tx, commit_tx};
 use crate::service::gedcom;
+use crate::service::history::{self, Change};
+use oxidgene_core::history::AuditEntity;
 
 /// GET /api/v1/trees
 pub async fn list_trees(
@@ -72,9 +74,16 @@ pub async fn create_tree(
         )));
     }
     let id = Uuid::now_v7();
-    let tree = TreeRepo::create(&state.db, id, body.name, body.description)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let tree = TreeRepo::create(&txn, id, body.name, body.description)
         .await
         .map_err(ApiError::from)?;
+    Change::create(id, AuditEntity::Tree, id)
+        .tree_settings()
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(tree).unwrap()),
@@ -107,8 +116,9 @@ pub async fn update_tree(
             "name must not be empty".to_string(),
         )));
     }
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
     let tree = TreeRepo::update(
-        &state.db,
+        &txn,
         tree_id,
         body.name,
         body.description,
@@ -118,6 +128,12 @@ pub async fn update_tree(
     )
     .await
     .map_err(ApiError::from)?;
+    Change::update(tree_id, AuditEntity::Tree, tree_id)
+        .tree_settings()
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(tree).unwrap()))
 }
 
@@ -141,6 +157,10 @@ pub async fn duplicate_tree(
     let export = gedcom::load_and_export(&state.db, source_tree_id, false, false, false)
         .await
         .map_err(ApiError::from)?;
+    let source_name = TreeRepo::get(&state.db, source_tree_id)
+        .await
+        .map_err(ApiError::from)?
+        .name;
 
     // Create the new tree
     let new_id = Uuid::now_v7();
@@ -149,7 +169,7 @@ pub async fn duplicate_tree(
         .map_err(ApiError::from)?;
 
     // Import GEDCOM into the new tree
-    gedcom::import_and_persist(&state.db, new_id, &export.gedcom)
+    let summary = gedcom::import_and_persist(&state.db, new_id, &export.gedcom)
         .await
         .map_err(ApiError::from)?;
 
@@ -159,6 +179,24 @@ pub async fn duplicate_tree(
         .rebuild_tree_full(&state.db, new_id)
         .await
         .map_err(ApiError::from)?;
+
+    history::record_import(
+        &state.db,
+        new_id,
+        history::DUPLICATE_FORMAT,
+        Some(source_name),
+        summary.persons_count,
+    )
+    .await
+    .map_err(ApiError)?;
+    history::record_export(
+        &state.db,
+        source_tree_id,
+        history::DUPLICATE_FORMAT,
+        Some(new_tree.name.clone()),
+    )
+    .await
+    .map_err(ApiError)?;
 
     Ok((
         StatusCode::CREATED,
@@ -176,9 +214,16 @@ pub async fn delete_tree(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    TreeRepo::soft_delete(&state.db, tree_id)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    TreeRepo::soft_delete(&txn, tree_id)
         .await
         .map_err(ApiError::from)?;
+    Change::delete(tree_id, AuditEntity::Tree, tree_id)
+        .tree_settings()
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
 
     // Only once the flag is committed, so a purge can never outrun it.
     state.purge.enqueue(tree_id);

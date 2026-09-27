@@ -44,6 +44,32 @@ impl EventWitnessRepo {
         .await
     }
 
+    /// Get one event–witness link.
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<EventWitness, OxidGeneError> {
+        Entity::find_by_id(id)
+            .one(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map(into_domain)
+            .ok_or(OxidGeneError::NotFound {
+                entity: "EventWitness",
+                id,
+            })
+    }
+
+    /// List the events a person witnesses.
+    pub async fn list_by_person(
+        db: &impl ConnectionTrait,
+        person_id: Uuid,
+    ) -> Result<Vec<EventWitness>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::PersonId.eq(person_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// Create an event–witness link.
     pub async fn create(
         db: &impl ConnectionTrait,

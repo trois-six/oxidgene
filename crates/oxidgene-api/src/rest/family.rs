@@ -1,9 +1,11 @@
 //! REST handlers for Family CRUD operations.
 
 use crate::profile::invalidation;
+use crate::service::history::Change;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use oxidgene_core::history::AuditEntity;
 use oxidgene_db::repo::{FamilyRepo, PaginationParams};
 use uuid::Uuid;
 
@@ -33,10 +35,17 @@ pub async fn create_family(
     Path(tree_id): Path<Uuid>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let id = Uuid::now_v7();
-    let family = FamilyRepo::create(&state.db, id, tree_id)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let family = FamilyRepo::create(&txn, id, tree_id)
         .await
         .map_err(ApiError::from)?;
     // No projection impact — empty family.
+    Change::create(tree_id, AuditEntity::Family, id)
+        .family(id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(family).unwrap()),
@@ -66,15 +75,22 @@ pub async fn update_family(
     // Read from the raw bytes rather than through `Json`: this route already
     // existed as a bare "touch updated_at" and is still called with no body at
     // all, which an extractor expecting JSON refuses before the handler runs.
-    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
         .await
         .map_err(ApiError)?;
     let privacy = serde_json::from_slice::<super::dto::UpdateFamilyRequest>(&body)
         .ok()
         .and_then(|b| b.privacy);
-    let family = FamilyRepo::update(&state.db, family_id, privacy)
+    let family = FamilyRepo::update(&txn, family_id, privacy)
         .await
         .map_err(ApiError::from)?;
+    Change::update(tree_id, AuditEntity::Family, family_id)
+        .family(family_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(family).unwrap()))
 }
 
@@ -101,6 +117,12 @@ pub async fn delete_family(
             .await
             .map_err(ApiError)?;
     }
+    Change::delete(tree_id, AuditEntity::Family, family_id)
+        .family(family_id)
+        .persons(affected)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

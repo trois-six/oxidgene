@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::dto::{ImportGenewebQuery, ImportResponse};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::geneweb;
+use crate::service::{geneweb, history};
 
 /// Default `origin_file` when the client sends no `?filename=`.
 const DEFAULT_ORIGIN_FILE: &str = "import.gw";
@@ -46,6 +46,15 @@ pub async fn import_geneweb_handler(
         .rebuild_tree_full(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
+    history::record_import(
+        &state.db,
+        tree_id,
+        "geneweb",
+        Some(origin_file.to_string()),
+        summary.persons_count,
+    )
+    .await
+    .map_err(ApiError)?;
 
     let response = ImportResponse {
         persons_count: summary.persons_count,

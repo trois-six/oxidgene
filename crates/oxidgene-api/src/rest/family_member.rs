@@ -1,9 +1,11 @@
 //! REST handlers for FamilySpouse and FamilyChild membership operations.
 
 use crate::profile::invalidation;
+use crate::service::history::Change;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use oxidgene_core::history::AuditEntity;
 use oxidgene_db::repo::{FamilyChildRepo, FamilySpouseRepo};
 use uuid::Uuid;
 
@@ -60,6 +62,12 @@ pub async fn add_spouse(
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    Change::create(tree_id, AuditEntity::FamilySpouse, id)
+        .person(body.person_id)
+        .family(family_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
@@ -105,6 +113,12 @@ pub async fn remove_spouse(
             .await
             .map_err(ApiError)?;
     }
+    Change::delete(tree_id, AuditEntity::FamilySpouse, spouse_id)
+        .person_if(person_id)
+        .family(family_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -158,6 +172,12 @@ pub async fn add_child(
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    Change::create(tree_id, AuditEntity::FamilyChild, id)
+        .person(body.person_id)
+        .family(family_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
@@ -202,6 +222,12 @@ pub async fn remove_child(
             .await
             .map_err(ApiError)?;
     }
+    Change::delete(tree_id, AuditEntity::FamilyChild, child_id)
+        .person_if(person_id)
+        .family(family_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,9 +1,11 @@
 //! REST handlers for PersonName CRUD operations.
 
 use crate::profile::invalidation;
+use crate::service::history::Change;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use oxidgene_core::history::AuditEntity;
 use oxidgene_db::repo::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};
 use uuid::Uuid;
 
@@ -80,6 +82,11 @@ pub async fn create_person_name(
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    Change::create(tree_id, AuditEntity::PersonName, id)
+        .person(person_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
@@ -125,6 +132,11 @@ pub async fn update_person_name(
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    Change::update(tree_id, AuditEntity::PersonName, name_id)
+        .person(person_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(name).unwrap()))
 }
@@ -150,6 +162,11 @@ pub async fn delete_person_name(
     state
         .profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
+        .await
+        .map_err(ApiError)?;
+    Change::delete(tree_id, AuditEntity::PersonName, name_id)
+        .person(person_id)
+        .record(&txn)
         .await
         .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;

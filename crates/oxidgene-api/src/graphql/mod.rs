@@ -1,6 +1,7 @@
 //! GraphQL API layer: schema construction, Axum handlers, and module declarations.
 
 mod error;
+pub mod history;
 pub mod inputs;
 pub mod mutation;
 pub mod query;

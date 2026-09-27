@@ -110,6 +110,17 @@ impl Media {
         self.parent_media_id.is_none()
     }
 
+    /// What the media is called: its title, or its file name without one.
+    #[must_use]
+    pub fn display_label(&self) -> String {
+        self.title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .unwrap_or(&self.file_name)
+            .to_string()
+    }
+
     /// Validate page coordinates, checking each known dimension independently.
     /// Imported pages and PDFs may have no known pixel dimensions yet.
     pub fn validate_crop(

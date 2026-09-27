@@ -1,6 +1,7 @@
 //! REST handlers for vignettes — named rectangles cut out of a stored media
 //! file, and the cropped images they stand for.
 
+use crate::service::history::Change;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -8,6 +9,7 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{Media, Vignette};
 use oxidgene_db::repo::{MediaRepo, VignetteInput, VignettePatch, VignetteRepo};
 use uuid::Uuid;
@@ -101,6 +103,11 @@ pub async fn create_vignette(
     )
     .await
     .map_err(ApiError::from)?;
+    Change::create(tree_id, AuditEntity::Vignette, vignette.id)
+        .media(media_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok((StatusCode::CREATED, Json(vignette)))
 }
 
@@ -162,6 +169,11 @@ pub async fn update_vignette(
     )
     .await
     .map_err(ApiError::from)?;
+    Change::update(tree_id, AuditEntity::Vignette, vignette_id)
+        .media(existing.media_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok(Json(vignette))
 }
 
@@ -173,9 +185,18 @@ pub async fn delete_vignette(
     require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
         .await
         .map_err(ApiError)?;
+    let media_id = VignetteRepo::get(&state.db, vignette_id)
+        .await
+        .map_err(ApiError::from)?
+        .media_id;
     VignetteRepo::delete(&state.db, vignette_id)
         .await
         .map_err(ApiError::from)?;
+    Change::delete(tree_id, AuditEntity::Vignette, vignette_id)
+        .media(media_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

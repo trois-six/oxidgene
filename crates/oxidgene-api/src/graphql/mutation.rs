@@ -2,9 +2,11 @@
 
 use crate::profile::invalidation;
 use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::history::{self, Change};
 use crate::service::{duplicates, event_date};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
+use oxidgene_core::history::{AuditAction, AuditEntity};
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
@@ -15,6 +17,7 @@ use oxidgene_db::repo::{
     VignettePatch, VignetteRepo,
 };
 
+use super::history::{GqlAuditEntry, GqlRecordType};
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
@@ -92,7 +95,13 @@ impl MutationRoot {
     async fn create_tree(&self, ctx: &Context<'_>, input: CreateTreeInput) -> Result<GqlTree> {
         let db = db_from_ctx(ctx);
         let id = Uuid::now_v7();
-        let tree = TreeRepo::create(db, id, input.name, input.description).await?;
+        let txn = begin_tx(db).await?;
+        let tree = TreeRepo::create(&txn, id, input.name, input.description).await?;
+        Change::create(id, AuditEntity::Tree, id)
+            .tree_settings()
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(tree.into())
     }
 
@@ -116,10 +125,27 @@ impl MutationRoot {
         let export =
             crate::service::gedcom::load_and_export(db, source_tree_id, false, false, false)
                 .await?;
+        let source_name = TreeRepo::get(db, source_tree_id).await?.name;
         let new_tree_id = Uuid::now_v7();
         let tree = TreeRepo::create(db, new_tree_id, name, None).await?;
-        crate::service::gedcom::import_and_persist(db, new_tree_id, &export.gedcom).await?;
+        let summary =
+            crate::service::gedcom::import_and_persist(db, new_tree_id, &export.gedcom).await?;
         profiles.rebuild_tree_full(db, new_tree_id).await?;
+        history::record_import(
+            db,
+            new_tree_id,
+            history::DUPLICATE_FORMAT,
+            Some(source_name),
+            summary.persons_count,
+        )
+        .await?;
+        history::record_export(
+            db,
+            source_tree_id,
+            history::DUPLICATE_FORMAT,
+            Some(tree.name.clone()),
+        )
+        .await?;
         Ok(tree.into())
     }
 
@@ -149,8 +175,9 @@ impl MutationRoot {
             |s| Uuid::parse_str(&s),
             "self_person_id",
         )?;
+        let txn = begin_tx(db).await?;
         let tree = TreeRepo::update(
-            db,
+            &txn,
             uuid,
             input.name,
             patch(input.description),
@@ -159,6 +186,11 @@ impl MutationRoot {
             input.default_privacy.map(Into::into),
         )
         .await?;
+        Change::update(uuid, AuditEntity::Tree, uuid)
+            .tree_settings()
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(tree.into())
     }
 
@@ -170,7 +202,13 @@ impl MutationRoot {
     async fn delete_tree(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         let db = db_from_ctx(ctx);
         let uuid = Uuid::parse_str(id.as_str())?;
-        TreeRepo::soft_delete(db, uuid).await?;
+        let txn = begin_tx(db).await?;
+        TreeRepo::soft_delete(&txn, uuid).await?;
+        Change::delete(uuid, AuditEntity::Tree, uuid)
+            .tree_settings()
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         purge_from_ctx(ctx).enqueue(uuid);
         Ok(true)
     }
@@ -192,6 +230,10 @@ impl MutationRoot {
         let person = PersonRepo::create(&txn, id, tid, input.sex.into()).await?;
         // New person is not linked to any family yet — just build its projection.
         profiles.rebuild_person(&txn, tid, id).await?;
+        Change::create(tid, AuditEntity::Person, id)
+            .person(id)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(person.into())
     }
@@ -222,6 +264,10 @@ impl MutationRoot {
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
+        Change::update(tid, AuditEntity::Person, uuid)
+            .person(uuid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(person.into())
     }
@@ -239,6 +285,10 @@ impl MutationRoot {
         // relatives that referenced them.
         profiles
             .invalidate_for_person_delete(&txn, tid, uuid)
+            .await?;
+        Change::delete(tid, AuditEntity::Person, uuid)
+            .person(uuid)
+            .record(&txn)
             .await?;
         commit_tx(txn).await?;
         Ok(true)
@@ -325,6 +375,10 @@ impl MutationRoot {
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
+        Change::create(tid, AuditEntity::PersonName, id)
+            .person(pid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(name.into())
     }
@@ -366,6 +420,10 @@ impl MutationRoot {
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
+        Change::update(tid, AuditEntity::PersonName, uuid)
+            .person(pid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(name.into())
     }
@@ -391,6 +449,10 @@ impl MutationRoot {
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
+        Change::delete(tid, AuditEntity::PersonName, uuid)
+            .person(pid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -402,8 +464,14 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
-        let family = FamilyRepo::create(db, id, tid).await?;
+        let txn = begin_tx(db).await?;
+        let family = FamilyRepo::create(&txn, id, tid).await?;
         // No projection impact — empty family.
+        Change::create(tid, AuditEntity::Family, id)
+            .family(id)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(family.into())
     }
 
@@ -418,8 +486,14 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        require_tree_resource(db, tid, TreeResource::Family, uuid).await?;
-        let family = FamilyRepo::update(db, uuid, input.privacy.map(Into::into)).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Family, uuid).await?;
+        let family = FamilyRepo::update(&txn, uuid, input.privacy.map(Into::into)).await?;
+        Change::update(tid, AuditEntity::Family, uuid)
+            .family(uuid)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(family.into())
     }
 
@@ -439,6 +513,11 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
+        Change::delete(tid, AuditEntity::Family, uuid)
+            .family(uuid)
+            .persons(affected)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -467,6 +546,11 @@ impl MutationRoot {
             invalidation::affected_persons_for_family_spouse_change(&txn, fid, pid).await?;
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
+            .await?;
+        Change::create(tid, AuditEntity::FamilySpouse, id)
+            .person(pid)
+            .family(fid)
+            .record(&txn)
             .await?;
         commit_tx(txn).await?;
         Ok(spouse.into())
@@ -503,6 +587,11 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
+        Change::delete(tid, AuditEntity::FamilySpouse, uuid)
+            .person_if(person_id)
+            .family(fid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -538,6 +627,11 @@ impl MutationRoot {
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
+        Change::create(tid, AuditEntity::FamilyChild, id)
+            .person(pid)
+            .family(fid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(child.into())
     }
@@ -572,6 +666,11 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
+        Change::delete(tid, AuditEntity::FamilyChild, uuid)
+            .person_if(person_id)
+            .family(fid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -642,6 +741,10 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
+        Change::create(tid, AuditEntity::Event, id)
+            .event(id)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(event.into())
     }
@@ -701,6 +804,10 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
+        Change::update(tid, AuditEntity::Event, uuid)
+            .event(uuid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(event.into())
     }
@@ -726,6 +833,10 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &affected)
                 .await?;
         }
+        Change::delete(tid, AuditEntity::Event, uuid)
+            .event(uuid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -743,10 +854,16 @@ impl MutationRoot {
         let eid = Uuid::parse_str(event_id.as_str())?;
         let pid = Uuid::parse_str(&input.person_id)?;
         let id = Uuid::now_v7();
-        require_tree_resource(db, tid, TreeResource::Event, eid).await?;
-        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Event, eid).await?;
+        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
         let witness =
-            EventWitnessRepo::create(db, id, eid, pid, input.relation, input.sort_order).await?;
+            EventWitnessRepo::create(&txn, id, eid, pid, input.relation, input.sort_order).await?;
+        Change::create(tid, AuditEntity::EventWitness, id)
+            .event(eid)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(witness.into())
     }
 
@@ -755,8 +872,15 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        require_tree_resource(db, tid, TreeResource::EventWitness, uuid).await?;
-        EventWitnessRepo::delete(db, uuid).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::EventWitness, uuid).await?;
+        let event_id = EventWitnessRepo::get(&txn, uuid).await?.event_id;
+        EventWitnessRepo::delete(&txn, uuid).await?;
+        Change::delete(tid, AuditEntity::EventWitness, uuid)
+            .event(event_id)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(true)
     }
 
@@ -772,8 +896,14 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
+        let txn = begin_tx(db).await?;
         let place =
-            PlaceRepo::create(db, id, tid, input.name, input.latitude, input.longitude).await?;
+            PlaceRepo::create(&txn, id, tid, input.name, input.latitude, input.longitude).await?;
+        Change::create(tid, AuditEntity::Place, id)
+            .place(id)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(place.into())
     }
 
@@ -803,6 +933,10 @@ impl MutationRoot {
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
+        Change::update(tid, AuditEntity::Place, uuid)
+            .place(uuid)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(place.into())
     }
@@ -820,6 +954,12 @@ impl MutationRoot {
         profiles
             .invalidate_for_mutation(&txn, tid, &affected)
             .await?;
+        // The deleted place's events lost their place: their owners changed too.
+        Change::delete(tid, AuditEntity::Place, uuid)
+            .place(uuid)
+            .persons(affected)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -836,8 +976,9 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let id = Uuid::now_v7();
+        let txn = begin_tx(db).await?;
         let source = SourceRepo::create(
-            db,
+            &txn,
             id,
             tid,
             input.title,
@@ -847,6 +988,11 @@ impl MutationRoot {
             input.repository_name,
         )
         .await?;
+        Change::create(tid, AuditEntity::Source, id)
+            .source(id)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(source.into())
     }
 
@@ -861,9 +1007,10 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        require_tree_resource(db, tid, TreeResource::Source, uuid).await?;
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Source, uuid).await?;
         let source = SourceRepo::update(
-            db,
+            &txn,
             uuid,
             input.title,
             patch(input.author),
@@ -872,6 +1019,11 @@ impl MutationRoot {
             patch(input.repository_name),
         )
         .await?;
+        Change::update(tid, AuditEntity::Source, uuid)
+            .source(uuid)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(source.into())
     }
 
@@ -888,12 +1040,22 @@ impl MutationRoot {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        require_tree_resource(db, tid, TreeResource::Source, uuid).await?;
-        if only_if_unused {
-            return Ok(SourceRepo::delete_if_unused(db, uuid).await?);
+        let txn = begin_tx(db).await?;
+        require_tree_resource(&txn, tid, TreeResource::Source, uuid).await?;
+        let deleted = if only_if_unused {
+            SourceRepo::delete_if_unused(&txn, uuid).await?
+        } else {
+            SourceRepo::delete(&txn, uuid).await?;
+            true
+        };
+        if deleted {
+            Change::delete(tid, AuditEntity::Source, uuid)
+                .source(uuid)
+                .record(&txn)
+                .await?;
         }
-        SourceRepo::delete(db, uuid).await?;
-        Ok(true)
+        commit_tx(txn).await?;
+        Ok(deleted)
     }
 
     // ── Citation Mutations ───────────────────────────────────────────
@@ -949,6 +1111,15 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &[person_id])
                 .await?;
         }
+        Change::create(tid, AuditEntity::Citation, id)
+            .owner(
+                citation.person_id,
+                citation.event_id,
+                citation.family_id,
+                None,
+            )
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(citation.into())
     }
@@ -989,6 +1160,15 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &[person_id])
                 .await?;
         }
+        Change::update(tid, AuditEntity::Citation, uuid)
+            .owner(
+                previous.person_id,
+                previous.event_id,
+                previous.family_id,
+                None,
+            )
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(citation.into())
     }
@@ -1008,6 +1188,15 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &[person_id])
                 .await?;
         }
+        Change::delete(tid, AuditEntity::Citation, uuid)
+            .owner(
+                citation.person_id,
+                citation.event_id,
+                citation.family_id,
+                None,
+            )
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -1053,6 +1242,10 @@ impl MutationRoot {
         // `page_count` is maintained by whoever adds the page. The REST twin
         // refreshes it here, and a page added over GraphQL is the same page.
         MediaRepo::refresh_page_count(db, document_id).await?;
+        Change::create(tid, AuditEntity::MediaPage, id)
+            .media(document_id)
+            .record(db)
+            .await?;
         Ok(media.into())
     }
 
@@ -1094,6 +1287,7 @@ impl MutationRoot {
             metadata: Default::default(),
         };
 
+        let attached = input.media_id.is_some();
         let media = match input.media_id {
             Some(media_id) => {
                 let media_id = Uuid::parse_str(&media_id)?;
@@ -1113,6 +1307,15 @@ impl MutationRoot {
                     .await?
             }
         };
+        let change = if attached {
+            Change::update(tid, AuditEntity::Media, media.id)
+        } else {
+            Change::create(tid, AuditEntity::MediaPage, media.id)
+        };
+        change
+            .media(media.parent_media_id.unwrap_or(media.id))
+            .record(db)
+            .await?;
         Ok(media.into())
     }
 
@@ -1156,6 +1359,10 @@ impl MutationRoot {
         let media_patch = crate::rest::media::media_patch(&stored, request)
             .map_err(|e| async_graphql::Error::new(e.0.to_string()))?;
         let media = MediaRepo::update(db, uuid, media_patch).await?;
+        Change::update(tid, AuditEntity::Media, uuid)
+            .media(uuid)
+            .record(db)
+            .await?;
         Ok(media.into())
     }
 
@@ -1176,6 +1383,10 @@ impl MutationRoot {
             .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
         let target_id = media.parent_media_id.unwrap_or(media.id);
         MediaTagRepo::create(db, target_id, tag, normalized_tag).await?;
+        Change::new(tid, AuditAction::Create, AuditEntity::MediaTag, None)
+            .media(target_id)
+            .record(db)
+            .await?;
         Ok(MediaRepo::get(db, target_id).await?.into())
     }
 
@@ -1194,12 +1405,12 @@ impl MutationRoot {
         let media = MediaRepo::get(db, media_id).await?;
         let (_, normalized_tag) = crate::rest::media::normalize_tag(tag)
             .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
-        MediaTagRepo::delete(
-            db,
-            media.parent_media_id.unwrap_or(media.id),
-            &normalized_tag,
-        )
-        .await?;
+        let target_id = media.parent_media_id.unwrap_or(media.id);
+        MediaTagRepo::delete(db, target_id, &normalized_tag).await?;
+        Change::new(tid, AuditAction::Delete, AuditEntity::MediaTag, None)
+            .media(target_id)
+            .record(db)
+            .await?;
         Ok(true)
     }
 
@@ -1233,13 +1444,23 @@ impl MutationRoot {
         } else {
             None
         };
-        Ok(crate::service::media::purge_media(
+        // Read before the purge removes the row the label comes from.
+        let label = MediaRepo::get(db, uuid).await?.display_label();
+        let deleted = crate::service::media::purge_media(
             db,
             media_from_ctx(ctx).as_ref(),
             uuid,
             allowed_link_id,
         )
-        .await?)
+        .await?;
+        if deleted {
+            Change::delete(tid, AuditEntity::Media, uuid)
+                .media(uuid)
+                .label(label)
+                .record(db)
+                .await?;
+        }
+        Ok(deleted)
     }
 
     /// Make a media link the person's profile image, or clear the flag.
@@ -1280,10 +1501,16 @@ impl MutationRoot {
             require_tree_resource(db, tid, TreeResource::Vignette, vignette_id).await?;
         }
         let portrait = request.portrait().map_err(async_graphql::Error::new)?;
-        let person = PersonRepo::set_portrait(db, pid, portrait).await?;
+        let txn = begin_tx(db).await?;
+        let person = PersonRepo::set_portrait(&txn, pid, portrait).await?;
         // The portrait is embedded in `person_denorm`, so the projection has
         // to be rebuilt or the tree keeps drawing the old one.
-        profiles.rebuild_person(db, tid, pid).await?;
+        profiles.rebuild_person(&txn, tid, pid).await?;
+        Change::update(tid, AuditEntity::Portrait, pid)
+            .person(pid)
+            .record(&txn)
+            .await?;
+        commit_tx(txn).await?;
         Ok(person.into())
     }
 
@@ -1298,6 +1525,10 @@ impl MutationRoot {
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let media =
             MediaRepo::create_document(db, Uuid::now_v7(), tid, title, chrono::Utc::now()).await?;
+        Change::create(tid, AuditEntity::Media, media.id)
+            .media(media.id)
+            .record(db)
+            .await?;
         Ok(media.into())
     }
 
@@ -1321,6 +1552,10 @@ impl MutationRoot {
             require_tree_resource(db, tid, TreeResource::Media, *page_id).await?;
         }
         let pages = MediaRepo::reorder_pages(db, document_id, &ids).await?;
+        Change::new(tid, AuditAction::Update, AuditEntity::MediaPage, None)
+            .media(document_id)
+            .record(db)
+            .await?;
         Ok(pages.into_iter().map(Into::into).collect())
     }
 
@@ -1344,6 +1579,10 @@ impl MutationRoot {
         require_tree_resource(&txn, tid, TreeResource::Media, document_id).await?;
         require_tree_resource(&txn, tid, TreeResource::Media, page_id).await?;
         let purge = MediaRepo::delete_page(&txn, document_id, page_id).await?;
+        Change::delete(tid, AuditEntity::MediaPage, page_id)
+            .media(document_id)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         for key in purge.storage_keys {
             store.delete(&key).await?;
@@ -1385,6 +1624,10 @@ impl MutationRoot {
             },
         )
         .await?;
+        Change::create(tid, AuditEntity::Vignette, vignette.id)
+            .media(media_id)
+            .record(db)
+            .await?;
         Ok(vignette.into())
     }
 
@@ -1427,6 +1670,10 @@ impl MutationRoot {
             },
         )
         .await?;
+        Change::update(tid, AuditEntity::Vignette, uuid)
+            .media(existing.media_id)
+            .record(db)
+            .await?;
         Ok(vignette.into())
     }
 
@@ -1436,7 +1683,12 @@ impl MutationRoot {
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         require_tree_resource(db, tid, TreeResource::Vignette, uuid).await?;
+        let media_id = VignetteRepo::get(db, uuid).await?.media_id;
         VignetteRepo::delete(db, uuid).await?;
+        Change::delete(tid, AuditEntity::Vignette, uuid)
+            .media(media_id)
+            .record(db)
+            .await?;
         Ok(true)
     }
 
@@ -1489,6 +1741,10 @@ impl MutationRoot {
             input.sort_order,
         )
         .await?;
+        Change::create(tid, AuditEntity::MediaLink, id)
+            .media(media_id)
+            .record(db)
+            .await?;
         Ok(link.into())
     }
 
@@ -1498,7 +1754,12 @@ impl MutationRoot {
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
         require_tree_resource(db, tid, TreeResource::MediaLink, uuid).await?;
+        let media_id = MediaLinkRepo::get(db, uuid).await?.media_id;
         MediaLinkRepo::delete(db, uuid).await?;
+        Change::delete(tid, AuditEntity::MediaLink, uuid)
+            .media(media_id)
+            .record(db)
+            .await?;
         Ok(true)
     }
 
@@ -1553,6 +1814,9 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &[person_id])
                 .await?;
         }
+        history::note_change(tid, AuditAction::Create, &note)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(note.into())
     }
@@ -1578,6 +1842,9 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &[person_id])
                 .await?;
         }
+        history::note_change(tid, AuditAction::Update, &previous)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(note.into())
     }
@@ -1597,6 +1864,9 @@ impl MutationRoot {
                 .invalidate_for_mutation(&txn, tid, &[person_id])
                 .await?;
         }
+        history::note_change(tid, AuditAction::Delete, &note)
+            .record(&txn)
+            .await?;
         commit_tx(txn).await?;
         Ok(true)
     }
@@ -1619,6 +1889,11 @@ impl MutationRoot {
         let update =
             DictionaryRepo::set_family_name_particle(&txn, tid, &input.value, &input.particle)
                 .await?;
+        if update.names_updated > 0 {
+            history::family_name_change(tid, &update)
+                .record(&txn)
+                .await?;
+        }
         commit_tx(txn).await?;
         // Same reasoning as the REST handler: a surname reaches every
         // projection embedding a display name, so rebuild the tree eagerly and
@@ -1773,6 +2048,29 @@ impl MutationRoot {
         Ok(GqlBackgroundJobStarted {
             job_id: ID(job_id.to_string()),
         })
+    }
+
+    // ── History Mutations ────────────────────────────────────────────
+
+    /// Put a record back as one of its versions had it. The restore is a
+    /// write of its own, returned as its audit entry. Mirrors
+    /// `POST /trees/{treeId}/history/{recordType}/{recordId}/revert`.
+    async fn revert_record(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        record_type: GqlRecordType,
+        record_id: ID,
+        version: i32,
+    ) -> Result<GqlAuditEntry> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let rid = Uuid::parse_str(record_id.as_str())?;
+        let txn = begin_tx(db).await?;
+        let entry = history::revert(&txn, profiles, tid, record_type.into(), rid, version).await?;
+        commit_tx(txn).await?;
+        Ok(entry.into())
     }
 
     // ── Projection Admin Mutations ───────────────────────────────────

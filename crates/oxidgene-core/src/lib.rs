@@ -6,6 +6,7 @@
 pub mod calendar;
 pub mod enums;
 pub mod error;
+pub mod history;
 pub mod projection;
 pub mod resources;
 pub mod search;

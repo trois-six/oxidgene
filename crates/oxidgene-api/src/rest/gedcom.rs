@@ -12,7 +12,7 @@ use uuid::Uuid;
 use super::dto::{ExportGedcomQuery, ExportGedcomResponse, ImportGedcomRequest, ImportResponse};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::gedcom;
+use crate::service::{gedcom, history};
 
 /// POST /api/v1/trees/:tree_id/import
 ///
@@ -32,6 +32,9 @@ pub async fn import_gedcom_handler(
         .rebuild_tree_full(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
+    history::record_import(&state.db, tree_id, "gedcom", None, summary.persons_count)
+        .await
+        .map_err(ApiError)?;
 
     let response = ImportResponse {
         persons_count: summary.persons_count,
@@ -70,6 +73,9 @@ pub async fn import_gedzip_handler(
         .rebuild_tree_full(&state.db, tree_id)
         .await
         .map_err(ApiError::from)?;
+    history::record_import(&state.db, tree_id, "gedzip", None, summary.persons_count)
+        .await
+        .map_err(ApiError)?;
 
     let response = ImportResponse {
         persons_count: summary.persons_count,
@@ -139,6 +145,9 @@ pub async fn export_gedcom_handler(
             .in_scope(|| oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files))
             .map_err(OxidGeneError::Gedcom)
             .map_err(ApiError::from)?;
+        history::record_export(&state.db, tree_id, "gedzip", None)
+            .await
+            .map_err(ApiError)?;
 
         return Ok((
             [
@@ -153,6 +162,9 @@ pub async fn export_gedcom_handler(
             .into_response());
     }
 
+    history::record_export(&state.db, tree_id, "gedcom", None)
+        .await
+        .map_err(ApiError)?;
     Ok(Json(ExportGedcomResponse {
         gedcom: data.gedcom,
         warnings: data.warnings,

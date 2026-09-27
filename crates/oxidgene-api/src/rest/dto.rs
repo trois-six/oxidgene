@@ -33,6 +33,25 @@ pub struct PaginationQuery {
     pub after: Option<String>,
 }
 
+/// Query parameters of the audit log.
+#[derive(Debug, Deserialize)]
+pub struct AuditQuery {
+    /// Number of entries to return (default: 25, max: 100).
+    pub first: Option<u64>,
+    /// Cursor to continue after (the last entry's ID).
+    pub after: Option<String>,
+    /// Only the writes of this category.
+    pub category: Option<oxidgene_core::history::AuditCategory>,
+    /// Only the writes about this record.
+    pub subject_id: Option<uuid::Uuid>,
+}
+
+/// Body of a restore: the version to put the record back as.
+#[derive(Debug, Deserialize)]
+pub struct RevertRecordRequest {
+    pub version: i32,
+}
+
 /// People whose display-ready portraits should be loaded together.
 #[derive(Debug, Deserialize)]
 pub struct PortraitImagesRequest {

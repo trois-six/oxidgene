@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:00:00Z }
 ---
 
 
@@ -487,6 +487,38 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 | `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
 | `GET` | `/trees/{tree_id}/dictionary/places/{place_id}/usage` | Persons referencing a place |
 
+### Audit log and versions
+
+Every write to a tree leaves an audit entry, and every write that changes a
+person, a place, a source or the tree's settings also stores that record's new
+state as a numbered version. See [Data Model §5](data-model.md#5-change-history)
+for what is recorded and what a version holds.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/audit?first=&after=&category=&subject_id=` | The tree's audit log, **newest first**, as a `Connection<AuditEntry>`. `category` is one of `data`, `settings`, `media`, `import`, `export`, `history`; `subject_id` keeps only the writes about one record |
+| `GET` | `/trees/{tree_id}/audit/{entry_id}` | One `AuditEntry` |
+| `GET` | `/trees/{tree_id}/audit/{entry_id}/changes?first=&after=` | The versions the write produced, in the order it wrote them, each as `{ version, previous }` — `previous` is the version it replaced, `null` for a record's first |
+| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}?first=&after=` | A record's versions, **latest first**. `record_type` is `person`, `place`, `source` or `tree` (whose `record_id` is the tree's own ID) |
+| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}/{version}` | One `RecordVersion` |
+| `POST` | `/trees/{tree_id}/history/{record_type}/{record_id}/revert` | Body `{ "version": 3 }`. Puts the record back as that version had it and returns the restore's own `AuditEntry` (`action: "revert"`, `details.version`). A version whose `deleted` is `true` is refused with `400`: restore the one before it instead |
+
+An `AuditEntry` is `{ id, tree_id, occurred_at, category, action, entity,
+entity_id, subject, subject_id, label, details, version_count }`. `action` is
+`create`, `update`, `delete`, `merge`, `import`, `export`, `revert` or
+`baseline`; `entity` names the kind of row written (`person_name`, `event`,
+`media_tag`, …) and `subject` the record the write is about (`person`,
+`family`, `place`, `source`, `media`, `tree`). `label` is the subject's display
+name when the write happened. `details` carries only what applies: `format`,
+`file_name` and `count` for imports and exports, `event_type` for event writes,
+`version` for a restore, `other_label` for the person a merge absorbed.
+
+A `RecordVersion` is `{ id, tree_id, record_type, record_id, version, deleted,
+created_at, entry, snapshot, labels }`. `snapshot` is tagged by `type` and
+holds the record's state; `labels` is a list of `{ id, label }` naming, as they
+read at the time, the places, sources, persons and families the snapshot refers
+to by ID.
+
 ### Import / export
 
 GEDCOM and GEDZIP are read and written; GeneWeb `.gw` is read only — OxidGene
@@ -921,6 +953,13 @@ type Query {
     hasMedia: Boolean = false
     sort: PersonSearchSort
   ): GqlSearchResult!
+
+  # History — mirrors the REST audit and history routes
+  auditEntries(treeId: ID!, first: Int, after: String, category: GqlAuditCategory, subjectId: ID): GqlAuditEntryConnection!
+  auditEntry(treeId: ID!, id: ID!): GqlAuditEntry!
+  auditEntryChanges(treeId: ID!, entryId: ID!, first: Int, after: String): GqlVersionChangeConnection!
+  recordVersions(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, first: Int, after: String): GqlRecordVersionConnection!
+  recordVersion(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, version: Int!): GqlRecordVersion!
 }
 ```
 
@@ -1016,6 +1055,9 @@ type Mutation {
   encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GeneanetSessionArchive!
   decodeGeneanetSession(archiveBase64: String!): GeneanetSession!
   importGeneanet(treeId: ID!, input: GeneanetImportInput!): BackgroundJobStarted!
+
+  # History
+  revertRecord(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, version: Int!): GqlAuditEntry!
 
   # Read projections (see Data Model section 4) — mirrors the REST routes
   expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
@@ -1198,7 +1240,46 @@ type PageInfo {
 }
 
 # The same edge/pageInfo/totalCount shape is exposed by Person, Family, Event,
-# Place, Source, Citation, Note, and Media connection types.
+# Place, Source, Citation, Note, and Media connection types, and by
+# GqlAuditEntry, GqlRecordVersion and GqlVersionChange.
+
+# --- History types (see Data Model section 5) ---
+
+type GqlAuditEntry {
+  id: ID!
+  treeId: ID!
+  occurredAt: DateTime!
+  category: GqlAuditCategory!   # DATA, SETTINGS, MEDIA, IMPORT, EXPORT, HISTORY
+  action: GqlAuditAction!       # CREATE, UPDATE, DELETE, MERGE, IMPORT, EXPORT, REVERT, BASELINE
+  entity: GqlAuditEntity!       # PERSON, PERSON_NAME, EVENT, MEDIA_TAG, …
+  entityId: ID
+  subject: GqlAuditSubject      # TREE, PERSON, FAMILY, PLACE, SOURCE, MEDIA
+  subjectId: ID
+  label: String
+  details: GqlAuditDetails!     # format, fileName, count, eventType, version, otherLabel
+  versionCount: Int!
+}
+
+type GqlRecordVersion {
+  id: ID!
+  treeId: ID!
+  recordType: GqlRecordType!    # PERSON, PLACE, SOURCE, TREE
+  recordId: ID!
+  version: Int!
+  deleted: Boolean!
+  createdAt: DateTime!
+  entry: GqlAuditEntry!
+  snapshot: GqlRecordSnapshot!  # recordType plus exactly one of person, place, source, tree
+  labels: [GqlRecordLabel!]!    # { id, label }
+}
+
+type GqlVersionChange {
+  version: GqlRecordVersion!
+  previous: GqlRecordVersion
+}
+
+# GqlPersonSnapshot, GqlPlaceSnapshot, GqlSourceSnapshot and GqlTreeSnapshot
+# carry the same fields as the REST snapshot, camelCased.
 
 # --- Read projection types (see Data Model section 4) ---
 

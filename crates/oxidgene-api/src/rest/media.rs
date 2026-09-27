@@ -18,6 +18,8 @@ use uuid::Uuid;
 
 use crate::media::{self, MAX_UPLOAD_BYTES};
 use crate::service::event_date;
+use crate::service::history::Change;
+use oxidgene_core::history::{AuditAction, AuditEntity};
 
 use super::dto::{
     CreateDocumentRequest, CreateMediaRequest, DeleteMediaQuery, GalleryBundleRequest,
@@ -132,6 +134,11 @@ pub async fn create_media(
     MediaRepo::refresh_page_count(&state.db, body.document_id)
         .await
         .map_err(ApiError::from)?;
+    Change::create(tree_id, AuditEntity::MediaPage, id)
+        .media(body.document_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(media).unwrap()),
@@ -168,6 +175,11 @@ pub async fn update_media(
     let media = MediaRepo::update(&state.db, media_id, patch)
         .await
         .map_err(ApiError::from)?;
+    Change::update(tree_id, AuditEntity::Media, media_id)
+        .media(media_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(media).unwrap()))
 }
 
@@ -298,9 +310,14 @@ pub async fn add_tag(
     let (tag, normalized_tag) = normalize_tag(body.tag)
         .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
     let target_id = media.parent_media_id.unwrap_or(media.id);
-    MediaTagRepo::create(&state.db, target_id, tag, normalized_tag)
+    MediaTagRepo::create(&state.db, target_id, tag.clone(), normalized_tag)
         .await
         .map_err(ApiError::from)?;
+    Change::new(tree_id, AuditAction::Create, AuditEntity::MediaTag, None)
+        .media(target_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     let media = MediaRepo::get(&state.db, target_id)
         .await
         .map_err(ApiError::from)?;
@@ -321,13 +338,15 @@ pub async fn remove_tag(
         .map_err(ApiError::from)?;
     let (_, normalized_tag) = normalize_tag(body.tag)
         .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
-    MediaTagRepo::delete(
-        &state.db,
-        media.parent_media_id.unwrap_or(media.id),
-        &normalized_tag,
-    )
-    .await
-    .map_err(ApiError::from)?;
+    let target_id = media.parent_media_id.unwrap_or(media.id);
+    MediaTagRepo::delete(&state.db, target_id, &normalized_tag)
+        .await
+        .map_err(ApiError::from)?;
+    Change::new(tree_id, AuditAction::Delete, AuditEntity::MediaTag, None)
+        .media(target_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -349,6 +368,11 @@ pub async fn create_document(
     )
     .await
     .map_err(ApiError::from)?;
+    Change::create(tree_id, AuditEntity::Media, media.id)
+        .media(media.id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(media).unwrap()),
@@ -389,6 +413,11 @@ pub async fn reorder_pages(
     let pages = MediaRepo::reorder_pages(&state.db, media_id, &body.page_ids)
         .await
         .map_err(ApiError::from)?;
+    Change::new(tree_id, AuditAction::Update, AuditEntity::MediaPage, None)
+        .media(media_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(pages).unwrap()))
 }
 
@@ -412,6 +441,11 @@ pub async fn delete_page(
     let purge = MediaRepo::delete_page(&txn, media_id, page_id)
         .await
         .map_err(ApiError::from)?;
+    Change::delete(tree_id, AuditEntity::MediaPage, page_id)
+        .media(media_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError::from)?;
     // Only once the transaction holds: a key deleted before the commit is a
     // file gone from a page the database would still list.
@@ -449,6 +483,11 @@ pub async fn delete_media(
     } else {
         None
     };
+    // Read before the purge removes the row the label comes from.
+    let label = MediaRepo::get(&state.db, media_id)
+        .await
+        .map_err(ApiError::from)?
+        .display_label();
     let deleted = crate::service::media::purge_media(
         &state.db,
         state.media.as_ref(),
@@ -457,6 +496,14 @@ pub async fn delete_media(
     )
     .await
     .map_err(ApiError::from)?;
+    if deleted {
+        Change::delete(tree_id, AuditEntity::Media, media_id)
+            .media(media_id)
+            .label(label)
+            .record(&state.db)
+            .await
+            .map_err(ApiError)?;
+    }
     Ok(if deleted {
         StatusCode::NO_CONTENT
     } else {
@@ -572,6 +619,16 @@ pub async fn upload_media(
             .await
             .map_err(ApiError::from)?;
     }
+    let change = if form.media_id.is_some() {
+        Change::update(tree_id, AuditEntity::Media, media.id)
+    } else {
+        Change::create(tree_id, AuditEntity::MediaPage, media.id)
+    };
+    change
+        .media(media.parent_media_id.unwrap_or(media.id))
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
 
     Ok((status, Json(serde_json::to_value(media).unwrap())))
 }

@@ -71,6 +71,10 @@ async fn main() {
         std::process::exit(1);
     });
 
+    // Trees written before history existed get their baseline version, so a
+    // first edit has something to compare against.
+    oxidgene_api::service::history::record_baselines_at_startup(&db).await;
+
     // ── Build application router ─────────────────────────────────────
     let media = cfg.media_store().unwrap_or_else(|_| {
         error!(

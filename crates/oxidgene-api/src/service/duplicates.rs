@@ -8,15 +8,18 @@
 use std::collections::HashSet;
 
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
 use oxidgene_core::types::Person;
 use oxidgene_db::repo::{
-    AncestryRepo, FamilySpouseRepo, PersonDistinctRepo, PersonMergeRepo, PersonRepo,
+    AncestryRepo, EventWitnessRepo, FamilySpouseRepo, PersonDistinctRepo, PersonMergeRepo,
+    PersonRepo, display_names,
 };
 use sea_orm::ConnectionTrait;
 use uuid::Uuid;
 
 use crate::profile::invalidation;
 use crate::profile::service::{ProfileService, SEARCH_MAX_LIMIT};
+use crate::service::history::Change;
 
 /// Record that `person_id` is a different person from each of `others`.
 ///
@@ -48,7 +51,17 @@ pub async fn mark_distinct(
     for other in others {
         PersonRepo::get_in_tree(conn, tree_id, *other).await?;
     }
-    PersonDistinctRepo::mark(conn, tree_id, person_id, others).await
+    PersonDistinctRepo::mark(conn, tree_id, person_id, others).await?;
+    Change::new(
+        tree_id,
+        AuditAction::Create,
+        AuditEntity::PersonDistinct,
+        None,
+    )
+    .person(person_id)
+    .record(conn)
+    .await?;
+    Ok(())
 }
 
 /// Merge `duplicate` into `kept`: one individual recorded twice becomes one
@@ -115,6 +128,15 @@ pub async fn merge_persons(
         invalidation::affected_persons(conn, duplicate),
     )?;
 
+    // Read before the merge re-points them: the duplicate's name, and the
+    // events whose witness lists are about to name the kept person instead.
+    let duplicate_label = display_names(conn, &[duplicate]).await?.remove(&duplicate);
+    let witnessed: Vec<Uuid> = EventWitnessRepo::list_by_person(conn, duplicate)
+        .await?
+        .into_iter()
+        .map(|witness| witness.event_id)
+        .collect();
+
     PersonMergeRepo::absorb(conn, tree_id, kept, duplicate).await?;
     PersonRepo::delete(conn, duplicate).await?;
     profiles
@@ -131,6 +153,19 @@ pub async fn merge_persons(
     profiles
         .invalidate_for_mutation(conn, tree_id, &affected)
         .await?;
+
+    let mut change = Change::new(tree_id, AuditAction::Merge, AuditEntity::Person, kept)
+        .person(kept)
+        .persons([duplicate])
+        .persons(affected)
+        .details(AuditDetails {
+            other_label: duplicate_label,
+            ..AuditDetails::default()
+        });
+    for event_id in witnessed {
+        change = change.event(event_id);
+    }
+    change.record(conn).await?;
 
     PersonRepo::get(conn, kept).await
 }

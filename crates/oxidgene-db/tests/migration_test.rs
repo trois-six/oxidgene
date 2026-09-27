@@ -26,6 +26,8 @@ const TABLES: &[&str] = &[
     "person_search_fts",
     "person_denorm",
     "person_distinct",
+    "audit_entry",
+    "record_version",
 ];
 
 #[tokio::test]
@@ -102,6 +104,7 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "m20260926_000001_drop_redundant_indexes",
             "m20260927_000001_file_couple_media",
             "m20260927_000002_person_distinct",
+            "m20260927_000003_history",
         ]
     );
 
@@ -143,6 +146,14 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "id, tree_id, person_id, other_person_id, created_at",
         ),
         (
+            "audit_entry",
+            "id, tree_id, occurred_at, category, action, entity, entity_id, subject, subject_id, label, details",
+        ),
+        (
+            "record_version",
+            "id, tree_id, audit_entry_id, record_type, record_id, version, deleted, created_at, snapshot, labels",
+        ),
+        (
             "person_search_fts",
             "person_id, tree_id, surname, given_names, maiden_name, birth_year, death_year, birth_qualifier, death_qualifier, sex, display_name, surname_display, given_names_display, birth_place, date_sort, spouse_names, spouse_surnames, spouse_given_names, father_name, father_surname, father_given_names, mother_name, mother_surname, mother_given_names, children_count",
         ),
@@ -168,6 +179,11 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         ("family_spouse", "idx_family_spouse_person_id"),
         ("person_distinct", "idx_person_distinct_pair"),
         ("person_distinct", "idx_person_distinct_other_person_id"),
+        ("audit_entry", "idx_audit_entry_tree"),
+        ("audit_entry", "idx_audit_entry_tree_category"),
+        ("record_version", "idx_record_version_record"),
+        ("record_version", "idx_record_version_audit_entry"),
+        ("record_version", "idx_record_version_tree"),
     ] {
         assert!(
             manager.has_index(table, index).await.unwrap(),

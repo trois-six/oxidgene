@@ -56,6 +56,7 @@ use crate::rest::file_import;
 use crate::rest::gedcom;
 use crate::rest::geneanet;
 use crate::rest::geneweb;
+use crate::rest::history;
 use crate::rest::media;
 use crate::rest::media_link;
 use crate::rest::note;
@@ -396,6 +397,27 @@ pub fn build_router(state: AppState) -> Router {
             patch(profile::expand_pedigree),
         );
 
+    let history_routes = Router::new()
+        .route("/{tree_id}/audit", get(history::list_audit))
+        .route("/{tree_id}/audit/{entry_id}", get(history::get_audit_entry))
+        .route(
+            "/{tree_id}/audit/{entry_id}/changes",
+            get(history::list_audit_changes),
+        )
+        .route(
+            "/{tree_id}/history/{record_type}/{record_id}",
+            get(history::list_versions),
+        )
+        // Declared before `/{version}` so `revert` is not parsed as a number.
+        .route(
+            "/{tree_id}/history/{record_type}/{record_id}/revert",
+            post(history::revert_record),
+        )
+        .route(
+            "/{tree_id}/history/{record_type}/{record_id}/{version}",
+            get(history::get_version),
+        );
+
     let import_export_routes = Router::new()
         .route("/{tree_id}/export-jobs", post(file_export::start))
         .route("/{tree_id}/export-jobs/{job_id}", get(file_export::status))
@@ -506,6 +528,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(note_routes)
                 .merge(dictionary_routes)
                 .merge(profile_routes)
+                .merge(history_routes)
                 .merge(import_export_routes)
                 // Applied to the whole nest so every tree-scoped route gets
                 // the same check, including any added later.

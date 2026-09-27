@@ -9,6 +9,8 @@ use uuid::Uuid;
 use super::dto::{CitationListQuery, CreateCitationRequest, UpdateCitationRequest};
 use super::error::ApiError;
 use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::history::Change;
+use oxidgene_core::history::AuditEntity;
 
 /// GET /api/v1/trees/:tree_id/citations
 pub async fn list_citations(
@@ -79,6 +81,16 @@ pub async fn create_citation(
             .await
             .map_err(ApiError)?;
     }
+    Change::create(tree_id, AuditEntity::Citation, id)
+        .owner(
+            citation.person_id,
+            citation.event_id,
+            citation.family_id,
+            None,
+        )
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
@@ -121,6 +133,16 @@ pub async fn update_citation(
             .await
             .map_err(ApiError)?;
     }
+    Change::update(tree_id, AuditEntity::Citation, citation_id)
+        .owner(
+            previous.person_id,
+            previous.event_id,
+            previous.family_id,
+            None,
+        )
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(citation).unwrap()))
 }
@@ -147,6 +169,16 @@ pub async fn delete_citation(
             .await
             .map_err(ApiError)?;
     }
+    Change::delete(tree_id, AuditEntity::Citation, citation_id)
+        .owner(
+            citation.person_id,
+            citation.event_id,
+            citation.family_id,
+            None,
+        )
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

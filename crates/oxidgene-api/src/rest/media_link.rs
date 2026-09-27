@@ -1,9 +1,11 @@
 //! REST handlers for MediaLink create/delete operations.
 
+use crate::service::history::Change;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::history::AuditEntity;
 use oxidgene_db::repo::{MediaLinkRepo, MediaLinkTarget};
 use uuid::Uuid;
 
@@ -135,6 +137,11 @@ pub async fn create_media_link(
             .await
             .map_err(ApiError::from)?;
     }
+    Change::create(tree_id, AuditEntity::MediaLink, id)
+        .media(link.media_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(link).unwrap()),
@@ -151,10 +158,10 @@ pub async fn delete_media_link(
         .map_err(ApiError)?;
     // Read the link before it goes: afterwards there is nothing left to say
     // whose projection is now wrong.
-    let person_id = MediaLinkRepo::get(&state.db, link_id)
+    let link = MediaLinkRepo::get(&state.db, link_id)
         .await
-        .ok()
-        .and_then(|link| link.person_id);
+        .map_err(ApiError::from)?;
+    let person_id = link.person_id;
     MediaLinkRepo::delete(&state.db, link_id)
         .await
         .map_err(ApiError::from)?;
@@ -165,5 +172,10 @@ pub async fn delete_media_link(
             .await
             .map_err(ApiError::from)?;
     }
+    Change::delete(tree_id, AuditEntity::MediaLink, link_id)
+        .media(link.media_id)
+        .record(&state.db)
+        .await
+        .map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

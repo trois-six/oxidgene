@@ -76,6 +76,8 @@ pub struct FamilyNameParticleUpdate {
     pub names_updated: usize,
     /// Distinct persons behind `names_updated`.
     pub persons_updated: usize,
+    /// Those persons, for whoever records what the re-cut changed.
+    pub person_ids: Vec<Uuid>,
 }
 
 /// Above this many sources matching a prefix, the Sources tab's smart
@@ -565,6 +567,11 @@ impl DictionaryRepo {
             surname: new_surname,
             names_updated,
             persons_updated: updated_persons.len(),
+            person_ids: {
+                let mut ids: Vec<Uuid> = updated_persons.into_iter().collect();
+                ids.sort();
+                ids
+            },
         })
     }
 

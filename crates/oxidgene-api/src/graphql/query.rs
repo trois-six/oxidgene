@@ -8,12 +8,16 @@ use uuid::Uuid;
 use crate::rest::state::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
-    AncestryRepo, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, CitationFilter,
-    CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, MediaLinkRepo,
-    MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
+    AncestryRepo, AuditFilter, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus,
+    CitationFilter, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo,
+    MediaLinkRepo, MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
     PersonSearchFilters, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
 };
 
+use super::history::{
+    GqlAuditCategory, GqlAuditEntry, GqlAuditEntryConnection, GqlRecordType, GqlRecordVersion,
+    GqlRecordVersionConnection, GqlVersionChangeConnection,
+};
 use super::inputs::{GeneanetPreviewInput, ImageSourceInput, geneanet_deposit_sizes};
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
@@ -82,6 +86,113 @@ impl QueryRoot {
         };
         let conn = TreeRepo::list(db, &params).await?;
         Ok(conn.into())
+    }
+
+    // ── History ──────────────────────────────────────────────────────
+
+    /// The tree's audit log, newest first, optionally narrowed to one
+    /// category or to the writes about one record. Mirrors
+    /// `GET /trees/{treeId}/audit`.
+    async fn audit_entries(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        first: Option<u64>,
+        after: Option<String>,
+        category: Option<GqlAuditCategory>,
+        subject_id: Option<ID>,
+    ) -> Result<GqlAuditEntryConnection> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let filter = AuditFilter {
+            category: category.map(Into::into),
+            subject_id: subject_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+        };
+        let params = PaginationParams {
+            first: first.unwrap_or(25),
+            after,
+        };
+        Ok(HistoryRepo::list_entries(db, tid, filter, &params)
+            .await?
+            .into())
+    }
+
+    /// One audit entry. Mirrors `GET /trees/{treeId}/audit/{entryId}`.
+    async fn audit_entry(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<GqlAuditEntry> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let entry_id = Uuid::parse_str(id.as_str())?;
+        Ok(HistoryRepo::get_entry(db, tid, entry_id).await?.into())
+    }
+
+    /// The versions one write produced, each beside the version it replaced.
+    /// Mirrors `GET /trees/{treeId}/audit/{entryId}/changes`.
+    async fn audit_entry_changes(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        entry_id: ID,
+        first: Option<u64>,
+        after: Option<String>,
+    ) -> Result<GqlVersionChangeConnection> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let entry_id = Uuid::parse_str(entry_id.as_str())?;
+        HistoryRepo::get_entry(db, tid, entry_id).await?;
+        let params = PaginationParams {
+            first: first.unwrap_or(25),
+            after,
+        };
+        Ok(HistoryRepo::list_entry_changes(db, tid, entry_id, &params)
+            .await?
+            .into())
+    }
+
+    /// A record's versions, latest first. Mirrors
+    /// `GET /trees/{treeId}/history/{recordType}/{recordId}`.
+    async fn record_versions(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        record_type: GqlRecordType,
+        record_id: ID,
+        first: Option<u64>,
+        after: Option<String>,
+    ) -> Result<GqlRecordVersionConnection> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let rid = Uuid::parse_str(record_id.as_str())?;
+        let params = PaginationParams {
+            first: first.unwrap_or(25),
+            after,
+        };
+        Ok(
+            HistoryRepo::list_versions(db, tid, record_type.into(), rid, &params)
+                .await?
+                .into(),
+        )
+    }
+
+    /// One version of a record. Mirrors
+    /// `GET /trees/{treeId}/history/{recordType}/{recordId}/{version}`.
+    async fn record_version(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        record_type: GqlRecordType,
+        record_id: ID,
+        version: i32,
+    ) -> Result<GqlRecordVersion> {
+        let db = db_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let rid = Uuid::parse_str(record_id.as_str())?;
+        Ok(
+            HistoryRepo::get_version(db, tid, record_type.into(), rid, version)
+                .await?
+                .into(),
+        )
     }
 
     /// Get a single tree by ID.

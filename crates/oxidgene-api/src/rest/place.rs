@@ -7,6 +7,8 @@ use oxidgene_db::repo::{PaginationParams, PlaceRepo};
 use uuid::Uuid;
 
 use crate::profile::invalidation;
+use crate::service::history::Change;
+use oxidgene_core::history::AuditEntity;
 
 use super::dto::{CreatePlaceRequest, PlaceListQuery, UpdatePlaceRequest};
 use super::error::ApiError;
@@ -40,16 +42,16 @@ pub async fn create_place(
         )));
     }
     let id = Uuid::now_v7();
-    let place = PlaceRepo::create(
-        &state.db,
-        id,
-        tree_id,
-        body.name,
-        body.latitude,
-        body.longitude,
-    )
-    .await
-    .map_err(ApiError::from)?;
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let place = PlaceRepo::create(&txn, id, tree_id, body.name, body.latitude, body.longitude)
+        .await
+        .map_err(ApiError::from)?;
+    Change::create(tree_id, AuditEntity::Place, id)
+        .place(id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(place).unwrap()),
@@ -91,6 +93,11 @@ pub async fn update_place(
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    Change::update(tree_id, AuditEntity::Place, place_id)
+        .place(place_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(place).unwrap()))
 }
@@ -113,6 +120,13 @@ pub async fn delete_place(
     state
         .profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
+        .await
+        .map_err(ApiError)?;
+    // The deleted place's events lost their place: their owners changed too.
+    Change::delete(tree_id, AuditEntity::Place, place_id)
+        .place(place_id)
+        .persons(affected)
+        .record(&txn)
         .await
         .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;

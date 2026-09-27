@@ -3,12 +3,14 @@
 use crate::profile::invalidation;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use crate::service::duplicates;
+use crate::service::history::Change;
 use crate::service::kinship;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_core::enums::{ChildType, SpouseRole};
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::history::AuditEntity;
 use oxidgene_db::repo::{
     AncestryRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PaginationParams, PersonRepo,
     PersonSearchFilters, TreeRepo,
@@ -118,6 +120,11 @@ pub async fn create_person(
         .rebuild_person(&txn, tree_id, id)
         .await
         .map_err(ApiError)?;
+    Change::create(tree_id, AuditEntity::Person, id)
+        .person(id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
@@ -167,6 +174,11 @@ pub async fn update_person(
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await
         .map_err(ApiError)?;
+    Change::update(tree_id, AuditEntity::Person, person_id)
+        .person(person_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(person).unwrap()))
 }
@@ -188,6 +200,11 @@ pub async fn delete_person(
     state
         .profiles
         .invalidate_for_person_delete(&txn, tree_id, person_id)
+        .await
+        .map_err(ApiError)?;
+    Change::delete(tree_id, AuditEntity::Person, person_id)
+        .person(person_id)
+        .record(&txn)
         .await
         .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
@@ -369,7 +386,8 @@ pub async fn set_person_portrait(
     let portrait = body
         .portrait()
         .map_err(|e| ApiError(OxidGeneError::Validation(e)))?;
-    let person = PersonRepo::set_portrait(&state.db, person_id, portrait)
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let person = PersonRepo::set_portrait(&txn, person_id, portrait)
         .await
         .map_err(ApiError::from)?;
 
@@ -377,9 +395,15 @@ pub async fn set_person_portrait(
     // rebuilt or the tree keeps drawing the old one.
     state
         .profiles
-        .rebuild_person(&state.db, tree_id, person_id)
+        .rebuild_person(&txn, tree_id, person_id)
         .await
         .map_err(ApiError::from)?;
+    Change::update(tree_id, AuditEntity::Portrait, person_id)
+        .person(person_id)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
+    commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(person).unwrap()))
 }
 

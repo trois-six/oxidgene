@@ -9,6 +9,8 @@ use uuid::Uuid;
 use super::dto::{CreateNoteRequest, NoteListQuery, UpdateNoteRequest};
 use super::error::ApiError;
 use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::history;
+use oxidgene_core::history::AuditAction;
 
 /// GET /api/v1/trees/:tree_id/notes
 pub async fn list_notes(
@@ -79,6 +81,10 @@ pub async fn create_note(
             .await
             .map_err(ApiError)?;
     }
+    history::note_change(tree_id, AuditAction::Create, &note)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
@@ -121,6 +127,10 @@ pub async fn update_note(
             .await
             .map_err(ApiError)?;
     }
+    history::note_change(tree_id, AuditAction::Update, &previous)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(note).unwrap()))
 }
@@ -145,6 +155,10 @@ pub async fn delete_note(
             .await
             .map_err(ApiError)?;
     }
+    history::note_change(tree_id, AuditAction::Delete, &note)
+        .record(&txn)
+        .await
+        .map_err(ApiError)?;
     commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

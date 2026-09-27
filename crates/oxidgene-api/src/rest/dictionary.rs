@@ -1,6 +1,7 @@
 //! REST handlers for the Dictionary page: distinct-value aggregations
 //! (family names, sources, places, occupations) and usage drill-downs.
 
+use crate::service::history;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
@@ -176,6 +177,12 @@ pub async fn set_family_name_particle(
         DictionaryRepo::set_family_name_particle(&txn, tree_id, &body.value, &body.particle)
             .await
             .map_err(ApiError::from)?;
+    if update.names_updated > 0 {
+        history::family_name_change(tree_id, &update)
+            .record(&txn)
+            .await
+            .map_err(ApiError)?;
+    }
     commit_tx(txn).await.map_err(ApiError)?;
 
     // Surnames feed every projection that embeds a display name, so the

@@ -1,5 +1,6 @@
 //! SeaORM entity definitions for all OxidGene database tables.
 
+pub mod audit_entry;
 pub mod background_job;
 pub mod citation;
 pub mod event;
@@ -16,6 +17,7 @@ pub mod person_denorm;
 pub mod person_distinct;
 pub mod person_name;
 pub mod place;
+pub mod record_version;
 pub mod sea_enums;
 pub mod source;
 pub mod tree;
