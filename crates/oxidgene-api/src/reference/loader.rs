@@ -102,6 +102,12 @@ pub fn normalize_key(raw: &str) -> String {
             'œ' | 'Œ' => folded.push_str("oe"),
             'æ' | 'Æ' => folded.push_str("ae"),
             'ß' => folded.push_str("ss"),
+            // Letters with no decomposition into a base and an accent.
+            'ł' | 'Ł' => folded.push('l'),
+            'ø' | 'Ø' => folded.push('o'),
+            'đ' | 'Đ' | 'ð' | 'Ð' => folded.push('d'),
+            'ı' => folded.push('i'),
+            'þ' | 'Þ' => folded.push_str("th"),
             '-' | '\'' | '’' | '_' | '/' => folded.push(' '),
             _ if c.is_alphanumeric() || c == ' ' => folded.extend(c.to_lowercase()),
             _ => {}
@@ -366,6 +372,8 @@ mod tests {
         assert_eq!(normalize_key("  Forgeron  "), "forgeron");
         assert_eq!(normalize_key("Méunier"), "meunier");
         assert_eq!(normalize_key("Cœur-d’Ŵy"), "coeur d wy");
+        assert_eq!(normalize_key("Włodarz"), "wlodarz");
+        assert_eq!(normalize_key("Søren Đorđe"), "soren dorde");
     }
 
     #[test]
