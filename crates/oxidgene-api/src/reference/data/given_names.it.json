@@ -65,6 +65,14 @@
     "origin": "Latina",
     "text": "Nome soprattutto portoghese (Abílio), presente nei registri del Portogallo e della sua diaspora nel XIX e XX secolo. L'accento viene spesso omesso nelle trascrizioni."
   },
+  "abner": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Abner",
+    "meaning": "Dall'ebraico \"Avner\", inteso come \"mio padre è luce\".",
+    "origin": "Ebraico",
+    "text": "Abner è il capo dell'esercito del re Saul nel libro di Samuele. Il nome si trova soprattutto tra i protestanti e nelle comunità ebraiche e resta raro nei registri cattolici francesi."
+  },
   "abraham": {
     "aliases": [
       "Abram",
@@ -477,6 +485,17 @@
     "origin": "Araba",
     "text": "Nome musulmano molto diffuso nel mondo arabo e turco, raro nei registri europei antichi e presente soprattutto nel XX secolo con le migrazioni. Le trascrizioni variano secondo la lingua: Ahmed, Ahmad, Amed."
   },
+  "aignan": {
+    "aliases": [
+      "Agnan",
+      "Anianus"
+    ],
+    "feast_day": "11-17",
+    "label": "Aignan",
+    "meaning": "Dal latino \"Anianus\", nome di famiglia romano di origine incerta.",
+    "origin": "Latino",
+    "text": "Secondo la tradizione sant'Aniano, vescovo di Orléans, difese la città contro Attila nel 451; la sua festa cade il 17 novembre. Il nome si trova soprattutto intorno a Orléans, nel Berry e nella valle della Loira, dove molte parrocchie portano il suo nome; gli atti latini scrivono Anianus, e compare anche la grafia Agnan."
+  },
   "aime": {
     "aliases": [
       "Aymé"
@@ -674,6 +693,17 @@
     "meaning": "Dal germanico \"ald\", \"anziano, esperto\".",
     "origin": "Germanica",
     "text": "Nome femminile presente in Portogallo e in Italia, soprattutto nel XIX e XX secolo, con il diminutivo Aldina. Altrove è più raro."
+  },
+  "aldegonde": {
+    "aliases": [
+      "Aldegondis",
+      "Aldegundis"
+    ],
+    "feast_day": "01-30",
+    "label": "Aldegonde",
+    "meaning": "Dal germanico \"ald\", \"vecchio\", e \"gund\", \"battaglia\".",
+    "origin": "Germanico",
+    "text": "Sant'Aldegonda, fondatrice e badessa di Maubeuge nel VII secolo, si festeggia il 30 gennaio. Il nome è portato soprattutto nell'Hainaut e nelle Fiandre francesi."
   },
   "aldo": {
     "aliases": [
@@ -903,6 +933,14 @@
     "meaning": "Dall'antico francese normanno \"als grenons\", \"con i baffi\", soprannome divenuto nome di battesimo.",
     "origin": "Francese",
     "text": "Nome raro, portato soprattutto nell'aristocrazia e nell'alta borghesia inglesi dal XVIII all'inizio del XX secolo, in particolare nella famiglia Percy. È spesso abbreviato in Algy."
+  },
+  "ali": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Ali",
+    "meaning": "Dall'arabo \"ʿAlī\", \"alto, elevato\".",
+    "origin": "Arabo",
+    "text": "Portato da ʿAlī ibn Abī Ṭālib, cugino e genero del profeta Maometto, è uno dei nomi più diffusi del mondo musulmano. Negli atti francesi compare soprattutto a partire dal XIX secolo."
   },
   "alice": {
     "aliases": [
@@ -1261,6 +1299,16 @@
     "meaning": "Forma portoghese e italiana di Emmerich, dal germanico \"Amalric\" o \"Haimirich\", \"potente nella propria casa\".",
     "origin": "Germanica",
     "text": "Nome soprattutto portoghese (Américo), diffuso nel XIX e XX secolo. È associato al navigatore Amerigo Vespucci, che diede il nome all'America."
+  },
+  "amice": {
+    "aliases": [
+      "Amicia"
+    ],
+    "feast_day": null,
+    "label": "Amice",
+    "meaning": "Dal latino \"amicus\", \"amico\".",
+    "origin": "Latino",
+    "text": "Nome femminile medievale usato in Francia e in Inghilterra tra il XII e il XIV secolo, in particolare nella nobiltà. Gli atti latini scrivono Amicia; divenne raro dopo la fine del Medioevo."
   },
   "amilcar": {
     "aliases": [
@@ -1650,6 +1698,27 @@
     "origin": "Ebraica",
     "text": "Forma latina e internazionale di Anne, molto comune in Germania, Svizzera, Polonia, Italia e Paesi Bassi; nei registri cattolici rende anche il francese Anne. Si festeggia il 26 luglio, festa di sant'Anna, madre della Vergine Maria."
   },
+  "annabelle": {
+    "aliases": [
+      "Annabel",
+      "Annabella"
+    ],
+    "feast_day": null,
+    "label": "Annabelle",
+    "meaning": "Nome scozzese medievale di origine discussa, in seguito associato ad Anna e a \"belle\" (bella).",
+    "origin": "Scozzese",
+    "text": "Annabel è attestato in Scozia fin dal Medioevo; la grafia Annabelle si diffuse in Francia nel XX secolo, soprattutto dagli anni Settanta. È raro nei registri francesi antichi."
+  },
+  "annaelle": {
+    "aliases": [
+      "Anaëlle"
+    ],
+    "feast_day": null,
+    "label": "Annaëlle",
+    "meaning": "Creazione moderna da Anne e dalla terminazione \"-elle\"; il suo senso è legato ad Anne, \"grazia\".",
+    "origin": "Francese",
+    "text": "Nome recente, comparso in Francia alla fine del XX secolo, nell'ambito della moda dei nomi in -elle dall'aspetto bretone. Non compare nei registri antichi."
+  },
   "anne": {
     "aliases": [
       "Ane"
@@ -1677,6 +1746,14 @@
     "meaning": "Composto di Anne e Marie, entrambi di origine ebraica (\"Hannah\", \"grazia\"; \"Miryam\", di significato discusso).",
     "origin": "Ebraica",
     "text": "Forma unita di Anne-Marie, diffusa soprattutto in Germania, Svizzera e Paesi Bassi nel XX secolo. Nei registri antichi i due elementi sono di solito separati (Anna Maria)."
+  },
+  "annet": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Annet",
+    "meaning": "Origine discussa; di solito collegato a sant'Annemondo (Ennemond), vescovo di Lione.",
+    "origin": "Incerto",
+    "text": "Nome maschile tradizionale dell'Alvernia, del Limosino e del Forez, frequente nei registri del XVII e XVIII secolo. Nonostante l'aspetto, non è un diminutivo di Anne: è portato da uomini."
   },
   "annetta": {
     "aliases": [],
@@ -1745,6 +1822,17 @@
     "origin": "Germanica",
     "text": "Nome presente in Portogallo, Spagna e Italia, in particolare in Lombardia e in Valle d'Aosta, patria di sant'Anselmo. Si festeggia il 21 aprile, festa di sant'Anselmo d'Aosta, arcivescovo di Canterbury."
   },
+  "anszel": {
+    "aliases": [
+      "Anschel",
+      "Anshel"
+    ],
+    "feast_day": null,
+    "label": "Anszel",
+    "meaning": "Forma yiddish derivata dal tedesco Anselm; etimologia discussa.",
+    "origin": "Germanico",
+    "text": "Nome maschile yiddish, scritto Anszel negli atti polacchi e Anschel negli atti tedeschi del XIX secolo."
+  },
   "antao": {
     "aliases": [],
     "feast_day": "01-17",
@@ -1752,6 +1840,16 @@
     "meaning": "Antica forma portoghese di Antonio, dal latino \"Antonius\", nome di una famiglia romana di origine oscura.",
     "origin": "Latina",
     "text": "Forma portoghese (Antão) riservata a sant'Antonio abate, l'eremita egiziano, distinta da António, che di solito si riferisce a sant'Antonio di Padova. Si festeggia il 17 gennaio."
+  },
+  "anthelme": {
+    "aliases": [
+      "Anthelmus"
+    ],
+    "feast_day": "06-26",
+    "label": "Anthelme",
+    "meaning": "Dal germanico; significato discusso.",
+    "origin": "Germanico",
+    "text": "Sant'Antelmo, certosino divenuto vescovo di Belley, si festeggia il 26 giugno. Il nome è caratteristico del Bugey e della Savoia."
   },
   "anthonie": {
     "aliases": [],
@@ -1933,6 +2031,18 @@
     "origin": "Latina",
     "text": "Forma comune nelle Fiandre e nei Paesi Bassi, spesso abbreviata in Toon; nei registri cattolici la stessa persona compare come Antonius. È legata a sant'Antonio di Padova, la cui festa ricorre il 13 giugno."
   },
+  "apolline": {
+    "aliases": [
+      "Appoline",
+      "Appolline",
+      "Apollonie"
+    ],
+    "feast_day": "02-09",
+    "label": "Apolline",
+    "meaning": "Dal greco \"Apollonia\", derivato dal nome del dio Apollo.",
+    "origin": "Greco",
+    "text": "Forma francese di Apollonia, la vergine martire di Alessandria (249) invocata contro il mal di denti, la cui festa cade il 9 febbraio. Si trova nei registri francesi dal XVII al XIX secolo, spesso scritto Appoline o Appolline."
+  },
   "apolonia": {
     "aliases": [
       "Apolena",
@@ -2069,6 +2179,17 @@
     "origin": "Germanica",
     "text": "Nome diffuso in Portogallo, Italia e Spagna, soprattutto nel XIX e XX secolo."
   },
+  "armel": {
+    "aliases": [
+      "Arzel",
+      "Armagilus"
+    ],
+    "feast_day": "08-16",
+    "label": "Armel",
+    "meaning": "Dal bretone; spesso spiegato con \"arzh\", \"orso\", e \"mael\", \"principe\", ma è discusso.",
+    "origin": "Bretone",
+    "text": "Sant'Armel, monaco giunto dalla Britannia nel VI secolo, diede il nome a Ploërmel; la sua festa cade il 16 agosto. Il nome si trova soprattutto in Bretagna, come Armel o Arzel."
+  },
   "armida": {
     "aliases": [
       "Armide",
@@ -2098,6 +2219,14 @@
     "meaning": "Dal germanico \"Arnwald\", da \"arn\", \"aquila\", e \"wald\", \"che governa\".",
     "origin": "Germanica",
     "text": "Nome medievale molto diffuso nella Francia sud-occidentale (Arnaud, Arnaut, Arnauld), dove ha dato origine anche a molti cognomi. In Francia si festeggia il 10 febbraio, festa del beato Arnaldo da Limena, benedettino di Padova."
+  },
+  "arnaudine": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Arnaudine",
+    "meaning": "Femminile di Arnaud, dal germanico \"arn\", \"aquila\", e \"wald\", \"governare\".",
+    "origin": "Germanico",
+    "text": "Forma femminile di Arnaud, attestata soprattutto nel sud-ovest della Francia (Guascogna, Béarn). Resta poco comune, e gli atti riportano talvolta Arnaude al suo posto."
   },
   "arno": {
     "aliases": [
@@ -2153,6 +2282,17 @@
     "meaning": "Dal greco \"arsên\", \"maschio, virile\".",
     "origin": "Greca",
     "text": "Nome diffuso in Francia e in Belgio nel XIX secolo (Arsène), più raro in precedenza. Fu portato da sant'Arsenio il Grande, eremita del deserto egiziano, la cui festa ricorre il 19 luglio."
+  },
+  "artheme": {
+    "aliases": [
+      "Artème",
+      "Artemius"
+    ],
+    "feast_day": null,
+    "label": "Arthème",
+    "meaning": "Dal greco \"Artemios\", derivato dal nome della dea Artemide.",
+    "origin": "Greco",
+    "text": "Nome raro, che si trova soprattutto nei registri francesi del XIX secolo. Gli atti lo scrivono Arthème o Artème, e Artemius in latino."
   },
   "arthur": {
     "aliases": [
@@ -2239,6 +2379,22 @@
     "meaning": "Dal latino \"Atilius\", nome di una famiglia romana, di etimologia incerta; spesso erroneamente accostato ad Attila.",
     "origin": "Latina",
     "text": "Nome italiano diffuso soprattutto alla fine del XIX e nel XX secolo, riflesso del gusto per i nomi romani."
+  },
+  "aubin": {
+    "aliases": [],
+    "feast_day": "03-01",
+    "label": "Aubin",
+    "meaning": "Dal latino \"Albinus\", derivato da \"albus\", \"bianco\".",
+    "origin": "Latino",
+    "text": "Sant'Albino, vescovo di Angers nel VI secolo, si festeggia il 1º marzo; numerose parrocchie Saint-Aubin costellano la Francia occidentale. Il nome era comune in Angiò, in Bretagna e in Normandia durante l'Antico Regime; il latino Albinus è condiviso con Albin."
+  },
+  "aubine": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Aubine",
+    "meaning": "Femminile di Aubin, dal latino \"Albinus\", \"bianco\".",
+    "origin": "Latino",
+    "text": "Forma femminile poco comune di Aubin, che si trova soprattutto nella Francia occidentale. Non va confusa con Albine, che ha una propria scheda."
   },
   "audrey": {
     "aliases": [
@@ -2363,6 +2519,14 @@
     "origin": "Latina",
     "text": "Nome presente in Spagna, Italia e Portogallo, soprattutto nel XIX e XX secolo. Compaiono anche le forme Aureliano o, in catalano, Aureli."
   },
+  "auriane": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Auriane",
+    "meaning": "Collegato al latino \"aurum\", \"oro\", o ad Aureliano; origine discussa.",
+    "origin": "Latino",
+    "text": "Nome moderno, comparso in Francia alla fine del XX secolo. Non compare nei registri antichi."
+  },
   "aurora": {
     "aliases": [
       "Goizane"
@@ -2380,6 +2544,36 @@
     "meaning": "Dal latino \"aurora\", \"alba\".",
     "origin": "Latina",
     "text": "Nome femminile presente in Francia nel XIX secolo, reso celebre da Aurore Dupin (George Sand), e tornato di moda alla fine del XX secolo."
+  },
+  "austremoine": {
+    "aliases": [
+      "Austremonius",
+      "Stremonius"
+    ],
+    "feast_day": "11-01",
+    "label": "Austremoine",
+    "meaning": "Dal latino \"Austremonius\"; significato discusso.",
+    "origin": "Latino",
+    "text": "Sant'Austremonio, considerato l'apostolo dell'Alvernia e primo vescovo di Clermont, si festeggia il 1º novembre. Il nome è proprio dell'Alvernia."
+  },
+  "aviv": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Aviv",
+    "meaning": "Dall'ebraico \"aviv\", \"primavera\".",
+    "origin": "Ebraico",
+    "text": "Nome ebraico moderno, dato soprattutto in Israele a partire dal XX secolo, più spesso ai maschi. È assente dai registri antichi."
+  },
+  "avoye": {
+    "aliases": [
+      "Avoyé",
+      "Avoie"
+    ],
+    "feast_day": null,
+    "label": "Avoye",
+    "meaning": "Considerato in genere un'antica forma francese di Edvige; origine discussa.",
+    "origin": "Germanico",
+    "text": "Nome femminile medievale che sopravvive nella Rue Sainte-Avoye a Parigi. Compare ancora in alcuni registri del XVI e XVII secolo, scritto Avoye o Avoie, prima di scomparire."
   },
   "babette": {
     "aliases": [
@@ -2588,6 +2782,19 @@
     "origin": "Aramaica",
     "text": "Forma catalana, particolarmente frequente a Maiorca e nelle Baleari, dove è spesso abbreviata in Tomeu; negli atti redatti in castigliano la stessa persona diventa Bartolomé. Si festeggia il 24 agosto, festa di san Bartolomeo apostolo."
   },
+  "baruch": {
+    "aliases": [
+      "Barouch",
+      "Borouch",
+      "Borouche",
+      "Boruch"
+    ],
+    "feast_day": null,
+    "label": "Baruch",
+    "meaning": "Dall'ebraico \"barukh\", \"benedetto\".",
+    "origin": "Ebraico",
+    "text": "Baruc è lo scriba del profeta Geremia. Il nome è comune nelle comunità ebraiche; Boruch o Borouch riflettono la pronuncia yiddish, Barouch la trascrizione francese."
+  },
   "basil": {
     "aliases": [
       "Basili",
@@ -2627,6 +2834,27 @@
     "meaning": "Forma italiana di Baptiste, dal greco \"baptistês\", \"colui che battezza\".",
     "origin": "Greca",
     "text": "Nome italiano molto diffuso, per lo più all'interno di Giovanni Battista; la stessa persona può comparire come Giovanni, Battista o Giovanni Battista a seconda dell'atto, e anche come Giobatta in Liguria. È legato a san Giovanni Battista, la cui festa ricorre il 24 giugno."
+  },
+  "baudouin": {
+    "aliases": [
+      "Baudoin",
+      "Balduinus"
+    ],
+    "feast_day": null,
+    "label": "Baudouin",
+    "meaning": "Dal germanico \"bald\", \"audace\", e \"wini\", \"amico\".",
+    "origin": "Germanico",
+    "text": "Nome dei conti di Fiandra e dei re di Gerusalemme, molto usato nel nord della Francia e nelle Fiandre nel Medioevo. Gli atti latini scrivono Balduinus; divenne più raro dopo il XVI secolo."
+  },
+  "beat": {
+    "aliases": [
+      "Beatus"
+    ],
+    "feast_day": "05-09",
+    "label": "Beat",
+    "meaning": "Dal latino \"beatus\", \"beato\".",
+    "origin": "Latino",
+    "text": "San Beato, eremita sulle rive del lago di Thun considerato l'apostolo della Svizzera, si festeggia il 9 maggio. Il nome è frequente nella Svizzera tedesca; i registri latini scrivono Beatus."
   },
   "beata": {
     "aliases": [
@@ -2669,6 +2897,19 @@
     "meaning": "Forma iberica di Beatrice, dal latino \"Beatrix\", accostato a \"beatus\", \"felice\".",
     "origin": "Latina",
     "text": "Nome femminile comune in Portogallo e in Spagna fin dal Medioevo; in Portogallo compare anche l'antica forma Brites. Si festeggia il 17 agosto, festa di santa Beatrice da Silva, fondatrice delle Concezioniste."
+  },
+  "beila": {
+    "aliases": [
+      "Bajla",
+      "Bejla",
+      "Beile",
+      "Beyle"
+    ],
+    "feast_day": null,
+    "label": "Beila",
+    "meaning": "Dallo yiddish, collegato al senso di \"bella\"; origine discussa.",
+    "origin": "Yiddish",
+    "text": "Nome femminile delle comunità ebraiche dell'Europa centrale e orientale. I registri polacchi lo trascrivono Bajla o Bejla, gli atti tedeschi e francesi Beila o Beile."
   },
   "belen": {
     "aliases": [
@@ -2742,6 +2983,16 @@
     "origin": "Latina",
     "text": "Nome presente in Germania, in Svizzera (dove compare anche Bendicht) e in Polonia, soprattutto nelle regioni cattoliche. Si festeggia l'11 luglio, festa di san Benedetto da Norcia."
   },
+  "benigne": {
+    "aliases": [
+      "Benignus"
+    ],
+    "feast_day": "11-01",
+    "label": "Bénigne",
+    "meaning": "Dal latino \"benignus\", \"benevolo\".",
+    "origin": "Latino",
+    "text": "San Benigno, martire considerato l'apostolo della Borgogna, è venerato a Digione e si festeggia il 1º novembre. Il nome è caratteristico della Borgogna, portato soprattutto da uomini (Jacques-Bénigne Bossuet) e più raramente da donne."
+  },
   "benita": {
     "aliases": [
       "Benedicta",
@@ -2811,6 +3062,19 @@
     "origin": "Latina",
     "text": "Nome portoghese comune dal Medioevo al XIX secolo. Si festeggia l'11 luglio, festa di san Benedetto da Norcia."
   },
+  "berek": {
+    "aliases": [
+      "Ber",
+      "Berl",
+      "Berko",
+      "Beer"
+    ],
+    "feast_day": null,
+    "label": "Berek",
+    "meaning": "Dallo yiddish \"ber\", \"orso\", con un suffisso diminutivo polacco.",
+    "origin": "Yiddish",
+    "text": "Forma polacca dello yiddish Ber o Berl, associato a Issacar, molto frequente negli atti ebraici della Polonia nel XIX secolo. Gli atti tedeschi e alsaziani scrivono Beer."
+  },
   "berend": {
     "aliases": [
       "Berendt"
@@ -2843,6 +3107,14 @@
     "meaning": "Dal germanico \"Bernhard\", da \"bern\", \"orso\", e \"hard\", \"forte, ardito\".",
     "origin": "Germanica",
     "text": "Nome diffuso in Francia, Belgio, Lussemburgo, Paesi Bassi e Gran Bretagna fin dal Medioevo, che ha dato origine a molti cognomi. Si festeggia il 20 agosto, festa di san Bernardo di Chiaravalle, dottore della Chiesa."
+  },
+  "bernarde": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Bernarde",
+    "meaning": "Femminile di Bernard, dal germanico \"bern\", \"orso\", e \"hard\", \"forte\".",
+    "origin": "Germanico",
+    "text": "Forma femminile di Bernard, attestata soprattutto nel sud-ovest della Francia (Guascogna, Béarn, Pirenei) durante l'Antico Regime. È distinta da Bernardine, che ha una propria scheda."
   },
   "bernardina": {
     "aliases": [
@@ -2959,6 +3231,16 @@
     "origin": "Germanica",
     "text": "Diminutivo inglese usato come nome di battesimo alla fine del XIX e all'inizio del XX secolo, per lo più per i maschi, più raramente per le femmine (Bertha, Roberta). Conviene cercare la forma completa in altri atti."
   },
+  "bertin": {
+    "aliases": [
+      "Bertinus"
+    ],
+    "feast_day": "09-05",
+    "label": "Bertin",
+    "meaning": "Dal germanico \"berht\", \"splendente\".",
+    "origin": "Germanico",
+    "text": "San Bertino, abate del monastero di Saint-Omer nel VII secolo, si festeggia il 5 settembre. Il nome si trova soprattutto nell'Artois e nelle Fiandre francesi."
+  },
   "bertram": {
     "aliases": [],
     "feast_day": null,
@@ -2976,6 +3258,16 @@
     "meaning": "Dal germanico \"berht\", \"splendente\", e \"hramn\", \"corvo\".",
     "origin": "Germanica",
     "text": "Nome medievale diffuso in Francia, soprattutto nel sud, portato da Bertrand du Guesclin e all'origine di molti cognomi. In Francia si festeggia il 6 settembre, festa del beato Bertrando di Garrigues, compagno di san Domenico."
+  },
+  "bertrande": {
+    "aliases": [
+      "Bertranne"
+    ],
+    "feast_day": null,
+    "label": "Bertrande",
+    "meaning": "Femminile di Bertrand, dal germanico \"berht\", \"splendente\", e \"hramn\", \"corvo\".",
+    "origin": "Germanico",
+    "text": "Forma femminile di Bertrand, frequente nel sud-ovest della Francia e in Linguadoca nel XVI e XVII secolo. Gli atti la scrivono anche Bertranne."
   },
   "beryl": {
     "aliases": [],
@@ -3076,6 +3368,18 @@
     "origin": "Latina",
     "text": "Nome spagnolo comune fin dal Medioevo; in Galizia compare anche Brais. Si festeggia il 3 febbraio, festa di san Biagio di Sebaste, invocato contro i mali della gola."
   },
+  "blima": {
+    "aliases": [
+      "Bluma",
+      "Blume",
+      "Blimka"
+    ],
+    "feast_day": null,
+    "label": "Blima",
+    "meaning": "Dallo yiddish \"blum\", \"fiore\".",
+    "origin": "Yiddish",
+    "text": "Grafia polacca dello yiddish Blume, frequente negli atti ebraici della Polonia nel XIX secolo. Blima e Bluma si alternano per la stessa persona."
+  },
   "bogdan": {
     "aliases": [
       "Bohdan"
@@ -3122,6 +3426,16 @@
     "origin": "Latina",
     "text": "Nome presente in Italia, Spagna, Svizzera, Germania e Belgio, soprattutto negli ambienti cattolici. Si festeggia il 15 luglio, festa di san Bonaventura, francescano e dottore della Chiesa."
   },
+  "bonne": {
+    "aliases": [
+      "Bona"
+    ],
+    "feast_day": "05-29",
+    "label": "Bonne",
+    "meaning": "Dal latino \"bona\", \"buona\".",
+    "origin": "Latino",
+    "text": "Nome medievale portato in particolare da Bona di Lussemburgo e Bona di Borbone, ancora presente nei registri fino al XVII secolo. Santa Bona da Pisa si festeggia il 29 maggio; gli atti latini scrivono Bona."
+  },
   "bonnie": {
     "aliases": [
       "Bonny"
@@ -3132,6 +3446,18 @@
     "origin": "Inglese",
     "text": "Nome femminile soprattutto americano, diffuso nel XX secolo. È assente dai registri europei antichi."
   },
+  "borromaus": {
+    "aliases": [
+      "Boromäus",
+      "Borromaeus",
+      "Borromeus"
+    ],
+    "feast_day": "11-04",
+    "label": "Borromäus",
+    "meaning": "Dal cognome di san Carlo Borromeo, arcivescovo di Milano.",
+    "origin": "Italiano",
+    "text": "Usato soprattutto come secondo nome dopo Karl o Carl (Karl Borromäus) nelle regioni cattoliche di lingua tedesca, in onore di san Carlo Borromeo, che si festeggia il 4 novembre. Gli atti scrivono anche Boromäus o Borromaeus."
+  },
   "bozena": {
     "aliases": [],
     "feast_day": null,
@@ -3139,6 +3465,18 @@
     "meaning": "Dallo slavo \"bog\", \"Dio\": \"divina\", \"appartenente a Dio\".",
     "origin": "Slava",
     "text": "Nome femminile polacco (Bożena) e ceco (Božena), raro nei registri antichi e diffuso soprattutto in Polonia nel XX secolo."
+  },
+  "brajna": {
+    "aliases": [
+      "Brejna",
+      "Breine",
+      "Brajndla"
+    ],
+    "feast_day": null,
+    "label": "Brajna",
+    "meaning": "Dallo yiddish \"broyn\", \"marrone\"; significato discusso.",
+    "origin": "Yiddish",
+    "text": "Grafia polacca dello yiddish Breyne, con il diminutivo Brajndla, che si trova negli atti ebraici della Polonia nel XIX secolo."
   },
   "branca": {
     "aliases": [],
@@ -3182,6 +3520,17 @@
     "origin": "Celtica",
     "text": "Nome irlandese portato dal re Brian Boru, introdotto in Inghilterra anche dai Bretoni nel Medioevo, e molto diffuso in Gran Bretagna e negli Stati Uniti nel XX secolo. Compare anche Bryan."
   },
+  "brice": {
+    "aliases": [
+      "Brictius",
+      "Brixius"
+    ],
+    "feast_day": "11-13",
+    "label": "Brice",
+    "meaning": "Dal latino \"Brictius\", probabilmente di origine celtica; significato discusso.",
+    "origin": "Celtico",
+    "text": "San Brizio succedette a san Martino come vescovo di Tours e si festeggia il 13 novembre. Nome antico in Francia, fu raro durante l'Antico Regime e tornò di moda nella seconda metà del XX secolo."
+  },
   "bridget": {
     "aliases": [
       "Bridge",
@@ -3193,6 +3542,17 @@
     "meaning": "Dall'irlandese \"Brighid\", legato al celtico \"brig\", \"forza, elevazione\".",
     "origin": "Celtica",
     "text": "Nome molto diffuso in Irlanda e, con l'emigrazione irlandese, in Gran Bretagna e negli Stati Uniti; compaiono anche Bride, Biddy o Bridie. Si festeggia il 1º febbraio, festa di santa Brigida di Kildare, patrona d'Irlanda."
+  },
+  "brieuc": {
+    "aliases": [
+      "Brioc",
+      "Briocus"
+    ],
+    "feast_day": "05-01",
+    "label": "Brieuc",
+    "meaning": "Dall'antico bretone o dal gallese \"Brioc\"; significato discusso.",
+    "origin": "Bretone",
+    "text": "San Brieuc, monaco gallese del V secolo, diede il nome alla città di Saint-Brieuc; la sua festa cade il 1º maggio. Il nome è portato principalmente in Bretagna."
   },
   "brigida": {
     "aliases": [],
@@ -3252,6 +3612,19 @@
     "meaning": "Dal germanico \"brun\", \"bruno\" o \"corazza\".",
     "origin": "Germanica",
     "text": "Antico nome germanico, usato in Germania, Italia, Polonia, Belgio, Francia e Svizzera. Si festeggia il 6 ottobre, festa di san Bruno di Colonia, fondatore dell'ordine dei Certosini."
+  },
+  "burkhard": {
+    "aliases": [
+      "Burkard",
+      "Burchard",
+      "Burchardus",
+      "Burkart"
+    ],
+    "feast_day": "10-14",
+    "label": "Burkhard",
+    "meaning": "Dal germanico \"burg\", \"protezione\", e \"hard\", \"forte\".",
+    "origin": "Germanico",
+    "text": "San Burcardo, primo vescovo di Würzburg, si festeggia il 14 ottobre. Il nome è comune nei registri tedeschi e svizzeri, scritto Burkard, Burkart o Burchardus in latino."
   },
   "cacilie": {
     "aliases": [
@@ -3339,6 +3712,16 @@
     "origin": "Latina",
     "text": "Nome presente in Portogallo (Cândido), Spagna e Italia, soprattutto nel XVIII e XIX secolo. L'accento portoghese viene spesso omesso nelle trascrizioni."
   },
+  "cannelle": {
+    "aliases": [
+      "Canelle"
+    ],
+    "feast_day": null,
+    "label": "Cannelle",
+    "meaning": "Dal nome della spezia, la cannella.",
+    "origin": "Francese",
+    "text": "Nome recente, dato in Francia dalla fine del XX secolo. Non compare nei registri antichi."
+  },
   "carel": {
     "aliases": [
       "Charel"
@@ -3348,6 +3731,17 @@
     "meaning": "Antica forma olandese di Carlo, dal germanico \"karl\", \"uomo libero\".",
     "origin": "Germanica",
     "text": "Grafia olandese antica di Karel, frequente nei Paesi Bassi e nelle Fiandre nel XVII e XVIII secolo; nei registri cattolici corrisponde al latino Carolus. È legata a san Carlo Borromeo, la cui festa ricorre il 4 novembre."
+  },
+  "carine": {
+    "aliases": [
+      "Karine",
+      "Carina"
+    ],
+    "feast_day": null,
+    "label": "Carine",
+    "meaning": "Forma francese di Karin, diminutivo scandinavo di Caterina.",
+    "origin": "Scandinavo",
+    "text": "Nome diffusosi in Francia negli anni Sessanta e Settanta, scritto Carine o Karine. È assente dai registri antichi, dove la forma attesa è Catherine."
   },
   "carl": {
     "aliases": [],
@@ -3830,6 +4224,32 @@
     "origin": "Latina",
     "text": "Nome polacco raro nei registri antichi e diffuso soprattutto nella seconda metà del XX secolo."
   },
+  "chaim": {
+    "aliases": [
+      "Haïm",
+      "Hayim",
+      "Chaym",
+      "Hayyim"
+    ],
+    "feast_day": null,
+    "label": "Chaïm",
+    "meaning": "Dall'ebraico \"hayyim\", \"vita\".",
+    "origin": "Ebraico",
+    "text": "Nome molto diffuso nelle comunità ebraiche, dato spesso come augurio di lunga vita. Gli atti dell'Europa centrale scrivono Chaim, quelli del Nord Africa e della Francia più spesso Haïm."
+  },
+  "chaja": {
+    "aliases": [
+      "Chaje",
+      "Chaya",
+      "Chajka",
+      "Хая"
+    ],
+    "feast_day": null,
+    "label": "Chaja",
+    "meaning": "Dall'ebraico \"Chaya\", \"viva\".",
+    "origin": "Ebraico",
+    "text": "Uno dei nomi femminili ebraici più frequenti negli atti polacchi del XIX secolo, spesso in composti (Chaja Sura, Chaja Ruchla). Veniva talvolta dato a un bambino malato per scongiurare la morte; dopo il 1868 gli atti redatti in russo scrivono Хая."
+  },
   "chantal": {
     "aliases": [
       "Chantelle",
@@ -3840,6 +4260,22 @@
     "meaning": "Dal cognome di santa Giovanna di Chantal, tratto da un toponimo borgognone, forse dal provenzale \"cantal\", \"pietra, confine\".",
     "origin": "Francese",
     "text": "Nome tratto da santa Giovanna Francesca di Chantal, fondatrice dell'ordine della Visitazione, diffuso soprattutto in Francia verso la metà del XX secolo. Si festeggia il 12 agosto, festa di questa santa."
+  },
+  "charlemagne": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Charlemagne",
+    "meaning": "Dal latino \"Carolus Magnus\", \"Carlo il Grande\".",
+    "origin": "Latino",
+    "text": "Nome dell'imperatore carolingio, usato occasionalmente come nome di battesimo in Francia, soprattutto nel XVIII e XIX secolo. Resta raro nei registri."
+  },
+  "charlene": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Charlène",
+    "meaning": "Femminile moderno di Charles, dal germanico \"karl\", \"uomo libero\".",
+    "origin": "Germanico",
+    "text": "Forma presa dall'inglese Charlene, molto data in Francia negli anni Ottanta e Novanta. È assente dai registri antichi."
   },
   "charles": {
     "aliases": [
@@ -3867,6 +4303,30 @@
     "meaning": "Diminutivo femminile di Charles, dal germanico \"karl\", \"uomo libero\".",
     "origin": "Germanica",
     "text": "Nome femminile diffuso in Germania, Lussemburgo, Svizzera, Paesi Bassi, Francia e Gran Bretagna, soprattutto nel XVIII e XIX secolo. Negli atti si alterna con Caroline, Carlota o Lotte."
+  },
+  "chaskiel": {
+    "aliases": [
+      "Chaskel",
+      "Haskel",
+      "Jechezkiel"
+    ],
+    "feast_day": null,
+    "label": "Chaskiel",
+    "meaning": "Forma yiddish di Ezechiele, \"Dio rafforza\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Khatskl, diminutivo di Ezechiele, comune negli atti ebraici della Polonia nel XIX secolo."
+  },
+  "chawa": {
+    "aliases": [
+      "Chawe",
+      "Chava",
+      "Chawka"
+    ],
+    "feast_day": null,
+    "label": "Chawa",
+    "meaning": "Dall'ebraico \"Chava\" (Eva), \"vivente\".",
+    "origin": "Ebraico",
+    "text": "Forma ebraica e yiddish di Eva, scritta Chawa negli atti polacchi del XIX secolo. Il diminutivo Chawka è comune."
   },
   "chester": {
     "aliases": [],
@@ -4003,6 +4463,17 @@
     "meaning": "Dal greco \"Christophoros\", \"portatore di Cristo\".",
     "origin": "Greca",
     "text": "Forma inglese del nome, Christopher è comune nei registri parrocchiali inglesi dal XVI secolo e si è ampiamente diffuso negli Stati Uniti. È spesso abbreviato in Christ., Kit o Chris e latinizzato in Christophorus. Il nome onora san Cristoforo, patrono dei viaggiatori."
+  },
+  "chrysostome": {
+    "aliases": [
+      "Chrisostome",
+      "Chrysostomus"
+    ],
+    "feast_day": "09-13",
+    "label": "Chrysostome",
+    "meaning": "Dal greco \"khrysostomos\", \"bocca d'oro\".",
+    "origin": "Greco",
+    "text": "Epiteto di san Giovanni Crisostomo, arcivescovo di Costantinopoli, che si festeggia il 13 settembre. In Francia è portato soprattutto come seconda parte del composto Jean-Chrysostome; gli atti lo scrivono spesso Chrisostome."
   },
   "claire": {
     "aliases": [
@@ -4323,6 +4794,33 @@
     "origin": "Latina",
     "text": "Nome italiano, Colomba compare negli atti della penisola senza essere molto frequente. Il maschile Colombano e le forme francesi Colombe e Coulombe sono strettamente affini. Diverse sante portarono questo nome, senza un culto dominante per la forma italiana."
   },
+  "colombe": {
+    "aliases": [],
+    "feast_day": "12-31",
+    "label": "Colombe",
+    "meaning": "Dal latino \"columba\", \"colomba\".",
+    "origin": "Latino",
+    "text": "Santa Colomba di Sens, martire, si festeggia il 31 dicembre. Il nome compare nei registri francesi durante l'Antico Regime, in particolare in Borgogna e in Champagne."
+  },
+  "come": {
+    "aliases": [
+      "Cosme",
+      "Cosmas"
+    ],
+    "feast_day": "09-26",
+    "label": "Côme",
+    "meaning": "Dal greco \"kosmos\", \"ordine, ornamento\".",
+    "origin": "Greco",
+    "text": "I santi Cosma e Damiano, medici martiri, si festeggiano il 26 settembre. Nei registri dell'Antico Regime il nome è scritto per lo più Cosme."
+  },
+  "conan": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Conan",
+    "meaning": "Dal celtico; spiegato con una radice che significa \"cane\" o \"alto\", ma è discusso.",
+    "origin": "Celtico",
+    "text": "Nome di diversi duchi medievali di Bretagna (da Conan I a Conan IV), usato in Bretagna nel Medioevo. È raro nei registri moderni."
+  },
   "concepcio": {
     "aliases": [],
     "feast_day": "12-08",
@@ -4457,6 +4955,16 @@
     "origin": "Bretone",
     "text": "Nome bretone, Corentin era usato soprattutto in Bretagna, in particolare in Cornovaglia intorno a Quimper, prima della Rivoluzione. Si diffuse nel resto della Francia solo alla fine del XX secolo. Onora san Corentino, primo vescovo di Quimper."
   },
+  "corinne": {
+    "aliases": [
+      "Corine"
+    ],
+    "feast_day": null,
+    "label": "Corinne",
+    "meaning": "Dal greco \"Korinna\", collegato a \"korê\", \"fanciulla\".",
+    "origin": "Greco",
+    "text": "Nome di una poetessa greca, reso popolare in Francia dal romanzo Corinne (1807) di Madame de Staël. Fu dato soprattutto negli anni Sessanta e Settanta."
+  },
   "cornelia": {
     "aliases": [
       "Corrnelia",
@@ -4539,6 +5047,17 @@
     "origin": "Latina",
     "text": "Forma italiana di Constance, Costanza è usato in Italia fin dal Medioevo, in particolare nella nobiltà, poi più ampiamente. Non ha un santo proprio ben attestato."
   },
+  "crepin": {
+    "aliases": [
+      "Crispin",
+      "Crispinus"
+    ],
+    "feast_day": "10-25",
+    "label": "Crépin",
+    "meaning": "Dal latino \"crispus\", \"dai capelli ricci\".",
+    "origin": "Latino",
+    "text": "I santi Crispino e Crispiniano, calzolai martiri di Soissons e patroni dei calzolai, si festeggiano il 25 ottobre. Il nome fu portato soprattutto in Piccardia e in Champagne."
+  },
   "cristian": {
     "aliases": [
       "Cristi"
@@ -4614,6 +5133,19 @@
     "origin": "Greca",
     "text": "Nome tratto dalla mitologia, Cynthia è raro prima del XIX secolo e si diffuse soprattutto nel XX secolo in Gran Bretagna e negli Stati Uniti. Non ha un santo proprio."
   },
+  "cypora": {
+    "aliases": [
+      "Cypojra",
+      "Cipora",
+      "Tsipora",
+      "Zipporah"
+    ],
+    "feast_day": null,
+    "label": "Cypora",
+    "meaning": "Dall'ebraico \"Tsipora\", \"uccello\".",
+    "origin": "Ebraico",
+    "text": "Nome della moglie di Mosè nella Bibbia, scritto Cypora o Cypojra negli atti polacchi del XIX secolo. La forma biblica inglese è Zipporah."
+  },
   "cyprien": {
     "aliases": [
       "Cyprián"
@@ -4623,6 +5155,16 @@
     "meaning": "Dal latino \"Cyprianus\", \"di Cipro\".",
     "origin": "Latina",
     "text": "Nome raro ma costante in Francia e nella Svizzera romanda, Cyprien compare negli atti anteriori alla Rivoluzione, con la grafia latina Cyprianus. Onora san Cipriano, vescovo di Cartagine e martire, festeggiato insieme a san Cornelio papa."
+  },
+  "cyr": {
+    "aliases": [
+      "Cyricus"
+    ],
+    "feast_day": "06-16",
+    "label": "Cyr",
+    "meaning": "Dal greco \"kyrios\", \"signore\".",
+    "origin": "Greco",
+    "text": "San Quirico, bambino martirizzato con la madre santa Giulitta, si festeggia il 16 giugno. Il nome è raro, ma in Francia esistono molte parrocchie Saint-Cyr."
   },
   "cyril": {
     "aliases": [
@@ -4825,6 +5367,19 @@
     "origin": "Incerta",
     "text": "Cognome inglese divenuto nome di battesimo, Dean si diffuse soprattutto negli Stati Uniti nel XX secolo. È raro negli atti antichi. Non ha un santo proprio."
   },
+  "deborah": {
+    "aliases": [
+      "Débora",
+      "Dvora",
+      "Dwojra",
+      "Dvoyre"
+    ],
+    "feast_day": null,
+    "label": "Deborah",
+    "meaning": "Dall'ebraico \"devorah\", \"ape\".",
+    "origin": "Ebraico",
+    "text": "Debora è una profetessa e giudice d'Israele nel libro dei Giudici. Il nome si trova nei registri protestanti e nelle comunità ebraiche; Dwojra è la trascrizione polacca dello yiddish Dvoyre."
+  },
   "delfim": {
     "aliases": [],
     "feast_day": null,
@@ -4975,6 +5530,14 @@
     "meaning": "Dal latino \"Desiderius\", \"desiderato\".",
     "origin": "Latina",
     "text": "Nome antico, Didier fu usato in Francia fin dall'alto Medioevo ma rimase moderatamente frequente fino alla grande voga della metà del XX secolo. Le registrazioni in latino lo scrivono Desiderius. Si festeggia nel giorno di san Desiderio, vescovo di Vienne, martirizzato nel VII secolo."
+  },
+  "didiere": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Didière",
+    "meaning": "Femminile di Didier, dal latino \"desiderius\", \"desiderato\".",
+    "origin": "Latino",
+    "text": "Forma femminile di Didier, che si trova nei registri della Francia orientale durante l'Antico Regime."
   },
   "diedrich": {
     "aliases": [
@@ -5209,6 +5772,16 @@
     "origin": "Gaelica",
     "text": "Nome gaelico tradizionale delle Highlands e delle isole scozzesi, Donald è molto frequente in Scozia e si diffuse in Inghilterra e negli Stati Uniti soprattutto nel XX secolo. Non ha un santo con un culto ben attestato."
   },
+  "donatien": {
+    "aliases": [
+      "Donatianus"
+    ],
+    "feast_day": "05-24",
+    "label": "Donatien",
+    "meaning": "Dal latino \"Donatianus\", derivato da \"donatus\", \"donato\".",
+    "origin": "Latino",
+    "text": "I santi Donaziano e Rogaziano, martiri di Nantes, si festeggiano il 24 maggio. Il nome è caratteristico della regione di Nantes e della Francia occidentale, in particolare nel XVIII e XIX secolo."
+  },
   "donato": {
     "aliases": [
       "Donatus"
@@ -5252,6 +5825,14 @@
     "meaning": "Probabilmente derivato da Dora o dall'irlandese \"Doireann\"; l'etimologia è incerta.",
     "origin": "Incerta",
     "text": "Nome inglese dell'inizio del XX secolo, Doreen fu molto popolare in Gran Bretagna tra gli anni Dieci e gli anni Quaranta. È assente dagli atti antichi. Non ha un santo proprio."
+  },
+  "dorian": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Dorian",
+    "meaning": "Dal greco \"Dôrieus\", \"dorico\", abitante della Doride.",
+    "origin": "Greco",
+    "text": "Reso popolare dal romanzo di Oscar Wilde Il ritratto di Dorian Gray, si diffuse in Francia alla fine del XX secolo. È assente dai registri antichi."
   },
   "doris": {
     "aliases": [
@@ -5343,6 +5924,17 @@
     "meaning": "Dal gaelico \"Donnchadh\", \"guerriero bruno\".",
     "origin": "Gaelica",
     "text": "Nome scozzese portato da re medievali, Duncan è comune in Scozia e si diffuse negli Stati Uniti e in Canada con l'emigrazione scozzese. È raro negli atti dell'Europa continentale. Non ha un santo proprio ben attestato."
+  },
+  "durand": {
+    "aliases": [
+      "Durant",
+      "Durandus"
+    ],
+    "feast_day": null,
+    "label": "Durand",
+    "meaning": "Dal latino \"durans\", \"che dura\".",
+    "origin": "Latino",
+    "text": "Nome di battesimo medievale comune nella Francia meridionale e centrale, divenuto uno dei cognomi più frequenti del paese. Come nome di battesimo divenne raro dopo il XVI secolo; gli atti latini scrivono Durandus."
   },
   "dwight": {
     "aliases": [
@@ -5615,6 +6207,16 @@
     "origin": "Incerta",
     "text": "Nome italiano, Elda si trova soprattutto negli atti dell'Italia settentrionale della fine del XIX e del XX secolo. Non ha un santo proprio."
   },
+  "elea": {
+    "aliases": [
+      "Elea"
+    ],
+    "feast_day": null,
+    "label": "Éléa",
+    "meaning": "Creazione moderna di origine incerta, associata al greco o all'ebraico.",
+    "origin": "Incerto",
+    "text": "Nome recente, molto dato in Francia all'inizio del XXI secolo. Non compare nei registri antichi."
+  },
   "eleanor": {
     "aliases": [
       "Eleonor",
@@ -5669,6 +6271,24 @@
     "meaning": "Forma tedesca dell'inglese antico \"Ælfthryth\", da \"ælf\", \"elfo\", e \"thryth\", \"forza\".",
     "origin": "Inglese antica",
     "text": "Nome tedesco della fine del XIX e dell'inizio del XX secolo, Elfriede fu molto comune in Germania tra il primo decennio del Novecento e gli anni Trenta, spesso abbreviato in Friedel o Elfi. È raro negli atti anteriori. Non ha un santo proprio ben attestato."
+  },
+  "elia": {
+    "aliases": [],
+    "feast_day": "07-20",
+    "label": "Elia",
+    "meaning": "Forma italiana del nome del profeta Elia, dall'ebraico \"Eliyahu\", \"il mio Dio è Yahweh\".",
+    "origin": "Ebraico",
+    "text": "Usato in Italia e nella Svizzera italiana in onore del profeta Elia, che si festeggia il 20 luglio. In questi registri è un nome maschile."
+  },
+  "elian": {
+    "aliases": [
+      "Elian"
+    ],
+    "feast_day": null,
+    "label": "Élian",
+    "meaning": "Collegato al latino \"Aelianus\", nome di famiglia romano.",
+    "origin": "Latino",
+    "text": "Nome moderno, dato soprattutto dalla fine del XX secolo. È raro nei registri antichi."
   },
   "eliane": {
     "aliases": [],
@@ -6103,6 +6723,14 @@
     "origin": "Ebraica",
     "text": "Nome dato al Messia nella profezia di Isaia, Emmanuel si trova in Francia, Belgio, Lussemburgo e Svizzera, più frequentemente a partire dal XIX secolo; il Portogallo usa anche Manuel. Poiché designa Cristo stesso, il nome non ha un santo proprio e viene talvolta festeggiato a Natale."
   },
+  "emmanuelle": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Emmanuelle",
+    "meaning": "Femminile di Emmanuel, dall'ebraico \"Immanu El\", \"Dio con noi\".",
+    "origin": "Ebraico",
+    "text": "Raro prima del XX secolo, questo nome fu più di moda in Francia negli anni Sessanta e Settanta."
+  },
   "emmy": {
     "aliases": [
       "Emmi",
@@ -6142,6 +6770,17 @@
     "meaning": "Derivato olandese di nomi germanici che iniziano con \"Engel-\", accostato alla parola \"engel\", \"angelo\".",
     "origin": "Germanica",
     "text": "Nome olandese, Engelina si trova soprattutto negli atti dei Paesi Bassi dal XVII al XIX secolo, anche come Engeltje o Angelina. Non ha un santo proprio."
+  },
+  "engeltrude": {
+    "aliases": [
+      "Engeltrud",
+      "Engeltrudis"
+    ],
+    "feast_day": null,
+    "label": "Engeltrude",
+    "meaning": "Dal germanico \"engil\", collegato agli Angli, e \"trud\", \"forza\".",
+    "origin": "Germanico",
+    "text": "Nome germanico dell'alto Medioevo, che si trova soprattutto nelle genealogie medievali. Gli atti latini scrivono Engeltrudis."
   },
   "enid": {
     "aliases": [],
@@ -6416,6 +7055,16 @@
     "origin": "Ebraica",
     "text": "Forma italiana, polacca, spagnola e tedesca di Esther, Ester si trova negli atti di questi paesi, in particolare nelle comunità ebraiche e protestanti. Non ha una festa ben attestata nel calendario romano."
   },
+  "estera": {
+    "aliases": [
+      "Esterka"
+    ],
+    "feast_day": null,
+    "label": "Estera",
+    "meaning": "Forma polacca di Ester, probabilmente un nome persiano (\"stella\").",
+    "origin": "Persiano",
+    "text": "Forma con cui gli atti polacchi registrano la biblica Ester, frequente tra gli ebrei di Polonia nel XIX secolo, con il diminutivo Esterka. L'equivalente yiddish è Ester."
+  },
   "estevao": {
     "aliases": [],
     "feast_day": "12-26",
@@ -6574,6 +7223,18 @@
     "origin": "Greca",
     "text": "Nome raro, Euphrasie si trova in Francia e in Belgio soprattutto nel XVIII e XIX secolo. Le registrazioni in latino lo scrivono Euphrasia. Si festeggia nel giorno di santa Eufrasia, monaca nella Tebaide nel V secolo."
   },
+  "euphrosine": {
+    "aliases": [
+      "Frosine",
+      "Euphrosyne",
+      "Phrosine"
+    ],
+    "feast_day": null,
+    "label": "Euphrosine",
+    "meaning": "Dal greco \"euphrosynê\", \"gioia\".",
+    "origin": "Greco",
+    "text": "Nome di una delle tre Grazie e di santa Eufrosina di Alessandria. Fu di moda in Francia alla fine del XVIII secolo e nel XIX; Frosine e Phrosine ne sono forme abbreviate."
+  },
   "eusebio": {
     "aliases": [
       "Eusèbe",
@@ -6598,6 +7259,16 @@
     "meaning": "Dal greco \"Eustachios\", \"fecondo\", o \"Eustathios\", \"saldo\".",
     "origin": "Greca",
     "text": "Nome antico, Eustache si trova in Francia prima della Rivoluzione, senza essere molto frequente. Le registrazioni in latino lo scrivono Eustachius. Onora sant'Eustachio, martire romano leggendario, patrono dei cacciatori."
+  },
+  "eutrope": {
+    "aliases": [
+      "Eutropius"
+    ],
+    "feast_day": "04-30",
+    "label": "Eutrope",
+    "meaning": "Dal greco \"eutropos\", \"di buon carattere\".",
+    "origin": "Greco",
+    "text": "Sant'Eutropio, primo vescovo di Saintes, si festeggia il 30 aprile. Il nome è caratteristico della Saintonge e dell'Aunis."
   },
   "eva": {
     "aliases": [
@@ -6685,6 +7356,18 @@
     "origin": "Germanica",
     "text": "Forma olandese di Eberhard, Evert è comune negli atti dei Paesi Bassi dal XVI al XIX secolo, scritto anche Evart o Everd; le registrazioni in latino lo scrivono Everardus. Non ha un santo con un culto ampiamente attestato."
   },
+  "evrard": {
+    "aliases": [
+      "Everard",
+      "Everardus",
+      "Évrart"
+    ],
+    "feast_day": null,
+    "label": "Évrard",
+    "meaning": "Dal germanico \"eber\", \"cinghiale\", e \"hard\", \"forte\".",
+    "origin": "Germanico",
+    "text": "Equivalente francese di Eberhard, usato nel nord della Francia e nelle Fiandre nel Medioevo. Gli atti lo scrivono Everard o Évrart, e Everardus in latino."
+  },
   "ewa": {
     "aliases": [
       "Awa",
@@ -6722,6 +7405,24 @@
     "origin": "Latina",
     "text": "Forma polacca, tedesca e spagnola di Fabiano, compare negli atti cattolici di questi paesi, spesso in relazione alla festa dei santi Fabiano e Sebastiano. Divenne più comune nel XX secolo. Onora san Fabiano, papa e martire."
   },
+  "fabien": {
+    "aliases": [
+      "Fabianus"
+    ],
+    "feast_day": "01-20",
+    "label": "Fabien",
+    "meaning": "Dal latino \"Fabianus\", derivato da \"Fabius\", nome di famiglia romano.",
+    "origin": "Latino",
+    "text": "San Fabiano, papa martire, si festeggia il 20 gennaio. Il nome compare durante l'Antico Regime e tornò molto popolare in Francia negli anni Settanta e Ottanta."
+  },
+  "fabienne": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Fabienne",
+    "meaning": "Femminile di Fabien, dal latino \"Fabius\", nome di famiglia romano.",
+    "origin": "Latino",
+    "text": "Raro prima del XX secolo, questo nome fu dato in Francia soprattutto negli anni Sessanta."
+  },
   "fabio": {
     "aliases": [
       "Fabi",
@@ -6734,6 +7435,16 @@
     "origin": "Latina",
     "text": "Nome italiano ispirato all'antichità, Fabio è usato in Italia fin dal Rinascimento e divenne molto comune nel XX secolo. È un nome distinto da Fabiano (Fabian). Non ha un santo proprio ben attestato."
   },
+  "fabrice": {
+    "aliases": [
+      "Fabricius"
+    ],
+    "feast_day": null,
+    "label": "Fabrice",
+    "meaning": "Dal latino \"Fabricius\", nome di famiglia romano collegato a \"faber\", \"artigiano\".",
+    "origin": "Latino",
+    "text": "Raro nei registri antichi, questo nome divenne molto popolare in Francia negli anni Sessanta e Settanta."
+  },
   "fabrizio": {
     "aliases": [],
     "feast_day": null,
@@ -6741,6 +7452,18 @@
     "meaning": "Dal nome di famiglia romano \"Fabricius\", legato al latino \"faber\", \"artigiano\".",
     "origin": "Latina",
     "text": "Nome italiano ispirato all'antichità, Fabrizio è usato in Italia fin dal Rinascimento, soprattutto nella nobiltà, e divenne comune nel XX secolo. La forma francese è Fabrice. Non ha un santo proprio ben attestato."
+  },
+  "fajwel": {
+    "aliases": [
+      "Fajwisz",
+      "Feiwel",
+      "Feivel"
+    ],
+    "feast_day": null,
+    "label": "Fajwel",
+    "meaning": "Discusso: dal latino Phoebus o Vivus.",
+    "origin": "Latino",
+    "text": "Grafia polacca dello yiddish Fayvl, comune negli atti ebraici della Polonia nel XIX secolo. Gli atti tedeschi scrivono Feiwel."
   },
   "fatima": {
     "aliases": [
@@ -6797,6 +7520,19 @@
     "meaning": "Forma italiana e spagnola di Friedrich, dal germanico \"frid\", \"pace\", e \"ric\", \"potente\".",
     "origin": "Germanica",
     "text": "Forma italiana e spagnola di Friedrich, Federico è usato fin dal Medioevo, in particolare dagli imperatori Hohenstaufen, e divenne comune nel XIX secolo. In Toscana si trova la forma più antica Federigo. Si festeggia nel giorno di san Federico, vescovo di Utrecht, martirizzato nel IX secolo."
+  },
+  "feiga": {
+    "aliases": [
+      "Faiga",
+      "Fajga",
+      "Feige",
+      "Feyge"
+    ],
+    "feast_day": null,
+    "label": "Feiga",
+    "meaning": "Dallo yiddish \"feygl\", \"uccello\".",
+    "origin": "Yiddish",
+    "text": "Nome femminile delle comunità ebraiche dell'Europa centrale e orientale. I registri polacchi scrivono Fajga, altri Faiga o Feige."
   },
   "felice": {
     "aliases": [
@@ -7011,6 +7747,16 @@
     "origin": "Germanica",
     "text": "Forma catalana di Ferdinando, Ferran compare negli atti catalani; le registrazioni in castigliano lo scrivono Fernando e quelle in latino Ferdinandus. Onora san Ferdinando III, re di Castiglia."
   },
+  "ferreol": {
+    "aliases": [
+      "Ferreolus"
+    ],
+    "feast_day": "09-18",
+    "label": "Ferréol",
+    "meaning": "Dal latino \"Ferreolus\", derivato da \"ferrum\", \"ferro\".",
+    "origin": "Latino",
+    "text": "San Ferreolo, martire di Vienne, si festeggia il 18 settembre. Il nome si trova soprattutto nel Delfinato, nel Lionese e in Alvernia."
+  },
   "ferruccio": {
     "aliases": [],
     "feast_day": null,
@@ -7018,6 +7764,17 @@
     "meaning": "Diminutivo italiano di Ferro, dal latino \"ferrum\", \"ferro\"; talvolta accostato a Ferdinando.",
     "origin": "Latina",
     "text": "Nome italiano, Ferruccio si diffuse soprattutto nel XIX e all'inizio del XX secolo. È raro negli atti antichi. Non ha un santo proprio ben attestato."
+  },
+  "fiacre": {
+    "aliases": [
+      "Fiachra",
+      "Fiacrius"
+    ],
+    "feast_day": "08-30",
+    "label": "Fiacre",
+    "meaning": "Dall'irlandese \"Fiachra\"; significato discusso.",
+    "origin": "Irlandese",
+    "text": "San Fiacrio, eremita irlandese del VII secolo stabilitosi presso Meaux e patrono dei giardinieri, si festeggia il 30 agosto. Il nome si trova soprattutto nella Brie e nell'Île-de-France durante l'Antico Regime."
   },
   "fidel": {
     "aliases": [],
@@ -7078,6 +7835,26 @@
     "meaning": "Dal latino \"Firminus\", derivato da \"firmus\", \"fermo, saldo\".",
     "origin": "Latina",
     "text": "Nome soprattutto piccardo, Firmin fu molto usato intorno ad Amiens e nella Francia settentrionale, nonché in Belgio e nella Svizzera romanda. Le registrazioni in latino lo scrivono Firminus. Onora san Firmino, martire, secondo la tradizione primo vescovo di Amiens e patrono della città."
+  },
+  "fiszel": {
+    "aliases": [
+      "Fiszl",
+      "Fischel",
+      "Fishel"
+    ],
+    "feast_day": null,
+    "label": "Fiszel",
+    "meaning": "Dallo yiddish \"fish\", associato a Efraim.",
+    "origin": "Yiddish",
+    "text": "Grafia polacca dello yiddish Fishl, \"pesciolino\", comune negli atti ebraici della Polonia nel XIX secolo. Gli atti tedeschi scrivono Fischel."
+  },
+  "fleurie": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Fleurie",
+    "meaning": "Derivato da \"fleur\", \"fiore\".",
+    "origin": "Francese",
+    "text": "Nome raro formato sulla parola \"fleur\", paragonabile a Flore. Compare occasionalmente nei registri francesi."
   },
   "flora": {
     "aliases": [
@@ -7205,6 +7982,38 @@
     "meaning": "Dal latino \"Fortunatus\", \"fortunato, favorito dalla sorte\".",
     "origin": "Latina",
     "text": "Forma francese di Fortunatus, Fortuné (Fortune) si trova in Francia, soprattutto nel sud e nel XIX secolo. Non ha un santo con un culto ben attestato."
+  },
+  "fortunee": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Fortunée",
+    "meaning": "Femminile di Fortuné, dal latino \"fortunatus\", \"fortunato\".",
+    "origin": "Latino",
+    "text": "Nome che si trova soprattutto nella Francia meridionale nel XIX secolo e nelle comunità ebraiche del Nord Africa. È distinto dall'italiano Fortunata."
+  },
+  "foy": {
+    "aliases": [
+      "Fides",
+      "Foi"
+    ],
+    "feast_day": "10-06",
+    "label": "Foy",
+    "meaning": "Dal latino \"fides\", \"fede\".",
+    "origin": "Latino",
+    "text": "Santa Fede, martire di Agen le cui reliquie sono venerate a Conques, si festeggia il 6 ottobre. Il nome si trova soprattutto nel sud-ovest della Francia."
+  },
+  "frajda": {
+    "aliases": [
+      "Frejda",
+      "Freyde",
+      "Frajdla",
+      "Frejdla"
+    ],
+    "feast_day": null,
+    "label": "Frajda",
+    "meaning": "Dallo yiddish \"freyd\", \"gioia\".",
+    "origin": "Yiddish",
+    "text": "Grafia polacca dello yiddish Freyde, con il diminutivo Frejdla, frequente negli atti ebraici della Polonia nel XIX secolo."
   },
   "france": {
     "aliases": [],
@@ -7610,6 +8419,42 @@
     "origin": "Germanica",
     "text": "Nome di imperatori e di re di Prussia, Friedrich è uno dei nomi maschili più comuni in Germania, nella Svizzera tedesca e in Lussemburgo, abbreviato in Fritz. Le registrazioni in latino lo scrivono Fridericus. Si festeggia nel giorno di san Federico, vescovo di Utrecht, martirizzato nel IX secolo."
   },
+  "froim": {
+    "aliases": [
+      "Efraim",
+      "Ephraim",
+      "Fraim"
+    ],
+    "feast_day": null,
+    "label": "Froim",
+    "meaning": "Forma yiddish di Efraim, \"fecondo\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Froyim, figlio di Giuseppe nella Bibbia, comune negli atti ebraici della Polonia nel XIX secolo. Gli atti francesi o tedeschi scrivono Ephraim."
+  },
+  "frymet": {
+    "aliases": [
+      "Frumet",
+      "Fruma",
+      "Frume"
+    ],
+    "feast_day": null,
+    "label": "Frymet",
+    "meaning": "Dallo yiddish \"frum\", \"pio\".",
+    "origin": "Yiddish",
+    "text": "Nome femminile yiddish scritto Frymet o Frumet negli atti polacchi del XIX secolo; Fruma è una forma strettamente affine."
+  },
+  "fulgence": {
+    "aliases": [
+      "Fulgance",
+      "Fulgent",
+      "Fulgentius"
+    ],
+    "feast_day": "01-01",
+    "label": "Fulgence",
+    "meaning": "Dal latino \"fulgens\", \"splendente\".",
+    "origin": "Latino",
+    "text": "San Fulgenzio, vescovo di Ruspe nel Nord Africa nel VI secolo, si festeggia il 1º gennaio. Il nome è poco comune; gli atti lo scrivono anche Fulgance o Fulgent."
+  },
   "fulvia": {
     "aliases": [],
     "feast_day": null,
@@ -7665,6 +8510,22 @@
     "origin": "Ebraica",
     "text": "Femminile di Gabriel, Gabrielle si trova in Francia dal XVI secolo (Gabrielle d'Estrées) e divenne più comune nel XIX e all'inizio del XX secolo, in Francia e in Belgio. Non ha un santo proprio ben attestato."
   },
+  "gael": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Gaël",
+    "meaning": "Collegato al nome dei Gaeli, popoli celtici d'Irlanda e di Scozia; significato discusso.",
+    "origin": "Bretone",
+    "text": "Nome moderno dall'aspetto bretone, molto dato in Francia dagli anni Settanta. È assente dai registri antichi."
+  },
+  "gaelle": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Gaëlle",
+    "meaning": "Femminile di Gaël, collegato al nome dei Gaeli; significato discusso.",
+    "origin": "Bretone",
+    "text": "Nome moderno, molto dato in Francia negli anni Settanta e Ottanta. È assente dai registri antichi."
+  },
   "gaetan": {
     "aliases": [
       "Kajetán"
@@ -7682,6 +8543,16 @@
     "meaning": "Dal latino \"Caietanus\", \"di Gaeta\", città d'Italia.",
     "origin": "Latina",
     "text": "Nome italiano diffuso, soprattutto nel Mezzogiorno (Napoli, Sicilia), Gaetano si trova anche nel Canton Ticino; le registrazioni in latino lo scrivono Caietanus. Onora san Gaetano da Thiene, fondatore dei Teatini, molto venerato a Napoli."
+  },
+  "gall": {
+    "aliases": [
+      "Gallus"
+    ],
+    "feast_day": "10-16",
+    "label": "Gall",
+    "meaning": "Dal latino \"Gallus\", nome del santo irlandese; significato discusso.",
+    "origin": "Irlandese",
+    "text": "San Gallo, compagno di san Colombano, fondò l'eremo divenuto San Gallo e si festeggia il 16 ottobre. Il nome è usato nella Svizzera orientale e nella Germania meridionale; i registri latini scrivono Gallus."
   },
   "gary": {
     "aliases": [
@@ -7714,6 +8585,14 @@
     "origin": "Persiana",
     "text": "Forma francese di Caspar, Gaspard è usato in Francia, Svizzera, Belgio e Lussemburgo dal tardo Medioevo, legato al culto dei Re Magi, senza essere molto frequente. Le registrazioni in latino lo scrivono Gaspardus o Caspar. Si festeggia all'Epifania, che celebra i Re Magi."
   },
+  "gasparde": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Gasparde",
+    "meaning": "Femminile di Gaspard, nome tradizionale di uno dei Re Magi; origine discussa.",
+    "origin": "Persiano",
+    "text": "Forma femminile di Gaspard, che si trova nei registri francesi dal XVI al XVIII secolo."
+  },
   "gaspare": {
     "aliases": [],
     "feast_day": "01-06",
@@ -7731,6 +8610,39 @@
     "meaning": "Di origine discussa: forse da \"Guascone\", o derivato da Vaast (latino \"Vedastus\"), di cui sarebbe una forma popolare.",
     "origin": "Incerta",
     "text": "Nome portato dai conti di Foix-Béarn nel Medioevo, Gaston divenne molto comune in Francia, Belgio, Lussemburgo e Svizzera romanda alla fine del XIX e all'inizio del XX secolo. Si festeggia nel giorno di san Vedasto, vescovo di Arras, del cui nome Gaston è tradizionalmente considerato una forma."
+  },
+  "gatien": {
+    "aliases": [
+      "Gatianus"
+    ],
+    "feast_day": "12-18",
+    "label": "Gatien",
+    "meaning": "Dal latino \"Gatianus\"; significato incerto.",
+    "origin": "Latino",
+    "text": "San Graziano (Gaziano), primo vescovo di Tours, si festeggia il 18 dicembre. Il nome è caratteristico della Turenna."
+  },
+  "gautier": {
+    "aliases": [
+      "Gauthier",
+      "Gaultier",
+      "Galterus"
+    ],
+    "feast_day": "04-08",
+    "label": "Gautier",
+    "meaning": "Dal germanico \"wald\", \"governare\", e \"hari\", \"esercito\".",
+    "origin": "Germanico",
+    "text": "Equivalente francese di Walter, molto usato nel Medioevo prima di diventare soprattutto un cognome. San Gualtiero di Pontoise si festeggia l'8 aprile; gli atti lo scrivono anche Gauthier o Gaultier."
+  },
+  "gebhard": {
+    "aliases": [
+      "Gebhart",
+      "Gebhardus"
+    ],
+    "feast_day": "08-27",
+    "label": "Gebhard",
+    "meaning": "Dal germanico \"geba\", \"dono\", e \"hard\", \"forte\".",
+    "origin": "Germanico",
+    "text": "San Gebardo, vescovo di Costanza nel X secolo, si festeggia il 27 agosto. Il nome è comune intorno al lago di Costanza, nel Vorarlberg e nella Svizzera orientale; gli atti scrivono anche Gebhart."
   },
   "geertruid": {
     "aliases": [
@@ -7781,6 +8693,14 @@
     "meaning": "Dal latino \"gemma\", \"gemma, germoglio\".",
     "origin": "Latina",
     "text": "Nome italiano usato fin dal Medioevo (Gemma Donati, moglie di Dante), Gemma si diffuse soprattutto nel XX secolo in Italia e in Spagna. Si festeggia nel giorno di santa Gemma Galgani, mistica lucchese canonizzata nel 1940."
+  },
+  "genara": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Genara",
+    "meaning": "Femminile spagnolo di Genaro, dal latino \"Januarius\", \"di gennaio\".",
+    "origin": "Latino",
+    "text": "Nome che si trova nei registri spagnoli e ispanoamericani. È la forma femminile di Genaro."
   },
   "gene": {
     "aliases": [],
@@ -8074,6 +8994,17 @@
     "origin": "Germanica",
     "text": "Nome maschile molto diffuso nei Paesi Bassi dal XVII al XX secolo, soprattutto nelle province orientali e settentrionali, e nelle vicine aree tedesche. Nei registri di battesimo in latino lo stesso uomo è spesso registrato come Gerardus, e può comparire anche come Geert."
   },
+  "gershon": {
+    "aliases": [
+      "Gershen",
+      "Gerson"
+    ],
+    "feast_day": null,
+    "label": "Gershon",
+    "meaning": "Dall'ebraico \"Gershon\", nome del primogenito di Levi; significato discusso.",
+    "origin": "Ebraico",
+    "text": "Nome biblico usato nelle comunità ebraiche di tutta Europa. Gli atti lo scrivono anche Gerson o Gershen."
+  },
   "gertrud": {
     "aliases": [
       "Geertruydt",
@@ -8138,6 +9069,16 @@
     "meaning": "Dal latino \"Gervasius\", di origine oscura, forse greca o germanica.",
     "origin": "Incerta",
     "text": "Antico nome francese presente nei registri parrocchiali, soprattutto in Normandia e nella Francia occidentale, e anche cognome. Onora san Gervasio, martire di Milano associato al fratello san Protasio, entrambi festeggiati il 19 giugno."
+  },
+  "gervaise": {
+    "aliases": [
+      "Gervaize"
+    ],
+    "feast_day": null,
+    "label": "Gervaise",
+    "meaning": "Femminile di Gervais; origine discussa.",
+    "origin": "Germanico",
+    "text": "Forma femminile di Gervais, che si trova nei registri francesi durante l'Antico Regime. Negli atti più antichi la grafia Gervaise designa talvolta anche un uomo, perciò va verificato il sesso."
   },
   "gesina": {
     "aliases": [],
@@ -8215,6 +9156,14 @@
     "origin": "Ebraica",
     "text": "Forma abbreviata di Giovanni, usata in Italia soprattutto in nomi composti (Gian Battista, Gian Domenico, Gian Maria) e come nome a sé stante nei Grigioni di lingua romancia. Come Giovanni, si festeggia il 24 giugno, festa di san Giovanni Battista."
   },
+  "giancarlo": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Giancarlo",
+    "meaning": "Composto italiano di Gian (Giovanni) e Carlo.",
+    "origin": "Italiano",
+    "text": "Nome composto italiano, dato soprattutto nel XX secolo. Si trova in Italia e nella Svizzera italiana."
+  },
   "gijsbert": {
     "aliases": [],
     "feast_day": null,
@@ -8258,6 +9207,16 @@
     "origin": "Incerta",
     "text": "Nome italiano raro prima del XIX secolo, reso popolare da Gilda, l'eroina dell'opera di Verdi \"Rigoletto\" (1851). Compare poi in Italia e nelle comunità di emigranti italiani, in particolare negli Stati Uniti all'inizio del XX secolo."
   },
+  "gildas": {
+    "aliases": [
+      "Gweltaz"
+    ],
+    "feast_day": "01-29",
+    "label": "Gildas",
+    "meaning": "Dal celtico; significato discusso.",
+    "origin": "Celtico",
+    "text": "San Gildas il Saggio, monaco britanno del VI secolo stabilitosi a Rhuys, si festeggia il 29 gennaio. Il nome è usato in Bretagna, dove la sua forma bretone è Gweltaz."
+  },
   "gilles": {
     "aliases": [
       "Giles"
@@ -8267,6 +9226,17 @@
     "meaning": "Dal latino \"Aegidius\", a sua volta legato al greco \"aigis\", \"pelle di capra, egida\"; il significato è discusso.",
     "origin": "Greca",
     "text": "Antico nome francese, frequente negli atti del Medioevo e dell'Ancien Régime, in particolare in Belgio, dove i Gilles del carnevale di Binche ne tengono vivo il nome. Negli atti in latino compare come Aegidius o Egidius, il che spesso sorprende i ricercatori. Si festeggia il 1º settembre, festa di sant'Egidio abate."
+  },
+  "gillette": {
+    "aliases": [
+      "Gilette",
+      "Gillete"
+    ],
+    "feast_day": null,
+    "label": "Gillette",
+    "meaning": "Diminutivo femminile di Gilles, dal greco \"aigis\", \"egida\".",
+    "origin": "Greco",
+    "text": "Forma femminile di Gilles, frequente nei registri francesi dal XV al XVII secolo. Gli atti la scrivono anche Gilette."
   },
   "gillian": {
     "aliases": [
@@ -8279,6 +9249,17 @@
     "meaning": "Forma inglese medievale di Juliana, dal latino \"Julius\", nome di una famiglia romana.",
     "origin": "Latina",
     "text": "Nome inglese comune nel Medioevo, al punto che \"Jill\" si usava familiarmente per indicare qualsiasi giovane donna, poi raro prima di una forte ripresa in Gran Bretagna verso la metà del XX secolo. Si scrive anche Jillian o Gilian."
+  },
+  "gillonne": {
+    "aliases": [
+      "Gilonne",
+      "Gillone"
+    ],
+    "feast_day": null,
+    "label": "Gillonne",
+    "meaning": "Femminile di Gilles, dal greco \"aigis\", \"egida\".",
+    "origin": "Greco",
+    "text": "Forma femminile di Gilles, che si trova nei registri francesi del XVI e XVII secolo. Gli atti la scrivono anche Gilonne."
   },
   "gina": {
     "aliases": [
@@ -8425,6 +9406,18 @@
     "origin": "Germanica",
     "text": "Nome medievale, portato nelle famiglie carolinge, caduto in disuso prima di tornare in Francia all'inizio del XX secolo, con un picco tra gli anni Venti e gli anni Quaranta. Si festeggia il 7 maggio, festa della beata Gisella d'Ungheria."
   },
+  "gitla": {
+    "aliases": [
+      "Gitel",
+      "Gitl",
+      "Gittel"
+    ],
+    "feast_day": null,
+    "label": "Gitla",
+    "meaning": "Dallo yiddish \"gut\", \"buono\".",
+    "origin": "Yiddish",
+    "text": "Grafia polacca dello yiddish Gitl, frequente negli atti ebraici della Polonia nel XIX secolo. Gli atti tedeschi scrivono Gittel."
+  },
   "giuditta": {
     "aliases": [],
     "feast_day": null,
@@ -8541,6 +9534,27 @@
     "origin": "Latina",
     "text": "Nome soprattutto spagnolo e portoghese di ispirazione religiosa, legato in particolare al titolo mariano di \"Nostra Signora della Gloria\". Raro prima del XIX secolo, si diffuse nel XX secolo in Spagna, in Portogallo e nei paesi anglofoni."
   },
+  "godefroy": {
+    "aliases": [
+      "Godefroi",
+      "Godefridus"
+    ],
+    "feast_day": "11-08",
+    "label": "Godefroy",
+    "meaning": "Dal germanico \"god\", \"dio\", e \"frid\", \"pace\".",
+    "origin": "Germanico",
+    "text": "Portato da Goffredo di Buglione, questo nome fu comune nella nobiltà della Francia settentrionale nel Medioevo. San Goffredo, vescovo di Amiens, si festeggia l'8 novembre; gli atti latini scrivono Godefridus."
+  },
+  "golda": {
+    "aliases": [
+      "Golde"
+    ],
+    "feast_day": null,
+    "label": "Golda",
+    "meaning": "Dallo yiddish \"gold\", \"oro\".",
+    "origin": "Yiddish",
+    "text": "Nome yiddish comune in Polonia, Lituania e Ucraina nel XVIII e XIX secolo. Gli atti polacchi scrivono Golda o Gołda."
+  },
   "goncalo": {
     "aliases": [],
     "feast_day": "01-10",
@@ -8629,6 +9643,29 @@
     "meaning": "Nome tedesco formato da \"Gott\", \"Dio\", e \"Lob\", \"lode\": \"lodate Dio\".",
     "origin": "Germanica",
     "text": "Nome devozionale tipico del pietismo luterano, frequente nel Württemberg e in Sassonia nel XVIII e XIX secolo, e tra i coloni tedeschi in Polonia. È spesso portato come secondo nome (Johann Gottlob, Christian Gottlob)."
+  },
+  "gozelon": {
+    "aliases": [
+      "Gothelon",
+      "Gozelo",
+      "Gothelo"
+    ],
+    "feast_day": null,
+    "label": "Gozelon",
+    "meaning": "Nome germanico formato sull'elemento \"Gauz-\"; significato discusso.",
+    "origin": "Germanico",
+    "text": "Nome di diversi duchi di Lotaringia dell'XI secolo, che si trova soprattutto nelle genealogie medievali. Le fonti scrivono Gozelon, Gothelon o Gozelo."
+  },
+  "gozlin": {
+    "aliases": [
+      "Gauzlin",
+      "Gauzelin"
+    ],
+    "feast_day": null,
+    "label": "Gozlin",
+    "meaning": "Nome germanico formato sull'elemento \"Gauz-\"; significato discusso.",
+    "origin": "Germanico",
+    "text": "Nome dell'alto Medioevo, portato in particolare da Gozlin, vescovo di Parigi durante l'assedio vichingo dell'885-886. È spesso collegato all'origine di Josselin."
   },
   "grace": {
     "aliases": [
@@ -8744,6 +9781,17 @@
     "origin": "Araba e latina (toponimo)",
     "text": "Nome mariano spagnolo, dal santuario di Nostra Signora di Guadalupe in Estremadura e poi dal culto messicano della Vergine di Guadalupe; è soprattutto femminile ma portato anche da uomini, in particolare in Messico (José Guadalupe). Si festeggia il 12 dicembre, mentre l'Estremadura celebra la sua patrona l'8 settembre."
   },
+  "guenole": {
+    "aliases": [
+      "Gwenole",
+      "Winwaloe"
+    ],
+    "feast_day": "03-03",
+    "label": "Guénolé",
+    "meaning": "Dal bretone \"gwenn\", \"bianco, benedetto\"; significato discusso.",
+    "origin": "Bretone",
+    "text": "San Guénolé (Winwaloe), fondatore dell'abbazia di Landévennec, si festeggia il 3 marzo. Il nome è usato in Bretagna, in particolare nella Cornouaille."
+  },
   "guglielmo": {
     "aliases": [],
     "feast_day": "06-25",
@@ -8803,6 +9851,27 @@
     "meaning": "Forma catalana di Guglielmo, dal germanico \"wil\", \"volontà\", e \"helm\", \"elmo, protezione\".",
     "origin": "Germanica",
     "text": "Nome catalano molto diffuso nel Medioevo in Catalogna e nelle Baleari, poi soppiantato negli atti dalla forma castigliana Guillermo. È tornato in auge in Catalogna alla fine del XX secolo."
+  },
+  "guillemette": {
+    "aliases": [
+      "Guillomette",
+      "Guillaumette"
+    ],
+    "feast_day": null,
+    "label": "Guillemette",
+    "meaning": "Diminutivo femminile di Guillaume, dal germanico \"wil\", \"volontà\", e \"helm\", \"elmo\".",
+    "origin": "Germanico",
+    "text": "Forma femminile di Guillaume, molto frequente nei registri francesi dal XIV al XVII secolo, in particolare in Bretagna, in Normandia e in Angiò. Gli atti la scrivono anche Guillaumette."
+  },
+  "guillemine": {
+    "aliases": [
+      "Guillaumine"
+    ],
+    "feast_day": null,
+    "label": "Guillemine",
+    "meaning": "Femminile di Guillaume, dal germanico \"wil\", \"volontà\", e \"helm\", \"elmo\".",
+    "origin": "Germanico",
+    "text": "Altra forma femminile di Guillaume, accanto a Guillemette, che si trova nei registri francesi durante l'Antico Regime. Gli atti scrivono anche Guillaumine."
   },
   "guillermo": {
     "aliases": [
@@ -8907,6 +9976,27 @@
     "origin": "Germanica",
     "text": "Nome medievale portato dalla nobiltà francese, in particolare da conti e signori, poi ripreso in Francia e in Belgio nel XX secolo; è comune anche in Inghilterra. Corrisponde all'italiano Guido, e gli atti in latino lo scrivono Guido o Wido. San Guido di Anderlecht, pellegrino dell'XI secolo, si festeggia il 12 settembre; il calendario popolare francese segna il nome il 12 giugno."
   },
+  "guyonne": {
+    "aliases": [
+      "Guionne"
+    ],
+    "feast_day": null,
+    "label": "Guyonne",
+    "meaning": "Femminile di Guyon, diminutivo di Guy.",
+    "origin": "Germanico",
+    "text": "Nome femminile portato in particolare nella famiglia di Laval, diverse ereditiere della quale assunsero il nome Guyonne. Resta raro nei registri."
+  },
+  "gwenael": {
+    "aliases": [
+      "Gwénael",
+      "Guénaël"
+    ],
+    "feast_day": "11-03",
+    "label": "Gwenaël",
+    "meaning": "Dal bretone \"gwenn\", \"bianco, benedetto\", e \"mael\", \"principe\".",
+    "origin": "Bretone",
+    "text": "San Gwenaël, abate di Landévennec nel VI secolo, si festeggia il 3 novembre. Nome antico in Bretagna, si diffuse ampiamente dagli anni Settanta."
+  },
   "gwendoline": {
     "aliases": [
       "Gvendolin",
@@ -8931,6 +10021,14 @@
     "meaning": "Di origine discussa: forma polacca di Helena o dal greco \"galênê\", \"calma, serenità\".",
     "origin": "Incerta",
     "text": "Nome polacco molto diffuso nel XX secolo, soprattutto tra le donne nate tra gli anni Venti e gli anni Cinquanta, e molto più raro negli atti antichi. È spesso usato nel vezzeggiativo Halinka."
+  },
+  "hamelin": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Hamelin",
+    "meaning": "Diminutivo germanico formato su \"haim\", \"casa\".",
+    "origin": "Germanico",
+    "text": "Nome medievale della Francia occidentale e dell'Inghilterra anglonormanna, divenuto poi cognome. Si trova soprattutto in fonti anteriori al XVI secolo."
   },
   "hanna": {
     "aliases": [
@@ -8971,6 +10069,22 @@
     "meaning": "Antica grafia tedesca di Hans, forma abbreviata di Johannes, dall'ebraico \"Yohanan\", \"Dio fa grazia\".",
     "origin": "Ebraica",
     "text": "Forma abbreviata di Johannes, diffusissima nei paesi di lingua tedesca fin dal tardo Medioevo; la grafia con la doppia n si trova soprattutto negli atti antichi. Lo stesso uomo può essere registrato come Johannes, Johann o Hans a seconda dell'atto. Si festeggia il 24 giugno, festa di san Giovanni Battista."
+  },
+  "hanspeter": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Hanspeter",
+    "meaning": "Composto di Hans (Giovanni) e Peter (Pietro).",
+    "origin": "Germanico",
+    "text": "Nome composto tipico della Svizzera tedesca e della Germania del XX secolo, scritto in una sola parola o con il trattino."
+  },
+  "hansruedi": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Hansruedi",
+    "meaning": "Composto di Hans (Giovanni) e Ruedi, diminutivo svizzero di Rudolf.",
+    "origin": "Germanico",
+    "text": "Nome composto proprio della Svizzera tedesca, dato soprattutto nel XX secolo. Negli atti ufficiali può corrispondere a Hans Rudolf."
   },
   "harm": {
     "aliases": [
@@ -9400,6 +10514,14 @@
     "origin": "Celtica",
     "text": "Antico nome bretone, legato a sant'Hervé, eremita cieco del VI secolo molto venerato in Bretagna, la cui festa ricorre il 17 giugno. Si trova negli atti bretoni dell'Ancien Régime, poi si diffuse in tutta la Francia verso la metà del XX secolo."
   },
+  "hervee": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Hervée",
+    "meaning": "Femminile di Hervé, dal bretone \"houarn\", \"ferro\", e \"vi\", \"ardente\"; significato discusso.",
+    "origin": "Bretone",
+    "text": "Forma femminile rara di Hervé, che si trova soprattutto in Bretagna nel XX secolo."
+  },
   "hester": {
     "aliases": [],
     "feast_day": null,
@@ -9466,6 +10588,18 @@
     "origin": "Germanica",
     "text": "Nome tedesco medievale, portato da una moglie di Carlo Magno e dalla mistica Ildegarda di Bingen, poi ripreso in Germania alla fine del XIX e all'inizio del XX secolo. Si festeggia il 17 settembre, festa di santa Ildegarda di Bingen."
   },
+  "hinda": {
+    "aliases": [
+      "Hinde",
+      "Hindla",
+      "Hindel"
+    ],
+    "feast_day": null,
+    "label": "Hinda",
+    "meaning": "Dallo yiddish \"hinde\", \"cerva\".",
+    "origin": "Yiddish",
+    "text": "Nome femminile yiddish, corrispondente di Hirsch (\"cervo\"), frequente negli atti ebraici della Polonia e della Lituania nel XIX secolo. Il diminutivo Hindla è comune."
+  },
   "hinrich": {
     "aliases": [],
     "feast_day": "07-13",
@@ -9493,6 +10627,19 @@
     "origin": "Ebraica",
     "text": "Nome biblico, quello del re di Tiro alleato di Salomone, adottato dai protestanti anglofoni e frequente negli Stati Uniti nel XIX secolo. È noto anche nella tradizione massonica."
   },
+  "hirsch": {
+    "aliases": [
+      "Hersch",
+      "Hersh",
+      "Hirsz",
+      "Herschel"
+    ],
+    "feast_day": null,
+    "label": "Hirsch",
+    "meaning": "Dallo yiddish e dal tedesco \"Hirsch\", \"cervo\".",
+    "origin": "Yiddish",
+    "text": "Nome comune nelle comunità ebraiche della Germania e dell'Europa orientale, associato alla tribù di Neftali e spesso abbinato all'ebraico Zvi. Gli atti scrivono Hersch, Hirsz o, come diminutivo, Herschel."
+  },
   "homer": {
     "aliases": [
       "Homie"
@@ -9503,6 +10650,16 @@
     "origin": "Greca",
     "text": "Nome di gusto classico, diffuso soprattutto negli Stati Uniti nel XIX e all'inizio del XX secolo. È raro in Europa, dove la forma francese Homère compare in alcuni atti."
   },
+  "honorat": {
+    "aliases": [
+      "Honoratus"
+    ],
+    "feast_day": "01-16",
+    "label": "Honorat",
+    "meaning": "Dal latino \"honoratus\", \"onorato\".",
+    "origin": "Latino",
+    "text": "Sant'Onorato, fondatore del monastero di Lérins e poi arcivescovo di Arles, si festeggia il 16 gennaio. Il nome è caratteristico della Provenza."
+  },
   "honore": {
     "aliases": [
       "Honorius"
@@ -9512,6 +10669,14 @@
     "meaning": "Dal latino \"honoratus\", \"onorato, rispettato\".",
     "origin": "Latina",
     "text": "Nome francese comune durante l'Ancien Régime e nel XIX secolo, in particolare in Provenza, in Piccardia e in Belgio, con la forma latina Honoratus negli atti. Si festeggia il 16 maggio, festa di sant'Onorato di Amiens, vescovo del VI secolo e patrono dei fornai."
+  },
+  "honoree": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Honorée",
+    "meaning": "Femminile di Honoré, dal latino \"honoratus\", \"onorato\".",
+    "origin": "Latino",
+    "text": "Forma femminile di Honoré, che si trova nei registri francesi, in particolare in Provenza e in Piccardia, durante l'Antico Regime."
   },
   "honorine": {
     "aliases": [
@@ -9683,6 +10848,20 @@
     "meaning": "Forma scozzese (Iain) di Giovanni, dall'ebraico \"Yohanan\", \"Dio fa grazia\".",
     "origin": "Ebraica",
     "text": "Forma anglicizzata del gaelico scozzese Iain, a lungo limitata alla Scozia, poi molto diffusa in tutta la Gran Bretagna verso la metà del XX secolo. Negli atti scozzesi antichi lo stesso uomo è di solito registrato come John. Si festeggia il 24 giugno, festa di san Giovanni Battista."
+  },
+  "icek": {
+    "aliases": [
+      "Icyk",
+      "Itzik",
+      "Itsik",
+      "Ajzyk",
+      "Eisik"
+    ],
+    "feast_day": null,
+    "label": "Icek",
+    "meaning": "Diminutivo yiddish di Isacco, \"egli riderà\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Itsik, diminutivo di Isacco, tra i nomi maschili ebraici più frequenti nella Polonia del XIX secolo. Anche la variante Ajzyk (Eisik) corrisponde a Isacco."
   },
   "ida": {
     "aliases": [
@@ -10154,6 +11333,19 @@
     "origin": "Ebraica",
     "text": "Nome portato dalla nobiltà polacca dal XVIII secolo, poi molto diffuso in Polonia nella seconda metà del XX secolo, spesso abbreviato in Iza. Negli atti antichi la stessa donna può essere registrata come Elżbieta o con il latino Elisabetha; il giorno della festa varia secondo il calendario."
   },
+  "izrael": {
+    "aliases": [
+      "Israel",
+      "Srul",
+      "Srol",
+      "Isroel"
+    ],
+    "feast_day": null,
+    "label": "Izrael",
+    "meaning": "Dall'ebraico \"Yisrael\", \"colui che lotta con Dio\".",
+    "origin": "Ebraico",
+    "text": "Nome dato a Giacobbe nella Bibbia, molto frequente tra gli ebrei di Polonia nel XIX secolo. Gli atti polacchi scrivono Izrael o la forma abbreviata yiddish Srul."
+  },
   "jacek": {
     "aliases": [
       "Hiacynt",
@@ -10222,6 +11414,17 @@
     "origin": "Ebraica",
     "text": "Nome femminile molto comune nei Paesi Bassi e nelle Fiandre dal XVII al XIX secolo, spesso abbreviato in Coba, Co o Jaapje. Negli atti si alterna con Jacomina o Jacobina per la stessa donna."
   },
+  "jacobee": {
+    "aliases": [
+      "Jacobé",
+      "Jacobea"
+    ],
+    "feast_day": null,
+    "label": "Jacobée",
+    "meaning": "Femminile di Jacob, attraverso il latino \"Jacobaea\".",
+    "origin": "Ebraico",
+    "text": "Antica forma femminile di Jacques, che si trova nei registri francesi soprattutto prima del XVIII secolo. Richiama Maria di Giacomo (Marie Jacobé), una delle sante Marie venerate a Saintes-Maries-de-la-Mer."
+  },
   "jacobus": {
     "aliases": [
       "Iacobus",
@@ -10256,6 +11459,17 @@
     "origin": "Ebraica",
     "text": "Nome femminile portato fin dal Medioevo (Giacomina di Baviera, contessa di Hainaut), poi popolarissimo in Francia, Belgio e Paesi Bassi tra gli anni Venti e gli anni Cinquanta; si trova anche in Gran Bretagna e negli Stati Uniti. Il calendario francese lo segna l'8 febbraio, festa della beata Jacopa de' Settesoli, discepola di san Francesco d'Assisi."
   },
+  "jacquemine": {
+    "aliases": [
+      "Jacmine",
+      "Jaquemine"
+    ],
+    "feast_day": null,
+    "label": "Jacquemine",
+    "meaning": "Femminile di Jacquemin, diminutivo di Jacques.",
+    "origin": "Ebraico",
+    "text": "Forma femminile di Jacquemin, frequente in Lorena, in Champagne e nella Francia settentrionale nel XVI e XVII secolo. Gli atti la scrivono anche Jacmine."
+  },
   "jacques": {
     "aliases": [
       "Jacky",
@@ -10267,6 +11481,27 @@
     "meaning": "Dall'ebraico \"Ya'aqov\" attraverso il latino \"Jacobus\", spesso interpretato come \"colui che tiene il calcagno\" o \"che Dio protegga\".",
     "origin": "Ebraica",
     "text": "Nome molto diffuso in Francia, Belgio, Lussemburgo e Svizzera romanda fin dal Medioevo, favorito dal pellegrinaggio a Compostela, e popolarissimo verso la metà del XX secolo. Gli atti in latino lo scrivono Jacobus. Si festeggia il 25 luglio, festa di san Giacomo il Maggiore."
+  },
+  "jacquette": {
+    "aliases": [
+      "Jaquette",
+      "Jacquotte"
+    ],
+    "feast_day": null,
+    "label": "Jacquette",
+    "meaning": "Diminutivo femminile di Jacques, dall'ebraico \"Yaakov\".",
+    "origin": "Ebraico",
+    "text": "Forma femminile di Jacques, frequente nei registri francesi dal XV al XVII secolo. Gli atti la scrivono anche Jaquette."
+  },
+  "jacquine": {
+    "aliases": [
+      "Jaquine"
+    ],
+    "feast_day": null,
+    "label": "Jacquine",
+    "meaning": "Femminile di Jacques, dall'ebraico \"Yaakov\".",
+    "origin": "Ebraico",
+    "text": "Forma femminile di Jacques che si trova nei registri francesi durante l'Antico Regime, prima di essere soppiantata da Jacqueline."
   },
   "jadwiga": {
     "aliases": [
@@ -10404,6 +11639,18 @@
     "meaning": "Diminutivo francese di Jeanne, dall'ebraico \"Yohanan\", \"Dio fa grazia\".",
     "origin": "Ebraica",
     "text": "Nome femminile francese del XX secolo, dato soprattutto tra gli anni Venti e gli anni Cinquanta; si scrive anche Jeannine. È raro negli atti anteriori."
+  },
+  "jankiel": {
+    "aliases": [
+      "Jankel",
+      "Yankel",
+      "Jankiew"
+    ],
+    "feast_day": null,
+    "label": "Jankiel",
+    "meaning": "Diminutivo yiddish di Giacobbe (Yankev).",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Yankl, diminutivo di Giacobbe, frequente negli atti ebraici della Polonia nel XIX secolo. Lo stesso uomo può chiamarsi Jankiel o Jakub in atti diversi."
   },
   "janusz": {
     "aliases": [
@@ -10543,6 +11790,19 @@
     "origin": "Ebraica",
     "text": "Nome femminile francese del XX secolo, molto dato tra gli anni Venti e gli anni Cinquanta, scritto anche Jeanine o Janine. È raro negli atti anteriori."
   },
+  "jechiel": {
+    "aliases": [
+      "Chil",
+      "Chiel",
+      "Jechil",
+      "Yechiel"
+    ],
+    "feast_day": null,
+    "label": "Jechiel",
+    "meaning": "Dall'ebraico \"Yechiel\", \"che Dio viva\".",
+    "origin": "Ebraico",
+    "text": "Nome ebraico frequente nella Polonia del XIX secolo, spesso abbreviato in Chil negli atti di stato civile. Lo stesso uomo può comparire con entrambe le forme."
+  },
   "jeffrey": {
     "aliases": [
       "Heffrey",
@@ -10590,6 +11850,18 @@
     "origin": "Ebraica",
     "text": "Vezzeggiativo comune nei paesi anglofoni e germanofoni, divenuto nome ufficiale nel XIX secolo in Svizzera, Germania, Francia e Paesi Bassi. Il nome completo (Johanna, Jeanne, Jane) può comparire in altri atti della stessa donna."
   },
+  "jenta": {
+    "aliases": [
+      "Yente",
+      "Jente",
+      "Jentla"
+    ],
+    "feast_day": null,
+    "label": "Jenta",
+    "meaning": "Dal francese antico o dall'italiano \"gentile\", \"nobile, graziosa\".",
+    "origin": "Romanzo",
+    "text": "Antico nome yiddish di origine romanza, scritto Jenta negli atti polacchi del XIX secolo. La forma yiddish è Yente."
+  },
   "jeremias": {
     "aliases": [
       "Jeremiah"
@@ -10599,6 +11871,17 @@
     "meaning": "Forma latina e germanica di Geremia, dall'ebraico \"Yirmeyahu\", \"Dio esalta\".",
     "origin": "Ebraica",
     "text": "Nome del profeta biblico, portato soprattutto tra i protestanti in Germania, Svizzera e Paesi Bassi dal XVI al XVIII secolo, e anche negli atti cattolici in latino. Le forme inglese e francese sono Jeremiah e Jérémie."
+  },
+  "jeremie": {
+    "aliases": [
+      "Jérémy",
+      "Jeremie"
+    ],
+    "feast_day": "05-01",
+    "label": "Jérémie",
+    "meaning": "Dall'ebraico \"Yirmeyahu\", \"Yahweh esalta\".",
+    "origin": "Ebraico",
+    "text": "Nome del profeta Geremia, che si festeggia il 1º maggio, presente sia nei registri protestanti sia in quelli cattolici durante l'Antico Regime. La grafia Jérémy si diffuse in Francia negli anni Ottanta e Novanta."
   },
   "jerome": {
     "aliases": [
@@ -11005,6 +12288,14 @@
     "origin": "Celtica",
     "text": "Antico nome olandese e fiammingo, frequente nel XVI e XVII secolo, latinizzato in Judocus negli atti e corrispondente al francese Josse. Onora san Giudoco (Josse), eremita bretone del VII secolo stabilitosi nel Ponthieu, la cui festa ricorre il 13 dicembre."
   },
+  "jordane": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Jordane",
+    "meaning": "Femminile di Jordan, dal nome del fiume Giordano.",
+    "origin": "Ebraico",
+    "text": "Nome moderno, dato soprattutto in Francia negli anni Ottanta e Novanta. È assente dai registri antichi."
+  },
   "jordi": {
     "aliases": [
       "Xurde",
@@ -11138,6 +12429,19 @@
     "origin": "Ebraica",
     "text": "Nome spagnolo diffuso nel XIX e all'inizio del XX secolo, in Spagna e in America latina, e portato soprattutto da donne nate prima del 1960. Si alterna talvolta con Josefa per la stessa donna."
   },
+  "josek": {
+    "aliases": [
+      "Josel",
+      "Jossel",
+      "Yosel",
+      "Joske"
+    ],
+    "feast_day": null,
+    "label": "Josek",
+    "meaning": "Diminutivo yiddish di Giuseppe, \"Dio aggiungerà\".",
+    "origin": "Ebraico",
+    "text": "Forma con cui gli atti polacchi del XIX secolo registrano lo yiddish Yosl, diminutivo di Giuseppe. Lo stesso uomo può chiamarsi Josek o Józef in atti diversi."
+  },
   "josep": {
     "aliases": [
       "Osyp"
@@ -11265,6 +12569,19 @@
     "origin": "Ebraica",
     "text": "Nome femminile francese del XX secolo, dato soprattutto tra gli anni Quaranta e gli anni Sessanta e assente dagli atti antichi. Non è legato ad alcun santo in particolare."
   },
+  "josselin": {
+    "aliases": [
+      "Josselyn",
+      "Joscelin",
+      "Jocelin",
+      "Joscelinus"
+    ],
+    "feast_day": null,
+    "label": "Josselin",
+    "meaning": "Dal germanico, attraverso il latino \"Joscelinus\"; significato discusso.",
+    "origin": "Germanico",
+    "text": "Nome maschile medievale della Bretagna e della Normandia, che è anche il nome della città di Josselin. È distinto dal femminile Jocelyne, che ha una propria scheda."
+  },
   "joyce": {
     "aliases": [],
     "feast_day": null,
@@ -11361,6 +12678,30 @@
     "meaning": "Diminutivo spagnolo di Juana, dall'ebraico \"Yohanan\", \"Dio fa grazia\".",
     "origin": "Ebraica",
     "text": "Diminutivo di Juana divenuto nome ufficiale, molto diffuso negli Stati Uniti tra gli anni Dieci e gli anni Trenta, nelle famiglie ispaniche e non solo. In Spagna la stessa donna è spesso registrata come Juana. Come Juana, si festeggia spesso il 30 maggio, festa di santa Giovanna d'Arco."
+  },
+  "juda": {
+    "aliases": [
+      "Judka",
+      "Judah",
+      "Jehuda",
+      "Yehuda"
+    ],
+    "feast_day": null,
+    "label": "Juda",
+    "meaning": "Dall'ebraico \"Yehuda\", \"lode\".",
+    "origin": "Ebraico",
+    "text": "Nome di uno dei figli di Giacobbe, frequente tra gli ebrei europei e spesso abbinato a Leib (Juda Leib). Gli atti polacchi del XIX secolo scrivono Juda o il diminutivo Judka."
+  },
+  "judicael": {
+    "aliases": [
+      "Judikael",
+      "Judhael"
+    ],
+    "feast_day": "12-17",
+    "label": "Judicaël",
+    "meaning": "Dall'antico bretone \"iud\", \"signore\", e \"hael\", \"generoso\".",
+    "origin": "Bretone",
+    "text": "San Giudicaele (Judicaël), re di Domnonea nel VII secolo, si festeggia il 17 dicembre. Il nome è portato soprattutto in Bretagna; le fonti scrivono Judikael o Judhael."
   },
   "judith": {
     "aliases": [
@@ -11620,6 +12961,17 @@
     "origin": "Persiana (discussa)",
     "text": "Antico nome polacco, presente negli atti in latino come Casparus, divenuto uno dei nomi maschili più dati in Polonia alla fine del XX secolo. Si festeggia il 6 gennaio, all'Epifania, insieme a Melchiorre e Baldassarre."
   },
+  "kalman": {
+    "aliases": [
+      "Kalmen",
+      "Kalonymus"
+    ],
+    "feast_day": null,
+    "label": "Kalman",
+    "meaning": "Di solito collegato al greco Kalonymos, \"bel nome\".",
+    "origin": "Greco",
+    "text": "Nome maschile ebraico comune nell'Europa centrale nel XIX secolo, scritto Kalman o Kalmen. È anche un nome ungherese (Kálmán) di origine diversa."
+  },
   "kamil": {
     "aliases": [
       "Kamilo"
@@ -11811,6 +13163,14 @@
     "origin": "Gaelica scozzese",
     "text": "Nome scozzese portato dal re Kenneth MacAlpin nel IX secolo, comune in Scozia e poi molto popolare in tutta la Gran Bretagna e negli Stati Uniti tra gli anni Dieci e gli anni Quaranta. È spesso abbreviato in Ken."
   },
+  "keren": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Keren",
+    "meaning": "Dall'ebraico \"keren\", \"corno, raggio\".",
+    "origin": "Ebraico",
+    "text": "Nome ebraico moderno, dato soprattutto in Israele nel XX secolo. Richiama Keren-Happuc, una figlia di Giobbe."
+  },
   "kevin": {
     "aliases": [
       "Caoimhín",
@@ -11911,6 +13271,19 @@
     "origin": "Basca",
     "text": "Nome polacco di origine religiosa, portato dapprima in composti (Franciszek Ksawery), soprattutto dalla nobiltà nel XVIII e XIX secolo. Negli atti in latino compare come Xaverius. Si festeggia il 3 dicembre, festa di san Francesco Saverio."
   },
+  "kunigunde": {
+    "aliases": [
+      "Kunigonde",
+      "Cunégonde",
+      "Cunegundis",
+      "Kunigund"
+    ],
+    "feast_day": "03-03",
+    "label": "Kunigunde",
+    "meaning": "Dal germanico \"kuni\", \"stirpe\", e \"gund\", \"battaglia\".",
+    "origin": "Germanico",
+    "text": "Santa Cunegonda, moglie dell'imperatore Enrico II, si festeggia il 3 marzo. Il nome fu comune nella Germania meridionale (Baviera, Franconia) dal Medioevo al XVIII secolo; gli atti scrivono Kunigonde, Cunégonde o Cunegundis in latino."
+  },
   "kurt": {
     "aliases": [
       "Curt",
@@ -11921,6 +13294,18 @@
     "meaning": "Forma abbreviata tedesca di Konrad, dal germanico \"kuoni\", \"audace\", e \"rad\", \"consiglio\".",
     "origin": "Germanica",
     "text": "Nome tedesco divenuto autonomo alla fine del XIX secolo e molto diffuso in Germania e in Svizzera tra il 1890 e il 1940. È più raro negli atti antichi, dove lo stesso uomo sarebbe registrato come Konrad; si scrive anche Curt."
+  },
+  "laja": {
+    "aliases": [
+      "Laje",
+      "Leja",
+      "Lejka"
+    ],
+    "feast_day": null,
+    "label": "Laja",
+    "meaning": "Forma yiddish (Leye) di Lia; significato discusso.",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Leye, frequente negli atti ebraici della Polonia nel XIX secolo. Compaiono anche Leja e il diminutivo Lejka."
   },
   "lambert": {
     "aliases": [
@@ -12074,6 +13459,46 @@
     "origin": "Germanica",
     "text": "Forma olandese popolare di Leonardo, molto presente negli atti dell'Olanda e della Zelanda, mentre le registrazioni in latino scrivono spesso Leonardus; compaiono i vezzeggiativi Leen e Leendertje. Onora san Leonardo di Noblac, eremita limosino del VI secolo, la cui festa ricorre il 6 novembre."
   },
+  "leger": {
+    "aliases": [
+      "Leodegarius",
+      "Légier"
+    ],
+    "feast_day": "10-02",
+    "label": "Léger",
+    "meaning": "Dal germanico \"leud\", \"popolo\", e \"gar\", \"lancia\".",
+    "origin": "Germanico",
+    "text": "San Leodegario, vescovo di Autun morto nel 678, si festeggia il 2 ottobre. Il nome fu comune nei registri francesi durante l'Antico Regime; gli atti latini scrivono Leodegarius."
+  },
+  "leib": {
+    "aliases": [
+      "Lajb",
+      "Lejb",
+      "Lejbj",
+      "Lewek",
+      "Leyb",
+      "Löb",
+      "Loeb"
+    ],
+    "feast_day": null,
+    "label": "Leib",
+    "meaning": "Dallo yiddish \"leyb\", \"leone\", associato a Giuda.",
+    "origin": "Yiddish",
+    "text": "Nome yiddish molto frequente, spesso abbinato a Giuda o ad Aryeh (Juda Leib). Gli atti polacchi scrivono Lejb o Lajb, con il diminutivo Lewek (\"leoncino\"); gli atti tedeschi e alsaziani scrivono Löb o Loeb."
+  },
+  "lejzor": {
+    "aliases": [
+      "Lejzer",
+      "Lajzer",
+      "Leiser",
+      "Eliezer"
+    ],
+    "feast_day": null,
+    "label": "Lejzor",
+    "meaning": "Forma yiddish di Eliezer, \"Dio è il mio aiuto\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Leyzer, forma abbreviata di Eliezer, frequente negli atti ebraici della Polonia nel XIX secolo. Gli atti tedeschi scrivono Leiser."
+  },
   "lena": {
     "aliases": [
       "Lehna",
@@ -12097,6 +13522,14 @@
     "meaning": "Dal latino \"leo\", \"leone\".",
     "origin": "Latina",
     "text": "Forma tedesca, olandese e inglese di Leone, portata da tredici papi; divenne comune in Belgio, Germania, Svizzera e Stati Uniti alla fine del XIX secolo, in parte in onore di papa Leone XIII. Si festeggia nel giorno di san Leone Magno papa, il 10 novembre."
+  },
+  "leobald": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Leobald",
+    "meaning": "Dagli elementi germanici \"liut\" (popolo) e \"bald\" (audace).",
+    "origin": "Germanico",
+    "text": "Nome germanico raro, che si trova principalmente nei registri alsaziani e della Germania sud-occidentale del XVII e XVIII secolo. Negli atti parrocchiali è spesso latinizzato in Leobaldus."
   },
   "leokadia": {
     "aliases": [],
@@ -12135,6 +13568,16 @@
     "meaning": "Dal germanico \"leon\", \"leone\", e \"hard\", \"forte, ardito\".",
     "origin": "Germanica",
     "text": "Nome diffuso in Inghilterra, nei Paesi Bassi, in Belgio e in Francia, dove rimase comune fino all'inizio del XX secolo, in particolare nel Limosino. Onora san Leonardo di Noblac, eremita del VI secolo invocato per i prigionieri e il bestiame, la cui festa ricorre il 6 novembre."
+  },
+  "leonarde": {
+    "aliases": [
+      "Liénarde"
+    ],
+    "feast_day": null,
+    "label": "Léonarde",
+    "meaning": "Femminile di Léonard, dal germanico \"leon\", \"leone\", e \"hard\", \"forte\".",
+    "origin": "Germanico",
+    "text": "Forma femminile di Léonard, frequente nel Limosino, dove san Leonardo di Noblat è molto venerato. Gli atti la scrivono anche Liénarde."
   },
   "leonardo": {
     "aliases": [],
@@ -12321,6 +13764,14 @@
     "meaning": "Nome polacco di etimologia incerta, spesso ricondotto a Lech, leggendario antenato dei Polacchi.",
     "origin": "Slava",
     "text": "Nome portato da diversi duchi polacchi medievali, tra cui Leszek il Bianco, e ancora in uso in Polonia, con una forte popolarità nel XX secolo. Non è legato ad alcun santo ben attestato."
+  },
+  "levenez": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Levenez",
+    "meaning": "Dal bretone \"levenez\", \"gioia\".",
+    "origin": "Bretone",
+    "text": "Nome bretone moderno formato da un nome comune, dato soprattutto dalla seconda metà del XX secolo nell'ambito della rinascita dei nomi bretoni. Non compare nei registri antichi."
   },
   "lewis": {
     "aliases": [
@@ -12691,6 +14142,17 @@
     "origin": "Germanica",
     "text": "Vezzeggiativo di Louise divenuto nome a sé stante in Francia, soprattutto nella prima metà del XX secolo. Si festeggia nel giorno di santa Luisa de Marillac, il 15 marzo."
   },
+  "loup": {
+    "aliases": [
+      "Lupus",
+      "Leu"
+    ],
+    "feast_day": "07-29",
+    "label": "Loup",
+    "meaning": "Dal latino \"lupus\", \"lupo\".",
+    "origin": "Latino",
+    "text": "San Lupo, vescovo di Troyes nel V secolo, si festeggia il 29 luglio. Il nome era usato in Champagne e in Borgogna; la forma Leu sopravvive nei toponimi Saint-Leu."
+  },
   "lourdes": {
     "aliases": [
       "Lurdes"
@@ -12708,6 +14170,16 @@
     "meaning": "Forma portoghese di Lorenzo, dal latino \"Laurentius\", \"di Laurentum\".",
     "origin": "Latina",
     "text": "Forma portoghese di Lorenzo, presente negli atti portoghesi fin dal Medioevo e all'origine del cognome Lourenço. Onora san Lorenzo, diacono martirizzato a Roma nel 258, la cui festa ricorre il 10 agosto."
+  },
+  "lubin": {
+    "aliases": [
+      "Leobinus"
+    ],
+    "feast_day": "03-14",
+    "label": "Lubin",
+    "meaning": "Dal latino \"Leobinus\", di origine germanica; significato discusso.",
+    "origin": "Germanico",
+    "text": "San Leobino, vescovo di Chartres nel VI secolo, si festeggia il 14 marzo. Il nome è caratteristico della Beauce e del Perche."
   },
   "luc": {
     "aliases": [
@@ -13069,6 +14541,14 @@
     "origin": "Greca",
     "text": "Forma francese di Lydia, frequente in Francia e nella Svizzera romanda nel XIX secolo, in particolare nelle famiglie protestanti. Onora santa Lidia di Tiatira, convertita da san Paolo, la cui festa ricorre il 3 agosto nei calendari romano e francese."
   },
+  "lynn": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Lynn",
+    "meaning": "Discusso: forse dal gallese \"llyn\", \"lago\", o forma abbreviata di nomi in -line (Linda, Carolyn).",
+    "origin": "Inglese",
+    "text": "Nome di lingua inglese per lo più femminile, diffuso negli Stati Uniti e in Gran Bretagna nel XX secolo, spesso come secondo nome. Fu portato anche da alcuni uomini, soprattutto prima del 1940."
+  },
   "mabel": {
     "aliases": [
       "Mabell",
@@ -13081,6 +14561,16 @@
     "meaning": "Forma abbreviata di Amabel, dal latino \"amabilis\", \"amabile\".",
     "origin": "Latina",
     "text": "Nome inglese medievale, ripreso in epoca vittoriana e molto frequente negli Stati Uniti intorno al 1880-1920; compaiono anche Mable o Mabelle. Non ha un santo patrono."
+  },
+  "macee": {
+    "aliases": [
+      "Massée"
+    ],
+    "feast_day": null,
+    "label": "Macée",
+    "meaning": "Femminile di Macé, antica forma di Mathieu.",
+    "origin": "Ebraico",
+    "text": "Nome femminile frequente nella Francia occidentale (Angiò, Maine, Bretagna) tra il XV e il XVII secolo. Gli atti lo scrivono anche Massée."
   },
   "maciej": {
     "aliases": [
@@ -13131,6 +14621,22 @@
     "origin": "Incerta",
     "text": "Nome americano molto di moda dalla fine del XIX secolo agli anni Venti, spesso come secondo nome (Annie Mae, Lillie Mae), soprattutto nel Sud. Non ha una festa propria."
   },
+  "mael": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Maël",
+    "meaning": "Dall'antico bretone \"mael\", \"principe, capo\".",
+    "origin": "Bretone",
+    "text": "Antico nome bretone, portato da un santo locale, tornato popolare in Francia dagli anni Novanta. Si trova raramente nei registri del XVIII e XIX secolo."
+  },
+  "maelle": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Maëlle",
+    "meaning": "Femminile di Maël, dall'antico bretone \"mael\", \"principe, capo\".",
+    "origin": "Bretone",
+    "text": "Femminile moderno di Maël, dato soprattutto in Francia dagli anni Ottanta. È assente dai registri antichi."
+  },
   "magda": {
     "aliases": [],
     "feast_day": "07-22",
@@ -13170,6 +14676,16 @@
     "origin": "Ebraica",
     "text": "Grafia francese antica di Madeleine, frequentissima negli atti del XVII e XVIII secolo, con la variante Magdelaine; è lo stesso nome di Madeleine. Onora santa Maria Maddalena, la cui festa ricorre il 22 luglio."
   },
+  "magloire": {
+    "aliases": [
+      "Maglorius"
+    ],
+    "feast_day": "10-24",
+    "label": "Magloire",
+    "meaning": "Dall'antico bretone; significato discusso.",
+    "origin": "Bretone",
+    "text": "San Maglorio, successore di san Sansone a Dol, si festeggia il 24 ottobre. Il nome fu portato soprattutto in Bretagna e in Normandia."
+  },
   "magnus": {
     "aliases": [
       "Måns"
@@ -13179,6 +14695,16 @@
     "meaning": "Dal latino \"magnus\", \"grande\".",
     "origin": "Latina",
     "text": "Nome diffuso in Scandinavia fin dal Medioevo e tradizionale nella Germania meridionale e nella Svizzera orientale, dove san Magno (Mang) di Füssen, missionario dell'Allgäu nell'VIII secolo, era molto venerato. La sua festa ricorre il 6 settembre."
+  },
+  "maiwenn": {
+    "aliases": [
+      "Maiwen"
+    ],
+    "feast_day": null,
+    "label": "Maïwenn",
+    "meaning": "Nome bretone moderno, spesso collegato a Mai (Maria) e a \"gwenn\", \"bianca, pura\"; etimologia discussa.",
+    "origin": "Bretone",
+    "text": "Nome bretone comparso nel XX secolo e dato soprattutto dagli anni Ottanta. Coesistono le grafie Maïwenn, Maiwen e Maëwenn; è assente dai registri antichi."
   },
   "maja": {
     "aliases": [],
@@ -13223,6 +14749,30 @@
     "meaning": "Forma polacca di Margherita, dal greco \"margaritês\", \"perla\".",
     "origin": "Greca",
     "text": "Uno dei nomi femminili più comuni in Polonia fin dal Medioevo, abbreviato in Małgosia; gli atti in latino scrivono Margaretha. Onora tradizionalmente santa Margherita d'Antiochia, vergine e martire molto popolare nel Medioevo, la cui festa ricorre il 20 luglio."
+  },
+  "malo": {
+    "aliases": [
+      "Maclou",
+      "Machutus",
+      "Maclovius"
+    ],
+    "feast_day": "11-15",
+    "label": "Malo",
+    "meaning": "Dall'antico bretone o dal gallese; significato discusso.",
+    "origin": "Bretone",
+    "text": "San Malo, monaco gallese divenuto vescovo di Aleth, diede il nome alla città di Saint-Malo e si festeggia il 15 novembre. In Normandia prevale la forma Maclou; gli atti latini scrivono Machutus o Maclovius."
+  },
+  "manasse": {
+    "aliases": [
+      "Manès",
+      "Manasseh",
+      "Menashe"
+    ],
+    "feast_day": null,
+    "label": "Manassé",
+    "meaning": "Dall'ebraico \"Menashe\", \"che fa dimenticare\".",
+    "origin": "Ebraico",
+    "text": "Nome del figlio maggiore di Giuseppe nella Bibbia. Presso gli ebrei d'Alsazia e di Lorena compare nel XVIII e XIX secolo nella forma yiddish Manès, mentre Manassé o Manasseh figurano negli atti protestanti e di lingua inglese."
   },
   "manfred": {
     "aliases": [],
@@ -13791,6 +15341,14 @@
     "origin": "Ebraica",
     "text": "Nome composto diffuso in Francia, Belgio e Lussemburgo nel XVIII e XIX secolo, reso popolare dall'imperatrice Maria Teresa d'Austria, che allora regnava sul Lussemburgo. Si festeggia nel giorno di santa Teresa d'Avila, il 15 ottobre."
   },
+  "marielle": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Marielle",
+    "meaning": "Diminutivo di Marie (Maria).",
+    "origin": "Ebraico",
+    "text": "Diminutivo di Marie divenuto nome a sé stante, dato in Francia soprattutto tra gli anni Cinquanta e gli anni Settanta. È raro negli atti anteriori al XX secolo."
+  },
   "marietta": {
     "aliases": [
       "Mariella"
@@ -13933,6 +15491,14 @@
     "meaning": "Contrazione tedesca di Maria e Magdalena.",
     "origin": "Ebraica",
     "text": "Nome comparso in Germania all'inizio del XX secolo e poi diffusosi in Gran Bretagna, negli Stati Uniti e in Spagna, soprattutto negli anni Trenta; è quindi raro negli atti antichi. Non ha una festa propria."
+  },
+  "marquise": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Marquise",
+    "meaning": "Dal titolo nobiliare \"marquise\" (marchesa).",
+    "origin": "Francese",
+    "text": "Nome femminile raro tratto dal titolo nobiliare, attestato in Francia nel XVII e XVIII secolo, soprattutto nel Sud. Non indica necessariamente una nobildonna: è un vero nome di battesimo."
   },
   "marshall": {
     "aliases": [
@@ -14161,6 +15727,16 @@
     "origin": "Latina",
     "text": "Nome tradizionale della Francia occidentale, in particolare della Bretagna, molto frequente durante l'Ancien Régime e nel XIX secolo. Onora san Maturino, sacerdote del IV secolo venerato a Larchant e invocato contro la follia, commemorato il 1º novembre."
   },
+  "mathurine": {
+    "aliases": [
+      "Maturine"
+    ],
+    "feast_day": null,
+    "label": "Mathurine",
+    "meaning": "Femminile di Mathurin, dal latino \"maturus\", \"maturo\".",
+    "origin": "Latino",
+    "text": "Forma femminile di Mathurin, molto frequente in Bretagna, in Angiò e nel Poitou tra il XVI e il XVIII secolo."
+  },
   "matias": {
     "aliases": [],
     "feast_day": "05-14",
@@ -14327,6 +15903,14 @@
     "origin": "Latina",
     "text": "Forma olandese di Maurizio, resa popolare nei Paesi Bassi dallo statolder Maurizio di Nassau; gli atti in latino scrivono Mauritius. Onora san Maurizio di Agauno, la cui festa ricorre il 22 settembre."
   },
+  "maurizia": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Maurizia",
+    "meaning": "Femminile italiano di Maurizio, dal latino \"Mauritius\", \"moro\".",
+    "origin": "Latino",
+    "text": "Forma femminile italiana di Maurizio, che si trova nei registri dell'Italia settentrionale e del Canton Ticino. Resta poco comune."
+  },
   "maurizio": {
     "aliases": [
       "Maurício"
@@ -14430,6 +16014,14 @@
     "origin": "Varia",
     "text": "Nome inglese e americano diffuso dalla fine del XIX secolo agli anni Venti, spesso come secondo nome. La stessa donna può comparire come Mary o Margaret in altri atti. Non ha una festa propria."
   },
+  "maya": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Maya",
+    "meaning": "Origini diverse: greca (Maia, madre di Ermes), sanscrita (\"illusione\") o diminutivo di Maria.",
+    "origin": "Molteplice",
+    "text": "Nome femminile per lo più moderno nell'Europa occidentale, in forte crescita dalla fine del XX secolo. Negli atti antichi dell'Europa centrale può essere un diminutivo di Maria."
+  },
   "mecia": {
     "aliases": [],
     "feast_day": null,
@@ -14437,6 +16029,49 @@
     "meaning": "Nome portoghese medievale, di etimologia incerta, forse affine allo spagnolo Mencía.",
     "origin": "Incerta",
     "text": "Nome raro, portato in Portogallo nel Medioevo e nella prima età moderna, in particolare nella nobiltà. Non è legato ad alcun santo."
+  },
+  "medard": {
+    "aliases": [
+      "Medardus"
+    ],
+    "feast_day": "06-08",
+    "label": "Médard",
+    "meaning": "Dal germanico \"maht\", \"potenza\", e \"hard\", \"forte\"; significato discusso.",
+    "origin": "Germanico",
+    "text": "San Medardo, vescovo di Noyon nel VI secolo, si festeggia l'8 giugno, data di un noto proverbio sul tempo. Il nome fu portato soprattutto in Piccardia e nella Francia settentrionale."
+  },
+  "meinrad": {
+    "aliases": [
+      "Meinradus"
+    ],
+    "feast_day": "01-21",
+    "label": "Meinrad",
+    "meaning": "Dagli elementi germanici \"magan\" (forza) e \"rad\" (consiglio).",
+    "origin": "Germanico",
+    "text": "Legato a san Meinrado, eremita assassinato nell'861 nel luogo dell'abbazia di Einsiedeln, e molto dato nella Svizzera cattolica e nella Germania meridionale. Nei registri parrocchiali è latinizzato in Meinradus."
+  },
+  "meir": {
+    "aliases": [
+      "Majer",
+      "Mayer",
+      "Meyer",
+      "Mejer"
+    ],
+    "feast_day": null,
+    "label": "Meir",
+    "meaning": "Dall'ebraico \"Meir\", \"colui che risplende\".",
+    "origin": "Ebraico",
+    "text": "Nome ebraico frequente nell'Europa centrale e orientale nel XVIII e XIX secolo. Gli atti polacchi scrivono Majer o Mejer, quelli tedeschi e alsaziani Mayer o Meyer, grafie divenute anche cognomi."
+  },
+  "melaine": {
+    "aliases": [
+      "Melanius"
+    ],
+    "feast_day": "11-06",
+    "label": "Mélaine",
+    "meaning": "Dal latino Melanius, collegato al greco \"melas\", \"nero\".",
+    "origin": "Greco",
+    "text": "Nome di san Melanio, vescovo di Rennes nel VI secolo, dato in Bretagna nei registri antichi. Nel XX secolo è talvolta portato da donne, per associazione con Mélanie."
   },
   "melania": {
     "aliases": [
@@ -14502,6 +16137,16 @@
     "origin": "Celtica",
     "text": "Grafia soprattutto britannica di Melvin, diffusa verso la metà del XX secolo e rara negli atti antichi. Non è legata ad alcun santo."
   },
+  "mendel": {
+    "aliases": [
+      "Mendl"
+    ],
+    "feast_day": null,
+    "label": "Mendel",
+    "meaning": "Diminutivo yiddish, di solito collegato a Menachem, \"consolatore\".",
+    "origin": "Yiddish",
+    "text": "Nome maschile yiddish molto comune nell'Europa centrale e orientale nel XIX secolo, spesso in composti (Menachem Mendel). È diventato anche un cognome."
+  },
   "merce": {
     "aliases": [
       "Mertxe"
@@ -14521,6 +16166,17 @@
     "meaning": "Dallo spagnolo \"mercedes\", \"grazie\", dal latino \"merces\", con riferimento alla Madonna della Mercede.",
     "origin": "Latina",
     "text": "Nome mariano spagnolo, spesso da María de las Mercedes, molto diffuso in Spagna nel XIX e XX secolo e presente in Portogallo e nelle Americhe. La sua festa è quella della Madonna della Mercede, il 24 settembre."
+  },
+  "meriadec": {
+    "aliases": [
+      "Meriadeg",
+      "Meriadoc"
+    ],
+    "feast_day": "06-07",
+    "label": "Mériadec",
+    "meaning": "Antico nome brittonico; significato discusso.",
+    "origin": "Bretone",
+    "text": "Portato da san Meriadoco (Mériadec), vescovo di Vannes nel VII secolo, e ancora associato al Morbihan. Raro nei registri antichi, fu ripreso nel XX secolo, anche nella forma bretone Meriadeg."
   },
   "meta": {
     "aliases": [],
@@ -14764,6 +16420,17 @@
     "origin": "Varia",
     "text": "Vezzeggiativo presente nei Paesi Bassi, in Germania e in Svizzera, e tra gli emigranti negli Stati Uniti; la stessa donna può comparire con il nome completo in altri atti. Non ha una festa propria."
   },
+  "mindla": {
+    "aliases": [
+      "Mindel",
+      "Mindl"
+    ],
+    "feast_day": null,
+    "label": "Mindla",
+    "meaning": "Diminutivo yiddish di significato discusso, spesso collegato a Mina.",
+    "origin": "Yiddish",
+    "text": "Nome femminile yiddish comune negli atti ebraici della Polonia e della Galizia nel XIX secolo. Gli atti scrivono Mindla o Mindel."
+  },
   "minna": {
     "aliases": [],
     "feast_day": null,
@@ -14916,6 +16583,21 @@
     "origin": "Catalana",
     "text": "Nome mariano catalano, spesso abbreviato in Montse, molto diffuso in Catalogna; la Vergine nera di Montserrat è la patrona della Catalogna. La sua festa ricorre il 27 aprile."
   },
+  "mordka": {
+    "aliases": [
+      "Mordechaj",
+      "Mordechai",
+      "Mordecai",
+      "Mordche",
+      "Motel",
+      "Mardochée"
+    ],
+    "feast_day": null,
+    "label": "Mordka",
+    "meaning": "Dal biblico Mardocheo, probabilmente derivato dal dio babilonese Marduk.",
+    "origin": "Babilonese",
+    "text": "Forma polacca dello yiddish Mordkhe, cugino di Ester nella Bibbia, molto frequente negli atti ebraici della Polonia nel XIX secolo; Motel ne è il diminutivo. In Francia, gli atti alsaziani e lorenesi scrivono Mardochée."
+  },
   "moritz": {
     "aliases": [
       "Maritz",
@@ -14950,6 +16632,19 @@
     "meaning": "Nome biblico probabilmente di origine egizia, \"figlio di\", spiegato nella Bibbia come \"tratto dalle acque\".",
     "origin": "Ebraica",
     "text": "Nome portato soprattutto nelle comunità ebraiche europee (Moshe, Mozes) e tra i protestanti anglofoni e olandesi, frequente negli Stati Uniti nel XIX secolo. Non ha una festa ampiamente celebrata."
+  },
+  "moszek": {
+    "aliases": [
+      "Мошекъ",
+      "Mosiek",
+      "Moszko",
+      "Moshke"
+    ],
+    "feast_day": null,
+    "label": "Moszek",
+    "meaning": "Diminutivo yiddish di Mosè (Moshe), \"tratto dalle acque\" secondo la spiegazione biblica.",
+    "origin": "Ebraico",
+    "text": "Forma con cui gli atti di stato civile polacchi del XIX secolo registrano lo yiddish Moshke, diminutivo di Moshe. Negli atti redatti in russo dopo il 1868 diventa Мошекъ; lo stesso uomo può chiamarsi Moszek, Mosiek o Mojżesz in atti diversi."
   },
   "muriel": {
     "aliases": [],
@@ -15143,6 +16838,24 @@
     "origin": "Spagnola",
     "text": "Nome mariano spagnolo, spesso da María de la Natividad, frequente nel XIX e XX secolo; compare il vezzeggiativo Nati. Si festeggia nella Natività della Vergine, l'8 settembre."
   },
+  "nazgul": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Nazgul",
+    "meaning": "Dal persiano \"naz\" (grazia) e \"gul\" (fiore, rosa).",
+    "origin": "Persiano",
+    "text": "Nome femminile comune in Kazakistan, Kirghizistan e Asia centrale. In Europa compare negli atti di stato civile recenti di famiglie provenienti da quelle regioni."
+  },
+  "nechama": {
+    "aliases": [
+      "Nechuma"
+    ],
+    "feast_day": null,
+    "label": "Nechama",
+    "meaning": "Dall'ebraico \"nechama\", \"consolazione\".",
+    "origin": "Ebraico",
+    "text": "Nome femminile ebraico che si trova negli atti del XIX secolo della Polonia e della Lituania, scritto Nechama o Nechuma."
+  },
   "neil": {
     "aliases": [
       "Neal",
@@ -15256,6 +16969,17 @@
     "meaning": "Dal greco \"Nikolaos\", da \"nikê\", \"vittoria\", e \"laos\", \"popolo\".",
     "origin": "Greca",
     "text": "Nome molto diffuso in Francia, in particolare in Lorena, il cui patrono è san Nicola, nonché in Belgio, Lussemburgo e Svizzera. Onora san Nicola, vescovo di Mira nel IV secolo, la cui festa ricorre il 6 dicembre."
+  },
+  "nicolasse": {
+    "aliases": [
+      "Colasse",
+      "Nicolase"
+    ],
+    "feast_day": null,
+    "label": "Nicolasse",
+    "meaning": "Femminile di Nicolas, dal greco \"nikê\", \"vittoria\", e \"laos\", \"popolo\".",
+    "origin": "Greco",
+    "text": "Forma femminile popolare di Nicolas, che si trova nei registri della Francia settentrionale e orientale tra il XVI e il XVIII secolo. Colasse ne è la forma abbreviata; Nicole e Colette hanno schede proprie."
   },
   "nicolau": {
     "aliases": [],
@@ -15390,6 +17114,14 @@
     "origin": "Varia",
     "text": "Vezzeggiativo maschile italiano divenuto nome a sé stante; negli atti la stessa persona compare spesso con il nome completo. Non ha una festa propria."
   },
+  "noa": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Noa",
+    "meaning": "Due fonti: il nome femminile ebraico Noa (una figlia di Zelofcad) e una forma di Noè (maschile).",
+    "origin": "Ebraico",
+    "text": "Nome recente in Europa, dato alle bambine in Israele e nei Paesi Bassi e ai bambini in Spagna e in Francia. È quasi assente dagli atti anteriori alla fine del XX secolo."
+  },
   "noel": {
     "aliases": [
       "Naël"
@@ -15438,6 +17170,16 @@
     "origin": "Ebraica",
     "text": "Nome biblico frequente in Francia nel XIX secolo, in particolare tra i protestanti e nelle comunità ebraiche, e di nuovo di moda alla fine del XX. Non ha una festa ampiamente celebrata."
   },
+  "noor": {
+    "aliases": [
+      "Nour"
+    ],
+    "feast_day": null,
+    "label": "Noor",
+    "meaning": "Dall'arabo \"nur\", \"luce\".",
+    "origin": "Arabo",
+    "text": "Nome arabo femminile (talvolta maschile), diffuso nel mondo musulmano e comune nei Paesi Bassi e in Belgio dalla fine del XX secolo. Le grafie Noor e Nour dipendono dalla lingua di trascrizione."
+  },
   "nora": {
     "aliases": [
       "Dinora",
@@ -15476,6 +17218,18 @@
     "origin": "Germanica",
     "text": "Nome inglese, frequente in Scozia e molto diffuso negli Stati Uniti e in Gran Bretagna all'inizio del XX secolo. Non è legato ad alcun santo."
   },
+  "nuchim": {
+    "aliases": [
+      "Nuchem",
+      "Nachum",
+      "Nochem"
+    ],
+    "feast_day": null,
+    "label": "Nuchim",
+    "meaning": "Dall'ebraico \"Nachum\", \"consolazione\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Nokhem, nome del profeta Naum, frequente negli atti ebraici della Polonia nel XIX secolo. Ha dato origine al cognome patronimico Nuchimowicz."
+  },
   "nuno": {
     "aliases": [
       "Nunnius"
@@ -15493,6 +17247,17 @@
     "meaning": "Dal nome del santuario mariano di Núria, nei Pirenei catalani.",
     "origin": "Catalana",
     "text": "Nome mariano catalano, raro negli atti antichi e molto diffuso in Catalogna e in tutta la Spagna nel XX secolo. La sua festa è quella di Nostra Signora di Núria, l'8 settembre."
+  },
+  "nusyn": {
+    "aliases": [
+      "Nusen",
+      "Nosn"
+    ],
+    "feast_day": null,
+    "label": "Nusyn",
+    "meaning": "Forma yiddish di Natan, \"egli ha dato\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Nosn, che si trova negli atti ebraici della Polonia nel XIX secolo. Lo stesso uomo può chiamarsi Nusyn o Natan in atti diversi."
   },
   "octave": {
     "aliases": [],
@@ -15520,6 +17285,16 @@
     "origin": "Latina",
     "text": "Nome femminile frequente in Francia e in Belgio nel XIX secolo, poi passato di moda. Non ha un santo patrono ben attestato."
   },
+  "oda": {
+    "aliases": [
+      "Ode"
+    ],
+    "feast_day": null,
+    "label": "Oda",
+    "meaning": "Dall'elemento germanico \"od\", \"ricchezza\".",
+    "origin": "Germanico",
+    "text": "Nome germanico dell'alto Medioevo, portato da diverse sante e da nobildonne carolinge e sassoni. Ricompare in Germania e in Scandinavia nel XIX e XX secolo; Ode è la forma francese medievale."
+  },
   "odette": {
     "aliases": [],
     "feast_day": null,
@@ -15535,6 +17310,14 @@
     "meaning": "Dal germanico \"od\", \"ricchezza, prosperità\".",
     "origin": "Germanica",
     "text": "Nome tradizionale in Alsazia, la cui patrona è sant'Odilia, presente in Francia e in Belgio e diffuso soprattutto verso la metà del XX secolo. Onora sant'Odilia, badessa di Hohenburg (Mont Sainte-Odile) nell'VIII secolo, la cui festa ricorre il 13 dicembre."
+  },
+  "odin": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Odin",
+    "meaning": "Dall'antico norreno \"Óðinn\", il dio principale della mitologia norrena.",
+    "origin": "Norreno",
+    "text": "Nome tratto dalla mitologia, dato principalmente in Scandinavia dal Romanticismo ottocentesco e più di recente altrove in Europa. È raro nei registri antichi."
   },
   "ofelia": {
     "aliases": [],
@@ -15630,6 +17413,14 @@
     "origin": "Incerta",
     "text": "Nome reso popolare nel Medioevo da Olivieri, compagno di Orlando nella \"Chanson de Roland\", presente in Francia e in Belgio negli atti antichi e molto diffuso nella seconda metà del XX secolo. Non è legato ad alcun santo antico ben attestato; sant'Oliver Plunkett fu canonizzato solo nel 1975."
   },
+  "olympe": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Olympe",
+    "meaning": "Dal greco \"Olympias\", \"dell'Olimpo\".",
+    "origin": "Greco",
+    "text": "Nome di moda nella Francia del XVIII secolo, portato in particolare da Olympe de Gouges. Compare nei registri fino al XIX secolo."
+  },
   "omer": {
     "aliases": [],
     "feast_day": "09-09",
@@ -15647,6 +17438,16 @@
     "meaning": "Forma italiana di Onuphrius, nome di origine egizia spesso spiegato come \"colui che è sempre buono\".",
     "origin": "Egiziana",
     "text": "Nome diffuso soprattutto nell'Italia meridionale e in Sicilia. Onora sant'Onofrio, eremita del deserto egiziano nel IV secolo, la cui festa ricorre il 12 giugno."
+  },
+  "opportune": {
+    "aliases": [
+      "Opportuna"
+    ],
+    "feast_day": "04-22",
+    "label": "Opportune",
+    "meaning": "Dal latino \"opportunus\", \"opportuno\".",
+    "origin": "Latino",
+    "text": "Nome di santa Opportuna, badessa di Montreuil (Orne) nell'VIII secolo, venerata in Normandia e a Parigi. Si trova principalmente nei registri normanni del XVII e XVIII secolo."
   },
   "orazio": {
     "aliases": [],
@@ -15741,6 +17542,18 @@
     "origin": "Germanica",
     "text": "Nome degli imperatori ottoniani, comune in Germania, Svizzera e Paesi Bassi, e molto diffuso alla fine del XIX secolo. Onora sant'Ottone, vescovo di Bamberga e missionario in Pomerania nel XII secolo, la cui festa ricorre il 30 giugno."
   },
+  "ours": {
+    "aliases": [
+      "Urs",
+      "Ursus",
+      "Orso"
+    ],
+    "feast_day": "09-30",
+    "label": "Ours",
+    "meaning": "Dal latino \"ursus\", \"orso\".",
+    "origin": "Latino",
+    "text": "Portato da diversi santi, tra cui sant'Orso di Soletta, martire della legione tebea e patrono di quella città. La forma Urs è molto comune nella Svizzera tedesca, Ours si trova in Valle d'Aosta, in Savoia e in Turenna, Orso in Italia."
+  },
   "owen": {
     "aliases": [
       "Eoin",
@@ -15805,6 +17618,19 @@
     "origin": "Greca",
     "text": "Nome letterario reso popolare dal romanzo di Richardson \"Pamela\" (1740), ma diffuso soprattutto in Gran Bretagna e negli Stati Uniti verso la metà del XX secolo. Non ha un santo patrono."
   },
+  "pancrace": {
+    "aliases": [
+      "Pancratius",
+      "Pankraz",
+      "Pancrazio",
+      "Pankracy"
+    ],
+    "feast_day": "05-12",
+    "label": "Pancrace",
+    "meaning": "Dal greco \"pankratios\", \"onnipotente\".",
+    "origin": "Greco",
+    "text": "Nome di san Pancrazio, giovane martire romano del IV secolo e uno dei \"santi di ghiaccio\" di maggio. I registri lo latinizzano in Pancratius; è Pankraz in Baviera e in Austria, Pancrace in Francia."
+  },
   "paola": {
     "aliases": [
       "Paoletta"
@@ -15843,6 +17669,14 @@
     "origin": "Latina",
     "text": "Nome dato spesso a un bambino nato intorno a Pasqua, presente in Francia e in Belgio negli atti antichi e molto diffuso verso la metà del XX secolo. Onora san Pasquale Baylon, frate francescano spagnolo del XVI secolo, la cui festa ricorre il 17 maggio."
   },
+  "pascaline": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Pascaline",
+    "meaning": "Diminutivo femminile di Pascal, dal latino \"paschalis\", \"di Pasqua\".",
+    "origin": "Latino",
+    "text": "Femminile di Pascal dato in Francia, raro nei registri antichi e per lo più del XX secolo. Veniva talvolta scelto per un bambino nato intorno a Pasqua."
+  },
   "pascual": {
     "aliases": [
       "Paszkál"
@@ -15862,6 +17696,14 @@
     "meaning": "Forma italiana di Paschalis, dal latino \"paschalis\", \"pasquale\".",
     "origin": "Latina",
     "text": "Nome molto diffuso nell'Italia meridionale, spesso abbreviato in Lino o Pasqualino, e frequente tra gli emigranti italiani negli Stati Uniti. Onora san Pasquale Baylon, la cui festa ricorre il 17 maggio."
+  },
+  "pasquier": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Pasquier",
+    "meaning": "Dal latino \"pascha\", \"Pasqua\".",
+    "origin": "Latino",
+    "text": "Nome dato spesso ai bambini nati intorno a Pasqua, comune nella Francia occidentale fino al XVII secolo, poi soprattutto cognome."
   },
   "patrice": {
     "aliases": [],
@@ -16085,6 +17927,17 @@
     "origin": "Greca",
     "text": "Forma catalana di Pietro, molto frequente in Catalogna, nelle Baleari e nella regione di Valencia; i documenti in castigliano o in latino la rendono spesso Pedro o Petrus. Il nome si riferisce all'apostolo san Pietro, festeggiato il 29 giugno."
   },
+  "peregrin": {
+    "aliases": [
+      "Peregrinus",
+      "Pellegrino"
+    ],
+    "feast_day": null,
+    "label": "Pérégrin",
+    "meaning": "Dal latino \"peregrinus\", \"straniero, pellegrino\".",
+    "origin": "Latino",
+    "text": "Nome raro portato da diversi santi, tra cui san Pellegrino Laziosi, servita italiano invocato contro il cancro. Nei registri dell'Europa centrale è latinizzato in Peregrinus, e in Italia è Pellegrino."
+  },
   "perpetua": {
     "aliases": [],
     "feast_day": "03-07",
@@ -16102,6 +17955,18 @@
     "meaning": "Diminutivo francese formato su Pierre, confuso con Petronilla, dal latino \"Petronius\".",
     "origin": "Latina",
     "text": "Nome femminile molto comune negli atti francesi, soprattutto nell'ovest (Bretagna, Angiò, Maine), dal XV al XVIII secolo, scritto Perrine, Périne o Perrinne. È tradizionalmente legato a santa Petronilla, festeggiata il 31 maggio."
+  },
+  "pesa": {
+    "aliases": [
+      "Pesia",
+      "Pesla",
+      "Pesl"
+    ],
+    "feast_day": null,
+    "label": "Pesa",
+    "meaning": "Discusso: collegato alla Pasqua ebraica (Pesach) o a Batya.",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Pesye, con il diminutivo Pesla, che si trova negli atti ebraici della Polonia nel XIX secolo."
   },
   "peter": {
     "aliases": [
@@ -16141,6 +18006,22 @@
     "origin": "Latina",
     "text": "Nome femminile frequente nei registri olandesi e fiamminghi, presente come Petronella, Petronilla, Pieternella o nel vezzeggiativo Nel. Si riferisce a santa Petronilla, martire romana che la tradizione diceva figlia di san Pietro, festeggiata il 31 maggio."
   },
+  "petronille": {
+    "aliases": [
+      "Péronnelle",
+      "Perronnelle",
+      "Perrenelle",
+      "Péronne",
+      "Perronne",
+      "Petronilla",
+      "Péronelle"
+    ],
+    "feast_day": "05-31",
+    "label": "Pétronille",
+    "meaning": "Dal latino \"Petronilla\", derivato da \"Petronius\" e accostato popolarmente a Pietro.",
+    "origin": "Latino",
+    "text": "Santa Petronilla si festeggia il 31 maggio. Il nome fu diffuso nel Medioevo nelle forme popolari Péronnelle, Perrenelle o Péronne, che si trovano ancora nei registri del XVI e XVII secolo."
+  },
   "petrus": {
     "aliases": [
       "Petros"
@@ -16168,6 +18049,14 @@
     "meaning": "Dal germanico \"filu\", \"molto\", e \"berht\", \"splendente, illustre\".",
     "origin": "Germanica",
     "text": "Antico nome maschile, frequente in Borgogna, in Savoia e nella regione di Lione durante l'Ancien Régime, in particolare nella nobiltà savoiarda. Si riferisce a san Filiberto, fondatore dell'abbazia di Jumièges, festeggiato il 20 agosto."
+  },
+  "philiberte": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Philiberte",
+    "meaning": "Femminile di Philibert, dal germanico \"filu\", \"molto\", e \"berht\", \"splendente\".",
+    "origin": "Germanico",
+    "text": "Forma femminile di Philibert, che si trova soprattutto in Borgogna, nella Bresse e in Savoia durante l'Antico Regime."
   },
   "philip": {
     "aliases": [
@@ -16364,6 +18253,18 @@
     "origin": "Spagnola",
     "text": "Nome femminile spagnolo, forma abbreviata di María del Pilar, molto diffuso in Aragona e poi in tutta la Spagna. Onora Nostra Signora del Pilar, patrona di Saragozza e del mondo ispanico, festeggiata il 12 ottobre."
   },
+  "pinkus": {
+    "aliases": [
+      "Pinchas",
+      "Pinches",
+      "Pinkas"
+    ],
+    "feast_day": null,
+    "label": "Pinkus",
+    "meaning": "Dall'ebraico \"Pinchas\" (Pincas), nome biblico probabilmente di origine egizia.",
+    "origin": "Ebraico",
+    "text": "Nome del nipote di Aronne nella Bibbia, scritto Pinkus o Pinkas negli atti polacchi del XIX secolo. La forma yiddish è Pinkhes."
+  },
   "pio": {
     "aliases": [
       "Pius"
@@ -16400,6 +18301,16 @@
     "origin": "Latina",
     "text": "Forma regionale di Paul usata in Lussemburgo, Bretagna, Catalogna e Belgio, che gli atti ufficiali rendono spesso come Paul o Paulus. In Bretagna richiama anche san Paolo Aureliano, fondatore di Saint-Pol-de-Léon; qui il nome è legato all'apostolo san Paolo, festeggiato il 29 giugno."
   },
+  "polyxene": {
+    "aliases": [
+      "Polyxena"
+    ],
+    "feast_day": null,
+    "label": "Polyxène",
+    "meaning": "Dal greco \"polyxenos\", \"molto ospitale\".",
+    "origin": "Greco",
+    "text": "Nome di una figlia di Priamo nella mitologia, portato dalla nobiltà boema e centroeuropea nel XVI e XVII secolo nella forma Polyxena. Resta raro nei registri comuni."
+  },
   "pompeo": {
     "aliases": [],
     "feast_day": null,
@@ -16408,6 +18319,17 @@
     "origin": "Latina",
     "text": "Nome del Rinascimento italiano, ispirato al generale romano Pompeo e usato in Italia soprattutto nelle famiglie colte o nobili. Non ha un santo ampiamente festeggiato."
   },
+  "pons": {
+    "aliases": [
+      "Pontius",
+      "Ponce"
+    ],
+    "feast_day": "05-14",
+    "label": "Pons",
+    "meaning": "Dal latino \"Pontius\", nome di famiglia romano.",
+    "origin": "Latino",
+    "text": "San Ponzio, martire di Cimiez, si festeggia il 14 maggio. Il nome fu molto usato in Linguadoca e in Provenza nel Medioevo, in particolare dai conti di Tolosa."
+  },
   "porzia": {
     "aliases": [],
     "feast_day": null,
@@ -16415,6 +18337,35 @@
     "meaning": "Dal nome di famiglia romano \"Porcius\", forse legato a \"porcus\", \"maiale\".",
     "origin": "Latina",
     "text": "Forma italiana di Portia, nome raro dato per influsso umanistico in memoria di Porzia, moglie di Bruto. Compare soprattutto nei registri italiani dal XVI al XVIII secolo e non ha un santo patrono."
+  },
+  "prigent": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Prigent",
+    "meaning": "Antico nome bretone; significato discusso.",
+    "origin": "Bretone",
+    "text": "Nome bretone medievale, dato ancora nella Bassa Bretagna fino al XVI e all'inizio del XVII secolo, dopo di che sopravvisse soprattutto come cognome. Il suo uso come nome di battesimo aiuta a datare gli atti più antichi."
+  },
+  "privat": {
+    "aliases": [
+      "Privatus"
+    ],
+    "feast_day": "08-21",
+    "label": "Privat",
+    "meaning": "Dal latino \"privatus\", \"privato\".",
+    "origin": "Latino",
+    "text": "San Privato, vescovo martire del Gévaudan, si festeggia il 21 agosto. Il nome è caratteristico del Gévaudan e della Linguadoca."
+  },
+  "prix": {
+    "aliases": [
+      "Praejectus",
+      "Projet"
+    ],
+    "feast_day": "01-25",
+    "label": "Prix",
+    "meaning": "Dal latino \"Praejectus\"; significato discusso.",
+    "origin": "Latino",
+    "text": "San Proietto (Praejectus), vescovo di Clermont nel VII secolo, si festeggia il 25 gennaio. Il nome fu portato soprattutto in Alvernia."
   },
   "prosper": {
     "aliases": [],
@@ -16431,6 +18382,26 @@
     "meaning": "Dal latino \"prosperus\", \"prospero, fortunato\".",
     "origin": "Latina",
     "text": "Forma italiana di Prosper, presente nei registri italiani soprattutto dal XVI al XIX secolo. Si riferisce a san Prospero d'Aquitania, festeggiato il 25 giugno; l'Emilia onora anche un san Prospero, vescovo di Reggio."
+  },
+  "protais": {
+    "aliases": [
+      "Protasius"
+    ],
+    "feast_day": "06-19",
+    "label": "Protais",
+    "meaning": "Dal greco \"protos\", \"primo\"; significato discusso.",
+    "origin": "Greco",
+    "text": "I santi Gervasio e Protasio, martiri di Milano, si festeggiano il 19 giugno. Il nome è raro e si trova spesso nelle parrocchie poste sotto il loro patronato."
+  },
+  "prudence": {
+    "aliases": [
+      "Prudentia"
+    ],
+    "feast_day": null,
+    "label": "Prudence",
+    "meaning": "Dal latino \"prudentia\", \"prudenza, saggezza\".",
+    "origin": "Latino",
+    "text": "Nome di virtù dato in Francia e in Inghilterra, in particolare negli ambienti protestanti del XVII e XVIII secolo. In Francia è portato da donne e, più raramente, da uomini (come Prudent)."
   },
   "przemyslaw": {
     "aliases": [
@@ -16455,6 +18426,28 @@
     "origin": "Latina",
     "text": "Nome femminile spagnolo, abbreviazione di María de la Purificación, dato in onore della Purificazione della Vergine (Candelora). Si festeggia il 2 febbraio; le forme catalana e basca sono Purificació e Garbiñe."
   },
+  "quentin": {
+    "aliases": [
+      "Quintin",
+      "Quintinus"
+    ],
+    "feast_day": "10-31",
+    "label": "Quentin",
+    "meaning": "Dal latino \"Quintinus\", derivato da \"quintus\", \"quinto\".",
+    "origin": "Latino",
+    "text": "San Quintino, martire nel Vermandois, diede il nome alla città di Saint-Quentin e si festeggia il 31 ottobre. Il nome fu portato soprattutto in Piccardia durante l'Antico Regime e divenne molto popolare alla fine del XX secolo."
+  },
+  "quitterie": {
+    "aliases": [
+      "Quiterie",
+      "Quiteria"
+    ],
+    "feast_day": "05-22",
+    "label": "Quitterie",
+    "meaning": "Dal latino \"Quiteria\"; significato discusso.",
+    "origin": "Latino",
+    "text": "Santa Quiteria, venerata ad Aire-sur-l'Adour, si festeggia il 22 maggio. Il nome è caratteristico della Guascogna e delle Landes."
+  },
   "rachel": {
     "aliases": [
       "Rachael",
@@ -16476,6 +18469,17 @@
     "meaning": "Forma italiana di Rachel, dall'ebraico \"Rahel\", \"pecora\".",
     "origin": "Ebraica",
     "text": "Forma italiana di Rachel, presente nei registri italiani soprattutto nel XIX e XX secolo. Non ha un santo nel calendario."
+  },
+  "radegonde": {
+    "aliases": [
+      "Radegunde",
+      "Radegundis"
+    ],
+    "feast_day": "08-13",
+    "label": "Radegonde",
+    "meaning": "Dal germanico \"rad\", \"consiglio\", e \"gund\", \"battaglia\".",
+    "origin": "Germanico",
+    "text": "Santa Radegonda, la regina franca che fondò l'abbazia della Santa Croce a Poitiers, si festeggia il 13 agosto. Il nome è portato soprattutto nel Poitou."
   },
   "rafael": {
     "aliases": [
@@ -16554,6 +18558,19 @@
     "meaning": "Forma portoghese e spagnola di Raimondo, dal germanico \"ragin\", \"consiglio\", e \"mund\", \"protezione\".",
     "origin": "Germanica",
     "text": "Forma dotta di Raimondo, comune in Portogallo e presente in Spagna accanto a Ramón; gli atti in latino lo scrivono Raymundus. Il nome si riferisce a san Raimondo di Peñafort, festeggiato il 7 gennaio."
+  },
+  "rajzla": {
+    "aliases": [
+      "Rejzla",
+      "Reizel",
+      "Rajza",
+      "Rojza"
+    ],
+    "feast_day": null,
+    "label": "Rajzla",
+    "meaning": "Dallo yiddish \"royz\", \"rosa\".",
+    "origin": "Yiddish",
+    "text": "Grafia polacca dello yiddish Reyzl, \"piccola rosa\", frequente negli atti ebraici della Polonia nel XIX secolo. La forma semplice Rojza (Royze) è lo stesso nome."
   },
   "ralph": {
     "aliases": [],
@@ -16838,6 +18855,14 @@
     "origin": "Latina",
     "text": "Femminile di René, presente in Francia fin dal Rinascimento (Renata di Francia) e molto frequente nella prima metà del XX secolo in Francia, Svizzera e Belgio. Non ha una santa propria."
   },
+  "reto": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Reto",
+    "meaning": "Di solito collegato ai Reti, antico popolo alpino (Rezia); etimologia discussa.",
+    "origin": "Latino",
+    "text": "Nome tipicamente svizzero, soprattutto dei Grigioni e della Svizzera tedesca, dato principalmente nel XX secolo. È raro fuori dalla Svizzera."
+  },
   "ricard": {
     "aliases": [],
     "feast_day": "04-03",
@@ -16882,6 +18907,16 @@
     "meaning": "Dal germanico \"rīc\", \"potente\", e \"hard\", \"forte\".",
     "origin": "Germanica",
     "text": "Nome molto diffuso in Inghilterra fin dalla conquista normanna, poi negli Stati Uniti; si trova anche in Germania, in Francia e, come Ryszard, in Polonia. Gli atti in latino lo scrivono Ricardus e i vezzeggiativi inglesi sono Dick o Rick. Si riferisce a san Riccardo di Chichester, festeggiato il 3 aprile."
+  },
+  "richarde": {
+    "aliases": [
+      "Richardis"
+    ],
+    "feast_day": "09-18",
+    "label": "Richarde",
+    "meaning": "Femminile di Richard, dagli elementi germanici \"ric\" (potente) e \"hard\" (duro, forte).",
+    "origin": "Germanico",
+    "text": "Nome di santa Riccarda, moglie dell'imperatore Carlo il Grosso e fondatrice dell'abbazia di Andlau in Alsazia. È raro e si trova nei registri alsaziani e lorenesi come Richarde e Richardis."
   },
   "rie": {
     "aliases": [],
@@ -16982,6 +19017,16 @@
     "origin": "Incerta",
     "text": "Nome molto diffuso nell'Italia meridionale (Basilicata, Calabria, Puglia) e nel Canton Ticino, e portato all'estero da molti emigranti italiani. Si riferisce a san Rocco di Montpellier, pellegrino invocato contro la peste, festeggiato il 16 agosto."
   },
+  "roch": {
+    "aliases": [
+      "Rochus"
+    ],
+    "feast_day": "08-16",
+    "label": "Roch",
+    "meaning": "Origine discussa, forse germanica.",
+    "origin": "Germanico",
+    "text": "San Rocco, pellegrino nato a Montpellier e invocato contro la peste, si festeggia il 16 agosto. Il nome fu diffuso in tutta la Francia durante l'Antico Regime; gli atti latini scrivono Rochus."
+  },
   "rodney": {
     "aliases": [
       "Rody"
@@ -17028,6 +19073,16 @@
     "meaning": "Forma olandese di Rudolf, dal germanico \"hrod\", \"gloria\", e \"wulf\", \"lupo\".",
     "origin": "Germanica",
     "text": "Nome olandese diffuso soprattutto nel nord-est dei Paesi Bassi (Drenthe, Groninga, Overijssel) e all'origine di patronimici come Roelofs. Non ha un santo ampiamente festeggiato."
+  },
+  "rogatien": {
+    "aliases": [
+      "Rogatianus"
+    ],
+    "feast_day": "05-24",
+    "label": "Rogatien",
+    "meaning": "Dal latino Rogatianus, derivato da \"rogatus\", \"richiesto\".",
+    "origin": "Latino",
+    "text": "Nome di san Rogaziano, martirizzato a Nantes con il fratello Donaziano verso la fine del III secolo. Si trova principalmente nei registri della Loira Atlantica e della Vandea."
   },
   "rogelio": {
     "aliases": [
@@ -17136,6 +19191,14 @@
     "meaning": "Dal norreno antico \"Rögnvaldr\", da \"regin\", \"consiglio (degli dei)\", e \"valdr\", \"sovrano\".",
     "origin": "Norrena",
     "text": "Nome di origine scandinava radicatosi in Scozia, divenuto comune in Gran Bretagna e negli Stati Uniti soprattutto nel XX secolo. Le sue forme gaeliche sono Raghnall o Ranald; non ha un santo ampiamente festeggiato."
+  },
+  "ronan": {
+    "aliases": [],
+    "feast_day": "06-01",
+    "label": "Ronan",
+    "meaning": "Dall'irlandese \"rón\", \"foca\", con un suffisso diminutivo.",
+    "origin": "Irlandese",
+    "text": "San Ronan, eremita irlandese stabilitosi a Locronan, si festeggia il 1º giugno. Il nome è usato in Bretagna e si diffuse ampiamente nella seconda metà del XX secolo."
   },
   "ronnie": {
     "aliases": [
@@ -17289,6 +19352,19 @@
     "origin": "Inglese",
     "text": "Nome anglofono comparso con la moda dei nomi di gemme della fine del XIX secolo, soprattutto negli Stati Uniti e in Gran Bretagna. Non ha un santo patrono."
   },
+  "ruchla": {
+    "aliases": [
+      "рухля",
+      "Rochla",
+      "Ruchel",
+      "Rokhl"
+    ],
+    "feast_day": null,
+    "label": "Ruchla",
+    "meaning": "Forma yiddish (Rokhl) di Rachele, \"pecora\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Rokhl, molto frequente negli atti ebraici della Polonia nel XIX secolo. Gli atti redatti in russo dopo il 1868 scrivono Рухля; compaiono anche Rochla e Ruchel."
+  },
   "rudolf": {
     "aliases": [
       "Rudolff",
@@ -17374,6 +19450,19 @@
     "origin": "Germanica",
     "text": "Forma polacca di Riccardo, più frequente in Polonia nel XX secolo. Si riferisce a san Riccardo di Chichester, festeggiato il 3 aprile."
   },
+  "rywka": {
+    "aliases": [
+      "Ryfka",
+      "Riwka",
+      "Rifka",
+      "Rivka"
+    ],
+    "feast_day": null,
+    "label": "Rywka",
+    "meaning": "Forma yiddish di Rebecca (Rivka); significato discusso, spesso indicato come \"legame\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Rivke, molto comune negli atti ebraici della Polonia nel XIX secolo. Rywka, Ryfka e Riwka si alternano per la stessa persona."
+  },
   "sabina": {
     "aliases": [
       "Zabina"
@@ -17397,6 +19486,14 @@
     "meaning": "Forma francese e tedesca di Sabina, \"donna sabina\", del popolo dei Sabini.",
     "origin": "Latina",
     "text": "Forma francese e tedesca di Sabina, presente in Germania, Belgio, Francia e Polonia e più frequente nel XX secolo. Si riferisce a santa Sabina, martire romana festeggiata il 29 agosto."
+  },
+  "sala": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Sala",
+    "meaning": "Forma corrente negli atti polacchi per nomi femminili ebraici; collegata a Sara o a Salomea a seconda della famiglia.",
+    "origin": "Ebraico",
+    "text": "Nome femminile molto frequente negli atti di stato civile ebraici della Polonia nel XIX e XX secolo. La stessa persona può comparire come Sala, Sura o Sara in atti diversi, cosa che va verificata caso per caso."
   },
   "salomea": {
     "aliases": [
@@ -17439,6 +19536,16 @@
     "origin": "Latina",
     "text": "Uno dei nomi maschili più frequenti in Sicilia e nell'Italia meridionale, molto comune tra gli emigranti italiani negli Stati Uniti. Onora Cristo Salvatore piuttosto che un santo in particolare; i vezzeggiativi sono Turi, Totò o Salvo."
   },
+  "samson": {
+    "aliases": [
+      "Sanson"
+    ],
+    "feast_day": "07-28",
+    "label": "Samson",
+    "meaning": "Dall'ebraico \"Shimshon\", collegato a \"shemesh\", \"sole\".",
+    "origin": "Ebraico",
+    "text": "San Sansone, monaco gallese che fondò Dol-de-Bretagne, si festeggia il 28 luglio. Il nome fu usato in Bretagna e in Normandia, e come nome biblico nei registri protestanti."
+  },
   "samuel": {
     "aliases": [
       "Sam",
@@ -17463,6 +19570,14 @@
     "meaning": "Forma abbreviata di Alessandra o Alexandra, dal greco \"alexein\", \"difendere\", e \"anêr, andros\", \"uomo\".",
     "origin": "Greca",
     "text": "Vezzeggiativo italiano di Alessandra divenuto nome a sé stante, molto frequente nel XX secolo negli Stati Uniti, in Spagna, in Gran Bretagna e in Polonia, e raro negli atti antichi. Non ha una santa propria."
+  },
+  "sandrine": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Sandrine",
+    "meaning": "Diminutivo di Sandra, forma abbreviata di Alessandra, \"protettrice degli uomini\".",
+    "origin": "Greco",
+    "text": "Nome francese molto di moda negli anni Sessanta e Settanta e quasi assente dai registri precedenti. È un segno tipico di quella generazione."
   },
   "santiago": {
     "aliases": [
@@ -17522,6 +19637,17 @@
     "origin": "Ebraica",
     "text": "Nome della moglie di Abramo, molto usato dai protestanti inglesi e americani dal XVII secolo, con i vezzeggiativi Sally o Sadie, e nelle famiglie ebraiche. Non ha una festa ampiamente osservata nel calendario latino."
   },
+  "saturnin": {
+    "aliases": [
+      "Saturninus",
+      "Sernin"
+    ],
+    "feast_day": "11-29",
+    "label": "Saturnin",
+    "meaning": "Dal latino \"Saturninus\", derivato dal dio Saturno.",
+    "origin": "Latino",
+    "text": "San Saturnino (o Sernin), primo vescovo di Tolosa, si festeggia il 29 novembre. Il nome è usato intorno a Tolosa e in Linguadoca."
+  },
   "saturnino": {
     "aliases": [],
     "feast_day": "11-29",
@@ -17530,6 +19656,14 @@
     "origin": "Latina",
     "text": "Antico nome spagnolo particolarmente legato alla Navarra, dove san Saturnino (San Cernin) è patrono di Pamplona. Il santo, primo vescovo di Tolosa (Saint Sernin), si festeggia il 29 novembre."
   },
+  "sauveur": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Sauveur",
+    "meaning": "Dal latino \"salvator\", \"salvatore\", in riferimento a Cristo.",
+    "origin": "Latino",
+    "text": "Nome dato in onore di Cristo Salvatore, frequente in Provenza, in Corsica e nei Paesi Baschi durante l'Antico Regime."
+  },
   "saverio": {
     "aliases": [],
     "feast_day": "12-03",
@@ -17537,6 +19671,18 @@
     "meaning": "Forma italiana di Xavier, dal basco \"etxe berri\", \"casa nuova\", nome del castello natale di san Francesco Saverio.",
     "origin": "Basca",
     "text": "Nome italiano, frequente da solo o nel composto Francesco Saverio, soprattutto nell'Italia meridionale dal XVII secolo. Si riferisce a san Francesco Saverio, il missionario gesuita festeggiato il 3 dicembre."
+  },
+  "scholastique": {
+    "aliases": [
+      "Scolastique",
+      "Scholastica",
+      "Scolastica"
+    ],
+    "feast_day": "02-10",
+    "label": "Scholastique",
+    "meaning": "Dal latino \"scholasticus\", \"studioso\".",
+    "origin": "Latino",
+    "text": "Santa Scolastica, sorella di san Benedetto, si festeggia il 10 febbraio. Il nome compare nei registri francesi del XVII e XVIII secolo, spesso scritto Scolastique."
   },
   "scipione": {
     "aliases": [
@@ -17597,6 +19743,16 @@
     "meaning": "Dal greco \"sebastos\", \"venerabile, augusto\".",
     "origin": "Greca",
     "text": "Nome presente in Francia, nella Svizzera romanda e in Belgio durante l'Ancien Régime, poi molto frequente in Francia negli anni Settanta. Gli atti in latino lo scrivono Sebastianus. Si riferisce a san Sebastiano, festeggiato il 20 gennaio."
+  },
+  "sebastienne": {
+    "aliases": [
+      "Bastienne"
+    ],
+    "feast_day": null,
+    "label": "Sébastienne",
+    "meaning": "Femminile di Sébastien, dal greco \"sebastos\", \"venerabile\".",
+    "origin": "Greco",
+    "text": "Forma femminile di Sébastien, che si trova nei registri francesi durante l'Antico Regime, anche nella forma abbreviata Bastienne."
   },
   "selina": {
     "aliases": [
@@ -17687,6 +19843,14 @@
     "origin": "Latina",
     "text": "Forma spagnola e italiana di Serge, più frequente nel XX secolo; la forma catalana è Sergi. Si riferisce a san Sergio, martirizzato insieme a san Bacco, festeggiato il 7 ottobre."
   },
+  "severin": {
+    "aliases": [],
+    "feast_day": "11-27",
+    "label": "Séverin",
+    "meaning": "Dal latino \"Severinus\", derivato da \"severus\", \"severo\".",
+    "origin": "Latino",
+    "text": "San Severino, eremita di Parigi, si festeggia il 27 novembre. Il nome compare nei registri francesi durante l'Antico Regime."
+  },
   "seweryn": {
     "aliases": [
       "Severyn"
@@ -17753,6 +19917,16 @@
     "origin": "Inglese",
     "text": "Cognome inglese divenuto nome di battesimo, comune in Gran Bretagna e negli Stati Uniti nel XIX e all'inizio del XX secolo, scritto anche Sydney. Non ha un santo patrono."
   },
+  "sidoine": {
+    "aliases": [
+      "Sidonius"
+    ],
+    "feast_day": "08-21",
+    "label": "Sidoine",
+    "meaning": "Dal latino \"Sidonius\", \"di Sidone\".",
+    "origin": "Latino",
+    "text": "San Sidonio Apollinare, vescovo di Clermont nel V secolo, si festeggia il 21 agosto. Il nome è raro e si trova soprattutto in Alvernia."
+  },
   "sidonia": {
     "aliases": [
       "Sidona"
@@ -17772,6 +19946,16 @@
     "meaning": "Dal latino \"Sidonius\", \"di Sidone\", città della Fenicia.",
     "origin": "Latina",
     "text": "Nome femminile presente in Belgio, Francia, Germania e Polonia, soprattutto nel XVIII e XIX secolo. Non ha una santa ampiamente festeggiata; san Sidonio Apollinare è un uomo."
+  },
+  "sidrac": {
+    "aliases": [
+      "Sidrach"
+    ],
+    "feast_day": null,
+    "label": "Sidrac",
+    "meaning": "Forma francese di Sadrach, nome babilonese dato ad Anania nel libro di Daniele; significato discusso.",
+    "origin": "Biblico",
+    "text": "Nome biblico raro tratto dall'episodio dei tre giovani nella fornace. Compare occasionalmente nei registri francesi, per lo più protestanti."
   },
   "siegfried": {
     "aliases": [
@@ -17845,6 +20029,16 @@
     "meaning": "Dal latino \"silva\", \"foresta\"; nome di Rea Silvia, leggendaria madre di Romolo.",
     "origin": "Latina",
     "text": "Nome femminile presente in Spagna, Italia e Belgio, raro negli atti antichi e frequente nel XX secolo. Si riferisce a santa Silvia, madre di papa Gregorio Magno, festeggiata il 3 novembre."
+  },
+  "silvine": {
+    "aliases": [
+      "Sylvine"
+    ],
+    "feast_day": null,
+    "label": "Silvine",
+    "meaning": "Dal latino \"silva\", \"foresta\".",
+    "origin": "Latino",
+    "text": "Nome femminile raro della famiglia di Sylvain e Sylvie, che si trova nei registri francesi del XIX secolo. Le grafie Silvine e Sylvine si alternano."
   },
   "silvio": {
     "aliases": [
@@ -17954,6 +20148,14 @@
     "meaning": "Dallo spagnolo \"soledad\", \"solitudine\", con riferimento alla Madonna della Solitudine.",
     "origin": "Spagnola",
     "text": "Nome femminile spagnolo, abbreviazione di María de la Soledad, dato in onore della Vergine rimasta sola dopo la Crocifissione, il Sabato santo. La sua festa è legata alla Settimana santa e varia da un luogo all'altro."
+  },
+  "soline": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Soline",
+    "meaning": "Significato discusso; spesso collegato al latino \"sol\", \"sole\".",
+    "origin": "Latino",
+    "text": "Nome femminile raro nei registri antichi e dato soprattutto in Francia dagli anni Novanta. È associato al villaggio di Sainte-Soline, nel Poitou."
   },
   "sonia": {
     "aliases": [
@@ -18151,6 +20353,29 @@
     "origin": "Inglese",
     "text": "Cognome scozzese, quello della dinastia reale, divenuto nome di battesimo nel XIX secolo in Gran Bretagna e poi negli Stati Uniti. Compare anche come Stewart e non ha un santo patrono."
   },
+  "sulpice": {
+    "aliases": [
+      "Sulpicius"
+    ],
+    "feast_day": "01-17",
+    "label": "Sulpice",
+    "meaning": "Dal latino \"Sulpicius\", nome di famiglia romano.",
+    "origin": "Latino",
+    "text": "San Sulpicio il Pio, vescovo di Bourges nel VII secolo, si festeggia il 17 gennaio. Il nome fu comune durante l'Antico Regime, in particolare nella Francia centrale, dove molte parrocchie portano il suo nome."
+  },
+  "sura": {
+    "aliases": [
+      "Sure",
+      "Sore",
+      "Sora",
+      "Surka"
+    ],
+    "feast_day": null,
+    "label": "Sura",
+    "meaning": "Forma yiddish (Sore) di Sara, \"principessa\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Sore, tra i nomi femminili ebraici più frequenti nella Polonia del XIX secolo, da solo o in composti (Chaja Sura). La stessa donna può chiamarsi Sura, Sara o Sala in atti diversi."
+  },
   "susan": {
     "aliases": [
       "Sue",
@@ -18260,6 +20485,16 @@
     "origin": "Latina",
     "text": "Nome francese e belga usato durante l'Ancien Régime, poi frequente nel XX secolo; gli atti in latino lo scrivono Silvanus. I calendari francesi lo festeggiano il 4 maggio, giorno di san Silvano di Gaza, vescovo martire."
   },
+  "sylvestre": {
+    "aliases": [
+      "Silvestre"
+    ],
+    "feast_day": "12-31",
+    "label": "Sylvestre",
+    "meaning": "Dal latino \"silvestris\", \"della foresta\".",
+    "origin": "Latino",
+    "text": "San Silvestro, papa del IV secolo, si festeggia il 31 dicembre. Il nome compare nei registri francesi durante l'Antico Regime, spesso scritto Silvestre."
+  },
   "sylvia": {
     "aliases": [],
     "feast_day": "11-03",
@@ -18296,6 +20531,88 @@
     "origin": "Latina",
     "text": "Forma polacca di Silvestro, presente nei registri cattolici della Polonia; in polacco \"Sylwester\" indica anche la notte di San Silvestro. Si riferisce a san Silvestro I papa, festeggiato il 31 dicembre."
   },
+  "symphorien": {
+    "aliases": [
+      "Symphorianus"
+    ],
+    "feast_day": "08-22",
+    "label": "Symphorien",
+    "meaning": "Dal greco \"symphora\", \"che accompagna, utile\"; significato discusso.",
+    "origin": "Greco",
+    "text": "San Sinforiano, martire di Autun, si festeggia il 22 agosto. Il nome fu portato soprattutto in Borgogna e nella Francia centro-orientale durante l'Antico Regime."
+  },
+  "szaja": {
+    "aliases": [
+      "Szaje",
+      "Shaye",
+      "Jeszaja"
+    ],
+    "feast_day": null,
+    "label": "Szaja",
+    "meaning": "Forma yiddish di Isaia (Yeshayahu), \"Dio salva\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Shaye, diminutivo di Isaia, comune negli atti ebraici della Polonia nel XIX secolo."
+  },
+  "szejndla": {
+    "aliases": [
+      "Szajndla",
+      "Sheindel",
+      "Sheyndl"
+    ],
+    "feast_day": null,
+    "label": "Szejndla",
+    "meaning": "Dallo yiddish \"sheyn\", \"bella\".",
+    "origin": "Yiddish",
+    "text": "Grafia polacca dello yiddish Sheyndl, comune negli atti ebraici della Polonia nel XIX secolo. Szejndla e Szajndla si alternano."
+  },
+  "szlama": {
+    "aliases": [
+      "Шляма",
+      "Szloma",
+      "Shloyme",
+      "Schlome"
+    ],
+    "feast_day": null,
+    "label": "Szlama",
+    "meaning": "Forma yiddish (Shloyme) di Salomone, dall'ebraico \"shalom\", \"pace\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Shloyme, molto frequente negli atti ebraici della Polonia nel XIX secolo. Dopo il 1868 gli atti redatti in russo scrivono Шляма; la forma ebraica è Shlomo."
+  },
+  "szmul": {
+    "aliases": [
+      "Szmuel",
+      "Schmul",
+      "Schmuel"
+    ],
+    "feast_day": null,
+    "label": "Szmul",
+    "meaning": "Forma yiddish di Samuele, \"nome di Dio\" o \"Dio ha ascoltato\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Shmuel, molto frequente negli atti ebraici della Polonia nel XIX secolo. Gli atti tedeschi scrivono Schmul."
+  },
+  "szprynca": {
+    "aliases": [
+      "Szprinca",
+      "Shprintse"
+    ],
+    "feast_day": null,
+    "label": "Szprynca",
+    "meaning": "Dallo spagnolo \"Esperanza\", \"speranza\", passato in prestito allo yiddish.",
+    "origin": "Spagnolo",
+    "text": "Grafia polacca dello yiddish Shprintse, nome giunto dallo spagnolo attraverso le comunità sefardite. Si trova negli atti ebraici della Polonia nel XIX secolo."
+  },
+  "szulim": {
+    "aliases": [
+      "Szolem",
+      "Sholem",
+      "Shalom"
+    ],
+    "feast_day": null,
+    "label": "Szulim",
+    "meaning": "Dall'ebraico \"shalom\", \"pace\".",
+    "origin": "Ebraico",
+    "text": "Grafia polacca dello yiddish Sholem, comune negli atti ebraici della Polonia nel XIX secolo."
+  },
   "szymon": {
     "aliases": [],
     "feast_day": "10-28",
@@ -18314,6 +20631,40 @@
     "meaning": "Forma polacca di Taddeo, di origine aramaica e di significato discusso (spesso reso con \"cuore, petto\" o \"coraggioso\").",
     "origin": "Aramaica",
     "text": "Nome molto popolare in Polonia, in particolare in onore di Tadeusz Kościuszko dalla fine del XVIII secolo; gli atti in latino lo scrivono Thaddaeus. Si riferisce all'apostolo san Giuda Taddeo, festeggiato insieme a san Simone il 28 ottobre."
+  },
+  "tanguy": {
+    "aliases": [
+      "Tanneguy",
+      "Tangi"
+    ],
+    "feast_day": "11-19",
+    "label": "Tanguy",
+    "meaning": "Dal bretone \"tan\", \"fuoco\", e \"ki\", \"cane\".",
+    "origin": "Bretone",
+    "text": "San Tanguy, leggendario fondatore dell'abbazia di Saint-Mathieu, si festeggia il 19 novembre. Il nome fu usato in Bretagna, in particolare nella famiglia du Chastel nella forma Tanneguy."
+  },
+  "tarcisius": {
+    "aliases": [
+      "Tarcisus",
+      "Tarcisio",
+      "Tarcisse"
+    ],
+    "feast_day": "08-15",
+    "label": "Tarcisius",
+    "meaning": "Nome latino di etimologia discussa.",
+    "origin": "Latino",
+    "text": "Nome di san Tarcisio, giovane martire romano dell'Eucaristia, reso popolare nel XIX secolo dai movimenti giovanili cattolici. Si trova in Belgio, in Francia e in Svizzera, e come Tarcisio in Italia."
+  },
+  "tauba": {
+    "aliases": [
+      "Taube",
+      "Toybe"
+    ],
+    "feast_day": null,
+    "label": "Tauba",
+    "meaning": "Dallo yiddish \"toyb\", \"colomba\".",
+    "origin": "Yiddish",
+    "text": "Nome femminile yiddish, scritto Tauba negli atti polacchi e Taube negli atti tedeschi del XIX secolo."
   },
   "teodor": {
     "aliases": [
@@ -18423,6 +20774,14 @@
     "origin": "Incerta",
     "text": "Nome anglofono, più frequente negli Stati Uniti e in Gran Bretagna nel XX secolo, spesso come vezzeggiativo di Terence. Non ha un santo proprio."
   },
+  "thais": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Thaïs",
+    "meaning": "Antico nome greco; significato discusso.",
+    "origin": "Greco",
+    "text": "Nome di una cortigiana ateniese e di una santa penitente d'Egitto, reso popolare in Francia dal romanzo di Anatole France (1890) e dall'opera di Massenet (1894). È raro nei registri anteriori alla fine del XIX secolo."
+  },
   "thea": {
     "aliases": [
       "Téa"
@@ -18432,6 +20791,14 @@
     "meaning": "Dal greco \"thea\", \"dea\", o abbreviazione di Theodora o Dorothea.",
     "origin": "Greca",
     "text": "Nome femminile tedesco, olandese e scandinavo, spesso vezzeggiativo di Dorothea o Theodora, usato da solo soprattutto nel XX secolo. Non ha una santa propria."
+  },
+  "thecle": {
+    "aliases": [],
+    "feast_day": "09-23",
+    "label": "Thècle",
+    "meaning": "Dal greco \"Theokleia\", \"gloria di Dio\".",
+    "origin": "Greco",
+    "text": "Santa Tecla, discepola di san Paolo secondo la tradizione, si festeggia il 23 settembre. Il nome è raro in Francia e si trova soprattutto nel XVII e XVIII secolo."
   },
   "thekla": {
     "aliases": [
@@ -18555,6 +20922,32 @@
     "origin": "Incerta",
     "text": "Forma latina e tedesca di Teresa, molto diffusa in Belgio, nei Paesi Bassi, in Svizzera e in Germania, in particolare per influsso dell'imperatrice Maria Teresa nel XVIII secolo. Si riferisce a santa Teresa d'Avila, festeggiata il 15 ottobre."
   },
+  "thibault": {
+    "aliases": [
+      "Thibaut",
+      "Thibaud",
+      "Theobaldus",
+      "Thiébaut",
+      "Thiébault"
+    ],
+    "feast_day": "07-08",
+    "label": "Thibault",
+    "meaning": "Dal germanico \"theud\", \"popolo\", e \"bald\", \"audace\".",
+    "origin": "Germanico",
+    "text": "Nome dei conti di Champagne, comune in Francia dal Medioevo al XVII secolo. San Teobaldo di Provins si festeggia l'8 luglio nel calendario francese; gli atti scrivono Thibaut, Thibaud o Theobaldus."
+  },
+  "thierry": {
+    "aliases": [
+      "Theodoricus",
+      "Thierri",
+      "Thiéry"
+    ],
+    "feast_day": "07-01",
+    "label": "Thierry",
+    "meaning": "Dal germanico \"theud\", \"popolo\", e \"ric\", \"potente\".",
+    "origin": "Germanico",
+    "text": "Forma francese di Teodorico, portato da re merovingi. San Teodorico, abate presso Reims, si festeggia il 1º luglio; presente nel Medioevo, il nome fu molto di moda negli anni Sessanta."
+  },
   "thomas": {
     "aliases": [
       "Thoma",
@@ -18571,6 +20964,17 @@
     "meaning": "Dall'aramaico \"te'oma\", \"gemello\".",
     "origin": "Aramaica",
     "text": "Nome portato ininterrottamente in tutta Europa fin dal Medioevo, particolarmente frequente in Inghilterra, nei Paesi Bassi e in Germania; gli atti in latino lo scrivono Thomas, e i vezzeggiativi inglesi sono Tom o Tommy. Si riferisce all'apostolo san Tommaso, festeggiato il 3 luglio (il 21 dicembre prima del 1969)."
+  },
+  "thomasse": {
+    "aliases": [
+      "Thomase",
+      "Thomassine"
+    ],
+    "feast_day": null,
+    "label": "Thomasse",
+    "meaning": "Femminile di Thomas, dall'aramaico \"toma\", \"gemello\".",
+    "origin": "Aramaico",
+    "text": "Forma femminile di Thomas, comune nei registri francesi dal XV al XVII secolo, poi rara."
   },
   "tilly": {
     "aliases": [],
@@ -18623,6 +21027,18 @@
     "origin": "Incerta",
     "text": "Forma familiare olandese, talvolta usata da sola; negli atti ufficiali la stessa donna è di solito registrata con un nome completo come Christina o Albertina. Questo vezzeggiativo non ha una santa propria."
   },
+  "tiphaine": {
+    "aliases": [
+      "Thiphaine",
+      "Typhaine",
+      "Tiffaine"
+    ],
+    "feast_day": null,
+    "label": "Tiphaine",
+    "meaning": "Dal greco \"Theophania\", \"manifestazione di Dio\", cioè l'Epifania.",
+    "origin": "Greco",
+    "text": "Nome medievale della Bretagna e della Normandia, portato da Tiphaine Raguenel, moglie di Du Guesclin, e dato spesso ai bambini nati intorno all'Epifania. Raro durante l'Antico Regime, tornò di moda alla fine del XX secolo."
+  },
   "titia": {
     "aliases": [
       "Tatia",
@@ -18642,6 +21058,14 @@
     "meaning": "Forma italiana di Titus, prenome romano di etimologia incerta.",
     "origin": "Latina",
     "text": "Nome italiano, presente soprattutto nel XIX e XX secolo, talvolta in omaggio a figure dell'antichità romana. Si riferisce a san Tito, discepolo di san Paolo, festeggiato il 26 gennaio insieme a san Timoteo."
+  },
+  "titouan": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Titouan",
+    "meaning": "Nome bretone moderno di origine discussa.",
+    "origin": "Bretone",
+    "text": "Nome recente, dato in Francia soprattutto dagli anni Novanta, dapprima in Bretagna. È assente dai registri antichi."
   },
   "tobias": {
     "aliases": [
@@ -18720,6 +21144,14 @@
     "origin": "Francese",
     "text": "Nome francese e belga dato a un bambino nato o battezzato intorno al 1º novembre, soprattutto dal XVII al XIX secolo; è divenuto anche cognome. Si festeggia a Ognissanti, il 1º novembre."
   },
+  "toussainte": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Toussainte",
+    "meaning": "Femminile di Toussaint, \"Ognissanti\".",
+    "origin": "Francese",
+    "text": "Dato spesso a una bambina nata intorno a Ognissanti (1º novembre), è attestato in Francia nel XVII e XVIII secolo, in particolare in Bretagna e in Normandia. Resta raro."
+  },
   "traugott": {
     "aliases": [],
     "feast_day": null,
@@ -18748,6 +21180,27 @@
     "meaning": "Dallo spagnolo \"trinidad\", \"Trinità\", dal latino \"trinitas\".",
     "origin": "Spagnola",
     "text": "Nome femminile spagnolo, abbreviazione di María de la Trinidad, dato in onore della Santissima Trinità. La sua festa, la domenica della Trinità, è mobile; la forma catalana è Trinitat."
+  },
+  "tristan": {
+    "aliases": [
+      "Tristram"
+    ],
+    "feast_day": null,
+    "label": "Tristan",
+    "meaning": "Nome dell'eroe della leggenda arturiana; etimologia discussa (brittonico Drustan).",
+    "origin": "Celtico",
+    "text": "Nome medievale derivato dalla leggenda di Tristano e Isotta, raro nei registri dell'età moderna e di nuovo popolare in Francia dagli anni Novanta. La forma inglese è Tristram."
+  },
+  "tugdual": {
+    "aliases": [
+      "Tudual",
+      "Tugal"
+    ],
+    "feast_day": "11-30",
+    "label": "Tugdual",
+    "meaning": "Dall'antico bretone; significato discusso.",
+    "origin": "Bretone",
+    "text": "San Tugdual, uno dei sette santi fondatori della Bretagna e primo vescovo di Tréguier, si festeggia il 30 novembre. Il nome è usato in Bretagna, soprattutto nel Trégor."
   },
   "tullio": {
     "aliases": [
@@ -18830,6 +21283,17 @@
     "origin": "Latina",
     "text": "Nome francese, belga e lussemburghese, usato durante l'Ancien Régime e nel XIX secolo, in particolare nelle regioni vinicole. Si riferisce a sant'Urbano I papa, patrono dei vignaioli, festeggiato il 25 maggio."
   },
+  "urbaine": {
+    "aliases": [
+      "Urbane",
+      "Urbanne"
+    ],
+    "feast_day": null,
+    "label": "Urbaine",
+    "meaning": "Femminile di Urbain, dal latino \"urbanus\", \"della città\".",
+    "origin": "Latino",
+    "text": "Il femminile di Urbain, che si trova nei registri della Francia occidentale (Maine, Angiò, Bretagna) nel XVII e XVIII secolo. I preti scrivevano Urbaine, Urbane o Urbanne."
+  },
   "ursula": {
     "aliases": [
       "Ulla",
@@ -18850,6 +21314,18 @@
     "meaning": "Forma polacca di Orsola, dal latino \"ursula\", \"piccola orsa\".",
     "origin": "Latina",
     "text": "Forma polacca di Orsola, presente nei registri cattolici della Polonia fin dalla prima età moderna; gli atti in latino la scrivono Ursula. Si riferisce a sant'Orsola di Colonia, festeggiata il 21 ottobre."
+  },
+  "uszer": {
+    "aliases": [
+      "Oszer",
+      "Asher",
+      "Ascher"
+    ],
+    "feast_day": null,
+    "label": "Uszer",
+    "meaning": "Dall'ebraico \"Asher\", \"felice\".",
+    "origin": "Ebraico",
+    "text": "Nome di uno dei figli di Giacobbe, scritto Uszer o Oszer negli atti polacchi del XIX secolo. Gli atti tedeschi scrivono Ascher."
   },
   "valentin": {
     "aliases": [
@@ -18910,6 +21386,16 @@
     "origin": "Latina",
     "text": "Nome femminile francese e belga, raro prima del XIX secolo e molto frequente nella seconda metà del XX secolo, usato anche in Lussemburgo e in Gran Bretagna. Si festeggia il 28 aprile in onore di santa Valeria di Milano, martire."
   },
+  "valerien": {
+    "aliases": [
+      "Valerianus"
+    ],
+    "feast_day": null,
+    "label": "Valérien",
+    "meaning": "Dal latino Valerianus, derivato da Valerius, \"essere forte\".",
+    "origin": "Latino",
+    "text": "Portato da diversi santi e martiri, tra cui il marito di santa Cecilia. Compare nei registri francesi soprattutto nel XIX secolo."
+  },
   "valerio": {
     "aliases": [
       "Valerius",
@@ -18922,6 +21408,14 @@
     "meaning": "Dal nome di famiglia romano \"Valerius\", da \"valere\", \"essere forte, in salute\".",
     "origin": "Latina",
     "text": "Forma italiana di Valerius, presente in Italia soprattutto nel XIX e XX secolo. Diversi santi portano questo nome, senza una festa prevalente."
+  },
+  "vanessa": {
+    "aliases": [],
+    "feast_day": null,
+    "label": "Vanessa",
+    "meaning": "Nome coniato da Jonathan Swift all'inizio del XVIII secolo.",
+    "origin": "Inglese",
+    "text": "Inventato da Swift per il suo poema Cadenus and Vanessa, rimase raro fino al XX secolo. Fu molto dato in Francia e in Europa negli anni Settanta e Ottanta."
   },
   "vasco": {
     "aliases": [],
@@ -18972,6 +21466,14 @@
     "meaning": "Probabilmente dal greco \"Berenikê\", \"portatrice di vittoria\", accostato per etimologia popolare al latino \"vera icon\", \"vera immagine\".",
     "origin": "Greca",
     "text": "Nome reso popolare dalla tradizione della donna che asciugò il volto di Cristo sulla via del Calvario, comune in Italia, Spagna, Gran Bretagna e Belgio. Non esiste una festa universale per questa Veronica; in Italia il nome si festeggia il 9 luglio con santa Veronica Giuliani, monaca cappuccina canonizzata nel 1839."
+  },
+  "veronique": {
+    "aliases": [],
+    "feast_day": "02-04",
+    "label": "Véronique",
+    "meaning": "Dal latino \"Veronica\", associato a \"vera icon\", \"immagine vera\"; significato discusso.",
+    "origin": "Latino",
+    "text": "Santa Veronica, che secondo la tradizione asciugò il volto di Cristo, si festeggia il 4 febbraio nel calendario francese. Il nome compare nei registri durante l'Antico Regime e fu molto di moda negli anni Sessanta."
   },
   "vicenc": {
     "aliases": [
@@ -19322,6 +21824,18 @@
     "origin": "Slava",
     "text": "Nome polacco di origine ceca, frequente in Polonia; gli atti in latino lo scrivono Wenceslaus e le trascrizioni senza segni diacritici Waclaw. Si riferisce a san Venceslao, il duca martire di Boemia, festeggiato il 28 settembre."
   },
+  "walburga": {
+    "aliases": [
+      "Waltburga",
+      "Walpurga",
+      "Walburge"
+    ],
+    "feast_day": "02-25",
+    "label": "Walburga",
+    "meaning": "Dagli elementi germanici \"walt\" (governare) e \"burg\" (protezione).",
+    "origin": "Germanico",
+    "text": "Nome di santa Valburga, badessa anglosassone di Heidenheim nell'VIII secolo, molto dato in Baviera, in Austria e in Alsazia. I registri lo scrivono Walburga, Walpurga o Waltburga."
+  },
   "waldemar": {
     "aliases": [
       "Woldemar"
@@ -19407,6 +21921,18 @@
     "meaning": "Dal cognome inglese Wayne, dall'inglese antico \"wægn\", \"carro\", che designava un carradore.",
     "origin": "Inglese",
     "text": "Cognome inglese divenuto nome di battesimo negli Stati Uniti, soprattutto verso la metà del XX secolo. È raro negli atti antichi e non ha un santo patrono."
+  },
+  "wendelin": {
+    "aliases": [
+      "Wendelini",
+      "Wendling",
+      "Wendelinus"
+    ],
+    "feast_day": "10-20",
+    "label": "Wendelin",
+    "meaning": "Derivato dall'elemento germanico \"Wandal\", nome dei Vandali; significato discusso.",
+    "origin": "Germanico",
+    "text": "Nome di san Vendelino, eremita del VI secolo presso Treviri e patrono dei pastori e del bestiame, molto dato nel Saarland, nella Lorena germanofona, in Alsazia e nella Germania meridionale. I registri scrivono Wendelinus, il genitivo Wendelini e la forma dialettale Wendling."
   },
   "wendy": {
     "aliases": [
@@ -19797,6 +22323,16 @@
     "origin": "Incerta",
     "text": "Nome femminile portato dall'aristocrazia medievale (Iolanda d'Aragona), poi raro negli atti prima di tornare in auge in Francia nel XX secolo. Non ha una santa canonizzata ampiamente festeggiata."
   },
+  "yrieix": {
+    "aliases": [
+      "Aredius"
+    ],
+    "feast_day": "08-25",
+    "label": "Yrieix",
+    "meaning": "Dal latino \"Aredius\"; significato discusso.",
+    "origin": "Latino",
+    "text": "Sant'Aredio, abate nel Limosino nel VI secolo, diede il nome a Saint-Yrieix-la-Perche e si festeggia il 25 agosto. Il nome è proprio del Limosino."
+  },
   "yvan": {
     "aliases": [
       "Yann"
@@ -19893,6 +22429,29 @@
     "origin": "Incerta",
     "text": "Nome femminile francese e belga, più frequente nel XIX secolo. Zélie Martin, madre di santa Teresa di Lisieux, fu canonizzata solo nel 2015; il nome non ha una santa antica."
   },
+  "zelig": {
+    "aliases": [
+      "Zelik",
+      "Selig",
+      "Seelig"
+    ],
+    "feast_day": null,
+    "label": "Zelig",
+    "meaning": "Dallo yiddish \"zelik\" (in tedesco \"selig\"), \"beato, felice\".",
+    "origin": "Yiddish",
+    "text": "Nome maschile yiddish, scritto Zelik o Zelig negli atti polacchi e Selig negli atti tedeschi del XIX secolo."
+  },
+  "zelman": {
+    "aliases": [
+      "Zalman",
+      "Zalmen"
+    ],
+    "feast_day": null,
+    "label": "Zelman",
+    "meaning": "Forma yiddish derivata da Salomone (Shlomo).",
+    "origin": "Ebraico",
+    "text": "Nome yiddish scritto Zelman o Zalman negli atti polacchi e lituani del XIX secolo."
+  },
   "zenon": {
     "aliases": [
       "Zénó"
@@ -19902,6 +22461,17 @@
     "meaning": "Dal greco \"Zênôn\", derivato dal nome di Zeus.",
     "origin": "Greca",
     "text": "Nome di origine greca, usato in Polonia soprattutto nel XIX e XX secolo e presente anche in Lussemburgo. Si riferisce a san Zeno, vescovo e patrono di Verona, festeggiato il 12 aprile."
+  },
+  "zlata": {
+    "aliases": [
+      "Zlate",
+      "Zlatka"
+    ],
+    "feast_day": null,
+    "label": "Zlata",
+    "meaning": "Dallo slavo \"zlato\", \"oro\".",
+    "origin": "Slavo",
+    "text": "Nome di origine slava adottato dagli ebrei di Polonia e di Russia, frequente negli atti del XIX secolo, scritto Zlata o Złata. È portato anche da donne cristiane nei paesi slavi meridionali."
   },
   "zoe": {
     "aliases": [
