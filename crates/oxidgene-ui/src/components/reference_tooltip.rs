@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 
 use crate::api::{ApiClient, GivenNameReference, OccupationReference};
-use crate::i18n::use_i18n;
+use crate::i18n::Language;
 use crate::ui_observability::use_ui_resource;
 
 /// Delay before showing the bubble, so a quick mouse pass doesn't flash one.
@@ -60,14 +60,16 @@ impl From<OccupationReference> for FicheContent {
 #[component]
 pub fn OccupationsHover(titles: Vec<String>) -> Element {
     let api = use_context::<ApiClient>();
-    let lang_code = use_i18n().0.code().to_string();
+    // Read inside the resource so it refetches when the language changes:
+    // it starts as English and is only resolved after the first render.
+    let language = use_context::<Signal<Language>>();
     let terms_for_fetch = titles.clone();
     let references = use_ui_resource("occupation_reference_bundle", move || {
         let api = api.clone();
-        let lang_code = lang_code.clone();
+        let lang_code = language().code();
         let terms = terms_for_fetch.clone();
         async move {
-            api.reference_occupations(&lang_code, &terms)
+            api.reference_occupations(lang_code, &terms)
                 .await
                 .unwrap_or_default()
         }
@@ -183,13 +185,15 @@ pub fn GivenNamesHover(given_names: String) -> Element {
         .map(|(word, _)| word.clone())
         .collect::<Vec<_>>();
     let api = use_context::<ApiClient>();
-    let lang_code = use_i18n().0.code().to_string();
+    // Read inside the resource so it refetches when the language changes:
+    // it starts as English and is only resolved after the first render.
+    let language = use_context::<Signal<Language>>();
     let references = use_ui_resource("given_name_reference_bundle", move || {
         let api = api.clone();
-        let lang_code = lang_code.clone();
+        let lang_code = language().code();
         let terms = terms_for_fetch.clone();
         async move {
-            api.reference_given_names(&lang_code, &terms)
+            api.reference_given_names(lang_code, &terms)
                 .await
                 .unwrap_or_default()
         }
