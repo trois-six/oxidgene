@@ -99,6 +99,7 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "m20250101_000001_initial",
             "m20260918_000001_search_relatives",
             "m20260926_000001_drop_redundant_indexes",
+            "m20260927_000001_file_couple_media",
         ]
     );
 

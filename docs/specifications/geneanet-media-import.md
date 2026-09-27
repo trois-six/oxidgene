@@ -343,7 +343,17 @@ A spouse keeps their person link in two cases:
 A face box still creates the spouse's identification either way. The
 [Couple Profile](ui-couple-profile.md) then shows the media once, among the
 couple's media, rather than in each spouse's column. A reference whose event
-does not resolve keeps its person link. A reference carrying a
+does not resolve keeps its person link.
+
+Trees imported before this rule are repaired once, by the database migration
+`m20260927_000001_file_couple_media`, when the application or server starts.
+It applies the same rule to Geneanet media already in the database, whether
+they are linked through their page (older imports) or their document. Only the
+portrait exception can be recognized afterwards. A spouse's reference without
+a couple event left no trace, so that exception cannot be applied. Media
+attached by hand are never touched. The migration raises
+`PROJECTION_SCHEMA_VERSION`, so every person's projection is rebuilt with the
+new media counts. A reference carrying a
 `face.position` additionally creates a `Vignette` on the page media resolved
 from that reference's `viewId`. The same person can therefore have one
 document link and several page identifications. The viewer suppresses the

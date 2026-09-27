@@ -31,7 +31,11 @@ use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole
 ///
 /// A bump costs one lazy rebuild per tree on first read. Not bumping costs a
 /// silent wrong answer, so when in doubt, bump.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 3;
+///
+/// 4: couple-event media imported from Geneanet moved from the spouses to the
+/// family (migration `m20260927_000001_file_couple_media`), which changes
+/// each spouse's `media_count` and fallback primary media.
+pub const PROJECTION_SCHEMA_VERSION: i32 = 4;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
