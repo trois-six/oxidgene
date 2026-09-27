@@ -330,8 +330,10 @@ or, for a multi-page deposit, to the document parent.
 people, so a wedding photograph arrives as one reference on each spouse, each
 carrying the marriage. A reference whose event resolves to a family event of a
 couple the person is a spouse of belongs to that couple. The media is linked
-to the family once, and that spouse gets no person link. Couple events include
-marriage, contract and divorce.
+to the family once, and that spouse gets no person link. This applies to every
+event the import stores on the family rather than on a person, whatever its
+type: marriage, banns, contract, engagement, divorce, and the rest of the
+family vocabulary.
 
 A spouse keeps their person link in two cases:
 - another reference of theirs on the same deposit carries no event, or an
