@@ -90,7 +90,7 @@ moving everything it carried onto the kept person:
 | Sex | The kept person's, unless it is `Unknown` and the duplicate's is not |
 | Portrait | The kept person's, unless they have none |
 | Privacy | The kept person's |
-| Names | The kept person's primary name stays primary; the duplicate's names become secondary names after theirs, except a name identical in every piece to one the kept person bears, which is dropped. When the kept person has no name at all, the duplicate's primary stays primary |
+| Names | The kept person's primary name stays primary; the duplicate's names become secondary names after theirs, except a name identical in every piece to one the kept person bears — ignoring case, not accents — which is dropped. When the kept person has no name at all, the duplicate's primary stays primary |
 | Events, notes, citations, identification boxes | Re-pointed; nothing is deduplicated, so two births recorded twice stay two events to reconcile by hand |
 | Family links | Re-pointed; a link to a family the kept person is already a spouse (or a child) of is dropped instead of doubled |
 | Witness links | Re-pointed; dropped when the kept person already witnesses that event or the event is now their own |

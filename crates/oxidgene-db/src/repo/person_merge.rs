@@ -342,14 +342,21 @@ impl PersonMergeRepo {
 }
 
 /// Whether two rows record the same name: every piece equal, type included.
+///
+/// Case is ignored — the person form stores surnames in capitals while
+/// imports keep the file's casing, and "SAMPLE" is not a second name beside
+/// "Sample". Accents are not: a spelling variant is worth keeping.
 fn same_name(a: &person_name::Model, b: &person_name::Model) -> bool {
+    fn same(a: &Option<String>, b: &Option<String>) -> bool {
+        a.as_deref().map(str::to_lowercase) == b.as_deref().map(str::to_lowercase)
+    }
     a.name_type == b.name_type
-        && a.given_names == b.given_names
-        && a.surname == b.surname
-        && a.surname_prefix == b.surname_prefix
-        && a.prefix == b.prefix
-        && a.suffix == b.suffix
-        && a.nickname == b.nickname
+        && same(&a.given_names, &b.given_names)
+        && same(&a.surname, &b.surname)
+        && same(&a.surname_prefix, &b.surname_prefix)
+        && same(&a.prefix, &b.prefix)
+        && same(&a.suffix, &b.suffix)
+        && same(&a.nickname, &b.nickname)
 }
 
 async fn repoint<E: EntityTrait>(

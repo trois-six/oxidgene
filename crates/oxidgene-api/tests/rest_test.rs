@@ -1358,7 +1358,7 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
     )
     .await;
     let duplicate = body["id"].as_str().unwrap().to_string();
-    for (name_type, surname, primary) in [("birth", "Sample", true), ("married", "Spouse", false)] {
+    for (name_type, surname, primary) in [("birth", "SAMPLE", true), ("married", "Spouse", false)] {
         let (status, _) = send_request(
             app.clone(),
             Method::POST,
