@@ -15,6 +15,8 @@ impl Table {
         if records.is_empty() {
             bail!("the file has no header row");
         }
+        // A blank line is no record, wherever a source leaves one.
+        records.retain(|r| !(r.len() == 1 && r[0].trim().is_empty()));
         let header = records.remove(0);
         if let Some(line) = records.iter().position(|r| r.len() != header.len()) {
             bail!(
@@ -41,6 +43,11 @@ impl Table {
                     .is_some_and(|year| year.len() == 2 && year.bytes().all(|b| b.is_ascii_digit()))
             })
             .with_context(|| format!("no column `{prefix}NN{suffix}` (have {:?})", self.header))
+    }
+
+    /// Index of the first column whose header satisfies `wanted`.
+    pub fn column_where(&self, wanted: impl Fn(&str) -> bool) -> Option<usize> {
+        self.header.iter().position(|h| wanted(h))
     }
 
     /// Index of a named column, so a source that renames one fails loudly.
@@ -140,6 +147,12 @@ mod tests {
                 vec!["plain".to_string(), String::new()],
             ]
         );
+    }
+
+    #[test]
+    fn blank_lines_are_not_records() {
+        let table = Table::parse("A;B\r\n1;2\r\n\r\n", ';').unwrap();
+        assert_eq!(table.rows.len(), 1);
     }
 
     #[test]

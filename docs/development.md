@@ -196,13 +196,14 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5317 \
 
 | Command | Purpose |
 |---------|---------|
-| `just places` | Regenerate the France and United Kingdom place dictionary, `assets/places/places.csv.br`, from the latest edition of each open-data source. Commit the result. |
+| `just places` | Regenerate the place dictionary, `assets/places/places.csv.br`, from the latest edition of each open-data source. Commit the result. |
 | `just places --cached` | Regenerate it from the downloads of the previous run. |
 
 The sources, the file format and the output location are specified in
 [Place Dictionary](place-dictionary.md). The generator needs network access to
-INSEE, data.gouv.fr, geo.api.gouv.fr, the ONS Open Geography Portal and the
-Wikidata query service.
+INSEE, data.gouv.fr, geo.api.gouv.fr, the ONS Open Geography Portal, Destatis,
+ISTAT, INE, the BFS register, GUS TERYT, the Census Bureau and the Wikidata
+query service.
 
 ## 3. Local Web Workflow
 

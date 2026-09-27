@@ -44,6 +44,51 @@ impl Fetcher {
         self.cached(name, || self.client.get(url), |_| Ok(())).await
     }
 
+    /// The body at `url`, or `None` when the server says it does not exist:
+    /// for probing which edition of a source has been published.
+    pub async fn optional_bytes(&self, name: &str, url: &str) -> Result<Option<Vec<u8>>> {
+        let path = self.cache.join(name);
+        if self.reuse
+            && let Ok(bytes) = std::fs::read(&path)
+        {
+            return Ok(Some(bytes));
+        }
+        let response = self.client.get(url).send().await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let bytes = response.error_for_status()?.bytes().await?.to_vec();
+        std::fs::write(&path, &bytes)
+            .with_context(|| format!("cannot write {}", path.display()))?;
+        Ok(Some(bytes))
+    }
+
+    /// The answer to a form posted to `url` with the URL-encoded `fields`.
+    pub async fn post_form(
+        &self,
+        name: &str,
+        url: &str,
+        fields: &[(&str, &str)],
+    ) -> Result<Vec<u8>> {
+        let mut form = reqwest::Url::parse("form:")?;
+        form.query_pairs_mut().extend_pairs(fields);
+        let body = form.query().unwrap_or_default().to_string();
+        self.cached(
+            name,
+            || {
+                self.client
+                    .post(url)
+                    .header(
+                        reqwest::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .body(body.clone())
+            },
+            |_| Ok(()),
+        )
+        .await
+    }
+
     /// A Wikidata query, answered as CSV.
     pub async fn sparql(&self, query: &str) -> Result<Table> {
         let mut hasher = DefaultHasher::new();

@@ -71,7 +71,7 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 
 ## 5. Planned: place autocomplete
 
-The [place dictionary](place-dictionary.md) for France and the United Kingdom
+The [place dictionary](place-dictionary.md) of eight countries
 is generated. Remaining:
 
 - [x] Ship the dictionary with the application, compressed, and search it

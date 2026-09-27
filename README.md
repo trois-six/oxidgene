@@ -45,10 +45,11 @@ OxidGene is a multiplatform genealogy application featuring:
 - **Keep working offline**: The desktop application embeds SQLite and stores
 	your genealogy and media locally, with no server required
 - **Type places the way the records name them**: Every place field suggests
-	from a built-in place dictionary of France and the United Kingdom, with the
-	communes merged away since the Revolution, their former names, and the
-	départements, regions and counties they were filed under at the time, while
-	still accepting any free text
+	from a built-in place dictionary of France, the United Kingdom, Germany,
+	Italy, Spain, Switzerland, Poland and the United States, with the
+	municipalities merged away, their former names, and the subdivisions and
+	regions they were filed under at the time, while still accepting any free
+	text
 - **Understand what the records say**: Explanatory sheets for more than 2,600
 	historical occupations and meanings of given names, in English and French,
 	shown right beside the person

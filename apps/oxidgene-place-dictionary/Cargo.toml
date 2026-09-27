@@ -1,6 +1,6 @@
 [package]
 name = "oxidgene-place-dictionary"
-description = "Generates the France and United Kingdom place dictionaries from open data"
+description = "Generates the place dictionary from open data"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

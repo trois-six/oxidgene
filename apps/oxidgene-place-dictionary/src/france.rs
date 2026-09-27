@@ -7,8 +7,9 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Coordinates, Country, Kind, Place, Region, fold};
+use crate::place::{Coordinates, Country, Kind, Place, Region, file, fold};
 use crate::table::Table;
+use crate::wikidata::{push_unique, wikidata_date};
 
 /// INSEE publishes a new vintage of the COG every year; data.gouv.fr lists
 /// them all, which is how the latest is found.
@@ -151,13 +152,6 @@ fn department_of(code: &str) -> &str {
 /// A date column: `None` when empty.
 fn date(field: &str) -> Option<String> {
     (!field.is_empty()).then(|| field.to_string())
-}
-
-/// The day part of a Wikidata timestamp, when it is an ordinary AD date.
-fn wikidata_date(field: &str) -> Option<String> {
-    let day = field.get(..10)?;
-    (day.len() == 10 && day.as_bytes()[4] == b'-' && !field.starts_with('-'))
-        .then(|| day.to_string())
 }
 
 /// One name a commune bore between two dates under one code.
@@ -448,23 +442,6 @@ impl Cog {
     }
 }
 
-/// Adds `base` filed under a département and region, unless it already is.
-/// `current` marks today's département and region.
-fn file(places: &mut Vec<Place>, base: &Place, department: &str, region: &str, current: bool) {
-    let region = Region::Named(region.to_string());
-    if !places
-        .iter()
-        .any(|p| p.subdivision == department && p.region == region)
-    {
-        places.push(Place {
-            subdivision: department.to_string(),
-            region,
-            current,
-            ..base.clone()
-        });
-    }
-}
-
 /// The latest COG vintage, and the URL of each of its files by file name.
 async fn latest_cog(fetcher: &Fetcher) -> Result<(u16, HashMap<String, String>)> {
     let bytes = fetcher.bytes("cog-dataset.json", COG_DATASET_URL).await?;
@@ -725,12 +702,6 @@ fn split_department(code: &str) -> Vec<&str> {
         "75" => vec!["75", "92", "93", "94"],
         "78" => vec!["78", "91", "92", "93", "94", "95"],
         _ => vec![code],
-    }
-}
-
-fn push_unique(list: &mut Vec<String>, value: &str) {
-    if !value.is_empty() && !list.iter().any(|v| v == value) {
-        list.push(value.to_string());
     }
 }
 

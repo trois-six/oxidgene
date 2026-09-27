@@ -9,11 +9,20 @@
 //! the binaries. The format, the sources and their licences are specified in
 //! `docs/place-dictionary.md`.
 
+mod calendar;
 mod fetch;
 mod france;
+mod germany;
+mod italy;
 mod place;
+mod poland;
+mod spain;
+mod switzerland;
 mod table;
 mod uk;
+mod usa;
+mod wikidata;
+mod xlsx;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -69,6 +78,12 @@ async fn main() -> Result<()> {
     let fetcher = Fetcher::new(args.cache, args.cached)?;
     let mut places = france::places(&fetcher).await?;
     places.extend(uk::places(&fetcher).await?);
+    places.extend(germany::places(&fetcher).await?);
+    places.extend(italy::places(&fetcher).await?);
+    places.extend(spain::places(&fetcher).await?);
+    places.extend(switzerland::places(&fetcher).await?);
+    places.extend(poland::places(&fetcher).await?);
+    places.extend(usa::places(&fetcher).await?);
     let (csv, rows) = place::render(&mut places);
 
     if let Some(path) = &args.csv {

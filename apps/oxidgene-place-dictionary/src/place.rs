@@ -15,6 +15,12 @@ use crate::table::quote;
 pub enum Country {
     France,
     UnitedKingdom,
+    Germany,
+    Italy,
+    Spain,
+    Switzerland,
+    Poland,
+    UnitedStates,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -94,6 +100,16 @@ pub struct Place {
     pub current: bool,
 }
 
+impl Place {
+    /// The region column, when it is a named region.
+    pub fn region_name(&self) -> &str {
+        match &self.region {
+            Region::Named(name) => name,
+            Region::Nation(_) => "",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coordinates {
     pub latitude: f64,
@@ -121,12 +137,58 @@ impl Coordinates {
 }
 
 /// The dictionary is written in French, like Geneanet's `dico_place_fr.csv`.
-/// The application translates the few British names for its English
-/// interface when it loads the file.
+/// Subdivisions and regions keep their official local names; only the
+/// countries and the British nations are French, and the application
+/// translates those for its English interface when it loads the file.
 fn country_name(country: Country) -> &'static str {
     match country {
         Country::France => "France",
         Country::UnitedKingdom => "Royaume-Uni",
+        Country::Germany => "Allemagne",
+        Country::Italy => "Italie",
+        Country::Spain => "Espagne",
+        Country::Switzerland => "Suisse",
+        Country::Poland => "Pologne",
+        // Geneanet's spelling, so a place imported from it matches.
+        Country::UnitedStates => "Etats-Unis d'Amérique",
+    }
+}
+
+/// Adds `base` filed under a subdivision and region, unless it already is.
+/// `current` marks today's filing.
+pub fn file(places: &mut Vec<Place>, base: &Place, subdivision: &str, region: &str, current: bool) {
+    let region = Region::Named(region.to_string());
+    // The filings of one place are pushed one after the other, so only the
+    // tail of the list can already hold this one.
+    if !places
+        .iter()
+        .rev()
+        .take_while(|p| p.name == base.name && p.code == base.code && p.kind == base.kind)
+        .any(|p| p.subdivision == subdivision && p.region == region)
+    {
+        places.push(Place {
+            subdivision: subdivision.to_string(),
+            region,
+            current,
+            ..base.clone()
+        });
+    }
+}
+
+/// A place of `country` with no filing yet, to hand to [`file`].
+pub fn unfiled(country: Country, name: &str, code: &str, kind: Kind) -> Place {
+    Place {
+        name: name.to_string(),
+        code: code.to_string(),
+        subdivision: String::new(),
+        region: Region::Named(String::new()),
+        country,
+        kind,
+        valid_from: None,
+        valid_until: None,
+        successor: None,
+        coordinates: None,
+        current: false,
     }
 }
 
