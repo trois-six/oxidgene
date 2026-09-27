@@ -174,6 +174,128 @@ pub struct PlaceSuggestion {
     pub longitude: Option<f64>,
 }
 
+/// A tree's statistics (`docs/ui-statistics.md`), as the backend computes
+/// them. Series are aligned on `periods`; `None` marks a period without data.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TreeStatistics {
+    pub interval: i32,
+    pub persons: i64,
+    pub men: i64,
+    pub women: i64,
+    pub unions: i64,
+    pub places: i64,
+    pub periods: Vec<i32>,
+    pub top_surnames: Vec<StatCount>,
+    pub top_given_names: Vec<StatCount>,
+    pub top_occupations: Vec<StatCount>,
+    pub age_at_death: StatSexSeries,
+    pub births_by_month: Vec<StatShares>,
+    pub parents_age: StatParentAges,
+    pub age_at_first_union: StatSexSeries,
+    pub unions_by_weekday: Vec<StatShares>,
+    pub unions_by_month: Vec<StatShares>,
+    pub union_duration: Vec<Option<f64>>,
+    pub children_per_union: Vec<Option<f64>>,
+    pub birth_spacing: Vec<Option<f64>>,
+    pub first_last_child_gap: Vec<Option<f64>>,
+    pub spouse_age_gap: Vec<Option<f64>>,
+    pub pyramid: Vec<StatPyramidBand>,
+    pub recent_births: Vec<StatPerson>,
+    pub recent_deaths: Vec<StatPerson>,
+    pub recent_unions: Vec<StatUnion>,
+    pub oldest_possibly_alive: Vec<StatPerson>,
+    pub longest_lives: Vec<StatPerson>,
+    pub located_places: Vec<StatPlace>,
+    pub top_places: Vec<StatPlace>,
+    pub unlocated_places: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatCount {
+    pub label: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatSexSeries {
+    pub men: Vec<Option<f64>>,
+    pub women: Vec<Option<f64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatParentAges {
+    pub father_first_child: Vec<Option<f64>>,
+    pub mother_first_child: Vec<Option<f64>>,
+    pub father_last_child: Vec<Option<f64>>,
+    pub mother_last_child: Vec<Option<f64>>,
+}
+
+/// One period's shares, in percent; empty when the period has no data.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatShares {
+    pub values: Vec<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatPyramidBand {
+    pub from: i64,
+    pub men: i64,
+    pub women: i64,
+}
+
+/// A date as recorded, formatted by the client in its language.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatDate {
+    pub value: Option<String>,
+    pub value2: Option<String>,
+    pub qualifier: DateQualifier,
+    pub calendar: Calendar,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatPerson {
+    pub person_id: Uuid,
+    pub name: String,
+    pub sex: Sex,
+    pub date: Option<StatDate>,
+    pub place: Option<String>,
+    pub birth: Option<StatDate>,
+    pub death: Option<StatDate>,
+    pub age: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatUnion {
+    pub family_id: Uuid,
+    pub spouses: Vec<StatSpouse>,
+    pub date: StatDate,
+    pub place: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatSpouse {
+    pub person_id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatPlace {
+    pub place_id: Uuid,
+    pub name: String,
+    pub count: i64,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+/// One country's outline for the statistics heat map: outer rings as flat
+/// `longitude, latitude` pairs in tenths of a degree.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct BasemapCountry {
+    pub iso: String,
+    pub name: String,
+    pub rings: Vec<Vec<i32>>,
+}
+
 /// A person resolved for a dictionary usage drill-down list: name parts +
 /// birth/death years, computed server-side in one bulk query.
 #[derive(Debug, Clone, Deserialize)]
@@ -4139,6 +4261,24 @@ impl ApiClient {
             &params,
         )
         .await
+    }
+
+    /// A tree's statistics, with periods `interval` years wide.
+    pub async fn tree_statistics(
+        &self,
+        tree_id: Uuid,
+        interval: i32,
+    ) -> Result<TreeStatistics, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/statistics"),
+            &[("interval", interval.to_string())],
+        )
+        .await
+    }
+
+    /// The country outlines the statistics heat map is drawn over.
+    pub async fn basemap(&self) -> Result<Vec<BasemapCountry>, ApiError> {
+        self.get("/api/v1/reference/basemap").await
     }
 
     /// Places from the place dictionary matching `query`, best first.

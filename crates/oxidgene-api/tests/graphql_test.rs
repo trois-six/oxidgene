@@ -3731,3 +3731,45 @@ async fn test_vignette_lifecycle_over_graphql() {
     .await;
     assert!(data(&resp)["vignette"].is_null());
 }
+
+#[tokio::test]
+async fn tree_statistics_match_rest() {
+    let app = setup_app().await;
+    let response = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "Statistics" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&response)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ treeStatistics(treeId: "{tree_id}", interval: 10) {{
+                interval persons periods topSurnames {{ label count }}
+                ageAtDeath {{ men women }} birthsByMonth {{ values }}
+                recentUnions {{ familyId }} locatedPlaces {{ name }} unlocatedPlaces
+            }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let stats = &data(&response)["treeStatistics"];
+    assert_eq!(stats["interval"], 10);
+    assert_eq!(stats["persons"], 0);
+    assert_eq!(stats["periods"], serde_json::json!([]));
+
+    let response = graphql(
+        app,
+        &format!(r#"{{ treeStatistics(treeId: "{tree_id}", interval: 30) {{ persons }} }}"#),
+        None,
+    )
+    .await;
+    assert!(
+        response["errors"].as_array().is_some_and(|e| !e.is_empty()),
+        "an interval outside the list should be rejected: {response}"
+    );
+}

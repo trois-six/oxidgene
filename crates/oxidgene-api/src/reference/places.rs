@@ -85,6 +85,45 @@ pub fn search_places(lang: ReferenceLang, query: &str, limit: usize) -> Vec<Plac
     dictionary().search(lang, query, limit)
 }
 
+/// Coordinates for the places of a tree, with how often the tree uses each,
+/// from the place dictionary (see `Dictionary::locate_all`). Loads the
+/// dictionary on first use.
+pub fn locate_places(labels: &[(&str, i64)]) -> Vec<Option<(f64, f64)>> {
+    dictionary().locate_all(labels)
+}
+
+/// A label read against the dictionary.
+enum Located<'a> {
+    At(&'a Entry),
+    Among(Vec<&'a Entry>),
+    Nowhere,
+}
+
+fn spot(entry: &Entry) -> (f64, f64) {
+    (f64::from(entry.latitude), f64::from(entry.longitude))
+}
+
+/// The spot of places all within a fifth of a degree of the first.
+fn clustered(entries: &[&Entry]) -> Option<(f64, f64)> {
+    let first = spot(entries.first()?);
+    entries
+        .iter()
+        .all(|e| {
+            let (latitude, longitude) = spot(e);
+            (latitude - first.0).abs() < 0.2 && (longitude - first.1).abs() < 0.2
+        })
+        .then_some(first)
+}
+
+/// Living places before former ones when a bare name is read.
+fn kind_rank(kind: PlaceKind) -> u8 {
+    match kind {
+        PlaceKind::Commune | PlaceKind::MunicipalArrondissement => 0,
+        PlaceKind::Settlement | PlaceKind::Parish => 1,
+        PlaceKind::FormerCommune | PlaceKind::FormerName => 2,
+    }
+}
+
 fn dictionary() -> &'static Dictionary {
     static DICTIONARY: OnceLock<Dictionary> = OnceLock::new();
     DICTIONARY.get_or_init(|| {
@@ -314,6 +353,8 @@ struct Dictionary {
     entries: Vec<Entry>,
     text: String,
     parts: Vec<Part>,
+    /// Entry indexes sorted by folded name, to find a place by its name.
+    by_name: Vec<u32>,
 }
 
 impl Dictionary {
@@ -376,10 +417,112 @@ impl Dictionary {
         }
         text.shrink_to_fit();
         entries.shrink_to_fit();
-        Self {
+        let mut dictionary = Self {
             entries,
             text,
             parts,
+            by_name: Vec::new(),
+        };
+        let mut by_name: Vec<u32> = (0..dictionary.entries.len())
+            .map(|i| u32::try_from(i).expect("fewer than 4 billion places"))
+            .collect();
+        by_name.sort_by(|a, b| {
+            let name = |i: &u32| dictionary.get(dictionary.entries[*i as usize].folded);
+            name(a).cmp(name(b))
+        });
+        dictionary.by_name = by_name;
+        dictionary
+    }
+
+    /// The entries whose folded name is exactly `folded`.
+    fn named(&self, folded: &str) -> impl Iterator<Item = &Entry> {
+        let name = |i: &u32| self.get(self.entries[*i as usize].folded);
+        let start = self.by_name.partition_point(|i| name(i) < folded);
+        self.by_name[start..]
+            .iter()
+            .take_while(move |i| name(i) == folded)
+            .map(|i| &self.entries[*i as usize])
+    }
+
+    /// Coordinates for the places of a tree, each written as the tree
+    /// records it: its name, then optionally its code, subdivision, region
+    /// and country, comma-separated, with how often the tree uses it.
+    ///
+    /// The name must match a dictionary place exactly (case and accents
+    /// aside). Among homonyms, the one whose code, subdivision, region or
+    /// country the label also names wins, and a bare name whose homonyms all
+    /// stand in the same spot is located there. Any other bare name is read
+    /// in the country the tree uses most among those where it exists, as a
+    /// commune rather than a former name: "Brest" in a French tree is the
+    /// one in Finistère, not the German village.
+    fn locate_all(&self, labels: &[(&str, i64)]) -> Vec<Option<(f64, f64)>> {
+        let resolved: Vec<Located> = labels
+            .iter()
+            .map(|(label, _)| self.resolve(label))
+            .collect();
+        let mut weights: HashMap<u16, i64> = HashMap::new();
+        for (found, (_, count)) in resolved.iter().zip(labels) {
+            if let Located::At(entry) = found {
+                *weights.entry(entry.country).or_default() += count;
+            }
+        }
+        let mut countries: Vec<(u16, i64)> = weights.into_iter().collect();
+        countries.sort_by_key(|&(country, weight)| (std::cmp::Reverse(weight), country));
+        resolved
+            .into_iter()
+            .map(|found| match found {
+                Located::At(entry) => Some(spot(entry)),
+                Located::Nowhere => None,
+                Located::Among(candidates) => {
+                    let (country, _) = countries
+                        .iter()
+                        .find(|(country, _)| candidates.iter().any(|e| e.country == *country))?;
+                    let local = candidates.iter().filter(|e| e.country == *country);
+                    let rank = local.clone().map(|e| kind_rank(e.kind)).min()?;
+                    let local: Vec<&Entry> = local
+                        .filter(|e| kind_rank(e.kind) == rank)
+                        .copied()
+                        .collect();
+                    clustered(&local)
+                }
+            })
+            .collect()
+    }
+
+    /// What a single label says on its own: a spot, or homonyms that only
+    /// the rest of the tree can tell apart.
+    fn resolve(&self, label: &str) -> Located<'_> {
+        let mut parts = label
+            .split(',')
+            .map(normalize_key)
+            .filter(|p| !p.is_empty());
+        let Some(name) = parts.next() else {
+            return Located::Nowhere;
+        };
+        let rest: Vec<String> = parts.collect();
+        let located = |e: &&Entry| !e.latitude.is_nan() && !e.longitude.is_nan();
+        let candidates: Vec<&Entry> = self.named(&name).filter(located).collect();
+        let score = |entry: &Entry| {
+            rest.iter()
+                .filter(|part| {
+                    self.get(entry.code).eq_ignore_ascii_case(part)
+                        || [entry.subdivision, entry.region, entry.country]
+                            .iter()
+                            .any(|&i| self.parts[usize::from(i)].folded.contains(part))
+                })
+                .count()
+        };
+        let Some(best) = candidates
+            .iter()
+            .max_by_key(|e| (score(e), e.current))
+            .copied()
+        else {
+            return Located::Nowhere;
+        };
+        if score(best) > 0 || clustered(&candidates).is_some() {
+            Located::At(best)
+        } else {
+            Located::Among(candidates)
         }
     }
 
@@ -606,6 +749,51 @@ mod tests {
         );
         assert!(dictionary.search(ReferenceLang::Fr, "bourg", 0).is_empty());
         assert!(dictionary.search(ReferenceLang::Fr, "ourg", 10).is_empty());
+    }
+
+    #[test]
+    fn a_label_is_located_by_its_name_and_what_follows_it() {
+        let dictionary = Dictionary::parse(ROWS);
+        assert_eq!(
+            dictionary.locate_all(&[
+                ("Bourg-A, 99001, Département A", 1),
+                ("hamlet a, England", 1),
+                // Located nowhere in the dictionary.
+                ("Bourg-Ancien", 1),
+                ("Nowhere A", 1),
+            ]),
+            [
+                Some((48.1_f32.into(), (-1.5_f32).into())),
+                Some((52.0_f32.into(), (-1.0_f32).into())),
+                None,
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_bare_homonym_is_read_in_the_country_the_tree_uses_most() {
+        let dictionary = Dictionary::parse(
+            r#""Ville-A","99001","Département A","Région A","France","commune","","","","48.0","-4.0","1"
+"Ville-A","","Département B","Région A","France","former_name","","","","44.0","1.0",""
+"Ville-A","01001","Kreis A","Land A","Allemagne","commune","","","","53.0","9.0","1"
+"Ville-B","99002","Département A","Région A","France","commune","","","","47.0","-1.0","1"
+"Ville-C","01002","Kreis A","Land A","Allemagne","commune","","","","52.0","10.0","1"
+"#,
+        );
+        let french = (48.0_f32.into(), (-4.0_f32).into());
+        let german = (53.0_f32.into(), 9.0_f32.into());
+        let located = |labels: &[(&str, i64)]| dictionary.locate_all(labels)[0];
+        assert_eq!(
+            located(&[("Ville-A", 1), ("Ville-B", 3), ("Ville-C", 2)]),
+            Some(french)
+        );
+        assert_eq!(
+            located(&[("Ville-A", 1), ("Ville-B", 2), ("Ville-C", 3)]),
+            Some(german)
+        );
+        // Nothing else in the tree tells the homonyms apart.
+        assert_eq!(located(&[("Ville-A", 1)]), None);
     }
 
     #[test]

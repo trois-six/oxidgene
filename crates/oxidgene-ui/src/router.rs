@@ -5,6 +5,7 @@
 
 use dioxus::prelude::*;
 
+use crate::pages::statistics::Statistics;
 use crate::pages::{
     app_settings::AppSettings, couple_detail::CoupleDetail, dictionary::Dictionary, home::Home,
     kinship::Kinship, not_found::NotFound, person_detail::PersonDetail,
@@ -73,6 +74,11 @@ pub enum Route {
     /// with usage counts.
     #[route("/trees/:tree_id/dictionary")]
     Dictionary { tree_id: String },
+
+    /// Statistics page for a tree: heat map of places, charts per period and
+    /// notable records.
+    #[route("/trees/:tree_id/statistics")]
+    Statistics { tree_id: String },
 
     /// Settings page for a tree.
     #[route("/trees/:tree_id/settings")]

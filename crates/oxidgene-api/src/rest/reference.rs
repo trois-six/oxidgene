@@ -78,3 +78,10 @@ pub async fn places(
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
+
+/// GET /api/v1/reference/basemap
+///
+/// The country outlines the statistics heat map is drawn over.
+pub async fn basemap() -> Json<&'static [reference::BasemapCountry]> {
+    Json(reference::basemap())
+}

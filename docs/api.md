@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
 ---
 
 
@@ -521,6 +521,38 @@ to by ID.
 
 Used by: [Person History](ui-person-history.md) · [Settings §11](ui-settings.md#11-section-history) (audit log)
 
+### Statistics
+
+Aggregates backing the [Statistics](ui-statistics.md) page, computed on each
+request from the person projections and place usages; nothing is stored.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/statistics?interval=25` | The tree's statistics with periods `interval` years wide: 10, 25 (default), 50 or 100; 400 otherwise, 404 for an unknown tree |
+
+The response carries the counts (`persons`, `men`, `women`, `unions`,
+`places`), `periods` (the first year of each period), the top ten family
+names, given names and occupations (`{label, count}`), the per-period series
+(`age_at_death`, `parents_age`, `age_at_first_union` split by sex or parent;
+`births_by_month`, `unions_by_weekday`, `unions_by_month` as percent shares,
+empty for a period without data; `union_duration`, `children_per_union`,
+`birth_spacing`, `first_last_child_gap`, `spouse_age_gap`, `null` for a
+period without data), the age `pyramid` in five-year bands, the notable
+lists (`recent_births`, `recent_deaths`, `recent_unions`,
+`oldest_possibly_alive`, `longest_lives`, up to 100 each, dates as recorded
+with their qualifier and calendar), and the places: `located_places` for the
+heat map, `top_places` (ten, located or not) and `unlocated_places`. A place
+without coordinates is located through the
+[place dictionary](place-dictionary.md) by its label at each request, a bare
+homonym being read in the countries the tree uses most
+([Statistics §3.1](ui-statistics.md)). The rules each figure follows are in
+[Statistics §5](ui-statistics.md).
+
+`GET /reference/basemap` serves the country outlines the heat map is drawn
+over: `[{iso, name, rings}]`, each ring a flat list of longitude and latitude
+pairs in tenths of a degree, from Natural Earth (public domain), embedded and
+Brotli-compressed like the place dictionary.
+
 ### Import / export
 
 GEDCOM and GEDZIP are read and written; GeneWeb `.gw` is read only — OxidGene
@@ -845,6 +877,8 @@ type Query {
   dictionarySources(treeId: ID!, prefix: String): [SourceDictionaryEntry!]!
   dictionarySourceDrill(treeId: ID!, prefix: String): SourceDictionaryDrill!
   dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
+  treeStatistics(treeId: ID!, interval: Int): TreeStatistics!
+  basemap: [BasemapCountry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   sourceUsage(treeId: ID!, sourceId: ID!): [PersonUsageEntry!]!

@@ -7,6 +7,7 @@
 //! on first lookup, into an in-memory table (see `loader.rs`). The place
 //! dictionary is committed already compressed (see `places.rs`).
 
+mod basemap;
 mod loader;
 mod places;
 
@@ -14,12 +15,14 @@ use std::collections::HashSet;
 
 use serde::Serialize;
 
+pub use basemap::{BasemapCountry, basemap};
 pub use loader::{
     GivenNameEntry, OccupationEntry, ReferenceLang, UNSUPPORTED_LANGUAGE, lookup_given_name,
     lookup_occupation, preheat,
 };
 pub use places::{
-    DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceSuggestion, search_places,
+    DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceSuggestion, locate_places,
+    search_places,
 };
 
 pub const MAX_REFERENCE_TERMS: usize = 128;

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
 ---
 
 # Assistant Access (MCP)
@@ -13,7 +13,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 > [App Settings](ui-app-settings.md) · [Cross-cutting Rules](cross-cutting.md)
 >
 > The first delivery is implemented; later phases are tracked in
-> [Roadmap §8](roadmap.md).
+> [Roadmap §9](roadmap.md).
 
 ---
 

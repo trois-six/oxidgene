@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::i18n::use_i18n;
+use crate::router::Route;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TreeSidebarView {
@@ -34,6 +35,12 @@ pub fn TreeIconSidebar(
     #[props(default)] children: Element,
 ) -> Element {
     let i18n = use_i18n();
+    let nav = use_navigator();
+    // The statistics button needs no callback: every tree page's route names
+    // its tree, and the button leads to that tree's statistics.
+    let route = use_route::<Route>();
+    let statistics_tree = tree_of(&route).map(str::to_string);
+    let on_statistics_page = matches!(route, Route::Statistics { .. });
 
     let profile_class = if active_view == TreeSidebarView::Profile {
         "isb-btn isb-btn-active"
@@ -138,7 +145,7 @@ pub fn TreeIconSidebar(
                 }
             }
 
-            if show_dictionary || show_settings {
+            if show_dictionary || show_settings || statistics_tree.is_some() {
                 div { class: "isb-hr" }
             }
 
@@ -156,6 +163,26 @@ pub fn TreeIconSidebar(
                         "strokeWidth": "2",
                         path { d: "M12 7v14" }
                         path { d: "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" }
+                    }
+                }
+            }
+
+            if let Some(tree_id) = statistics_tree.clone() {
+                button {
+                    class: if on_statistics_page { "isb-btn isb-btn-active" } else { "isb-btn" },
+                    title: "{i18n.t(\"stats.breadcrumb\")}",
+                    onclick: move |_| {
+                        nav.push(Route::Statistics { tree_id: tree_id.clone() });
+                    },
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        path { d: "M3 3v18h18" }
+                        path { d: "M7 15l4-4 3 3 5-6" }
                     }
                 }
             }
@@ -178,5 +205,19 @@ pub fn TreeIconSidebar(
                 }
             }
         }
+    }
+}
+
+/// The tree a tree page's route is about.
+fn tree_of(route: &Route) -> Option<&str> {
+    match route {
+        Route::TreeDetail { tree_id, .. }
+        | Route::PersonDetail { tree_id, .. }
+        | Route::CoupleDetail { tree_id, .. }
+        | Route::Dictionary { tree_id }
+        | Route::Statistics { tree_id }
+        | Route::Settings { tree_id }
+        | Route::SearchResults { tree_id, .. } => Some(tree_id),
+        _ => None,
     }
 }

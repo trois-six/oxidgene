@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
 ---
 
 
@@ -436,9 +436,10 @@ displayed. All icons use a consistent style: `stroke: currentColor`,
 | Person + plus | Person silhouette with a small plus | Add a person |
 | **separator** | Thin horizontal line | Visual divider |
 | Book/index | Open book (two overlapping page shapes) | Opens [Dictionary](ui-dictionary.md) for this tree |
+| Chart | Axes with a rising line | Opens [Statistics](ui-statistics.md) for this tree; shown on every tree page, found from the page's route |
 | Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](ui-settings.md) for this tree |
 
-This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view.
+This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view.
 
 **Depth selector — hover panel**:
 

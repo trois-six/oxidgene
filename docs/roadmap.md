@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -83,7 +83,16 @@ is generated. Remaining:
 - [ ] Decide whether Northern Ireland townlands and French lieux-dits justify
   a separately downloaded database.
 
-## 6. Planned: dictionary descent
+## 6. Statistics
+
+The [Statistics](ui-statistics.md) page (heat map of places over an offline
+basemap, charts per period, notable records) is delivered. Remaining:
+
+- [ ] PDF export of the statistics ([General §3.9](general.md)).
+- [ ] Try the heat map and the charts on large trees (tens of thousands of
+  persons) for load time and legibility.
+
+## 7. Planned: dictionary descent
 
 - [ ] Define descent grouping, including incomplete parentage and children who
   do not carry the surname.
@@ -91,7 +100,7 @@ is generated. Remaining:
 - [ ] Add the recursive view to the existing Dictionary page and specification.
 - [ ] Cover SOSA badges, limits, empty states, and large surname groups.
 
-## 7. Planned: security, release, and deployment
+## 8. Planned: security, release, and deployment
 
 - [ ] Implement authentication and session management.
 - [ ] Implement per-tree guest, read-only, and editor authorization.
@@ -120,7 +129,7 @@ is generated. Remaining:
 Privacy fields currently record intent but do not hide data. The UI must state
 this clearly until authorization is enforced.
 
-## 8. Planned: assistant access (MCP)
+## 9. Planned: assistant access (MCP)
 
 First delivery: read-only, stdio, desktop, with a required `tree_id` on every
 tool but `list_trees`.
@@ -153,7 +162,7 @@ Later phases, in order:
   two persons are related.
 - [ ] Output schemas, once the result types carry JSON Schema derives.
 
-## 9. Post-MVP: asynchronous processing
+## 10. Post-MVP: asynchronous processing
 
 - [ ] Define queue and worker architecture without a second source of truth.
 - [ ] Add chunked and resumable media uploads.
@@ -161,7 +170,7 @@ Later phases, in order:
 - [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
 
-## 10. Definition of done
+## 11. Definition of done
 
 An item is complete only when implementation and specifications agree; i18n
 keys have English/French parity; examples and artifacts are anonymized; REST

@@ -6,9 +6,11 @@
 //! Wikidata, then writes one CSV in the layout of Geneanet's
 //! `dico_place_fr.csv`, extended with columns of its own, and compresses it
 //! into `assets/places/places.csv.br`, which is committed and embedded into
-//! the binaries. The format, the sources and their licences are specified in
+//! the binaries. It also writes the Statistics page's basemap,
+//! `assets/basemap/countries.json.br`, from Natural Earth. The format, the sources and their licences are specified in
 //! `docs/place-dictionary.md`.
 
+mod basemap;
 mod belgium;
 mod calendar;
 mod fetch;
@@ -35,8 +37,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::fetch::Fetcher;
 
-const USAGE: &str =
-    "usage: oxidgene-place-dictionary [--out FILE] [--csv FILE] [--cache DIR] [--cached]";
+const USAGE: &str = "usage: oxidgene-place-dictionary [--out FILE] [--basemap FILE] [--csv FILE] [--cache DIR] [--cached]";
 
 /// The settings every embedded data file is compressed with; the API crate's
 /// build script uses the same. Quality 11 with a 16 MiB window gives the best
@@ -46,6 +47,8 @@ const BROTLI_WINDOW_BITS: u32 = 24;
 
 struct Args {
     out: PathBuf,
+    /// Where the heat map's basemap goes.
+    basemap: PathBuf,
     /// Also write the uncompressed CSV, to read it.
     csv: Option<PathBuf>,
     cache: PathBuf,
@@ -58,6 +61,7 @@ impl Args {
     fn parse() -> Result<Self> {
         let mut args = Self {
             out: PathBuf::from("assets/places/places.csv.br"),
+            basemap: PathBuf::from("assets/basemap/countries.json.br"),
             csv: None,
             cache: PathBuf::from("target/place-dictionary"),
             cached: false,
@@ -66,6 +70,7 @@ impl Args {
         while let Some(arg) = raw.next() {
             match arg.as_str() {
                 "--out" => args.out = raw.next().context(USAGE)?.into(),
+                "--basemap" => args.basemap = raw.next().context(USAGE)?.into(),
                 "--csv" => args.csv = Some(raw.next().context(USAGE)?.into()),
                 "--cache" => args.cache = raw.next().context(USAGE)?.into(),
                 "--cached" => args.cached = true,
@@ -74,6 +79,20 @@ impl Args {
         }
         Ok(args)
     }
+}
+
+fn compress(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut compressed = Vec::new();
+    {
+        let mut encoder = brotli::CompressorWriter::new(
+            &mut compressed,
+            1 << 16,
+            BROTLI_QUALITY,
+            BROTLI_WINDOW_BITS,
+        );
+        encoder.write_all(bytes)?;
+    }
+    Ok(compressed)
 }
 
 #[tokio::main]
@@ -98,16 +117,7 @@ async fn main() -> Result<()> {
         std::fs::write(path, &csv).with_context(|| format!("cannot write {}", path.display()))?;
     }
     eprintln!("compressing {rows} places");
-    let mut compressed = Vec::new();
-    {
-        let mut encoder = brotli::CompressorWriter::new(
-            &mut compressed,
-            1 << 16,
-            BROTLI_QUALITY,
-            BROTLI_WINDOW_BITS,
-        );
-        encoder.write_all(csv.as_bytes())?;
-    }
+    let compressed = compress(csv.as_bytes())?;
     if let Some(dir) = args.out.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -117,6 +127,16 @@ async fn main() -> Result<()> {
         "{rows} places, {} bytes, written to {}",
         compressed.len(),
         args.out.display()
+    );
+
+    let map = compress(basemap::basemap(&fetcher).await?.as_bytes())?;
+    std::fs::create_dir_all(args.basemap.parent().unwrap_or(std::path::Path::new(".")))?;
+    std::fs::write(&args.basemap, &map)
+        .with_context(|| format!("cannot write {}", args.basemap.display()))?;
+    eprintln!(
+        "basemap, {} bytes, written to {}",
+        map.len(),
+        args.basemap.display()
     );
     Ok(())
 }

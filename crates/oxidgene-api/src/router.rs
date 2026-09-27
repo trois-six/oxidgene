@@ -362,6 +362,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/dictionary/places/{place_id}/usage",
             get(dictionary::place_usage),
+        )
+        .route(
+            "/{tree_id}/statistics",
+            get(crate::rest::statistics::statistics),
         );
 
     let profile_routes = Router::new()
@@ -487,6 +491,7 @@ pub fn build_router(state: AppState) -> Router {
     // Static reference content (occupation sheets, given-name meanings, the
     // place dictionary) — not tied to a tree, so kept out of the `/trees` nest.
     let reference_routes = Router::new()
+        .route("/basemap", get(reference::basemap))
         .route("/{lang}/places", get(reference::places))
         .route("/{lang}/occupations", get(reference::occupation))
         .route("/{lang}/occupations/bundle", post(reference::occupations))

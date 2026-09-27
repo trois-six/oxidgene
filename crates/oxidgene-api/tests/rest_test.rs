@@ -3489,3 +3489,52 @@ async fn test_profile_routes() {
         assert_eq!(status, StatusCode::NOT_FOUND, "still routed: {path}");
     }
 }
+
+// ───────────────────────── Statistics ─────────────────────────
+
+#[tokio::test]
+async fn statistics_count_the_tree_and_its_ages() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_named_person_via_api(&app, &tree_id, "male", "Jean", "BRANCH_A").await;
+    for (kind, date) in [("birth", "3 MAR 1820"), ("death", "3 MAR 1890")] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/events"),
+            Some(serde_json::json!({
+                "event_type": kind,
+                "date_value": date,
+                "person_id": person_id,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/statistics?interval=50"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["persons"], 1);
+    assert_eq!(body["men"], 1);
+    assert_eq!(body["interval"], 50);
+    assert_eq!(body["top_surnames"][0]["label"], "BRANCH_A");
+    let periods = body["periods"].as_array().unwrap();
+    let at = periods.iter().position(|p| p == 1850).unwrap();
+    assert_eq!(body["age_at_death"]["men"][at], 70.0);
+    assert_eq!(body["longest_lives"][0]["age"], 70);
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/statistics?interval=30"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

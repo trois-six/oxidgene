@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
 ---
 
 
@@ -218,7 +218,9 @@ Data built into the backend is Brotli-compressed, at quality 11 with a
     sources stay plain in git;
 - the [place dictionary](place-dictionary.md), committed already compressed
     as `assets/places/places.csv.br` because it is generated from online
-    sources by `just places`, never by a build.
+    sources by `just places`, never by a build, and likewise the country
+    outlines of the [statistics](ui-statistics.md) heat map,
+    `assets/basemap/countries.json.br`.
 
 Brotli was chosen over xz and zstd after measuring on the place dictionary:
 at its best quality it compresses the 18 MB CSV to 1.58 MB (xz -6: 1.68 MB,
@@ -360,7 +362,7 @@ Redis links are dashed because the chart can provision their infrastructure,
 but authenticated session storage is not implemented yet.
 
 - The release images, development Compose stack, and Kubernetes deliverables
-    are tracked in [Roadmap §7](roadmap.md).
+    are tracked in [Roadmap §8](roadmap.md).
 
 ### 8.2 Desktop Distribution
 
@@ -373,7 +375,7 @@ but authenticated session storage is not implemented yet.
 - The [place dictionary](place-dictionary.md) is built into the binary
     ([§7.1](#71-embedded-data)); place suggestions need no download.
 - Release artifacts and their platform verification are tracked in
-    [Roadmap §7](roadmap.md).
+    [Roadmap §8](roadmap.md).
 
 ---
 
