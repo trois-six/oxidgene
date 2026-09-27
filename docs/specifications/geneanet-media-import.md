@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-09-14T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -324,7 +324,24 @@ stored rendition's dimensions are known.
 
 References and identifications remain separate concepts on import. Each
 distinct person or resolved event creates one `MediaLink` to the single image
-or, for a multi-page deposit, to the document parent. A reference carrying a
+or, for a multi-page deposit, to the document parent.
+
+**Geneanet has no couple media.** Its media manager attaches a media only to
+people, so a wedding photograph arrives as one reference on each spouse, each
+carrying the marriage. A reference whose event resolves to a family event of a
+couple the person is a spouse of belongs to that couple. The media is linked
+to the family once, and that spouse gets no person link. Couple events include
+marriage, contract and divorce.
+
+A spouse keeps their person link in two cases:
+- another reference of theirs on the same deposit carries no event, or an
+  individual event;
+- the `.gw` names that view as their portrait.
+
+A face box still creates the spouse's identification either way. The
+[Couple Profile](ui-couple-profile.md) then shows the media once, among the
+couple's media, rather than in each spouse's column. A reference whose event
+does not resolve keeps its person link. A reference carrying a
 `face.position` additionally creates a `Vignette` on the page media resolved
 from that reference's `viewId`. The same person can therefore have one
 document link and several page identifications. The viewer suppresses the

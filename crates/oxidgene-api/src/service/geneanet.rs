@@ -13,7 +13,7 @@
 //! this process. What is left for the server is the part a browser cannot do —
 //! reading the archives, joining, and writing rows.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -491,8 +491,8 @@ pub struct GeneanetImportSummary {
     pub notes_count: usize,
     /// Distinct photos stored.
     pub media_count: usize,
-    /// Person↔photo rows written; higher than `media_count` when a photo shows
-    /// several people.
+    /// Person↔photo and couple↔photo rows written; higher than `media_count`
+    /// when a photo shows several people.
     pub links_count: usize,
     /// Links marked as the person's profile photo, from the `.gw`'s `#image`.
     pub portraits_count: usize,
@@ -743,7 +743,7 @@ async fn attach_media(
         // they are, whether this deposit holds their portrait, and where on
         // the picture they were boxed.
         let mut people: Vec<Attached> = Vec::new();
-        let mut event_references: Vec<(Uuid, GeneanetEvent)> = Vec::new();
+        let mut references: Vec<LinkReference> = Vec::new();
         for attachment in &attachments {
             // `GwDatabase::persons[i]` becomes the individual with xref
             // `@I{i+1}@` — the positional correspondence the whole join rests
@@ -760,9 +760,14 @@ async fn attach_media(
             let is_portrait = portraits
                 .get(&xref)
                 .is_some_and(|view_id| *view_id == attachment.view_id);
-            if let Some(event) = attachment.event.clone() {
-                event_references.push((person_id, event));
-            }
+            references.push(LinkReference {
+                person_id,
+                is_portrait,
+                event: attachment
+                    .event
+                    .as_ref()
+                    .and_then(|event| event_matcher.resolve(person_id, event)),
+            });
             people.push(Attached {
                 person_id,
                 is_portrait,
@@ -823,22 +828,14 @@ async fn attach_media(
             }
         };
 
-        // Several people in a group photograph may each point at the shared
-        // family event. The link belongs to the file, so persist it once.
-        let mut linked_event_ids = std::collections::HashSet::new();
-        for (person_id, event) in event_references {
-            let Some(event_id) = event_matcher.resolve(person_id, &event) else {
-                continue;
-            };
-            if !linked_event_ids.insert(event_id) {
-                continue;
-            }
+        let plan = plan_deposit_links(&references);
+        for event_id in &plan.event_ids {
             if let Err(err) = MediaLinkRepo::create(
                 db,
                 Uuid::now_v7(),
                 owner,
                 None,
-                Some(event_id),
+                Some(*event_id),
                 None,
                 None,
                 0,
@@ -846,9 +843,25 @@ async fn attach_media(
             .await
             {
                 summary.skipped.push(format!(
-                    "deposit {deposit_id}: could not link Geneanet event {}: {err}",
-                    event.id
+                    "deposit {deposit_id}: could not link event {event_id}: {err}"
                 ));
+            }
+        }
+        for (order, family_id) in plan.family_ids.iter().enumerate() {
+            match MediaLinkRepo::create(
+                db,
+                Uuid::now_v7(),
+                owner,
+                None,
+                None,
+                None,
+                Some(*family_id),
+                i32::try_from(order).unwrap_or(0),
+            )
+            .await
+            {
+                Ok(_) => summary.links_count += 1,
+                Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
             }
         }
 
@@ -878,7 +891,10 @@ async fn attach_media(
             }
         }
 
-        for (order, (person_id, portrait_view)) in linked_people(&people).into_iter().enumerate() {
+        let own_links = linked_people(&people)
+            .into_iter()
+            .filter(|(person_id, _)| !plan.filed_under_couple.contains(person_id));
+        for (order, (person_id, portrait_view)) in own_links.enumerate() {
             let created = MediaLinkRepo::create(
                 db,
                 Uuid::now_v7(),
@@ -928,6 +944,61 @@ struct Attached {
     /// The page they were identified on.
     view_id: i64,
     face: Option<oxidgene_geneanet::model::FacePosition>,
+}
+
+/// One Geneanet reference of a deposit, with the imported event it names.
+struct LinkReference {
+    person_id: Uuid,
+    /// The `.gw` named this reference's view as the person's portrait.
+    is_portrait: bool,
+    event: Option<ResolvedEvent>,
+}
+
+/// What a deposit's references become beyond identifications.
+#[derive(Debug, Default, PartialEq)]
+struct DepositLinks {
+    /// Events the media documents, each once, in first-seen order.
+    event_ids: Vec<Uuid>,
+    /// Couples the media belongs to, each once, in first-seen order.
+    family_ids: Vec<Uuid>,
+    /// People whose link the couple's replaces.
+    filed_under_couple: HashSet<Uuid>,
+}
+
+/// Geneanet can only attach a media to people, so a wedding photograph comes
+/// as a reference on each spouse, carrying the marriage. Such a reference
+/// belongs to the couple: the media is filed under the family instead of the
+/// spouse. A spouse keeps their own link when any other reference of theirs
+/// on the deposit is not a couple event, or when the `.gw` names the
+/// deposit their portrait. A face box is kept either way, as an
+/// identification.
+fn plan_deposit_links(references: &[LinkReference]) -> DepositLinks {
+    let mut plan = DepositLinks::default();
+    let mut keeps_own_link = HashSet::new();
+    for reference in references {
+        if let Some(event) = &reference.event
+            && !plan.event_ids.contains(&event.id)
+        {
+            // Several people in a group photograph may each point at the
+            // shared family event. The link belongs to the file, so it is
+            // written once.
+            plan.event_ids.push(event.id);
+        }
+        match reference.event.as_ref().and_then(|event| event.family_id) {
+            Some(family_id) if !reference.is_portrait => {
+                if !plan.family_ids.contains(&family_id) {
+                    plan.family_ids.push(family_id);
+                }
+                plan.filed_under_couple.insert(reference.person_id);
+            }
+            _ => {
+                keeps_own_link.insert(reference.person_id);
+            }
+        }
+    }
+    plan.filed_under_couple
+        .retain(|person_id| !keeps_own_link.contains(person_id));
+    plan
 }
 
 /// Each person this deposit names, once, with the view the `.gw` called their
@@ -983,9 +1054,20 @@ struct GeneanetEventMatcher {
 
 struct ImportedEvent {
     id: Uuid,
+    /// The couple, for a family event indexed under one of its spouses.
+    family_id: Option<Uuid>,
     event_type: EventType,
     date: Option<NaiveDate>,
     place: Option<String>,
+}
+
+/// The imported event a Geneanet reference names.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ResolvedEvent {
+    id: Uuid,
+    /// Set when it is an event of a couple the referenced person is a
+    /// spouse of.
+    family_id: Option<Uuid>,
 }
 
 impl GeneanetEventMatcher {
@@ -1001,6 +1083,7 @@ impl GeneanetEventMatcher {
         for event in &result.events {
             let candidate = ImportedEvent {
                 id: event.id,
+                family_id: event.family_id.filter(|_| event.person_id.is_none()),
                 event_type: event.event_type,
                 date: event.date_sort,
                 place: event.place_id.and_then(|id| places.get(&id).cloned()),
@@ -1025,6 +1108,7 @@ impl GeneanetEventMatcher {
                     .or_default()
                     .extend(events.iter().map(|event| ImportedEvent {
                         id: event.id,
+                        family_id: event.family_id,
                         event_type: event.event_type,
                         date: event.date,
                         place: event.place.clone(),
@@ -1037,7 +1121,7 @@ impl GeneanetEventMatcher {
         }
     }
 
-    fn resolve(&self, person_id: Uuid, source: &GeneanetEvent) -> Option<Uuid> {
+    fn resolve(&self, person_id: Uuid, source: &GeneanetEvent) -> Option<ResolvedEvent> {
         let event_type = geneanet_event_type(source.name.as_deref())?;
         let date = source
             .date
@@ -1057,7 +1141,10 @@ impl GeneanetEventMatcher {
             })
             .collect();
         match matches.as_slice() {
-            [candidate] => Some(candidate.id),
+            [candidate] => Some(ResolvedEvent {
+                id: candidate.id,
+                family_id: candidate.family_id,
+            }),
             _ => None,
         }
     }
@@ -3223,6 +3310,7 @@ mod tests {
             person_id,
             vec![ImportedEvent {
                 id: event_id,
+                family_id: None,
                 event_type: EventType::Marriage,
                 date: NaiveDate::from_ymd_opt(1912, 6, 15),
                 place: Some(place_key("Paris, France")),
@@ -3230,10 +3318,12 @@ mod tests {
         );
 
         assert_eq!(
-            matcher.resolve(
-                person_id,
-                &geneanet_event("gw_event_marriage", "1912-06-15", Some("Paris, France")),
-            ),
+            matcher
+                .resolve(
+                    person_id,
+                    &geneanet_event("gw_event_marriage", "1912-06-15", Some("Paris, France")),
+                )
+                .map(|event| event.id),
             Some(event_id)
         );
         assert_eq!(
@@ -3251,6 +3341,7 @@ mod tests {
         let candidates = (0..2)
             .map(|_| ImportedEvent {
                 id: Uuid::now_v7(),
+                family_id: None,
                 event_type: EventType::Death,
                 date: NaiveDate::from_ymd_opt(1944, 8, 20),
                 place: None,
@@ -3265,6 +3356,111 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn a_marriage_resolves_to_its_couple_from_either_spouse() {
+        let gw: &[u8] =
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 +12/5/1890 BRANCH_B person_b.0\n";
+        let result = oxidgene_gedcom::geneweb::import_geneweb(gw, "tree.gw", Uuid::now_v7())
+            .expect("the .gw parses");
+        let family_id = result.families[0].id;
+        let matcher = GeneanetEventMatcher::from_import(&result);
+        let marriage = geneanet_event("gw_event_marriage", "1890-05-12", None);
+
+        for xref in ["@I1@", "@I2@"] {
+            let spouse = result.person_by_xref[xref];
+            let resolved = matcher.resolve(spouse, &marriage).expect(xref);
+            assert_eq!(resolved.family_id, Some(family_id), "{xref}");
+        }
+    }
+
+    fn couple_event(family_id: Uuid, event_id: Uuid) -> Option<ResolvedEvent> {
+        Some(ResolvedEvent {
+            id: event_id,
+            family_id: Some(family_id),
+        })
+    }
+
+    #[test]
+    fn a_wedding_photograph_is_filed_under_the_couple_not_the_spouses() {
+        let (husband, wife, guest) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let (family, marriage) = (Uuid::now_v7(), Uuid::now_v7());
+        let references = [
+            LinkReference {
+                person_id: husband,
+                is_portrait: false,
+                event: couple_event(family, marriage),
+            },
+            LinkReference {
+                person_id: wife,
+                is_portrait: false,
+                event: couple_event(family, marriage),
+            },
+            LinkReference {
+                person_id: guest,
+                is_portrait: false,
+                event: None,
+            },
+        ];
+
+        let plan = plan_deposit_links(&references);
+
+        assert_eq!(plan.event_ids, vec![marriage]);
+        assert_eq!(plan.family_ids, vec![family]);
+        assert_eq!(plan.filed_under_couple, HashSet::from([husband, wife]));
+    }
+
+    #[test]
+    fn a_spouse_keeps_their_link_for_another_reference_or_a_portrait() {
+        let (husband, wife) = (Uuid::now_v7(), Uuid::now_v7());
+        let (family, marriage, birth) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let references = [
+            // A family record: the marriage on one page, the husband's own
+            // birth on another.
+            LinkReference {
+                person_id: husband,
+                is_portrait: false,
+                event: couple_event(family, marriage),
+            },
+            LinkReference {
+                person_id: husband,
+                is_portrait: false,
+                event: Some(ResolvedEvent {
+                    id: birth,
+                    family_id: None,
+                }),
+            },
+            // The wedding photograph is also the wife's portrait.
+            LinkReference {
+                person_id: wife,
+                is_portrait: true,
+                event: couple_event(family, marriage),
+            },
+        ];
+
+        let plan = plan_deposit_links(&references);
+
+        assert_eq!(plan.event_ids, vec![marriage, birth]);
+        assert_eq!(plan.family_ids, vec![family]);
+        assert!(plan.filed_under_couple.is_empty());
+    }
+
+    #[test]
+    fn an_individual_event_keeps_the_media_on_the_person() {
+        let person = Uuid::now_v7();
+        let birth = Uuid::now_v7();
+        let plan = plan_deposit_links(&[LinkReference {
+            person_id: person,
+            is_portrait: false,
+            event: Some(ResolvedEvent {
+                id: birth,
+                family_id: None,
+            }),
+        }]);
+
+        assert!(plan.family_ids.is_empty());
+        assert!(plan.filed_under_couple.is_empty());
     }
 
     #[test]
