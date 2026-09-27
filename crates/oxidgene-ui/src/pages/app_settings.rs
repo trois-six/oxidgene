@@ -570,7 +570,7 @@ fn ApiSection() -> Element {
 // ── AI assistant (MCP) ──────────────────────────────────────────────────────
 
 /// The "AI assistant (MCP)" card, following the API endpoints card in the
-/// same section (`docs/specifications/ui-app-settings.md` §8).
+/// same section (`docs/ui-app-settings.md` §8).
 ///
 /// Desktop-only: an MCP client needs the absolute path of the running
 /// executable, which only exists once there is a running executable to

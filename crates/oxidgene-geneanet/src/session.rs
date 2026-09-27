@@ -16,7 +16,7 @@
 //!   4: by then the media the archives could not account for have been fetched
 //!   too, and they travel with it.
 //! - **A record.** The mapping is the part that cannot be recovered from the
-//!   exports (see `docs/specifications/geneanet-media-import.md` §1); having
+//!   exports (see `docs/geneanet-media-import.md` §1); having
 //!   it on disk means it survives Geneanet changing its API.
 //!
 //! # One file, however far you got

@@ -6,7 +6,7 @@
 //! Wikidata, then writes one CSV per language in the layout of Geneanet's
 //! `dico_place_*.csv`, extended with columns of its own. The format, the
 //! sources and their licences are specified in
-//! `docs/specifications/place-dictionary.md`.
+//! `docs/place-dictionary.md`.
 
 mod fetch;
 mod france;

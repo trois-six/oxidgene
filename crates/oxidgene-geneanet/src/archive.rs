@@ -23,7 +23,7 @@
 //! [`PhashIndex`] and [`crate::phash`], which document the measurement behind
 //! the thresholds and why a clash there is *detected* rather than resolved.
 //!
-//! See `docs/specifications/geneanet-media-import.md` §5.
+//! See `docs/geneanet-media-import.md` §5.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;

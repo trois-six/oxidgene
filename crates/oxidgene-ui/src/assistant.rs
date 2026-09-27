@@ -1,6 +1,6 @@
 //! The seam between App Settings and the desktop binary's `mcp` subcommand.
 //!
-//! The App Settings API section (`docs/specifications/ui-app-settings.md`
+//! The App Settings API section (`docs/ui-app-settings.md`
 //! §8) shows how to point an MCP client — Claude Desktop, Claude Code, or any
 //! other stdio client — at this application's assistant server. Building
 //! that server, and knowing the absolute path of the running executable, are
@@ -14,7 +14,7 @@
 //! instead of a command that could not run.
 //!
 //! The server itself, its tools, and the consent model are specified in
-//! `docs/specifications/mcp.md`.
+//! `docs/mcp.md`.
 
 use dioxus::prelude::*;
 

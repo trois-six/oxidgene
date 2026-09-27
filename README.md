@@ -1,12 +1,12 @@
 # OxidGene
 
 <p align="center">
-	<img src="docs/assets/OxidGene.png" alt="OxidGene Logo" width="300">
+	<img src="assets/OxidGene.png" alt="OxidGene Logo" width="300">
 </p>
 
 A modern, high-performance genealogy platform built entirely in Rust.
 
-Start with the [OxidGene Quickstart](docs/specifications/quickstart.md) to run
+Start with the [OxidGene Quickstart](docs/quickstart.md) to run
 the desktop application, the Docker Compose stack, or a Kubernetes deployment.
 
 ## Screenshots
@@ -14,15 +14,15 @@ the desktop application, the Docker Compose stack, or a Kubernetes deployment.
 <table>
 	<tr>
 		<td rowspan="2" width="68%">
-			<img src="docs/assets/screenshot2.png" alt="OxidGene interactive genealogy tree">
+			<img src="assets/screenshot2.png" alt="OxidGene interactive genealogy tree">
 		</td>
 		<td width="32%">
-			<img src="docs/assets/screenshot1.png" alt="OxidGene tree dashboard">
+			<img src="assets/screenshot1.png" alt="OxidGene tree dashboard">
 		</td>
 	</tr>
 	<tr>
 		<td width="32%">
-			<img src="docs/assets/screenshot3.png" alt="OxidGene person detail page">
+			<img src="assets/screenshot3.png" alt="OxidGene person detail page">
 		</td>
 	</tr>
 </table>
@@ -54,26 +54,26 @@ OxidGene is a multiplatform genealogy application featuring:
 ## Documentation
 
 Full specifications are available in
-[`docs/specifications/`](docs/specifications/index.md):
+[`docs/`](docs/index.md):
 
-- [Quickstart](docs/specifications/quickstart.md) - installation and deployment
+- [Quickstart](docs/quickstart.md) - installation and deployment
 	paths.
-- [General](docs/specifications/general.md) - vision, users, features, and MVP
+- [General](docs/general.md) - vision, users, features, and MVP
 	scope.
-- [Architecture](docs/specifications/architecture.md) - technology stack,
+- [Architecture](docs/architecture.md) - technology stack,
 	crate layout, build, and deployment.
-- [Data Model](docs/specifications/data-model.md) - entities, enums, and ERD.
-- [API Contract](docs/specifications/api.md) - REST and GraphQL endpoints.
-- [Roadmap](docs/specifications/roadmap.md) - delivery status and milestones.
-- UI specifications: [Homepage](docs/specifications/ui-home.md),
-	[Tree View](docs/specifications/ui-genealogy-tree.md),
-	[Person Edit](docs/specifications/ui-person-edit-modal.md), and
-	[Settings](docs/specifications/ui-settings.md).
+- [Data Model](docs/data-model.md) - entities, enums, and ERD.
+- [API Contract](docs/api.md) - REST and GraphQL endpoints.
+- [Roadmap](docs/roadmap.md) - delivery status and milestones.
+- UI specifications: [Homepage](docs/ui-home.md),
+	[Tree View](docs/ui-genealogy-tree.md),
+	[Person Edit](docs/ui-person-edit-modal.md), and
+	[Settings](docs/ui-settings.md).
 
 ## Development
 
 The development environment, prerequisites, and `just` command reference are
-documented in [Development](docs/specifications/development.md).
+documented in [Development](docs/development.md).
 
 ## License
 

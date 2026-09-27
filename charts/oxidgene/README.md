@@ -1,7 +1,7 @@
 # OxidGene Helm Chart
 
 The canonical installation guide and complete values reference are in the
-[Kubernetes section of the OxidGene Quickstart](../../docs/specifications/quickstart.md#4-deploy-to-kubernetes-with-helm).
+[Kubernetes section of the OxidGene Quickstart](../../docs/quickstart.md#4-deploy-to-kubernetes-with-helm).
 
 This chart deploys the OxidGene web frontend and backend. For durable stateless
 deployments, it can consume an existing PostgreSQL database or create one

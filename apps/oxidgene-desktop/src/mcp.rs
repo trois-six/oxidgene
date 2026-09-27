@@ -4,7 +4,7 @@
 //! no WebView, no background job worker, no purge worker and no job recovery —
 //! the desktop window, which may be open on the same database at the same
 //! time, owns all of those. Requeuing jobs here would restart an import that
-//! window is still running. See `docs/specifications/mcp.md` §4.
+//! window is still running. See `docs/mcp.md` §4.
 
 use std::path::Path;
 

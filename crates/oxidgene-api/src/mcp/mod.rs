@@ -8,7 +8,7 @@
 //!
 //! The server owns no background work: it holds a database connection and a
 //! [`ProfileService`] and nothing else, so it can run in a second process
-//! beside an open desktop window. See `docs/specifications/mcp.md`.
+//! beside an open desktop window. See `docs/mcp.md`.
 
 use std::future::Future;
 use std::sync::Arc;

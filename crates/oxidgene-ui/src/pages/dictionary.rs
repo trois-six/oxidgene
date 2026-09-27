@@ -1,6 +1,6 @@
 //! Dictionary page: read-only index of family names, sources, places, and
 //! occupations across a tree, each paired with a usage count. See
-//! `docs/specifications/ui-dictionary.md`.
+//! `docs/ui-dictionary.md`.
 
 use std::collections::HashSet;
 

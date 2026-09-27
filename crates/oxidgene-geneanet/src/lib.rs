@@ -7,7 +7,7 @@
 //!
 //! The media manager's API still has all of it, so we collect it separately
 //! and join it back onto the tree by GeneWeb key. See
-//! `docs/specifications/geneanet-media-import.md` for why this is the only
+//! `docs/geneanet-media-import.md` for why this is the only
 //! surface that knows about it.
 //!
 //! This crate is the platform-independent half, shared by the CLI (headless

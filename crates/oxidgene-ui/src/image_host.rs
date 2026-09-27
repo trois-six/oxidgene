@@ -12,7 +12,7 @@
 //!   and handed over as a `data:` URL, which is what every picture used to be.
 //!
 //! Either way no backend address reaches the markup, which is what
-//! `docs/specifications/cross-cutting.md` §7.1 requires until authentication
+//! `docs/cross-cutting.md` §7.1 requires until authentication
 //! ships.
 
 use std::sync::Arc;

@@ -9,7 +9,7 @@
 //! - [`invalidation`] — computes which projections a mutation affects
 //! - [`service`] — orchestrates reads, rebuilds and pedigree assembly
 //!
-//! See `docs/specifications/data-model.md` for the read-model architecture.
+//! See `docs/data-model.md` for the read-model architecture.
 
 pub mod builder;
 pub mod invalidation;

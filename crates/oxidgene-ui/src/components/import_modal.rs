@@ -5,7 +5,7 @@
 //! behind a logged-in session, and most users have never heard of a `.gw`
 //! file. So the Geneanet side is as much a set of instructions as a form.
 //!
-//! See `docs/specifications/ui-import.md`.
+//! See `docs/ui-import.md`.
 //!
 //! # Shape
 //!

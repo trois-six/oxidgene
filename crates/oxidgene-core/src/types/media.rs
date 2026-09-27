@@ -276,7 +276,7 @@ impl ImageCrop {
 /// A held variant names the resource, not a URL. Turning it into something
 /// drawable is the client's business, and deliberately so: until authentication
 /// ships, no backend address may appear in the markup (see
-/// `docs/specifications/cross-cutting.md` §7.1).
+/// `docs/cross-cutting.md` §7.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ImageSource {

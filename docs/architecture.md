@@ -366,9 +366,8 @@ oxidgene/
 ├── Cargo.toml              # Workspace root
 ├── justfile                # Build orchestration
 ├── README.md               # Global README
-├── docs/
-│   ├── specifications/     # This directory
-│   └── assets/             # Logos in other assets
+├── assets/                 # Logos, screenshots, generated reference data
+├── docs/                   # Specifications (this directory)
 ├── crates/
 │   ├── oxidgene-core/      # Domain types, enums, error types
 │   ├── oxidgene-db/        # SeaORM entities + migrations
@@ -381,7 +380,7 @@ oxidgene/
 │   ├── oxidgene-worker/    # Web background-job worker
 │   ├── oxidgene-web/       # Browser frontend (Dioxus/WASM)
 │   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + Dioxus WebView)
-│   ├── oxidgene-place-dictionary/  # Place dictionary generator (development tool)
+│   └── oxidgene-place-dictionary/  # Place dictionary generator (development tool)
 └── docker/                 # Docker files
 ```
 

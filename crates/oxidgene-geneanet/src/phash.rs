@@ -35,7 +35,7 @@
 //! is what turns "two candidates look equally good" into a *detected* clash
 //! rather than a coin toss. This crate never attaches on a probable match —
 //! an ambiguous page is downloaded instead. See
-//! `docs/specifications/geneanet-media-import.md` §5.
+//! `docs/geneanet-media-import.md` §5.
 
 use std::io::Cursor;
 

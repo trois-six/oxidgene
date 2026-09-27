@@ -2,7 +2,7 @@
 //!
 //! A picture the backend holds is addressed by an [`ImageSource`], never by a
 //! URL: until authentication ships, no backend address may appear in the markup
-//! (`docs/specifications/cross-cutting.md` §7.1). The web build satisfies that
+//! (`docs/cross-cutting.md` §7.1). The web build satisfies that
 //! by fetching each picture through the typed client and handing it over as a
 //! `data:` URL.
 //!

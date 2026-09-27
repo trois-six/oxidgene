@@ -22,7 +22,7 @@
 //!
 //! Issuing the requests in a real browser engine, on the user's own session,
 //! against their own data, is not a way around that check: it is the thing the
-//! check is asking for. See `docs/specifications/geneanet-media-import.md` §8.
+//! check is asking for. See `docs/geneanet-media-import.md` §8.
 
 use std::collections::HashMap;
 use std::sync::Arc;

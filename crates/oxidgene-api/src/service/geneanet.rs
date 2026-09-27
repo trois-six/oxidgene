@@ -4,7 +4,7 @@
 //! and the join key; a mapping collected from Geneanet's media API carries
 //! which photo belongs to whom; the user's own data archives — read where they
 //! lie, still zipped — carry the original bytes. See
-//! `docs/specifications/geneanet-media-import.md` for why none of the three is
+//! `docs/geneanet-media-import.md` for why none of the three is
 //! sufficient alone.
 //!
 //! The collection and the per-deposit byte lengths arrive already gathered:
@@ -148,7 +148,7 @@ fn file_name_of(path: &Path) -> String {
 /// login: every page is taken from Geneanet's own largest per-page variant.
 ///
 /// `normal` is provenance-unknown (see
-/// `docs/specifications/geneanet-media-import.md` §4): sometimes the uploaded
+/// `docs/geneanet-media-import.md` §4): sometimes the uploaded
 /// bytes, more often a re-encoding, and always a JPEG where the deposit was a
 /// PDF. That is the trade this makes, and it is the default because it is the
 /// only path a user with no data archive can take at all.

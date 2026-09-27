@@ -734,7 +734,7 @@ discard all files staged by that attempt.
 
 `session.json` *is* the collection JSON with the deposit sizes, the media names
 and a format version added beside it.
-[`BrowserCollection`](../../crates/oxidgene-geneanet/src/model.rs) ignores
+[`BrowserCollection`](../crates/oxidgene-geneanet/src/model.rs) ignores
 fields it does not know, so unzipping a session gives you a file the manifest
 builder reads unchanged — the mapping stays inspectable, which matters for the
 one thing no export can carry.

@@ -11,17 +11,17 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
 
 ### Specifications are authoritative
 
-- Read the relevant document in `docs/specifications/` before changing a
+- Read the relevant document in `docs/` before changing a
   feature, data model, API, workflow, or visual behavior.
 - Update the affected specifications in the same change as the implementation.
 - Specifications describe the current product, its contracts, and exceptional
   workflows. They are not a chronological development journal.
 - Keep delivery status, active work, and future milestones in
-  `docs/specifications/roadmap.md`, not in this file or in product
+  `docs/roadmap.md`, not in this file or in product
   specifications.
-- Update `docs/specifications/index.md` whenever a specification is added,
+- Update `docs/index.md` whenever a specification is added,
   removed, renamed, or superseded.
-- Keep `docs/specifications/` a conformant
+- Keep `docs/` a conformant
   [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)
   bundle: every specification needs YAML frontmatter with a `type`, and
   `generated.at` must be updated on every substantive edit. Read the full rules
@@ -105,8 +105,8 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
 
 ## Specification Map
 
-All specifications live in `docs/specifications/`. Start with
-`docs/specifications/index.md`, then read the documents relevant to the change:
+All specifications live in `docs/`. Start with
+`docs/index.md`, then read the documents relevant to the change:
 
 | Area | Primary specification |
 |------|-----------------------|
@@ -210,5 +210,5 @@ validation described under Git and delivery.
 
 ## Assets
 
-The application logo is available as `docs/assets/OxidGene.png` and
-`docs/assets/OxidGene.svg`.
+The application logo is available as `assets/OxidGene.png` and
+`assets/OxidGene.svg`.

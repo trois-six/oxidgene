@@ -286,7 +286,7 @@ export to it with
 when the variable is absent.
 
 Kubernetes deployment and both supported S3 modes are documented in the
-[OxidGene Helm chart](../../charts/oxidgene/README.md).
+[OxidGene Helm chart](../charts/oxidgene/README.md).
 
 ## 4. Responsive Visual Validation
 

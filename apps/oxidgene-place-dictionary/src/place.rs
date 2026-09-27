@@ -3,7 +3,7 @@
 //! The first five columns are those of Geneanet's `dico_place_*.csv`
 //! (place, code, subdivision, region, country), so a reader of that format
 //! reads these files unchanged. The columns after them carry what that
-//! format has no room for; see `docs/specifications/place-dictionary.md`.
+//! format has no room for; see `docs/place-dictionary.md`.
 
 use std::collections::HashSet;
 use std::io::Write;

@@ -6,7 +6,7 @@
 //! path (the desktop) resolves those itself and never comes here.
 //!
 //! The web build has no such shell. Until authentication ships it may not put a
-//! backend address in its markup either (`docs/specifications/cross-cutting.md`
+//! backend address in its markup either (`docs/cross-cutting.md`
 //! §7.1), so it fetches the bytes and hands them to the engine as `data:` URLs.
 //! Doing that one picture at a time is a request per portrait on a pedigree,
 //! which is what this exists to avoid: it answers for a whole screen at once.
