@@ -468,8 +468,14 @@ mod tests {
         // A French term, read by a German interface.
         let entry = lookup_occupation(ReferenceLang::De, "laboureur").expect("german sheet");
         assert_eq!(entry.label, "Ackermann");
-        let entry = lookup_given_name(ReferenceLang::Fr, "Giovanni").expect("italian alias");
-        assert_eq!(entry.label, "Jean");
+        // A Polish given name, typed without its "ł", read by an English
+        // interface.
+        let entry = lookup_given_name(ReferenceLang::En, "Stanislaw").expect("polish name");
+        assert_eq!(entry.label, "Stanisław");
+        assert_eq!(
+            lookup_given_name(ReferenceLang::Fr, "Jehan").map(|e| e.label),
+            Some("Jean".to_string())
+        );
     }
 
     #[test]

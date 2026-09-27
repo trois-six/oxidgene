@@ -53,7 +53,8 @@ OxidGene is a multiplatform genealogy application featuring:
 	text
 - **Understand what the records say**: Explanatory sheets for more than 3,000
 	historical occupations, including trades and offices particular to each
-	covered country, and meanings of given names, in all eight interface
+	covered country, and nearly 2,000 given names with their meaning and
+	feast day, in all eight interface
 	languages and recognised whatever the language of the record, shown right
 	beside the person
 - **Ask your AI assistant about your tree**: The desktop application serves

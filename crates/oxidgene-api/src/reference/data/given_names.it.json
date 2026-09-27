@@ -1,12 +1,10 @@
 {
   "jean": {
     "aliases": [
-      "giovanni",
-      "giovan",
-      "gianni",
-      "nanni",
-      "zuane",
-      "ioannes"
+      "Gean",
+      "Jeannot",
+      "Jehan",
+      "Jhan"
     ],
     "feast_day": "06-24",
     "label": "Jean",
@@ -16,11 +14,8 @@
   },
   "jeanne": {
     "aliases": [
-      "giovanna",
-      "giovannina",
-      "nanna",
-      "vanna",
-      "ioanna"
+      "Janed",
+      "Jehanne"
     ],
     "feast_day": "05-30",
     "label": "Jeanne",
@@ -30,11 +25,10 @@
   },
   "louis": {
     "aliases": [
-      "luigi",
-      "ludovico",
-      "lodovico",
-      "aloisio",
-      "aloysius"
+      "Loeiz",
+      "Loïc",
+      "Loïck",
+      "Loys"
     ],
     "feast_day": "08-25",
     "label": "Louis",
@@ -44,11 +38,10 @@
   },
   "marie": {
     "aliases": [
-      "maria",
-      "marietta",
-      "mariuccia",
-      "maria anna",
-      "maria luigia"
+      "Amarie",
+      "Manon",
+      "Maree",
+      "Marye"
     ],
     "feast_day": "08-15",
     "label": "Marie",
@@ -58,9 +51,11 @@
   },
   "pierre": {
     "aliases": [
-      "pietro",
-      "piero",
-      "pier"
+      "Pèire",
+      "Pêr",
+      "Pierres",
+      "Pierrot",
+      "Pieyre"
     ],
     "feast_day": "06-29",
     "label": "Pierre",
