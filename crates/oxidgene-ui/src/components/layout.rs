@@ -1774,6 +1774,7 @@ pub const LAYOUT_STYLES: &str = r#"
         left: 0;
         transform-origin: 0 0;
     }
+    .mini-pedigree-pending .mini-pedigree-inner { visibility: hidden; }
 
     .mini-pedigree-tooltip {
         position: absolute;

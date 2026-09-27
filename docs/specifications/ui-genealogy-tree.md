@@ -609,6 +609,11 @@ escutcheon are never clipped by the viewport.
 Mini-pedigrees are static fragments. They automatically reduce their scale
 below the context's preferred maximum when needed to show the selected person
 and up to two available ancestor generations without clipping, in every theme.
+Each fragment measures its own viewport and fits again whenever that viewport
+changes size, for example when the window is resized or a two-column layout
+collapses to one. Several fragments on one page never share a measurement. A
+fragment stays hidden until its viewport has been measured, so it is never
+drawn at the wrong position first.
 Their person cards remain clickable for navigation, but the fragment itself
 does not pan or zoom. Root siblings are omitted from this focused ascending
 view, and no duplicate descending root is rendered when descendants are not

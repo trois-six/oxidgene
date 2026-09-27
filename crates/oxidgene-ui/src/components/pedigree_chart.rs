@@ -2159,6 +2159,7 @@ struct LayoutNode {
 ///
 /// The ascending and descending trees are kept in their own coordinate spaces so
 /// that their SVG groups can each receive the correct `translate()` transform.
+#[cfg_attr(test, derive(Default))]
 struct PedigreeLayout {
     /// Ascending tree nodes in ascending-tree coordinate space.
     asc_nodes: Vec<LayoutNode>,
@@ -2876,11 +2877,6 @@ async fn fit_graph_in_viewport(
 /// Preferred maximum scale for [`MiniPedigree`] — not user-adjustable.
 const MINI_PEDIGREE_SCALE: f64 = 0.8;
 
-/// Default viewport size for [`MiniPedigree`] before the actual DOM element
-/// has been measured (see `needs_center` below).
-const MINI_PEDIGREE_VIEWPORT_W: f64 = 400.0;
-const MINI_PEDIGREE_VIEWPORT_H: f64 = 280.0;
-
 /// Bottom padding (viewport px) kept below the root card when it's anchored
 /// near the bottom of the canvas (no descendants to show underneath it).
 const MINI_PEDIGREE_BOTTOM_MARGIN: f64 = 20.0;
@@ -2917,6 +2913,39 @@ fn mini_pedigree_fit_scale(
     preferred_scale
         .min(available_width / (2.0 * half_width))
         .min(available_height / content_h.max(1.0))
+}
+
+/// Where a [`MiniPedigree`] fragment sits in a viewport of `width` × `height`:
+/// scaled to fit (up to `preferred_scale`), the root card centred
+/// horizontally, and either centred vertically or, with no descendants
+/// below it, anchored near the bottom so the ancestor rows use the height.
+fn mini_pedigree_transform(
+    width: f64,
+    height: f64,
+    preferred_scale: f64,
+    layout: &PedigreeLayout,
+    anchor_bottom: bool,
+    theme: &PedigreeTheme,
+) -> MiniPedigreeTransformValue {
+    let scale = mini_pedigree_fit_scale(
+        width,
+        height,
+        preferred_scale,
+        layout.content_cx,
+        layout.content_w,
+        layout.content_h,
+        layout.root_cx,
+    );
+    let target_y = if anchor_bottom {
+        mini_pedigree_root_target_y(height, scale, theme)
+    } else {
+        height / 2.0
+    };
+    MiniPedigreeTransformValue {
+        x: width / 2.0 - layout.root_cx * scale,
+        y: target_y - layout.root_cy * scale,
+        scale,
+    }
 }
 
 /// The only subtree that reacts to direct pan and zoom updates.
@@ -3099,7 +3128,12 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         scale: preferred_scale,
     });
     let mut hovered_person = use_signal(|| None::<MiniPedigreeTooltipValue>);
-    let mut screen_size = use_signal(|| (MINI_PEDIGREE_VIEWPORT_W, MINI_PEDIGREE_VIEWPORT_H));
+    // This fragment's own viewport, measured by a resize observer: several
+    // fragments can share a page, and a column can narrow or widen after
+    // the first render, so neither a page-wide lookup nor a one-time
+    // measurement fits them.
+    let mut viewport = use_signal(|| None::<(f64, f64)>);
+    let mut window_width = use_signal(|| 0.0_f64);
 
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
         compute_layout(
@@ -3112,67 +3146,57 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         )
     });
 
-    // ── Center the root person in the viewport on first render and root change ──
-    let mut prev_root = use_signal(|| props.root_person_id);
-    let mut needs_center = use_signal(|| true);
-    if prev_root() != props.root_person_id {
-        prev_root.set(props.root_person_id);
-        needs_center.set(true);
+    // Refit on every render that changes the answer: a new root, new data,
+    // or a new viewport size. Only `MiniPedigreeTransform` reads the signal,
+    // so writing it here redraws the transform, not this scene.
+    // (`desc_nodes` always contains at least the root card itself, even at
+    // descendant_levels == 0, so the prop decides the bottom anchoring.)
+    let measured = viewport();
+    if let Some((width, height)) = measured {
+        let fitted = mini_pedigree_transform(
+            width,
+            height,
+            preferred_scale,
+            &layout,
+            props.descendant_levels == 0,
+            theme,
+        );
+        if *transform.peek() != fitted {
+            transform.set(fitted);
+        }
     }
-    if needs_center() {
-        needs_center.set(false);
-        let root_cx = layout.root_cx;
-        let root_cy = layout.root_cy;
-        let content_cx = layout.content_cx;
-        let content_w = layout.content_w;
-        let content_h = layout.content_h;
-        // When there are no descendants to show below the root, anchor it
-        // near the bottom of the viewport instead of the vertical middle —
-        // otherwise the ancestor rows above waste half the canvas.
-        // (`desc_nodes` always contains at least the root card itself, even
-        // at descendant_levels == 0, so check the prop directly instead.)
-        let anchor_bottom = props.descendant_levels == 0;
-        spawn(async move {
-            // Small delay so the DOM has rendered the viewport element.
-            crate::utils::sleep_ms(30).await;
-            if let Ok(val) = document::eval(
-                "var el = document.querySelector('.mini-pedigree'); return el ? [el.clientWidth, el.clientHeight, window.innerWidth, window.innerHeight] : [400, 280, window.innerWidth, window.innerHeight]"
-            ).await {
-                let vw = val.get(0).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_W);
-                let vh = val.get(1).and_then(|v| v.as_f64()).unwrap_or(MINI_PEDIGREE_VIEWPORT_H);
-                screen_size.set((
-                    val.get(2).and_then(|v| v.as_f64()).unwrap_or(vw),
-                    val.get(3).and_then(|v| v.as_f64()).unwrap_or(vh),
-                ));
-                let scale = mini_pedigree_fit_scale(
-                    vw,
-                    vh,
-                    preferred_scale,
-                    content_cx,
-                    content_w,
-                    content_h,
-                    root_cx,
-                );
-                let target_y = if anchor_bottom {
-                    mini_pedigree_root_target_y(vh, scale, theme)
-                } else {
-                    vh / 2.0
-                };
-                transform.set(MiniPedigreeTransformValue {
-                    x: vw / 2.0 - root_cx * scale,
-                    y: target_y - root_cy * scale,
-                    scale,
-                });
-            }
-        });
-    }
+    let viewport_class = if measured.is_some() {
+        format!("mini-pedigree {}", theme.viewport_class)
+    } else {
+        // Hidden until measured, rather than drawn once at the origin.
+        format!(
+            "mini-pedigree mini-pedigree-pending {}",
+            theme.viewport_class
+        )
+    };
 
     rsx! {
         div {
-            class: "mini-pedigree {theme.viewport_class}",
+            class: viewport_class,
+            onmounted: move |_| async move {
+                if let Ok(width) = document::eval("return window.innerWidth").await
+                    && let Some(width) = width.as_f64()
+                {
+                    window_width.set(width);
+                }
+            },
+            onresize: move |evt: Event<ResizeData>| {
+                if let Ok(size) = evt.get_content_box_size()
+                    && size.width > 0.0
+                    && size.height > 0.0
+                    && viewport.peek().as_ref() != Some(&(size.width, size.height))
+                {
+                    viewport.set(Some((size.width, size.height)));
+                }
+            },
             onmousemove: move |evt: Event<MouseData>| {
                 let coordinates = evt.client_coordinates();
-                let (screen_width, _) = screen_size();
+                let screen_width = window_width();
                 if let Some(value) = hovered_person.write().as_mut() {
                     value.pointer = Some(MiniPedigreeTooltipPointer {
                         x: coordinates.x,
@@ -5197,6 +5221,35 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 #[cfg(test)]
 mod mini_pedigree_tests {
     use super::*;
+
+    /// The profile's mini-pedigree height, as its stylesheet sets it.
+    const MINI_PEDIGREE_VIEWPORT_H: f64 = 280.0;
+
+    fn layout_around_root(content_w: f64, content_h: f64) -> PedigreeLayout {
+        PedigreeLayout {
+            root_cx: content_w / 2.0,
+            root_cy: content_h / 2.0,
+            content_cx: content_w / 2.0,
+            content_w,
+            content_h,
+            ..PedigreeLayout::default()
+        }
+    }
+
+    #[test]
+    fn a_narrower_viewport_shrinks_the_fragment_and_keeps_the_root_centred() {
+        let theme = &PedigreeTheme::CLASSIC;
+        let layout = layout_around_root(theme.metrics.card_w * 4.0, theme.metrics.card_h * 2.0);
+        let wide = mini_pedigree_transform(1200.0, 280.0, 0.8, &layout, false, theme);
+        let narrow = mini_pedigree_transform(300.0, 280.0, 0.8, &layout, false, theme);
+
+        assert!(narrow.scale < wide.scale);
+        for (width, fitted) in [(1200.0, wide), (300.0, narrow)] {
+            let root_x = fitted.x + layout.root_cx * fitted.scale;
+            assert!((root_x - width / 2.0).abs() < 1e-9, "{width}");
+            assert!(layout.content_w * fitted.scale <= width, "{width}");
+        }
+    }
 
     #[test]
     fn bottom_anchored_root_keeps_the_same_margin_for_every_theme() {
