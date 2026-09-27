@@ -420,29 +420,30 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                 ];
 
                 rsx! {
+                    div { class: "cp-actions",
+                        button {
+                            class: "btn btn-outline pd-header-action-btn",
+                            title: i18n.t("couple.edit"),
+                            aria_label: i18n.t("couple.edit"),
+                            onclick: move |_| show_edit_couple.set(true),
+                            svg {
+                                class: "pd-header-action-icon",
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                path { d: "M12 20h9" }
+                                path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
+                            }
+                            span { class: "pd-header-action-label", {i18n.t("couple.edit")} }
+                        }
+                        if SHOW_MANUAL_REFRESH {
+                            {refresh_button(&i18n, move || refresh += 1)}
+                        }
+                    }
+
                     div { class: "card cp-bar",
                         {spouse_select(&i18n, nav, &tree_id, fid, right.as_deref(), side_name(&left))}
                         span { class: "cp-ring", aria_hidden: "true", "\u{26AD}" }
                         {spouse_select(&i18n, nav, &tree_id, fid, left.as_deref(), side_name(&right))}
-                        div { class: "cp-bar-actions",
-                            button {
-                                class: "btn btn-outline pd-header-action-btn",
-                                title: i18n.t("couple.edit"),
-                                aria_label: i18n.t("couple.edit"),
-                                onclick: move |_| show_edit_couple.set(true),
-                                svg {
-                                    class: "pd-header-action-icon",
-                                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                    stroke: "currentColor", "strokeWidth": "2",
-                                    path { d: "M12 20h9" }
-                                    path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
-                                }
-                                span { class: "pd-header-action-label", {i18n.t("couple.edit")} }
-                            }
-                            if SHOW_MANUAL_REFRESH {
-                                {refresh_button(&i18n, move || refresh += 1)}
-                            }
-                        }
                     }
 
                     div { class: "cp-grid",

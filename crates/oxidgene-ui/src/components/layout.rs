@@ -724,22 +724,32 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .sub-page-content.cp-content { max-width: 1600px; }
 
-    .cp-bar {
+    /* The couple's actions, on their own borderless row above the bar. */
+    .cp-actions {
         display: flex;
-        align-items: center;
-        gap: 12px;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    /* One selector per spouse, split like the columns below, with the
+       ring centred in the gutter between them. */
+    .cp-bar {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 24px;
         margin-bottom: 24px;
     }
-    .cp-select { flex: 1; min-width: 0; }
+    .cp-select { min-width: 0; }
     .cp-ring {
-        flex: none;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
         color: var(--orange);
         font-size: 1.2rem;
-    }
-    .cp-bar-actions {
-        display: flex;
-        flex: none;
-        gap: 8px;
+        line-height: 1;
     }
 
     /* Two spouse columns. A section shared by the couple spans both; each
@@ -4783,7 +4793,10 @@ pub const LAYOUT_STYLES: &str = r#"
     /* ── Responsive ───────────────────────────────────────────────── */
 
     @media (max-width: 1080px) {
-        .cp-grid { grid-template-columns: minmax(0, 1fr); }
+        .cp-grid,
+        .cp-bar { grid-template-columns: minmax(0, 1fr); }
+        .cp-bar { gap: 12px; }
+        .cp-ring { display: none; }
     }
 
     @media (max-width: 900px) {
@@ -4870,9 +4883,6 @@ pub const LAYOUT_STYLES: &str = r#"
             border-top: 1px solid var(--border);
         }
         .pd-family-card { padding: 14px; }
-        .cp-bar { flex-wrap: wrap; }
-        .cp-select { flex-basis: 100%; }
-        .cp-ring { display: none; }
         .pd-family-prose,
         .pd-union-line,
         .pd-sib-group-head {

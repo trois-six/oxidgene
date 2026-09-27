@@ -52,7 +52,9 @@ up to `1600px` wide.
 +----------------------------------------------------------------------+
 | [logo] <tree name> / <person A> & <person B>                          |  <- td-topbar
 +----------------------------------------------------------------------+
-| [<person A> — date ▾]  ⚭  [<person B> — date ▾]      [Edit couple]    |  <- couple bar
+|                                                        [Edit couple]  |  <- actions (no border)
++----------------------------------------------------------------------+
+| [<person A> — date          ▾]  ⚭  [<person B> — date             ▾] |  <- couple bar
 +-----------------------------------+----------------------------------+
 | IDENTITY A                        | IDENTITY B                       |
 +-----------------------------------+----------------------------------+
@@ -94,10 +96,12 @@ empty.
 
 ---
 
-## 4. Couple Bar
+## 4. Actions and Couple Bar
 
-The bar at the top holds one selector per spouse, the ⚭ sign between them,
-and the actions.
+The couple's actions sit alone on a borderless row at the top, aligned to the
+right. Below them, the couple bar holds one selector per spouse. The bar is
+split like the columns below it, so each selector sits above its spouse's
+column, and the ⚭ sign is centered in the gutter between the two.
 
 - **Left selector**: lists the couples of the spouse on the right. Each option
   is named after the partner it would put on the left, followed by the
@@ -121,7 +125,9 @@ and the actions.
   centered on the spouse that was displayed.
 - **Refresh**, on the web build only, reloads the page's data.
 
-Below 640px, each selector takes its own line and the ⚭ sign is hidden.
+At 1080px and below, as the columns collapse, each selector takes its own line
+and the ⚭ sign is hidden. Below 900px, the actions become icon-only buttons,
+as in the person profile header.
 
 ---
 
