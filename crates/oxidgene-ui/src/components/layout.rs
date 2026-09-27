@@ -3240,6 +3240,47 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     .kin-person.kin-end { border-color: var(--orange); }
     .kin-status { margin: 0 0 12px; }
+    /* The summary: one row per path, the chosen one drawn below it. */
+    .kin-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 6px;
+        margin-bottom: 16px;
+    }
+    .kin-summary-row {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        column-gap: 10px;
+        align-items: baseline;
+        padding: 8px 10px;
+        border: none;
+        border-left: 3px solid transparent;
+        border-radius: var(--radius);
+        background: none;
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 0.875rem;
+        text-align: left;
+        cursor: pointer;
+    }
+    .kin-summary-row:hover { background: var(--bg-card-hover); }
+    .kin-summary-row.active {
+        border-left-color: var(--orange);
+        background: color-mix(in srgb, var(--orange) 12%, transparent);
+    }
+    .kin-summary-title { font-weight: 600; }
+    .kin-summary-gen {
+        font-size: 0.8rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+    .kin-summary-via {
+        grid-column: 2 / -1;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+    }
     .kin-path { margin-bottom: 16px; }
     .kin-path-hd {
         display: flex;
@@ -3305,6 +3346,8 @@ pub const LAYOUT_STYLES: &str = r#"
         .kin-seg { grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); gap: 12px 8px; }
         .kin-seg-single { grid-template-columns: 28px minmax(0, 1fr); }
         .kin-union { margin-left: 36px; }
+        .kin-summary-row { grid-template-columns: 24px minmax(0, 1fr); }
+        .kin-summary-gen { grid-column: 2; white-space: normal; }
         /* Two rows side by side leave ~150px each on a phone: keep the name
            and the years, which is what places a person in the chain. */
         .kin-seg .sp-result-photo,

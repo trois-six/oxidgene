@@ -33,6 +33,9 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     let tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
     let from_parsed = use_signal(|| from.parse::<Uuid>().ok());
     let to_parsed = use_signal(|| to.parse::<Uuid>().ok());
+    // The path shown under the summary; back to the closest one whenever
+    // either person changes.
+    let mut selected = use_signal(|| 0_usize);
     for (mut signal, raw) in [
         (tree_id_parsed, &tree_id),
         (from_parsed, &from),
@@ -41,9 +44,10 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
         let parsed = raw.parse::<Uuid>().ok();
         if parsed != *signal.peek() {
             *signal.write() = parsed;
+            *selected.write() = 0;
         }
     }
-    let mut picking = use_signal(|| false);
+    let mut picking = use_signal(|| None::<End>);
 
     let api_tree = api.clone();
     let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
@@ -116,30 +120,34 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     };
     let ends = ends_resource.read().clone().unwrap_or_default();
     let portraits = portraits_resource.read().clone().unwrap_or_default();
-    let choosing = picking() || to_parsed().is_none();
+    let choosing_from = picking() == Some(End::From) || from_parsed().is_none();
+    let choosing_to = picking() == Some(End::To) || to_parsed().is_none();
 
     let go = {
         let tree_id = tree_id.clone();
-        move |from: Uuid, to: Option<Uuid>| {
+        move |from: Option<Uuid>, to: Option<Uuid>| {
+            let id = |id: Option<Uuid>| id.map(|id| id.to_string()).unwrap_or_default();
             nav.replace(Route::Kinship {
                 tree_id: tree_id.clone(),
-                from: from.to_string(),
-                to: to.map(|id| id.to_string()).unwrap_or_default(),
+                from: id(from),
+                to: id(to),
             });
         }
     };
-    let on_pick = {
+    let pick = |end: End| {
         let go = go.clone();
         move |id: Uuid| {
-            picking.set(false);
-            if let Some(from) = from_parsed() {
-                go(from, Some(id));
+            picking.set(None);
+            match end {
+                End::From => go(Some(id), to_parsed()),
+                End::To => go(from_parsed(), Some(id)),
             }
         }
     };
+    let (on_pick_from, on_pick_to) = (pick(End::From), pick(End::To));
     let on_swap = move |_| {
         if let (Some(from), Some(to)) = (from_parsed(), to_parsed()) {
-            go(to, Some(from));
+            go(Some(to), Some(from));
         }
     };
 
@@ -209,49 +217,50 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
 
                 div { class: "sub-page-content kin-content",
                     div { class: "card kin-ends",
-                        div { class: "kin-end-slot",
-                            div { class: "kin-end-label", {i18n.t("kinship.from")} }
-                            {end_row(from_parsed(), &ends, &portraits, &tree_id, &i18n)}
-                        }
+                        {end_slot(EndSlot {
+                            label: i18n.t("kinship.from"),
+                            id: from_parsed(),
+                            choosing: choosing_from,
+                            on_change: EventHandler::new(move |()| picking.set(Some(End::From))),
+                            on_pick: EventHandler::new(on_pick_from),
+                            on_cancel: EventHandler::new(move |()| picking.set(None)),
+                            tree_id: tree_id_parsed(),
+                            route_tree_id: &tree_id,
+                            ends: &ends,
+                            portraits: &portraits,
+                            i18n: &i18n,
+                        })}
                         button {
                             class: "btn btn-outline btn-sm kin-swap",
                             title: i18n.t("kinship.swap"),
                             aria_label: i18n.t("kinship.swap"),
-                            disabled: to_parsed().is_none(),
+                            disabled: from_parsed().is_none() || to_parsed().is_none(),
                             onclick: on_swap,
                             "\u{21C4}"
                         }
-                        div { class: "kin-end-slot",
-                            div { class: "kin-end-label",
-                                {i18n.t("kinship.to")}
-                                if to_parsed().is_some() && !choosing {
-                                    button {
-                                        class: "btn btn-outline btn-sm kin-change",
-                                        onclick: move |_| picking.set(true),
-                                        {i18n.t("kinship.change")}
-                                    }
-                                }
-                            }
-                            if choosing {
-                                if let Some(tid) = tree_id_parsed() {
-                                    SearchPerson {
-                                        tree_id: tid,
-                                        placeholder: i18n.t("kinship.choose"),
-                                        on_select: on_pick,
-                                        on_cancel: move |_| picking.set(false),
-                                    }
-                                }
-                            } else {
-                                {end_row(to_parsed(), &ends, &portraits, &tree_id, &i18n)}
-                            }
-                        }
+                        {end_slot(EndSlot {
+                            label: i18n.t("kinship.to"),
+                            id: to_parsed(),
+                            choosing: choosing_to,
+                            on_change: EventHandler::new(move |()| picking.set(Some(End::To))),
+                            on_pick: EventHandler::new(on_pick_to),
+                            on_cancel: EventHandler::new(move |()| picking.set(None)),
+                            tree_id: tree_id_parsed(),
+                            route_tree_id: &tree_id,
+                            ends: &ends,
+                            portraits: &portraits,
+                            i18n: &i18n,
+                        })}
                     }
 
                     {
                         let report = kinship_resource.read();
                         match &*report {
-                            _ if to_parsed().is_none() => rsx! {
+                            _ if from_parsed().is_none() || to_parsed().is_none() => rsx! {
                                 p { class: "text-muted kin-status", {i18n.t("kinship.pick_target")} }
+                            },
+                            _ if from_parsed() == to_parsed() => rsx! {
+                                p { class: "text-muted kin-status", {i18n.t("kinship.same_person")} }
                             },
                             None | Some(None) => rsx! {
                                 div { class: "loading kin-status", {i18n.t("kinship.loading")} }
@@ -261,7 +270,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
                                     {i18n.t_args("kinship.error", &[("error", &error.to_string())])}
                                 }
                             },
-                            Some(Some(Ok(report))) => render_report(report, &portraits, &tree_id, &i18n),
+                            Some(Some(Ok(report))) => render_report(report, selected, &portraits, &tree_id, &i18n),
                         }
                     }
                 }
@@ -270,28 +279,71 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     }
 }
 
-/// One of the two ends, as the shared person row.
-fn end_row(
+/// Which of the two persons is being chosen again.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum End {
+    From,
+    To,
+}
+
+/// What one of the two ends needs to draw itself.
+struct EndSlot<'a> {
+    label: String,
     id: Option<Uuid>,
-    ends: &HashMap<Uuid, PersonSearchSummary>,
-    portraits: &HashMap<Uuid, CroppedSource>,
-    tree_id: &str,
-    i18n: &I18n,
-) -> Element {
-    let Some(id) = id else {
-        return rsx! {};
-    };
-    let summary = ends
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| PersonSearchSummary::placeholder(id, String::new()));
-    person_link(
-        &summary,
-        portraits.get(&id).cloned(),
-        tree_id,
-        "kin-end",
-        i18n,
-    )
+    choosing: bool,
+    on_change: EventHandler<()>,
+    on_pick: EventHandler<Uuid>,
+    on_cancel: EventHandler<()>,
+    tree_id: Option<Uuid>,
+    route_tree_id: &'a str,
+    ends: &'a HashMap<Uuid, PersonSearchSummary>,
+    portraits: &'a HashMap<Uuid, CroppedSource>,
+    i18n: &'a I18n,
+}
+
+/// One of the two ends: the person as the shared row with a button to
+/// choose someone else, or the person search while choosing.
+fn end_slot(slot: EndSlot<'_>) -> Element {
+    let i18n = slot.i18n;
+    let on_change = slot.on_change;
+    let row = slot.id.filter(|_| !slot.choosing).map(|id| {
+        let summary = slot
+            .ends
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| PersonSearchSummary::placeholder(id, String::new()));
+        person_link(
+            &summary,
+            slot.portraits.get(&id).cloned(),
+            slot.route_tree_id,
+            "kin-end",
+            i18n,
+        )
+    });
+    rsx! {
+        div { class: "kin-end-slot",
+            div { class: "kin-end-label",
+                "{slot.label}"
+                if row.is_some() {
+                    button {
+                        class: "btn btn-outline btn-sm kin-change",
+                        onclick: move |_| on_change.call(()),
+                        {i18n.t("kinship.change")}
+                    }
+                }
+            }
+            if let Some(row) = row {
+                {row}
+            } else if let Some(tid) = slot.tree_id {
+                SearchPerson {
+                    tree_id: tid,
+                    placeholder: i18n.t("kinship.choose"),
+                    on_select: slot.on_pick,
+                    on_cancel: slot.on_cancel,
+                }
+            }
+        }
+    }
 }
 
 /// A person as the shared search row, leading to their profile.
@@ -321,6 +373,7 @@ fn person_link(
 
 fn render_report(
     report: &KinshipReport,
+    mut selected: Signal<usize>,
     portraits: &HashMap<Uuid, CroppedSource>,
     tree_id: &str,
     i18n: &I18n,
@@ -343,6 +396,11 @@ fn render_report(
         to: report.to_person_id,
         i18n,
     };
+    let current = selected().min(report.paths.len() - 1);
+    let generations_hint = i18n.t_args(
+        "kinship.generations_hint",
+        &[("from", &view.name(view.from)), ("to", &view.name(view.to))],
+    );
     rsx! {
         p { class: "kin-status",
             {i18n.t_plural("kinship.found", report.paths.len())}
@@ -351,10 +409,54 @@ fn render_report(
                 {i18n.t("kinship.truncated")}
             }
         }
-        for (index, path) in report.paths.iter().enumerate() {
-            {view.path(index, path)}
+        if report.paths.len() > 1 {
+            nav { class: "card kin-summary", aria_label: i18n.t("kinship.summary"),
+                for (index, path) in report.paths.iter().enumerate() {
+                    {
+                        let heading = view.heading(path);
+                        let (up, down) = path.segments.iter().fold((0, 0), |(up, down), segment| {
+                            (up + segment.from_line.len(), down + segment.to_line.len())
+                        });
+                        let generations = i18n.t_args(
+                            "kinship.generations",
+                            &[("up", &up.to_string()), ("down", &down.to_string())],
+                        );
+                        let unions = path.segments.len() - 1;
+                        let via = view.via(path);
+                        rsx! {
+                            button {
+                                class: if index == current { "kin-summary-row active" } else { "kin-summary-row" },
+                                aria_pressed: index == current,
+                                onclick: move |_| selected.set(index),
+                                span { class: "kin-path-num", "{index + 1}" }
+                                span { class: "kin-summary-title", "{heading.title}" }
+                                span { class: "kin-summary-gen", title: "{generations_hint}",
+                                    "{generations}"
+                                    if unions > 0 {
+                                        " · "
+                                        {i18n.t_plural("kinship.unions", unions)}
+                                    }
+                                }
+                                if let Some(via) = via {
+                                    span { class: "kin-summary-via", "{via}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+        {view.path(current, &report.paths[current])}
     }
+}
+
+/// How a path is titled.
+struct Heading {
+    title: String,
+    /// The relations step by step, for a path through unions.
+    chain: Option<String>,
+    /// Related through one parent only, when no word says so already.
+    half: bool,
 }
 
 /// What drawing a path needs besides the path.
@@ -380,27 +482,49 @@ impl PathView<'_> {
             .unwrap_or_default()
     }
 
-    fn path(&self, index: usize, path: &KinshipPath) -> Element {
-        let i18n = self.i18n;
-        let (title, chain, half) = match path.segments.as_slice() {
-            [segment] => (
-                relation_label(
+    fn heading(&self, path: &KinshipPath) -> Heading {
+        match path.segments.as_slice() {
+            [segment] => Heading {
+                title: relation_label(
                     segment.from_line.len(),
                     segment.to_line.len(),
                     self.sex(Some(self.to)),
                     segment.half,
-                    i18n,
+                    self.i18n,
                 )
                 .unwrap_or_default(),
-                None,
-                segment.half && (segment.from_line.len(), segment.to_line.len()) != (1, 1),
-            ),
-            segments => (
-                i18n.t("kinship.by_marriage"),
-                Some(self.chain(segments)),
-                false,
-            ),
+                chain: None,
+                half: segment.half && (segment.from_line.len(), segment.to_line.len()) != (1, 1),
+            },
+            segments => Heading {
+                title: self.i18n.t("kinship.by_marriage"),
+                chain: Some(self.chain(segments)),
+                half: false,
+            },
+        }
+    }
+
+    /// The common ancestors of a blood relationship, by name.
+    fn via(&self, path: &KinshipPath) -> Option<String> {
+        let [segment] = path.segments.as_slice() else {
+            return None;
         };
+        if segment.from_line.is_empty() || segment.to_line.is_empty() {
+            // A direct line: the ancestor is one of the two persons.
+            return None;
+        }
+        let names: Vec<String> = segment
+            .ancestor_ids
+            .iter()
+            .map(|&id| self.name(id))
+            .filter(|name| !name.is_empty())
+            .collect();
+        (!names.is_empty()).then(|| names.join(&format!(" {} ", self.i18n.t("common.and"))))
+    }
+
+    fn path(&self, index: usize, path: &KinshipPath) -> Element {
+        let i18n = self.i18n;
+        let Heading { title, chain, half } = self.heading(path);
 
         // Generations are counted from the first person, across unions: a
         // spouse stands on the same generation as the person they married.

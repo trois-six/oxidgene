@@ -31,8 +31,8 @@ in the pedigree's person panel, before the page opens:
 
 Picking one opens the page with the clicked person as `from` and the chosen
 one as `to`. Cancelling closes the panel and stays on the pedigree. Opened
-without a `to`, as from a hand-edited URL, the page asks for the second person
-itself.
+without a `from` or a `to`, as from a hand-edited URL, the page asks for the
+missing person itself.
 
 ## 2. Layout
 
@@ -41,10 +41,15 @@ name, **Relationship**) and the tree icon sidebar with no active view.
 
 ```
 +-------------------------------------------------------------+
-|  FROM                           TO                 [Change] |
+|  FROM            [Change]      TO                 [Change] |
 |  [person row]           [⇄]    [person row]                 |
 +-------------------------------------------------------------+
   2 relationships found
++-------------------------------------------------------------+
+| ▌1  First cousin                        2 up, 2 down        |
+|     A and B                                                 |
+|  2  Second cousin – 1 generation apart  4 up, 3 down        |
++-------------------------------------------------------------+
 +-------------------------------------------------------------+
 |  1  First cousin                                            |
 |  +2          [ancestor]   [ancestor]                        |
@@ -59,8 +64,9 @@ Both persons are drawn with the shared person row of
 [Search Results §7](ui-search-results.md), outlined in the accent colour, and
 link to their profiles.
 
-- **Change** replaces the second person with the shared person search; picking
-  a result updates `to`. Cancelling keeps the current person.
+- **Change**, on either end, replaces that person with the shared person
+  search; picking a result updates `from` or `to`. Cancelling keeps the
+  current person.
 - **⇄** swaps the two persons. Relations are worded from the first person's
   point of view, so a swap turns an uncle into a nephew.
 
@@ -70,13 +76,23 @@ returns to the pedigree.
 On screens narrower than 640px the two ends stack, and the grid keeps its two
 lines side by side with only each person's name and years: the portrait and
 the relatives line are dropped from the rows so each still fits half a phone.
+Summary rows put the generation count under the title.
 
 ### 2.2 Paths
 
-Above the list, a line states how many relationships were found, and adds that
-more exist when the answer was truncated (§3). Each relationship is a card,
-closest first, numbered, and titled with what the second person is to the
-first.
+A line states how many relationships were found, and adds that more exist
+when the answer was truncated (§3).
+
+When there are several, a summary lists them, closest first, one row each:
+its number, its title, how many generations it climbs from the first person
+and then descends to the second (`2 up, 3 down`, plus the number of unions for
+a relationship by marriage), and the names of the common ancestors. Only the
+chosen relationship is drawn below the summary; the closest is chosen when the
+page opens and whenever either person changes, and choosing another row
+replaces it. A single relationship is drawn without a summary.
+
+A relationship is a card, numbered as in the summary and titled with what the
+second person is to the first.
 
 The body is a grid, one row per generation:
 
@@ -107,7 +123,8 @@ stand on the same generation.
 
 | State | Display |
 |---|---|
-| No second person | A prompt to choose one, with the search open |
+| A person missing | A prompt to choose one, with the search open |
+| The same person at both ends | A prompt to choose two different persons |
 | Loading | The shared loading message |
 | No path | "No recorded link connects these two persons." |
 | Error | The shared error message with the failure |
