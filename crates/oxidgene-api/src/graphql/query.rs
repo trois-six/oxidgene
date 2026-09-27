@@ -1176,6 +1176,11 @@ impl QueryRoot {
                     links_count: summary.links_count as i64,
                     portraits_count: summary.portraits_count as i64,
                     isolated_count: summary.isolated_count as i64,
+                    isolated_people: summary
+                        .isolated_people
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                     vignettes_count: summary.vignettes_count as i64,
                     skipped: summary.skipped,
                     warnings: summary.warnings,

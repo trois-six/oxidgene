@@ -1165,6 +1165,8 @@ pub struct GeneanetImportResponse {
     pub portraits_count: usize,
     /// People created for identifications Geneanet marks "hors de l'arbre".
     pub isolated_count: usize,
+    /// Those people, in creation order.
+    pub isolated_people: Vec<crate::service::geneanet::IsolatedPerson>,
     /// Identification boxes kept as regions on the stored pictures.
     pub vignettes_count: usize,
     /// Photos that could not be fetched, one line each.

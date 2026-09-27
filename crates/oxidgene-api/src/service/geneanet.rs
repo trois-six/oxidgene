@@ -472,6 +472,14 @@ pub fn plan(
     Ok(needed)
 }
 
+/// A person created for an identification outside the tree.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct IsolatedPerson {
+    pub person_id: Uuid,
+    pub surname: String,
+    pub given_names: String,
+}
+
 /// What an import actually did.
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct GeneanetImportSummary {
@@ -490,6 +498,10 @@ pub struct GeneanetImportSummary {
     pub portraits_count: usize,
     /// People created for Geneanet identifications marked "hors de l'arbre".
     pub isolated_count: usize,
+    /// Those people, in creation order. The receipt offers each one that
+    /// bears the name of somebody else in the tree to be merged into them.
+    #[serde(default)]
+    pub isolated_people: Vec<IsolatedPerson>,
     /// Regions drawn round a person on a picture, from Geneanet's own boxes.
     pub vignettes_count: usize,
     /// Photos that could not be fetched, one line each. A failure here skips
@@ -1660,6 +1672,11 @@ async fn create_isolated_people(
 
         created.insert(key, person_id);
         summary.isolated_count += 1;
+        summary.isolated_people.push(IsolatedPerson {
+            person_id,
+            surname: lastname.to_string(),
+            given_names: firstname.to_string(),
+        });
     }
 
     created
@@ -2808,6 +2825,9 @@ mod tests {
 
         assert_eq!(summary.persons_count, 2);
         assert_eq!(summary.isolated_count, 1);
+        assert_eq!(summary.isolated_people.len(), 1);
+        assert_eq!(summary.isolated_people[0].surname, "BRANCH_C");
+        assert_eq!(summary.isolated_people[0].given_names, "person_c");
         assert_eq!(summary.media_count, 1, "skipped: {:?}", summary.skipped);
         assert_eq!(summary.links_count, 1);
 
@@ -2817,6 +2837,7 @@ mod tests {
         let [link] = links.as_slice() else {
             panic!("one link expected, got {links:?}");
         };
+        assert_eq!(link.entity_id, summary.isolated_people[0].person_id);
         let names = PersonNameRepo::list_by_person(&db, link.entity_id)
             .await
             .expect("lists names");

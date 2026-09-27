@@ -312,6 +312,7 @@ pub(crate) fn import_response(summary: geneanet::GeneanetImportSummary) -> Genea
         links_count: summary.links_count,
         portraits_count: summary.portraits_count,
         isolated_count: summary.isolated_count,
+        isolated_people: summary.isolated_people,
         vignettes_count: summary.vignettes_count,
         skipped: summary.skipped,
         warnings: summary.warnings,

@@ -309,6 +309,17 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     person_id: person_id_parsed(),
                     on_close: move |_| show_edit_person.set(false),
                     on_saved: move |_| refresh += 1,
+                    // This page's person was merged away: show the one kept.
+                    on_merged: {
+                        let tree_id = tree_id.clone();
+                        move |kept: Uuid| {
+                            tree_cache.invalidate();
+                            nav.replace(Route::PersonDetail {
+                                tree_id: tree_id.clone(),
+                                person_id: kept.to_string(),
+                            });
+                        }
+                    },
                 }
             }
         }

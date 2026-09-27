@@ -833,6 +833,17 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     person_id: Some(edit_pid),
                     on_close: move |_| editing_person_id.set(None),
                     on_saved: move |_| tree_cache.invalidate(),
+                    // The edited person may be the chart's root, and no longer
+                    // exists: centre the chart on the one they were merged into.
+                    on_merged: {
+                        let tree_id = tree_id.clone();
+                        move |kept: Uuid| {
+                            nav.replace(Route::TreeDetail {
+                                tree_id: tree_id.clone(),
+                                person: Some(kept.to_string()),
+                            });
+                        }
+                    },
                 }
             }
         }

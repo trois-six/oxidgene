@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-04T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -522,6 +522,19 @@ the UI and embedded backend to share a filesystem.
 
 The receipt contains aggregate counts and skipped-item summaries, followed by
 **Open the tree** and **Import another**. It never displays an account name.
+
+When the import created people for identifications outside the tree
+([Geneanet Media Import §9](geneanet-media-import.md)), the receipt reads each
+one's homonyms and lists those that have any under **Same names in your
+tree**. Geneanet's owner said the person on the photograph is not the tree's
+person of that name, which is why the import never merges them itself; only
+the user can overrule that. Each row shows the created person's name and the
+homonym drop-down of the [Person Edit Modal](ui-person-edit-modal.md) §13,
+whose first choice is **A new person**, selected by default, followed by the
+homonyms as quick-search rows. **Keep as a new person** records that they
+differ from those homonyms; choosing a homonym and **Merge** merges the
+created person into that pre-existing one. The row then states what was
+decided. Nothing is asked when no created person has a homonym.
 
 ### 9.8 Known limitations
 

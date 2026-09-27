@@ -505,6 +505,22 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ),
         ("union_form.delete_confirm_button", "Confirm deletion"),
         ("union_form.deleting", "Deleting…"),
+        // ── Homonyms ─────────────────────────────────────────────────
+        ("homonym.title", "Same name found"),
+        ("homonym.message_one", "{name} bears the same name as another person in this tree. Is it the same individual?"),
+        ("homonym.message_other", "{name} bears the same name as {count} other people in this tree. Is it one of them?"),
+        ("homonym.option_distinct", "A different person"),
+        ("homonym.option_distinct_hint", "Keep both records; the question will not be asked again for them."),
+        ("homonym.option_new", "A new person"),
+        ("homonym.option_new_hint", "Keep the person the import created."),
+        ("homonym.keep_distinct", "Keep separate"),
+        ("homonym.keep_new", "Keep as a new person"),
+        ("homonym.merge", "Merge"),
+        ("homonym.merge_warning", "This record will be merged into the chosen person: its names, events, family links, media and notes move there, and the record itself is removed. This cannot be undone."),
+        ("homonym.merge_failed", "These two records could not be merged. Spouses of one union, or a person and their own ancestor or descendant, cannot be merged."),
+        ("homonym.distinct_failed", "The answer could not be saved."),
+        ("homonym.later", "Decide later"),
+
         // ── Search person component ─────────────────────────────────
         ("search.placeholder", "Search for a person..."),
         ("search.loading", "Loading persons..."),
@@ -825,6 +841,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("geneanet.done_isolated_other", "{count} people were created for those identified on photos but not in your tree."),
         ("geneanet.done_vignettes_one", "{count} identification box was kept, so you can see who is who on a photo."),
         ("geneanet.done_vignettes_other", "{count} identification boxes were kept, so you can see who is who on a photo."),
+        ("geneanet.homonyms_title", "Same names in your tree"),
+        ("geneanet.homonyms_intro", "Geneanet says these people identified on your photos are not in your tree, yet someone in it bears the same name. Keep each one as a new person, or merge them into the person who already exists."),
+        ("geneanet.homonym_kept", "Kept as a new person."),
+        ("geneanet.homonym_merged", "Merged into {name}."),
         ("geneanet.skipped_photos_one", "{count} medium could not be imported"),
         ("geneanet.skipped_photos_other", "{count} media could not be imported"),
         // ── Sex enum display ────────────────────────────────────────

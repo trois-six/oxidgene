@@ -1102,9 +1102,18 @@ type GeneanetImportResult {
   linksCount: Int!
   portraitsCount: Int!
   isolatedCount: Int!
+  isolatedPeople: [GeneanetIsolatedPerson!]!
   vignettesCount: Int!
   skipped: [String!]!
   warnings: [String!]!
+}
+
+# A person created for an identification outside the tree, in creation order.
+# REST: `isolated_people: [{ person_id, surname, given_names }]`.
+type GeneanetIsolatedPerson {
+  personId: ID!
+  surname: String!
+  givenNames: String!
 }
 
 type ExportJobStatus {

@@ -48,15 +48,16 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ArchiveIndex, GeneanetImportBody, GeneanetImportResult, GeneanetPreview,
-    GeneanetPreviewBody, GeneanetSessionBody, GwInspection, ImportProgress, ImportResult,
-    IndexedArchive, MediaFidelity,
+    ApiClient, ArchiveIndex, GeneanetImportBody, GeneanetImportResult, GeneanetIsolatedPerson,
+    GeneanetPreview, GeneanetPreviewBody, GeneanetSessionBody, GwInspection, ImportProgress,
+    ImportResult, IndexedArchive, MediaFidelity,
 };
+use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
 use crate::geneanet::{Collect, GeneanetEvent, WindowStrings, use_geneanet_bridge};
 use crate::i18n::use_i18n;
 use crate::ui_observability::{
     UiAction, UiActionStep, UiActionTrace, trace_ui_action, trace_ui_action_step,
-    use_ui_action_trace,
+    use_ui_action_trace, use_ui_resource,
 };
 
 /// Whether this build can open a Geneanet login window and read local
@@ -1031,7 +1032,7 @@ fn GeneanetTab(
     };
 
     if let Some(result) = import_result() {
-        return rsx! { GeneanetDone { result } };
+        return rsx! { GeneanetDone { tree_id, result } };
     }
 
     // How many steps this journey has, and therefore what each one is called.
@@ -2176,7 +2177,7 @@ fn ImportStep(
 }
 
 #[component]
-fn GeneanetDone(result: GeneanetImportResult) -> Element {
+fn GeneanetDone(tree_id: Uuid, result: GeneanetImportResult) -> Element {
     let i18n = use_i18n();
 
     // Step 5 is the tallest screen of the five and the receipt is the
@@ -2210,6 +2211,10 @@ fn GeneanetDone(result: GeneanetImportResult) -> Element {
                 }
             }
 
+            if !result.isolated_people.is_empty() {
+                IsolatedHomonyms { tree_id, people: result.isolated_people.clone() }
+            }
+
             if !result.skipped.is_empty() {
                 details { class: "import-warnings",
                     summary {
@@ -2231,6 +2236,88 @@ fn GeneanetDone(result: GeneanetImportResult) -> Element {
                         for warning in result.warnings.iter().take(100) {
                             li { "{warning}" }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The people created for identifications outside the tree who bear the name
+/// of somebody else in it, each with the choice of keeping them as a new
+/// person or merging them into that namesake.
+///
+/// Geneanet's owner said the person on the photograph is not the tree's
+/// person of that name, which is why the import never matches them itself.
+/// The owner may still have been wrong, or the namesake may have been added
+/// since; only the user can tell, and this is where they are asked.
+#[component]
+fn IsolatedHomonyms(tree_id: Uuid, people: Vec<GeneanetIsolatedPerson>) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut decided = use_signal(HashMap::<Uuid, HomonymDecision>::new);
+
+    // One small read per person, and there are a few dozen at most.
+    let found = use_ui_resource("geneanet_isolated_homonyms", move || {
+        let api = api.clone();
+        let people = people.clone();
+        async move {
+            let mut found = Vec::new();
+            for person in people {
+                if let Ok(homonyms) = api.person_homonyms(tree_id, person.person_id).await
+                    && !homonyms.is_empty()
+                {
+                    found.push((person, homonyms));
+                }
+            }
+            found
+        }
+    });
+    let rows = found.read().clone().unwrap_or_default();
+    if rows.is_empty() {
+        return rsx! {};
+    }
+
+    rsx! {
+        section { class: "gn-homonyms",
+            h4 { {i18n.t("geneanet.homonyms_title")} }
+            p { class: "gn-homonyms-intro", {i18n.t("geneanet.homonyms_intro")} }
+            for (person, homonyms) in rows {
+                div { key: "{person.person_id}", class: "gn-homonym",
+                    div { class: "gn-homonym-name",
+                        span { class: "sp-surname", "{person.surname}" }
+                        span { class: "sp-given", " {person.given_names}" }
+                    }
+                    match decided.read().get(&person.person_id).copied() {
+                        Some(HomonymDecision::Distinct) => rsx! {
+                            p { class: "gn-homonym-done", {i18n.t("geneanet.homonym_kept")} }
+                        },
+                        Some(HomonymDecision::Merged(kept)) => {
+                            let into = homonyms
+                                .iter()
+                                .find(|entry| entry.person_id == kept)
+                                .map(|entry| entry.display_name.clone())
+                                .unwrap_or_default();
+                            rsx! {
+                                p { class: "gn-homonym-done",
+                                    {i18n.t_args("geneanet.homonym_merged", &[("name", &into)])}
+                                }
+                            }
+                        }
+                        None => rsx! {
+                            HomonymPicker {
+                                tree_id,
+                                person_id: person.person_id,
+                                homonyms: homonyms.clone(),
+                                new_person: true,
+                                on_decided: {
+                                    let id = person.person_id;
+                                    move |decision| {
+                                        decided.write().insert(id, decision);
+                                    }
+                                },
+                            }
+                        },
                     }
                 }
             }

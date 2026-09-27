@@ -13,7 +13,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-24T00:00:00Z }
 > [App Settings](ui-app-settings.md) · [Cross-cutting Rules](cross-cutting.md)
 >
 > The first delivery is implemented; later phases are tracked in
-> [Roadmap §6](roadmap.md).
+> [Roadmap §7](roadmap.md).
 
 ---
 

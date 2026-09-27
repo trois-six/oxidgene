@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -53,7 +53,23 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 - [ ] Run the complete Geneanet flow against an authorized test account using
   anonymized captures and committing no session or genealogy data.
 
-## 4. Planned: dictionary descent
+## 4. Planned: person merge wizard
+
+The merge operation, the distinct-person confirmations, and the homonym check
+after every person save and on the Geneanet receipt are delivered
+([Data Model](data-model.md#person-merge), [Person Edit
+Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
+[Person Merge](ui-merge.md):
+
+- [ ] Replace the tree action picker's placeholder "Merge with…" with the
+  three-step wizard, writing the chosen values before calling the merge
+  operation.
+- [ ] Add the Potential Duplicates tool of [Settings](ui-settings.md) §15,
+  with "Not duplicates" recording a distinct-person confirmation.
+- [ ] Decide whether a merge should reconcile events recorded twice (two
+  births, say) or keep leaving that to the user.
+
+## 5. Planned: dictionary descent
 
 - [ ] Define descent grouping, including incomplete parentage and children who
   do not carry the surname.
@@ -61,7 +77,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 - [ ] Add the recursive view to the existing Dictionary page and specification.
 - [ ] Cover SOSA badges, limits, empty states, and large surname groups.
 
-## 5. Planned: security, release, and deployment
+## 6. Planned: security, release, and deployment
 
 - [ ] Implement authentication and session management.
 - [ ] Implement per-tree guest, read-only, and editor authorization.
@@ -89,7 +105,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
 Privacy fields currently record intent but do not hide data. The UI must state
 this clearly until authorization is enforced.
 
-## 6. Planned: assistant access (MCP)
+## 7. Planned: assistant access (MCP)
 
 First delivery: read-only, stdio, desktop, with a required `tree_id` on every
 tool but `list_trees`.
@@ -120,7 +136,7 @@ Later phases, in order:
 - [ ] Bounded thumbnail image content.
 - [ ] Output schemas, once the result types carry JSON Schema derives.
 
-## 7. Post-MVP: asynchronous processing
+## 8. Post-MVP: asynchronous processing
 
 - [ ] Define queue and worker architecture without a second source of truth.
 - [ ] Add chunked and resumable media uploads.
@@ -128,7 +144,7 @@ Later phases, in order:
 - [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
 
-## 8. Definition of done
+## 9. Definition of done
 
 An item is complete only when implementation and specifications agree; i18n
 keys have English/French parity; examples and artifacts are anonymized; REST

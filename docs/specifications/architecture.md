@@ -339,7 +339,7 @@ Redis links are dashed because the chart can provision their infrastructure,
 but authenticated session storage is not implemented yet.
 
 - The release images, development Compose stack, and Kubernetes deliverables
-    are tracked in [Roadmap §5](roadmap.md).
+    are tracked in [Roadmap §6](roadmap.md).
 
 ### 8.2 Desktop Distribution
 
@@ -353,7 +353,7 @@ but authenticated session storage is not implemented yet.
     directory and are managed from [Settings](ui-settings.md). See
     [Common UI §4.4](ui-common.md).
 - Release artifacts and their platform verification are tracked in
-    [Roadmap §5](roadmap.md).
+    [Roadmap §6](roadmap.md).
 
 ---
 

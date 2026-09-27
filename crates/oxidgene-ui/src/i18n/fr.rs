@@ -522,6 +522,22 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ),
         ("union_form.delete_confirm_button", "Confirmer la suppression"),
         ("union_form.deleting", "Suppression\u{2026}"),
+        // ── Homonyms ─────────────────────────────────────────────────
+        ("homonym.title", "Homonyme trouv\u{00E9}"),
+        ("homonym.message_one", "{name} porte le m\u{00EA}me nom qu\u{2019}une autre personne de cet arbre. S\u{2019}agit-il du m\u{00EA}me individu\u{00A0}?"),
+        ("homonym.message_other", "{name} porte le m\u{00EA}me nom que {count} autres personnes de cet arbre. S\u{2019}agit-il de l\u{2019}une d\u{2019}elles\u{00A0}?"),
+        ("homonym.option_distinct", "Une autre personne"),
+        ("homonym.option_distinct_hint", "Conserver les deux fiches\u{00A0}; la question ne sera plus pos\u{00E9}e pour elles."),
+        ("homonym.option_new", "Une nouvelle personne"),
+        ("homonym.option_new_hint", "Conserver la personne cr\u{00E9}\u{00E9}e par l\u{2019}import."),
+        ("homonym.keep_distinct", "Conserver s\u{00E9}par\u{00E9}ment"),
+        ("homonym.keep_new", "Conserver comme nouvelle personne"),
+        ("homonym.merge", "Fusionner"),
+        ("homonym.merge_warning", "Cette fiche sera fusionn\u{00E9}e avec la personne choisie\u{00A0}: ses noms, \u{00E9}v\u{00E9}nements, liens familiaux, m\u{00E9}dias et notes y seront rattach\u{00E9}s, puis la fiche sera supprim\u{00E9}e. Cette action est irr\u{00E9}versible."),
+        ("homonym.merge_failed", "Ces deux fiches n\u{2019}ont pas pu \u{00EA}tre fusionn\u{00E9}es. Deux conjoints d\u{2019}une m\u{00EA}me union, ou une personne et son propre anc\u{00EA}tre ou descendant, ne peuvent pas \u{00EA}tre fusionn\u{00E9}s."),
+        ("homonym.distinct_failed", "La r\u{00E9}ponse n\u{2019}a pas pu \u{00EA}tre enregistr\u{00E9}e."),
+        ("homonym.later", "D\u{00E9}cider plus tard"),
+
         // ── Search person component ─────────────────────────────────
         ("search.placeholder", "Rechercher une personne\u{2026}"),
         ("search.loading", "Chargement des personnes\u{2026}"),
@@ -851,6 +867,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("geneanet.done_isolated_other", "{count} personnes ont \u{00E9}t\u{00E9} cr\u{00E9}\u{00E9}es pour celles identifi\u{00E9}es sur des photos mais absentes de votre arbre."),
         ("geneanet.done_vignettes_one", "{count} zone d\u{2019}identification a \u{00E9}t\u{00E9} conserv\u{00E9}e, pour voir qui est qui sur une photo."),
         ("geneanet.done_vignettes_other", "{count} zones d\u{2019}identification ont \u{00E9}t\u{00E9} conserv\u{00E9}es, pour voir qui est qui sur une photo."),
+        ("geneanet.homonyms_title", "Homonymes dans votre arbre"),
+        ("geneanet.homonyms_intro", "Selon Geneanet, ces personnes identifi\u{00E9}es sur vos photos ne font pas partie de votre arbre, mais quelqu\u{2019}un y porte le m\u{00EA}me nom. Conservez chacune comme nouvelle personne, ou fusionnez-la avec la personne qui existe d\u{00E9}j\u{00E0}."),
+        ("geneanet.homonym_kept", "Conserv\u{00E9}e comme nouvelle personne."),
+        ("geneanet.homonym_merged", "Fusionn\u{00E9}e avec {name}."),
         ("geneanet.skipped_photos_one", "{count} m\u{00E9}dia n\u{2019}a pas pu \u{00EA}tre import\u{00E9}"),
         ("geneanet.skipped_photos_other", "{count} m\u{00E9}dias n\u{2019}ont pas pu \u{00EA}tre import\u{00E9}s"),
         // ── Sex enum display ────────────────────────────────────────

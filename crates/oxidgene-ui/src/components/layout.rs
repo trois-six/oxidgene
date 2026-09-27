@@ -1209,6 +1209,78 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
     }
 
+    /* ── Homonym picker ────────────────────────────────────────────
+       A drop-down of quick-search rows (`.search-person-result`,
+       `.td-suggest-row`) under a trigger drawn as one of them. It opens in
+       place rather than as a `.context-menu`: it lives in dialogs, which sit
+       above every context-menu layer. */
+
+    .homonym-card {
+        max-width: min(520px, calc(100vw - 32px));
+    }
+
+    .homonym-picker {
+        text-align: left;
+    }
+
+    .homonym-select {
+        position: relative;
+    }
+
+    /* Doubled class: `.search-person-result` is declared further down and
+       clears the border this trigger needs to read as a control. */
+    .search-person-result.homonym-select-trigger {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 6px 28px 6px 8px;
+        position: relative;
+    }
+
+    .homonym-select-caret {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-muted);
+    }
+
+    .homonym-select-list {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 4px);
+        z-index: 1;
+        max-height: 50vh;
+        overflow-y: auto;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+    }
+
+    .homonym-separate-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 1px dashed var(--border);
+        color: var(--text-muted);
+        font-size: 1.1rem;
+    }
+
+    .homonym-warning {
+        margin: 10px 0 0;
+        padding: 8px 12px;
+        border-radius: var(--radius);
+        background: color-mix(in srgb, var(--orange) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--orange) 35%, transparent);
+        color: var(--text-primary);
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+
     /* ── Pedigree outer container ────────────────────────────────── */
 
     .pedigree-outer {
@@ -5497,6 +5569,50 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 0.84rem;
         line-height: 1.55;
         margin: 0;
+    }
+
+    /* People created outside the tree who share a name with someone in it. */
+    .gn-homonyms {
+        text-align: left;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 14px;
+        margin-top: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .gn-homonyms h4 {
+        margin: 0;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .gn-homonyms-intro {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+        line-height: 1.5;
+    }
+
+    .gn-homonym {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+    }
+
+    .gn-homonym-name {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    .gn-homonym-done {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
     }
 
     /* ── Responsive ───────────────────────────────────────────────── */

@@ -5,6 +5,7 @@ pub mod context_menu;
 pub mod cropped_image;
 pub mod date_input;
 pub mod document_form;
+pub mod homonym_picker;
 pub mod image_cropper;
 pub mod import_modal;
 pub mod layout;

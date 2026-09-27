@@ -2711,7 +2711,17 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
         Some(serde_json::json!({
             "gw_base64": base64::engine::general_purpose::STANDARD.encode(geneweb),
             "file_name": "family.gw",
-            "collection": r#"{"deposits":[],"references":[],"details":[],"view_references":{}}"#,
+            // One photograph naming somebody outside the tree, whom the
+            // receipt lists; its bytes were never gathered, so it is skipped.
+            "collection": serde_json::json!({
+                "deposits": [{"id": 1, "views": [{"id": 10, "files": {"normal": "https://example.invalid/normal.jpg"}}]}],
+                "references": [{
+                    "deposit": {"id": 1, "views": [{"id": 10}]},
+                    "firstname": "person_c",
+                    "lastname": "BRANCH_C",
+                }],
+            })
+            .to_string(),
             "archive_paths": [archive_path],
             "fetched": { fetched_url: fetched_path },
             // The archives are staged only for a run that will read them.
@@ -2746,6 +2756,10 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     assert_eq!(completed["phase"], "completed", "job status: {completed}");
     assert_eq!(completed["geneanet_result"]["persons_count"], 2);
     assert_eq!(completed["geneanet_result"]["families_count"], 1);
+    assert_eq!(completed["geneanet_result"]["isolated_count"], 1);
+    let isolated = &completed["geneanet_result"]["isolated_people"][0];
+    assert_eq!(isolated["surname"], "BRANCH_C");
+    assert_eq!(isolated["given_names"], "person_c");
     assert!(!state.media.exists(&source_key).await);
     assert!(!state.media.exists(&archive_key).await);
     assert!(!state.media.exists(&fetched_key).await);

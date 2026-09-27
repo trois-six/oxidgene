@@ -38,6 +38,10 @@ impl PersonSearchSummary {
         self.person_id
     }
 
+    pub(crate) fn sex(&self) -> Sex {
+        self.sex
+    }
+
     pub(crate) fn placeholder(person_id: Uuid, label: String) -> Self {
         Self {
             person_id,

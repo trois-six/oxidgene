@@ -10,7 +10,9 @@ use base64::Engine as _;
 use opentelemetry::global;
 #[cfg(feature = "telemetry-client")]
 use opentelemetry::propagation::Injector;
-use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile, SearchResult};
+use oxidgene_core::projection::{
+    Pedigree, PedigreeDelta, PersonProfile, SearchEntry, SearchResult,
+};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
     FamilySpouse, ImageCrop, ImageSource, Media, Note, Person, PersonName, Place, QualifiedYear,
@@ -310,6 +312,18 @@ pub struct UpdatePersonBody {
     pub sex: Option<Sex>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privacy: Option<Privacy>,
+}
+
+/// Request body for recording that a person differs from their homonyms.
+#[derive(Debug, Serialize)]
+pub struct MarkPersonsDistinctBody {
+    pub person_ids: Vec<Uuid>,
+}
+
+/// Request body for merging a duplicate into the person it names.
+#[derive(Debug, Serialize)]
+pub struct MergePersonBody {
+    pub duplicate_id: Uuid,
 }
 
 // ── PersonName request bodies ───────────────────────────────────────
@@ -1197,10 +1211,22 @@ pub struct GeneanetImportResult {
     pub portraits_count: usize,
     /// People created for identifications Geneanet marks "hors de l'arbre".
     pub isolated_count: usize,
+    /// Those people, so the receipt can ask about the ones with homonyms.
+    #[serde(default)]
+    pub isolated_people: Vec<GeneanetIsolatedPerson>,
     /// Identification boxes kept as regions on the stored pictures.
     pub vignettes_count: usize,
     pub skipped: Vec<String>,
     pub warnings: Vec<String>,
+}
+
+/// A person the Geneanet import created for an identification outside the
+/// tree.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GeneanetIsolatedPerson {
+    pub person_id: Uuid,
+    pub surname: String,
+    pub given_names: String,
 }
 
 /// Summary returned by any import, whatever the source format.
@@ -1825,6 +1851,22 @@ impl ApiClient {
         self.delete_status(path).await.map(|_| ())
     }
 
+    /// Send a POST request whose success carries no body (`204`).
+    async fn post_no_content<B: Serialize>(&self, path: &str, body: &B) -> Result<(), ApiError> {
+        let url = self.url(path);
+        let resp = self
+            .send_request("POST", self.client.post(&url).json(body))
+            .await?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body: resp.text().await.unwrap_or_default(),
+            });
+        }
+        Ok(())
+    }
+
     async fn delete_no_content_with_body<B: Serialize>(
         &self,
         path: &str,
@@ -2095,6 +2137,56 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(())
+    }
+
+    /// The other persons of the tree bearing the same name as `person_id`,
+    /// less those already confirmed to be somebody else.
+    pub async fn person_homonyms(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<Vec<SearchEntry>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/persons/{person_id}/homonyms"
+        ))
+        .await
+    }
+
+    /// Record that `person_id` is a different person from each of `others`.
+    pub async fn mark_persons_distinct(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+        others: &[Uuid],
+    ) -> Result<(), ApiError> {
+        self.post_no_content(
+            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/distinct"),
+            &MarkPersonsDistinctBody {
+                person_ids: others.to_vec(),
+            },
+        )
+        .await?;
+        self.invalidate_tree(tree_id);
+        Ok(())
+    }
+
+    /// Merge `duplicate` into `kept`, which survives; returns the kept person.
+    pub async fn merge_persons(
+        &self,
+        tree_id: Uuid,
+        kept: Uuid,
+        duplicate: Uuid,
+    ) -> Result<Person, ApiError> {
+        let result = self
+            .post(
+                &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
+                &MergePersonBody {
+                    duplicate_id: duplicate,
+                },
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
     }
 
     pub async fn get_ancestors(

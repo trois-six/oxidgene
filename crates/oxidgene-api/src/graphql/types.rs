@@ -2139,9 +2139,30 @@ pub struct GqlGeneanetImportResult {
     pub links_count: i64,
     pub portraits_count: i64,
     pub isolated_count: i64,
+    /// The people counted by `isolatedCount`, in creation order.
+    pub isolated_people: Vec<GqlGeneanetIsolatedPerson>,
     pub vignettes_count: i64,
     pub skipped: Vec<String>,
     pub warnings: Vec<String>,
+}
+
+/// A person the Geneanet import created for an identification outside the
+/// tree.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetIsolatedPerson {
+    pub person_id: ID,
+    pub surname: String,
+    pub given_names: String,
+}
+
+impl From<crate::service::geneanet::IsolatedPerson> for GqlGeneanetIsolatedPerson {
+    fn from(person: crate::service::geneanet::IsolatedPerson) -> Self {
+        Self {
+            person_id: ID(person.person_id.to_string()),
+            surname: person.surname,
+            given_names: person.given_names,
+        }
+    }
 }
 
 impl From<crate::service::geneanet::Preview> for GqlGeneanetPreview {

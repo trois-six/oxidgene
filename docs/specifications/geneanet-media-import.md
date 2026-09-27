@@ -867,7 +867,11 @@ folded name carrying both a surname and a given name becomes an isolated
 every identification of that name links its medium — and its box, when Geneanet
 drew one — to that person. Identifications of the same name on several media
 therefore share one person. They never become a portrait, because the `.gw`
-names no portrait for somebody it does not contain.
+names no portrait for somebody it does not contain. The receipt lists these
+people (`isolated_people`), and offers each one bearing the name of somebody
+already in the tree to be kept or merged into that person
+([Import §9.7](ui-import.md)) — a decision the owner's statement leaves to
+the user rather than to the join.
 
 A deposit is imported when it names somebody the import can link it to: a
 person of the tree or a person identified outside it. A photograph whose only

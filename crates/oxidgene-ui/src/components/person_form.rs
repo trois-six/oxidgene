@@ -18,6 +18,7 @@ use crate::api::{
     UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
+use crate::components::homonym_picker::{HomonymDecision, HomonymDialog};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
@@ -75,6 +76,20 @@ pub struct PersonFormProps {
     pub embedded: bool,
     pub on_close: EventHandler<()>,
     pub on_saved: EventHandler<()>,
+    /// Called with the kept person's ID when the saved person was merged into
+    /// a homonym — the record this form edited no longer exists, so a page
+    /// showing it has somewhere else to go. The form closes either way.
+    #[props(default)]
+    pub on_merged: Option<EventHandler<Uuid>>,
+}
+
+/// A saved person whose name others of the tree already bear, waiting for the
+/// user to say whether they are one of them.
+#[derive(Clone, PartialEq)]
+struct HomonymCheck {
+    person_id: Uuid,
+    name: String,
+    homonyms: Vec<oxidgene_core::projection::SearchEntry>,
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -208,6 +223,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut save_error = use_signal(|| None::<String>);
     let mut has_changes = use_signal(|| false);
     let mut show_discard_confirm = use_signal(|| false);
+    let mut homonym_check = use_signal(|| None::<HomonymCheck>);
     let mut delete_error = use_signal(|| None::<String>);
     let mut deleting = use_signal(|| false);
 
@@ -796,7 +812,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 saving.set(true);
                 save_error.set(None);
 
-                if let Some(context) = ctx {
+                let saved_pid = if let Some(context) = ctx {
                     // ── Create mode ──
 
                     // 1. Create person with sex.
@@ -914,6 +930,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         }
                         PersonFormCreateContext::Standalone => {}
                     }
+                    new_pid
                 } else {
                     // ── Edit mode ──
 
@@ -1022,9 +1039,23 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             ..stored
                         });
                     }
-                }
+                    pid
+                };
 
                 saving.set(false);
+                // A name somebody else in the tree already bears raises the
+                // question before the form closes. A failed lookup is not a
+                // failed save, so it closes as it always did.
+                if let Ok(homonyms) = api.person_homonyms(tid, saved_pid).await
+                    && !homonyms.is_empty()
+                {
+                    homonym_check.set(Some(HomonymCheck {
+                        person_id: saved_pid,
+                        name: format!("{bn_given} {bn_surname}"),
+                        homonyms,
+                    }));
+                    return;
+                }
                 on_saved.call(());
                 on_close.call(());
             });
@@ -1860,9 +1891,35 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
     };
 
+    let on_merged = props.on_merged;
+    let homonym_dialog = homonym_check().map(|check| {
+        rsx! {
+            HomonymDialog {
+                tree_id: tid,
+                person_id: check.person_id,
+                person_name: check.name,
+                homonyms: check.homonyms,
+                on_later: move |()| {
+                    homonym_check.set(None);
+                    props.on_saved.call(());
+                    props.on_close.call(());
+                },
+                on_decided: move |decision: HomonymDecision| {
+                    homonym_check.set(None);
+                    props.on_saved.call(());
+                    if let (HomonymDecision::Merged(kept), Some(on_merged)) = (decision, on_merged) {
+                        on_merged.call(kept);
+                    }
+                    props.on_close.call(());
+                },
+            }
+        }
+    });
+
     if is_embedded {
         return rsx! {
             div { class: "pf-embedded", {body} {footer} }
+            {homonym_dialog}
         };
     }
 
@@ -1915,6 +1972,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 on_cancel: move |_| { show_discard_confirm.set(false); },
             }
         }
+
+        {homonym_dialog}
     }
 }
 

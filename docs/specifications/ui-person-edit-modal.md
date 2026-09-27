@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-12T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -516,10 +516,53 @@ As the user types in the surname and first name fields, a suggestion dropdown ap
 - On save:
   1. The person is created (create mode) or updated (edit mode) via the API
   2. In create mode: the relationship link is created (FamilySpouse, FamilyChild, etc.) if applicable
-  3. The modal closes
-  4. The tree layout is recalculated
-  5. In create mode: the new person becomes the selected focus in the tree
+  3. The saved person's homonyms are read; when there are any, the homonym check below runs before the modal closes
+  4. The modal closes
+  5. The tree layout is recalculated
+  6. In create mode: the new person becomes the selected focus in the tree
 - On cancel or outside click with unsaved changes: a small confirmation prompt appears ("Discard changes?") with Confirm / Go back options
+
+### Homonym check
+
+Every save — create or edit, standalone or embedded in the couple modal —
+asks the API for the saved person's homonyms: the other persons of the tree
+whose primary surname and given names are the same once case and accents are
+ignored, less those already confirmed to be someone else ([API
+Contract](api.md) — Homonyms). When there are none, or the lookup fails, the
+modal closes as before. Otherwise a dialog opens above it:
+
+```
+┌─ Same name found ───────────────────────────────────────┐
+│  <name> bears the same name as 2 other people in this   │
+│  tree. Is it one of them?                               │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ (+) A different person                          ▾ │  │
+│  │     Keep both records; the question will not be   │  │
+│  │     asked again for them.                         │  │
+│  └───────────────────────────────────────────────────┘  │
+│                        [Decide later]  [Keep separate]  │
+└─────────────────────────────────────────────────────────┘
+```
+
+- The drop-down lists "A different person" first, selected by default, then
+  each homonym drawn exactly like a quick-search suggestion of the tree
+  topbar: portrait, surname and given names, birth and death years, the
+  spouse or the parents, the children count, the birth place.
+- **Keep separate** records that the saved person differs from every homonym
+  listed, so the dialog does not return for those pairs.
+- Choosing a homonym turns the button into a destructive **Merge** and shows
+  a warning that the record is merged into the chosen person and removed.
+  Merging keeps the chosen, pre-existing person and moves everything the saved
+  one carried onto them, following [Data Model — Person
+  merge](data-model.md#person-merge). A refused merge (spouses of one union,
+  ancestor and descendant) shows a localized error and leaves the dialog open.
+- **Decide later** closes without an answer; the dialog comes back on the
+  next save.
+- The backdrop does not dismiss the dialog: leaving without an answer is what
+  **Decide later** is for.
+- After a merge from an edit opened on the person page, that page moves to the
+  kept person; from the tree view, the chart is re-centred on them. A merge
+  from a create modal leaves the view where it was.
 
 ---
 
@@ -706,4 +749,5 @@ Same rules as the individual modal: no field is required, save is always availab
 
 This spec covers **"Edit individual"**, **"Create person"** (all context variants), and **"Edit union"**. The other actions from the action picker are covered in their own specs:
 
-- **Merge with…** → see [Person Merge](ui-merge.md)
+- **Merge with…** → see [Person Merge](ui-merge.md). The homonym check of
+  §13 merges directly, without that wizard's comparison step.

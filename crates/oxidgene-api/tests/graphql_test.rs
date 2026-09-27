@@ -3042,13 +3042,24 @@ async fn test_graphql_geneanet_import_job() {
         .to_string();
     let geneweb = "encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
     let gw_base64 = base64::engine::general_purpose::STANDARD.encode(geneweb);
-    let collection = r#"{\"deposits\":[],\"references\":[],\"details\":[],\"view_references\":{}}"#;
+    // One photograph naming somebody outside the tree: they become a person
+    // of their own, which the receipt lists. Its bytes were never gathered,
+    // so the photograph itself is reported as skipped.
+    let collection = json!({
+        "deposits": [{"id": 1, "views": [{"id": 10, "files": {"normal": "https://example.invalid/normal.jpg"}}]}],
+        "references": [{
+            "deposit": {"id": 1, "views": [{"id": 10}]},
+            "firstname": "person_c",
+            "lastname": "BRANCH_C",
+        }],
+    })
+    .to_string();
     let response = graphql(
         app.clone(),
-        &format!(
-            r#"mutation {{ importGeneanet(treeId: "{tree_id}", input: {{ gwBase64: "{gw_base64}", fileName: "family.gw", collection: "{collection}" }}) {{ jobId }} }}"#
-        ),
-        None,
+        r#"mutation($tree: ID!, $gw: String!, $collection: String!) {
+            importGeneanet(treeId: $tree, input: { gwBase64: $gw, fileName: "family.gw", collection: $collection }) { jobId }
+        }"#,
+        Some(json!({ "tree": tree_id, "gw": gw_base64, "collection": collection })),
     )
     .await;
     let job_id = data(&response)["importGeneanet"]["jobId"]
@@ -3063,9 +3074,9 @@ async fn test_graphql_geneanet_import_job() {
     assert!(worker.run_once().await.expect("run Geneanet import job"));
 
     let response = graphql(
-        app,
+        app.clone(),
         &format!(
-            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase result {{ personsCount }} geneanetResult {{ personsCount familiesCount mediaCount }} error }} }}"#
+            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase result {{ personsCount }} geneanetResult {{ personsCount familiesCount mediaCount isolatedCount isolatedPeople {{ personId surname givenNames }} }} error }} }}"#
         ),
         None,
     )
@@ -3076,6 +3087,18 @@ async fn test_graphql_geneanet_import_job() {
     assert_eq!(result["geneanetResult"]["personsCount"], 2);
     assert_eq!(result["geneanetResult"]["familiesCount"], 1);
     assert_eq!(result["geneanetResult"]["mediaCount"], 0);
+    assert_eq!(result["geneanetResult"]["isolatedCount"], 1);
+    let isolated = &result["geneanetResult"]["isolatedPeople"][0];
+    assert_eq!(isolated["surname"], "BRANCH_C");
+    assert_eq!(isolated["givenNames"], "person_c");
+    let isolated_id = isolated["personId"].as_str().unwrap();
+    let response = graphql(
+        app.clone(),
+        &format!(r#"{{ person(treeId: "{tree_id}", id: "{isolated_id}") {{ id }} }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&response)["person"]["id"], isolated_id);
     assert!(result["error"].is_null());
 }
 

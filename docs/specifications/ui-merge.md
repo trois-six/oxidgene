@@ -23,6 +23,12 @@ The merge flow can be triggered from:
 - The [Tree View](ui-genealogy-tree.md) **action picker**: "Merge with…" on a selected person
 - The [Settings](ui-settings.md) **Potential Duplicates** tool: "Merge" button on a detected pair
 
+Two lighter flows merge without this wizard, straight through the merge
+operation of §6: the homonym check that follows every save of the [Person
+Edit Modal](ui-person-edit-modal.md) §13, and the receipt of a Geneanet
+import ([Import](ui-import.md) §9.7), for people identified outside the tree
+who bear the name of somebody in it. Both keep the pre-existing person.
+
 ---
 
 ## 2. Wizard Steps
