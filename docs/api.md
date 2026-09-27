@@ -634,8 +634,9 @@ See [Data Model §4.4](data-model.md).
 
 ### Reference Content
 
-Read-only lookup of static reference content (occupation sheets and given-name
-meanings) shown on the person profile. It is not tied to a tree: `term` is the
+Read-only lookup of static reference content: occupation sheets and given-name
+meanings shown on the person profile, and the [place dictionary](place-dictionary.md)
+that place fields suggest from. It is not tied to a tree: `term` is the
 raw free-text GEDCOM value. Matching ignores case, accents, and punctuation,
 supports aliases such as gendered variants, and falls back to the first token
 of a compound given name. Source content lives in
@@ -649,9 +650,37 @@ warmed at server and desktop startup so no request pays for it.
 | `POST` | `/reference/{lang}/occupations/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
 | `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
 | `POST` | `/reference/{lang}/given-names/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
+| `GET` | `/reference/{lang}/places?q=...&limit=...` | Place suggestions from the place dictionary, best first; `limit` defaults to 10, 1–50 accepted, 400 otherwise |
 
 These routes sit at `/api/v1/reference/...`, not under a tree. Used by:
-[Person Profile](ui-person-profile.md). A physical batch accepts at most 128
+[Person Profile](ui-person-profile.md) and the place fields
+([Common UI §4.4](ui-common.md)).
+
+**Place suggestions.** The text of `q` before its first comma is matched
+against place names, ignoring case, accents and punctuation: the same name
+first, then names starting with it, then names with a later word starting
+with it. Each part after a comma must start a word of the code, subdivision,
+region or country, so `q=saint, finist` narrows to one département. Among
+equal matches, a place filed under today's subdivision comes first, then
+current places before former ones, then shorter names. A blank name returns
+`[]`. Each suggestion is:
+
+```json
+{
+  "label": "Name, 12345, Subdivision, Region, France",
+  "name": "Name", "code": "12345",
+  "subdivision": "Subdivision", "region": "Region", "country": "France",
+  "kind": "commune", "valid_from": null, "valid_until": null,
+  "successor": null, "latitude": 48.1, "longitude": -1.5, "current": true
+}
+```
+
+`label` is what a place field stores. `kind` is `commune`,
+`municipal_arrondissement`, `former_name`, `former_commune`, `settlement` or
+`parish`; `successor` is the INSEE code of the commune holding a former
+commune's territory today. In English the country and the British nations
+are named in English. The dictionary is decompressed and indexed on the first
+search, off the request workers. A physical batch accepts at most 128
 terms. Clients split larger logical operations into consecutive batches and
 merge every response; they never truncate terms at the limit.
 
@@ -765,6 +794,7 @@ type Query {
   occupationReferences(language: String!, terms: [String!]!): [OccupationReferenceMatch!]!
   givenNameReference(language: String!, term: String!): GivenNameReference
   givenNameReferences(language: String!, terms: [String!]!): [GivenNameReferenceMatch!]!
+  placeSuggestions(language: String!, query: String!, limit: Int): [PlaceSuggestion!]!
 
   # Geneanet import wizard (the archive path operation is desktop-only)
   inspectGeneweb(gwBase64: String!, fileName: String!): GeneanetInspection!

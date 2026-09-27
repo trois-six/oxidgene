@@ -921,6 +921,13 @@ pub struct ReferenceTermQuery {
     pub term: String,
 }
 
+/// Query parameters for place suggestions from the place dictionary.
+#[derive(Debug, Deserialize)]
+pub struct PlaceSuggestionQuery {
+    pub q: String,
+    pub limit: Option<usize>,
+}
+
 /// Query parameters for the Sources tab's smart drill-down (section 8 of
 /// ui-dictionary.md). Both the group listing and the final filtered source
 /// list share the same `prefix` parameter — empty/absent means "top level"

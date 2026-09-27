@@ -24,8 +24,8 @@ use super::types::{
     GqlMediaDownload, GqlMediaLink, GqlMediaWithLink, GqlNoteConnection, GqlOccupationReference,
     GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
     GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
-    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPortrait,
-    GqlPortraitImage, GqlRelationLabels, GqlSearchEntry, GqlSearchResult, GqlSource,
+    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion,
+    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchEntry, GqlSearchResult, GqlSource,
     GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
     GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlVignette,
     db_from_ctx, media_from_ctx, profiles_from_ctx, require_local_file_access,
@@ -786,6 +786,31 @@ impl QueryRoot {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+
+    /// Suggest places from the place dictionary for `fr` or `en`. The text
+    /// before the first comma matches place names; each part after a comma
+    /// must start a word of the code, subdivision, region or country.
+    async fn place_suggestions(
+        &self,
+        _ctx: &Context<'_>,
+        language: String,
+        query: String,
+        limit: Option<usize>,
+    ) -> Result<Vec<GqlPlaceSuggestion>> {
+        let language = crate::reference::ReferenceLang::from_code(&language)
+            .ok_or_else(|| async_graphql::Error::new("language must be `fr` or `en`"))?;
+        let limit = limit.unwrap_or(crate::reference::DEFAULT_PLACE_SUGGESTIONS);
+        if !(1..=crate::reference::MAX_PLACE_SUGGESTIONS).contains(&limit) {
+            return Err(async_graphql::Error::new("limit must be between 1 and 50"));
+        }
+        // The first search decompresses and indexes the dictionary, and
+        // every search scans it: kept off the async workers.
+        let places = tokio::task::spawn_blocking(move || {
+            crate::reference::search_places(language, &query, limit)
+        })
+        .await?;
+        Ok(places.into_iter().map(Into::into).collect())
     }
 
     // ── Media ────────────────────────────────────────────────────────

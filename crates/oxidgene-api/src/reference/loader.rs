@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use serde::Deserialize;
+use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::is_combining_mark;
 
 use crate::embedded;
 
@@ -49,29 +51,25 @@ pub struct GivenNameEntry {
     pub aliases: Vec<String>,
 }
 
-/// Normalizes a raw GEDCOM value for lookup: lowercase, accents stripped,
+/// Normalizes a raw value for lookup: lowercase, accents stripped,
 /// punctuation collapsed to single spaces. GEDCOM occupation/given-name
 /// values are free text (accents, gendered variants, old spellings), so
-/// entries also get indexed under each of their declared `aliases`.
+/// entries also get indexed under each of their declared `aliases`; place
+/// names are matched the same way.
 pub fn normalize_key(raw: &str) -> String {
-    raw.trim()
-        .chars()
-        .filter_map(|c| match c.to_lowercase().next().unwrap_or(c) {
-            'à' | 'â' | 'ä' | 'á' | 'ã' => Some('a'),
-            'ç' => Some('c'),
-            'é' | 'è' | 'ê' | 'ë' => Some('e'),
-            'î' | 'ï' => Some('i'),
-            'ô' | 'ö' | 'õ' => Some('o'),
-            'ù' | 'û' | 'ü' => Some('u'),
-            'ÿ' => Some('y'),
-            '-' | '\'' | '_' | '/' => Some(' '),
-            lower if lower.is_alphanumeric() || lower == ' ' => Some(lower),
-            _ => None,
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut folded = String::with_capacity(raw.len());
+    for c in raw.trim().nfd() {
+        match c {
+            _ if is_combining_mark(c) => {}
+            'œ' | 'Œ' => folded.push_str("oe"),
+            'æ' | 'Æ' => folded.push_str("ae"),
+            'ß' => folded.push_str("ss"),
+            '-' | '\'' | '’' | '_' | '/' => folded.push(' '),
+            _ if c.is_alphanumeric() || c == ' ' => folded.extend(c.to_lowercase()),
+            _ => {}
+        }
+    }
+    folded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 macro_rules! embed_br {
@@ -269,6 +267,7 @@ mod tests {
         assert_eq!(normalize_key("Laboureur/euse"), "laboureur euse");
         assert_eq!(normalize_key("  Forgeron  "), "forgeron");
         assert_eq!(normalize_key("Méunier"), "meunier");
+        assert_eq!(normalize_key("Cœur-d’Ŵy"), "coeur d wy");
     }
 
     #[test]

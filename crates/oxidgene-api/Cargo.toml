@@ -42,6 +42,9 @@ tokio = { workspace = true, features = ["fs", "io-util"] }
 tracing = { workspace = true }
 # Decodes the embedded data (see `embedded`); `build.rs` compresses it.
 brotli-decompressor = { workspace = true }
+# Accent folding for reference lookups; already in the tree through the
+# Geneanet crate.
+unicode-normalization = { workspace = true }
 # Packing a multi-page document's pages into one download. Same crate the
 # Geneanet session container uses.
 zip = { workspace = true }

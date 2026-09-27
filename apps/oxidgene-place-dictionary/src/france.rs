@@ -419,6 +419,7 @@ impl Cog {
                 .filter(|_| kind != Kind::Commune && kind != Kind::MunicipalArrondissement)
                 .map(|l| l.code.clone()),
             coordinates,
+            current: false,
         };
 
         let mut places = Vec::new();
@@ -428,18 +429,18 @@ impl Cog {
         if own == today
             && let Some((department, region)) = self.departments.get(today)
         {
-            file(&mut places, &base, department, region);
+            file(&mut places, &base, department, region, true);
             if record.began_before(REGIONS_2016)
                 && let Some(old) = &old_region
             {
-                file(&mut places, &base, department, old);
+                file(&mut places, &base, department, old, false);
             }
         }
         let region = old_region.or_else(|| self.departments.get(today).map(|d| d.1.clone()));
         if let Some(region) = region {
             for (_, former, until) in FORMER_DEPARTMENT_NAMES.iter().filter(|d| d.0 == own) {
                 if record.began_before(until) {
-                    file(&mut places, &base, former, &region);
+                    file(&mut places, &base, former, &region, false);
                 }
             }
         }
@@ -448,7 +449,8 @@ impl Cog {
 }
 
 /// Adds `base` filed under a département and region, unless it already is.
-fn file(places: &mut Vec<Place>, base: &Place, department: &str, region: &str) {
+/// `current` marks today's département and region.
+fn file(places: &mut Vec<Place>, base: &Place, department: &str, region: &str, current: bool) {
     let region = Region::Named(region.to_string());
     if !places
         .iter()
@@ -457,6 +459,7 @@ fn file(places: &mut Vec<Place>, base: &Place, department: &str, region: &str) {
         places.push(Place {
             subdivision: department.to_string(),
             region,
+            current,
             ..base.clone()
         });
     }
@@ -698,14 +701,15 @@ impl FormerCommunes {
                 valid_until: Some(commune.end.clone()),
                 successor: successor.clone(),
                 coordinates: commune.coordinates,
+                current: false,
             };
             let old_region = region_before_2016(today).unwrap_or(region);
             let mut filed = Vec::new();
-            file(&mut filed, &base, department, region);
-            file(&mut filed, &base, department, old_region);
+            file(&mut filed, &base, department, region, true);
+            file(&mut filed, &base, department, old_region, false);
             for (_, former, until) in FORMER_DEPARTMENT_NAMES.iter().filter(|d| d.0 == then) {
                 if commune.start.as_deref().is_none_or(|s| s < *until) {
-                    file(&mut filed, &base, former, old_region);
+                    file(&mut filed, &base, former, old_region, false);
                 }
             }
             places.extend(filed);
@@ -829,6 +833,30 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn only_todays_filing_is_marked_current() {
+        let wikidata = WikidataCodes {
+            coordinates: HashMap::new(),
+            labels: HashMap::new(),
+        };
+        let cog = cog();
+        let current = |index| {
+            cog.places_of(index, &HashMap::new(), &wikidata)
+                .into_iter()
+                .map(|p| (p.subdivision, p.current))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            current(1),
+            vec![
+                ("Côtes-d'Armor".to_string(), true),
+                ("Côtes-du-Nord".to_string(), false)
+            ]
+        );
+        // A renumbered code was never filed under today's département.
+        assert_eq!(current(3), vec![("Seine-et-Oise".to_string(), false)]);
     }
 
     #[test]

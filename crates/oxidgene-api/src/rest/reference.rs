@@ -1,13 +1,13 @@
 //! REST handlers for read-only reference content (occupation sheets,
-//! given-name meanings). Not tied to a tree — a lookup by GEDCOM raw value,
-//! independent of `AppState`.
+//! given-name meanings, the place dictionary). Not tied to a tree — a lookup
+//! by raw value, independent of `AppState`.
 
 use axum::Json;
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use serde::Deserialize;
 
-use super::dto::ReferenceTermQuery;
+use super::dto::{PlaceSuggestionQuery, ReferenceTermQuery};
 use crate::reference::{self, ReferenceLang};
 
 #[derive(Debug, Deserialize)]
@@ -59,4 +59,22 @@ pub async fn occupations(
         return Err(StatusCode::BAD_REQUEST);
     }
     Ok(Json(reference::lookup_occupations(lang, &request.terms)))
+}
+
+/// GET /api/v1/reference/:lang/places?q=...&limit=...
+pub async fn places(
+    Path(lang): Path<String>,
+    Query(query): Query<PlaceSuggestionQuery>,
+) -> Result<Json<Vec<reference::PlaceSuggestion>>, StatusCode> {
+    let lang = ReferenceLang::from_code(&lang).ok_or(StatusCode::BAD_REQUEST)?;
+    let limit = query.limit.unwrap_or(reference::DEFAULT_PLACE_SUGGESTIONS);
+    if !(1..=reference::MAX_PLACE_SUGGESTIONS).contains(&limit) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // The first search decompresses and indexes the dictionary, and every
+    // search scans it: kept off the async workers.
+    tokio::task::spawn_blocking(move || reference::search_places(lang, &query.q, limit))
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }

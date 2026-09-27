@@ -9,6 +9,8 @@ RUN apt-get update && \
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY apps/ apps/
+# Embedded into the API at build time (see docs/place-dictionary.md).
+COPY assets/places/ assets/places/
 
 RUN cargo build --locked --release --package oxidgene-worker
 

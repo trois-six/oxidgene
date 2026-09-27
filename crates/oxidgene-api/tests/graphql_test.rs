@@ -88,6 +88,43 @@ async fn given_name_reference_batch_matches_rest_bounds() {
 }
 
 #[tokio::test]
+async fn place_suggestions_match_rest() {
+    let app = setup_app().await;
+    let response = graphql(
+        app.clone(),
+        r#"{
+            placeSuggestions(language: "en", query: "paris", limit: 3) {
+                label code kind current
+            }
+        }"#,
+        None,
+    )
+    .await;
+    let places = data(&response)["placeSuggestions"].clone();
+    assert_eq!(places.as_array().unwrap().len(), 3);
+    assert_eq!(
+        places[0]["label"],
+        "Paris, 75056, Paris, Île-de-France, France"
+    );
+    assert_eq!(places[0]["kind"], "COMMUNE");
+    assert_eq!(places[0]["current"], true);
+
+    for query in [
+        r#"{ placeSuggestions(language: "fr", query: "paris", limit: 51) { label } }"#,
+        r#"{ placeSuggestions(language: "fr", query: "paris", limit: 0) { label } }"#,
+        r#"{ placeSuggestions(language: "xx", query: "paris") { label } }"#,
+    ] {
+        let response = graphql(app.clone(), query, None).await;
+        assert!(
+            response["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "should be rejected: {query}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn occupation_reference_batch_matches_rest_bounds() {
     let app = setup_app().await;
     let response = graphql(

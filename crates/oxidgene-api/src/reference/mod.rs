@@ -1,11 +1,14 @@
-//! Static reference content — occupation sheets and given-name meanings —
-//! served read-only under `/api/v1/reference`. Not tied to any tree.
+//! Static reference content — occupation sheets, given-name meanings and
+//! the place dictionary — served read-only under `/api/v1/reference`. Not
+//! tied to any tree.
 //!
 //! Source JSON lives in `data/` (one file per language per data type),
-//! gzip-compressed at build time (see `build.rs`) and decompressed once,
-//! on first lookup, into an in-memory table (see `loader.rs`).
+//! Brotli-compressed at build time (see `build.rs`) and decompressed once,
+//! on first lookup, into an in-memory table (see `loader.rs`). The place
+//! dictionary is committed already compressed (see `places.rs`).
 
 mod loader;
+mod places;
 
 use std::collections::HashSet;
 
@@ -13,6 +16,9 @@ use serde::Serialize;
 
 pub use loader::{
     GivenNameEntry, OccupationEntry, ReferenceLang, lookup_given_name, lookup_occupation, preheat,
+};
+pub use places::{
+    DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceSuggestion, search_places,
 };
 
 pub const MAX_REFERENCE_TERMS: usize = 128;

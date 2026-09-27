@@ -2484,6 +2484,73 @@ impl From<crate::reference::GivenNameMatch> for GqlGivenNameReferenceMatch {
     }
 }
 
+/// What a place dictionary entry is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlPlaceKind {
+    Commune,
+    MunicipalArrondissement,
+    Settlement,
+    Parish,
+    FormerName,
+    FormerCommune,
+}
+
+impl From<crate::reference::PlaceKind> for GqlPlaceKind {
+    fn from(kind: crate::reference::PlaceKind) -> Self {
+        use crate::reference::PlaceKind;
+        match kind {
+            PlaceKind::Commune => Self::Commune,
+            PlaceKind::MunicipalArrondissement => Self::MunicipalArrondissement,
+            PlaceKind::Settlement => Self::Settlement,
+            PlaceKind::Parish => Self::Parish,
+            PlaceKind::FormerName => Self::FormerName,
+            PlaceKind::FormerCommune => Self::FormerCommune,
+        }
+    }
+}
+
+/// A place suggested from the place dictionary.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPlaceSuggestion {
+    /// The place as a genealogy records it, most specific part first.
+    pub label: String,
+    pub name: String,
+    /// The INSEE commune code in France.
+    pub code: Option<String>,
+    pub subdivision: String,
+    pub region: String,
+    pub country: String,
+    pub kind: GqlPlaceKind,
+    pub valid_from: Option<String>,
+    pub valid_until: Option<String>,
+    /// INSEE code of the commune holding a former commune's territory today.
+    pub successor: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    /// Filed under today's subdivision and region rather than a former one.
+    pub current: bool,
+}
+
+impl From<crate::reference::PlaceSuggestion> for GqlPlaceSuggestion {
+    fn from(place: crate::reference::PlaceSuggestion) -> Self {
+        Self {
+            label: place.label,
+            name: place.name,
+            code: place.code,
+            subdivision: place.subdivision,
+            region: place.region,
+            country: place.country,
+            kind: place.kind.into(),
+            valid_from: place.valid_from,
+            valid_until: place.valid_until,
+            successor: place.successor,
+            latitude: place.latitude,
+            longitude: place.longitude,
+            current: place.current,
+        }
+    }
+}
+
 /// The media or vignette selected to represent one person.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlPortrait {

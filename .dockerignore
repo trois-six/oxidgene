@@ -20,8 +20,11 @@ lcov.info
 *.swo
 *~
 
-# Documentation not needed by the image build
+# Documentation not needed by the image build. The place dictionary under
+# /assets/places/ is embedded by the build and stays in the context.
 /docs/
+/assets/*.png
+/assets/*.svg
 /charts/
 *.md
 /.gitignore

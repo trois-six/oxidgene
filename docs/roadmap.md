@@ -74,7 +74,7 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 The [place dictionary](place-dictionary.md) for France and the United Kingdom
 is generated. Remaining:
 
-- [ ] Ship the dictionary with the application, compressed, and search it
+- [x] Ship the dictionary with the application, compressed, and search it
   through REST and GraphQL alike.
 - [ ] Give every place field the shared `PlaceInput` of
   [Common UI §4.4](ui-common.md): suggestions from the tree's places and the

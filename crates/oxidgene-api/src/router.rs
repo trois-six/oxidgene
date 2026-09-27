@@ -458,9 +458,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/inspect", post(geneanet::inspect_geneweb_handler))
         .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
 
-    // Static reference content (occupation sheets, given-name meanings) —
-    // not tied to a tree, so kept out of the `/trees` nest.
+    // Static reference content (occupation sheets, given-name meanings, the
+    // place dictionary) — not tied to a tree, so kept out of the `/trees` nest.
     let reference_routes = Router::new()
+        .route("/{lang}/places", get(reference::places))
         .route("/{lang}/occupations", get(reference::occupation))
         .route("/{lang}/occupations/bundle", post(reference::occupations))
         .route("/{lang}/given-names", get(reference::given_name))

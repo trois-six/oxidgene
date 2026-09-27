@@ -83,6 +83,7 @@ format reads these files unchanged.
 | 9 | Successor | INSEE code of the commune holding the territory today | Empty |
 | 10 | Latitude | WGS 84, four decimals | WGS 84, four decimals |
 | 11 | Longitude | WGS 84, four decimals | WGS 84, four decimals |
+| 12 | Current | `1` when filed under today's département and region | `1` when filed under the ceremonial county |
 
 - **Kinds.** `former_name` is a commune that still exists under another name
   or code (a rename, or the 1968 and 1976 renumberings); `former_commune` was
@@ -93,10 +94,21 @@ format reads these files unchanged.
   (or county) it is filed under (§3, §4). Rows repeating the first five
   columns and the kind are dropped; the ONS lists a place once per boundary it
   straddles.
+- **Current.** Of the filings of one place, today's is marked, so a search
+  can offer it first. Of two rows that would read the same, the current one
+  is kept.
 - **Order.** Country, region, subdivision, code, then name, so that two runs
   over the same sources produce the same file.
 
-The CSV is about 18 MB, 1.6 MB compressed.
+The CSV is about 18 MB, 1.7 MB compressed.
+
+### 2.1 Use
+
+The backend searches the dictionary for place suggestions
+([API reference content](api.md)). It decompresses and indexes it on the
+first search: every string in one buffer and the few hundred subdivisions,
+regions and countries stored once, about 20 MB in memory, searched in
+10–20 ms by a scan in a release build.
 
 ## 3. France
 

@@ -126,6 +126,47 @@ async fn occupation_reference_bundle_is_bounded_per_request() {
 }
 
 #[tokio::test]
+async fn place_suggestions_come_from_the_place_dictionary() {
+    let app = setup_app().await;
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/reference/en/places?q=paris&limit=3",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let places = body.as_array().expect("array response");
+    assert_eq!(places.len(), 3);
+    assert_eq!(
+        places[0]["label"],
+        "Paris, 75056, Paris, Île-de-France, France"
+    );
+    assert_eq!(places[0]["kind"], "commune");
+    assert_eq!(places[0]["code"], "75056");
+    assert_eq!(places[0]["current"], true);
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/reference/fr/places?q=%20",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, serde_json::json!([]));
+
+    for uri in [
+        "/api/v1/reference/fr/places?q=paris&limit=51",
+        "/api/v1/reference/fr/places?q=paris&limit=0",
+        "/api/v1/reference/xx/places?q=paris",
+    ] {
+        let (status, _) = send_request(app.clone(), Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+    }
+}
+
+#[tokio::test]
 async fn openapi_spec_is_generated_from_the_rest_router() {
     let response = setup_app()
         .await

@@ -90,6 +90,8 @@ pub struct Place {
     /// Code of the commune that holds the territory today.
     pub successor: Option<String>,
     pub coordinates: Option<Coordinates>,
+    /// Filed under today's subdivision and region, rather than a former one.
+    pub current: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -153,6 +155,8 @@ pub fn render(places: &mut [Place]) -> (String, usize) {
             fold(&p.name),
             p.name.clone(),
             p.kind,
+            // Of two rows that read the same, the current one is kept.
+            !p.current,
         )
     });
     let mut seen = HashSet::new();
@@ -190,6 +194,7 @@ pub fn render(places: &mut [Place]) -> (String, usize) {
             place.successor.as_deref().unwrap_or_default(),
             &latitude,
             &longitude,
+            if place.current { "1" } else { "" },
         ];
         let line = fields
             .iter()
@@ -235,6 +240,7 @@ mod tests {
                 latitude,
                 longitude: -3.0,
             }),
+            current: false,
         }
     }
 
@@ -266,7 +272,7 @@ mod tests {
         let first = text.lines().next().unwrap();
         assert_eq!(
             first,
-            "\"Village A\",\"\",\"Shire A\",\"Pays de Galles\",\"Royaume-Uni\",\"settlement\",\"\",\"\",\"\",\"52.0000\",\"-3.0000\""
+            "\"Village A\",\"\",\"Shire A\",\"Pays de Galles\",\"Royaume-Uni\",\"settlement\",\"\",\"\",\"\",\"52.0000\",\"-3.0000\",\"\""
         );
         assert!(text.lines().nth(1).unwrap().contains("\"parish\""));
         assert!(text.lines().nth(2).unwrap().starts_with("\"Village B\""));

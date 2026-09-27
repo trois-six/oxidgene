@@ -148,11 +148,13 @@ async fn great_britain(fetcher: &Fetcher) -> Result<Vec<Place>> {
             valid_until: None,
             successor: None,
             coordinates,
+            current: false,
         };
-        for county in [&row[historic], &row[ceremonial]] {
+        for (county, current) in [(&row[historic], false), (&row[ceremonial], true)] {
             if !county.is_empty() {
                 places.push(Place {
                     subdivision: county.clone(),
+                    current,
                     ..base.clone()
                 });
             }
@@ -207,6 +209,8 @@ async fn northern_ireland(fetcher: &Fetcher) -> Result<Vec<Place>> {
             valid_until: None,
             successor: None,
             coordinates: Coordinates::from_wkt(&row[coord]),
+            // The six counties are both historic and ceremonial.
+            current: true,
         })
         .collect())
 }
