@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-09-16T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -191,6 +191,18 @@ OXIDGENE_LOG_LEVEL=warn \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5317 \
    cargo run --package oxidgene-worker
 ```
+
+### 2.6 Reference Data
+
+| Command | Purpose |
+|---------|---------|
+| `just places` | Regenerate the France and United Kingdom place dictionaries from the latest edition of each open-data source. |
+| `just places --cached` | Regenerate them from the downloads of the previous run. |
+
+The sources, the file format and the output location are specified in
+[Place Dictionary](place-dictionary.md). The generator needs network access to
+INSEE, data.gouv.fr, geo.api.gouv.fr, the ONS Open Geography Portal and the
+Wikidata query service.
 
 ## 3. Local Web Workflow
 

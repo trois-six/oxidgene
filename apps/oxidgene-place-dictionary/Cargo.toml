@@ -1,0 +1,21 @@
+[package]
+name = "oxidgene-place-dictionary"
+description = "Generates the France and United Kingdom place dictionaries from open data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+# Downloads the open-data sources; already the workspace HTTP client.
+reqwest = { workspace = true }
+# geo.api.gouv.fr answers in JSON.
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+# Accent folding when comparing names from two sources.
+unicode-normalization = { workspace = true }
+# The ONS Index of Place Names ships as a ZIP archive.
+zip = { workspace = true }

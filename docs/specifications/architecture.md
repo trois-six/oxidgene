@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -339,7 +339,7 @@ Redis links are dashed because the chart can provision their infrastructure,
 but authenticated session storage is not implemented yet.
 
 - The release images, development Compose stack, and Kubernetes deliverables
-    are tracked in [Roadmap §6](roadmap.md).
+    are tracked in [Roadmap §7](roadmap.md).
 
 ### 8.2 Desktop Distribution
 
@@ -353,7 +353,7 @@ but authenticated session storage is not implemented yet.
     directory and are managed from [Settings](ui-settings.md). See
     [Common UI §4.4](ui-common.md).
 - Release artifacts and their platform verification are tracked in
-    [Roadmap §6](roadmap.md).
+    [Roadmap §7](roadmap.md).
 
 ---
 
@@ -381,6 +381,7 @@ oxidgene/
 │   ├── oxidgene-worker/    # Web background-job worker
 │   ├── oxidgene-web/       # Browser frontend (Dioxus/WASM)
 │   ├── oxidgene-desktop/   # Desktop binary (Axum + SQLite + Dioxus WebView)
+│   ├── oxidgene-place-dictionary/  # Place dictionary generator (development tool)
 └── docker/                 # Docker files
 ```
 
@@ -400,6 +401,7 @@ oxidgene-server (depends on: oxidgene-api, oxidgene-db)
 oxidgene-worker (depends on: oxidgene-api, oxidgene-db)
 oxidgene-web (depends on: oxidgene-ui)
 oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui, oxidgene-geneanet)
+oxidgene-place-dictionary (no internal deps)
 
 oxidgene-ui (depends on: oxidgene-core)
 ```
@@ -413,7 +415,9 @@ and injects as context. The web build simply finds none and renders the
 explanation instead of the control.
 
 The workspace keeps libraries under `crates/` and application entry points
-under `apps/`. A former CLI was removed after its workflows moved into the
+under `apps/`. `oxidgene-place-dictionary` is a development tool rather than a
+shipped application: it generates the [place dictionary](place-dictionary.md)
+from open data and is never linked into a product binary. A former CLI was removed after its workflows moved into the
 desktop application. A single initial migration creates the complete current
 SQLite or PostgreSQL schema, including indexes, search storage, and durable
 background jobs. Schema changes are consolidated into that initial migration;

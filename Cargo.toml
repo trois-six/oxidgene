@@ -12,6 +12,7 @@ members = [
     "apps/oxidgene-worker",
     "apps/oxidgene-desktop",
     "apps/oxidgene-web",
+    "apps/oxidgene-place-dictionary",
 ]
 
 [workspace.package]

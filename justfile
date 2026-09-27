@@ -54,6 +54,12 @@ fmt-check:
 # Run all checks (fmt + clippy + test)
 check: fmt-check clippy test
 
+# Regenerate the France and United Kingdom place dictionaries from open data
+# (see docs/specifications/place-dictionary.md). Pass --cached to reuse the
+# previous run's downloads.
+places *args:
+    cargo run --package oxidgene-place-dictionary -- {{args}}
+
 # Regenerate the OpenAPI specification from the REST router
 openapi:
     cargo build --package oxidgene-api

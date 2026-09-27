@@ -5153,6 +5153,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxidgene-place-dictionary"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest 0.13.5",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
+ "zip",
+]
+
+[[package]]
 name = "oxidgene-server"
 version = "0.1.0"
 dependencies = [

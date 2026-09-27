@@ -69,7 +69,20 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 - [ ] Decide whether a merge should reconcile events recorded twice (two
   births, say) or keep leaving that to the user.
 
-## 5. Planned: dictionary descent
+## 5. Planned: place autocomplete
+
+The [place dictionary](place-dictionary.md) for France and the United Kingdom
+is generated. Remaining:
+
+- [ ] Ship the dictionary with the application, compressed, and search it
+  through REST and GraphQL alike.
+- [ ] Give every place field the shared `PlaceInput` of
+  [Common UI §4.4](ui-common.md): suggestions from the tree's places and the
+  dictionary, free text always accepted.
+- [ ] Decide whether Northern Ireland townlands and French lieux-dits justify
+  a separately downloaded database.
+
+## 6. Planned: dictionary descent
 
 - [ ] Define descent grouping, including incomplete parentage and children who
   do not carry the surname.
@@ -77,7 +90,7 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 - [ ] Add the recursive view to the existing Dictionary page and specification.
 - [ ] Cover SOSA badges, limits, empty states, and large surname groups.
 
-## 6. Planned: security, release, and deployment
+## 7. Planned: security, release, and deployment
 
 - [ ] Implement authentication and session management.
 - [ ] Implement per-tree guest, read-only, and editor authorization.
@@ -105,7 +118,7 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 Privacy fields currently record intent but do not hide data. The UI must state
 this clearly until authorization is enforced.
 
-## 7. Planned: assistant access (MCP)
+## 8. Planned: assistant access (MCP)
 
 First delivery: read-only, stdio, desktop, with a required `tree_id` on every
 tool but `list_trees`.
@@ -136,7 +149,7 @@ Later phases, in order:
 - [ ] Bounded thumbnail image content.
 - [ ] Output schemas, once the result types carry JSON Schema derives.
 
-## 8. Post-MVP: asynchronous processing
+## 9. Post-MVP: asynchronous processing
 
 - [ ] Define queue and worker architecture without a second source of truth.
 - [ ] Add chunked and resumable media uploads.
@@ -144,7 +157,7 @@ Later phases, in order:
 - [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
 
-## 9. Definition of done
+## 10. Definition of done
 
 An item is complete only when implementation and specifications agree; i18n
 keys have English/French parity; examples and artifacts are anonymized; REST
