@@ -21,6 +21,10 @@ pub enum Country {
     Switzerland,
     Poland,
     UnitedStates,
+    Portugal,
+    Belgium,
+    Luxembourg,
+    Netherlands,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -151,6 +155,10 @@ fn country_name(country: Country) -> &'static str {
         Country::Poland => "Pologne",
         // Geneanet's spelling, so a place imported from it matches.
         Country::UnitedStates => "Etats-Unis d'Amérique",
+        Country::Portugal => "Portugal",
+        Country::Belgium => "Belgique",
+        Country::Luxembourg => "Luxembourg",
+        Country::Netherlands => "Pays-Bas",
     }
 }
 

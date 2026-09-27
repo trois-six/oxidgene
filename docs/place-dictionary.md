@@ -1,8 +1,8 @@
 ---
 type: "Data Specification"
 title: "Place Dictionary — generated reference places"
-description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland and the United States: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
-tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states]
+description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
+tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 sources:
   - id: geneanet-dico
@@ -29,6 +29,12 @@ sources:
   - id: gus-teryt
     title: "GUS, Krajowy Rejestr Urzędowy Podziału Terytorialnego Kraju (TERYT)"
     url: "https://eteryt.stat.gov.pl/"
+  - id: caop
+    title: "DGT, Carta Administrativa Oficial de Portugal (OGC API)"
+    url: "https://ogcapi.dgterritorio.gov.pt/"
+  - id: cbs-gemeenten
+    title: "CBS, Gemeentelijke indeling"
+    url: "https://www.cbs.nl/nl-nl/onze-diensten/methoden/classificaties/overig/gemeentelijke-indelingen-per-jaar"
   - id: census-gazetteer
     title: "U.S. Census Bureau, Gazetteer Files"
     url: "https://www.census.gov/geographies/reference-files/time-series/geo/gazetteer-files.html"
@@ -42,8 +48,7 @@ The place dictionary lists the places of a country the way genealogical
 records name them: today's municipalities, but also those merged away, the
 names and codes they bore before, and the subdivisions and regions they were
 filed under at the time, as far as each country's sources go. It covers
-France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland and the
-United States, and is what [place fields](ui-common.md) suggest from.
+France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands, and is what [place fields](ui-common.md) suggest from.
 
 It is generated, never edited by hand, and regenerated whenever a source
 publishes a new edition.
@@ -72,8 +77,8 @@ waiting on Wikidata and compressing.
 Every run downloads afresh, and finds the newest edition of each source by
 itself: the latest COG vintage listed on data.gouv.fr, the latest Index of
 Place Names on the ONS Open Geography Portal, every GV100AD edition the
-Destatis page links, the newest INE list and Census gazetteer published, and
-the Swiss register up to the day of the run. Rerunning after a source update
+Destatis page links, the newest INE, CBS and Census lists published, the
+current CAOP, and the Swiss register up to the day of the run. Rerunning after a source update
 needs no code change. `--cached` exists only to iterate on the generator.
 
 The Wikidata query service answers a timeout with a success status and a
@@ -119,12 +124,17 @@ format reads these files unchanged.
 | Switzerland | BFS commune number | Empty | Canton |
 | Poland | TERYT gmina code (7 digits) | Powiat, empty for a city with powiat rights | Voivodeship |
 | United States | Census GEOID (state and place, or county subdivision) | County | State |
+| Portugal | INE code: DICO (4 digits) for a municipality, DICOFRE (6) for a parish | Municipality, for a parish | District or autonomous region |
+| Belgium | NIS code (5 digits; a section adds a letter) | Province, empty in Brussels | Region |
+| Luxembourg | LAU code | Empty | Canton |
+| Netherlands | CBS municipality code (4 digits) | Empty | Province |
 
 - **Kinds.** `commune` is a municipality of any country; `former_name` is one
   that still exists under another name or code (a rename, a renumbering, a
   new province or Kreis); `former_commune` was merged into another or
   abolished. `settlement` is a British locality or an American
-  census-designated place, `parish` a British civil parish.
+  census-designated place, `parish` a British civil parish or a Portuguese
+  freguesia.
 - **Dates.** An empty *valid from* means the name predates the source's
   horizon (1943 for INSEE, 1848 for the BFS) or is unknown.
 - **One row per filing.** A place appears once for each département and region
@@ -137,7 +147,7 @@ format reads these files unchanged.
 - **Order.** Country, region, subdivision, code, then name, so that two runs
   over the same sources produce the same file.
 
-The CSV is about 27 MB and 274,000 rows, 2.8 MB compressed.
+The CSV is about 28 MB and 284,000 rows, 2.9 MB compressed.
 
 ### 2.1 Use
 
@@ -370,6 +380,52 @@ skipped as they name no parish.
 - Not covered: townships outside New England, and places that no longer
   exist.
 
+## 11. Portugal
+
+| Source | Provides | Licence |
+|--------|----------|---------|
+| DGT, CAOP OGC API[^caop] | Mainland municipalities and parishes (freguesias) with their district | Licence of the CAOP (open, attribution) |
+| Wikidata | Municipalities and parishes of the Azores and Madeira, the parishes merged in 2013, coordinates | CC0 |
+
+- A parish is filed under its municipality and district, a municipality
+  under its district; the autonomous regions stand in for districts.
+- The parishes merged in 2013 are filed under the municipality their code
+  names, pointing at the union parish that holds them when Wikidata says
+  which, at the municipality otherwise.
+
+## 12. Belgium
+
+| Source | Provides | Licence |
+|--------|----------|---------|
+| Wikidata | Municipalities with their NIS code, those merged in 2019 and 2025, and the sections: the communes of before the fusions of 1977 | CC0 |
+
+- Statbel's code list sits behind a bot challenge a generator cannot pass;
+  Wikidata carries the same NIS codes, from which province and region
+  follow.
+- Names are in the municipality's language: Dutch in Flanders, French in
+  Wallonia, German in the nine German-speaking municipalities, both in
+  Brussels ("Ixelles/Elsene").
+- The municipalities of Brussels, Flemish Brabant and Walloon Brabant are
+  also filed under the province of Brabant, split in 1995.
+
+## 13. Luxembourg
+
+| Source | Provides | Licence |
+|--------|----------|---------|
+| Wikidata | Communes with their LAU code and canton, and the communes merged since 1978 | CC0 |
+
+- Communes are filed under their canton, "Canton de Redange" as Redange.
+
+## 14. Netherlands
+
+| Source | Provides | Licence |
+|--------|----------|---------|
+| CBS[^cbs-gemeenten], newest yearly list | Municipalities with their code and province | CC BY 4.0 |
+| Wikidata | Municipalities merged since 1812 | CC0 |
+
+- A former municipality is filed under the province of the municipality
+  that absorbed it.
+
 [^geneanet-dico]: Geneanet, `dico_place_fr.csv`, five quoted columns: place, INSEE code, département, region, country.
 [^insee-cog]: INSEE publishes a COG vintage each year; `v_commune_depuis_1943.csv` and `v_mvt_commune_<year>.csv` carry the history.
 [^ons-ipn]: The ONS stamps the edition year into column names (`place23nm`); the generator finds columns whatever the year.
@@ -379,3 +435,5 @@ skipped as they name no parish.
 [^bfs-agv]: The register's API: `/api/communes/snapshot` and `/api/communes/mutations`.
 [^gus-teryt]: The TERC file, in its official version.
 [^census-gazetteer]: `YYYY_Gaz_place_national.zip`, `_cousubs_` and `_counties_`; before 2025 tab-separated, since then bar-separated.
+[^caop]: `/collections/municipios` and `/collections/freguesias`, paged without geometry.
+[^cbs-gemeenten]: `gemeenten-alfabetisch-YYYY.xlsx`, the sheet headed "Gemeentecode".

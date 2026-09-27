@@ -9,13 +9,17 @@
 //! the binaries. The format, the sources and their licences are specified in
 //! `docs/place-dictionary.md`.
 
+mod belgium;
 mod calendar;
 mod fetch;
 mod france;
 mod germany;
 mod italy;
+mod luxembourg;
+mod netherlands;
 mod place;
 mod poland;
+mod portugal;
 mod spain;
 mod switzerland;
 mod table;
@@ -84,6 +88,10 @@ async fn main() -> Result<()> {
     places.extend(switzerland::places(&fetcher).await?);
     places.extend(poland::places(&fetcher).await?);
     places.extend(usa::places(&fetcher).await?);
+    places.extend(portugal::places(&fetcher).await?);
+    places.extend(belgium::places(&fetcher).await?);
+    places.extend(luxembourg::places(&fetcher).await?);
+    places.extend(netherlands::places(&fetcher).await?);
     let (csv, rows) = place::render(&mut places);
 
     if let Some(path) = &args.csv {

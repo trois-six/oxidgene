@@ -55,7 +55,8 @@ fmt-check:
 check: fmt-check clippy test
 
 # Regenerate the place dictionary (France, United Kingdom, Germany, Italy,
-# Spain, Switzerland, Poland, United States) from the latest
+# Spain, Switzerland, Poland, United States, Portugal, Belgium, Luxembourg,
+# Netherlands) from the latest
 # open data into assets/places/places.csv.br, which is committed and embedded
 # into the binaries (see docs/place-dictionary.md). Run by hand when a source
 # publishes a new edition. --cached reuses the previous run's downloads and

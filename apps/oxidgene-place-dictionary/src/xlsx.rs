@@ -6,8 +6,16 @@ use std::io::Read;
 
 use anyhow::{Context, Result};
 
-/// The first sheet's rows, each a map from column letters to cell text.
-pub fn first_sheet(bytes: &[u8]) -> Result<Vec<HashMap<String, String>>> {
+/// A sheet's rows, each a map from column letters to cell text.
+pub type Rows = Vec<HashMap<String, String>>;
+
+/// The first sheet's rows.
+pub fn first_sheet(bytes: &[u8]) -> Result<Rows> {
+    Ok(sheets(bytes)?.into_iter().next().unwrap_or_default())
+}
+
+/// Every sheet's rows, in the order of the workbook's sheet files.
+pub fn sheets(bytes: &[u8]) -> Result<Vec<Rows>> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
     let mut read = |name: &str| -> Result<String> {
         let mut text = String::new();
@@ -18,13 +26,25 @@ pub fn first_sheet(bytes: &[u8]) -> Result<Vec<HashMap<String, String>>> {
         Ok(text)
     };
     let shared = read("xl/sharedStrings.xml").unwrap_or_default();
-    let sheet = read("xl/worksheets/sheet1.xml")?;
-
     let strings: Vec<String> = elements(&shared, "si")
         .map(|si| elements(si, "t").map(unescape).collect())
         .collect();
+    let mut sheets = Vec::new();
+    for number in 1.. {
+        let Ok(sheet) = read(&format!("xl/worksheets/sheet{number}.xml")) else {
+            break;
+        };
+        sheets.push(rows(&sheet, &strings));
+    }
+    if sheets.is_empty() {
+        anyhow::bail!("the workbook has no sheet");
+    }
+    Ok(sheets)
+}
+
+fn rows(sheet: &str, strings: &[String]) -> Rows {
     let mut rows = Vec::new();
-    for row in elements(&sheet, "row") {
+    for row in elements(sheet, "row") {
         let mut cells = HashMap::new();
         for (attributes, content) in elements_with_attributes(row, "c") {
             let Some(reference) = attribute(attributes, "r") else {
@@ -50,7 +70,7 @@ pub fn first_sheet(bytes: &[u8]) -> Result<Vec<HashMap<String, String>>> {
         }
         rows.push(cells);
     }
-    Ok(rows)
+    rows
 }
 
 /// The contents of every `<tag …>…</tag>` in `xml`, in order.

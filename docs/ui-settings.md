@@ -289,7 +289,8 @@ Same options as the display section. The calendar can be overridden field by fie
 ### Place dictionary
 
 The [place dictionary](place-dictionary.md) (France, the United Kingdom, Germany,
-Italy, Spain, Switzerland, Poland and the United States)
+Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium,
+Luxembourg and the Netherlands)
 is built into the application and needs neither a download nor network
 access. There is nothing to manage here.
 

@@ -13,7 +13,7 @@ okf_version: "0.2"
 * [Assistant Access (MCP)](mcp.md) - Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL.
 * [Roadmap](roadmap.md) - Current delivery status, active priorities, and future milestones for OxidGene.
 * [Geneanet Media Import](geneanet-media-import.md) - Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching.
-* [Place Dictionary](place-dictionary.md) - The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland and the United States: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne.
+* [Place Dictionary](place-dictionary.md) - The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne.
 * [Geneanet Upload API](geneanet-upload-api.md) - Reverse-engineered reference for the Geneanet Upload app's api.geneanet.org surface, Cloudflare behavior per HTTP client, originals versus renditions, and login.
 
 # Cross-cutting

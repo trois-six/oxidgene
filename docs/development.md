@@ -202,8 +202,8 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5317 \
 The sources, the file format and the output location are specified in
 [Place Dictionary](place-dictionary.md). The generator needs network access to
 INSEE, data.gouv.fr, geo.api.gouv.fr, the ONS Open Geography Portal, Destatis,
-ISTAT, INE, the BFS register, GUS TERYT, the Census Bureau and the Wikidata
-query service.
+ISTAT, INE, the BFS register, GUS TERYT, the Census Bureau, the DGT CAOP, CBS
+and the Wikidata query service.
 
 ## 3. Local Web Workflow
 
