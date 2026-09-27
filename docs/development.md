@@ -196,8 +196,8 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5317 \
 
 | Command | Purpose |
 |---------|---------|
-| `just places` | Regenerate the France and United Kingdom place dictionaries from the latest edition of each open-data source. |
-| `just places --cached` | Regenerate them from the downloads of the previous run. |
+| `just places` | Regenerate the France and United Kingdom place dictionary, `assets/places/places.csv.br`, from the latest edition of each open-data source. Commit the result. |
+| `just places --cached` | Regenerate it from the downloads of the previous run. |
 
 The sources, the file format and the output location are specified in
 [Place Dictionary](place-dictionary.md). The generator needs network access to

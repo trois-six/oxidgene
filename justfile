@@ -54,9 +54,11 @@ fmt-check:
 # Run all checks (fmt + clippy + test)
 check: fmt-check clippy test
 
-# Regenerate the France and United Kingdom place dictionaries from open data
-# (see docs/place-dictionary.md). Pass --cached to reuse the
-# previous run's downloads.
+# Regenerate the France and United Kingdom place dictionary from the latest
+# open data into assets/places/places.csv.br, which is committed and embedded
+# into the binaries (see docs/place-dictionary.md). Run by hand when a source
+# publishes a new edition. --cached reuses the previous run's downloads and
+# --csv FILE also writes the uncompressed CSV.
 places *args:
     cargo run --package oxidgene-place-dictionary -- {{args}}
 

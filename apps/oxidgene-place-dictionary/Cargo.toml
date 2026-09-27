@@ -10,6 +10,8 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+# Compresses the dictionary the way every embedded file is compressed.
+brotli = { workspace = true }
 # Downloads the open-data sources; already the workspace HTTP client.
 reqwest = { workspace = true }
 # geo.api.gouv.fr answers in JSON.

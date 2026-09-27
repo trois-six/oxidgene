@@ -37,14 +37,18 @@ Related: [Architecture](architecture.md) · [Development](development.md) ·
 ## 1. Generating
 
 ```bash
-just places              # download every source, write the dictionaries
-just places --cached     # reuse the last run's downloads (generator work)
+just places                  # download every source, write the dictionary
+just places --csv places.csv # also write the uncompressed CSV to read it
+just places --cached         # reuse the last run's downloads (generator work)
 ```
 
 `apps/oxidgene-place-dictionary` downloads its sources into
-`target/place-dictionary/sources/` and writes `places.fr.csv` and
-`places.en.csv` to `target/place-dictionary/` (`--out` and `--cache` move
-them). A run takes about three minutes, most of it waiting on Wikidata.
+`target/place-dictionary/` and writes the dictionary Brotli-compressed to
+`assets/places/places.csv.br` ([Architecture §7.1](architecture.md)). That
+file is committed and embedded into the backend at build time: a build never
+reaches the network, and the dictionary changes only when someone reruns
+`just places` and commits the result. A run takes about four minutes, spent
+waiting on Wikidata and compressing.
 
 Every run downloads afresh, and finds the newest edition of each source by
 itself: the latest COG vintage listed on data.gouv.fr and the latest Index of
@@ -57,10 +61,10 @@ and retried, never cached.
 
 ## 2. File format
 
-One file per interface language. Both hold the same places; only country and
-British nation names differ ("Royaume-Uni", "Angleterre" against "United
-Kingdom", "England"). French regions and départements are proper nouns and
-are not translated.
+One file, written in French like Geneanet's `dico_place_fr.csv`. The
+application translates the country and the British nations ("Royaume-Uni",
+"Angleterre") for its English interface when it loads the file; French
+regions and départements are proper nouns and are not translated.
 
 The layout extends Geneanet's `dico_place_*.csv`[^geneanet-dico]: no header,
 every field quoted, and the same first five columns, so a reader of that
@@ -72,7 +76,7 @@ format reads these files unchanged.
 | 2 | Code | INSEE commune code (not a postcode) | Empty |
 | 3 | Subdivision | Département | County |
 | 4 | Region | Region | Nation |
-| 5 | Country | France | Royaume-Uni / United Kingdom |
+| 5 | Country | France | Royaume-Uni |
 | 6 | Kind | `commune`, `municipal_arrondissement`, `former_name`, `former_commune` | `settlement`, `parish` |
 | 7 | Valid from | First day of this name, when known | Empty |
 | 8 | Valid until | First day this name was no longer in use | Empty |
@@ -92,7 +96,7 @@ format reads these files unchanged.
 - **Order.** Country, region, subdivision, code, then name, so that two runs
   over the same sources produce the same file.
 
-The files are about 18 MB each, about 2.7 MB gzip-compressed.
+The CSV is about 18 MB, 1.6 MB compressed.
 
 ## 3. France
 
@@ -181,7 +185,7 @@ at the time is read from its successor's code before the renumbering.
 | ONS Index of Place Names[^ons-ipn] | Localities, built-up areas, civil parishes and Welsh communities of Great Britain, with historic and ceremonial counties | Open Government Licence v3 |
 | Wikidata | Settlements and civil parishes of Northern Ireland, with their county | CC0 |
 
-Redistributing the files requires the attribution: *Source: Office for
+Redistributing the dictionary requires the attribution: *Source: Office for
 National Statistics licensed under the Open Government Licence v.3.0. Contains
 OS data © Crown copyright and database right.*
 

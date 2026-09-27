@@ -6,10 +6,7 @@
 //! format has no room for; see `docs/place-dictionary.md`.
 
 use std::collections::HashSet;
-use std::io::Write;
-use std::path::Path;
 
-use anyhow::{Context, Result};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::table::quote;
@@ -41,8 +38,7 @@ impl Nation {
     }
 }
 
-/// The fourth column: a French region is a proper noun and stays as it is;
-/// a British nation has a name in each language.
+/// The fourth column: a French region, or a British nation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Region {
     Named(String),
@@ -122,50 +118,32 @@ impl Coordinates {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Language {
-    French,
-    English,
-}
-
-impl Language {
-    pub const ALL: [Self; 2] = [Self::French, Self::English];
-
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::French => "fr",
-            Self::English => "en",
-        }
-    }
-
-    fn country(self, country: Country) -> &'static str {
-        match (self, country) {
-            (_, Country::France) => "France",
-            (Self::French, Country::UnitedKingdom) => "Royaume-Uni",
-            (Self::English, Country::UnitedKingdom) => "United Kingdom",
-        }
-    }
-
-    fn nation(self, nation: Nation) -> &'static str {
-        match (self, nation) {
-            (Self::French, Nation::England) => "Angleterre",
-            (Self::French, Nation::Scotland) => "Écosse",
-            (Self::French, Nation::Wales) => "Pays de Galles",
-            (Self::French, Nation::NorthernIreland) => "Irlande du Nord",
-            (Self::English, Nation::England) => "England",
-            (Self::English, Nation::Scotland) => "Scotland",
-            (Self::English, Nation::Wales) => "Wales",
-            (Self::English, Nation::NorthernIreland) => "Northern Ireland",
-        }
+/// The dictionary is written in French, like Geneanet's `dico_place_fr.csv`.
+/// The application translates the few British names for its English
+/// interface when it loads the file.
+fn country_name(country: Country) -> &'static str {
+    match country {
+        Country::France => "France",
+        Country::UnitedKingdom => "Royaume-Uni",
     }
 }
 
-/// Sorts, drops duplicate rows and writes the dictionary for one language.
+fn nation_name(nation: Nation) -> &'static str {
+    match nation {
+        Nation::England => "Angleterre",
+        Nation::Scotland => "Écosse",
+        Nation::Wales => "Pays de Galles",
+        Nation::NorthernIreland => "Irlande du Nord",
+    }
+}
+
+/// Sorts the places, drops duplicate rows and renders the dictionary as CSV.
+/// Returns the text and its number of rows.
 ///
 /// Two rows are duplicates when they would read the same in the first five
 /// columns and have the same kind: the ONS lists a place once per boundary it
 /// straddles, which differs only in its coordinates.
-pub fn write(places: &mut [Place], language: Language, path: &Path) -> Result<usize> {
+pub fn render(places: &mut [Place]) -> (String, usize) {
     places.sort_by_cached_key(|p| {
         (
             p.country,
@@ -178,22 +156,19 @@ pub fn write(places: &mut [Place], language: Language, path: &Path) -> Result<us
         )
     });
     let mut seen = HashSet::new();
-    let mut out = std::io::BufWriter::new(
-        std::fs::File::create(path).with_context(|| format!("cannot create {}", path.display()))?,
-    );
-    let mut written = 0;
+    let mut out = String::new();
+    let mut rows = 0;
     for place in places.iter() {
         let region = match &place.region {
             Region::Named(name) => name.as_str(),
-            Region::Nation(nation) => language.nation(*nation),
+            Region::Nation(nation) => nation_name(*nation),
         };
-        let country = language.country(place.country);
         if !seen.insert((
             &place.name,
             &place.code,
             &place.subdivision,
             region,
-            country,
+            place.country,
             place.kind,
         )) {
             continue;
@@ -208,7 +183,7 @@ pub fn write(places: &mut [Place], language: Language, path: &Path) -> Result<us
             &place.code,
             &place.subdivision,
             region,
-            country,
+            country_name(place.country),
             place.kind.token(),
             place.valid_from.as_deref().unwrap_or_default(),
             place.valid_until.as_deref().unwrap_or_default(),
@@ -221,11 +196,11 @@ pub fn write(places: &mut [Place], language: Language, path: &Path) -> Result<us
             .map(|f| quote(f))
             .collect::<Vec<_>>()
             .join(",");
-        writeln!(out, "{line}")?;
-        written += 1;
+        out.push_str(&line);
+        out.push('\n');
+        rows += 1;
     }
-    out.flush()?;
-    Ok(written)
+    (out, rows)
 }
 
 /// Lowercase, without accents or punctuation: what two sources spelling the
@@ -276,10 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn writes_localized_rows_once_each() {
-        let dir = std::env::temp_dir().join(format!("place-dictionary-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("out.csv");
+    fn renders_each_row_once() {
         let mut places = vec![
             place("Village B", Kind::Settlement, 52.0),
             place("Village A", Kind::Settlement, 52.0),
@@ -288,9 +260,8 @@ mod tests {
             place("Village A", Kind::Parish, 52.0),
         ];
 
-        assert_eq!(write(&mut places, Language::French, &path).unwrap(), 3);
-        let text = std::fs::read_to_string(&path).unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
+        let (text, rows) = render(&mut places);
+        assert_eq!(rows, 3);
 
         let first = text.lines().next().unwrap();
         assert_eq!(

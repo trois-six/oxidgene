@@ -1,11 +1,12 @@
-//! Generates OxidGene's place dictionaries from open data.
+//! Generates OxidGene's place dictionary from open data.
 //!
 //! `just places` runs it, as often as the sources change. It finds the
 //! latest edition of INSEE's Code officiel géographique and of the ONS Index
 //! of Place Names by itself, downloads them with geo.api.gouv.fr and
-//! Wikidata, then writes one CSV per language in the layout of Geneanet's
-//! `dico_place_*.csv`, extended with columns of its own. The format, the
-//! sources and their licences are specified in
+//! Wikidata, then writes one CSV in the layout of Geneanet's
+//! `dico_place_fr.csv`, extended with columns of its own, and compresses it
+//! into `assets/places/places.csv.br`, which is committed and embedded into
+//! the binaries. The format, the sources and their licences are specified in
 //! `docs/place-dictionary.md`.
 
 mod fetch;
@@ -14,17 +15,26 @@ mod place;
 mod table;
 mod uk;
 
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 
 use crate::fetch::Fetcher;
-use crate::place::Language;
 
-const USAGE: &str = "usage: oxidgene-place-dictionary [--out DIR] [--cache DIR] [--cached]";
+const USAGE: &str =
+    "usage: oxidgene-place-dictionary [--out FILE] [--csv FILE] [--cache DIR] [--cached]";
+
+/// The settings every embedded data file is compressed with; the API crate's
+/// build script uses the same. Quality 11 with a 16 MiB window gives the best
+/// ratio Brotli has, and decoding stays as fast whatever the quality.
+const BROTLI_QUALITY: u32 = 11;
+const BROTLI_WINDOW_BITS: u32 = 24;
 
 struct Args {
     out: PathBuf,
+    /// Also write the uncompressed CSV, to read it.
+    csv: Option<PathBuf>,
     cache: PathBuf,
     /// Reuse the downloads of an earlier run instead of fetching the
     /// sources again.
@@ -34,14 +44,16 @@ struct Args {
 impl Args {
     fn parse() -> Result<Self> {
         let mut args = Self {
-            out: PathBuf::from("target/place-dictionary"),
-            cache: PathBuf::from("target/place-dictionary/sources"),
+            out: PathBuf::from("assets/places/places.csv.br"),
+            csv: None,
+            cache: PathBuf::from("target/place-dictionary"),
             cached: false,
         };
         let mut raw = std::env::args().skip(1);
         while let Some(arg) = raw.next() {
             match arg.as_str() {
                 "--out" => args.out = raw.next().context(USAGE)?.into(),
+                "--csv" => args.csv = Some(raw.next().context(USAGE)?.into()),
                 "--cache" => args.cache = raw.next().context(USAGE)?.into(),
                 "--cached" => args.cached = true,
                 _ => bail!("unknown argument `{arg}`\n{USAGE}"),
@@ -57,10 +69,31 @@ async fn main() -> Result<()> {
     let fetcher = Fetcher::new(args.cache, args.cached)?;
     let mut places = france::places(&fetcher).await?;
     places.extend(uk::places(&fetcher).await?);
-    for language in Language::ALL {
-        let path = args.out.join(format!("places.{}.csv", language.code()));
-        let written = place::write(&mut places, language, &path)?;
-        eprintln!("{written} places written to {}", path.display());
+    let (csv, rows) = place::render(&mut places);
+
+    if let Some(path) = &args.csv {
+        std::fs::write(path, &csv).with_context(|| format!("cannot write {}", path.display()))?;
     }
+    eprintln!("compressing {rows} places");
+    let mut compressed = Vec::new();
+    {
+        let mut encoder = brotli::CompressorWriter::new(
+            &mut compressed,
+            1 << 16,
+            BROTLI_QUALITY,
+            BROTLI_WINDOW_BITS,
+        );
+        encoder.write_all(csv.as_bytes())?;
+    }
+    if let Some(dir) = args.out.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&args.out, &compressed)
+        .with_context(|| format!("cannot write {}", args.out.display()))?;
+    eprintln!(
+        "{rows} places, {} bytes, written to {}",
+        compressed.len(),
+        args.out.display()
+    );
     Ok(())
 }

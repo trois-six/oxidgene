@@ -1,17 +1,21 @@
-//! Gzip-compresses the reference-data JSON files (occupation sheets, given
-//! name meanings) at build time so the plain-text JSON stays diffable in
-//! git while only the compressed bytes get embedded into the binary via
-//! `include_bytes!` (see `src/reference/loader.rs`).
+//! Brotli-compresses the data embedded into the binary: the reference-data
+//! JSON files (occupation sheets, given name meanings), which stay plain and
+//! diffable in git, and the OpenAPI document generated from the router. Only
+//! the compressed bytes are embedded via `include_bytes!` (see
+//! `src/embedded.rs`).
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use serde_json::{Map, Value, json};
 use syn::{Block, Expr, Item, Pat, Stmt};
+
+/// The settings every embedded data file is compressed with; the place
+/// dictionary generator uses the same. Quality 11 with a 16 MiB window gives
+/// the best ratio Brotli has, and decoding stays as fast whatever the quality.
+const BROTLI_QUALITY: u32 = 11;
+const BROTLI_WINDOW_BITS: u32 = 24;
 
 const DATA_FILES: &[&str] = &[
     "occupations.fr.json",
@@ -31,20 +35,27 @@ fn main() {
 
         let json = std::fs::read(&src_path)
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", src_path.display()));
-
-        let out_path = Path::new(&out_dir).join(format!("{file_name}.gz"));
-        let out_file = File::create(&out_path)
-            .unwrap_or_else(|e| panic!("failed to create {}: {e}", out_path.display()));
-        let mut encoder = GzEncoder::new(out_file, Compression::best());
-        encoder
-            .write_all(&json)
-            .unwrap_or_else(|e| panic!("failed to compress {}: {e}", src_path.display()));
-        encoder
-            .finish()
-            .unwrap_or_else(|e| panic!("failed to finish gzip stream for {file_name}: {e}"));
+        write_compressed(&Path::new(&out_dir).join(format!("{file_name}.br")), &json);
     }
 
     generate_openapi(Path::new(&manifest_dir), Path::new(&out_dir));
+}
+
+fn write_compressed(path: &Path, bytes: &[u8]) {
+    let mut compressed = Vec::new();
+    {
+        let mut encoder = brotli::CompressorWriter::new(
+            &mut compressed,
+            1 << 16,
+            BROTLI_QUALITY,
+            BROTLI_WINDOW_BITS,
+        );
+        encoder
+            .write_all(bytes)
+            .unwrap_or_else(|e| panic!("failed to compress {}: {e}", path.display()));
+    }
+    std::fs::write(path, compressed)
+        .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
 }
 
 #[derive(Clone)]
@@ -146,10 +157,8 @@ fn generate_openapi(manifest_dir: &Path, out_dir: &Path) {
         }
     });
 
-    let output_path = out_dir.join("openapi.json");
     let output = serde_json::to_vec_pretty(&document).expect("serialize generated OpenAPI");
-    std::fs::write(&output_path, output)
-        .unwrap_or_else(|e| panic!("failed to write {}: {e}", output_path.display()));
+    write_compressed(&out_dir.join("openapi.json.br"), &output);
 }
 
 fn collect_operations(block: &Block) -> Vec<Operation> {

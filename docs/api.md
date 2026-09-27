@@ -640,7 +640,7 @@ raw free-text GEDCOM value. Matching ignores case, accents, and punctuation,
 supports aliases such as gendered variants, and falls back to the first token
 of a compound given name. Source content lives in
 `oxidgene-api/src/reference/data/*.json`, one file per language and data type,
-is compressed at build time, and is decompressed and indexed once in memory —
+is Brotli-compressed at build time ([Architecture §7.1](architecture.md)), and is decompressed and indexed once in memory —
 warmed at server and desktop startup so no request pays for it.
 
 | Method | Path | Description |

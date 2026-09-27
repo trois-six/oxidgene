@@ -3,11 +3,11 @@
 //! given names) to the matching content entry.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::sync::OnceLock;
 
-use flate2::read::GzDecoder;
 use serde::Deserialize;
+
+use crate::embedded;
 
 /// Reference-content language. Deliberately independent of `oxidgene-ui`'s
 /// `Language` type — this crate has no UI dependency.
@@ -74,32 +74,29 @@ pub fn normalize_key(raw: &str) -> String {
         .join(" ")
 }
 
-macro_rules! embed_gz {
+macro_rules! embed_br {
     ($name:literal) => {
-        include_bytes!(concat!(env!("OUT_DIR"), "/", $name, ".gz"))
+        include_bytes!(concat!(env!("OUT_DIR"), "/", $name, ".br"))
     };
 }
 
-static OCCUPATIONS_FR: &[u8] = embed_gz!("occupations.fr.json");
-static OCCUPATIONS_EN: &[u8] = embed_gz!("occupations.en.json");
-static GIVEN_NAMES_FR: &[u8] = embed_gz!("given_names.fr.json");
-static GIVEN_NAMES_EN: &[u8] = embed_gz!("given_names.en.json");
+static OCCUPATIONS_FR: &[u8] = embed_br!("occupations.fr.json");
+static OCCUPATIONS_EN: &[u8] = embed_br!("occupations.en.json");
+static GIVEN_NAMES_FR: &[u8] = embed_br!("given_names.fr.json");
+static GIVEN_NAMES_EN: &[u8] = embed_br!("given_names.en.json");
 
-fn decompress_json<T: serde::de::DeserializeOwned>(gz_bytes: &'static [u8]) -> T {
-    let mut json = String::new();
-    GzDecoder::new(gz_bytes)
-        .read_to_string(&mut json)
-        .expect("embedded reference data must be valid gzip");
-    serde_json::from_str(&json).expect("embedded reference data must be valid JSON")
+fn decompress_json<T: serde::de::DeserializeOwned>(compressed: &'static [u8]) -> T {
+    serde_json::from_slice(&embedded::decompress(compressed))
+        .expect("embedded reference data must be valid JSON")
 }
 
 /// Builds the lookup table for one language: every entry indexed under its
 /// own (normalized) key plus each of its (normalized) aliases.
 fn build_table<T: Clone + serde::de::DeserializeOwned>(
-    gz_bytes: &'static [u8],
+    compressed: &'static [u8],
     aliases_of: impl Fn(&T) -> &[String],
 ) -> HashMap<String, T> {
-    let raw: HashMap<String, T> = decompress_json(gz_bytes);
+    let raw: HashMap<String, T> = decompress_json(compressed);
     let mut table = HashMap::with_capacity(raw.len() * 2);
     for (key, entry) in raw {
         for alias in aliases_of(&entry) {
@@ -135,7 +132,7 @@ fn given_names_table(lang: ReferenceLang) -> &'static HashMap<String, GivenNameE
 
 /// Builds every reference table up front.
 ///
-/// Each table is gzip-compressed JSON, decompressed and indexed on first
+/// Each table is Brotli-compressed JSON, decompressed and indexed on first
 /// lookup. Left lazy, that cost lands on whichever async worker happens to
 /// serve the first tooltip request and blocks it for tens of milliseconds,
 /// with any concurrent lookup queued behind the same `OnceLock`. Call this

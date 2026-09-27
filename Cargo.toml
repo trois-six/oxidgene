@@ -41,8 +41,13 @@ axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "trace", "compression-gzip"] }
 
-# Compression (build-time asset packing + HTTP responses)
-flate2 = "1"
+# Compression of the data embedded into the binaries (reference sheets, the
+# place dictionary, the OpenAPI document). Brotli at its best quality beats
+# xz -6 on this text, and decodes in pure Rust about as fast as zstd, in a
+# few megabytes of memory. The compressor runs only in build scripts and in
+# the place dictionary generator; the binaries link the decoder alone.
+brotli = { version = "8", default-features = false, features = ["std"] }
+brotli-decompressor = { version = "5", default-features = false, features = ["std"] }
 
 # GraphQL (optional — only server binary enables this)
 async-graphql = { version = "7.2", features = ["chrono"] }
@@ -228,4 +233,10 @@ opt-level = 3
 opt-level = 3
 
 [profile.release.package.oxidgene-geneanet]
+opt-level = 3
+
+# Build scripts compile unoptimised in release, and at that level Brotli's
+# best quality takes tens of seconds per reference file. The compressor only
+# ever runs inside `oxidgene-api`'s build script, so this costs no binary size.
+[profile.release.package.brotli]
 opt-level = 3

@@ -40,7 +40,8 @@ uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util"] }
 tracing = { workspace = true }
-flate2 = { workspace = true }
+# Decodes the embedded data (see `embedded`); `build.rs` compresses it.
+brotli-decompressor = { workspace = true }
 # Packing a multi-page document's pages into one download. Same crate the
 # Geneanet session container uses.
 zip = { workspace = true }
@@ -58,11 +59,13 @@ rmcp = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
 
 [build-dependencies]
-flate2 = { workspace = true }
+brotli = { workspace = true }
 serde_json = { workspace = true }
 syn = { version = "3", features = ["full"] }
 
 [dev-dependencies]
+# Round-trips the embedded-data decoder.
+brotli = { workspace = true }
 image = { workspace = true }
 # The SDK's own client drives the MCP server in the integration tests.
 rmcp = { workspace = true, features = ["client"] }

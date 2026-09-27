@@ -6,6 +6,7 @@
 //! - A router builder to wire up all routes
 
 pub mod access;
+mod embedded;
 mod error_contract;
 #[cfg(feature = "graphql")]
 pub mod graphql;

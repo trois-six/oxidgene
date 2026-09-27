@@ -208,6 +208,27 @@ raw scans.
     remaining quality goal where the roadmap names it.
 - CI/CD pipelines (GitHub Actions).
 
+### 7.1 Embedded data
+
+Data built into the backend is Brotli-compressed, at quality 11 with a
+16 MiB window, and decompressed once in memory when first needed:
+
+- the reference sheets (`oxidgene-api/src/reference/data/*.json`) and the
+    OpenAPI document, compressed by `oxidgene-api`'s build script so the JSON
+    sources stay plain in git;
+- the [place dictionary](place-dictionary.md), committed already compressed
+    as `assets/places/places.csv.br` because it is generated from online
+    sources by `just places`, never by a build.
+
+Brotli was chosen over xz and zstd after measuring on the place dictionary:
+at its best quality it compresses the 18 MB CSV to 1.58 MB (xz -6: 1.68 MB,
+zstd -19: 1.73 MB) and decodes it in about 45 ms in pure Rust, with no C
+library; its decoder is the only part linked into the binaries.
+
+The frontend's embedded files (theme JSON, portrait SVGs, the logo) stay
+uncompressed: they weigh a few kilobytes, and a decoder in the WebAssembly
+bundle would weigh more than it saves.
+
 ---
 
 ## 8. Deployment
