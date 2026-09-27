@@ -303,11 +303,7 @@ pub fn preview(
     // in whole, or a scanned dossier arrives as its cover page alone. So what
     // is counted here is deposits, and what is skipped is only the deposits
     // nobody attached to anybody at all.
-    let attached: std::collections::BTreeSet<i64> = joined
-        .attachments
-        .iter()
-        .map(|attachment| attachment.deposit_id)
-        .collect();
+    let attached = joined.imported_deposit_ids();
 
     for deposit in &manifest.deposits {
         if !attached.contains(&deposit.id) {
@@ -432,11 +428,7 @@ pub fn plan(
 
     // Deposits with at least one attached page. A document comes in whole, so
     // one linked page pulls in all of its siblings.
-    let attached: std::collections::BTreeSet<i64> = joined
-        .attachments
-        .iter()
-        .map(|attachment| attachment.deposit_id)
-        .collect();
+    let attached = joined.imported_deposit_ids();
 
     let mut needed = Vec::new();
     for deposit in &manifest.deposits {
@@ -598,7 +590,7 @@ pub async fn import(
         ..GeneanetImportSummary::default()
     };
 
-    if joined.attachments.is_empty() {
+    if joined.imported_deposit_ids().is_empty() {
         return Ok(summary);
     }
 
@@ -606,7 +598,8 @@ pub async fn import(
     // the GeneWeb tree — its manager labels them "hors de l'arbre". Those
     // identifications name a real person and carry real media, so rather than
     // dropping them the import creates each one as an isolated `Person`: no
-    // events, no family links, just a name and their photographs.
+    // events, no family links, just a name and their photographs. A photograph
+    // naming nobody else is imported for them all the same.
     let isolated = create_isolated_people(db, tree_id, &joined, &mut summary).await;
 
     attach_media(
@@ -676,8 +669,13 @@ async fn attach_media(
         manifest.deposits.iter().map(|d| (d.id, d)).collect();
 
     // Group by *deposit*, not by view: whether a page is imported at all now
-    // depends on what the rest of its deposit is.
-    let mut by_deposit: BTreeMap<i64, Vec<&join::Attachment>> = BTreeMap::new();
+    // depends on what the rest of its deposit is. A deposit naming only people
+    // outside the tree has no attachment, and is imported all the same.
+    let mut by_deposit: BTreeMap<i64, Vec<&join::Attachment>> = joined
+        .imported_deposit_ids()
+        .into_iter()
+        .map(|deposit_id| (deposit_id, Vec::new()))
+        .collect();
     for attachment in &joined.attachments {
         by_deposit
             .entry(attachment.deposit_id)
@@ -779,11 +777,10 @@ async fn attach_media(
         // The identifications Geneanet marks "hors de l'arbre" name people we
         // created above; their media attach exactly like anyone else's.
         for unjoined in &joined.unjoined {
-            if unjoined.deposit_id != deposit_id || unjoined.reason != UnjoinedReason::NoKey {
+            if unjoined.deposit_id != deposit_id {
                 continue;
             }
-            let (Some(lastname), Some(firstname)) = (&unjoined.lastname, &unjoined.firstname)
-            else {
+            let Some((lastname, firstname)) = unjoined.outside_tree_name() else {
                 continue;
             };
             let key = oxidgene_geneanet::key::geneanet_key(lastname, firstname, 0);
@@ -1624,10 +1621,7 @@ async fn create_isolated_people(
     let mut created: HashMap<String, Uuid> = HashMap::new();
 
     for unjoined in &joined.unjoined {
-        if unjoined.reason != UnjoinedReason::NoKey {
-            continue;
-        }
-        let (Some(lastname), Some(firstname)) = (&unjoined.lastname, &unjoined.firstname) else {
+        let Some((lastname, firstname)) = unjoined.outside_tree_name() else {
             continue;
         };
 
@@ -1645,8 +1639,8 @@ async fn create_isolated_people(
         }
 
         let pieces = PersonNamePieces {
-            given_names: Some(firstname.clone()),
-            surname: Some(lastname.clone()),
+            given_names: Some(firstname.to_string()),
+            surname: Some(lastname.to_string()),
             ..PersonNamePieces::default()
         };
         if let Err(err) = PersonNameRepo::create(
@@ -2763,6 +2757,71 @@ mod tests {
         assert_eq!(notes[0].media_id, Some(media_id));
         assert_eq!(notes[0].text, "Page transcript");
         assert_eq!(summary.notes_count, 1);
+    }
+
+    /// A photograph whose only identification is "hors de l'arbre" was once
+    /// skipped whole: the person was created, and the one picture that was the
+    /// reason to create them never arrived.
+    #[tokio::test]
+    async fn a_photograph_naming_only_somebody_outside_the_tree_is_imported_for_them() {
+        let db = oxidgene_db::repo::connect("sqlite::memory:")
+            .await
+            .expect("connects");
+        oxidgene_db::repo::run_migrations(&db)
+            .await
+            .expect("migrates");
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(&db, tree_id, "Sample tree".to_string(), None)
+            .await
+            .expect("creates tree");
+
+        let dir = tempfile::tempdir().expect("scratch directory");
+        let photo = dir.path().join("normal.png");
+        std::fs::write(&photo, png_bytes(40, 30)).expect("writes the rendition");
+        let url = "https://example.invalid/deposit/normal.png";
+        let collection = serde_json::json!({
+            "deposits": [{"id": 1, "views": [{"id": 10, "page": 1, "files": {"normal": url}}]}],
+            "references": [{
+                "deposit": {"id": 1, "views": [{"id": 10}]},
+                "firstname": "person_c",
+                "lastname": "BRANCH_C",
+            }],
+        })
+        .to_string();
+        let store = crate::media::store::FsStore::new(dir.path().join("store"));
+
+        let summary = import(
+            &db,
+            &store,
+            tree_id,
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n",
+            "family.gw",
+            &collection,
+            &HashMap::new(),
+            &[],
+            &HashMap::from([(url.to_string(), photo.to_string_lossy().into_owned())]),
+            MediaFidelity::Renditions,
+            &ImportProgress::default(),
+        )
+        .await
+        .expect("imports");
+
+        assert_eq!(summary.persons_count, 2);
+        assert_eq!(summary.isolated_count, 1);
+        assert_eq!(summary.media_count, 1, "skipped: {:?}", summary.skipped);
+        assert_eq!(summary.links_count, 1);
+
+        let links = MediaLinkRepo::list_for_tree(&db, tree_id)
+            .await
+            .expect("lists links");
+        let [link] = links.as_slice() else {
+            panic!("one link expected, got {links:?}");
+        };
+        let names = PersonNameRepo::list_by_person(&db, link.entity_id)
+            .await
+            .expect("lists names");
+        assert_eq!(names[0].surname.as_deref(), Some("BRANCH_C"));
+        assert_eq!(names[0].given_names.as_deref(), Some("person_c"));
     }
 
     #[test]

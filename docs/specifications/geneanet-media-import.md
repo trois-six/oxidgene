@@ -858,8 +858,22 @@ created before person links are written, so the portrait can name one.
 Exporting that tree to `.gdz` afterwards is a separate, already-supported
 operation.
 
-References without a GeneWeb key identify people outside the imported tree and
-cannot be joined. They remain explicit unresolved references.
+References without a GeneWeb key identify people outside the imported tree —
+Geneanet's media manager labels them "hors de l'arbre". The owner has stated
+that the person on the medium is *not* the same-named person of the tree, so
+the join never matches them by name. They are not dropped either: each distinct
+folded name carrying both a surname and a given name becomes an isolated
+`Person` (unknown sex, one primary birth name, no events, no family links), and
+every identification of that name links its medium — and its box, when Geneanet
+drew one — to that person. Identifications of the same name on several media
+therefore share one person. They never become a portrait, because the `.gw`
+names no portrait for somebody it does not contain.
+
+A deposit is imported when it names somebody the import can link it to: a
+person of the tree or a person identified outside it. A photograph whose only
+identifications are outside the tree is imported for them exactly like any
+other. A reference carrying only half a name, or a key that matches nobody in
+the `.gw`, links to nobody and imports nothing.
 
 ## 10. Limits
 

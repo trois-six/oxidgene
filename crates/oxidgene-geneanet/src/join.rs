@@ -88,6 +88,21 @@ pub enum UnjoinedReason {
     Ambiguous,
 }
 
+impl Unjoined {
+    /// The `(lastname, firstname)` of the person an identification outside
+    /// the tree stands for, when it can stand for one.
+    ///
+    /// Only a reference Geneanet carries no key for is one of those, and it
+    /// needs both halves of a name: a person cannot be created from half of
+    /// one, and neither half alone says who they are.
+    pub fn outside_tree_name(&self) -> Option<(&str, &str)> {
+        if self.reason != UnjoinedReason::NoKey {
+            return None;
+        }
+        Some((self.lastname.as_deref()?, self.firstname.as_deref()?))
+    }
+}
+
 impl UnjoinedReason {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -126,6 +141,25 @@ impl Join {
             .map(|a| (a.deposit_id, a.view_id))
             .collect::<std::collections::BTreeSet<_>>()
             .len()
+    }
+
+    /// Deposits that name somebody the import will link them to.
+    ///
+    /// That is a person of the tree, or somebody identified outside it: a
+    /// photograph whose only identifications are "hors de l'arbre" is still a
+    /// photograph of somebody, and leaving it out would create that person
+    /// with nothing to show for it.
+    pub fn imported_deposit_ids(&self) -> std::collections::BTreeSet<i64> {
+        self.attachments
+            .iter()
+            .map(|attachment| attachment.deposit_id)
+            .chain(
+                self.unjoined
+                    .iter()
+                    .filter(|unjoined| unjoined.outside_tree_name().is_some())
+                    .map(|unjoined| unjoined.deposit_id),
+            )
+            .collect()
     }
 }
 
@@ -362,6 +396,44 @@ mod tests {
         assert!(join.attachments.is_empty());
         assert_eq!(join.unjoined.len(), 1);
         assert_eq!(join.unjoined[0].reason, UnjoinedReason::NoKey);
+    }
+
+    #[test]
+    fn a_deposit_named_only_outside_the_tree_is_still_imported() {
+        // Nobody of the tree is on it, but somebody is — and that person is
+        // created, so the photograph has to come with them.
+        let manifest = manifest(vec![view(10, vec![reference(None)])]);
+
+        let join = join(&manifest, &index(&[]));
+
+        assert!(join.attachments.is_empty());
+        assert_eq!(join.imported_deposit_ids(), [1].into());
+    }
+
+    #[test]
+    fn half_a_name_outside_the_tree_imports_nothing() {
+        // No person can be created from a surname alone, so there is nobody
+        // to link the deposit to.
+        let mut unnamed = reference(None);
+        unnamed.firstname = None;
+        let manifest = manifest(vec![view(10, vec![unnamed])]);
+
+        let join = join(&manifest, &index(&[]));
+
+        assert_eq!(join.unjoined[0].outside_tree_name(), None);
+        assert!(join.imported_deposit_ids().is_empty());
+    }
+
+    #[test]
+    fn an_unmatched_key_does_not_import_its_deposit() {
+        // Geneanet linked it to somebody the export does not have: there is
+        // no one to hang it on, unlike an identification outside the tree.
+        let manifest = manifest(vec![view(10, vec![reference(Some("ghost|person|"))])]);
+
+        let join = join(&manifest, &index(&[]));
+
+        assert_eq!(join.unjoined[0].outside_tree_name(), None);
+        assert!(join.imported_deposit_ids().is_empty());
     }
 
     #[test]
