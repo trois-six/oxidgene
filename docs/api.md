@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T21:00:00Z }
 ---
 
 
@@ -726,7 +726,12 @@ meanings shown on the person profile, and the [place dictionary](place-dictionar
 that place fields suggest from. It is not tied to a tree: `term` is the
 raw free-text GEDCOM value. Matching ignores case, accents, and punctuation,
 supports aliases such as gendered variants, and falls back to the first token
-of a compound given name. Source content lives in
+of a compound given name. A term matches in any language, whatever `lang`:
+a Polish register's `Kmieć` returns the French sheet under `/reference/fr/`.
+Keys match first, then the aliases of `lang`'s own file, then those of the
+other languages in the order above, so a term two languages use for
+different entries goes to `lang`'s. English holds every entry; a sheet not
+yet written in `lang` is returned in English. Source content lives in
 `oxidgene-api/src/reference/data/*.json`, one file per language and data type,
 is Brotli-compressed at build time ([Architecture §7.1](architecture.md)), and is decompressed and indexed once in memory —
 warmed at server and desktop startup so no request pays for it.
@@ -768,8 +773,7 @@ current places before former ones, then shorter names. A blank name returns
 former one's territory today. `lang` is any interface language (`fr`, `en`,
 `de`, `es`, `it`, `nl`, `pl`, `pt`): the countries and British nations are
 named in it, while subdivisions and regions keep their local names. The
-sheets of occupations and given names exist in French and English, the other
-languages reading the English ones. The dictionary is decompressed and indexed on the first
+dictionary is decompressed and indexed on the first
 search, off the request workers. A physical batch accepts at most 128
 terms. Clients split larger logical operations into consecutive batches and
 merge every response; they never truncate terms at the limit.

@@ -1,0 +1,42 @@
+{
+  "marie": {
+    "label": "Marie",
+    "origin": "Hebreeuws",
+    "meaning": "Van het Hebreeuwse \"Mirjam\"; betekenis omstreden — \"meesteres\", \"zij die verheft\" of \"ster van de zee\".",
+    "text": "Als naam van de moeder van Jezus was Marie van de middeleeuwen tot in de 19e eeuw met grote voorsprong de meest voorkomende vrouwelijke voornaam in Frankrijk, vaak als eerste voornaam gecombineerd met een tweede (Marie-Anne, Marie-Louise...). Door zijn uitzonderlijke frequentie in de registers is de naam op zichzelf een zwak identificatiemiddel voor genealogisch onderzoek.",
+    "feast_day": "08-15",
+    "aliases": ["maria", "mieke", "marieke", "mie", "maaike", "maria anna"]
+  },
+  "jean": {
+    "label": "Jean",
+    "origin": "Hebreeuws",
+    "meaning": "Van het Hebreeuwse \"Jochanan\", \"God is genadig\".",
+    "text": "Gedragen door Johannes de Doper en Johannes de Evangelist, was dit eeuwenlang de meest voorkomende mannelijke voornaam in Frankrijk, alleen of in samengestelde vormen (Jean-Baptiste, Jean-Pierre, Jean-Marie).",
+    "feast_day": "06-24",
+    "aliases": ["jan", "johannes", "joannes", "hannes", "jan baptist"]
+  },
+  "pierre": {
+    "label": "Pierre",
+    "origin": "Grieks",
+    "meaning": "Van het Griekse \"petros\", \"steen, rots\".",
+    "text": "De naam die Jezus aan de apostel Simon gaf (\"Gij zijt Petrus, en op deze rots zal Ik mijn kerk bouwen\"), in Frankrijk zeer geliefd van de vroege middeleeuwen tot vandaag.",
+    "feast_day": "06-29",
+    "aliases": ["pieter", "petrus", "piet", "peer", "pier"]
+  },
+  "jeanne": {
+    "label": "Jeanne",
+    "origin": "Hebreeuws",
+    "meaning": "Vrouwelijke vorm van Jean, \"God is genadig\".",
+    "text": "Vooral bekend geworden door Jeanne d'Arc (Jeanne van Orléans), komt deze vrouwelijke voornaam in de Franse akten vanaf de 14e eeuw vaak voor, met verschillende regionale varianten (Jehanne, Jeannette).",
+    "feast_day": "05-30",
+    "aliases": ["johanna", "janna", "jantje", "janneke", "jannetje"]
+  },
+  "louis": {
+    "label": "Louis",
+    "origin": "Germaans",
+    "meaning": "Van \"Hlodwig\", \"roemrijke strijder\" (hlod = roem, wig = strijd).",
+    "text": "De naam van de koningen van Frankrijk (in het bijzonder Lodewijk IX / de Heilige Lodewijk), van de 17e tot de 20e eeuw uiterst verbreid in alle maatschappelijke lagen.",
+    "feast_day": "08-25",
+    "aliases": ["lodewijk", "ludovicus", "lowie", "louwis"]
+  }
+}

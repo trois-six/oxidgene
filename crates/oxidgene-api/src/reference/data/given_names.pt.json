@@ -1,0 +1,64 @@
+{
+  "jean": {
+    "aliases": [
+      "joão",
+      "joam",
+      "joham",
+      "joannes"
+    ],
+    "feast_day": "06-24",
+    "label": "Jean",
+    "meaning": "Do hebraico «Yohanan», «Deus é misericordioso».",
+    "origin": "Hebraica",
+    "text": "Usado tanto por São João Batista como por São João Evangelista, foi durante séculos o nome próprio masculino mais comum em França, sozinho ou em formas compostas (Jean-Baptiste, Jean-Pierre, Jean-Marie)."
+  },
+  "jeanne": {
+    "aliases": [
+      "joana",
+      "joanna",
+      "johana"
+    ],
+    "feast_day": "05-30",
+    "label": "Jeanne",
+    "meaning": "Forma feminina de Jean, «Deus é misericordioso».",
+    "origin": "Hebraica",
+    "text": "Popularizado em particular por Joana d'Arc (Jeanne d'Arc), este nome feminino é comum nos registos franceses a partir do século XIV, com várias variantes regionais (Jehanne, Jeannette)."
+  },
+  "louis": {
+    "aliases": [
+      "luís",
+      "luiz",
+      "ludovicus"
+    ],
+    "feast_day": "08-25",
+    "label": "Louis",
+    "meaning": "De «Hlodwig», «guerreiro glorioso» (hlod = glória, wig = combate).",
+    "origin": "Germânica",
+    "text": "Nome dos reis de França (nomeadamente Luís IX / São Luís), extremamente comum em todas as classes sociais do século XVII ao século XX."
+  },
+  "marie": {
+    "aliases": [
+      "maria",
+      "maria ana",
+      "maria luísa",
+      "marya"
+    ],
+    "feast_day": "08-15",
+    "label": "Marie",
+    "meaning": "Do hebraico «Miryam»; significado discutido — «senhora», «a que eleva» ou «estrela do mar».",
+    "origin": "Hebraica",
+    "text": "Nome da mãe de Jesus, Marie foi de longe o nome próprio feminino mais comum em França desde a Idade Média até ao século XIX, muitas vezes usado como primeiro nome associado a um segundo (Marie-Anne, Marie-Louise...). A sua extrema frequência nos registos torna-o, por si só, um mau identificador para a investigação genealógica."
+  },
+  "pierre": {
+    "aliases": [
+      "pedro",
+      "pero",
+      "petrus"
+    ],
+    "feast_day": "06-29",
+    "label": "Pierre",
+    "meaning": "Do grego «petros», «pedra, rocha».",
+    "origin": "Grega",
+    "text": "Nome que Jesus deu ao apóstolo Simão («tu és Pedro, e sobre esta pedra edificarei a minha igreja»), muito popular em França desde a Alta Idade Média até aos nossos dias."
+  }
+}

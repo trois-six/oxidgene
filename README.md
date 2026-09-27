@@ -51,13 +51,16 @@ OxidGene is a multiplatform genealogy application featuring:
 	municipalities merged away, their former names, and the subdivisions and
 	regions they were filed under at the time, while still accepting any free
 	text
-- **Understand what the records say**: Explanatory sheets for more than 2,600
-	historical occupations and meanings of given names, in English and French,
-	shown right beside the person
+- **Understand what the records say**: Explanatory sheets for more than 3,000
+	historical occupations, including trades and offices particular to each
+	covered country, and meanings of given names, in all eight interface
+	languages and recognised whatever the language of the record, shown right
+	beside the person
 - **Ask your AI assistant about your tree**: The desktop application serves
 	your trees read-only to Claude and any other Model Context Protocol client
-- **Make the workspace your own**: Switch themes and change between English
-	and French without restarting the application
+- **Make the workspace your own**: Switch themes and change between English,
+	French, German, Spanish, Italian, Dutch, Polish and Portuguese without
+	restarting the application
 - **Integrate without compromise**: Build on REST and GraphQL APIs with full
 	feature parity. Full OpenTelemetry instrumentation.
 - **Stay fast as trees grow**: Rust powers the complete stack, backed by

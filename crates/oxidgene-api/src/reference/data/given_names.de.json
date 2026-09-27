@@ -1,0 +1,42 @@
+{
+  "marie": {
+    "label": "Marie",
+    "origin": "Hebräisch",
+    "meaning": "Vom hebräischen \"Miryam\"; Bedeutung umstritten — \"Herrin\", \"die Erhebende\" oder \"Stern des Meeres\".",
+    "text": "Als Name der Mutter Jesu war Marie vom Mittelalter bis ins 19. Jahrhundert mit großem Abstand der häufigste weibliche Vorname in Frankreich, oft als erster Vorname in Verbindung mit einem zweiten (Marie-Anne, Marie-Louise...). Wegen seiner extremen Häufigkeit in den Registern taugt er allein kaum zur Identifizierung in der Ahnenforschung.",
+    "feast_day": "08-15",
+    "aliases": ["maria", "mariechen", "marei", "maria anna"]
+  },
+  "jean": {
+    "label": "Jean",
+    "origin": "Hebräisch",
+    "meaning": "Vom hebräischen \"Jochanan\", \"Gott ist gnädig\".",
+    "text": "Getragen von Johannes dem Täufer und dem Evangelisten Johannes, war dies jahrhundertelang der häufigste männliche Vorname in Frankreich, allein oder in zusammengesetzten Formen (Jean-Baptiste, Jean-Pierre, Jean-Marie).",
+    "feast_day": "06-24",
+    "aliases": ["johann", "johannes", "hans", "jan", "jahn", "johan"]
+  },
+  "pierre": {
+    "label": "Pierre",
+    "origin": "Griechisch",
+    "meaning": "Vom griechischen \"petros\", \"Stein, Fels\".",
+    "text": "Der Name, den Jesus dem Apostel Simon gab (\"Du bist Petrus, und auf diesen Felsen will ich meine Kirche bauen\"), in Frankreich vom frühen Mittelalter bis heute sehr beliebt.",
+    "feast_day": "06-29",
+    "aliases": ["peter", "petrus", "peer"]
+  },
+  "jeanne": {
+    "label": "Jeanne",
+    "origin": "Hebräisch",
+    "meaning": "Weibliche Form von Jean, \"Gott ist gnädig\".",
+    "text": "Vor allem durch Jeanne d'Arc (Johanna von Orléans) bekannt geworden, ist dieser weibliche Vorname in französischen Urkunden ab dem 14. Jahrhundert häufig, mit mehreren regionalen Varianten (Jehanne, Jeannette).",
+    "feast_day": "05-30",
+    "aliases": ["johanna", "johanne", "hanne"]
+  },
+  "louis": {
+    "label": "Louis",
+    "origin": "Germanisch",
+    "meaning": "Von \"Hlodwig\", \"berühmter Kämpfer\" (hlod = Ruhm, wig = Kampf).",
+    "text": "Der Name der Könige von Frankreich (insbesondere Ludwig IX. / der Heilige Ludwig), vom 17. bis zum 20. Jahrhundert in allen Gesellschaftsschichten äußerst verbreitet.",
+    "feast_day": "08-25",
+    "aliases": ["ludwig", "lutz", "ludewig"]
+  }
+}

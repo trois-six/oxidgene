@@ -324,13 +324,6 @@ impl Part {
     }
 }
 
-fn slot(lang: ReferenceLang) -> usize {
-    ReferenceLang::ALL
-        .iter()
-        .position(|l| *l == lang)
-        .expect("every language has a slot")
-}
-
 /// `YYYY-MM-DD` as `YYYYMMDD`, 0 when empty.
 fn pack_date(date: &str) -> u32 {
     date.bytes()
@@ -541,7 +534,7 @@ impl Dictionary {
         if name.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let lang = slot(lang);
+        let lang = lang.slot();
         let mut matches: Vec<(u8, &Entry)> = self
             .entries
             .iter()

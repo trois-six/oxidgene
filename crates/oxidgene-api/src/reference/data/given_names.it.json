@@ -1,0 +1,71 @@
+{
+  "jean": {
+    "aliases": [
+      "giovanni",
+      "giovan",
+      "gianni",
+      "nanni",
+      "zuane",
+      "ioannes"
+    ],
+    "feast_day": "06-24",
+    "label": "Jean",
+    "meaning": "Dall'ebraico \"Yohanan\", \"Dio fa grazia\".",
+    "origin": "Ebraica",
+    "text": "Portato da san Giovanni Battista e da san Giovanni Evangelista, fu per secoli il nome maschile più diffuso in Francia, da solo o in forme composte (Jean-Baptiste, Jean-Pierre, Jean-Marie)."
+  },
+  "jeanne": {
+    "aliases": [
+      "giovanna",
+      "giovannina",
+      "nanna",
+      "vanna",
+      "ioanna"
+    ],
+    "feast_day": "05-30",
+    "label": "Jeanne",
+    "meaning": "Forma femminile di Jean, \"Dio fa grazia\".",
+    "origin": "Ebraica",
+    "text": "Reso popolare in particolare da Giovanna d'Arco (Jeanne d'Arc), questo nome femminile è frequente negli atti francesi dal XIV secolo, con diverse varianti regionali (Jehanne, Jeannette)."
+  },
+  "louis": {
+    "aliases": [
+      "luigi",
+      "ludovico",
+      "lodovico",
+      "aloisio",
+      "aloysius"
+    ],
+    "feast_day": "08-25",
+    "label": "Louis",
+    "meaning": "Da \"Hlodwig\", \"guerriero glorioso\" (hlod = gloria, wig = combattimento).",
+    "origin": "Germanica",
+    "text": "Nome dei re di Francia (in particolare Luigi IX, san Luigi), estremamente diffuso in tutte le classi sociali dal XVII al XX secolo."
+  },
+  "marie": {
+    "aliases": [
+      "maria",
+      "marietta",
+      "mariuccia",
+      "maria anna",
+      "maria luigia"
+    ],
+    "feast_day": "08-15",
+    "label": "Marie",
+    "meaning": "Dall'ebraico \"Miryam\", di significato discusso: \"signora\", \"colei che innalza\" o \"stella del mare\".",
+    "origin": "Ebraica",
+    "text": "Nome della madre di Gesù, Marie fu di gran lunga il nome femminile più diffuso in Francia dal Medioevo fino al XIX secolo, spesso come primo nome associato a un secondo (Marie-Anne, Marie-Louise...). La sua estrema frequenza nei registri lo rende poco utile, da solo, per l'identificazione genealogica."
+  },
+  "pierre": {
+    "aliases": [
+      "pietro",
+      "piero",
+      "pier"
+    ],
+    "feast_day": "06-29",
+    "label": "Pierre",
+    "meaning": "Dal greco \"petros\", \"pietra, roccia\".",
+    "origin": "Greca",
+    "text": "Nome dato da Gesù all'apostolo Simone (\"tu sei Pietro e su questa pietra edificherò la mia Chiesa\"), molto popolare in Francia dall'alto Medioevo fino a oggi."
+  }
+}

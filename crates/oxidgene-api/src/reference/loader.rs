@@ -42,6 +42,14 @@ impl ReferenceLang {
         Self::ALL.into_iter().find(|lang| lang.code() == s)
     }
 
+    /// Position in [`Self::ALL`], for per-language tables.
+    pub(super) fn slot(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|lang| *lang == self)
+            .expect("every language is in ALL")
+    }
+
     pub fn code(self) -> &'static str {
         match self {
             Self::Fr => "fr",
@@ -108,56 +116,113 @@ macro_rules! embed_br {
     };
 }
 
-static OCCUPATIONS_FR: &[u8] = embed_br!("occupations.fr.json");
-static OCCUPATIONS_EN: &[u8] = embed_br!("occupations.en.json");
-static GIVEN_NAMES_FR: &[u8] = embed_br!("given_names.fr.json");
-static GIVEN_NAMES_EN: &[u8] = embed_br!("given_names.en.json");
+/// One file per language, in [`ReferenceLang::ALL`] order.
+static OCCUPATIONS: [&[u8]; 8] = [
+    embed_br!("occupations.fr.json"),
+    embed_br!("occupations.en.json"),
+    embed_br!("occupations.de.json"),
+    embed_br!("occupations.es.json"),
+    embed_br!("occupations.it.json"),
+    embed_br!("occupations.nl.json"),
+    embed_br!("occupations.pl.json"),
+    embed_br!("occupations.pt.json"),
+];
+static GIVEN_NAMES: [&[u8]; 8] = [
+    embed_br!("given_names.fr.json"),
+    embed_br!("given_names.en.json"),
+    embed_br!("given_names.de.json"),
+    embed_br!("given_names.es.json"),
+    embed_br!("given_names.it.json"),
+    embed_br!("given_names.nl.json"),
+    embed_br!("given_names.pl.json"),
+    embed_br!("given_names.pt.json"),
+];
 
 fn decompress_json<T: serde::de::DeserializeOwned>(compressed: &'static [u8]) -> T {
     serde_json::from_slice(&embedded::decompress(compressed))
         .expect("embedded reference data must be valid JSON")
 }
 
-/// Builds the lookup table for one language: every entry indexed under its
-/// own (normalized) key plus each of its (normalized) aliases.
-fn build_table<T: Clone + serde::de::DeserializeOwned>(
-    compressed: &'static [u8],
-    aliases_of: impl Fn(&T) -> &[String],
-) -> HashMap<String, T> {
-    let raw: HashMap<String, T> = decompress_json(compressed);
-    let mut table = HashMap::with_capacity(raw.len() * 2);
-    for (key, entry) in raw {
-        for alias in aliases_of(&entry) {
-            table.insert(normalize_key(alias), entry.clone());
-        }
-        table.insert(normalize_key(&key), entry);
-    }
-    table
+/// One kind of reference content in every language.
+///
+/// Each language's file holds the entries written in that language under
+/// shared keys, and English holds them all: a key missing from a language
+/// reads the English entry. A record's term may be in any language — a
+/// Polish register's "Kmieć" read by a French interface — so every
+/// language's index resolves the aliases of all the files. Keys come first,
+/// then the language's own aliases, then the other files' in
+/// [`ReferenceLang::ALL`] order; the first to claim a term keeps it.
+struct Reference<T> {
+    tables: Vec<HashMap<String, T>>,
+    /// Per language: each normalized key or alias, and the key it names.
+    indexes: Vec<HashMap<String, String>>,
 }
 
-static OCCUPATIONS_FR_TABLE: OnceLock<HashMap<String, OccupationEntry>> = OnceLock::new();
-static OCCUPATIONS_EN_TABLE: OnceLock<HashMap<String, OccupationEntry>> = OnceLock::new();
-static GIVEN_NAMES_FR_TABLE: OnceLock<HashMap<String, GivenNameEntry>> = OnceLock::new();
-static GIVEN_NAMES_EN_TABLE: OnceLock<HashMap<String, GivenNameEntry>> = OnceLock::new();
+impl<T: serde::de::DeserializeOwned> Reference<T> {
+    fn load(files: &[&'static [u8]; 8], aliases_of: impl Fn(&T) -> &[String]) -> Self {
+        let tables: Vec<HashMap<String, T>> =
+            files.iter().map(|file| decompress_json(file)).collect();
+        let mut keys: Vec<&String> = tables.iter().flat_map(HashMap::keys).collect();
+        keys.sort();
+        keys.dedup();
+        // Sorted, so that an alias two entries of a file share always goes
+        // to the same one.
+        let sorted: Vec<Vec<(&String, &T)>> = tables
+            .iter()
+            .map(|table| {
+                let mut entries: Vec<_> = table.iter().collect();
+                entries.sort_by_key(|(key, _)| *key);
+                entries
+            })
+            .collect();
+        let indexes = (0..tables.len())
+            .map(|own| {
+                let mut index: HashMap<String, String> = keys
+                    .iter()
+                    .map(|key| (normalize_key(key), (*key).clone()))
+                    .collect();
+                let others = (0..tables.len()).filter(|&other| other != own);
+                for file in std::iter::once(own).chain(others) {
+                    for (key, entry) in &sorted[file] {
+                        for alias in aliases_of(entry) {
+                            index
+                                .entry(normalize_key(alias))
+                                .or_insert_with(|| (*key).clone());
+                        }
+                    }
+                }
+                index
+            })
+            .collect();
+        Self { tables, indexes }
+    }
 
-fn occupations_table(lang: ReferenceLang) -> &'static HashMap<String, OccupationEntry> {
-    match lang {
-        // Sheets written in French and English only, for now: the other
-        // languages read the English ones.
-        ReferenceLang::Fr => OCCUPATIONS_FR_TABLE
-            .get_or_init(|| build_table(OCCUPATIONS_FR, |e: &OccupationEntry| &e.aliases)),
-        _ => OCCUPATIONS_EN_TABLE
-            .get_or_init(|| build_table(OCCUPATIONS_EN, |e: &OccupationEntry| &e.aliases)),
+    fn index(&self, lang: ReferenceLang) -> &HashMap<String, String> {
+        &self.indexes[lang.slot()]
+    }
+
+    /// The entry for `key` in `lang`, or in English when `lang` has none.
+    fn entry(&self, lang: ReferenceLang, key: &str) -> Option<&T> {
+        self.tables[lang.slot()]
+            .get(key)
+            .or_else(|| self.tables[ReferenceLang::En.slot()].get(key))
+    }
+
+    /// The entry a normalized term names.
+    fn get(&self, lang: ReferenceLang, term: &str) -> Option<&T> {
+        self.entry(lang, self.index(lang).get(term)?)
     }
 }
 
-fn given_names_table(lang: ReferenceLang) -> &'static HashMap<String, GivenNameEntry> {
-    match lang {
-        ReferenceLang::Fr => GIVEN_NAMES_FR_TABLE
-            .get_or_init(|| build_table(GIVEN_NAMES_FR, |e: &GivenNameEntry| &e.aliases)),
-        _ => GIVEN_NAMES_EN_TABLE
-            .get_or_init(|| build_table(GIVEN_NAMES_EN, |e: &GivenNameEntry| &e.aliases)),
-    }
+fn occupations() -> &'static Reference<OccupationEntry> {
+    static OCCUPATION_TABLES: OnceLock<Reference<OccupationEntry>> = OnceLock::new();
+    OCCUPATION_TABLES
+        .get_or_init(|| Reference::load(&OCCUPATIONS, |e: &OccupationEntry| &e.aliases))
+}
+
+fn given_names() -> &'static Reference<GivenNameEntry> {
+    static GIVEN_NAME_TABLES: OnceLock<Reference<GivenNameEntry>> = OnceLock::new();
+    GIVEN_NAME_TABLES.get_or_init(|| Reference::load(&GIVEN_NAMES, |e: &GivenNameEntry| &e.aliases))
 }
 
 /// Builds every reference table up front.
@@ -168,10 +233,8 @@ fn given_names_table(lang: ReferenceLang) -> &'static HashMap<String, GivenNameE
 /// with any concurrent lookup queued behind the same `OnceLock`. Call this
 /// from a blocking context at startup so no request ever pays for it.
 pub fn preheat() {
-    for lang in [ReferenceLang::Fr, ReferenceLang::En] {
-        occupations_table(lang);
-        given_names_table(lang);
-    }
+    occupations();
+    given_names();
 }
 
 /// Looks up an occupation fiche by raw GEDCOM label (any case/accent/alias
@@ -181,12 +244,13 @@ pub fn preheat() {
 /// whole-word run inside the term — long enough to still tell "Barbier
 /// Perruquier" apart from plain "Barbier" when both are present.
 pub fn lookup_occupation(lang: ReferenceLang, term: &str) -> Option<OccupationEntry> {
-    let table = occupations_table(lang);
+    let occupations = occupations();
     let normalized = normalize_key(term);
-    if let Some(entry) = table.get(&normalized) {
+    if let Some(entry) = occupations.get(lang, &normalized) {
         return Some(entry.clone());
     }
-    longest_word_run_match(table, &normalized).cloned()
+    let key = longest_word_run_match(occupations.index(lang), &normalized)?;
+    occupations.entry(lang, key).cloned()
 }
 
 /// Resolves several occupation terms in one pass over the table.
@@ -196,14 +260,15 @@ pub fn lookup_occupation(lang: ReferenceLang, term: &str) -> Option<OccupationEn
 /// key/alias in the table, so running it per term costs one full scan per
 /// term; here the unresolved terms share a single scan.
 pub fn lookup_occupations(lang: ReferenceLang, terms: &[String]) -> Vec<Option<OccupationEntry>> {
-    let table = occupations_table(lang);
+    let occupations = occupations();
+    let index = occupations.index(lang);
     let normalized = terms
         .iter()
         .map(|term| normalize_key(term))
         .collect::<Vec<_>>();
-    let mut resolved: Vec<Option<&OccupationEntry>> = normalized
+    let mut resolved: Vec<Option<&String>> = normalized
         .iter()
-        .map(|term| table.get(term))
+        .map(|term| index.get(term))
         .collect::<Vec<_>>();
 
     // Only the exact misses need the fallback, and they all share one scan.
@@ -219,28 +284,29 @@ pub fn lookup_occupations(lang: ReferenceLang, terms: &[String]) -> Vec<Option<O
             (index, words)
         })
         .collect::<Vec<_>>();
-    if pending.is_empty() {
-        return resolved.into_iter().map(|e| e.cloned()).collect();
-    }
-
-    let mut best: Vec<Option<(&str, &OccupationEntry)>> = vec![None; pending.len()];
-    for (key, entry) in table {
-        if key.is_empty() {
-            continue;
-        }
-        let key_words: Vec<&str> = key.split(' ').collect();
-        for (slot, (_, haystack_words)) in best.iter_mut().zip(pending.iter()) {
-            if contains_word_run(haystack_words, &key_words)
-                && slot.is_none_or(|(best_key, _)| key.len() > best_key.len())
-            {
-                *slot = Some((key.as_str(), entry));
+    if !pending.is_empty() {
+        let mut best: Vec<Option<(&str, &String)>> = vec![None; pending.len()];
+        for (term, key) in index {
+            if term.is_empty() {
+                continue;
+            }
+            let term_words: Vec<&str> = term.split(' ').collect();
+            for (slot, (_, haystack_words)) in best.iter_mut().zip(pending.iter()) {
+                if contains_word_run(haystack_words, &term_words)
+                    && slot.is_none_or(|(best_term, _)| term.len() > best_term.len())
+                {
+                    *slot = Some((term.as_str(), key));
+                }
             }
         }
+        for ((index, _), slot) in pending.into_iter().zip(best) {
+            resolved[index] = slot.map(|(_, key)| key);
+        }
     }
-    for ((index, _), slot) in pending.into_iter().zip(best) {
-        resolved[index] = slot.map(|(_, entry)| entry);
-    }
-    resolved.into_iter().map(|e| e.cloned()).collect()
+    resolved
+        .into_iter()
+        .map(|key| occupations.entry(lang, key?).cloned())
+        .collect()
 }
 
 /// Returns `true` when `needle_words` occurs as a contiguous run inside
@@ -281,13 +347,13 @@ fn longest_word_run_match<'a, T>(table: &'a HashMap<String, T>, haystack: &str) 
 /// first, then falls back to its first token — so "Marie-Claire" still
 /// resolves via "Marie" if the compound itself has no dedicated entry.
 pub fn lookup_given_name(lang: ReferenceLang, term: &str) -> Option<GivenNameEntry> {
-    let table = given_names_table(lang);
+    let given_names = given_names();
     let full = normalize_key(term);
-    if let Some(entry) = table.get(&full) {
+    if let Some(entry) = given_names.get(lang, &full) {
         return Some(entry.clone());
     }
     let first_token = full.split(' ').next()?;
-    table.get(first_token).cloned()
+    given_names.get(lang, first_token).cloned()
 }
 
 #[cfg(test)]
@@ -384,6 +450,49 @@ mod tests {
             "Barbier Perruquier"
         );
         assert!(batch[4].is_none());
+    }
+
+    #[test]
+    fn a_term_from_any_language_reads_in_the_interface_language() {
+        // A Polish register's term, read by a French interface.
+        let entry = lookup_occupation(ReferenceLang::Fr, "Kmieć").expect("polish alias");
+        assert_eq!(entry.label, "Kmieć (paysan tenancier)");
+        // A French term, read by a German interface.
+        let entry = lookup_occupation(ReferenceLang::De, "laboureur").expect("german sheet");
+        assert_eq!(entry.label, "Ackermann");
+        let entry = lookup_given_name(ReferenceLang::Fr, "Giovanni").expect("italian alias");
+        assert_eq!(entry.label, "Jean");
+    }
+
+    #[test]
+    fn a_sheet_missing_from_a_language_reads_in_english() {
+        let entry = lookup_occupation(ReferenceLang::It, "Kmieć").expect("english fallback");
+        assert_eq!(entry.label, "Kmieć (full-holding peasant)");
+    }
+
+    #[test]
+    fn a_shared_term_goes_to_the_interface_language_first() {
+        // "Schipper" is a Dutch boatman and a German shoveller.
+        let key = |lang| occupations().index(lang).get("schipper").cloned();
+        assert_eq!(key(ReferenceLang::Nl).as_deref(), Some("batelier"));
+        assert_eq!(key(ReferenceLang::De).as_deref(), Some("terrasseur"));
+    }
+
+    #[test]
+    fn english_holds_every_entry_of_every_language() {
+        fn check<T>(reference: &Reference<T>) {
+            let english = &reference.tables[ReferenceLang::En.slot()];
+            for (lang, table) in ReferenceLang::ALL.iter().zip(&reference.tables) {
+                assert!(!table.is_empty(), "{lang:?} is empty");
+                let missing: Vec<_> = table.keys().filter(|k| !english.contains_key(*k)).collect();
+                assert!(
+                    missing.is_empty(),
+                    "{lang:?} entries without English: {missing:?}"
+                );
+            }
+        }
+        check(occupations());
+        check(given_names());
     }
 
     #[test]

@@ -20,8 +20,20 @@ const BROTLI_WINDOW_BITS: u32 = 24;
 const DATA_FILES: &[&str] = &[
     "occupations.fr.json",
     "occupations.en.json",
+    "occupations.de.json",
+    "occupations.es.json",
+    "occupations.it.json",
+    "occupations.nl.json",
+    "occupations.pl.json",
+    "occupations.pt.json",
     "given_names.fr.json",
     "given_names.en.json",
+    "given_names.de.json",
+    "given_names.es.json",
+    "given_names.it.json",
+    "given_names.nl.json",
+    "given_names.pl.json",
+    "given_names.pt.json",
 ];
 
 fn main() {

@@ -1,0 +1,63 @@
+{
+  "jean": {
+    "aliases": [
+      "jan",
+      "joannes",
+      "ioannes",
+      "jan chrzciciel"
+    ],
+    "feast_day": "06-24",
+    "label": "Jean",
+    "meaning": "Od hebrajskiego „Jochanan”, „Bóg jest łaskawy”.",
+    "origin": "Hebrajskie",
+    "text": "Noszone zarówno przez świętego Jana Chrzciciela, jak i świętego Jana Ewangelistę, było przez stulecia najczęstszym imieniem męskim we Francji, samodzielnie lub w formach złożonych (Jean-Baptiste, Jean-Pierre, Jean-Marie)."
+  },
+  "jeanne": {
+    "aliases": [
+      "joanna",
+      "ioanna"
+    ],
+    "feast_day": "05-30",
+    "label": "Jeanne",
+    "meaning": "Żeńska forma imienia Jean, „Bóg jest łaskawy”.",
+    "origin": "Hebrajskie",
+    "text": "Spopularyzowane zwłaszcza przez Joannę d’Arc (Jeanne d’Arc), to imię żeńskie jest częste we francuskich aktach od XIV wieku, z kilkoma wariantami regionalnymi (Jehanne, Jeannette)."
+  },
+  "louis": {
+    "aliases": [
+      "ludwik",
+      "ludovicus"
+    ],
+    "feast_day": "08-25",
+    "label": "Louis",
+    "meaning": "Od „Hlodwig”, „sławny wojownik” (hlod = sława, wig = walka).",
+    "origin": "Germańskie",
+    "text": "Imię królów Francji (zwłaszcza Ludwika IX, świętego Ludwika), niezwykle częste we wszystkich warstwach społecznych od XVII do XX wieku."
+  },
+  "marie": {
+    "aliases": [
+      "maria",
+      "marianna",
+      "marya",
+      "maryja",
+      "maria anna",
+      "maria ludwika"
+    ],
+    "feast_day": "08-15",
+    "label": "Marie",
+    "meaning": "Od hebrajskiego „Miriam”; znaczenie sporne — „pani”, „ta, która wywyższa” lub „gwiazda morza”.",
+    "origin": "Hebrajskie",
+    "text": "Imię matki Jezusa, Marie, było zdecydowanie najczęstszym imieniem żeńskim we Francji od średniowiecza do XIX wieku, często używanym jako pierwsze imię w połączeniu z drugim (Marie-Anne, Marie-Louise...). Jego ogromna częstość w aktach sprawia, że samo w sobie słabo identyfikuje osobę w badaniach genealogicznych."
+  },
+  "pierre": {
+    "aliases": [
+      "piotr",
+      "petrus"
+    ],
+    "feast_day": "06-29",
+    "label": "Pierre",
+    "meaning": "Od greckiego „petros”, „kamień, skała”.",
+    "origin": "Greckie",
+    "text": "Imię, które Jezus nadał apostołowi Szymonowi („ty jesteś Piotr, czyli Skała, i na tej Skale zbuduję mój Kościół”), bardzo popularne we Francji od wczesnego średniowiecza do dziś."
+  }
+}
