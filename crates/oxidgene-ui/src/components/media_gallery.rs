@@ -37,7 +37,7 @@ use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::document_form::DocumentForm;
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
-use crate::components::person_form::render_place_select;
+use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
 use crate::router::Route;
@@ -1552,7 +1552,7 @@ fn MediaEditPanel(
             let title_value = title().trim().to_string();
             let description_value = description().trim().to_string();
             let url_value = url().trim().to_string();
-            let place_value = Uuid::parse_str(place_id().trim()).ok();
+            let place_text = place_id();
             let note_value = note_text().trim().to_string();
             let page_note_value = page_note_text().trim().to_string();
             let privacy_value = privacy();
@@ -1565,6 +1565,15 @@ fn MediaEditPanel(
             spawn(async move {
                 saving.set(true);
                 error.set(None);
+                let place_value =
+                    match resolve_place(&api, tree_id, &place_text, i18n.0.code()).await {
+                        Ok(place_value) => place_value,
+                        Err(err) => {
+                            error.set(Some(err.to_string()));
+                            saving.set(false);
+                            return;
+                        }
+                    };
                 // Only a media whose bytes we do not hold owns its path, and
                 // only the row that names a file has one at all. Sent when it
                 // actually changed, so re-saving a description does not
@@ -1889,7 +1898,7 @@ fn MediaEditPanel(
             // on each option rather than `value` on the element, which is what
             // makes a stored place actually show as chosen when the list is
             // built by a loop.
-            {render_place_select(&i18n, place_id, &place_options, || {})}
+            {render_place_input(&i18n, place_id, &place_options, || {})}
 
             div { class: "form-group",
                 label { {i18n.t("media.note")} }

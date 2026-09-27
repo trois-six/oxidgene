@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-08T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 
@@ -270,7 +270,7 @@ Dates entered in another calendar are automatically converted for display.
 
 | Toggle | Description |
 |---|---|
-| Place name autocomplete | Suggests tree places and optional offline data. See [Common UI §4.4](ui-common.md) |
+| Place name autocomplete | Suggests tree places and the built-in place dictionary. See [Common UI §4.4](ui-common.md) |
 | Automatic uppercase for surnames | Surname field is auto-uppercased on input |
 | Suggest existing persons | When adding a parent or partner, suggests persons already in the tree |
 
@@ -286,31 +286,11 @@ Dropdown for the expected date format during editing:
 
 Same options as the display section. The calendar can be overridden field by field during editing.
 
-### Offline place databases
+### Place dictionary
 
-When "Place name autocomplete" is enabled, the user can download city databases for supported countries to enable autocomplete without network access.
-
-```
-+-----------------------------------------------------+
-|  Offline place databases                            |
-|                                                     |
-|  [x] France           12 MB   [Downloaded]         |
-|  [x] Belgium           3 MB   [Downloaded]         |
-|  [ ] Switzerland        2 MB   [Download]           |
-|  [ ] United States     18 MB   [Download]           |
-|  [ ] United Kingdom     8 MB   [Download]           |
-|  [ ] Germany           10 MB   [Download]           |
-|                                                     |
-|  Last updated: 2025-01-15     [Update all]          |
-+-----------------------------------------------------+
-```
-
-- Each country shows: checkbox, name, approximate size, download status
-- **Download**: clicking "[Download]" fetches the database file; a progress indicator replaces the button during download
-- **Update all**: re-downloads all already-downloaded databases
-- **Remove**: unchecking a downloaded country removes its database file
-- Downloaded databases are stored in the app data directory (desktop) or IndexedDB (web)
-- See [Common UI §4.4](ui-common.md) for offline place behavior
+The [place dictionary](place-dictionary.md) (France and the United Kingdom)
+is built into the application and needs neither a download nor network
+access. There is nothing to manage here.
 
 ---
 

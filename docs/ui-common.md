@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -297,20 +297,32 @@ Display formatting uses the shared date formatter; year-only surfaces use
 
 ### 4.4 PlaceInput
 
-Autocomplete is helpful, never restrictive. Suggestions begin after three
-characters with a 300ms debounce and prioritize existing tree places, then an
-optional offline place database, then future external geocoding. Selecting a
-suggestion stores its place ID; editing the text afterwards clears that link.
-Free text is always accepted.
+Every place field is the one shared `PlaceInput` (`components/place_input.rs`):
+event places in the person and couple forms, and document and media places.
+Autocomplete is helpful, never restrictive: free text is always accepted.
+
+- **Suggestions.** As the user types, the tree's places with a word starting
+  with the text are listed first, under "In this tree". From three
+  characters and after a 300 ms pause, the built-in
+  [place dictionary](place-dictionary.md) follows, best match first, with
+  each place's département or county, region and country, and the year a
+  former commune or name ended. A dictionary place the tree already holds
+  under the same label is offered as the tree's. Matching ignores case,
+  accents and punctuation.
+- **Picking.** Picking a tree place links the field to it; picking a
+  dictionary place fills in its label. Editing the text afterwards drops a
+  link. Arrow keys move through the list, Enter picks, Escape closes it.
+- **Saving.** Nothing is written while the form is open. On save, a linked
+  place is used as is; text becomes the tree's place of the same name,
+  ignoring case, and that place is created when the tree has none. A place
+  created from a dictionary label takes the dictionary's coordinates.
+- **Layout.** The list opens in place under the field, not as a context-menu
+  layer: place fields live in dialogs, which sit above those layers.
 
 Canonical display is comma-separated from the most specific to the least
 specific unit, ending with the country, but the number of levels varies by
 country. Documentation examples use placeholders rather than real addresses or
 archive locations.
-
-Offline place databases are optional SQLite files in the application data
-directory. They are downloaded and updated explicitly from settings; automatic
-network access is not assumed.
 
 ### 4.5 MediaInput, MediaGallery, and DocumentForm
 

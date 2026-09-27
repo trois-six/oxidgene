@@ -158,6 +158,20 @@ pub struct PlaceDictionaryEntry {
     pub count: i64,
 }
 
+/// A place suggested from the place dictionary (`docs/place-dictionary.md`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PlaceSuggestion {
+    /// What a place field stores: name, code, subdivision, region, country.
+    pub label: String,
+    pub name: String,
+    #[serde(default)]
+    pub valid_until: Option<String>,
+    #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
+}
+
 /// A person resolved for a dictionary usage drill-down list: name parts +
 /// birth/death years, computed server-side in one bulk query.
 #[derive(Debug, Clone, Deserialize)]
@@ -4108,6 +4122,20 @@ impl ApiClient {
         self.patch_with_query(
             &format!("/api/v1/trees/{tree_id}/pedigree/{root_person_id}/expand"),
             &params,
+        )
+        .await
+    }
+
+    /// Places from the place dictionary matching `query`, best first.
+    pub async fn place_suggestions(
+        &self,
+        lang: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<PlaceSuggestion>, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/reference/{lang}/places"),
+            &[("q", query.to_string()), ("limit", limit.to_string())],
         )
         .await
     }

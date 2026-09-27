@@ -20,11 +20,12 @@ use crate::api::{
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::homonym_picker::{HomonymDecision, HomonymDialog};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
+use crate::components::place_input::{render_place_input, resolve_place};
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
-    parse_name_type, parse_place_id, parse_privacy, parse_sex,
+    parse_name_type, parse_privacy, parse_sex,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
@@ -627,10 +628,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 event_form_error.set(Some(i18n.t(key)));
                 return;
             }
+            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.code()).await {
+                Ok(place_id) => place_id,
+                Err(e) => {
+                    event_form_error.set(Some(format!("{e}")));
+                    return;
+                }
+            };
             let body = create_event_body(
                 parse_event_type(&event_type_str),
                 &parts,
-                &place_str,
+                place_id,
                 EventOwner::Person(pid),
                 opt_str(&desc),
                 opt_str(&cause),
@@ -685,10 +693,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 profession_form_error.set(Some(i18n.t(key)));
                 return;
             }
+            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.code()).await {
+                Ok(place_id) => place_id,
+                Err(e) => {
+                    profession_form_error.set(Some(format!("{e}")));
+                    return;
+                }
+            };
             let body = create_event_body(
                 EventType::Occupation,
                 &parts,
-                &place_str,
+                place_id,
                 EventOwner::Person(pid),
                 opt_str(&label),
                 None,
@@ -864,6 +879,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             None,
                             parts,
                             place,
+                            i18n.0.code(),
                             notes,
                             source,
                             &NotesSource::default(),
@@ -1011,7 +1027,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         ),
                     ] {
                         match save_vital_event(
-                            &api, tid, pid, event_type, existing, parts, place, notes, source, ns,
+                            &api,
+                            tid,
+                            pid,
+                            event_type,
+                            existing,
+                            parts,
+                            place,
+                            i18n.0.code(),
+                            notes,
+                            source,
+                            ns,
                         )
                         .await
                         {
@@ -1173,7 +1199,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                 on_change: move |()| {},
                                             }
                                         }
-                                        {render_place_select(&i18n, profession_form_place_id, &place_options, || {})}
+                                        {render_place_input(&i18n, profession_form_place_id, &place_options, || {})}
                                         {render_notes_source_fields(&i18n, profession_form_notes, profession_form_source, || {})}
                                         button {
                                             class: "pf-confirm-btn",
@@ -1653,7 +1679,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 on_change: move |()| has_changes.set(true),
                             }
                         }
-                        {render_place_select(&i18n, birth_place_id, &place_options, move || has_changes.set(true))}
+                        {render_place_input(&i18n, birth_place_id, &place_options, move || has_changes.set(true))}
                         {render_notes_source_fields(&i18n, birth_notes, birth_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
@@ -1671,7 +1697,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 on_change: move |()| has_changes.set(true),
                             }
                         }
-                        {render_place_select(&i18n, death_place_id, &place_options, move || has_changes.set(true))}
+                        {render_place_input(&i18n, death_place_id, &place_options, move || has_changes.set(true))}
                         {render_notes_source_fields(&i18n, death_notes, death_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
@@ -1737,7 +1763,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                 }
                                 div { class: "form-row",
-                                    {render_place_select(&i18n, event_form_place_id, &place_options, || {})}
+                                    {render_place_input(&i18n, event_form_place_id, &place_options, || {})}
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.cause")} }
                                         input {
@@ -2118,35 +2144,6 @@ pub(crate) fn render_add_toggle(
     }
 }
 
-/// A labelled place picker over the tree's places, with a "no place" entry.
-pub(crate) fn render_place_select(
-    i18n: &crate::i18n::I18n,
-    mut selected: Signal<String>,
-    options: &[(String, String)],
-    mut on_change: impl FnMut() + 'static,
-) -> Element {
-    let i18n = *i18n;
-    let options = options.to_vec();
-    let current = selected();
-    rsx! {
-        div { class: "form-group",
-            label { {i18n.t("person_form.place")} }
-            select {
-                oninput: move |e: Event<FormData>| { selected.set(e.value()); on_change(); },
-                // `selected` on the options, not `value` on the select: the
-                // list is built by a loop and lands after the element's own
-                // attributes, so a `value` set on a select with no options yet
-                // selects nothing — an event would open on "no place" whatever
-                // place it actually carries.
-                option { value: "", selected: current.is_empty(), {i18n.t("person_form.no_place")} }
-                for (place_id , place_name) in options.iter() {
-                    option { value: "{place_id}", selected: *place_id == current, "{place_name}" }
-                }
-            }
-        }
-    }
-}
-
 /// A row of mutually exclusive buttons bound to one string signal (sex,
 /// privacy) — a radio group that reads as a segmented control.
 pub fn render_choice_group(
@@ -2263,7 +2260,7 @@ pub(crate) enum EventOwner {
 pub(crate) fn create_event_body(
     event_type: EventType,
     parts: &DateParts,
-    place: &str,
+    place_id: Option<Uuid>,
     owner: EventOwner,
     description: Option<String>,
     cause: Option<String>,
@@ -2279,7 +2276,7 @@ pub(crate) fn create_event_body(
         date_value2: parts.date_value2(),
         calendar: parts.calendar,
         cause,
-        place_id: parse_place_id(place),
+        place_id,
         person_id,
         family_id,
         description,
@@ -2291,7 +2288,7 @@ pub(crate) fn create_event_body(
 pub(crate) fn update_event_body(
     event_type: Option<EventType>,
     parts: &DateParts,
-    place: &str,
+    place_id: Option<Uuid>,
     description: Option<Option<String>>,
 ) -> UpdateEventBody {
     UpdateEventBody {
@@ -2301,7 +2298,7 @@ pub(crate) fn update_event_body(
         date_value2: Some(parts.date_value2()),
         calendar: Some(parts.calendar),
         cause: None,
-        place_id: Some(parse_place_id(place)),
+        place_id: Some(place_id),
         description,
     }
 }
@@ -2326,27 +2323,29 @@ async fn save_vital_event(
     existing_id: Option<Uuid>,
     parts: &DateParts,
     place: &str,
+    lang: &str,
     notes: &str,
     source: &str,
     current: &NotesSource,
 ) -> Result<Option<NotesSource>, ApiError> {
+    let place_id = resolve_place(api, tree_id, place, lang).await?;
     let event_id = match existing_id {
         Some(eid) => {
             api.update_event(
                 tree_id,
                 eid,
-                &update_event_body(Some(event_type), parts, place, None),
+                &update_event_body(Some(event_type), parts, place_id, None),
             )
             .await?;
             Some(eid)
         }
-        None if !parts.is_empty() || parse_place_id(place).is_some() => Some(
+        None if !parts.is_empty() || place_id.is_some() => Some(
             api.create_event(
                 tree_id,
                 &create_event_body(
                     event_type,
                     parts,
-                    place,
+                    place_id,
                     EventOwner::Person(person_id),
                     None,
                     None,
@@ -2889,7 +2888,15 @@ pub fn EventEditor(
             saving.set(true);
             error.set(None);
 
-            let body = update_event_body(None, &date, &place, Some(opt_str(&desc)));
+            let place_id = match resolve_place(&api, tree_id, &place, i18n.0.code()).await {
+                Ok(place_id) => place_id,
+                Err(e) => {
+                    error.set(Some(format!("{e}")));
+                    saving.set(false);
+                    return;
+                }
+            };
+            let body = update_event_body(None, &date, place_id, Some(opt_str(&desc)));
             if let Err(e) = api.update_event(tree_id, event_id, &body).await {
                 error.set(Some(format!("{e}")));
                 saving.set(false);
@@ -2940,7 +2947,7 @@ pub fn EventEditor(
                     label { {i18n.t("person_form.date")} }
                     DateInput { parts, i18n, on_change: move |()| {} }
                 }
-                {render_place_select(&i18n, place_id, &place_options, || {})}
+                {render_place_input(&i18n, place_id, &place_options, || {})}
                 {render_notes_source_fields(&i18n, notes, source_title, || {})}
                 div { class: "pf-ns-actions",
                     button {

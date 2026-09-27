@@ -272,18 +272,6 @@ pub fn opt_str(s: &str) -> Option<String> {
     }
 }
 
-/// Read a place `<select>`'s value back as a place id.
-///
-/// The empty option means "no place"; anything unparseable is treated the same
-/// way, since the only values the picker ever emits are ids it wrote itself.
-pub fn parse_place_id(value: &str) -> Option<Uuid> {
-    if value.is_empty() {
-        None
-    } else {
-        value.parse::<Uuid>().ok()
-    }
-}
-
 // ── Name resolution ─────────────────────────────────────────────────────
 
 /// Resolve a display name for a person from a name map.

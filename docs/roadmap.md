@@ -76,7 +76,7 @@ is generated. Remaining:
 
 - [x] Ship the dictionary with the application, compressed, and search it
   through REST and GraphQL alike.
-- [ ] Give every place field the shared `PlaceInput` of
+- [x] Give every place field the shared `PlaceInput` of
   [Common UI §4.4](ui-common.md): suggestions from the tree's places and the
   dictionary, free text always accepted.
 - [ ] Decide whether Northern Ireland townlands and French lieux-dits justify

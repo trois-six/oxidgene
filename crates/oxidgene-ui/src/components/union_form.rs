@@ -17,8 +17,9 @@ use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::person_form::{
     DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
     create_event_body, focus_next_field_js, render_add_toggle, render_notes_source_fields,
-    render_place_select, save_notes_source, update_event_body,
+    save_notes_source, update_event_body,
 };
+use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
@@ -331,11 +332,18 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 save_error.set(Some(i18n.t(key)));
                 return;
             }
+            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.code()).await {
+                Ok(place_id) => place_id,
+                Err(e) => {
+                    save_error.set(Some(format!("{e}")));
+                    return;
+                }
+            };
             if let Some(eid) = existing_id {
                 let body = update_event_body(
                     Some(EventType::Marriage),
                     &parts,
-                    &place_str,
+                    place_id,
                     Some(opt_str(&desc)),
                 );
                 match api.update_event(tid, eid, &body).await {
@@ -350,7 +358,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 let body = create_event_body(
                     EventType::Marriage,
                     &parts,
-                    &place_str,
+                    place_id,
                     EventOwner::Family(fid),
                     opt_str(&desc),
                     None,
@@ -384,10 +392,17 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 save_error.set(Some(i18n.t(key)));
                 return;
             }
+            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.code()).await {
+                Ok(place_id) => place_id,
+                Err(e) => {
+                    save_error.set(Some(format!("{e}")));
+                    return;
+                }
+            };
             let body = create_event_body(
                 crate::utils::parse_event_type(&evt_type_str),
                 &parts,
-                &place_str,
+                place_id,
                 EventOwner::Family(fid),
                 opt_str(&desc),
                 None,
@@ -588,7 +603,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     label { {i18n.t("person_form.date")} }
                                     DateInput { parts: marriage_parts, i18n, on_change: move |()| {} }
                                 }
-                                {render_place_select(&i18n, marriage_place_id, &place_options, || {})}
+                                {render_place_input(&i18n, marriage_place_id, &place_options, || {})}
                                 div { class: "form-group",
                                     label { {i18n.t("person_form.description")} }
                                     input {
@@ -706,7 +721,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     }
                                 }
                                 div { class: "form-row",
-                                    {render_place_select(&i18n, new_union_place, &place_options, || {})}
+                                    {render_place_input(&i18n, new_union_place, &place_options, || {})}
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.description")} }
                                         input {

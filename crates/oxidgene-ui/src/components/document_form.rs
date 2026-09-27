@@ -34,7 +34,7 @@ use crate::api::{
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::media_gallery::{MediaOwner, MediaTagForm};
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
-use crate::components::person_form::render_place_select;
+use crate::components::place_input::{render_place_input, resolve_place};
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::parse_privacy;
@@ -212,7 +212,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
             let title_value = title().trim().to_string();
             let description_value = description().trim().to_string();
             let note_value = note_text().trim().to_string();
-            let place_value = Uuid::parse_str(place_id().trim()).ok();
+            let place_text = place_id();
             let privacy = parse_privacy(&privacy_value());
             let medium = source_media_type();
             let category = document_category();
@@ -222,6 +222,18 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
             spawn(async move {
                 saving.set(true);
                 error.set(None);
+
+                // Before anything is written: a place that cannot be
+                // resolved leaves nothing to undo.
+                let place_value =
+                    match resolve_place(&api, tree_id, &place_text, i18n.0.code()).await {
+                        Ok(place_value) => place_value,
+                        Err(err) => {
+                            error.set(Some(err.to_string()));
+                            saving.set(false);
+                            return;
+                        }
+                    };
 
                 // Step one, and the only one that can fail without leaving
                 // anything behind.
@@ -453,7 +465,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                             label { {i18n.t("media.date")} }
                             DateInput { parts: date_parts, i18n, on_change: move |()| {} }
                         }
-                        {render_place_select(&i18n, place_id, &place_options, || {})}
+                        {render_place_input(&i18n, place_id, &place_options, || {})}
 
                         div { class: "form-group",
                             label { {i18n.t("media.note")} }
