@@ -2250,10 +2250,15 @@ pub const LAYOUT_STYLES: &str = r#"
     /* The document form is one modal reached from three places, only two of
        which are a person or couple form. Listed here so its fields look the
        same wherever it was opened from, rather than inheriting the panel
-       background — which is its own background — when opened from a profile. */
+       background — which is its own background — when opened from a profile.
+       The media edit panel, inline in a gallery or as the viewer's column, is
+       the same kind of form and follows the same rules. */
     .document-form-modal input:not([type="checkbox"]):not([type="radio"]),
+    .media-panel input:not([type="checkbox"]):not([type="radio"]),
     .document-form-modal select,
-    .document-form-modal textarea {
+    .media-panel select,
+    .document-form-modal textarea,
+    .media-panel textarea {
         background: var(--bg-card);
     }
 
@@ -2268,7 +2273,8 @@ pub const LAYOUT_STYLES: &str = r#"
     .person-form-modal textarea,
     .union-form-modal textarea,
     .pf-embedded textarea,
-    .document-form-modal textarea {
+    .document-form-modal textarea,
+    .media-panel textarea {
         resize: vertical;
         min-height: 76px;
         overflow-y: auto;
@@ -2277,19 +2283,22 @@ pub const LAYOUT_STYLES: &str = r#"
     .person-form-modal textarea::-webkit-scrollbar,
     .union-form-modal textarea::-webkit-scrollbar,
     .pf-embedded textarea::-webkit-scrollbar,
-    .document-form-modal textarea::-webkit-scrollbar {
+    .document-form-modal textarea::-webkit-scrollbar,
+    .media-panel textarea::-webkit-scrollbar {
         width: 10px;
     }
     .person-form-modal textarea::-webkit-scrollbar-track,
     .union-form-modal textarea::-webkit-scrollbar-track,
     .pf-embedded textarea::-webkit-scrollbar-track,
-    .document-form-modal textarea::-webkit-scrollbar-track {
+    .document-form-modal textarea::-webkit-scrollbar-track,
+    .media-panel textarea::-webkit-scrollbar-track {
         background: transparent;
     }
     .person-form-modal textarea::-webkit-scrollbar-thumb,
     .union-form-modal textarea::-webkit-scrollbar-thumb,
     .pf-embedded textarea::-webkit-scrollbar-thumb,
-    .document-form-modal textarea::-webkit-scrollbar-thumb {
+    .document-form-modal textarea::-webkit-scrollbar-thumb,
+    .media-panel textarea::-webkit-scrollbar-thumb {
         background: var(--text-muted);
         border-radius: 5px;
         border: 2px solid var(--bg-card);
@@ -2314,7 +2323,11 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-embedded input,
     .pf-embedded select,
     .document-form-modal input,
-    .document-form-modal select {
+    /* The media panel lists events to link with checkboxes, which a bare
+       `input` here would stretch to a field's height. */
+    .media-panel input:not([type="checkbox"]):not([type="radio"]),
+    .document-form-modal select,
+    .media-panel select {
         height: 38px;
         line-height: 20px;
     }
@@ -2328,7 +2341,8 @@ pub const LAYOUT_STYLES: &str = r#"
     .person-form-modal select,
     .union-form-modal select,
     .pf-embedded select,
-    .document-form-modal select {
+    .document-form-modal select,
+    .media-panel select {
         appearance: none;
         -webkit-appearance: none;
         padding-right: 30px;
